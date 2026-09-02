@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/* Dark is the default; a light preference flips the same tokens. Every colour utility in the
+   app resolves through one of these, so there is exactly one place to change the palette. */
+@theme {
+  --color-bg: #0b0e13;
+  --color-panel: #12161d;
+  --color-raised: #1a202a;
+  --color-border: #262d38;
+  --color-fg: #e6eaf0;
+  --color-muted: #8b95a5;
+  --color-accent: #6ea8fe;
+  --color-ok: #4ade80;
+  --color-warn: #fbbf24;
+  --color-err: #f87171;
+  --color-run: #38bdf8;
+  --color-idle: #94a3b8;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #f7f8fa;
+    --color-panel: #ffffff;
+    --color-raised: #eef1f5;
+    --color-border: #d6dbe3;
+    --color-fg: #12161d;
+    --color-muted: #5b6472;
+    --color-accent: #1d4ed8;
+    --color-ok: #15803d;
+    --color-warn: #a16207;
+    --color-err: #b91c1c;
+    --color-run: #0369a1;
+    --color-idle: #64748b;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}

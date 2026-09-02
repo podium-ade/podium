@@ -123,7 +123,20 @@ func (s *Server) mux() http.Handler {
 	})
 	root.HandleFunc("/readyz", s.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(metrics, promhttp.HandlerOpts{}))
-	root.Handle("/", transport.WithIdentity(s.transport, rpc))
+
+	// Every Connect procedure lives under /<fully-qualified service>/, so the identity
+	// middleware is mounted on those three prefixes rather than on "/". That leaves "/" for the
+	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
+	// index.html, and the bundle asks the operator for one before it calls anything.
+	authenticated := transport.WithIdentity(s.transport, rpc)
+	for _, service := range []string{
+		podiumv1connect.TaskServiceName,
+		podiumv1connect.NodeServiceName,
+		podiumv1connect.NodeAdminServiceName,
+	} {
+		root.Handle("/"+service+"/", authenticated)
+	}
+	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
 }
 

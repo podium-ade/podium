@@ -11,3 +11,9 @@ plugins:
   - local: protoc-gen-connect-go
     out: internal/proto
     opt: paths=source_relative
+  # Connect-ES v2 has no protoc-gen-connect-es: protoc-gen-es emits the service descriptors
+  # that createClient() consumes. The binary comes from web/node_modules, which the Makefile
+  # puts on PATH (see the `proto` target).
+  - local: protoc-gen-es
+    out: web/src/gen
+    opt: target=ts
