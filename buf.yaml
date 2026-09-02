@@ -4,6 +4,15 @@ modules:
 lint:
   use:
     - STANDARD
+  ignore_only:
+    # NodeService.Stream is a bidirectional stream of oneof envelopes; the canonical names
+    # (00-index.md) are NodeMessage/ServerMessage, not StreamRequest/StreamResponse.
+    RPC_REQUEST_STANDARD_NAME:
+      - proto/podium/v1/node.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - proto/podium/v1/node.proto
+      # TaskService.StreamTaskEvents streams the same TaskEvent nodes emit, unwrapped.
+      - proto/podium/v1/task.proto
 breaking:
   use:
     - FILE

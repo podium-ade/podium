@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "podium/v1/common.proto";
+
+// NodeAdminService is the operator-facing node API. GetNode, DrainNode and DeleteNode are
+// deliberately absent in MVP-0.
+service NodeAdminService {
+  rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+}
+
+message Node {
+  string id = 1;
+  string name = 2;
+  NodeStatus status = 3;
+  repeated string labels = 4;
+  NodeCapacity capacity = 5;
+  int32 running_tasks = 6;
+  int32 free_slots = 7;
+  string version = 8;
+  google.protobuf.Timestamp last_heartbeat_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message CreateEnrollmentTokenRequest {
+  repeated string labels = 1;
+  google.protobuf.Duration ttl = 2;
+}
+
+message CreateEnrollmentTokenResponse {
+  // SENSITIVE: never log. Returned once; the server keeps only its SHA-256.
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+}
