@@ -385,3 +385,42 @@ as a target); the equivalent is the `go test` line above, or `make test-integrat
   tick, where the lease already lives.
 - **`/metrics` carries no Podium metrics**, only the Go and process collectors. The registry is local to
   `mux()`; add collectors there.
+
+### Post-acceptance fix: a node's slot is released when its task ends
+
+Found during the MVP-0 final acceptance run, after this step was signed off. `ListNodes` reported a
+`running_tasks` that only ever grew: after five short tasks on a `max_tasks: 4` node the API answered
+`{"capacity":{"maxTasks":4},"runningTasks":5,"freeSlots":3}` while ground truth was one running task
+(one `podium.task` container, `podium_node_running_tasks 1` on the node's `/metrics`). The web UI
+rendered it faithfully as "Running 5 / 4".
+
+`Session.running` was populated by `newSession` from `Hello.running_task_ids` and added to by
+`Session.reserve` on every `Assign`, and **nothing ever removed an entry**, so
+`snapshot().RunningTasks` grew monotonically for the life of a stream. Scheduling was never affected:
+`free_slots` is overwritten by every 10s `Heartbeat`, which is the honest number.
+
+The fix:
+
+- `Session.release(taskID) bool` and `Registry.Release(taskID)` (`nodes/registry.go`). `Release` frees
+  the slot on whichever session holds the task and is a no-op when none does — replayed terminal
+  batches and post-reconnect `Hello` rebuilds both rely on that.
+- `logs.Service` gained a `Slots` collaborator (`interface{ Release(taskID string) }`) and calls it
+  from `applyStatus` whenever an event implies a **terminal** status, *before* `TransitionTask`: a
+  replayed batch has its transition rejected as already applied, and the slot must not be stranded by
+  that. `logs` does not import `nodes`.
+- `server.New` wires the two together with `logSvc.SetSlots(nodeSvc.Registry())`. It is a setter
+  because `nodes.NewService` takes the `Ingestor`, so neither can be a constructor argument of the
+  other.
+
+`free_slots` is deliberately untouched by a release: the heartbeat stays authoritative and
+`reserve`'s local decrement still prevents over-assignment between heartbeats. So immediately after a
+task ends the session reports `running 0, free 3` on a 4-slot node, and the next heartbeat restores
+`free 4` — under-assignment for at most 10s, exactly as before the fix.
+
+Covered by `TestFinishedTasksReleaseTheirSlots` in `internal/server/nodes/nodes_test.go`: five tasks
+run to completion on one node, `running_tasks` is 1 while each runs and back to 0 after, and
+`running_tasks + free_slots <= capacity.max_tasks` holds throughout.
+
+Still open (step 12, not fixed here): a **refused** assignment (`error{retryable:true}`, "node full" /
+"node draining") implies no status transition, so the slot `reserve` booked for it is only given back
+when the node reconnects and `Hello` rebuilds the set.

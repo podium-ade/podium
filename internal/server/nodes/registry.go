@@ -108,6 +108,19 @@ func (s *Session) reserve(taskID string) {
 	}
 }
 
+// release gives back the slot booked for taskID and reports whether this session held one.
+// freeSlots is deliberately left alone: the node's heartbeat is authoritative for it, and
+// reserve's local decrement is what stops the scheduler over-assigning between heartbeats.
+func (s *Session) release(taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.running[taskID]; !ok {
+		return false
+	}
+	delete(s.running, taskID)
+	return true
+}
+
 // Snapshot is what the scheduler and ListNodes read off a live session.
 type Snapshot struct {
 	NodeID       string
@@ -198,6 +211,19 @@ func (r *Registry) SnapshotOf(nodeID string) (Snapshot, bool) {
 		return Snapshot{}, false
 	}
 	return s.snapshot(), true
+}
+
+// Release frees the slot whichever session is holding taskID booked for it. A task no session
+// holds is a no-op: replayed terminal events are routine, and so is a node that reconnected and
+// rebuilt its running set from Hello in the meantime.
+func (r *Registry) Release(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.sessions {
+		if s.release(taskID) {
+			return
+		}
+	}
 }
 
 // CloseAll ends every session. Graceful shutdown calls it so node stream handlers return

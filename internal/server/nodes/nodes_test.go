@@ -661,6 +661,63 @@ func TestDisconnectMarksUnreachableAndReconnectMarksOnline(t *testing.T) {
 	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
 }
 
+// TestFinishedTasksReleaseTheirSlots is the regression test for a running_tasks count that only
+// ever grew: a slot was booked on every Assign and nothing ever gave one back, so a node that
+// had run five tasks reported "running 5" against a capacity of 4.
+func TestFinishedTasksReleaseTheirSlots(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.open(ctx)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	const runs = 5
+	for i := range runs {
+		// The honest ground truth before each run: nothing is running, every slot is free.
+		node.heartbeat(4, 0)
+
+		task := h.createTask(nil, "sh", "-c", "true")
+		assign := node.awaitAssign(assignTimeout)
+		require.Equal(t, task.GetId(), assign.GetTaskId())
+		waitFor(t, 10*time.Second, fmt.Sprintf("run %d to count as running", i), func() bool {
+			return h.node(node.id).GetRunningTasks() == 1
+		})
+		requireSlotsConsistent(t, h.node(node.id))
+
+		events := node.lifecycle(assign, 0, "tick\n")
+		node.send(events...)
+		node.awaitAck(task.GetId(), uint64(len(events)), 15*time.Second)
+		h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 15*time.Second)
+
+		waitFor(t, 10*time.Second, fmt.Sprintf("run %d to release its slot", i), func() bool {
+			return h.node(node.id).GetRunningTasks() == 0
+		})
+		requireSlotsConsistent(t, h.node(node.id))
+	}
+
+	node.heartbeat(4, 0)
+	waitFor(t, 10*time.Second, "the idle node to report every slot free", func() bool {
+		return h.node(node.id).GetFreeSlots() == 4
+	})
+	live := h.node(node.id)
+	require.EqualValues(t, 0, live.GetRunningTasks(), "%d finished tasks leave nothing running", runs)
+	requireSlotsConsistent(t, live)
+}
+
+// requireSlotsConsistent asserts what ListNodes reports about a node is internally consistent,
+// which is what the UI renders as "running N / max".
+func requireSlotsConsistent(t *testing.T, n *podiumv1.Node) {
+	t.Helper()
+	maxTasks := n.GetCapacity().GetMaxTasks()
+	require.LessOrEqual(t, n.GetRunningTasks(), maxTasks,
+		"a node cannot run more tasks than its capacity")
+	require.LessOrEqual(t, n.GetRunningTasks()+n.GetFreeSlots(), maxTasks,
+		"running and free slots together cannot exceed capacity")
+}
+
 // TestCancelQueuedTaskIsImmediate covers the one cancel path that does not need a node.
 func TestCancelQueuedTaskIsImmediate(t *testing.T) {
 	h := newHarness(t)

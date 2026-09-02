@@ -22,10 +22,17 @@ const pollInterval = time.Second
 // pageSize is how many rows of each table a subscriber reads per round trip.
 const pageSize = 256
 
+// Slots gives a node back the slot it was holding for a task. The node session registry
+// implements it.
+type Slots interface {
+	Release(taskID string)
+}
+
 // Service ingests node event batches and serves StreamTaskEvents.
 type Service struct {
 	store  *store.Store
 	logger *slog.Logger
+	slots  Slots
 
 	mu         sync.Mutex
 	watchers   map[string]map[chan struct{}]struct{}
@@ -44,6 +51,11 @@ func New(st *store.Store, logger *slog.Logger) *Service {
 		cancelling: make(map[string]string),
 	}
 }
+
+// SetSlots wires in the node session registry. It is a setter rather than a constructor
+// argument because the registry is built around this service: nodes.NewService takes the
+// Ingestor, so neither can be constructed before the other.
+func (s *Service) SetSlots(sl Slots) { s.slots = sl }
 
 // Run follows the task-event notification channel until ctx is cancelled, waking the
 // subscribers of every task that gains rows. One subscription serves the whole process.
@@ -174,6 +186,12 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 			to = store.StatusCancelled
 			patch.FailureReason = &reason
 			from = nil
+		}
+		// The slot the scheduler booked on assign is only ever given back here. It happens
+		// before the transition on purpose: a replayed batch has its transition rejected as
+		// already applied, and a slot must not be stranded by that.
+		if s.slots != nil {
+			s.slots.Release(taskID)
 		}
 	}
 
