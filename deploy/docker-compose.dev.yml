@@ -1,0 +1,32 @@
+# Development dependencies for podium-server. Postgres only: the node daemon talks to the
+# host's Docker, and object storage is not part of MVP-0.
+#
+#   docker compose -f deploy/docker-compose.dev.yml up -d postgres
+#   PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium ./bin/podium-server
+#
+# Integration tests do NOT use this file; they boot their own Postgres 16 via testcontainers.
+name: podium-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: podium-dev-postgres
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: podium
+      POSTGRES_DB: podium
+    ports:
+      # Loopback only: the credentials are dev throwaways.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - podium-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  podium-pgdata:
