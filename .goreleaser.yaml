@@ -1,0 +1,69 @@
+# Stub only: builds the four binaries. Publishing (GHCR images, installer, checksums)
+# is deliberately deferred to step 14.
+version: 2
+
+project_name: podium
+
+builds:
+  - id: podium
+    main: ./cmd/podium
+    binary: podium
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
+  - id: podium-server
+    main: ./cmd/podium-server
+    binary: podium-server
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
+  - id: podium-node
+    main: ./cmd/podium-node
+    binary: podium-node
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
+  # The runner is PID 1 inside a Linux task container, so it is Linux only.
+  - id: podium-runner
+    main: ./cmd/podium-runner
+    binary: podium-runner
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
+archives:
+  - id: podium
+    ids: [podium, podium-server, podium-node, podium-runner]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+release:
+  disable: true
