@@ -317,6 +317,14 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 // streamLogs demultiplexes the container's log stream into log events. The
 // returned channel is closed once the stream ends.
 func (e *Executor) streamLogs(ctx context.Context, cid string, em *emitter) <-chan struct{} {
+	return e.streamLogsFrom(ctx, cid, em, 0, 0)
+}
+
+// streamLogsFrom is streamLogs with a per-stream byte offset already accounted
+// for. Docker replays a container's whole output on every attach and offers no
+// cursor, so an adopting daemon reads from the beginning and discards the bytes
+// a previous incarnation already delivered.
+func (e *Executor) streamLogsFrom(ctx context.Context, cid string, em *emitter, skipStdout, skipStderr int64) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -332,8 +340,8 @@ func (e *Executor) streamLogs(ctx context.Context, cid string, em *emitter) <-ch
 		}
 		defer func() { _ = rc.Close() }()
 
-		out := &logWriter{em: em, stream: StreamStdout}
-		errw := &logWriter{em: em, stream: StreamStderr}
+		out := &logWriter{em: em, stream: StreamStdout, skip: skipStdout}
+		errw := &logWriter{em: em, stream: StreamStderr, skip: skipStderr}
 		if _, err := stdcopy.StdCopy(out, errw, rc); err != nil && !errors.Is(err, context.Canceled) {
 			e.log.Warn("demultiplex container logs", "container", cid, "error", err)
 		}
@@ -342,20 +350,31 @@ func (e *Executor) streamLogs(ctx context.Context, cid string, em *emitter) <-ch
 }
 
 // logWriter turns each demultiplexed frame into one log event, splitting
-// anything larger than maxLogChunk.
+// anything larger than maxLogChunk. skip discards that many leading bytes of
+// the stream before anything is emitted.
 type logWriter struct {
 	em     *emitter
 	stream string
+	skip   int64
 }
 
 func (w *logWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if w.skip > 0 {
+		if w.skip >= int64(n) {
+			w.skip -= int64(n)
+			return n, nil
+		}
+		p = p[w.skip:]
+		w.skip = 0
+	}
 	for off := 0; off < len(p); off += maxLogChunk {
 		end := min(off+maxLogChunk, len(p))
 		chunk := make([]byte, end-off)
 		copy(chunk, p[off:end])
 		w.em.emit(KindLog, LogPayload{Stream: w.stream, Bytes: chunk})
 	}
-	return len(p), nil
+	return n, nil
 }
 
 // sampleUsage polls container stats until ctx is cancelled and reports the

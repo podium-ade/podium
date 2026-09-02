@@ -1,0 +1,83 @@
+// Package cli is the podium command-line client. It talks to the control plane over
+// Connect and never touches Docker: everything it knows comes from the server.
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	yaml "go.yaml.in/yaml/v3"
+)
+
+// DefaultServer is what the CLI dials when nothing says otherwise.
+const DefaultServer = "http://127.0.0.1:8080"
+
+// Config is ~/.config/podium/config.yaml. Environment variables override it and flags
+// override them, so a scripted invocation never depends on what is on the developer's
+// disk.
+type Config struct {
+	Server string `yaml:"server"`
+	// SENSITIVE: never printed. Under the dev transport this is PODIUM_DEV_TOKEN.
+	Token string `yaml:"token"`
+}
+
+// ConfigPath is the file the CLI reads, honouring XDG_CONFIG_HOME.
+func ConfigPath() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "podium", "config.yaml")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "podium", "config.yaml")
+}
+
+// LoadConfig resolves the effective configuration: the file, then PODIUM_SERVER and
+// PODIUM_TOKEN, then the --server and --token flags. A missing file is not an error.
+func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
+	cfg := Config{Server: DefaultServer}
+
+	if path := ConfigPath(); path != "" {
+		raw, err := os.ReadFile(path) //nolint:gosec // the user names their own config file
+		switch {
+		case err == nil:
+			var fromFile Config
+			if err := yaml.Unmarshal(raw, &fromFile); err != nil {
+				return Config{}, fmt.Errorf("parse %s: %w", path, err)
+			}
+			if fromFile.Server != "" {
+				cfg.Server = fromFile.Server
+			}
+			if fromFile.Token != "" {
+				cfg.Token = fromFile.Token
+			}
+		case errors.Is(err, os.ErrNotExist):
+		default:
+			return Config{}, fmt.Errorf("read %s: %w", path, err)
+		}
+	}
+
+	if v := os.Getenv("PODIUM_SERVER"); v != "" {
+		cfg.Server = v
+	}
+	if v := os.Getenv("PODIUM_TOKEN"); v != "" {
+		cfg.Token = v
+	}
+	if serverFlag != "" {
+		cfg.Server = serverFlag
+	}
+	if tokenFlag != "" {
+		cfg.Token = tokenFlag
+	}
+
+	if cfg.Server == "" {
+		return Config{}, errors.New("no server: pass --server, set PODIUM_SERVER, or put `server:` in " + ConfigPath())
+	}
+	if cfg.Token == "" {
+		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN, or put `token:` in " + ConfigPath())
+	}
+	return cfg, nil
+}
