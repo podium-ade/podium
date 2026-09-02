@@ -75,6 +75,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 
 	logSvc := logs.New(st, logger)
 	nodeSvc := nodes.NewService(st, logSvc, logger)
+	logSvc.SetSlots(nodeSvc.Registry())
 	s := &Server{
 		cfg:       cfg,
 		logger:    logger,
