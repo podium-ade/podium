@@ -1,0 +1,24 @@
+# Go build output
+bin/
+dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Web app
+web/node_modules/
+web/dist/
+
+# Local environment / secrets
+.env
+.env.*
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+
+# Design plans. Alvaro decides whether these are published with the code;
+# uncomment the line below to keep them out of the repository.
+# plans/
