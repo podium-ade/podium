@@ -23,6 +23,14 @@ jobs:
         with:
           version: 1.72.0
           github_token: ${{ github.token }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - name: Install protoc plugins
         run: |
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
@@ -30,10 +38,12 @@ jobs:
       - run: make proto-lint
       - name: Breaking-change check
         run: make proto-breaking
+      # protoc-gen-es (Connect-ES v2 has no protoc-gen-connect-es) comes from web/node_modules,
+      # which `make proto` installs; the TS half of the client is committed just like the Go half.
       - name: Generated code is up to date
         run: |
           make proto
-          git diff --exit-code -- internal/proto
+          git diff --exit-code -- internal/proto web/src/gen
 
   build:
     name: lint / test / build
@@ -43,11 +53,45 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - name: Install golangci-lint
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
             | sh -s -- -b "$(go env GOPATH)/bin" v2.13.2
+      # `make build` depends on `make web`, so this job needs Node. The Go-only path is covered
+      # by the noui step below, which is what a contributor without pnpm gets.
       - run: make lint test build
+      - name: Go-only build (no UI)
+        run: go build -tags noui ./...
+
+  web:
+    name: web lint / typecheck / test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
 
   integration:
     name: integration tests

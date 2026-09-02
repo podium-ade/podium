@@ -1,14 +1,20 @@
 # Go build output
 bin/
-dist/
+/dist/
 *.exe
 *.test
 *.out
 coverage.*
 
-# Web app
+# Web app. web/dist is build output, but the directory itself must exist and be non-empty:
+# //go:embed of a missing or empty directory is a compile error, so a clone that has never run
+# pnpm would fail `go build ./...` without the placeholder.
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
+web/*.tsbuildinfo
+web/playwright-report/
+web/test-results/
 
 # Local environment / secrets
 .env
