@@ -9,6 +9,32 @@ permissions:
   contents: read
 
 jobs:
+  proto:
+    name: buf lint / breaking / generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.72.0
+          github_token: ${{ github.token }}
+      - name: Install protoc plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0
+      - run: make proto-lint
+      - name: Breaking-change check
+        run: make proto-breaking
+      - name: Generated code is up to date
+        run: |
+          make proto
+          git diff --exit-code -- internal/proto
+
   build:
     name: lint / test / build
     runs-on: ubuntu-latest

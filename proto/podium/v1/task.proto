@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+import "podium/v1/common.proto";
+import "podium/v1/node.proto";
+
+// TaskService is the operator-facing API used by the CLI and the web UI.
+service TaskService {
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  // StreamTaskEvents replays stored events from from_seq and then follows live ones.
+  rpc StreamTaskEvents(StreamTaskEventsRequest) returns (stream TaskEvent);
+}
+
+message Task {
+  string id = 1;
+  TaskSpec spec = 2;
+  TaskStatus status = 3;
+  string node_id = 4;
+  int32 attempts = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+  // Unset until the task has exited.
+  optional int32 exit_code = 9;
+  Usage usage = 10;
+  string requested_by = 11;
+}
+
+message CreateTaskRequest {
+  TaskSpec spec = 1;
+  int32 priority = 2;
+}
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message GetTaskResponse {
+  Task task = 1;
+}
+
+message TaskFilter {
+  repeated TaskStatus status = 1;
+  string node_id = 2;
+  string requested_by = 3;
+}
+
+message Page {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ListTasksRequest {
+  TaskFilter filter = 1;
+  Page page = 2;
+}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message CancelTaskRequest {
+  string task_id = 1;
+  string reason = 2;
+}
+
+message CancelTaskResponse {
+  Task task = 1;
+}
+
+message StreamTaskEventsRequest {
+  string task_id = 1;
+  // Exclusive: the stream starts at from_seq + 1. Zero replays from the beginning.
+  uint64 from_seq = 2;
+}

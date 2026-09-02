@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/duration.proto";
+
+// TaskStatus mirrors the tasks.status column.
+// queued -> scheduled -> provisioning -> running -> succeeded | failed | cancelled | lost
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_QUEUED = 1;
+  TASK_STATUS_SCHEDULED = 2;
+  TASK_STATUS_PROVISIONING = 3;
+  TASK_STATUS_RUNNING = 4;
+  TASK_STATUS_SUCCEEDED = 5;
+  TASK_STATUS_FAILED = 6;
+  TASK_STATUS_CANCELLED = 7;
+  TASK_STATUS_LOST = 8;
+}
+
+// NodeStatus is derived from heartbeat recency: unreachable after 30s, offline after 120s.
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_ONLINE = 1;
+  NODE_STATUS_UNREACHABLE = 2;
+  NODE_STATUS_OFFLINE = 3;
+  NODE_STATUS_DRAINING = 4;
+}
+
+// TaskSpec is the wire form of pkg/spec.TaskSpec.
+message TaskSpec {
+  string image = 1;
+  repeated string command = 2;
+  // Defaults to /workspace.
+  string working_dir = 3;
+  map<string, string> env = 4;
+  // Node labels the task requires; a node is eligible when labels are a subset of its own.
+  repeated string labels = 5;
+  // Defaults to 1h.
+  google.protobuf.Duration timeout = 6;
+  // Defaults to 1.
+  int32 max_attempts = 7;
+}
+
+// Usage is the resource accounting reported when a task finishes.
+message Usage {
+  double cpu_seconds = 1;
+  int64 peak_memory_mb = 2;
+  int64 wall_ms = 3;
+}
+
+// NodeCapacity is what a node advertises in Hello and what ListNodes reports back.
+message NodeCapacity {
+  int32 max_tasks = 1;
+  int32 cpu_cores = 2;
+  int64 memory_mb = 3;
+}

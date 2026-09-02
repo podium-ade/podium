@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+import "podium/v1/common.proto";
+
+// NodeService is the node-facing half of the wire contract. Identity is transport-derived
+// (dev bearer token now, tailnet WhoIs later); it is never carried in these messages.
+service NodeService {
+  // Enroll exchanges a single-use enrollment token for a durable node identity. Called once.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Stream is the steady-state bidirectional stream. The node reopens it with backoff on any
+  // disconnect and must send Hello as its first message.
+  rpc Stream(stream NodeMessage) returns (stream ServerMessage);
+}
+
+message EnrollRequest {
+  string token = 1;
+  string hostname = 2;
+  string arch = 3;
+  string os = 4;
+  int32 cpu_cores = 5;
+  int64 memory_mb = 6;
+  string docker_version = 7;
+  repeated string labels = 8;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  // SENSITIVE: never log. Returned once; the server keeps only its SHA-256.
+  string node_key = 2;
+}
+
+// NodeMessage is everything a node can send on the stream.
+message NodeMessage {
+  oneof msg {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+    TaskEvent task_event = 3;
+  }
+}
+
+// ServerMessage is everything the server can send on the stream.
+message ServerMessage {
+  oneof msg {
+    Assign assign = 1;
+    Ack ack = 2;
+    Cancel cancel = 3;
+    Drain drain = 4;
+  }
+}
+
+// Hello opens the stream and carries the reconciliation input: which tasks the node still
+// has containers for.
+message Hello {
+  string node_id = 1;
+  // SENSITIVE: never log.
+  string node_key = 2;
+  repeated string labels = 3;
+  NodeCapacity capacity = 4;
+  repeated string running_task_ids = 5;
+  string version = 6;
+}
+
+message NodeLoad {
+  int32 running_tasks = 1;
+  double cpu_pct = 2;
+  double mem_pct = 3;
+}
+
+// Heartbeat is sent every 10s. Missing 3 marks the node unreachable, missing 12 offline.
+message Heartbeat {
+  NodeLoad load = 1;
+  int32 free_slots = 2;
+  int64 disk_free_bytes = 3;
+  google.protobuf.Timestamp ts = 4;
+}
+
+// Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
+// within 15s or the server revokes the lease and reschedules.
+message Assign {
+  string task_id = 1;
+  string lease_id = 2;
+  TaskSpec spec = 3;
+  google.protobuf.Timestamp deadline = 4;
+}
+
+// Ack is the per-task high-water mark; the node may drop buffered events with seq <= this.
+message Ack {
+  string task_id = 1;
+  uint64 seq = 2;
+}
+
+// Cancel is idempotent and is also how server-side timeouts are delivered.
+message Cancel {
+  string task_id = 1;
+  string reason = 2;
+}
+
+// Drain tells the node to stop accepting work and finish what it is running.
+message Drain {}
+
+// TaskEventKind is the canonical event taxonomy. STEP and ARTIFACT are reserved and are
+// never emitted in MVP-0 (they arrive with the runner and the artifact store).
+enum TaskEventKind {
+  TASK_EVENT_KIND_UNSPECIFIED = 0;
+  TASK_EVENT_KIND_PROVISIONING = 1;
+  TASK_EVENT_KIND_PULLING = 2;
+  TASK_EVENT_KIND_STARTED = 3;
+  TASK_EVENT_KIND_LOG = 4;
+  TASK_EVENT_KIND_STEP = 5;
+  TASK_EVENT_KIND_ARTIFACT = 6;
+  TASK_EVENT_KIND_EXITED = 7;
+  TASK_EVENT_KIND_FINISHED = 8;
+  TASK_EVENT_KIND_ERROR = 9;
+}
+
+message LogChunk {
+  enum Stream {
+    STREAM_UNSPECIFIED = 0;
+    STREAM_STDOUT = 1;
+    STREAM_STDERR = 2;
+    STREAM_SIDECAR = 3;
+  }
+  Stream stream = 1;
+  // Set only when stream is STREAM_SIDECAR.
+  string sidecar_name = 2;
+  bytes bytes = 3;
+}
+
+// Step is emitted by the runner. Reserved: unused in MVP-0.
+message Step {
+  string name = 1;
+  string status = 2;
+  int32 exit_code = 3;
+}
+
+message Exited {
+  int32 exit_code = 1;
+  bool oom_killed = 2;
+}
+
+message Finished {
+  int32 exit_code = 1;
+  Usage usage = 2;
+}
+
+message Error {
+  string message = 1;
+  bool retryable = 2;
+}
+
+// TaskEvent is ordered per task by seq, starting at 1. The server deduplicates on
+// (task_id, seq); the node replays from its buffer until the matching Ack.
+message TaskEvent {
+  string task_id = 1;
+  string lease_id = 2;
+  uint64 seq = 3;
+  google.protobuf.Timestamp ts = 4;
+  TaskEventKind kind = 5;
+  oneof payload {
+    LogChunk log = 6;
+    Step step = 7;
+    Exited exited = 8;
+    Finished finished = 9;
+    Error error = 10;
+  }
+}

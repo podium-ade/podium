@@ -9,7 +9,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
-.PHONY: build test test-integration lint proto fmt clean
+.PHONY: build test test-integration lint proto proto-lint proto-breaking fmt clean
 
 build:
 	@mkdir -p bin
@@ -27,12 +27,15 @@ test-integration:
 lint:
 	golangci-lint run
 
-proto:
-	@if [ -z "$$(find proto -name '*.proto' -print -quit)" ]; then \
-		echo "proto: no .proto files yet — skipping buf generate (step 02 adds them)"; \
-	else \
-		buf generate; \
-	fi
+proto: proto-lint
+	buf generate
+
+proto-lint:
+	buf lint
+
+# No-op until main has a committed proto history to compare against.
+proto-breaking:
+	buf breaking --against '.git#branch=main'
 
 fmt:
 	golangci-lint fmt
