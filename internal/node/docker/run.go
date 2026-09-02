@@ -1,0 +1,409 @@
+package docker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
+	"github.com/docker/docker/pkg/stdcopy"
+
+	"github.com/alvaroibarguen/podium/pkg/spec"
+)
+
+const (
+	// workspacePath is where the task's workspace volume is mounted.
+	workspacePath = "/workspace"
+	// networkAlias is the DNS name the task container answers to on its own
+	// network.
+	networkAlias = "task"
+	// maxLogChunk bounds a single log event's payload.
+	maxLogChunk = 64 * 1024
+	// pullProgressInterval throttles pulling events.
+	pullProgressInterval = time.Second
+	// statsInterval is how often container stats are sampled.
+	statsInterval = 2 * time.Second
+	// logDrainTimeout bounds how long we wait for the log stream to end after
+	// the container has exited.
+	logDrainTimeout = 5 * time.Second
+)
+
+// Request is one assignment to execute.
+type Request struct {
+	TaskID  string
+	LeaseID string
+	Spec    spec.TaskSpec
+}
+
+// Usage is a best-effort resource accounting for a finished task.
+type Usage struct {
+	CPUSeconds   float64
+	PeakMemoryMB int64
+	WallMS       int64
+}
+
+// Result is what a completed run reports back to the caller.
+type Result struct {
+	ExitCode  int
+	OOMKilled bool
+	Usage     Usage
+}
+
+// Run executes req to completion, emitting ordered events on events. It returns
+// a Result for any run that produced an exit code, even a non-zero one; an
+// error means the task could not be run at all, in which case an error event
+// was emitted first and every resource this call created has been removed.
+//
+// Run never closes events; the channel belongs to the caller. On success the
+// caller is responsible for calling Teardown.
+func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (Result, error) {
+	if req.TaskID == "" {
+		return Result{}, errors.New("docker executor: run: TaskID is required")
+	}
+
+	em := newEmitter(ctx, events)
+	em.emit(KindProvisioning, nil)
+
+	rs, err := e.register(req.TaskID)
+	if err != nil {
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: false})
+		return Result{}, err
+	}
+	defer e.unregister(req.TaskID, rs)
+
+	res, err := e.run(ctx, req, em, rs)
+	if err != nil {
+		retryable := !errors.Is(err, errSpec)
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable})
+		// Never leak: drop anything this call created, on a context that
+		// survives the caller cancelling.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+		defer cancel()
+		if terr := e.Teardown(cleanupCtx, req.TaskID, false); terr != nil {
+			e.log.Error("teardown after failed run", "task", req.TaskID, "error", terr)
+		}
+		return Result{}, err
+	}
+	return res, nil
+}
+
+// errSpec marks failures caused by the task spec rather than by the engine or
+// the network; they are not worth retrying.
+var errSpec = errors.New("invalid task spec")
+
+func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runState) (Result, error) {
+	if req.Spec.Image == "" {
+		return Result{}, fmt.Errorf("%w: image is required", errSpec)
+	}
+
+	if err := e.ensureImage(ctx, req.Spec.Image, em); err != nil {
+		return Result{}, err
+	}
+
+	if err := e.mkTaskDir(req.TaskID); err != nil {
+		return Result{}, err
+	}
+
+	labels := taskLabels(req.TaskID, req.LeaseID)
+
+	netResp, err := e.cli.NetworkCreate(ctx, networkName(req.TaskID), network.CreateOptions{
+		Driver:   "bridge",
+		Internal: false,
+		Labels:   labels,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("create network %s: %w", networkName(req.TaskID), err)
+	}
+
+	if _, err := e.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Name:   volumeName(req.TaskID),
+		Labels: labels,
+	}); err != nil {
+		return Result{}, fmt.Errorf("create volume %s: %w", volumeName(req.TaskID), err)
+	}
+
+	workdir := req.Spec.WorkingDir
+	if workdir == "" {
+		workdir = spec.DefaultWorkingDir
+	}
+
+	initFalse := false
+	cfg := &container.Config{
+		Image:      req.Spec.Image,
+		Cmd:        req.Spec.Command,
+		WorkingDir: workdir,
+		Env:        containerEnv(req, workdir),
+		Labels:     labels,
+	}
+	hostCfg := &container.HostConfig{
+		Mounts: []mount.Mount{{
+			Type:   mount.TypeVolume,
+			Source: volumeName(req.TaskID),
+			Target: workspacePath,
+		}},
+		AutoRemove:    false,
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+		Init:          &initFalse,
+	}
+	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+		networkName(req.TaskID): {NetworkID: netResp.ID, Aliases: []string{networkAlias}},
+	}}
+
+	created, err := e.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, containerName(req.TaskID))
+	if err != nil {
+		return Result{}, fmt.Errorf("create container for task %s: %w", req.TaskID, err)
+	}
+	cid := created.ID
+
+	// Subscribe to the exit before starting, so a container that exits
+	// instantly is still observed. NextExit, not NotRunning: a container that
+	// has been created but not started is already "not running", and
+	// NotRunning would return exit code 0 immediately.
+	waitCh, waitErrCh := e.cli.ContainerWait(ctx, cid, container.WaitConditionNextExit)
+
+	startedAt := time.Now()
+	if err := e.cli.ContainerStart(ctx, cid, container.StartOptions{}); err != nil {
+		return Result{}, fmt.Errorf("start container for task %s: %w", req.TaskID, err)
+	}
+	em.emit(KindStarted, nil)
+
+	// A Cancel that arrived before the container existed applies now.
+	rs.mu.Lock()
+	rs.containerID = cid
+	pending := rs.cancelled
+	rs.mu.Unlock()
+	if pending {
+		e.startKill(rs, cid)
+	}
+
+	logsDone := e.streamLogs(ctx, cid, em)
+
+	statsCtx, stopStats := context.WithCancel(ctx)
+	defer stopStats()
+	usageCh := e.sampleUsage(statsCtx, cid)
+
+	var exitCode int
+	select {
+	case werr := <-waitErrCh:
+		stopStats()
+		if werr == nil {
+			werr = errors.New("wait ended without a result")
+		}
+		return Result{}, fmt.Errorf("wait for container of task %s: %w", req.TaskID, werr)
+	case wr := <-waitCh:
+		exitCode = int(wr.StatusCode)
+		if wr.Error != nil && wr.Error.Message != "" {
+			e.log.Warn("container wait reported an error", "task", req.TaskID, "error", wr.Error.Message)
+		}
+		stopStats()
+	}
+	wallMS := time.Since(startedAt).Milliseconds()
+
+	// Let the log stream drain so every log event precedes exited.
+	select {
+	case <-logsDone:
+	case <-time.After(logDrainTimeout):
+		e.log.Warn("log stream did not close after exit", "task", req.TaskID)
+	}
+
+	usage := <-usageCh
+	usage.WallMS = wallMS
+
+	oom := false
+	if insp, err := e.cli.ContainerInspect(ctx, cid); err == nil && insp.State != nil {
+		oom = insp.State.OOMKilled
+	} else if err != nil {
+		e.log.Warn("inspect after exit", "task", req.TaskID, "error", err)
+	}
+
+	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})
+	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage})
+
+	return Result{ExitCode: exitCode, OOMKilled: oom, Usage: usage}, nil
+}
+
+func (e *Executor) mkTaskDir(taskID string) error {
+	if err := os.MkdirAll(e.taskDir(taskID), 0o700); err != nil {
+		return fmt.Errorf("create task dir for %s: %w", taskID, err)
+	}
+	return nil
+}
+
+func containerEnv(req Request, workdir string) []string {
+	keys := make([]string, 0, len(req.Spec.Env))
+	for k := range req.Spec.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	env := make([]string, 0, len(keys)+3)
+	for _, k := range keys {
+		env = append(env, k+"="+req.Spec.Env[k])
+	}
+	env = append(env,
+		"PODIUM_TASK_ID="+req.TaskID,
+		"PODIUM_LEASE_ID="+req.LeaseID,
+		"PODIUM_WORKDIR="+workdir,
+	)
+	return env
+}
+
+// ensureImage pulls the image unless the engine already has it, emitting
+// throttled pulling events while it does.
+func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) error {
+	if _, err := e.cli.ImageInspect(ctx, ref); err == nil {
+		return nil
+	}
+
+	rc, err := e.cli.ImagePull(ctx, ref, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull image %s: %w", ref, err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	type progressDetail struct {
+		Current int64 `json:"current"`
+		Total   int64 `json:"total"`
+	}
+	type pullMessage struct {
+		Status         string         `json:"status"`
+		ID             string         `json:"id"`
+		ProgressDetail progressDetail `json:"progressDetail"`
+		Error          string         `json:"error"`
+	}
+
+	dec := json.NewDecoder(rc)
+	var last time.Time
+	for {
+		var msg pullMessage
+		if err := dec.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("pull image %s: read progress: %w", ref, err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("pull image %s: %s", ref, msg.Error)
+		}
+		if now := time.Now(); last.IsZero() || now.Sub(last) >= pullProgressInterval {
+			last = now
+			em.emit(KindPulling, PullingPayload{
+				Image:   ref,
+				Status:  msg.Status,
+				LayerID: msg.ID,
+				Current: msg.ProgressDetail.Current,
+				Total:   msg.ProgressDetail.Total,
+			})
+		}
+	}
+
+	// The pull stream reports per-layer errors inline and only fails the HTTP
+	// request for transport problems, so confirm the image really landed.
+	if _, err := e.cli.ImageInspect(ctx, ref); err != nil {
+		return fmt.Errorf("pull image %s: image not present after pull: %w", ref, err)
+	}
+	return nil
+}
+
+// streamLogs demultiplexes the container's log stream into log events. The
+// returned channel is closed once the stream ends.
+func (e *Executor) streamLogs(ctx context.Context, cid string, em *emitter) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		rc, err := e.cli.ContainerLogs(ctx, cid, container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Follow:     true,
+			Tail:       "all",
+		})
+		if err != nil {
+			e.log.Error("attach container logs", "container", cid, "error", err)
+			return
+		}
+		defer func() { _ = rc.Close() }()
+
+		out := &logWriter{em: em, stream: StreamStdout}
+		errw := &logWriter{em: em, stream: StreamStderr}
+		if _, err := stdcopy.StdCopy(out, errw, rc); err != nil && !errors.Is(err, context.Canceled) {
+			e.log.Warn("demultiplex container logs", "container", cid, "error", err)
+		}
+	}()
+	return done
+}
+
+// logWriter turns each demultiplexed frame into one log event, splitting
+// anything larger than maxLogChunk.
+type logWriter struct {
+	em     *emitter
+	stream string
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	for off := 0; off < len(p); off += maxLogChunk {
+		end := min(off+maxLogChunk, len(p))
+		chunk := make([]byte, end-off)
+		copy(chunk, p[off:end])
+		w.em.emit(KindLog, LogPayload{Stream: w.stream, Bytes: chunk})
+	}
+	return len(p), nil
+}
+
+// sampleUsage polls container stats until ctx is cancelled and reports the
+// accumulated usage on the returned channel. Sampling is best-effort: a task
+// shorter than the first sample simply reports zeros.
+func (e *Executor) sampleUsage(ctx context.Context, cid string) <-chan Usage {
+	out := make(chan Usage, 1)
+	go func() {
+		var usage Usage
+		defer func() { out <- usage }()
+
+		ticker := time.NewTicker(statsInterval)
+		defer ticker.Stop()
+		for {
+			if cpu, mem, ok := e.sampleOnce(ctx, cid); ok {
+				if cpu > usage.CPUSeconds {
+					usage.CPUSeconds = cpu
+				}
+				if mb := mem / (1024 * 1024); mb > usage.PeakMemoryMB {
+					usage.PeakMemoryMB = mb
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return out
+}
+
+func (e *Executor) sampleOnce(ctx context.Context, cid string) (cpuSeconds float64, memBytes int64, ok bool) {
+	resp, err := e.cli.ContainerStatsOneShot(ctx, cid)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var stats container.StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return 0, 0, false
+	}
+	// cgroup v2 reports page cache inside memory.current; subtract it the way
+	// `docker stats` does so the number means something.
+	mem := stats.MemoryStats.Usage
+	if inactive, found := stats.MemoryStats.Stats["inactive_file"]; found && inactive < mem {
+		mem -= inactive
+	}
+	return float64(stats.CPUStats.CPUUsage.TotalUsage) / 1e9, int64(mem), true
+}
