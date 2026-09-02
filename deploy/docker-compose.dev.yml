@@ -16,8 +16,9 @@ services:
       POSTGRES_PASSWORD: podium
       POSTGRES_DB: podium
     ports:
-      # Loopback only: the credentials are dev throwaways.
-      - "127.0.0.1:5432:5432"
+      # Loopback only: the credentials are dev throwaways. Override PODIUM_PG_PORT when
+      # something else already owns 5432 on the host, and match PODIUM_DATABASE_URL to it.
+      - "127.0.0.1:${PODIUM_PG_PORT:-5432}:5432"
     volumes:
       - podium-pgdata:/var/lib/postgresql/data
     healthcheck:
