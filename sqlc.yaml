@@ -1,0 +1,22 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: internal/server/store/migrations
+    queries: internal/server/store/queries
+    gen:
+      go:
+        package: db
+        out: internal/server/store/db
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        # pgtype.Timestamptz leaks pgx into every store signature; plain time.Time
+        # (pointer when the column is nullable) is what the rest of the tree wants.
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
