@@ -1,0 +1,279 @@
+package nodes
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"connectrpc.com/connect"
+
+	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/alvaroibarguen/podium/internal/server/store"
+)
+
+// received is one result of stream.Receive, handed to the handler by the reader goroutine so
+// the handler can also wait on the session ending.
+type received struct {
+	msg *podiumv1.NodeMessage
+	err error
+}
+
+// Stream is the steady-state node stream. The first message must be a Hello carrying a valid
+// node key within five seconds; after that the node heartbeats and pushes task events, and the
+// server pushes assignments, acks and cancels.
+func (s *Service) Stream(
+	ctx context.Context,
+	stream *connect.BidiStream[podiumv1.NodeMessage, podiumv1.ServerMessage],
+) error {
+	// Receive blocks on the request body, which nothing but the handler returning can
+	// interrupt, so it runs in its own goroutine and the handler selects.
+	incoming := make(chan received, 1)
+	readerDone := make(chan struct{})
+	defer close(readerDone)
+	go func() {
+		for {
+			msg, err := stream.Receive()
+			select {
+			case incoming <- received{msg, err}:
+			case <-readerDone:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	hello, err := awaitHello(ctx, incoming)
+	if err != nil {
+		return err
+	}
+	node, err := s.authenticate(ctx, hello)
+	if err != nil {
+		return err
+	}
+
+	sess := newSession(node.ID, node.Labels, capacityOf(hello, node), hello.GetRunningTaskIds())
+	s.reg.add(sess)
+	defer s.endSession(ctx, sess)
+
+	if err := s.store.UpdateNodeHeartbeat(ctx, node.ID, store.NodeOnline, ptrCapacity(hello), hello.GetVersion()); err != nil {
+		s.logger.WarnContext(ctx, "marking node online failed", "node_id", node.ID, "error", err)
+	}
+	s.logger.InfoContext(ctx, "node stream open",
+		"node_id", node.ID, "labels", node.Labels, "version", hello.GetVersion(),
+		"running_tasks", len(hello.GetRunningTaskIds()))
+
+	writerErr := make(chan error, 1)
+	go func() { writerErr <- writeLoop(ctx, stream, sess) }()
+
+	err = s.readLoop(ctx, sess, incoming)
+	sess.Close()
+	<-writerErr
+	return err
+}
+
+// awaitHello reads the opening message and insists it is a Hello.
+func awaitHello(ctx context.Context, incoming <-chan received) (*podiumv1.Hello, error) {
+	timer := time.NewTimer(helloDeadline)
+	defer timer.Stop()
+	select {
+	case r := <-incoming:
+		if r.err != nil {
+			return nil, r.err
+		}
+		hello := r.msg.GetHello()
+		if hello == nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				errors.New("stream: first message must be Hello"))
+		}
+		return hello, nil
+	case <-timer.C:
+		return nil, connect.NewError(connect.CodeDeadlineExceeded,
+			fmt.Errorf("stream: no Hello within %s", helloDeadline))
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// authenticate resolves the node key Hello presented and checks it names the node it claims.
+func (s *Service) authenticate(ctx context.Context, hello *podiumv1.Hello) (store.Node, error) {
+	if hello.GetNodeId() == "" || hello.GetNodeKey() == "" {
+		return store.Node{}, connect.NewError(connect.CodeUnauthenticated,
+			errors.New("stream: Hello needs node_id and node_key"))
+	}
+	node, err := s.store.GetNodeByKeyHash(ctx, store.HashToken(hello.GetNodeKey()))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return store.Node{}, connect.NewError(connect.CodeUnauthenticated,
+				errors.New("stream: unknown node key"))
+		}
+		return store.Node{}, connect.NewError(connect.CodeInternal, fmt.Errorf("stream: %w", err))
+	}
+	if node.ID != hello.GetNodeId() {
+		return store.Node{}, connect.NewError(connect.CodeUnauthenticated,
+			errors.New("stream: node key does not belong to that node"))
+	}
+	return node, nil
+}
+
+// endSession unregisters the stream and, unless it was already replaced by a reconnect, marks
+// the node unreachable. Deciding it is offline and expiring its leases is step 12's job.
+func (s *Service) endSession(ctx context.Context, sess *Session) {
+	sess.Close()
+	if !s.reg.remove(sess) {
+		return
+	}
+	// The request context is already dead on a disconnect, and on shutdown it is cancelled.
+	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.store.SetNodeStatus(bg, sess.nodeID, store.NodeUnreachable); err != nil {
+		s.logger.WarnContext(bg, "marking node unreachable failed", "node_id", sess.nodeID, "error", err)
+	}
+	s.logger.InfoContext(bg, "node stream closed", "node_id", sess.nodeID)
+}
+
+// writeLoop drains the session's outbound queue onto the stream.
+func writeLoop(ctx context.Context, stream *connect.BidiStream[podiumv1.NodeMessage, podiumv1.ServerMessage], sess *Session) error {
+	for {
+		select {
+		case msg := <-sess.outbound():
+			if err := stream.Send(msg); err != nil {
+				sess.Close()
+				return err
+			}
+		case <-sess.Done():
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// readLoop handles node messages until the stream ends. Task events are coalesced into batches
+// (100ms or 64KB, whichever comes first) so a chatty task costs one transaction per batch and
+// one Ack per batch rather than per line.
+func (s *Service) readLoop(ctx context.Context, sess *Session, incoming <-chan received) error {
+	b := newBatcher()
+	for {
+		var flush <-chan time.Time
+		if b.pending() {
+			// Measured from the first buffered event, so a node that never stops talking
+			// still gets a flush every 100ms.
+			flush = time.After(time.Until(b.since.Add(flushInterval)))
+		}
+		select {
+		case r := <-incoming:
+			if r.err != nil {
+				// io.EOF is the node closing its half cleanly; anything else is the
+				// connection breaking. Either way the stream is over and the deferred
+				// endSession marks the node unreachable.
+				s.flush(ctx, sess, b)
+				return nil
+			}
+			switch {
+			case r.msg.GetHeartbeat() != nil:
+				s.handleHeartbeat(ctx, sess, r.msg.GetHeartbeat())
+			case r.msg.GetTaskEvent() != nil:
+				b.add(r.msg.GetTaskEvent())
+				if b.bytes >= flushBytes {
+					s.flush(ctx, sess, b)
+				}
+			case r.msg.GetHello() != nil:
+				s.logger.WarnContext(ctx, "ignoring second Hello on an open stream", "node_id", sess.nodeID)
+			default:
+				s.logger.WarnContext(ctx, "ignoring unknown node message", "node_id", sess.nodeID)
+			}
+		case <-flush:
+			s.flush(ctx, sess, b)
+		case <-sess.Done():
+			s.flush(ctx, sess, b)
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (s *Service) handleHeartbeat(ctx context.Context, sess *Session, hb *podiumv1.Heartbeat) {
+	sess.observeHeartbeat(hb)
+	if err := s.store.UpdateNodeHeartbeat(ctx, sess.nodeID, store.NodeOnline, nil, ""); err != nil {
+		s.logger.WarnContext(ctx, "heartbeat update failed", "node_id", sess.nodeID, "error", err)
+	}
+}
+
+// flush persists every buffered batch and acks each task's highest seq. An ingest that fails is
+// not acked, so the node keeps the events in its replay buffer and sends them again.
+func (s *Service) flush(ctx context.Context, sess *Session, b *batcher) {
+	for _, taskID := range b.order {
+		events := b.byTask[taskID]
+		ackSeq, err := s.logs.Ingest(ctx, taskID, events)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "ingesting task events failed",
+				"node_id", sess.nodeID, "task_id", taskID, "events", len(events), "error", err)
+			continue
+		}
+		ack := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Ack{
+			Ack: &podiumv1.Ack{TaskId: taskID, Seq: ackSeq},
+		}}
+		if err := sess.Send(ctx, ack); err != nil && !errors.Is(err, ErrSessionClosed) {
+			s.logger.WarnContext(ctx, "sending ack failed",
+				"node_id", sess.nodeID, "task_id", taskID, "seq", ackSeq, "error", err)
+		}
+	}
+	b.reset()
+}
+
+// batcher groups the task events of one stream by task, preserving arrival order across tasks.
+type batcher struct {
+	byTask map[string][]*podiumv1.TaskEvent
+	order  []string
+	bytes  int
+	since  time.Time
+}
+
+func newBatcher() *batcher {
+	return &batcher{byTask: make(map[string][]*podiumv1.TaskEvent)}
+}
+
+func (b *batcher) add(e *podiumv1.TaskEvent) {
+	if !b.pending() {
+		b.since = time.Now()
+	}
+	id := e.GetTaskId()
+	if _, ok := b.byTask[id]; !ok {
+		b.order = append(b.order, id)
+	}
+	b.byTask[id] = append(b.byTask[id], e)
+	b.bytes += len(e.GetLog().GetBytes()) + 64
+}
+
+func (b *batcher) pending() bool { return len(b.order) > 0 }
+
+func (b *batcher) reset() {
+	b.byTask = make(map[string][]*podiumv1.TaskEvent)
+	b.order = b.order[:0]
+	b.bytes = 0
+}
+
+// capacityOf is what the node advertised in Hello, falling back to what enrollment recorded.
+func capacityOf(hello *podiumv1.Hello, node store.Node) store.NodeCapacity {
+	c := ptrCapacity(hello)
+	if c == nil {
+		return node.Capacity
+	}
+	return *c
+}
+
+func ptrCapacity(hello *podiumv1.Hello) *store.NodeCapacity {
+	c := hello.GetCapacity()
+	if c == nil {
+		return nil
+	}
+	return &store.NodeCapacity{
+		MaxTasks: c.GetMaxTasks(),
+		CPUCores: c.GetCpuCores(),
+		MemoryMB: c.GetMemoryMb(),
+	}
+}
