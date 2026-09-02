@@ -9,7 +9,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
-.PHONY: build test test-integration lint proto proto-lint proto-breaking fmt clean
+.PHONY: build test test-integration e2e lint proto proto-lint proto-breaking fmt clean
 
 build:
 	@mkdir -p bin
@@ -23,6 +23,12 @@ test:
 
 test-integration:
 	go test -tags integration ./...
+
+# End-to-end: a real Postgres (testcontainers), a real podium-server and podium-node, and
+# the CLI driven as a subprocess. Needs a working Docker engine. The test builds the
+# binaries it drives, so `build` is not a prerequisite.
+e2e:
+	go test -tags e2e ./test/e2e/... -count=1 -timeout 30m -v
 
 lint:
 	golangci-lint run

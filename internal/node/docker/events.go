@@ -85,7 +85,16 @@ type emitter struct {
 }
 
 func newEmitter(ctx context.Context, ch chan<- Event) *emitter {
-	return &emitter{ctx: ctx, ch: ch}
+	return newEmitterAt(ctx, ch, 0)
+}
+
+// newEmitterAt starts the sequence space just above base, which is how an
+// adopted task continues the numbering a previous daemon incarnation left off
+// at instead of colliding with the rows the server already has.
+func newEmitterAt(ctx context.Context, ch chan<- Event, base uint64) *emitter {
+	e := &emitter{ctx: ctx, ch: ch}
+	e.seq.Store(base)
+	return e
 }
 
 func (e *emitter) emit(kind string, payload any) {

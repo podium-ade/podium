@@ -47,9 +47,10 @@ type Options struct {
 
 // Executor runs task containers on one Docker engine.
 type Executor struct {
-	cli     *client.Client
-	dataDir string
-	log     *slog.Logger
+	cli           *client.Client
+	dataDir       string
+	serverVersion string
+	log           *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -111,12 +112,21 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 	)
 
 	return &Executor{
-		cli:     cli,
-		dataDir: opts.DataDir,
-		log:     logger,
-		runs:    make(map[string]*runState),
+		cli:           cli,
+		dataDir:       opts.DataDir,
+		serverVersion: info.ServerVersion,
+		log:           logger,
+		runs:          make(map[string]*runState),
 	}, nil
 }
+
+// ServerVersion is the Docker Engine version this executor negotiated with, which the
+// node reports at enrollment.
+func (e *Executor) ServerVersion() string { return e.serverVersion }
+
+// TaskDir is the per-task state directory inside the data dir. It is created by Run and
+// removed by Teardown; the node daemon keeps its sequence-space bookmark there.
+func (e *Executor) TaskDir(taskID string) string { return e.taskDir(taskID) }
 
 // Close releases the Docker client. It does not stop running tasks.
 func (e *Executor) Close() error {

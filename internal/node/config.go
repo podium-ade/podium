@@ -1,0 +1,194 @@
+// Package node is the podium-node daemon: it holds the node's identity, keeps one
+// bidirectional stream to the control plane, and turns each Assign into a container run
+// whose events are batched, buffered and replayed until the server acks them.
+package node
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	yaml "go.yaml.in/yaml/v3"
+)
+
+// DefaultConfigPath is where podium-node looks for its config file when --config is not
+// given. A missing file there is not an error: the daemon is fully configurable by
+// environment.
+const DefaultConfigPath = "/etc/podium/node.yaml"
+
+// Config defaults, as declared in plans/steps/00-index.md.
+const (
+	DefaultServer                  = "http://127.0.0.1:8080"
+	DefaultTransport               = "dev"
+	DefaultDataDir                 = "/var/lib/podium-node"
+	DefaultMaxTasks                = 4
+	DefaultImageCacheHighWatermark = 0.80
+	DefaultMetricsListen           = "127.0.0.1:9091"
+)
+
+// The transports podium-node understands. tailnet arrives in step 11.
+const (
+	TransportDev     = "dev"
+	TransportTailnet = "tailnet"
+	TransportHost    = "host"
+)
+
+// Config is the whole of podium-node's configuration: /etc/podium/node.yaml overlaid by
+// PODIUM_NODE_* environment variables, which in turn are overlaid by flags.
+type Config struct {
+	// Server is the control plane base URL, PODIUM_NODE_SERVER.
+	Server string `yaml:"server"`
+	// Transport is PODIUM_NODE_TRANSPORT: dev only in MVP-0.
+	Transport string `yaml:"transport"`
+	// DataDir holds the node identity and each task's state, PODIUM_NODE_DATA_DIR.
+	DataDir string `yaml:"data_dir"`
+	// Labels are advertised at enrollment and used for scheduling, PODIUM_NODE_LABELS
+	// (comma-separated).
+	Labels []string `yaml:"labels"`
+	// MaxTasks is the concurrency budget the scheduler assigns against,
+	// PODIUM_NODE_MAX_TASKS. Zero would mean this node never gets work.
+	MaxTasks int `yaml:"max_tasks"`
+	// EnrollToken is consumed on the first run only, PODIUM_NODE_ENROLL_TOKEN.
+	EnrollToken string `yaml:"enroll_token"`
+	// DevToken is the shared bearer token of the dev transport, PODIUM_NODE_DEV_TOKEN.
+	DevToken string `yaml:"dev_token"`
+	// ImageCacheHighWatermark is recorded for step 12's LRU prune; nothing reads it yet.
+	ImageCacheHighWatermark float64 `yaml:"image_cache_high_watermark"`
+	// MetricsListen serves /healthz, /readyz and /metrics, PODIUM_NODE_METRICS_LISTEN.
+	MetricsListen string `yaml:"metrics_listen"`
+	// DockerHost overrides the engine endpoint, PODIUM_NODE_DOCKER_HOST. Empty means
+	// the usual DOCKER_HOST / docker context / default socket resolution.
+	DockerHost string `yaml:"docker_host"`
+}
+
+// DefaultConfig is the configuration a node with no file and no environment runs with.
+func DefaultConfig() Config {
+	return Config{
+		Server:                  DefaultServer,
+		Transport:               DefaultTransport,
+		DataDir:                 DefaultDataDir,
+		MaxTasks:                DefaultMaxTasks,
+		ImageCacheHighWatermark: DefaultImageCacheHighWatermark,
+		MetricsListen:           DefaultMetricsListen,
+	}
+}
+
+// LoadConfig reads path (or DefaultConfigPath when path is empty) over the defaults and
+// then applies the environment. A file that was explicitly asked for must exist; the
+// default one need not.
+func LoadConfig(path string) (Config, error) {
+	cfg := DefaultConfig()
+	explicit := path != ""
+	if !explicit {
+		path = DefaultConfigPath
+	}
+
+	raw, err := os.ReadFile(path) //nolint:gosec // the operator names their own config file
+	switch {
+	case err == nil:
+		if err := yaml.Unmarshal(raw, &cfg); err != nil {
+			return Config{}, fmt.Errorf("parse node config %s: %w", path, err)
+		}
+	case errors.Is(err, os.ErrNotExist) && !explicit:
+		// Environment-only configuration is a supported deployment.
+	default:
+		return Config{}, fmt.Errorf("read node config %s: %w", path, err)
+	}
+
+	applyEnv(&cfg)
+	return cfg, nil
+}
+
+// applyEnv overlays the PODIUM_NODE_* variables. An unset or empty variable leaves the
+// file's value alone, so a config file and a partial environment compose.
+func applyEnv(cfg *Config) {
+	envString("PODIUM_NODE_SERVER", &cfg.Server)
+	envString("PODIUM_NODE_TRANSPORT", &cfg.Transport)
+	envString("PODIUM_NODE_DATA_DIR", &cfg.DataDir)
+	envString("PODIUM_NODE_ENROLL_TOKEN", &cfg.EnrollToken)
+	envString("PODIUM_NODE_DEV_TOKEN", &cfg.DevToken)
+	envString("PODIUM_NODE_METRICS_LISTEN", &cfg.MetricsListen)
+	envString("PODIUM_NODE_DOCKER_HOST", &cfg.DockerHost)
+
+	if v := os.Getenv("PODIUM_NODE_LABELS"); v != "" {
+		cfg.Labels = splitLabels(v)
+	}
+	if v := os.Getenv("PODIUM_NODE_MAX_TASKS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.MaxTasks = n
+		}
+	}
+	if v := os.Getenv("PODIUM_NODE_IMAGE_CACHE_HIGH_WATERMARK"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.ImageCacheHighWatermark = f
+		}
+	}
+}
+
+func envString(key string, dst *string) {
+	if v := os.Getenv(key); v != "" {
+		*dst = v
+	}
+}
+
+func splitLabels(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Validate reports the first thing that would stop the daemon from starting, in words an
+// operator can act on. It also creates the data directory, because "is it writable" has no
+// answer that does not involve trying.
+func (c *Config) Validate() error {
+	if strings.TrimSpace(c.Server) == "" {
+		return errors.New("server is empty: set PODIUM_NODE_SERVER (for example http://127.0.0.1:8080) " +
+			"or `server:` in " + DefaultConfigPath)
+	}
+	if !strings.HasPrefix(c.Server, "http://") && !strings.HasPrefix(c.Server, "https://") {
+		return fmt.Errorf("server %q must be an http:// or https:// URL", c.Server)
+	}
+	switch c.Transport {
+	case TransportDev:
+		if c.DevToken == "" {
+			return errors.New("dev_token is empty: set PODIUM_NODE_DEV_TOKEN to the server's PODIUM_DEV_TOKEN")
+		}
+	case TransportTailnet, TransportHost:
+		return fmt.Errorf("transport %q is not implemented yet (step 11); use %s", c.Transport, TransportDev)
+	default:
+		return fmt.Errorf("transport %q is not a transport (want %s)", c.Transport, TransportDev)
+	}
+	if c.MaxTasks < 1 {
+		return fmt.Errorf("max_tasks is %d: a node with no slots never gets work; set PODIUM_NODE_MAX_TASKS to 1 or more", c.MaxTasks)
+	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		return errors.New("data_dir is empty: set PODIUM_NODE_DATA_DIR (for example /var/lib/podium-node)")
+	}
+	if err := checkWritableDir(c.DataDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkWritableDir creates dir if it is missing and proves the daemon can write in it.
+func checkWritableDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("data_dir %s is not usable: %w (create it, or point PODIUM_NODE_DATA_DIR somewhere writable)", dir, err)
+	}
+	probe := filepath.Join(dir, ".podium-write-probe")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("data_dir %s is not writable: %w (fix its ownership, or point PODIUM_NODE_DATA_DIR somewhere writable)", dir, err)
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return nil
+}
