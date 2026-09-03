@@ -4,24 +4,48 @@ bin/
 *.exe
 *.test
 *.out
+*.prof
+*.pprof
 coverage.*
+
+# Local-only Go workspace files. Committing these breaks CI for everyone else.
+go.work
+go.work.sum
 
 # Web app. web/dist is build output, but the directory itself must exist and be non-empty:
 # //go:embed of a missing or empty directory is a compile error, so a clone that has never run
 # pnpm would fail `go build ./...` without the placeholder.
-web/node_modules/
+node_modules/
 web/dist/*
 !web/dist/.gitkeep
 web/*.tsbuildinfo
 web/playwright-report/
+web/blob-report/
 web/test-results/
+vite.config.ts.timestamp-*
+vitest.config.ts.timestamp-*
 
 # Local environment / secrets
 .env
 .env.*
+.envrc
+
+# A podium-node data_dir holds identity.json, which contains the node_key — a live credential
+# the server only ever returns once. Never let one that was pointed at the repo get committed.
+identity.json
+/node-data/
+/nodedata/
+/.podium/
+
+# Docker Desktop drops this scaffold into whatever directory a client runs from.
+.air/
 
 # Editors and OS
 .DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
 .idea/
 .vscode/
 
