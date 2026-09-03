@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -92,18 +95,60 @@ func (f *follower) once(ctx context.Context) (bool, error) {
 	return progressed, nil
 }
 
-// writeLog sends a log chunk to the stream it came from, so `podium run … > out.txt`
-// captures the task's stdout and nothing else.
-func writeLog(stdout, stderr io.Writer, e *podiumv1.TaskEvent) {
+// logPrinter routes a task's log chunks to the right stream. The task's own output goes
+// to the corresponding stream of this process, so `podium run … > out.txt` captures the
+// task's stdout and nothing else; a sidecar's output is not the task's, so it goes to
+// stderr prefixed with the sidecar's name.
+//
+// Chunks are bytes, not lines, and one may end mid-line, so a prefixed source keeps its
+// unterminated tail until the next chunk completes it.
+type logPrinter struct {
+	stdout, stderr io.Writer
+	partial        map[string][]byte
+}
+
+func newLogPrinter(stdout, stderr io.Writer) *logPrinter {
+	return &logPrinter{stdout: stdout, stderr: stderr, partial: make(map[string][]byte)}
+}
+
+func (p *logPrinter) write(e *podiumv1.TaskEvent) {
 	chunk := e.GetLog()
 	if chunk == nil {
 		return
 	}
-	w := stdout
-	if chunk.GetStream() == podiumv1.LogChunk_STREAM_STDERR {
-		w = stderr
+	switch chunk.GetStream() {
+	case podiumv1.LogChunk_STREAM_SIDECAR:
+		p.writePrefixed(chunk.GetSidecarName(), chunk.GetBytes())
+	case podiumv1.LogChunk_STREAM_STDERR:
+		_, _ = p.stderr.Write(chunk.GetBytes())
+	default:
+		_, _ = p.stdout.Write(chunk.GetBytes())
 	}
-	_, _ = w.Write(chunk.GetBytes())
+}
+
+// writePrefixed emits every complete line of a sidecar's output as "[name] line".
+func (p *logPrinter) writePrefixed(name string, b []byte) {
+	buf := append(p.partial[name], b...)
+	for {
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			break
+		}
+		fmt.Fprintf(p.stderr, "[%s] %s\n", name, buf[:i])
+		buf = buf[i+1:]
+	}
+	p.partial[name] = append([]byte(nil), buf...)
+}
+
+// flush prints whatever never got its newline, so the last line of a sidecar that dies
+// mid-write is not swallowed.
+func (p *logPrinter) flush() {
+	for _, name := range slices.Sorted(maps.Keys(p.partial)) {
+		if len(p.partial[name]) > 0 {
+			fmt.Fprintf(p.stderr, "[%s] %s\n", name, p.partial[name])
+		}
+	}
+	clear(p.partial)
 }
 
 // getTaskWithRetry reads a task back, tolerating a control plane that is still coming

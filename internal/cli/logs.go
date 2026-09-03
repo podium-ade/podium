@@ -41,11 +41,14 @@ func newLogsCommand(e *env) *cobra.Command {
 }
 
 func followLogs(ctx context.Context, e *env, taskID string, fromSeq uint64) error {
+	out := newLogPrinter(e.stdout, e.stderr)
+	defer out.flush()
+
 	f := &follower{
 		tasks:   e.client.tasks,
 		taskID:  taskID,
 		lastSeq: fromSeq,
-		onEvent: func(ev *podiumv1.TaskEvent) { writeLog(e.stdout, e.stderr, ev) },
+		onEvent: out.write,
 	}
 	if err := f.follow(ctx); err != nil {
 		return &ExitError{Code: ExitInfra, Err: err}
@@ -80,6 +83,9 @@ func printLogs(ctx context.Context, e *env, taskID string, fromSeq uint64) error
 		}
 	}()
 
+	out := newLogPrinter(e.stdout, e.stderr)
+	defer out.flush()
+
 	idle := time.NewTimer(idleStop)
 	defer idle.Stop()
 	for {
@@ -88,7 +94,7 @@ func printLogs(ctx context.Context, e *env, taskID string, fromSeq uint64) error
 			if !ok {
 				return nil
 			}
-			writeLog(e.stdout, e.stderr, ev)
+			out.write(ev)
 			if !idle.Stop() {
 				select {
 				case <-idle.C:

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -25,12 +26,15 @@ const cancelGrace = 30 * time.Second
 
 // Container labels applied to every resource the executor creates.
 const (
-	LabelTask  = "podium.task"
-	LabelLease = "podium.lease"
-	LabelRole  = "podium.role"
+	LabelTask    = "podium.task"
+	LabelLease   = "podium.lease"
+	LabelRole    = "podium.role"
+	LabelSidecar = "podium.sidecar"
 
 	// RoleTask marks the single task container of a run.
 	RoleTask = "task"
+	// RoleSidecar marks a sibling container the task talks to by name.
+	RoleSidecar = "sidecar"
 )
 
 // Options configures [New].
@@ -56,7 +60,13 @@ type Executor struct {
 	// sockDir holds the runner event sockets when the data dir is too deep to fit an
 	// AF_UNIX path; empty means they live in the task's own state directory.
 	sockDir string
-	log     *slog.Logger
+	// directDial is true when this process can reach a task network's bridge itself,
+	// which is only so when the daemon runs natively on this Linux host. Readiness
+	// probes fall back to ContainerExec everywhere else — notably Docker Desktop, where
+	// the engine lives in a VM and a dial to a container address hangs rather than
+	// failing.
+	directDial bool
+	log        *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -125,6 +135,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 	}
 
 	logger.Info("docker executor ready",
+		"readiness_probe", probeStyle(canDialTaskNetworks(runtime.GOOS, info.OSType)),
 		"api_version", cli.ClientVersion(),
 		"server_version", info.ServerVersion,
 		"cgroup_version", info.CgroupVersion,
@@ -140,6 +151,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		serverVersion: info.ServerVersion,
 		runnerPath:    runnerPath,
 		sockDir:       sockDir,
+		directDial:    canDialTaskNetworks(runtime.GOOS, info.OSType),
 		log:           logger,
 		runs:          make(map[string]*runState),
 	}, nil
@@ -189,6 +201,21 @@ func checkEngine(apiVersion string, info system.Info) error {
 	default:
 		return fmt.Errorf("docker engine: unsupported cgroup version %q; podium requires cgroup v2", info.CgroupVersion)
 	}
+}
+
+// canDialTaskNetworks reports whether this process shares a network namespace with the
+// engine's bridges, which is what makes a direct dial to a container's task-network
+// address work. Only a Linux daemon on a Linux engine does; a darwin or Windows host
+// talks to an engine inside a VM whose bridges it cannot route to at all.
+func canDialTaskNetworks(hostOS, engineOS string) bool {
+	return hostOS == "linux" && engineOS == "linux"
+}
+
+func probeStyle(direct bool) string {
+	if direct {
+		return "dial"
+	}
+	return "exec"
 }
 
 func networkName(taskID string) string { return "podium-" + taskID }

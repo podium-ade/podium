@@ -54,10 +54,12 @@ indistinguishable from an infrastructure failure or a cancellation. Use `podium 
 | Stream | Carries |
 |---|---|
 | stdout | the task's stdout for `run` and `logs`; command output (tables, JSON, IDs) for everything else |
-| stderr | the task's stderr for `run` and `logs`; Podium's own progress lines, prefixed `→` and dimmed on a terminal |
+| stderr | the task's stderr for `run` and `logs`; every sidecar's output, prefixed `[name]`; Podium's own progress lines, prefixed `→` and dimmed on a terminal |
 
 So `podium run … > out.txt` captures exactly the task's stdout, and
-`TOKEN=$(podium node enroll-token)` captures exactly the token.
+`TOKEN=$(podium node enroll-token)` captures exactly the token. A sidecar's output is not
+the task's, so it goes to stderr: a database's startup chatter never lands in a redirect
+meant for the task's own results.
 
 ## Commands
 
@@ -89,6 +91,21 @@ Everything after `--` is the command. Progress lines on stderr:
 → finished exit 3 in 5.2s
 ```
 
+A task with sidecars reports each one's lifecycle and streams its output, both on stderr:
+
+```
+→ task task_01j…
+→ scheduled on node_01j…
+→ sidecar/db started
+[db] PostgreSQL init process complete; ready for start up.
+[db] LOG:  database system is ready to accept connections
+→ sidecar/db ready
+→ running
+```
+
+Sidecars, resource limits and hardening are spec-file fields with no flag equivalent; see
+[task-spec.md](task-spec.md) and `examples/postgres-sidecar.yaml`.
+
 `run` reconnects to the event stream on its own if the control plane restarts mid-task,
 resuming from the last sequence number it printed, so the output has no gap.
 
@@ -111,7 +128,8 @@ in a couple of seconds.
 
 ### `podium logs [-f] [--from-seq N] TASK_ID`
 
-Prints a task's output, stdout and stderr on the matching local streams. `--from-seq` is
+Prints a task's output, stdout and stderr on the matching local streams, and each sidecar's
+output on stderr prefixed with `[name]`. `--from-seq` is
 **exclusive**: the output resumes at `N+1`, so passing the last sequence number you saw
 gives you the next one and no repeat. Without `-f` the command stops once it has caught up;
 with `-f` it follows until the task is terminal, reconnecting on its own if the stream

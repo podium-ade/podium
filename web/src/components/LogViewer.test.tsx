@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { LogViewer } from "./LogViewer";
 import { LogChunk_Stream } from "../gen/podium/v1/node_pb";
 import { Accumulator, type LogLine } from "../lib/logs";
-import { logEvent, stderr, stdout } from "../test/events";
+import { logEvent, sidecarLogEvent, stderr, stdout } from "../test/events";
 
 type Chunk = [number, LogChunk_Stream, string];
 
@@ -31,6 +31,21 @@ function withGeometry(el: HTMLElement, clientHeight: number, scrollHeight: numbe
 }
 
 describe("LogViewer", () => {
+  it("names the sidecar a line came from", () => {
+    const acc = new Accumulator();
+    const lines = [
+      ...acc.append(logEvent(1, stdout, "connecting\n")),
+      ...acc.append(sidecarLogEvent(2, "db", "ready to accept connections\n")),
+      ...acc.append(sidecarLogEvent(3, "cache", "Ready to accept\n")),
+    ];
+    render(<LogViewer lines={lines} phase="streaming" taskId="task_1" />);
+    expect(texts()).toEqual([
+      "connecting",
+      "[db] ready to accept connections",
+      "[cache] Ready to accept",
+    ]);
+  });
+
   it("renders lines in seq order with the stream on each row", () => {
     render(<LogViewer lines={mixed} phase="streaming" taskId="task_1" />);
     expect(texts()).toEqual(["tick 1", "warn: disk", "tick 2", "tick 3"]);

@@ -25,8 +25,9 @@ const (
 
 // Log stream names carried by [LogPayload].
 const (
-	StreamStdout = "stdout"
-	StreamStderr = "stderr"
+	StreamStdout  = "stdout"
+	StreamStderr  = "stderr"
+	StreamSidecar = "sidecar"
 )
 
 // Event is one ordered observation about a running task. Seq starts at 1 for
@@ -39,10 +40,13 @@ type Event struct {
 }
 
 // LogPayload carries one demultiplexed chunk of container output. Bytes is
-// owned by the receiver and is never reused.
+// owned by the receiver and is never reused. Sidecar names which sidecar the
+// chunk came from and is empty for the task container itself; it is only ever
+// set when Stream is StreamSidecar.
 type LogPayload struct {
-	Stream string
-	Bytes  []byte
+	Stream  string
+	Sidecar string
+	Bytes   []byte
 }
 
 // PullingPayload reports image pull progress. Current and Total are bytes and
@@ -55,9 +59,9 @@ type PullingPayload struct {
 	Total   int64
 }
 
-// StepPayload carries a structured event the runner reported over its event socket. In
-// this slice the runner emits none of its own: the kind exists so that a runner newer than
-// its node still delivers something the server can store instead of nothing.
+// StepPayload carries a structured event: a sidecar reaching a lifecycle milestone
+// ("sidecar/<name>" with status started, ready or failed), or anything the runner reported
+// over its event socket that this node does not otherwise understand.
 type StepPayload struct {
 	Name     string
 	Status   string

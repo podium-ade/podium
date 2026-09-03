@@ -89,18 +89,25 @@ correlated but not redundant: `provisioning`, `pulling` and `started` have no pa
 | `TASK_EVENT_KIND_PULLING` | — | yes |
 | `TASK_EVENT_KIND_STARTED` | — | yes |
 | `TASK_EVENT_KIND_LOG` | `LogChunk` | yes |
-| `TASK_EVENT_KIND_STEP` | `Step` | **no — reserved**, arrives with the runner (step 04) |
+| `TASK_EVENT_KIND_STEP` | `Step` | yes — a sidecar's lifecycle, `name: "sidecar/<name>"`, `status: started \| ready \| failed` |
 | `TASK_EVENT_KIND_ARTIFACT` | *(no message defined)* | **no — reserved**, arrives with step 10 |
 | `TASK_EVENT_KIND_EXITED` | `Exited{exit_code, oom_killed}` | yes |
 | `TASK_EVENT_KIND_FINISHED` | `Finished{exit_code, usage}` | yes |
 | `TASK_EVENT_KIND_ERROR` | `Error{message, retryable}` | yes |
 
-`STEP` and `ARTIFACT` are in the enum because the value list is contractual and enum numbers
-must never be reused. `Step` exists as a message; there is deliberately **no `Artifact`
-message** until step 10 adds one.
+`ARTIFACT` is in the enum because the value list is contractual and enum numbers must never
+be reused; there is deliberately **no `Artifact` message** until step 10 adds one. `Step` is
+also what the runner's event socket forwards for any kind a node does not otherwise
+understand (see [runner-events.md](runner-events.md)).
 
 `LogChunk.stream` keeps `STREAM_STDOUT`, `STREAM_STDERR` and `STREAM_SIDECAR`;
-`sidecar_name` is set only for the third, which nothing emits until step 08.
+`sidecar_name` is set only for the third and names the sidecar the output came from.
+
+A task with sidecars produces `step` and sidecar `log` events **before** `started`: the
+sidecars are brought up and waited for during provisioning, and the task container is not
+created until they are ready. `started` still means "the task command has been forked", and
+`exited`/`finished` are still the last two events of a successful run — a sidecar's log
+stream is stopped before them.
 
 ## Status mapping
 
@@ -110,6 +117,7 @@ The server derives `tasks.status` from event kinds:
 |---|---|
 | `provisioning` | `scheduled → provisioning` |
 | `started` | `provisioning → running`, sets `started_at` |
+| `exited` with `oom_killed` | no transition; the following terminal transition sets `failure_reason = "oom"` |
 | `finished` | `running → succeeded` (exit 0) or `failed`, sets `finished_at`, `exit_code`, `usage` |
 | `error` with `retryable = false` | `→ failed` |
 

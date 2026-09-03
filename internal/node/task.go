@@ -61,10 +61,12 @@ func (n *Node) adoptTask(buf *buffer) {
 	})
 }
 
-// pendingLog is the run of output being coalesced into the next log event.
+// pendingLog is the run of output being coalesced into the next log event. A run belongs
+// to one source: a stream of the task container, or one sidecar.
 type pendingLog struct {
-	stream string
-	data   []byte
+	stream  string
+	sidecar string
+	data    []byte
 }
 
 // execute drives one container run: it consumes the executor's event channel, coalesces
@@ -83,7 +85,7 @@ func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
 		if len(pend.data) == 0 {
 			return
 		}
-		n.push(buf, logEvent(pend.stream, pend.data))
+		n.push(buf, logEvent(pend.stream, pend.sidecar, pend.data))
 		pend = pendingLog{}
 	}
 
@@ -147,10 +149,10 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush fun
 		if !ok {
 			return
 		}
-		if pend.stream != "" && pend.stream != p.Stream {
+		if pend.stream != "" && (pend.stream != p.Stream || pend.sidecar != p.Sidecar) {
 			flush()
 		}
-		pend.stream = p.Stream
+		pend.stream, pend.sidecar = p.Stream, p.Sidecar
 		pend.data = append(pend.data, p.Bytes...)
 		if len(pend.data) >= coalesceBytes {
 			flush()

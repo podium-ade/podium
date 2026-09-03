@@ -46,6 +46,26 @@ PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium \
 
 Then enroll a node and run something — see **[docs/node-setup.md](docs/node-setup.md)**.
 
+A task can bring its own environment with it:
+
+```sh
+podium run --spec examples/postgres-sidecar.yaml
+→ task task_01m1jsfzne7c8v1p1n4h4rjkq3
+→ scheduled on node_01m1jsfze5svgz819kp98rp6fb
+→ sidecar/db started
+[db] LOG:  database system is ready to accept connections
+→ sidecar/db ready
+→ running
+ ?column?
+----------
+        1
+(1 row)
+→ finished exit 0 in 200ms
+```
+
+A sidecar is a sibling container on the task's private network, addressed by name — `psql -h db`
+— started before the task and waited for. See [docs/task-spec.md](docs/task-spec.md).
+
 Open <http://127.0.0.1:8080> for the UI. Under the `dev` transport it asks once for the bearer
 token (`devtoken` above) and keeps it in `localStorage`; on a tailnet that prompt never appears,
 because Tailscale has already said who you are.
@@ -78,6 +98,7 @@ Podium enrollment token are not the same thing).
 - **[docs/networking.md](docs/networking.md)** — the tailnet transport, identity, ACL, the two keys
 - **[docs/node-setup.md](docs/node-setup.md)** — setting up a worker node
 - [docs/cli.md](docs/cli.md) — CLI reference, exit codes and streams (contractual)
+- [docs/task-spec.md](docs/task-spec.md) — the task spec: sidecars, readiness, limits, hardening
 - [docs/protocol.md](docs/protocol.md) — the node↔server stream, event ordering and acks
 - [docs/runner-events.md](docs/runner-events.md) — `podium-runner` as PID 1 and its event socket
 
@@ -128,7 +149,13 @@ This is an early slice. Known and deliberate:
 - **The tailnet transport is unproven in the wild.** It is implemented and unit-tested, but it
   has not yet been run against a real tailnet — that needs tagged auth keys and HTTPS enabled on
   the tailnet. The `host` transport is likewise unverified. The `dev` transport is the tested one.
-- **No secrets, sidecars, resource limits, or artifacts.**
+- **No secrets and no artifacts.** Sidecars, resource limits and container hardening are
+  implemented — see [`docs/task-spec.md`](docs/task-spec.md) — but a task cannot yet be given a
+  credential, and nothing it produces is collected.
+- **No egress policy.** A task's network reaches its own sidecars and the internet, and nothing
+  else on the host or the tailnet. Narrowing that is not implemented.
+- **A CPU limit is not visible inside the container.** `nproc` reports the host's cores whatever
+  `resources.cpu` says, because a CPU quota is not namespaced.
 - **No lease expiry or reconciliation** — nothing marks a task `lost` or reschedules one whose
   node vanished, and `timeout` in a task spec is not enforced.
 - **A task adopted after a node restart loses its runner event socket** for the rest of the run

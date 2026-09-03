@@ -160,7 +160,15 @@ type TaskSpec struct {
 	// Defaults to 1h.
 	Timeout *durationpb.Duration `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// Defaults to 1.
-	MaxAttempts   int32 `protobuf:"varint,7,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	MaxAttempts int32 `protobuf:"varint,7,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	// Sibling containers started before the task, keyed by the DNS name the task reaches
+	// them under on the task network. "task" is reserved.
+	Sidecars map[string]*Sidecar `protobuf:"bytes,8,rep,name=sidecars,proto3" json:"sidecars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Limits applied to the task container.
+	Resources *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
+	// The task container's sandbox. Capabilities are all dropped and no-new-privileges is
+	// always set; these fields are the only dials.
+	Hardening     *Hardening `protobuf:"bytes,10,opt,name=hardening,proto3" json:"hardening,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -244,6 +252,305 @@ func (x *TaskSpec) GetMaxAttempts() int32 {
 	return 0
 }
 
+func (x *TaskSpec) GetSidecars() map[string]*Sidecar {
+	if x != nil {
+		return x.Sidecars
+	}
+	return nil
+}
+
+func (x *TaskSpec) GetResources() *Resources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+func (x *TaskSpec) GetHardening() *Hardening {
+	if x != nil {
+		return x.Hardening
+	}
+	return nil
+}
+
+// Resources caps one container. The node applies the limits blindly; refusing a task that
+// asks for more than a node has is the scheduler's job.
+type Resources struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Cores. 0.5 means half a core; 0 means unlimited.
+	Cpu float64 `protobuf:"fixed64,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	// Memory cap in MB. Swap is pinned to the same value, so a container never swaps.
+	MemoryMb int64 `protobuf:"varint,2,opt,name=memory_mb,json=memoryMb,proto3" json:"memory_mb,omitempty"`
+	// Maximum process count. Defaults to 4096.
+	Pids          int32 `protobuf:"varint,3,opt,name=pids,proto3" json:"pids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Resources) Reset() {
+	*x = Resources{}
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Resources) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Resources) ProtoMessage() {}
+
+func (x *Resources) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Resources.ProtoReflect.Descriptor instead.
+func (*Resources) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Resources) GetCpu() float64 {
+	if x != nil {
+		return x.Cpu
+	}
+	return 0
+}
+
+func (x *Resources) GetMemoryMb() int64 {
+	if x != nil {
+		return x.MemoryMb
+	}
+	return 0
+}
+
+func (x *Resources) GetPids() int32 {
+	if x != nil {
+		return x.Pids
+	}
+	return 0
+}
+
+// Readiness is how the node decides a sidecar is usable. At most one probe may be set; a
+// sidecar with none is ready as soon as its container is running.
+type Readiness struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	TcpPort  int32                  `protobuf:"varint,1,opt,name=tcp_port,json=tcpPort,proto3" json:"tcp_port,omitempty"`
+	HttpPath string                 `protobuf:"bytes,2,opt,name=http_path,json=httpPath,proto3" json:"http_path,omitempty"`
+	// Defaults to 80 when http_path is set.
+	HttpPort int32    `protobuf:"varint,3,opt,name=http_port,json=httpPort,proto3" json:"http_port,omitempty"`
+	Command  []string `protobuf:"bytes,4,rep,name=command,proto3" json:"command,omitempty"`
+	// Defaults to 60s.
+	Timeout       *durationpb.Duration `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Readiness) Reset() {
+	*x = Readiness{}
+	mi := &file_podium_v1_common_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Readiness) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Readiness) ProtoMessage() {}
+
+func (x *Readiness) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Readiness.ProtoReflect.Descriptor instead.
+func (*Readiness) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Readiness) GetTcpPort() int32 {
+	if x != nil {
+		return x.TcpPort
+	}
+	return 0
+}
+
+func (x *Readiness) GetHttpPath() string {
+	if x != nil {
+		return x.HttpPath
+	}
+	return ""
+}
+
+func (x *Readiness) GetHttpPort() int32 {
+	if x != nil {
+		return x.HttpPort
+	}
+	return 0
+}
+
+func (x *Readiness) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *Readiness) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+// Sidecar is a sibling container on the task's network.
+type Sidecar struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Image         string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
+	Command       []string               `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"`
+	Env           map[string]string      `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Readiness     *Readiness             `protobuf:"bytes,4,opt,name=readiness,proto3" json:"readiness,omitempty"`
+	Resources     *Resources             `protobuf:"bytes,5,opt,name=resources,proto3" json:"resources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Sidecar) Reset() {
+	*x = Sidecar{}
+	mi := &file_podium_v1_common_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Sidecar) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Sidecar) ProtoMessage() {}
+
+func (x *Sidecar) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Sidecar.ProtoReflect.Descriptor instead.
+func (*Sidecar) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Sidecar) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
+}
+
+func (x *Sidecar) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *Sidecar) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *Sidecar) GetReadiness() *Readiness {
+	if x != nil {
+		return x.Readiness
+	}
+	return nil
+}
+
+func (x *Sidecar) GetResources() *Resources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+// Hardening relaxes or tightens the task container's sandbox.
+type Hardening struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// When true the image's filesystem is read-only; /workspace and /tmp stay writable.
+	ReadOnlyRootfs bool `protobuf:"varint,1,opt,name=read_only_rootfs,json=readOnlyRootfs,proto3" json:"read_only_rootfs,omitempty"`
+	// Capabilities added back after all are dropped. Restricted to CHOWN, DAC_OVERRIDE,
+	// FOWNER, SETUID, SETGID, NET_BIND_SERVICE and KILL.
+	Capabilities  []string `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Hardening) Reset() {
+	*x = Hardening{}
+	mi := &file_podium_v1_common_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Hardening) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Hardening) ProtoMessage() {}
+
+func (x *Hardening) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Hardening.ProtoReflect.Descriptor instead.
+func (*Hardening) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Hardening) GetReadOnlyRootfs() bool {
+	if x != nil {
+		return x.ReadOnlyRootfs
+	}
+	return false
+}
+
+func (x *Hardening) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 // Usage is the resource accounting reported when a task finishes.
 type Usage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -256,7 +563,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -268,7 +575,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -281,7 +588,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Usage) GetCpuSeconds() float64 {
@@ -317,7 +624,7 @@ type NodeCapacity struct {
 
 func (x *NodeCapacity) Reset() {
 	*x = NodeCapacity{}
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -329,7 +636,7 @@ func (x *NodeCapacity) String() string {
 func (*NodeCapacity) ProtoMessage() {}
 
 func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -342,7 +649,7 @@ func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeCapacity.ProtoReflect.Descriptor instead.
 func (*NodeCapacity) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *NodeCapacity) GetMaxTasks() int32 {
@@ -370,7 +677,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xb3\x02\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xab\x04\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -379,10 +686,39 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\x03env\x18\x04 \x03(\v2\x1c.podium.v1.TaskSpec.EnvEntryR\x03env\x12\x16\n" +
 	"\x06labels\x18\x05 \x03(\tR\x06labels\x123\n" +
 	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12!\n" +
-	"\fmax_attempts\x18\a \x01(\x05R\vmaxAttempts\x1a6\n" +
+	"\fmax_attempts\x18\a \x01(\x05R\vmaxAttempts\x12=\n" +
+	"\bsidecars\x18\b \x03(\v2!.podium.v1.TaskSpec.SidecarsEntryR\bsidecars\x122\n" +
+	"\tresources\x18\t \x01(\v2\x14.podium.v1.ResourcesR\tresources\x122\n" +
+	"\thardening\x18\n" +
+	" \x01(\v2\x14.podium.v1.HardeningR\thardening\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"g\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +
+	"\rSidecarsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"N\n" +
+	"\tResources\x12\x10\n" +
+	"\x03cpu\x18\x01 \x01(\x01R\x03cpu\x12\x1b\n" +
+	"\tmemory_mb\x18\x02 \x01(\x03R\bmemoryMb\x12\x12\n" +
+	"\x04pids\x18\x03 \x01(\x05R\x04pids\"\xaf\x01\n" +
+	"\tReadiness\x12\x19\n" +
+	"\btcp_port\x18\x01 \x01(\x05R\atcpPort\x12\x1b\n" +
+	"\thttp_path\x18\x02 \x01(\tR\bhttpPath\x12\x1b\n" +
+	"\thttp_port\x18\x03 \x01(\x05R\bhttpPort\x12\x18\n" +
+	"\acommand\x18\x04 \x03(\tR\acommand\x123\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x88\x02\n" +
+	"\aSidecar\x12\x14\n" +
+	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
+	"\acommand\x18\x02 \x03(\tR\acommand\x12-\n" +
+	"\x03env\x18\x03 \x03(\v2\x1b.podium.v1.Sidecar.EnvEntryR\x03env\x122\n" +
+	"\treadiness\x18\x04 \x01(\v2\x14.podium.v1.ReadinessR\treadiness\x122\n" +
+	"\tresources\x18\x05 \x01(\v2\x14.podium.v1.ResourcesR\tresources\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"Y\n" +
+	"\tHardening\x12(\n" +
+	"\x10read_only_rootfs\x18\x01 \x01(\bR\x0ereadOnlyRootfs\x12\"\n" +
+	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\"g\n" +
 	"\x05Usage\x12\x1f\n" +
 	"\vcpu_seconds\x18\x01 \x01(\x01R\n" +
 	"cpuSeconds\x12$\n" +
@@ -426,24 +762,38 @@ func file_podium_v1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_podium_v1_common_proto_goTypes = []any{
 	(TaskStatus)(0),             // 0: podium.v1.TaskStatus
 	(NodeStatus)(0),             // 1: podium.v1.NodeStatus
 	(*TaskSpec)(nil),            // 2: podium.v1.TaskSpec
-	(*Usage)(nil),               // 3: podium.v1.Usage
-	(*NodeCapacity)(nil),        // 4: podium.v1.NodeCapacity
-	nil,                         // 5: podium.v1.TaskSpec.EnvEntry
-	(*durationpb.Duration)(nil), // 6: google.protobuf.Duration
+	(*Resources)(nil),           // 3: podium.v1.Resources
+	(*Readiness)(nil),           // 4: podium.v1.Readiness
+	(*Sidecar)(nil),             // 5: podium.v1.Sidecar
+	(*Hardening)(nil),           // 6: podium.v1.Hardening
+	(*Usage)(nil),               // 7: podium.v1.Usage
+	(*NodeCapacity)(nil),        // 8: podium.v1.NodeCapacity
+	nil,                         // 9: podium.v1.TaskSpec.EnvEntry
+	nil,                         // 10: podium.v1.TaskSpec.SidecarsEntry
+	nil,                         // 11: podium.v1.Sidecar.EnvEntry
+	(*durationpb.Duration)(nil), // 12: google.protobuf.Duration
 }
 var file_podium_v1_common_proto_depIdxs = []int32{
-	5, // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
-	6, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	9,  // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
+	12, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
+	10, // 2: podium.v1.TaskSpec.sidecars:type_name -> podium.v1.TaskSpec.SidecarsEntry
+	3,  // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
+	6,  // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
+	12, // 5: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
+	11, // 6: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
+	4,  // 7: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
+	3,  // 8: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
+	5,  // 9: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_common_proto_init() }
@@ -457,7 +807,7 @@ func file_podium_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_common_proto_rawDesc), len(file_podium_v1_common_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   4,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
