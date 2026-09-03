@@ -19,14 +19,18 @@ const (
 // legalTransitions is the task state graph. Everything not listed here is rejected with
 // ErrInvalidTransition.
 //
-//	queued        -> scheduled | cancelled
+//	queued        -> scheduled | failed | cancelled
 //	scheduled     -> provisioning | failed | cancelled | lost | queued
 //	provisioning  -> running      | failed | cancelled | lost | queued
 //	running       -> succeeded    | failed | cancelled | lost | queued
 //
+// queued -> failed exists because a task can be found un-runnable before anything is
+// scheduled: step 09's scheduler resolves the task's secrets before it assigns, and a
+// reference to a name that does not exist fails the task without a node ever seeing it.
+//
 // Requeueing (-> queued) additionally requires attempts < max_attempts.
 var legalTransitions = map[Status][]Status{
-	StatusQueued:       {StatusScheduled, StatusCancelled},
+	StatusQueued:       {StatusScheduled, StatusFailed, StatusCancelled},
 	StatusScheduled:    {StatusProvisioning, StatusFailed, StatusCancelled, StatusLost, StatusQueued},
 	StatusProvisioning: {StatusRunning, StatusFailed, StatusCancelled, StatusLost, StatusQueued},
 	StatusRunning:      {StatusSucceeded, StatusFailed, StatusCancelled, StatusLost, StatusQueued},

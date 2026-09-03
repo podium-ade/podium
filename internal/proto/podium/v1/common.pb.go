@@ -168,7 +168,10 @@ type TaskSpec struct {
 	Resources *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
 	// The task container's sandbox. Capabilities are all dropped and no-new-privileges is
 	// always set; these fields are the only dials.
-	Hardening     *Hardening `protobuf:"bytes,10,opt,name=hardening,proto3" json:"hardening,omitempty"`
+	Hardening *Hardening `protobuf:"bytes,10,opt,name=hardening,proto3" json:"hardening,omitempty"`
+	// Named secrets the task needs. The spec carries names only; the values are resolved
+	// by the server immediately before the assignment and never stored on the task.
+	Secrets       []*SecretRef `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -273,6 +276,79 @@ func (x *TaskSpec) GetHardening() *Hardening {
 	return nil
 }
 
+func (x *TaskSpec) GetSecrets() []*SecretRef {
+	if x != nil {
+		return x.Secrets
+	}
+	return nil
+}
+
+// SecretRef names a stored secret and says where the task wants it. Nothing here is
+// sensitive: it is the name of a value, never the value.
+type SecretRef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the key the secret is stored under.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// target is "env" or "file".
+	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// key is the environment variable name for target "env", or the absolute path the
+	// value is mounted at for target "file".
+	Key           string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretRef) Reset() {
+	*x = SecretRef{}
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretRef) ProtoMessage() {}
+
+func (x *SecretRef) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_common_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretRef.ProtoReflect.Descriptor instead.
+func (*SecretRef) Descriptor() ([]byte, []int) {
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SecretRef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SecretRef) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *SecretRef) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
 // Resources caps one container. The node applies the limits blindly; refusing a task that
 // asks for more than a node has is the scheduler's job.
 type Resources struct {
@@ -289,7 +365,7 @@ type Resources struct {
 
 func (x *Resources) Reset() {
 	*x = Resources{}
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -301,7 +377,7 @@ func (x *Resources) String() string {
 func (*Resources) ProtoMessage() {}
 
 func (x *Resources) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[1]
+	mi := &file_podium_v1_common_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -314,7 +390,7 @@ func (x *Resources) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Resources.ProtoReflect.Descriptor instead.
 func (*Resources) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{1}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Resources) GetCpu() float64 {
@@ -355,7 +431,7 @@ type Readiness struct {
 
 func (x *Readiness) Reset() {
 	*x = Readiness{}
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -367,7 +443,7 @@ func (x *Readiness) String() string {
 func (*Readiness) ProtoMessage() {}
 
 func (x *Readiness) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[2]
+	mi := &file_podium_v1_common_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -380,7 +456,7 @@ func (x *Readiness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Readiness.ProtoReflect.Descriptor instead.
 func (*Readiness) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{2}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Readiness) GetTcpPort() int32 {
@@ -432,7 +508,7 @@ type Sidecar struct {
 
 func (x *Sidecar) Reset() {
 	*x = Sidecar{}
-	mi := &file_podium_v1_common_proto_msgTypes[3]
+	mi := &file_podium_v1_common_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +520,7 @@ func (x *Sidecar) String() string {
 func (*Sidecar) ProtoMessage() {}
 
 func (x *Sidecar) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[3]
+	mi := &file_podium_v1_common_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +533,7 @@ func (x *Sidecar) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Sidecar.ProtoReflect.Descriptor instead.
 func (*Sidecar) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{3}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Sidecar) GetImage() string {
@@ -509,7 +585,7 @@ type Hardening struct {
 
 func (x *Hardening) Reset() {
 	*x = Hardening{}
-	mi := &file_podium_v1_common_proto_msgTypes[4]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -521,7 +597,7 @@ func (x *Hardening) String() string {
 func (*Hardening) ProtoMessage() {}
 
 func (x *Hardening) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[4]
+	mi := &file_podium_v1_common_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -534,7 +610,7 @@ func (x *Hardening) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hardening.ProtoReflect.Descriptor instead.
 func (*Hardening) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{4}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Hardening) GetReadOnlyRootfs() bool {
@@ -563,7 +639,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_podium_v1_common_proto_msgTypes[5]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -575,7 +651,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[5]
+	mi := &file_podium_v1_common_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -588,7 +664,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{5}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Usage) GetCpuSeconds() float64 {
@@ -624,7 +700,7 @@ type NodeCapacity struct {
 
 func (x *NodeCapacity) Reset() {
 	*x = NodeCapacity{}
-	mi := &file_podium_v1_common_proto_msgTypes[6]
+	mi := &file_podium_v1_common_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -636,7 +712,7 @@ func (x *NodeCapacity) String() string {
 func (*NodeCapacity) ProtoMessage() {}
 
 func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_common_proto_msgTypes[6]
+	mi := &file_podium_v1_common_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -649,7 +725,7 @@ func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeCapacity.ProtoReflect.Descriptor instead.
 func (*NodeCapacity) Descriptor() ([]byte, []int) {
-	return file_podium_v1_common_proto_rawDescGZIP(), []int{6}
+	return file_podium_v1_common_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *NodeCapacity) GetMaxTasks() int32 {
@@ -677,7 +753,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xab\x04\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xdb\x04\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -690,13 +766,18 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\bsidecars\x18\b \x03(\v2!.podium.v1.TaskSpec.SidecarsEntryR\bsidecars\x122\n" +
 	"\tresources\x18\t \x01(\v2\x14.podium.v1.ResourcesR\tresources\x122\n" +
 	"\thardening\x18\n" +
-	" \x01(\v2\x14.podium.v1.HardeningR\thardening\x1a6\n" +
+	" \x01(\v2\x14.podium.v1.HardeningR\thardening\x12.\n" +
+	"\asecrets\x18\v \x03(\v2\x14.podium.v1.SecretRefR\asecrets\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +
 	"\rSidecarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"N\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"I\n" +
+	"\tSecretRef\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\"N\n" +
 	"\tResources\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\x01R\x03cpu\x12\x1b\n" +
 	"\tmemory_mb\x18\x02 \x01(\x03R\bmemoryMb\x12\x12\n" +
@@ -762,38 +843,40 @@ func file_podium_v1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_podium_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_podium_v1_common_proto_goTypes = []any{
 	(TaskStatus)(0),             // 0: podium.v1.TaskStatus
 	(NodeStatus)(0),             // 1: podium.v1.NodeStatus
 	(*TaskSpec)(nil),            // 2: podium.v1.TaskSpec
-	(*Resources)(nil),           // 3: podium.v1.Resources
-	(*Readiness)(nil),           // 4: podium.v1.Readiness
-	(*Sidecar)(nil),             // 5: podium.v1.Sidecar
-	(*Hardening)(nil),           // 6: podium.v1.Hardening
-	(*Usage)(nil),               // 7: podium.v1.Usage
-	(*NodeCapacity)(nil),        // 8: podium.v1.NodeCapacity
-	nil,                         // 9: podium.v1.TaskSpec.EnvEntry
-	nil,                         // 10: podium.v1.TaskSpec.SidecarsEntry
-	nil,                         // 11: podium.v1.Sidecar.EnvEntry
-	(*durationpb.Duration)(nil), // 12: google.protobuf.Duration
+	(*SecretRef)(nil),           // 3: podium.v1.SecretRef
+	(*Resources)(nil),           // 4: podium.v1.Resources
+	(*Readiness)(nil),           // 5: podium.v1.Readiness
+	(*Sidecar)(nil),             // 6: podium.v1.Sidecar
+	(*Hardening)(nil),           // 7: podium.v1.Hardening
+	(*Usage)(nil),               // 8: podium.v1.Usage
+	(*NodeCapacity)(nil),        // 9: podium.v1.NodeCapacity
+	nil,                         // 10: podium.v1.TaskSpec.EnvEntry
+	nil,                         // 11: podium.v1.TaskSpec.SidecarsEntry
+	nil,                         // 12: podium.v1.Sidecar.EnvEntry
+	(*durationpb.Duration)(nil), // 13: google.protobuf.Duration
 }
 var file_podium_v1_common_proto_depIdxs = []int32{
-	9,  // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
-	12, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
-	10, // 2: podium.v1.TaskSpec.sidecars:type_name -> podium.v1.TaskSpec.SidecarsEntry
-	3,  // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
-	6,  // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
-	12, // 5: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
-	11, // 6: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
-	4,  // 7: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
-	3,  // 8: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
-	5,  // 9: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	10, // 0: podium.v1.TaskSpec.env:type_name -> podium.v1.TaskSpec.EnvEntry
+	13, // 1: podium.v1.TaskSpec.timeout:type_name -> google.protobuf.Duration
+	11, // 2: podium.v1.TaskSpec.sidecars:type_name -> podium.v1.TaskSpec.SidecarsEntry
+	4,  // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
+	7,  // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
+	3,  // 5: podium.v1.TaskSpec.secrets:type_name -> podium.v1.SecretRef
+	13, // 6: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
+	12, // 7: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
+	5,  // 8: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
+	4,  // 9: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
+	6,  // 10: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_common_proto_init() }
@@ -807,7 +890,7 @@ func file_podium_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_common_proto_rawDesc), len(file_podium_v1_common_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

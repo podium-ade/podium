@@ -50,6 +50,9 @@ type Request struct {
 	TaskID  string
 	LeaseID string
 	Spec    spec.TaskSpec
+	// Secrets are the resolved values of Spec.Secrets. SENSITIVE: they are plaintext,
+	// they are never logged, and Run zeroes them once the container has started.
+	Secrets []Secret
 }
 
 // Usage is a best-effort resource accounting for a finished task.
@@ -168,17 +171,29 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	defer link.close()
 
+	// Secrets are staged last, so the smallest possible window exists between a
+	// plaintext landing on the node's disk and the container that consumes it starting.
+	secretsStaged, err := e.stageSecrets(req.TaskID, req.Secrets)
+	if err != nil {
+		return Result{}, err
+	}
+	defer func() {
+		for i := range req.Secrets {
+			zero(req.Secrets[i].Value)
+		}
+	}()
+
 	initFalse := false
 	cfg := &container.Config{
 		Image:      req.Spec.Image,
 		Entrypoint: strslice.StrSlice{},
 		Cmd:        append([]string{runnerTarget, "--"}, command...),
 		WorkingDir: workdir,
-		Env:        containerEnv(req, workdir),
+		Env:        append(containerEnv(req, workdir), secretsStaged.env...),
 		Labels:     labels,
 	}
 	hostCfg := &container.HostConfig{
-		Mounts: []mount.Mount{
+		Mounts: append([]mount.Mount{
 			{
 				Type:   mount.TypeVolume,
 				Source: volumeName(req.TaskID),
@@ -190,7 +205,7 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 				Target:   runnerTarget,
 				ReadOnly: true,
 			},
-		},
+		}, secretsStaged.mounts...),
 		// The event socket goes in the legacy Binds form on purpose. Docker Desktop
 		// validates a Mounts-style bind by stat-ing the source through its file-sharing
 		// namespace, where Unix sockets are not visible, and rejects every socket source
@@ -329,6 +344,15 @@ func (e *Executor) exitedOOM(ctx context.Context, cid string, exitCode int, memo
 	}
 }
 
+// zero overwrites a plaintext the executor is finished with. It is the same best-effort
+// hygiene as secrets.Zero on the server side, kept here so internal/node/docker does not
+// import a server package.
+func zero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 func (e *Executor) mkTaskDir(taskID string) error {
 	if err := os.MkdirAll(e.taskDir(taskID), 0o700); err != nil {
 		return fmt.Errorf("create task dir for %s: %w", taskID, err)
@@ -336,6 +360,9 @@ func (e *Executor) mkTaskDir(taskID string) error {
 	return nil
 }
 
+// containerEnv is a pure function of the spec: the spec's own env, sorted, plus the four
+// PODIUM_ variables. Secret env entries are deliberately appended by the caller instead,
+// so this stays sorted and reproducible.
 func containerEnv(req Request, workdir string) []string {
 	keys := make([]string, 0, len(req.Spec.Env))
 	for k := range req.Spec.Env {

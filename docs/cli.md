@@ -77,6 +77,7 @@ podium run --spec task.yaml --detach                                     # print
 | `--image` | container image |
 | `--label` | node label the task requires (repeatable) |
 | `--env KEY=VALUE` | environment variable for the task (repeatable) |
+| `--secret REF` | secret to inject: `NAME`, `NAME:env:KEY` or `NAME:file:/abs/path` (repeatable) |
 | `--timeout` | task timeout (default 1h) |
 | `--working-dir` | working directory inside the container (default `/workspace`) |
 | `--spec FILE` | task spec YAML; flags override its fields |
@@ -105,6 +106,15 @@ A task with sidecars reports each one's lifecycle and streams its output, both o
 
 Sidecars, resource limits and hardening are spec-file fields with no flag equivalent; see
 [task-spec.md](task-spec.md) and `examples/postgres-sidecar.yaml`.
+
+`--secret NAME` is the common case and means "put it in an environment variable of the same
+name". A task that names a secret which does not exist fails before it reaches a node, and
+`→ failed: …` says which one.
+
+**Secret values are redacted from the task's output**, on the node, before anything is sent.
+So `podium run --secret GREETING -- sh -c 'echo $GREETING'` prints `[redacted:GREETING]`,
+not the value — there is one log path and the value does not travel it. See
+[task-spec.md](task-spec.md#redaction).
 
 `run` reconnects to the event stream on its own if the control plane restarts mid-task,
 resuming from the last sequence number it printed, so the output has no gap.
@@ -152,6 +162,77 @@ The token is shown once. The server keeps only its SHA-256.
 
 This is Podium's own enrollment token, not a Tailscale auth key — a worker needs both, and they
 are different things. See [networking.md](networking.md#the-two-keys-which-are-not-the-same-thing).
+
+### `podium secret set NAME [--value V | --from-file FILE]`
+
+Creates or replaces a secret. The value comes from stdin unless a flag names another source.
+
+```sh
+printf %s 'hunter2' | podium secret set DB_PASSWORD
+podium secret set DEPLOY_KEY --from-file ~/.ssh/id_ed25519
+podium secret set GREETING --value hello        # warns: this is in your shell history
+```
+
+- Stdin loses **one** trailing newline, because typing or echoing a value adds one.
+  `--from-file` and `--value` are taken byte for byte, so a PEM file or a binary key
+  survives intact.
+- Setting an existing name replaces the value and bumps its version. Tasks already assigned
+  keep the value they were given.
+- `NAME` must match `^[A-Za-z_][A-Za-z0-9_.-]*$`.
+- The server needs a master key (`PODIUM_MASTER_KEY_FILE`) or this fails with
+  `failed_precondition`. See [Secrets at rest](#secrets-at-rest).
+
+### `podium secret ls`
+
+Names, versions, the master key each row is encrypted under, who set it and when. **There is
+no `podium secret get`, and there will not be.** The only way a value comes back out is
+inside an `Assign`, on its way to the node running the task that referenced it.
+
+### `podium secret rm NAME`
+
+Deletes a secret. Tasks already assigned keep the value they were given; the next task that
+references the name fails before it reaches a node.
+
+## Secrets at rest
+
+The server encrypts every secret with AES-256-GCM under a 32-byte master key, with the
+secret's own name as additional authenticated data — so a ciphertext moved to another row
+fails to decrypt rather than quietly becoming a different secret. Postgres holds ciphertext
+and nonce and nothing else.
+
+```sh
+# Generate a key. --out writes it with mode 0600, which is what the server insists on.
+podium-server gen-master-key --out /etc/podium/master.key
+
+# Or to stdout, if you would rather place it yourself:
+(umask 077; podium-server gen-master-key > /etc/podium/master.key)
+
+PODIUM_MASTER_KEY_FILE=/etc/podium/master.key podium-server
+```
+
+- **The server refuses to start if the key file is readable by any other account.** A stray
+  `chmod 644` is the likeliest way for a master key to leak.
+- `PODIUM_MASTER_KEY` takes the key inline for development. The server warns loudly: an
+  environment variable is visible in `/proc`, in `docker inspect` and in crash dumps.
+- Without a key the server starts normally and secrets are simply unavailable — Podium is
+  still a task runner without them.
+- **There is no recovery path.** A lost master key is every secret encrypted under it lost
+  with it. Back the file up somewhere that is not the control-plane machine.
+
+### Rotating the master key
+
+```sh
+podium-server gen-master-key --out /etc/podium/master.key.new
+PODIUM_DATABASE_URL=… podium-server rotate-master-key \
+    --old /etc/podium/master.key --new /etc/podium/master.key.new
+# then point PODIUM_MASTER_KEY_FILE at the new file and restart
+```
+
+Every row is re-encrypted in one transaction, so the table is never half under one key and
+half under the other, and the rows are locked for the duration so a concurrent `secret set`
+waits rather than being clobbered. Afterwards the old key decrypts nothing; `podium secret
+ls` shows the new key id on every row. Rotation re-encrypts a value, it does not change it,
+so versions do not move.
 
 ### `podium node rekey NODE_ID`
 

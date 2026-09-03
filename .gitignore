@@ -37,6 +37,16 @@ identity.json
 /nodedata/
 /.podium/
 
+# The secrets master key. `podium-server gen-master-key --out FILE` writes 32 bytes that
+# decrypt every secret in the database, and docs/cli.md tells people to create one — so the
+# spellings that document leads to are ignored here. There is no recovery path: a committed
+# and then rotated key is a key that was public for as long as the commit existed.
+master.key
+master.key.*
+*.master.key
+/podium-master.key
+/secrets/
+
 # Docker Desktop drops this scaffold into whatever directory a client runs from.
 .air/
 

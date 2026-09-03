@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/alvaroibarguen/podium/internal/server/secrets"
 )
 
 // devToken is the shared bearer token every client in this package presents. It is a test
@@ -101,12 +103,25 @@ func newDatabase(t *testing.T) string {
 
 // harness is a running podium-server on a loopback port plus the clients to talk to it.
 type harness struct {
-	t     *testing.T
-	url   string
-	http  *http.Client
-	tasks podiumv1connect.TaskServiceClient
-	admin podiumv1connect.NodeAdminServiceClient
-	nodes podiumv1connect.NodeServiceClient
+	t           *testing.T
+	url         string
+	databaseURL string
+	http        *http.Client
+	tasks       podiumv1connect.TaskServiceClient
+	admin       podiumv1connect.NodeAdminServiceClient
+	nodes       podiumv1connect.NodeServiceClient
+	secrets     podiumv1connect.SecretServiceClient
+}
+
+// masterKeyFile writes a fresh 0600 master key for one harness. Every harness gets its own,
+// so a leaked test key is worth nothing and no test can decrypt another's rows.
+func masterKeyFile(t *testing.T) string {
+	t.Helper()
+	key, err := secrets.GenerateKey()
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "master.key")
+	require.NoError(t, secrets.WriteKeyFile(path, key))
+	return path
 }
 
 func newHarness(t *testing.T) *harness {
@@ -120,10 +135,11 @@ func newHarnessOn(t *testing.T, databaseURL string) *harness {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	srv, err := server.New(ctx, server.Config{
-		DatabaseURL: databaseURL,
-		Transport:   server.TransportDev,
-		DevListen:   "127.0.0.1:0",
-		DevToken:    devToken,
+		DatabaseURL:   databaseURL,
+		Transport:     server.TransportDev,
+		DevListen:     "127.0.0.1:0",
+		DevToken:      devToken,
+		MasterKeyFile: masterKeyFile(t),
 	}, logger)
 	require.NoError(t, err)
 	require.NoError(t, srv.Start(ctx))
@@ -136,12 +152,14 @@ func newHarnessOn(t *testing.T, databaseURL string) *harness {
 
 	client := h2cClient(devToken)
 	return &harness{
-		t:     t,
-		url:   srv.URL(),
-		http:  client,
-		tasks: podiumv1connect.NewTaskServiceClient(client, srv.URL()),
-		admin: podiumv1connect.NewNodeAdminServiceClient(client, srv.URL()),
-		nodes: podiumv1connect.NewNodeServiceClient(client, srv.URL()),
+		t:           t,
+		url:         srv.URL(),
+		databaseURL: databaseURL,
+		http:        client,
+		tasks:       podiumv1connect.NewTaskServiceClient(client, srv.URL()),
+		admin:       podiumv1connect.NewNodeAdminServiceClient(client, srv.URL()),
+		nodes:       podiumv1connect.NewNodeServiceClient(client, srv.URL()),
+		secrets:     podiumv1connect.NewSecretServiceClient(client, srv.URL()),
 	}
 }
 

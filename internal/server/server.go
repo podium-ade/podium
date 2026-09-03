@@ -22,6 +22,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/server/logs"
 	"github.com/alvaroibarguen/podium/internal/server/nodes"
 	"github.com/alvaroibarguen/podium/internal/server/scheduler"
+	"github.com/alvaroibarguen/podium/internal/server/secrets"
 	"github.com/alvaroibarguen/podium/internal/server/store"
 	"github.com/alvaroibarguen/podium/internal/transport"
 	"github.com/alvaroibarguen/podium/internal/transport/dev"
@@ -42,6 +43,7 @@ type Server struct {
 	transport transport.Listener
 	nodes     *nodes.Service
 	logs      *logs.Service
+	secrets   *secrets.Service
 	scheduler scheduler.Scheduler
 	http      *http.Server
 
@@ -58,6 +60,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("server config: %w", err)
+	}
+
+	masterKey, err := loadMasterKey(cfg, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	st, err := store.New(ctx, cfg.DatabaseURL)
@@ -79,6 +86,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	nodeSvc := nodes.NewService(st, logSvc, logger)
 	nodeSvc.SetAllowUntaggedNodes(cfg.TSAllowUntaggedNodes)
 	logSvc.SetSlots(nodeSvc.Registry())
+	secretSvc := secrets.New(st, masterKey, logger)
+	warnAboutPlaintextTransport(ctx, cfg, st, logger)
 	s := &Server{
 		cfg:       cfg,
 		logger:    logger,
@@ -86,7 +95,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		transport: listener,
 		nodes:     nodeSvc,
 		logs:      logSvc,
-		scheduler: scheduler.NewNaive(st, nodeSvc, logger),
+		secrets:   secretSvc,
+		scheduler: scheduler.NewNaive(st, nodeSvc, secretSvc, logger),
 		serveErr:  make(chan error, 1),
 	}
 	s.http = &http.Server{
@@ -139,6 +149,55 @@ func (u userStore) UpsertUser(ctx context.Context, login, displayName string) er
 	return err
 }
 
+// loadMasterKey resolves PODIUM_MASTER_KEY_FILE, then PODIUM_MASTER_KEY. Returning (nil,
+// nil) is legitimate and means secrets are disabled: this is still a task runner without
+// them, and demanding a key from every deployment that never uses one is a worse default
+// than saying so at the first SetSecret.
+func loadMasterKey(cfg Config, logger *slog.Logger) (*secrets.Key, error) {
+	if cfg.MasterKeyFile != "" {
+		key, err := secrets.LoadKeyFile(cfg.MasterKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("secrets enabled", "key_id", key.ID(), "source", "PODIUM_MASTER_KEY_FILE")
+		return key, nil
+	}
+	if cfg.MasterKey != "" {
+		key, err := secrets.ParseKey([]byte(cfg.MasterKey))
+		if err != nil {
+			return nil, fmt.Errorf("PODIUM_MASTER_KEY: %w", err)
+		}
+		logger.Warn("PODIUM_MASTER_KEY holds the master key in an environment variable, where " +
+			"every process that can read /proc, every `docker inspect` and every crash dump can see it. " +
+			"It decrypts every secret this server holds. Use PODIUM_MASTER_KEY_FILE with a 0600 file " +
+			"outside development.")
+		logger.Info("secrets enabled", "key_id", key.ID(), "source", "PODIUM_MASTER_KEY")
+		return key, nil
+	}
+	return nil, nil
+}
+
+// warnAboutPlaintextTransport says out loud what the dev transport costs once real secrets
+// exist. Assign carries resolved secret values in the clear and relies on the transport to
+// protect them: the tailnet transport is WireGuard, but the dev transport is plain HTTP.
+// It is bound to loopback for exactly this reason, and that is a property worth stating
+// rather than assuming. It never blocks startup.
+func warnAboutPlaintextTransport(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) {
+	if cfg.Transport != TransportDev {
+		return
+	}
+	rows, err := st.ListSecrets(ctx)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	logger.WarnContext(ctx, "PODIUM_TRANSPORT=dev serves plain HTTP, and an assignment carries "+
+		"resolved secret values in the clear. Anything that can read the loopback socket — another "+
+		"process on this machine, a packet capture, a proxy — sees them. This is why the dev "+
+		"transport refuses to bind anything but loopback. Use PODIUM_TRANSPORT=tailnet, whose "+
+		"WireGuard tunnel is what actually protects them, for anything beyond development.",
+		"secrets", len(rows), "listen", cfg.DevListen)
+}
+
 // readyProber is the optional half of a transport that has something of its own to report on
 // /readyz — for the tailnet transports, whether the device is still up and when its key expires.
 type readyProber interface {
@@ -172,6 +231,8 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(api.NewIdentityService(), opts...))
+	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
+		api.NewSecretService(s.secrets, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -193,6 +254,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeServiceName,
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
+		podiumv1connect.SecretServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
 	}

@@ -7,6 +7,8 @@ import (
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/server/nodes"
+	"github.com/alvaroibarguen/podium/internal/server/secrets"
+	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
 // Scheduler is the seam step 12 swaps. Run blocks until ctx is cancelled.
@@ -20,4 +22,11 @@ type Dispatcher interface {
 	Candidates() []nodes.Snapshot
 	// Assign pushes an assignment onto a node's stream.
 	Assign(ctx context.Context, nodeID string, a *podiumv1.Assign) error
+}
+
+// Resolver turns a task's secret references into the plaintext an Assign carries. It is
+// called immediately before the assignment and never earlier: a value should exist in
+// server memory for as short a time as possible.
+type Resolver interface {
+	Resolve(ctx context.Context, taskID string, refs []spec.SecretRef) ([]secrets.Resolved, error)
 }

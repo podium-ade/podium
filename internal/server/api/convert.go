@@ -38,16 +38,17 @@ var nodeStatusProto = map[store.NodeStatus]podiumv1.NodeStatus{
 
 func taskToProto(t store.Task) *podiumv1.Task {
 	out := &podiumv1.Task{
-		Id:          t.ID,
-		Spec:        t.Spec.ToProto(),
-		Status:      taskStatusProto[t.Status],
-		NodeId:      t.NodeID,
-		Attempts:    t.Attempts,
-		CreatedAt:   timestamppb.New(t.CreatedAt),
-		StartedAt:   timeToProto(t.StartedAt),
-		FinishedAt:  timeToProto(t.FinishedAt),
-		ExitCode:    t.ExitCode,
-		RequestedBy: t.RequestedBy,
+		Id:            t.ID,
+		Spec:          t.Spec.ToProto(),
+		Status:        taskStatusProto[t.Status],
+		NodeId:        t.NodeID,
+		Attempts:      t.Attempts,
+		CreatedAt:     timestamppb.New(t.CreatedAt),
+		StartedAt:     timeToProto(t.StartedAt),
+		FinishedAt:    timeToProto(t.FinishedAt),
+		ExitCode:      t.ExitCode,
+		RequestedBy:   t.RequestedBy,
+		FailureReason: t.FailureReason,
 	}
 	if t.Usage != nil {
 		out.Usage = &podiumv1.Usage{

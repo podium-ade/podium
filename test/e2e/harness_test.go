@@ -42,6 +42,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/node/docker"
 	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/alvaroibarguen/podium/internal/server/secrets"
 )
 
 // devToken is the shared bearer token every process in this package presents. It is a test
@@ -143,6 +144,9 @@ type harness struct {
 	t           *testing.T
 	addr        string
 	databaseURL string
+	// masterKeyFile is created once per harness and reused across restarts: a server that
+	// came back with a different master key could not decrypt anything it had stored.
+	masterKeyFile string
 
 	mu  sync.Mutex
 	srv *server.Server
@@ -150,10 +154,26 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := &harness{t: t, addr: freeLoopbackAddr(t), databaseURL: newDatabase(t)}
+	h := &harness{
+		t:             t,
+		addr:          freeLoopbackAddr(t),
+		databaseURL:   newDatabase(t),
+		masterKeyFile: newMasterKeyFile(t),
+	}
 	h.startServer()
 	t.Cleanup(h.stopServer)
 	return h
+}
+
+// newMasterKeyFile writes a fresh 0600 master key. Every harness gets its own, so a leaked
+// test key is worth nothing.
+func newMasterKeyFile(t *testing.T) string {
+	t.Helper()
+	key, err := secrets.GenerateKey()
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "master.key")
+	require.NoError(t, secrets.WriteKeyFile(path, key))
+	return path
 }
 
 func (h *harness) url() string { return "http://" + h.addr }
@@ -171,10 +191,11 @@ func (h *harness) startServer() {
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		srv, err = server.New(context.Background(), server.Config{
-			DatabaseURL: h.databaseURL,
-			Transport:   server.TransportDev,
-			DevListen:   h.addr,
-			DevToken:    devToken,
+			DatabaseURL:   h.databaseURL,
+			Transport:     server.TransportDev,
+			DevListen:     h.addr,
+			DevToken:      devToken,
+			MasterKeyFile: h.masterKeyFile,
 		}, logger)
 		if err == nil {
 			err = srv.Start(context.Background())
@@ -227,12 +248,27 @@ func (h *harness) podiumOK(args ...string) string {
 
 func runCLI(t *testing.T, serverURL string, timeout time.Duration, args ...string) (int, string, string, error) {
 	t.Helper()
+	return runCLIWithStdin(t, serverURL, timeout, "", args...)
+}
+
+// runCLIStdin pipes stdin into the CLI, which is how `podium secret set` is meant to be
+// driven: the value never reaches the argument vector or the shell's history.
+func runCLIStdin(t *testing.T, serverURL, stdin string, args ...string) (int, string, string, error) {
+	t.Helper()
+	return runCLIWithStdin(t, serverURL, 3*time.Minute, stdin, args...)
+}
+
+func runCLIWithStdin(
+	t *testing.T, serverURL string, timeout time.Duration, stdin string, args ...string,
+) (int, string, string, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	full := append([]string{"--server", serverURL, "--token", devToken}, args...)
 	cmd := exec.CommandContext(ctx, filepath.Join(binDir, "podium"), full...)
 	var stdout, stderr bytes.Buffer
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 

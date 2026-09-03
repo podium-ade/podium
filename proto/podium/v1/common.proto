@@ -48,6 +48,21 @@ message TaskSpec {
   // The task container's sandbox. Capabilities are all dropped and no-new-privileges is
   // always set; these fields are the only dials.
   Hardening hardening = 10;
+  // Named secrets the task needs. The spec carries names only; the values are resolved
+  // by the server immediately before the assignment and never stored on the task.
+  repeated SecretRef secrets = 11;
+}
+
+// SecretRef names a stored secret and says where the task wants it. Nothing here is
+// sensitive: it is the name of a value, never the value.
+message SecretRef {
+  // name is the key the secret is stored under.
+  string name = 1;
+  // target is "env" or "file".
+  string target = 2;
+  // key is the environment variable name for target "env", or the absolute path the
+  // value is mounted at for target "file".
+  string key = 3;
 }
 
 // Resources caps one container. The node applies the limits blindly; refusing a task that

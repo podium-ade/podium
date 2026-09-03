@@ -351,3 +351,82 @@ func TestProtoRoundTripWithSidecars(t *testing.T) {
 	require.NoError(t, want.Validate())
 	assert.Equal(t, want, FromProto(want.ToProto()))
 }
+
+func TestApplyDefaultsFillsTheSecretTarget(t *testing.T) {
+	s := &TaskSpec{
+		Image:   "alpine:3",
+		Secrets: []SecretRef{{Name: "GREETING", Key: "GREETING"}, {Name: "PEM", Target: "file", Key: "/podium/secrets/pem"}},
+	}
+	s.ApplyDefaults()
+	assert.Equal(t, SecretTargetEnv, s.Secrets[0].Target, "an unset target means env")
+	assert.Equal(t, SecretTargetFile, s.Secrets[1].Target, "an explicit target is never overwritten")
+	require.NoError(t, s.Validate())
+}
+
+func TestValidateSecrets(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  SecretRef
+		want string
+	}{
+		{"env ok", SecretRef{Name: "GREETING", Target: "env", Key: "GREETING"}, ""},
+		{"file ok", SecretRef{Name: "PEM", Target: "file", Key: "/podium/secrets/pem"}, ""},
+		{"dotted name ok", SecretRef{Name: "acme.deploy-key_1", Target: "env", Key: "KEY"}, ""},
+		{"empty name", SecretRef{Target: "env", Key: "K"}, "secrets[0].name is required"},
+		{"bad name", SecretRef{Name: "no spaces", Target: "env", Key: "K"}, "is not a valid secret name"},
+		{"empty target", SecretRef{Name: "A", Key: "K"}, "secrets[0].target is required"},
+		{"bad target", SecretRef{Name: "A", Target: "vault", Key: "K"}, `target "vault" is not a secret target`},
+		{"empty env key", SecretRef{Name: "A", Target: "env"}, "name the environment variable"},
+		{"bad env key", SecretRef{Name: "A", Target: "env", Key: "not-an-identifier"}, "not a valid shell identifier"},
+		{"empty file key", SecretRef{Name: "A", Target: "file"}, "name the absolute path"},
+		{"relative file key", SecretRef{Name: "A", Target: "file", Key: "secrets/pem"}, "must be an absolute path"},
+		{"unclean file key", SecretRef{Name: "A", Target: "file", Key: "/podium/../etc/passwd"}, "must be a clean path"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &TaskSpec{Image: "alpine:3", Timeout: Duration(time.Hour), MaxAttempts: 1, Secrets: []SecretRef{tc.ref}}
+			err := s.Validate()
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestParseSecretsFromYAML(t *testing.T) {
+	const doc = `
+image: alpine:3
+secrets:
+  - name: GREETING
+    key: GREETING
+  - name: DEPLOY_KEY
+    target: file
+    key: /podium/secrets/deploy_key
+`
+	got, err := ParseTaskSpec(strings.NewReader(doc))
+	require.NoError(t, err)
+	require.Len(t, got.Secrets, 2)
+	assert.Equal(t, SecretRef{Name: "GREETING", Target: "env", Key: "GREETING"}, got.Secrets[0])
+	assert.Equal(t, SecretRef{Name: "DEPLOY_KEY", Target: "file", Key: "/podium/secrets/deploy_key"}, got.Secrets[1])
+}
+
+func TestProtoRoundTripWithSecrets(t *testing.T) {
+	in := &TaskSpec{
+		Image: "alpine:3",
+		Secrets: []SecretRef{
+			{Name: "GREETING", Target: "env", Key: "GREETING"},
+			{Name: "PEM", Target: "file", Key: "/podium/secrets/pem"},
+		},
+	}
+	in.ApplyDefaults()
+	require.NoError(t, in.Validate())
+
+	got := FromProto(in.ToProto())
+	assert.Equal(t, in.Secrets, got.Secrets)
+
+	// A spec's secrets are names, never values: podium.v1.SecretRef has no value field,
+	// which is what makes a stored tasks.spec safe to read.
+	assert.Nil(t, in.ToProto().GetSecrets()[0].ProtoReflect().Descriptor().Fields().ByName("value"))
+}

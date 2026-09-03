@@ -14,6 +14,7 @@ labels: [linux/arm64]              # node labels the task requires
 timeout: 1h                        # default
 max_attempts: 1                    # default
 
+secrets: []                        # see below
 sidecars: {}                       # see below
 resources: {}                      # see below
 hardening: {}                      # see below
@@ -23,6 +24,78 @@ hardening: {}                      # see below
 `env` keys must be valid shell identifiers.
 
 A complete example is `examples/postgres-sidecar.yaml`.
+
+## Secrets
+
+A secret is stored once with `podium secret set NAME` and referenced by name. The spec
+never carries a value — only the name and where the task wants it.
+
+```yaml
+secrets:
+  - name: DB_PASSWORD          # required: the name it was stored under
+    target: env                # env (default) or file
+    key: PGPASSWORD            # required: the variable name, or the path for a file
+  - name: DEPLOY_KEY
+    target: file
+    key: /podium/secrets/deploy_key
+```
+
+`podium run` has a shorthand for the same thing:
+
+```sh
+podium run --secret DB_PASSWORD                              # env DB_PASSWORD
+podium run --secret DB_PASSWORD:env:PGPASSWORD               # env PGPASSWORD
+podium run --secret DEPLOY_KEY:file:/podium/secrets/key      # a file
+```
+
+- `name` must match `^[A-Za-z_][A-Za-z0-9_.-]*$`. `key` is required — Podium will not guess
+  which variable or path you meant.
+- `target: env` puts the value in an environment variable. `key` must be a shell identifier.
+  Secret variables are appended after the spec's own `env` block, so a secret always wins
+  over a plaintext `env` entry of the same name.
+- `target: file` writes the value to `key` inside the container, mode `0400`, mounted
+  read-only. `key` must be an absolute, clean path. Put it under `/podium/secrets/`: that is
+  a `noexec,nosuid`, 1 MB tmpfs every task container already has, so the value lives in
+  memory and dies with the container.
+- The values are resolved by the server immediately before the task is assigned, travel
+  inside the `Assign` message, and exist on the node only for as long as the container runs.
+  They are never written to `tasks.spec`, never returned by any API, and never logged.
+- **A name that does not exist fails the task before it reaches a node**, with
+  `failure_reason: missing secret "NAME"`. One missing name fails the whole task; a task
+  running with half its credentials is worse than one that does not run.
+- **A task's secrets are not given to its sidecars.** A sidecar that needs a credential
+  still has to take it from a plaintext `env:` entry. Per-sidecar secrets are the obvious
+  next step and are not implemented.
+
+Values are redacted from the task's logs on the node, before a chunk is buffered or sent —
+see [Redaction](#redaction).
+
+### Redaction
+
+Every secret value of 8 bytes or more, plus its base64 and URL-encoded forms, is replaced
+with `[redacted:NAME]` in the task's `stdout`, `stderr` and sidecar log streams. A match
+straddling a chunk boundary is caught: the node holds back up to 256 trailing bytes when
+they could be the beginning of a value.
+
+This happens on the node, so a redacted value never crosses the network at all — which also
+means `podium run` shows you `[redacted:NAME]` and not the value. There is one log path and
+the value does not travel it.
+
+**Redaction is defence in depth, not a guarantee.** It is string matching. A task that
+gzips its credential, prints it one character per line, hex-encodes it, or leaks it through
+a length or a timing is not covered, and no redactor could cover it. The controls that
+actually matter are that a value only ever reaches the node running the task that asked for
+it, that it lives in a tmpfs and in process memory, and that it is never written to the
+database. Redaction catches the common accident — a task echoing its environment, a client
+library logging a connection URL — and should not be relied on for more.
+
+Two limits worth knowing:
+
+- A value shorter than 8 bytes is not redacted at all. Matching two or three bytes would
+  destroy a task's output and protect nothing worth protecting.
+- **A task adopted after a node restart loses its redactor**, because the values were in the
+  previous incarnation's memory. The container keeps working — its environment and mounted
+  files are untouched — but anything it prints from then on reaches the server unredacted.
 
 ## Sidecars
 
@@ -114,7 +187,8 @@ Not negotiable, applied to every task container whatever this section says:
 - the engine's **default seccomp profile** — `unconfined` is not a spec field; a node that
   needs it is an operator decision, not a task's,
 - never `Privileged`, and the Docker socket is never mounted,
-- a tmpfs at `/podium/secrets`, mounted `noexec,nosuid,size=1m`.
+- a tmpfs at `/podium/secrets`, mounted `noexec,nosuid,size=1m`, which is where
+  [`target: file`](#secrets) secrets land.
 
 `capabilities` adds back a bounded set, spelled with or without the `CAP_` prefix and in any
 case:

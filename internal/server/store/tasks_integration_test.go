@@ -150,6 +150,7 @@ func TestTransitionEveryLegalEdge(t *testing.T) {
 
 	edges := []struct{ from, to Status }{
 		{StatusQueued, StatusScheduled},
+		{StatusQueued, StatusFailed},
 		{StatusQueued, StatusCancelled},
 		{StatusScheduled, StatusProvisioning},
 		{StatusScheduled, StatusFailed},

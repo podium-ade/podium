@@ -154,6 +154,10 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bo
 		}
 	}
 
+	// Shred before the directory goes: RemoveAll would unlink the staged secret files and
+	// leave their contents on the filesystem until the blocks were reused.
+	e.shredSecrets(taskID)
+
 	if err := os.RemoveAll(e.taskDir(taskID)); err != nil {
 		errs = append(errs, fmt.Errorf("remove task dir for %s: %w", taskID, err))
 	}
