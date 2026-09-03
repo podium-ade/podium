@@ -141,3 +141,77 @@ func TestLoggingAConfigLeaksNoToken(t *testing.T) {
 	assert.Contains(t, out, "api_token_set=true")
 	assert.Contains(t, out, "slack=true")
 }
+
+// ---------------------------------------------------------------------------
+// shared memory
+// ---------------------------------------------------------------------------
+
+// Memory is optional and off by default: an install with no memory service runs every turn
+// without one rather than refusing to start.
+func TestMemoryIsOffUnlessAURLIsGiven(t *testing.T) {
+	cfg := valid(t)
+	assert.False(t, cfg.MemoryEnabled())
+	require.NoError(t, cfg.Validate(), "no memory is a supported configuration")
+}
+
+func TestMemoryDefaults(t *testing.T) {
+	t.Setenv("PODIUM_AGENT_MEMORY_URL", "http://hindsight:8888")
+	t.Setenv("PODIUM_AGENT_MEMORY_API_KEY", "memtoken")
+	cfg := FromEnv()
+
+	assert.True(t, cfg.MemoryEnabled())
+	assert.Equal(t, DefaultMemoryTaskURL, cfg.MemoryTaskURL,
+		"a task reaches the host through the bridge gateway, not over the compose network")
+	assert.Equal(t, DefaultMemoryBank, cfg.MemoryBank)
+}
+
+func TestMemoryValidationNamesTheVariableThatIsWrong(t *testing.T) {
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		// Hindsight has no authentication until it is given a key, so a URL with no key is
+		// a memory anybody who can reach the port can read and rewrite.
+		{"no key", func(c *Config) { c.MemoryAPIKey = "" }, "PODIUM_AGENT_MEMORY_API_KEY"},
+		{"relative url", func(c *Config) { c.MemoryURL = "hindsight:8888" }, "PODIUM_AGENT_MEMORY_URL"},
+		{"url with a path", func(c *Config) { c.MemoryURL = "http://hindsight:8888/v1" }, "PODIUM_AGENT_MEMORY_URL"},
+		{"bad scheme", func(c *Config) { c.MemoryURL = "ftp://hindsight" }, "PODIUM_AGENT_MEMORY_URL"},
+		{"relative task url", func(c *Config) { c.MemoryTaskURL = "host.docker.internal:8888" },
+			"PODIUM_AGENT_MEMORY_TASK_URL"},
+		// The bank becomes a path segment in the MCP URL every turn is handed.
+		{"empty bank", func(c *Config) { c.MemoryBank = "" }, "PODIUM_AGENT_MEMORY_BANK"},
+		{"bank with a slash", func(c *Config) { c.MemoryBank = "podium/../default" }, "PODIUM_AGENT_MEMORY_BANK"},
+		{"bank with a space", func(c *Config) { c.MemoryBank = "my bank" }, "PODIUM_AGENT_MEMORY_BANK"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := valid(t)
+			cfg.MemoryURL = "http://hindsight:8888"
+			cfg.MemoryTaskURL = DefaultMemoryTaskURL
+			cfg.MemoryBank = DefaultMemoryBank
+			cfg.MemoryAPIKey = "memtoken"
+			tc.mut(&cfg)
+
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// The memory key is full read/write of every memory the organisation has, so it is one more
+// credential the Config must never print.
+func TestLoggingAConfigLeaksNoMemoryKey(t *testing.T) {
+	cfg := valid(t)
+	cfg.MemoryURL = "http://hindsight:8888"
+	cfg.MemoryAPIKey = "memtoken-secret"
+
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
+
+	out := buf.String()
+	assert.NotContains(t, out, "memtoken-secret")
+	assert.Contains(t, out, "memory_api_key_set=true")
+	assert.Contains(t, out, "http://hindsight:8888")
+}

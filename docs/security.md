@@ -64,6 +64,11 @@ What that does **not** buy you:
   database on the host's LAN — depends on the host's routing and firewall, and Docker's default
   bridge setup forwards it. **Assume it can.** This has never been tested and nothing in Podium
   restricts it. If a worker sits on a network that matters, firewall it at the host.
+- **The host is now reachable by name from every task.** Every task container is created with
+  `host.docker.internal` mapped to the engine's bridge gateway, because a turn has to reach the
+  agents' shared memory on the control-plane host. It was already reachable *by IP* — the
+  bullet above — so this is not new access; it is new convenience, and it applies to every
+  task, not only an agent one. Sidecars deliberately do not get the entry.
 - **Sidecars are not hardened like the task container.** They keep their capabilities and their
   writable root filesystem, because a stock database image chowns files and drops privileges on
   the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task.
@@ -132,6 +137,43 @@ delete secrets and delete nodes.
   overwritten by the next. Only the last four characters of the key are ever stored outside the
   secret store, and there is no read endpoint: `podium secret rm
   podium.agent.anthropic_api_key` is the CLI equivalent of the UI's Remove.
+- **Shared memory is a prompt-injection amplifier.** Every turn reads and writes one memory
+  bank, so a fact planted by one poisoned turn — out of a Slack message, a ticket, a README in a
+  cloned repository — is recalled by every later turn, including turns for other people in other
+  channels. Nothing in this track detects that. The mitigations are all human or advisory:
+  provenance on every item (`session_id`, `turn_id`, `task_id`, `source_ref`, `source_url`), the
+  Memory tab where a person can read what the organisation "knows" and forget an item, and the
+  runtime prompt's rules — which a determined injection will talk past. A turn's own answer is
+  what gets retained, so **an agent that can be talked into saying something can be talked into
+  remembering it**.
+- **The memory API key is full read/write of every memory.** One value,
+  `PODIUM_AGENT_MEMORY_API_KEY`, guards the whole service, and there is nothing finer: no
+  per-agent key, no read-only key, no per-bank key. It reaches three places — the memory
+  container, the conductor, and **every task container**, as the Podium secret
+  `podium.agent.memory_api_key`. So any turn can rewrite or wipe the whole bank, whatever its
+  skill file says. As sensitive as `PODIUM_DEV_TOKEN`.
+- **The memory service has NO authentication of its own by default.** It is switched on by
+  `HINDSIGHT_API_TENANT_EXTENSION` + `HINDSIGHT_API_TENANT_API_KEY`, which
+  `deploy/docker-compose.yml` makes mandatory. Run that image without them — by hand, or in
+  somebody else's compose file — and port 8888 is an open read/write endpoint over everything
+  the organisation has learned.
+- **Port 8888 is published on all interfaces, and it has to be.** A turn's container reaches the
+  host through the Docker bridge gateway, and a service bound to `127.0.0.1` is not reachable
+  from there. `PODIUM_MEMORY_BIND` narrows it to a tailnet or bridge-gateway IP; otherwise
+  firewall 8888 at the host to those ranges. See
+  [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
+- **The memory engine's own web UI is deliberately not published.** Its port 9999 control plane
+  would be a second, unauthenticated front door onto the same data; `HINDSIGHT_ENABLE_CP=false`
+  turns it off and no compose file maps the port. An operator who needs it can port-forward.
+- **Forgetting a memory is a tombstone, not a deletion.** `DeleteMemory` sets the curation state
+  to `invalidated`: the memory is excluded from every recall, from consolidation and from the
+  graph, and the row is kept in an archive. No future turn sees it — which is what the operator
+  asked for — but the text is still in `podium_memory`, and it is reversible through the memory
+  engine's own API. If a memory must be *destroyed*, that is a database operation, not a UI one.
+- **The memory service gets its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
+  environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
+  any compose environment value. It is not stored in Podium's encrypted secret store, because it
+  is read before anything Podium controls is running.
 - **`X-Podium-Login` is trusted because the bearer proves where it came from.** `podium-server`
   reverse-proxies `/podium.agent.v1.AgentService/` to `PODIUM_AGENT_URL` behind its own identity
   middleware. On the way it **deletes** any client-supplied `Authorization` and
@@ -379,6 +421,13 @@ Everything below is a real hole, not a hypothetical:
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.
+- **Shared memory is a prompt-injection amplifier**, one API key guards all of it, and every
+  task container holds that key. A false fact planted by one turn is read by every later turn;
+  the only defence is a human reading the Memory tab.
+- **The host is resolvable by name (`host.docker.internal`) from every task container**, to let
+  a turn reach the shared memory. It was reachable by IP before.
+- **`podium_memory` has no retention and no pruning.** Facts accumulate for the life of the
+  install, and forgetting one archives it rather than deleting it.
 - **No audit for reads.** `audit_log` records secret set/delete/resolve/rotate. It does not
   record who listed nodes, read a task's log, or downloaded an artifact.
 - **Single server process.** Sessions are in memory; a second replica would see every node as

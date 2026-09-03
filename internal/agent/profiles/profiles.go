@@ -36,6 +36,15 @@ const AnthropicKeySecret = "podium.agent.anthropic_api_key"
 // AnthropicKeyEnv is where that secret lands in the task container.
 const AnthropicKeyEnv = "ANTHROPIC_API_KEY"
 
+// MemoryKeySecret is the other reserved secret the conductor attaches itself: the shared
+// memory's API key. A skill may not name it and a skill cannot opt out of memory — only the
+// operator can, by leaving PODIUM_AGENT_MEMORY_URL empty.
+const MemoryKeySecret = "podium.agent.memory_api_key"
+
+// MemoryKeyEnv is where that secret lands in the task container. The brief's
+// memory.api_key_env names it, and the runtime reads it to authenticate its MCP client.
+const MemoryKeyEnv = "PODIUM_MEMORY_API_KEY"
+
 // BriefEnv is the env var the brief travels in. A skill's env: may not set it.
 const BriefEnv = "PODIUM_AGENT_TURN"
 
@@ -247,9 +256,10 @@ func (s Skill) validate(path string) error {
 		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", s.Timeout))
 	}
 	for _, ref := range s.Secrets {
-		if ref.Name == AnthropicKeySecret {
+		switch ref.Name {
+		case AnthropicKeySecret, MemoryKeySecret:
 			errs = append(errs, fmt.Errorf("secrets may not name %s: it is added automatically to every turn",
-				AnthropicKeySecret))
+				ref.Name))
 		}
 	}
 	for key := range s.Env {
@@ -259,6 +269,9 @@ func (s Skill) validate(path string) error {
 		case AnthropicKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				AnthropicKeyEnv, AnthropicKeySecret))
+		case MemoryKeyEnv:
+			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
+				MemoryKeyEnv, MemoryKeySecret))
 		}
 	}
 	for _, r := range s.Repos {

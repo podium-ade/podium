@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
@@ -38,7 +39,8 @@ const terminalStatusBudget = 60 * time.Second
 // total_cost_usd only.
 const turnSummaryArtifact = "turn.json"
 
-// Options is what a Conductor needs. Everything is required except Memory and Metrics.
+// Options is what a Conductor needs. Everything is required except Memory, MemoryClient
+// and Metrics.
 type Options struct {
 	Store   *store.Store
 	Podium  *podium.Client
@@ -46,9 +48,14 @@ type Options struct {
 	Sources []Source
 	Metrics *Metrics
 	Logger  *slog.Logger
-	// Memory is copied into every brief. Step 19 sets it; in this step it is nil and the
-	// briefs have no memory block.
+	// Memory is copied into every brief, and its presence is what makes the conductor add
+	// the memory secret to every task spec. Nil means this host has no shared memory:
+	// briefs carry no memory block and nothing is retained.
 	Memory *BriefMemory
+	// MemoryClient is what the end-of-turn retain writes through. Nil disables retaining
+	// while leaving the briefs alone, which is what a test that only cares about the brief
+	// wants; in production the two are set together.
+	MemoryClient memory.Client
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -60,6 +67,8 @@ type Conductor struct {
 	metrics *Metrics
 	logger  *slog.Logger
 	memory  *BriefMemory
+	// memories is the shared-memory client. See retain.go.
+	memories memory.Client
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -103,6 +112,7 @@ func New(opts Options) (*Conductor, error) {
 		metrics:  metrics,
 		logger:   logger,
 		memory:   opts.Memory,
+		memories: opts.MemoryClient,
 		sessions: map[string]*sessionState{},
 	}, nil
 }
@@ -291,6 +301,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		skill:       skill,
 		turn:        turn,
 		ref:         ev.Ref,
+		author:      ev.Author,
+		instruction: ev.Text,
+		url:         ev.URL,
 		placeholder: placeholder,
 		startedAt:   started,
 	}).run(ctx)
@@ -356,16 +369,12 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 	env[BriefEnv] = encodedBrief
 
 	s := &spec.TaskSpec{
-		Image:     skill.Image,
-		Env:       env,
-		Labels:    append([]string(nil), skill.Labels...),
-		Resources: skill.Resources,
-		Timeout:   skill.Timeout,
-		Secrets: append(append([]spec.SecretRef(nil), skill.Secrets...), spec.SecretRef{
-			Name:   profiles.AnthropicKeySecret,
-			Target: spec.SecretTargetEnv,
-			Key:    profiles.AnthropicKeyEnv,
-		}),
+		Image:       skill.Image,
+		Env:         env,
+		Labels:      append([]string(nil), skill.Labels...),
+		Resources:   skill.Resources,
+		Timeout:     skill.Timeout,
+		Secrets:     append(append([]spec.SecretRef(nil), skill.Secrets...), c.reservedSecrets()...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
@@ -373,6 +382,26 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 	}
 	s.ApplyDefaults()
 	return s
+}
+
+// reservedSecrets are the credentials the conductor attaches itself, whatever the skill
+// file says. The Anthropic key is on every turn; the memory key is on every turn of a host
+// that has memory, because a brief with a memory block whose api_key_env is unset is a
+// failed turn (exit 2) — so the injection is not optional.
+func (c *Conductor) reservedSecrets() []spec.SecretRef {
+	refs := []spec.SecretRef{{
+		Name:   profiles.AnthropicKeySecret,
+		Target: spec.SecretTargetEnv,
+		Key:    profiles.AnthropicKeyEnv,
+	}}
+	if c.memory != nil {
+		refs = append(refs, spec.SecretRef{
+			Name:   profiles.MemoryKeySecret,
+			Target: spec.SecretTargetEnv,
+			Key:    profiles.MemoryKeyEnv,
+		})
+	}
+	return refs
 }
 
 // failTurn records a turn that never got as far as a task, or one whose brief was

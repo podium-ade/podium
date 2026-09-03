@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 )
 
@@ -26,6 +27,20 @@ const ProfileFile = "profile.yaml"
 // can point validation at an httptest server, and so an install behind an egress proxy can
 // name it. It is not a BYOK knob: the provider is still Anthropic.
 const DefaultAnthropicBaseURL = "https://api.anthropic.com"
+
+// DefaultMemoryTaskURL is where a TASK CONTAINER reaches Hindsight. It is not where the
+// conductor reaches it: a task runs on a node, on its own bridge network, and gets to the
+// host through the bridge gateway. Correct when the node runs on the same host as the
+// compose stack; with workers elsewhere it has to be an address every node can route to.
+const DefaultMemoryTaskURL = "http://host.docker.internal:8888"
+
+// DefaultMemoryBank is the one memory bank every turn shares. Hindsight creates a bank on
+// its first write, so nothing provisions this.
+const DefaultMemoryBank = "podium"
+
+// bankNameRE constrains the bank name because it becomes a path segment in the MCP URL the
+// runtime is handed, and in the REST paths this process builds.
+var bankNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // Config is what podium-agent needs to run. Every field maps to one environment variable.
 type Config struct {
@@ -54,6 +69,20 @@ type Config struct {
 	// https://api.anthropic.com. Only SetProviderKey reads it: the model itself is called
 	// from inside a task container, never from this process.
 	AnthropicBaseURL string
+	// MemoryURL is PODIUM_AGENT_MEMORY_URL: Hindsight's base URL as seen from THIS
+	// process. Empty turns memory off entirely — briefs carry no memory block, nothing is
+	// retained, readyz does not probe it and the memory RPCs answer FailedPrecondition.
+	MemoryURL string
+	// MemoryTaskURL is PODIUM_AGENT_MEMORY_TASK_URL: Hindsight's base URL as seen from a
+	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
+	MemoryTaskURL string
+	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
+	// turn: there is no per-user or per-skill scoping in this track.
+	MemoryBank string
+	// MemoryAPIKey is PODIUM_AGENT_MEMORY_API_KEY, the bearer Hindsight requires for both
+	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
+	// every turn's container gets it. SENSITIVE: never log it.
+	MemoryAPIKey string
 	// DevSource is PODIUM_AGENT_DEV_SOURCE. TEST ONLY: it mounts an in-process source and
 	// two unauthenticated-by-anything-but-the-bearer routes that inject inbound events.
 	DevSource bool
@@ -71,6 +100,10 @@ func FromEnv() Config {
 		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
 		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
+		MemoryURL:        os.Getenv("PODIUM_AGENT_MEMORY_URL"),
+		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
+		MemoryBank:       envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
+		MemoryAPIKey:     os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
 		DevSource:        envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
@@ -79,6 +112,12 @@ func FromEnv() Config {
 // rejected exactly one of them.
 func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
+}
+
+// MemoryEnabled reports whether shared memory is configured. Memory is optional: an
+// install with no Hindsight runs every turn without one, and says so in the UI.
+func (c Config) MemoryEnabled() bool {
+	return c.MemoryURL != ""
 }
 
 // Validate reports the first thing that would stop the conductor from starting.
@@ -132,6 +171,9 @@ func (c Config) Validate() error {
 				c.AnthropicBaseURL)
 		}
 	}
+	if err := c.validateMemory(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -160,8 +202,52 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),
+		slog.String("memory_url", c.MemoryURL),
+		slog.String("memory_task_url", c.MemoryTaskURL),
+		slog.String("memory_bank", c.MemoryBank),
+		slog.Bool("memory_api_key_set", c.MemoryAPIKey != ""),
 		slog.Bool("dev_source", c.DevSource),
 	)
+}
+
+// validateMemory refuses a half-configured memory: a URL with no key would mean every
+// call to Hindsight 401s, and an install that meant to have no memory should have no URL.
+func (c Config) validateMemory() error {
+	if !c.MemoryEnabled() {
+		return nil
+	}
+	if err := absoluteURL("PODIUM_AGENT_MEMORY_URL", c.MemoryURL); err != nil {
+		return err
+	}
+	if err := absoluteURL("PODIUM_AGENT_MEMORY_TASK_URL", c.MemoryTaskURL); err != nil {
+		return err
+	}
+	if c.MemoryAPIKey == "" {
+		return errors.New("PODIUM_AGENT_MEMORY_API_KEY is required when PODIUM_AGENT_MEMORY_URL " +
+			"is set: Hindsight has no authentication until it is given a key, so an install " +
+			"without one is a memory anybody who can reach the port can read and rewrite")
+	}
+	if !bankNameRE.MatchString(c.MemoryBank) {
+		return fmt.Errorf("PODIUM_AGENT_MEMORY_BANK=%q must match %s: it becomes a path segment "+
+			"in the MCP URL every turn is handed", c.MemoryBank, bankNameRE)
+	}
+	return nil
+}
+
+// absoluteURL is the shape check every base URL in this file needs: scheme, host, and no
+// path — a base URL with a path silently changes what a client appends to it.
+func absoluteURL(name, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s=%q is not a URL: %w", name, raw, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%s=%q must be an absolute http:// or https:// URL", name, raw)
+	}
+	if u.Path != "" && u.Path != "/" {
+		return fmt.Errorf("%s=%q must be scheme://host:port with no path", name, raw)
+	}
+	return nil
 }
 
 func envOr(key, fallback string) string {

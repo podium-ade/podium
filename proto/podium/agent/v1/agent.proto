@@ -22,6 +22,13 @@ service AgentService {
   rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
   // ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
   rpc ClearProviderKey(ClearProviderKeyRequest) returns (ClearProviderKeyResponse);
+  // ListMemories pages through the shared memory, newest first.
+  rpc ListMemories(ListMemoriesRequest) returns (ListMemoriesResponse);
+  // SearchMemories is a semantic search of the same memory.
+  rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
+  // DeleteMemory takes one memory out of every future recall. It is a tombstone rather
+  // than a row deletion: the memory engine keeps the record for audit and stops serving it.
+  rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -134,3 +141,58 @@ message ClearProviderKeyRequest {
 }
 
 message ClearProviderKeyResponse {}
+
+// Memory is one thing the organisation remembers, shared by every agent turn.
+//
+// EVERY FIELD IS CONTENT. A memory was written by a task, out of material a human, a
+// repository or a ticket supplied; nothing in Podium interprets it. The provenance fields
+// exist so a person can tell where a memory came from and forget one that should not be
+// there — which is the only defence there is against a turn planting a false memory.
+message Memory {
+  string id = 1;
+  string text = 2;
+  // fact_type is world, experience or observation. An observation is derived by the memory
+  // engine from the facts under it.
+  string fact_type = 3;
+  // tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+  repeated string tags = 4;
+  // metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
+  // and source_url.
+  map<string, string> metadata = 5;
+  // created_at is when the memory was learned.
+  google.protobuf.Timestamp created_at = 6;
+  // entities are the people, systems and concepts the memory engine linked this to.
+  repeated string entities = 7;
+  // context is the retaining caller's note about where the memory came from.
+  string context = 8;
+  // document_id is what the retainer grouped the memory under: the turn id, for anything
+  // the conductor retained.
+  string document_id = 9;
+}
+
+message ListMemoriesRequest {
+  // cursor is opaque and comes from a previous response.
+  string cursor = 1;
+  int32 limit = 2;
+}
+
+message ListMemoriesResponse {
+  repeated Memory items = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message SearchMemoriesRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchMemoriesResponse {
+  repeated Memory items = 1;
+}
+
+message DeleteMemoryRequest {
+  string id = 1;
+}
+
+message DeleteMemoryResponse {}

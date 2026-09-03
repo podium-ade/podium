@@ -10,6 +10,7 @@ type Metrics struct {
 	RelayedMessages  *prometheus.CounterVec
 	SourceEvents     *prometheus.CounterVec
 	FollowReconnects prometheus.Counter
+	MemoryRetains    *prometheus.CounterVec
 }
 
 // NewMetrics registers the conductor's collectors on reg.
@@ -36,9 +37,15 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "podium_agent_follow_reconnects_total",
 			Help: "Reconnects of the task event stream.",
 		}),
+		MemoryRetains: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_memory_retain_total",
+			Help: "End-of-turn writes to the shared memory, by result: ok, error or redacted. " +
+				"A rising error count is a memory outage and never a failed turn.",
+		}, []string{"result"}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.Turns, m.TurnDuration, m.RelayedMessages, m.SourceEvents, m.FollowReconnects)
+		reg.MustRegister(m.Turns, m.TurnDuration, m.RelayedMessages, m.SourceEvents,
+			m.FollowReconnects, m.MemoryRetains)
 	}
 	return m
 }

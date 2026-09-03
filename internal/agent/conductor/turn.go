@@ -30,6 +30,12 @@ type turnRun struct {
 	turn  store.Turn
 	// ref is the source's reference to the message that started the turn.
 	ref string
+	// author, instruction and url come off the inbound event and exist for the
+	// end-of-turn retain (retain.go). A resumed turn has none of them: they are not
+	// persisted, and only the answer is.
+	author      string
+	instruction string
+	url         string
 	// placeholder is the "working…" message progress edits replace. It is empty for a
 	// resumed turn, whose progress is posted as new messages instead.
 	placeholder string
@@ -113,6 +119,9 @@ func (r *turnRun) finish(ctx context.Context, status string, numTurns *int, cost
 	r.c.metrics.TurnDuration.WithLabelValues(r.skill.Name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
 		"status", status, "skill", r.skill.Name)
+	// Last, deliberately: the answer is posted and the outcome is on the message, so a
+	// memory outage costs a log line and nothing a human is waiting for.
+	r.retain(ctx, status)
 }
 
 // onEvent is the relay. Only MESSAGE events say anything; ERROR is remembered for the log;

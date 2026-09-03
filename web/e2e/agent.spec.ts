@@ -97,10 +97,18 @@ test("the agent tabs are real routes", async ({ page }) => {
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
 
-  // And the back button works, because the tab is a navigation and not a state flag.
+  // The Memory tab. This harness's conductor has no memory service configured, so what it
+  // must show is the sentence saying so — not an error, and not a blank panel.
+  await page.getByRole("link", { name: "Memory" }).click();
+  await expect(page).toHaveURL(/\/agent\/memory$/);
+  await expect(page.getByText("Memory is not configured on this host")).toBeVisible();
+
+  await page.getByRole("link", { name: "Sessions" }).click();
+  await expect(page).toHaveURL(/\/agent\/sessions$/);
+
+  // And the back button works, because a tab is a navigation and not a state flag.
   await page.goBack();
-  await expect(page).toHaveURL(/\/agent\/settings$/);
-  await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
+  await expect(page).toHaveURL(/\/agent\/memory$/);
 });
 
 test("the agent page makes no third-party requests", async ({ page }) => {
@@ -111,7 +119,7 @@ test("the agent page makes no third-party requests", async ({ page }) => {
     if (!req.url().startsWith(origin) && !req.url().startsWith("data:")) foreign.push(req.url());
   });
 
-  for (const path of ["/agent", "/agent/settings", "/agent/sessions"]) {
+  for (const path of ["/agent", "/agent/settings", "/agent/sessions", "/agent/memory"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
   }

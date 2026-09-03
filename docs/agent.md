@@ -100,6 +100,10 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted provider key is validated; a test seam and an egress hook, **not** a BYOK knob |
+| `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
+| `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
+| `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |
+| `PODIUM_AGENT_MEMORY_API_KEY` | with the URL | — | the bearer the memory service requires. It has **no authentication** without one |
 | `PODIUM_AGENT_DEV_SOURCE` | no | false | **TEST ONLY**, see below |
 
 Two more live on **`podium-server`**, not here, and they are what lets a browser reach the
@@ -130,15 +134,23 @@ docker exec podium-dev-postgres createdb -U podium podium_agent
 
 Losing this database costs turn records, not conversations: the conversations are in Slack.
 
+The shared memory has a third database, `podium_memory`, on the same Postgres — see *Memory*
+below. Losing **that** one does lose something: it is the only copy.
+
 ### Health
 
-`/healthz` (the process is up), `/readyz` (its database **and** the Podium API's `WhoAmI`) and
-`/metrics` on `PODIUM_AGENT_LISTEN`, unauthenticated like the server's. Everything else on that
-listener is behind `Authorization: Bearer $PODIUM_AGENT_TOKEN`.
+`/healthz` (the process is up), `/readyz` (its database, the Podium API's `WhoAmI`, and the
+shared memory's `/health` when one is configured) and `/metrics` on `PODIUM_AGENT_LISTEN`,
+unauthenticated like the server's. Everything else on that listener is behind
+`Authorization: Bearer $PODIUM_AGENT_TOKEN`.
+
+A memory service that is down makes `/readyz` 503 — and turns still run and still answer
+through it. That is deliberate: a bot with no memory is a worse bot, not a broken one.
 
 Metrics: `podium_agent_turns_total{source,skill,status}`,
 `podium_agent_turn_duration_seconds{skill}`, `podium_agent_relayed_messages_total{type}`,
-`podium_agent_source_events_total{source}`, `podium_agent_follow_reconnects_total`.
+`podium_agent_source_events_total{source}`, `podium_agent_follow_reconnects_total`,
+`podium_agent_memory_retain_total{result}` (`ok`, `error`, `redacted`).
 
 ---
 
@@ -212,20 +224,25 @@ Changing a skill file needs a restart. There is no SIGHUP reload.
 
 ### Reserved secret names
 
-Set with `podium secret set`, except the first, which the web UI sets — see *Setting the
-provider key* below.
+Set with `podium secret set`, except the first two: the web UI sets the Anthropic key (see
+*Setting the provider key* below) and the conductor writes the memory key at startup out of
+its own environment.
 
 | name | lands as | who needs it |
 |---|---|---|
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` |
-| `podium.agent.memory_api_key` | (step 19) | a brief with `memory` |
+| `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 | `podium.agent.warehouse_url` | (step 21) | the analyst skill |
 | `podium.agent.warehouse_credentials` | (step 21) | the analyst skill |
 
 The Anthropic key must **exist** before any turn can run, even a dry run: the task spec names it
 and the control plane refuses a task that names a secret it does not have. That failure reaches
 the thread as "This bot is missing a credential".
+
+A skill file may not name either of the first two. They are added by the conductor to every
+turn: no skill decides whether the bot can talk to the model, and no skill can opt out of
+memory — only the operator can, by leaving `PODIUM_AGENT_MEMORY_URL` empty.
 
 ---
 
@@ -377,6 +394,137 @@ boundary being relied on.
 
 ---
 
+## Memory
+
+Every turn, whatever its skill or source, shares **one** memory that outlives the container it
+ran in. It is [Hindsight](https://github.com/vectorize-io/hindsight): one container on the
+control-plane host, its own database inside the Postgres Podium already runs, and an MCP server
+the agent talks to directly. **Podium stores no memory of its own** — the conductor wires a URL
+and a key into each turn, retains one item after each successful turn, and the web UI reads and
+forgets memories through the REST API.
+
+Memory is optional. Leave `PODIUM_AGENT_MEMORY_URL` empty and every turn runs without one:
+briefs carry no `memory` block, nothing is retained, `/readyz` does not probe it, and the Memory
+tab says so.
+
+### What an agent can do with it
+
+The runtime adds three MCP tools to every turn's allow-list, whatever the skill file says, and a
+**Memory** section to the system prompt telling the model when to use them:
+
+| tool | for |
+|---|---|
+| `mcp__memory__recall` | before working on anything that could have history — a repository, a person, a recurring question, a decision already taken |
+| `mcp__memory__retain` | when it learns something durable and organisation-wide: a decision and the reason, how a system fits together, who owns what, a convention |
+| `mcp__memory__list_tags` | seeing how the bank is organised |
+
+The prompt also says, in these words: never retain a secret, a credential, or personal data
+about an individual; and this memory is shared by every agent, so anything you retain another
+agent will read.
+
+### What the conductor retains
+
+One item per **successful** turn that actually answered:
+
+```
+content:      "<author> asked: <instruction>\n\n<display_name> answered: <final text>"
+context:      "podium agent, skill <skill>"
+tags:         ["source:<kind>", "skill:<name>"]
+metadata:     {session_id, turn_id, task_id, source_ref, source_url}
+document_id:  <turn_id>
+```
+
+The exchange, not the transcript: the memory engine extracts facts from prose, and a tool log
+would produce noise. The answer is capped at 8 KiB — the whole transcript is already an artifact
+of the task. `document_id = turn_id` is the idempotency key: retaining the same turn again
+replaces what was there rather than adding a duplicate.
+
+**Nothing is retained** for a turn that failed, was lost, was cancelled, ran out of turns, said
+nothing, came from the test-only dev source, or whose answer contains a redaction marker
+(`[redacted:…]`) — a marker means the node caught a secret on its way out of the container, and
+a memory every future turn reads is the last place that belongs.
+
+A retain happens **after** the answer is posted and the outcome is on the triggering message, on
+its own goroutine with a 10-second budget. A memory outage is a log line and a bump on
+`podium_agent_memory_retain_total{result="error"}`. It is never said in the conversation, and it
+never fails or delays a turn.
+
+### Reading and forgetting, in the UI
+
+`/agent/memory` lists what is remembered, newest first, with a search box over it. Every card
+carries its provenance — the source (linked back to the Slack thread or the ticket where the
+source URL is known), the skill, when it was learned, and the task it came out of — and a
+**Forget** button behind an inline confirm.
+
+**Forgetting is a tombstone, not a row deletion.** The memory engine has no single-memory
+delete: `DeleteMemory` sets the memory's curation state to `invalidated`, which excludes it from
+every future recall, from consolidation and from the entity graph, prunes the observations
+derived from it, and keeps the row in an archive for audit. What the operator asked for holds —
+no future turn sees it and neither does this UI — but the record of it having existed is not
+destroyed. It is reversible through the memory engine's own API, which Podium does not surface.
+
+Only `world` and `experience` facts are curatable this way. An `observation` is derived by
+consolidation and disappears when the facts under it do.
+
+### Why the Memory tab exists
+
+**Shared memory is a prompt-injection amplifier.** A fact planted by one poisoned turn — out of
+a Slack message, a ticket, a README in a cloned repository — is recalled by every later turn,
+including turns for other people in other channels. There is no automated defence against that
+in this track. What there is:
+
+- provenance on every item, so a human can trace a memory back to the conversation that made it;
+- this list, where a human can see what the organisation "knows";
+- the Forget button;
+- and the runtime prompt's rules, which a determined injection will talk past.
+
+Read the list occasionally. Forget anything that looks wrong.
+
+### Deployment
+
+The `hindsight` service in [`../deploy/docker-compose.yml`](../deploy/docker-compose.yml), pinned
+by tag **and** digest. Notes an operator needs:
+
+- **It has no authentication by default.** `HINDSIGHT_API_TENANT_EXTENSION` plus
+  `HINDSIGHT_API_TENANT_API_KEY` is what turns it on, for the REST API and the MCP endpoint
+  alike, and the compose file makes both mandatory. The value is `PODIUM_AGENT_MEMORY_API_KEY`,
+  and it is **full read/write of every memory the organisation has**.
+- **Port 8888 is published on all interfaces**, because a turn's container reaches the host
+  through the Docker bridge gateway and a service on `127.0.0.1` is not reachable from there.
+  Firewall it down to the bridge and tailnet ranges — see
+  [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
+- **Its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
+  from `.env` rather than from the web UI's secret store. It may be the same key the agents use,
+  and its calls are billed like any other. `PODIUM_MEMORY_LLM_MODEL` chooses the model: this is
+  background work over short prose, so a cheaper model is a reasonable choice.
+- **The models are baked into the image.** It comes up in seconds with no HuggingFace egress and
+  needs no volume of its own — every byte of state is in `podium_memory`.
+- **Hindsight's own web UI (port 9999) is not published.** Podium's UI is the front door.
+- `podium_memory` needs the `pgvector` extension in `public`, which
+  [`../deploy/postgres/init.sql`](../deploy/postgres/init.sql) creates. Postgres runs init
+  scripts only on an empty data directory; the recipe for an existing install is in
+  [`operations.md`](operations.md).
+
+### Backing it up
+
+`podium_memory` is the only copy of everything the agents have learned. It is not a cache and it
+cannot be rebuilt: the conversations it was extracted from are in Slack, but the extraction cost
+money and the facts are not in Podium anywhere else.
+
+```sh
+docker compose exec -T postgres pg_dump -U podium -Fc podium_memory > podium_memory.dump
+```
+
+See [`operations.md`](operations.md#backup-and-restore) for the rest of the databases.
+
+### Webhooks and other things not built
+
+Per-user or per-skill scoping (one bank, everyone sees everything — the tags are recorded for a
+later step and never filtered on), mental models, knowledge pages and `reflect` are all memory
+engine features Podium does not surface.
+
+---
+
 ## The conductor's API
 
 One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LISTEN` under
@@ -386,6 +534,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
 | `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: the provider key |
+| `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
 mounts that one prefix behind its own identity middleware and reverse-proxies it, and on the way
@@ -435,6 +584,10 @@ asked.
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 docker exec podium-dev-postgres createdb -U podium podium_agent      # once
 
+# Optional: the shared memory, behind the dev compose's `memory` profile.
+PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
+  docker compose -f deploy/docker-compose.dev.yml --profile memory up -d --wait hindsight
+
 make build agent-runtime
 # Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
 #   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
@@ -449,8 +602,16 @@ PODIUM_AGENT_TOKEN=agenttoken \
 PODIUM_AGENT_PROFILE_DIR=examples/agent \
 PODIUM_AGENT_SLACK_APP_TOKEN=xapp-... \
 PODIUM_AGENT_SLACK_BOT_TOKEN=xoxb-... \
+PODIUM_AGENT_MEMORY_URL=http://127.0.0.1:8888 \
+PODIUM_AGENT_MEMORY_API_KEY=memtoken \
 ./bin/podium-agent
 ```
+
+The two memory variables are optional; drop them to run with no memory. Note that
+`PODIUM_AGENT_MEMORY_TASK_URL` keeps its default (`http://host.docker.internal:8888`) even here:
+the conductor reaches the service on loopback, and a turn's container reaches it through the
+bridge gateway. The dev compose publishes it on loopback only, which is fine for the conductor
+and **not** for a task — set `PODIUM_MEMORY_BIND=0.0.0.0` if you want a real turn to recall.
 
 Without the Slack tokens it starts and listens to nothing, which is a fine way to check the
 profile loads and the database migrates — and it is enough for the Agent screen in the UI: the

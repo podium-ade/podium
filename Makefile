@@ -19,7 +19,7 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-test
+.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-test
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -113,6 +113,14 @@ test-integration: runner-embed
 # binaries it drives, so `build` is not a prerequisite.
 e2e: runner-embed
 	go test -tags e2e ./test/e2e/... -count=1 -timeout 30m -v
+
+# The shared memory against the REAL engine, not a fake. Deliberately not part of `make e2e`:
+# it pulls a 5.9 GB third-party image and asserts that image's own REST and MCP contract, so
+# a red run here means the pinned engine changed, not that Podium broke. Run it by hand when
+# the pinned version moves.
+e2e-memory:
+	go test -tags 'e2e e2e_memory' ./test/e2e/... -count=1 -timeout 20m -v \
+		-run TestTheRealMemoryEngineSpeaksWhatTheClientExpects
 
 lint:
 	golangci-lint run

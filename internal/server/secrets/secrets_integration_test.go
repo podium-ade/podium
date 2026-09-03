@@ -32,7 +32,7 @@ var (
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
+	ctr, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("podium"),
 		postgres.WithUsername("podium"),
 		postgres.WithPassword("podium"),

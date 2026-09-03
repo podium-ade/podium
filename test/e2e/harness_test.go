@@ -74,7 +74,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	ctr, err := postgres.Run(ctx, "postgres:16-alpine",
+	ctr, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("podium"),
 		postgres.WithUsername("podium"),
 		postgres.WithPassword("podium"),
