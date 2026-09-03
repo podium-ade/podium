@@ -7,6 +7,17 @@ import { defineConfig } from "@playwright/test";
  *
  *   PODIUM_UI_URL=http://127.0.0.1:18080 PODIUM_DEV_TOKEN=devtoken PODIUM_CLI=../bin/podium \
  *     pnpm e2e
+ *
+ * agent.spec.ts needs two more things in that stack, and neither can be started by the spec
+ * (podium-agent reads the base URL once, at startup):
+ *
+ *   FAKE_ANTHROPIC_PORT=18999 node e2e/fixtures/fake-anthropic.mjs &
+ *   PODIUM_AGENT_ANTHROPIC_BASE_URL=http://127.0.0.1:18999 ./bin/podium-agent &   # plus its own env
+ *
+ * and podium-server started with PODIUM_AGENT_URL=http://127.0.0.1:8090 and a matching
+ * PODIUM_AGENT_TOKEN, which is what mounts the proxy the settings page calls through.
+ * FAKE_ANTHROPIC_KEY overrides the one key the fake accepts (default `sk-ant-test-good`);
+ * both processes must agree on it.
  */
 export default defineConfig({
   testDir: "./e2e",

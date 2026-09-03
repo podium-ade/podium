@@ -105,6 +105,11 @@ services:
       PODIUM_LOG_ROLLUP_INTERVAL: ${PODIUM_LOG_ROLLUP_INTERVAL:-1m}
       PODIUM_LOG_PRUNE_INTERVAL: ${PODIUM_LOG_PRUNE_INTERVAL:-1h}
       PODIUM_LOG_CHUNK_GRACE: ${PODIUM_LOG_CHUNK_GRACE:-24h}
+      # The conductor's API, reverse-proxied behind this server's identity middleware so the
+      # web UI keeps one origin and one login. Set PODIUM_AGENT_URL to the empty string to run
+      # without a conductor: the prefix is then not mounted and the UI hides its Agent screen.
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
     volumes:
       - server-state:/var/lib/podium
       # The AES-256 key every stored secret is encrypted under, written by

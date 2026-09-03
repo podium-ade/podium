@@ -47,6 +47,9 @@ type agentProc struct {
 	addr        string
 	databaseURL string
 	profileDir  string
+	// extraEnv is appended to the conductor's environment. Step 18 uses it to point key
+	// validation at a fake Anthropic.
+	extraEnv []string
 
 	mu  sync.Mutex
 	cmd *exec.Cmd
@@ -86,6 +89,7 @@ func (a *agentProc) start() {
 		"PODIUM_AGENT_PROFILE_DIR="+a.profileDir,
 		"PODIUM_AGENT_DEV_SOURCE=true",
 	)
+	cmd.Env = append(cmd.Env, a.extraEnv...)
 	buf := &bytes.Buffer{}
 	cmd.Stdout = buf
 	cmd.Stderr = buf

@@ -136,3 +136,45 @@ func (c *Client) Artifact(ctx context.Context, artifactID string) (io.ReadCloser
 	}
 	return res.Body, contentType, nil
 }
+
+// SetSecret stores one secret in the control plane's encrypted store and returns the version
+// it landed as. The value is bytes all the way: it is never turned into a string on this
+// path, and it is never logged.
+func (c *Client) SetSecret(ctx context.Context, name string, value []byte) (int32, error) {
+	res, err := c.Secrets.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: name, Value: value,
+	}))
+	if err != nil {
+		// The error is the server's, and the server never echoes a value back.
+		return 0, fmt.Errorf("set secret %s: %w", name, err)
+	}
+	return res.Msg.GetSecret().GetVersion(), nil
+}
+
+// SecretVersion is the version of one secret, or 0 when the control plane does not have it.
+// ListSecrets returns metadata only — names, versions and who set them — so this reads no
+// value and there is no endpoint that could.
+func (c *Client) SecretVersion(ctx context.Context, name string) (int32, error) {
+	res, err := c.Secrets.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{}))
+	if err != nil {
+		return 0, fmt.Errorf("list secrets: %w", err)
+	}
+	for _, s := range res.Msg.GetSecrets() {
+		if s.GetName() == name {
+			return s.GetVersion(), nil
+		}
+	}
+	return 0, nil
+}
+
+// DeleteSecret removes one secret. A NotFound is returned as-is: whether "already gone"
+// counts as success is the caller's decision, not the client's.
+func (c *Client) DeleteSecret(ctx context.Context, name string) error {
+	_, err := c.Secrets.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: name,
+	}))
+	if err != nil {
+		return fmt.Errorf("delete secret %s: %w", name, err)
+	}
+	return nil
+}

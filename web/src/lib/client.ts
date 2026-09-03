@@ -1,5 +1,6 @@
 import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { AgentService } from "../gen/podium/agent/v1/agent_pb";
 import { NodeAdminService } from "../gen/podium/v1/admin_pb";
 import { ArtifactService } from "../gen/podium/v1/artifact_pb";
 import { IdentityService } from "../gen/podium/v1/identity_pb";
@@ -40,6 +41,26 @@ export const admin = createClient(NodeAdminService, transport);
 export const identity = createClient(IdentityService, transport);
 export const secrets = createClient(SecretService, transport);
 export const artifacts = createClient(ArtifactService, transport);
+// The conductor's own service, on the SAME transport: podium-server reverse-proxies
+// /podium.agent.v1.AgentService/ to it, so the bearer interceptor and the 401 re-gate above
+// keep working and the page still only ever talks to its own origin.
+export const agent = createClient(AgentService, transport);
+
+/**
+ * The exact message podium-server's proxy answers with when podium-agent cannot be dialled.
+ * Both sides are Code.Unavailable — "the conductor is down" and "the conductor could not
+ * reach Anthropic" are different sentences to an operator, and the message is the only thing
+ * that tells them apart.
+ */
+export const AGENT_UNREACHABLE = "podium-agent is not reachable";
+
+export function isAgentUnreachable(err: unknown): boolean {
+  return (
+    err instanceof ConnectError &&
+    err.code === Code.Unavailable &&
+    err.rawMessage === AGENT_UNREACHABLE
+  );
+}
 
 /** connectCode exposes the Connect status code so a screen can react to one by name. */
 export function connectCode(err: unknown): Code | undefined {

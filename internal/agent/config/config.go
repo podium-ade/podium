@@ -22,6 +22,11 @@ const DefaultProfileDir = "/etc/podium/agent"
 // ProfileFile is the one file a profile directory must contain.
 const ProfileFile = "profile.yaml"
 
+// DefaultAnthropicBaseURL is where a provider key is validated. It is overridable so a test
+// can point validation at an httptest server, and so an install behind an egress proxy can
+// name it. It is not a BYOK knob: the provider is still Anthropic.
+const DefaultAnthropicBaseURL = "https://api.anthropic.com"
+
 // Config is what podium-agent needs to run. Every field maps to one environment variable.
 type Config struct {
 	// Server is PODIUM_AGENT_SERVER: the Podium API base URL. Required.
@@ -45,6 +50,10 @@ type Config struct {
 	SlackAppToken string
 	// SlackBotToken is PODIUM_AGENT_SLACK_BOT_TOKEN (xoxb-…). SENSITIVE: never log it.
 	SlackBotToken string
+	// AnthropicBaseURL is PODIUM_AGENT_ANTHROPIC_BASE_URL, default
+	// https://api.anthropic.com. Only SetProviderKey reads it: the model itself is called
+	// from inside a task container, never from this process.
+	AnthropicBaseURL string
 	// DevSource is PODIUM_AGENT_DEV_SOURCE. TEST ONLY: it mounts an in-process source and
 	// two unauthenticated-by-anything-but-the-bearer routes that inject inbound events.
 	DevSource bool
@@ -53,15 +62,16 @@ type Config struct {
 // FromEnv reads the canonical environment variables and applies the defaults.
 func FromEnv() Config {
 	return Config{
-		Server:        os.Getenv("PODIUM_AGENT_SERVER"),
-		APIToken:      os.Getenv("PODIUM_AGENT_API_TOKEN"),
-		DatabaseURL:   os.Getenv("PODIUM_AGENT_DATABASE_URL"),
-		Listen:        envOr("PODIUM_AGENT_LISTEN", DefaultListen),
-		Token:         os.Getenv("PODIUM_AGENT_TOKEN"),
-		ProfileDir:    envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
-		SlackAppToken: os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
-		SlackBotToken: os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
-		DevSource:     envBool("PODIUM_AGENT_DEV_SOURCE"),
+		Server:           os.Getenv("PODIUM_AGENT_SERVER"),
+		APIToken:         os.Getenv("PODIUM_AGENT_API_TOKEN"),
+		DatabaseURL:      os.Getenv("PODIUM_AGENT_DATABASE_URL"),
+		Listen:           envOr("PODIUM_AGENT_LISTEN", DefaultListen),
+		Token:            os.Getenv("PODIUM_AGENT_TOKEN"),
+		ProfileDir:       envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
+		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
+		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
+		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
+		DevSource:        envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -110,6 +120,18 @@ func (c Config) Validate() error {
 		return errors.New("PODIUM_AGENT_SLACK_APP_TOKEN is missing: Socket Mode needs both the " +
 			"app-level token (xapp-…) and the bot token (xoxb-…)")
 	}
+	// Empty means the default: FromEnv already applied it, so an empty value here can only
+	// come from a hand-built Config, and the handler defaults it again.
+	if c.AnthropicBaseURL != "" {
+		u, err := url.Parse(c.AnthropicBaseURL)
+		if err != nil {
+			return fmt.Errorf("PODIUM_AGENT_ANTHROPIC_BASE_URL=%q is not a URL: %w", c.AnthropicBaseURL, err)
+		}
+		if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("PODIUM_AGENT_ANTHROPIC_BASE_URL=%q must be an absolute http:// or https:// URL",
+				c.AnthropicBaseURL)
+		}
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -134,6 +156,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("server", c.Server),
 		slog.String("listen", c.Listen),
 		slog.String("profile_dir", c.ProfileDir),
+		slog.String("anthropic_base_url", c.AnthropicBaseURL),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),

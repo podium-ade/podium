@@ -99,7 +99,16 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `skills/`, `prompts/` |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
+| `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted provider key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_DEV_SOURCE` | no | false | **TEST ONLY**, see below |
+
+Two more live on **`podium-server`**, not here, and they are what lets a browser reach the
+conductor at all:
+
+| env (on `podium-server`) | required | meaning |
+|---|---|---|
+| `PODIUM_AGENT_URL` | for the web UI | where the conductor listens, `scheme://host:port` with no path. Unset means no conductor: the prefix is not mounted, `WhoAmI.agent_enabled` is false and the UI hides its Agent screen |
+| `PODIUM_AGENT_TOKEN` | with `PODIUM_AGENT_URL` | the **same value** as above. The server refuses to start with a URL and no token |
 
 Both Slack tokens or neither: one alone is a startup error naming the other. With neither, no
 source is started and the conductor listens to nothing — it says so at startup.
@@ -203,11 +212,12 @@ Changing a skill file needs a restart. There is no SIGHUP reload.
 
 ### Reserved secret names
 
-Set with `podium secret set`, except the first, which the web UI will set (step 18).
+Set with `podium secret set`, except the first, which the web UI sets — see *Setting the
+provider key* below.
 
 | name | lands as | who needs it |
 |---|---|---|
-| `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it |
+| `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` |
 | `podium.agent.memory_api_key` | (step 19) | a brief with `memory` |
 | `podium.agent.warehouse_url` | (step 21) | the analyst skill |
@@ -216,6 +226,69 @@ Set with `podium secret set`, except the first, which the web UI will set (step 
 The Anthropic key must **exist** before any turn can run, even a dry run: the task spec names it
 and the control plane refuses a task that names a secret it does not have. That failure reaches
 the thread as "This bot is missing a credential".
+
+---
+
+## Setting the provider key
+
+`podium.agent.anthropic_api_key` is the one credential every turn needs, dry run included, and
+the web UI is where an operator sets it.
+
+Open the UI, click **Agent** in the header (it is only there when `PODIUM_AGENT_URL` is set on
+the server) and you land on **Agent → Settings**.
+
+<!-- screenshot: the Agent → Settings tab with the Anthropic card, key not set -->
+
+Paste the key and press **Validate & save**. What happens, in order:
+
+1. The browser calls `SetProviderKey` on `podium-server`, which proxies it to the conductor.
+2. The conductor calls **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`** with the pasted key
+   in an `x-api-key` header and `anthropic-version: 2023-06-01`. There is no token cost.
+3. **Only if that succeeds** is the key stored, as the Podium secret
+   `podium.agent.anthropic_api_key`, through the ordinary `SecretService` — so it is encrypted
+   at rest under the control plane's master key like every other secret.
+4. The conductor then writes a metadata row of its own: the **last four characters**, the login
+   that set it, and the time. That row is what the card shows afterwards, and it is the only
+   part of the key that is ever read back.
+
+So **"Saved" means "Anthropic agreed this key works"**, which is the point: an operator who sees
+it has to be able to trust that turns will run. The three failures are three different
+sentences on the card:
+
+| what the card says | what happened | was anything saved |
+|---|---|---|
+| *Anthropic rejected this key* | the provider refused it (HTTP 400 with an `authentication_error`, or 401/403) | no |
+| *Couldn't reach Anthropic to validate* | a 429, a 5xx, a timeout or a network failure | no |
+| *podium-agent is not reachable* | the conductor is down; the server's proxy said so | no |
+
+A key with an unfamiliar prefix is **not** refused — Anthropic has changed prefixes before — but
+the card says `key format looks unusual; validated anyway` next to the success line.
+
+**Remove key** deletes the secret and the metadata row. It asks for an inline confirmation
+first, because every turn fails until a key is set again. Doing it twice is not an error.
+
+The CLI equivalents, for a host with no browser:
+
+```sh
+podium secret set podium.agent.anthropic_api_key      # value on stdin; NO validation
+podium secret ls                                       # names, versions and who set them
+podium secret rm podium.agent.anthropic_api_key
+```
+
+`podium secret set` skips step 2 entirely, so a typo is stored happily and the first turn is
+where you find out. The UI path is the one to prefer. Either way there is **no way to read a
+stored secret back**, by design — see [`security.md`](security.md#secrets).
+
+**The two paths cannot drift.** The secret is the control plane's and the metadata row is the
+conductor's, so `GetSettings` asks the control plane whether the secret exists rather than
+believing its own row. Which means:
+
+| what you did | what the Settings card says |
+|---|---|
+| `podium secret rm podium.agent.anthropic_api_key` | **Not set** — the stale row is ignored, not shown |
+| `podium secret set …` over a key the UI had saved | **Connected**, and *set outside this UI*: there is a key, and the stored hint is about the one it replaced, so it is withheld rather than shown beside a key it is not about |
+| `podium secret set …` on a conductor that never saw the UI | **Connected**, *set outside this UI* |
+| the control plane is unreachable | the last known state, and the conductor logs that its answer may be stale |
 
 ---
 
@@ -307,14 +380,29 @@ boundary being relied on.
 ## The conductor's API
 
 One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LISTEN` under
-`/podium.agent.v1.AgentService/` behind the bearer. This step has three read RPCs —
-`ListSessions`, `GetSession`, `ListTurns` — and later steps add settings (18), memory (19) and
-chat (21).
+`/podium.agent.v1.AgentService/` behind the bearer:
 
-Nothing reaches it from a browser yet. When it does, it will be through `podium-server`, which
-will proxy that prefix behind its own identity middleware and add the bearer plus an
-`X-Podium-Login` header naming the operator. The conductor already reads that header for audit
-logging and already rejects a request without the bearer. Keep `PODIUM_AGENT_LISTEN` on loopback.
+| rpc | what it is for |
+|---|---|
+| `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: the provider key |
+
+**A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
+mounts that one prefix behind its own identity middleware and reverse-proxies it, and on the way
+it deletes any client-supplied `Authorization` and `X-Podium-Login` and sets its own: the
+conductor's bearer, and the login of the caller it authenticated. So the web UI keeps one
+origin, one login and one CSP — `connect-src 'self'` is unchanged — and the conductor never sees
+the dev token. A node identity is refused with 403 before anything is forwarded.
+
+The conductor's `/healthz`, `/readyz` and `/metrics` are deliberately **not** proxied: they are
+its own operational surface and they are unauthenticated on its own listener.
+
+The server's `/readyz` does **not** probe the conductor. A control plane whose bot is down is
+still a working task runner, and `/readyz` is what a load balancer gates on. Check the
+conductor's own `/readyz` instead.
+
+**Keep `PODIUM_AGENT_LISTEN` on loopback.** `X-Podium-Login` is a plain header and the bearer is
+the only proof of where it came from; see [`security.md`](security.md).
 
 ---
 
@@ -348,8 +436,11 @@ docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 docker exec podium-dev-postgres createdb -U podium podium_agent      # once
 
 make build agent-runtime
-# ... start podium-server and podium-node as in docs/quickstart.md, then:
-podium secret set podium.agent.anthropic_api_key            # value on stdin
+# Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
+#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
+# then podium-node, then the conductor below, and set the key in the UI at /agent/settings.
+# The CLI way, if you would rather not open a browser:
+podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 
 PODIUM_AGENT_SERVER=http://127.0.0.1:8080 \
 PODIUM_AGENT_API_TOKEN=devtoken \
@@ -362,7 +453,8 @@ PODIUM_AGENT_SLACK_BOT_TOKEN=xoxb-... \
 ```
 
 Without the Slack tokens it starts and listens to nothing, which is a fine way to check the
-profile loads and the database migrates.
+profile loads and the database migrates — and it is enough for the Agent screen in the UI: the
+Settings tab needs no source at all.
 
 To drive one turn with no Slack and no model at all, see
 [`../examples/agent/README.md`](../examples/agent/README.md), which runs the runtime image

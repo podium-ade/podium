@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/alvaroibarguen/podium/internal/agent/config"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
@@ -54,18 +55,63 @@ func Login(ctx context.Context) string {
 	return "unknown"
 }
 
-// AgentService implements podium.agent.v1.AgentService. It is read-only in this step.
+// SecretStore is the part of the Podium API the settings handlers need. It is an interface
+// rather than the client itself so a test needs no control plane, and so this package keeps
+// depending on nothing but a name, some bytes and a version.
+//
+// SecretVersion is what keeps the conductor honest. The secret belongs to the control plane
+// and an operator can set or remove it with `podium secret set`/`rm` without the conductor
+// hearing about it, so the metadata row here is never taken as proof that a key exists —
+// the control plane is asked. ListSecrets carries metadata only; no value is ever read back.
+type SecretStore interface {
+	SetSecret(ctx context.Context, name string, value []byte) (version int32, err error)
+	DeleteSecret(ctx context.Context, name string) error
+	SecretVersion(ctx context.Context, name string) (int32, error)
+}
+
+// AgentServiceOptions is what the handlers need. Everything but Store and Secrets is
+// optional; without Secrets the settings RPCs answer FailedPrecondition rather than panic.
+type AgentServiceOptions struct {
+	Store   *store.Store
+	Secrets SecretStore
+	// Model is profile.yaml's model, reported by GetSettings. Informational.
+	Model string
+	// AnthropicBaseURL is where SetProviderKey validates a key.
+	AnthropicBaseURL string
+	// HTTPClient validates the key. Nil means a client with a timeout of its own.
+	HTTPClient *http.Client
+	Logger     *slog.Logger
+}
+
+// AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
-	store  *store.Store
-	logger *slog.Logger
+	store   *store.Store
+	secrets SecretStore
+	model   string
+	baseURL string
+	http    *http.Client
+	logger  *slog.Logger
 }
 
 // NewAgentService returns the handlers.
-func NewAgentService(st *store.Store, logger *slog.Logger) *AgentService {
-	if logger == nil {
-		logger = slog.Default()
+func NewAgentService(opts AgentServiceOptions) *AgentService {
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
 	}
-	return &AgentService{store: st, logger: logger}
+	if opts.HTTPClient == nil {
+		opts.HTTPClient = &http.Client{Timeout: validateTimeout}
+	}
+	if opts.AnthropicBaseURL == "" {
+		opts.AnthropicBaseURL = config.DefaultAnthropicBaseURL
+	}
+	return &AgentService{
+		store:   opts.Store,
+		secrets: opts.Secrets,
+		model:   opts.Model,
+		baseURL: opts.AnthropicBaseURL,
+		http:    opts.HTTPClient,
+		logger:  opts.Logger,
+	}
 }
 
 // ListSessions returns conversations newest first.

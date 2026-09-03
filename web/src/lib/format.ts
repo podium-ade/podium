@@ -3,6 +3,7 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { Tone } from "../components/Badge";
 import { NodeStatus, TaskStatus } from "../gen/podium/v1/common_pb";
 import { TaskEventKind } from "../gen/podium/v1/node_pb";
+import type { Session, Turn } from "../gen/podium/agent/v1/agent_pb";
 import type { Node } from "../gen/podium/v1/admin_pb";
 import type { Task } from "../gen/podium/v1/task_pb";
 
@@ -231,4 +232,21 @@ export function queuedExplanation(task: Task, now = Date.now()): string | undefi
     ? ` (last checked ${relative(task.lastScheduleAttemptAt, now)})`
     : "";
   return `${task.queuedReason}${when}.`;
+}
+
+/**
+ * conversationLabel makes a session's source_key readable without pretending to know more
+ * than the conductor does. A Slack key is `slack:<channel>:<thread_ts>`; anything else is
+ * shown as it was stored, because inventing a shape for a source this build has never seen
+ * would be a guess rendered as a fact.
+ */
+export function conversationLabel(s: Pick<Session, "sourceKind" | "sourceKey">): string {
+  const parts = s.sourceKey.split(":");
+  if (s.sourceKind === "slack" && parts.length === 3) return `#${parts[1]} · ${parts[2]}`;
+  return s.sourceKey;
+}
+
+/** turnCost is the runtime's own estimate, or a dash until turn.json lands. */
+export function turnCost(t: Pick<Turn, "costUsd">): string {
+  return t.costUsd === undefined ? "—" : `$${t.costUsd.toFixed(4)}`;
 }

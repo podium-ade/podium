@@ -155,7 +155,13 @@ func (a *Agent) Close() {
 func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	opts := []connect.HandlerOption{}
 	rpc := http.NewServeMux()
-	rpc.Handle(agentv1connect.NewAgentServiceHandler(api.NewAgentService(a.store, a.logger), opts...))
+	rpc.Handle(agentv1connect.NewAgentServiceHandler(api.NewAgentService(api.AgentServiceOptions{
+		Store:            a.store,
+		Secrets:          a.podium,
+		Model:            a.profile.Model,
+		AnthropicBaseURL: a.cfg.AnthropicBaseURL,
+		Logger:           a.logger,
+	}), opts...))
 
 	root := http.NewServeMux()
 	root.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
