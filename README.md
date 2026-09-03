@@ -286,9 +286,12 @@ Everything here is real, current, and deliberate about being said out loud.
   integration-tested, but proving it needs tagged auth keys and HTTPS enabled on a tailnet, and
   the build machine had neither. The `host` transport is likewise implemented and never run.
   **The `dev` transport is the tested one.**
-- **Artifacts have never run against a real MinIO or S3.** Every object-store path is tested
-  against an in-process endpoint that speaks the same API and verifies presigned signatures for
-  real. Multipart upload, bucket policies, TLS and a real presign round trip are unexercised.
+- **Artifacts have run against a real MinIO, but not against S3 itself.** Storing and listing
+  are proved end to end against a real MinIO server, including a zero-byte artifact and a real
+  PNG a browser task produced. The automated suite still uses an in-process endpoint that speaks
+  the same API and verifies presigned signatures for real. **Multipart upload, bucket policies,
+  TLS, lifecycle rules and AWS S3 proper remain unexercised**, as does a presign round trip
+  against anything but the in-process endpoint.
 - **Nothing has ever run on Linux.** Everything works on macOS/arm64 with Docker Desktop 29.4.3.
   The node and CLI cross-compile and CI runs the test suites on Ubuntu, but no Podium daemon has
   been observed running on a Linux host. One consequence is concrete: sidecar readiness probes
@@ -297,6 +300,40 @@ Everything here is real, current, and deliberate about being said out loud.
 - **The container images have never been built or published**, and `deploy/install-node.sh` has
   never been run on a machine — it passes `shellcheck` and `bash -n`. `systemd-analyze verify`
   has not been run on the unit either; the build machine is macOS.
+
+### The agent layer has never met the services it exists to talk to
+
+The conductor, the runtime image and all three skills are implemented, unit-tested,
+integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
+a real Docker engine. What has **not** happened:
+
+- **No agent turn has ever called a model.** There is no Anthropic API key on the build machine,
+  so every turn ever executed — in tests, in the acceptance script, by hand — ran with
+  `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven, and
+  it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
+  around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting the
+  `coder` skill to write a pull request.**
+- **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
+  upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
+  driven by a fake in tests. Nothing has connected to Slack.
+- **No Linear workspace.** The poller, the issue and comment reads, the state transition and
+  `commentCreate` are driven against a fake GraphQL server through `PODIUM_AGENT_LINEAR_URL`.
+  `fileUpload` in particular is implemented from documentation alone and has never run.
+- **No data warehouse.** `psql`, `bq` and `duckdb` are installed and report their versions, and
+  the read-only story is proved for real against a throwaway Postgres: an `UPDATE` under the
+  `podium_analyst` role fails with `cannot execute UPDATE in a read-only transaction`, and the
+  agent produced a real CSV and a real matplotlib PNG. **BigQuery is unproven beyond `bq
+  version`.**
+- **Memory is the exception: Hindsight ran for real.** A real `ghcr.io/vectorize-io/hindsight`
+  container, pointed at a real pgvector Postgres, authenticated, retained, listed, searched and
+  tombstoned memories. The one unproven link is the Agent SDK's own MCP client reaching it from
+  inside a task container, which needs a model call.
+- **The conductor has only ever run on one host, under the `dev` transport.** Its tailnet compose
+  entry cannot work as written, because it points at a `server:8080` that does not exist under
+  `PODIUM_TRANSPORT=tailnet`; the file says so in a comment.
+- **The three runtime images have never been published.** Task images are resolved from the
+  node's own engine, so the local `:dev` tags work on a single host. A worker on a second machine
+  cannot pull them until they are pushed to a registry.
 
 ### Architectural, and not going to change soon
 
@@ -308,7 +345,10 @@ Everything here is real, current, and deliberate about being said out loud.
   `podium.task` on the engine, so two of them adopt each other's work. Nothing enforces it.
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table and lets every
   one of them do everything: submit tasks (and therefore run code as root on every worker),
-  drain nodes, delete secrets. The web UI is the same.
+  drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
+  anyone who can mention it in a Slack channel it has joined, or assign it a Linear issue, can
+  make it run code on a worker with that skill's credentials. The skill file's `secrets:` list is
+  the only boundary, so keep it minimal per skill. Nothing in the agent track fixes this.
 - **No egress policy.** A task reaches its sidecars and the internet. Whether it can also reach
   its worker's other networks depends on the host's routing, and Docker's default forwards it —
   **assume it can**, and firewall the host if that matters.
