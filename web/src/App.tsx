@@ -4,6 +4,8 @@ import { Header } from "./components/Header";
 import { ToastHost } from "./components/Toast";
 import { TokenGate } from "./components/TokenGate";
 import { NodesPage } from "./pages/NodesPage";
+import { SecretsPage } from "./pages/SecretsPage";
+import { SubmitPage } from "./pages/SubmitPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
 
@@ -23,7 +25,9 @@ export function App() {
                 <Routes>
                   <Route path="/" element={<TasksPage />} />
                   <Route path="/tasks/:id" element={<TaskDetailPage />} />
+                  <Route path="/submit" element={<SubmitPage />} />
                   <Route path="/nodes" element={<NodesPage />} />
+                  <Route path="/secrets" element={<SecretsPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </main>

@@ -62,6 +62,9 @@ message TaskFilter {
   repeated TaskStatus status = 1;
   string node_id = 2;
   string requested_by = 3;
+  // search narrows the page to tasks whose id starts with it or whose image contains it,
+  // case-insensitively. It is a substring match, not a query language.
+  string search = 4;
 }
 
 message Page {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { TaskEventKind, TaskEventSchema } from "../gen/podium/v1/node_pb";
-import { Accumulator, filterLines, toRawText } from "./logs";
-import { logEvent, stderr, stdout } from "../test/events";
+import { Accumulator, filterLines, sidecarNames, toRawText } from "./logs";
+import { logEvent, sidecarLogEvent, stderr, stdout } from "../test/events";
 
 describe("Accumulator", () => {
   it("emits lines in seq order across streams", () => {
@@ -53,20 +53,59 @@ describe("filterLines", () => {
     ...acc.append(logEvent(2, stderr, "warning: HELLO\n")),
     ...acc.append(logEvent(3, stdout, "goodbye\n")),
   ];
+  const all = { stdout: true, stderr: true, sidecars: {}, search: "" };
 
   it("filters by stream", () => {
-    expect(filterLines(lines, { stdout: true, stderr: false, search: "" })).toHaveLength(2);
-    expect(filterLines(lines, { stdout: false, stderr: true, search: "" })).toHaveLength(1);
+    expect(filterLines(lines, { ...all, stderr: false })).toHaveLength(2);
+    expect(filterLines(lines, { ...all, stdout: false })).toHaveLength(1);
   });
 
   it("searches case-insensitively", () => {
-    const hits = filterLines(lines, { stdout: true, stderr: true, search: "hello" });
+    const hits = filterLines(lines, { ...all, search: "hello" });
     expect(hits.map((l) => l.text)).toEqual(["hello world", "warning: HELLO"]);
   });
 
   it("combines stream and search", () => {
-    const hits = filterLines(lines, { stdout: false, stderr: true, search: "hello" });
+    const hits = filterLines(lines, { ...all, stdout: false, search: "hello" });
     expect(hits.map((l) => l.text)).toEqual(["warning: HELLO"]);
+  });
+});
+
+describe("sidecar filtering", () => {
+  const acc = new Accumulator();
+  const lines = [
+    ...acc.append(logEvent(1, stdout, "task line\n")),
+    ...acc.append(sidecarLogEvent(2, "db", "db ready\n")),
+    ...acc.append(sidecarLogEvent(3, "cache", "cache ready\n")),
+    ...acc.append(sidecarLogEvent(4, "db", "db again\n")),
+  ];
+  const all = { stdout: true, stderr: true, sidecars: {}, search: "" };
+
+  it("lists the sidecars that have produced output, in first-seen order", () => {
+    expect(sidecarNames(lines)).toEqual(["db", "cache"]);
+    expect(sidecarNames(lines.slice(0, 1))).toEqual([]);
+  });
+
+  it("hides one sidecar without touching the others or the task", () => {
+    const hits = filterLines(lines, { ...all, sidecars: { db: false } });
+    expect(hits.map((l) => l.text)).toEqual(["task line", "cache ready"]);
+  });
+
+  it("shows a sidecar it has never been told about", () => {
+    const hits = filterLines(lines, { ...all, sidecars: { somethingElse: false } });
+    expect(hits).toHaveLength(4);
+  });
+
+  it("keeps stdout and stderr independent of the sidecar filter", () => {
+    const hits = filterLines(lines, { ...all, stdout: false, sidecars: { cache: false } });
+    expect(hits.map((l) => l.text)).toEqual(["db ready", "db again"]);
+  });
+
+  it("buckets an unnamed sidecar chunk under \"sidecar\"", () => {
+    const a = new Accumulator();
+    const unnamed = a.append(sidecarLogEvent(1, "", "anonymous\n"));
+    expect(sidecarNames(unnamed)).toEqual(["sidecar"]);
+    expect(filterLines(unnamed, { ...all, sidecars: { sidecar: false } })).toHaveLength(0);
   });
 });
 

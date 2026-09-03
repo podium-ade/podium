@@ -131,6 +131,66 @@ describe("LogViewer", () => {
     expect(scroller.scrollTop).toBe(101 * 18);
   });
 
+  describe("per-sidecar filter", () => {
+    const acc = new Accumulator();
+    const withSidecars = [
+      ...acc.append(logEvent(1, stdout, "task starting\n")),
+      ...acc.append(sidecarLogEvent(2, "db", "db ready\n")),
+      ...acc.append(sidecarLogEvent(3, "cache", "cache ready\n")),
+      ...acc.append(logEvent(4, stderr, "task warning\n")),
+      ...acc.append(sidecarLogEvent(5, "db", "db again\n")),
+    ];
+
+    it("offers one checkbox per sidecar that has produced output", () => {
+      render(<LogViewer lines={withSidecars} phase="streaming" taskId="task_1" />);
+      expect(screen.getByLabelText("sidecar db")).toBeInTheDocument();
+      expect(screen.getByLabelText("sidecar cache")).toBeInTheDocument();
+    });
+
+    it("offers none for a task with no sidecar output", () => {
+      render(<LogViewer lines={mixed} phase="streaming" taskId="task_1" />);
+      expect(screen.queryByLabelText(/^sidecar /)).toBeNull();
+    });
+
+    it("hides one sidecar and leaves the task and the other alone", async () => {
+      const user = userEvent.setup();
+      render(<LogViewer lines={withSidecars} phase="streaming" taskId="task_1" />);
+
+      await user.click(screen.getByLabelText("sidecar db"));
+      expect(texts()).toEqual(["task starting", "[cache] cache ready", "task warning"]);
+
+      await user.click(screen.getByLabelText("sidecar cache"));
+      expect(texts()).toEqual(["task starting", "task warning"]);
+
+      await user.click(screen.getByLabelText("sidecar db"));
+      expect(texts()).toEqual(["task starting", "[db] db ready", "task warning", "[db] db again"]);
+    });
+
+    it("composes with the stream filter and the search box", async () => {
+      const user = userEvent.setup();
+      render(<LogViewer lines={withSidecars} phase="streaming" taskId="task_1" />);
+
+      await user.click(screen.getByLabelText("stdout"));
+      await user.click(screen.getByLabelText("stderr"));
+      expect(texts()).toEqual(["[db] db ready", "[cache] cache ready", "[db] db again"]);
+
+      await user.type(screen.getByLabelText("Search logs"), "ready");
+      expect(texts()).toEqual(["[db] db ready", "[cache] cache ready"]);
+      expect(screen.getByText("2 / 5 lines")).toBeInTheDocument();
+    });
+
+    it("shows a sidecar that only starts speaking later", () => {
+      const { rerender } = render(
+        <LogViewer lines={withSidecars} phase="streaming" taskId="task_1" />,
+      );
+      const later = [...withSidecars, ...acc.append(sidecarLogEvent(6, "queue", "queue up\n"))];
+      rerender(<LogViewer lines={later} phase="streaming" taskId="task_1" />);
+
+      expect(screen.getByLabelText("sidecar queue")).toBeInTheDocument();
+      expect(texts()).toContain("[queue] queue up");
+    });
+  });
+
   it("says so when there is no output at all", () => {
     render(<LogViewer lines={[]} phase="connecting" taskId="task_1" />);
     expect(screen.getByText("no output yet")).toBeInTheDocument();

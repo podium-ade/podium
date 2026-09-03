@@ -1,7 +1,9 @@
 import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { NodeAdminService } from "../gen/podium/v1/admin_pb";
+import { ArtifactService } from "../gen/podium/v1/artifact_pb";
 import { IdentityService } from "../gen/podium/v1/identity_pb";
+import { SecretService } from "../gen/podium/v1/secret_pb";
 import { TaskService } from "../gen/podium/v1/task_pb";
 import { getToken, notifyRejected } from "./auth";
 
@@ -36,3 +38,12 @@ const transport = createConnectTransport({
 export const tasks = createClient(TaskService, transport);
 export const admin = createClient(NodeAdminService, transport);
 export const identity = createClient(IdentityService, transport);
+export const secrets = createClient(SecretService, transport);
+export const artifacts = createClient(ArtifactService, transport);
+
+/** connectCode exposes the Connect status code so a screen can react to one by name. */
+export function connectCode(err: unknown): Code | undefined {
+  return err instanceof ConnectError ? err.code : undefined;
+}
+
+export { Code };

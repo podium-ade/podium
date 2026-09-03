@@ -9,11 +9,16 @@ select * from tasks where id = @id;
 -- name: GetTaskForUpdate :one
 select * from tasks where id = @id for update;
 
+-- The search clause uses starts_with/strpos rather than like, so a user typing % or _ is
+-- searching for those characters instead of writing a wildcard nobody asked for.
 -- name: ListTasks :many
 select * from tasks
 where (cardinality(@statuses::text[]) = 0 or status = any (@statuses::text[]))
   and (@node_id::text = '' or node_id = @node_id::text)
   and (@requested_by::text = '' or requested_by = @requested_by::text)
+  and (@search::text = ''
+       or starts_with(id, @search::text)
+       or strpos(lower(spec ->> 'image'), lower(@search::text)) > 0)
   and (@after_id::text = '' or id < @after_id::text)
 order by id desc
 limit @page_limit::int;

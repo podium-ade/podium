@@ -106,6 +106,7 @@ func (s *Store) ListTasks(ctx context.Context, f Filter, p Page) ([]Task, string
 		Statuses:    statuses,
 		NodeID:      f.NodeID,
 		RequestedBy: f.RequestedBy,
+		Search:      f.Search,
 		AfterID:     p.Cursor,
 		PageLimit:   int32(limit),
 	})
