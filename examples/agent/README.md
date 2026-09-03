@@ -148,7 +148,34 @@ Exit codes, and never any others:
 
 ## The other two images
 
-`podium-agent-runtime-browser:dev` adds Playwright and Chromium (screenshots, step 20).
+`podium-agent-runtime-browser:dev` adds Playwright and Chromium (the `coder` skill).
 `podium-agent-runtime-data:dev` adds `psql`, `bq` and `duckdb` (the analyst skill, step 21). Both
 run the same `dist/` and the same `node_modules` as the base image — the layer is copied out of it
 rather than rebuilt — so they cannot drift, and both take exactly the same brief.
+
+### The screenshot helper
+
+The browser image carries one extra thing an agent calls directly:
+
+```
+/opt/podium-agent/bin/screenshot URL OUT.png [--width N] [--height N] [--full-page]
+```
+
+Chromium headless, one navigation with a 15-second `networkidle` timeout, one PNG, exit 0 and the
+absolute path on stdout. Anything Playwright complains about goes to stderr and exits 1. It exists
+so a turn can verify a UI change without writing Playwright code every time.
+
+```sh
+./bin/podium run --image podium-agent-runtime-browser:dev --label browser -- \
+  sh -c 'python3 -m http.server 8000 >/dev/null 2>&1 & sleep 1;
+         /opt/podium-agent/bin/screenshot http://127.0.0.1:8000/ /workspace/.podium/artifacts/shot.png'
+./bin/podium artifacts <task_id>          # shot.png
+```
+
+The driver is `playwright-core`, pinned to the same version as the base image's browsers and
+installed in `/opt/podium-agent/browser/node_modules` — not in the runtime's, so the other two
+images do not carry it. `agent/runtime/src/screenshot.ts` is the argument parsing (typechecked and
+unit-tested); `agent/runtime/browser/screenshot.mjs` is the part that drives the browser.
+
+`pnpm test:images` in `agent/runtime` drives the helper inside a real container and skips with a
+message when Docker or the image is missing.

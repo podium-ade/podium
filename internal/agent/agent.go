@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -21,6 +22,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/agent/api"
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/config"
+	agentlinear "github.com/alvaroibarguen/podium/internal/agent/linear"
 	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
@@ -44,6 +46,7 @@ type Agent struct {
 	profile   *profiles.Profile
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
+	linear    *agentlinear.Source
 	dev       *api.DevSource
 	memory    memory.Client
 	http      *http.Server
@@ -83,6 +86,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		profile: profile,
 	}
 
+	// The registry is built before the sources: the Linear source owns three collectors of
+	// its own and registers them on this one.
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+
 	var sources []conductor.Source
 	if cfg.SlackEnabled() {
 		a.slack, err = agentslack.New(agentslack.Options{
@@ -101,6 +110,57 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			return nil, err
 		}
 		sources = append(sources, a.slack)
+	}
+	if cfg.LinearEnabled() {
+		a.linear, err = agentlinear.New(agentlinear.Options{
+			APIKey:       cfg.LinearAPIKey,
+			Endpoint:     cfg.LinearURL,
+			PollInterval: cfg.LinearPollInterval,
+			// A ticket has no channel and no /skill prefix, so the source names the skill
+			// and the profile's routing rules are bypassed. Zero skills claiming Linear is
+			// only a misconfiguration when a key is set, which is exactly here.
+			Skill:   profile.LinearSkill(),
+			Logger:  logger,
+			Metrics: agentlinear.NewMetrics(registry),
+			// The web UI as a HUMAN reaches it, which is not always how this process
+			// reaches the API. Used only for a fallback attachment link.
+			TaskURL: func(taskID string) string {
+				if taskID == "" {
+					return ""
+				}
+				return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
+			},
+			// The source asks rather than reading the store itself: an issue with no
+			// session is a fresh assignment, and one with a session is a follow-up whose
+			// new comments are the ones after the last turn started.
+			Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
+				sess, err := st.GetSessionByKey(ctx, sourceKey)
+				if err != nil {
+					return time.Time{}, false
+				}
+				if sess.LastTurnAt != nil {
+					return *sess.LastTurnAt, true
+				}
+				return time.Time{}, true
+			},
+			Cursor: agentlinear.CursorStore{
+				Get: func(ctx context.Context) (time.Time, error) {
+					at, err := st.GetLinearCursor(ctx, store.LinearCursorKey)
+					if errors.Is(err, store.ErrNotFound) {
+						return time.Time{}, nil
+					}
+					return at, err
+				},
+				Put: func(ctx context.Context, at time.Time) error {
+					return st.PutLinearCursor(ctx, store.LinearCursorKey, at)
+				},
+			},
+		})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		sources = append(sources, a.linear)
 	}
 	if cfg.DevSource {
 		logger.Warn("DEV SOURCE ENABLED — TEST ONLY. /dev/inbound injects messages as if a human " +
@@ -136,10 +196,6 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"Set PODIUM_AGENT_MEMORY_URL and PODIUM_AGENT_MEMORY_API_KEY to enable it.")
 	}
 
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
@@ -168,7 +224,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		"profile", profile.Name, "skills", profile.SkillNames(), "sources", kinds)
 	if len(kinds) == 0 {
 		logger.Warn("no source is enabled: nothing will ever start a turn. Set both " +
-			"PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN.")
+			"PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN, or " +
+			"PODIUM_AGENT_LINEAR_API_KEY.")
 	}
 	return a, nil
 }
@@ -309,9 +366,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		serveErr <- nil
 	}()
 
-	sourceErr := make(chan error, 1)
+	// A source's Run returning non-nil is fatal: a bot that cannot reach Slack or Linear
+	// is a bot nobody can talk to, and failing loudly at boot is how a wrong credential is
+	// found in the first minute rather than the first day.
+	sourceErr := make(chan error, 2)
 	if a.slack != nil {
 		go func() { sourceErr <- a.slack.Run(runCtx) }()
+	}
+	if a.linear != nil {
+		go func() { sourceErr <- a.linear.Run(runCtx) }()
 	}
 	conductorDone := make(chan struct{})
 	go func() {

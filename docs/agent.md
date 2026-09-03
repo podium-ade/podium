@@ -99,6 +99,10 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `skills/`, `prompts/` |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
+| `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
+| `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
+| `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
+| `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted provider key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
@@ -114,8 +118,9 @@ conductor at all:
 | `PODIUM_AGENT_URL` | for the web UI | where the conductor listens, `scheme://host:port` with no path. Unset means no conductor: the prefix is not mounted, `WhoAmI.agent_enabled` is false and the UI hides its Agent screen |
 | `PODIUM_AGENT_TOKEN` | with `PODIUM_AGENT_URL` | the **same value** as above. The server refuses to start with a URL and no token |
 
-Both Slack tokens or neither: one alone is a startup error naming the other. With neither, no
-source is started and the conductor listens to nothing — it says so at startup.
+Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
+and no Linear key, no source is started and the conductor listens to nothing — it says so at
+startup, which is a fine shape to run it in while you set the provider key in the UI.
 
 ### Its own database
 
@@ -195,6 +200,7 @@ secrets:                                                     # verbatim into the
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # channel IDs this skill is the default for
+linear: false                                                # this is the skill Linear tickets run
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
@@ -205,6 +211,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   every turn itself. A skill listing it is an error.
 - **`env:` may not set `PODIUM_AGENT_TURN` or `ANTHROPIC_API_KEY`.** The first is the brief; the
   second comes from the secret.
+- **At most one skill may set `linear: true`.** Two is a start-up error: a ticket has no channel
+  and no `/skill` prefix, so there would be nothing to choose between them with. Zero is fine —
+  most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
 
 ### Which skill runs
 
@@ -216,6 +225,10 @@ In order:
 2. The channel is in a skill's `slack_channels`. Two skills claiming one channel is a startup
    error.
 3. `profile.default_skill`.
+
+A **Linear ticket skips all three**: the Linear source names the `linear: true` skill itself, and
+an explicit skill from a source wins over every routing rule. A ticket's text is not a command
+line, so a `/word` in its description is left alone.
 
 **One session, one skill**, fixed when the thread's session is created. A later `/other` in the
 same thread is refused politely: start a new thread.
@@ -231,7 +244,7 @@ its own environment.
 | name | lands as | who needs it |
 |---|---|---|
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
-| `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` |
+| `podium.agent.github_token` | `GITHUB_TOKEN` | the `coder` skill — the only one whose file names it. See *The coder skill* |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 | `podium.agent.warehouse_url` | (step 21) | the analyst skill |
 | `podium.agent.warehouse_credentials` | (step 21) | the analyst skill |
@@ -359,6 +372,176 @@ once before the call fails.
 
 ---
 
+## Linear
+
+Assign an issue to the bot and it picks the work up. Comment on that issue and it takes another
+turn. Nothing else is a trigger, and nothing about Linear reaches this host inbound: the
+conductor **polls**, on a timer, dialling out. Podium does not accept a connection it did not
+already accept, and a webhook would be one.
+
+### Setting it up
+
+1. **Make the bot a user in your workspace.** Invite an address you control —
+   `podium-agent@yourcompany.com` — and accept the invitation. It needs a normal seat, not an
+   integration: this track uses a personal API key, and Linear's OAuth *agent* seats change the
+   assignment field (see the caveat below).
+2. **Signed in AS THE BOT USER**, go to **Settings → Security & access → Personal API keys → New
+   API key**. Copy it into `PODIUM_AGENT_LINEAR_API_KEY`. A key made from *your own* account
+   would make the bot read your issues and comment as you.
+3. **Exactly one skill must set `linear: true`.** That is the skill every ticket runs. The
+   example is [`../examples/agent/skills/coder.yaml`](../examples/agent/skills/coder.yaml). Two
+   skills claiming it is a start-up error; zero is fine until a Linear key is set, and then the
+   conductor refuses to start and says so.
+4. **Name a state `In Progress`** on the teams the bot works in, or accept the fallback (below).
+5. Start the conductor. `linear source connected` in the log names the user the key belongs to.
+   A key that is set and does not work makes `podium-agent` **exit non-zero at boot**, naming
+   Linear — a misconfigured key must not be discovered an hour later by nobody picking a ticket
+   up.
+
+Then assign an issue to the bot. Within the poll interval it moves to **In Progress**, a
+`👀 working…` comment appears, and when the turn ends the comment says `✅ Done — see below` and a
+second comment carries the answer.
+
+### What happens per tick
+
+Every `PODIUM_AGENT_LINEAR_POLL_INTERVAL` (default 30s, floor 10s) the conductor asks for issues
+assigned to the bot and updated since its watermark, 50 per page, following `hasNextPage` inside
+the same tick. Per issue:
+
+| the issue | what happens |
+|---|---|
+| its state's type is `completed` or `canceled` | nothing, ever. A finished ticket gets no turns however it was edited. |
+| no session exists for it yet | **an assignment**: one turn, with the identifier, the title and the description as the instruction. |
+| a session exists | **a follow-up**, if a human commented after the last turn started. Several new comments in one tick are joined into **one** instruction, oldest first, and are therefore one turn. |
+
+The bot's own comments never start a turn. Linear reports a comment's author in `user`, which is
+**null** for anything written by an integration or a bot without a user association, and sets
+`isMe` on anything written through this key — all three cases are excluded.
+
+The watermark (`linear_cursor.issues_updated_at`) is written **once per tick, after every page's
+events have been handed over**. A crash in between replays the tick, which the session gate and
+the last-turn comparison both absorb; the alternative loses tickets. On the first run of a fresh
+database it starts 24 hours back, so an assignment made while the conductor was down for a day is
+still picked up and nothing older is.
+
+### What it says back, and where
+
+Two comments per turn, at most, however long the turn:
+
+- The first progress post creates the **working comment**. Later progress edits it, at most one
+  edit every two seconds. When the turn ends that same comment becomes `✅ Done — see below` or
+  `❌ Failed`.
+- The answer is a **second comment**: the final text verbatim, then any attachments, then a
+  footer line naming the Podium task. Screenshots are uploaded to Linear's asset store and
+  embedded in that comment, so six screenshots are still one comment.
+- A turn that fails also gets the conductor's own plain-words explanation as that second comment.
+  A raw error never reaches it.
+
+Attachments over **50 MB**, or an upload Linear refuses, fall back to a link to
+`<PODIUM_AGENT_UI_URL>/tasks/<task_id>`. The reader has to be signed in to Podium to open it.
+
+**`React(done)` does not move the ticket.** Whether a ticket is finished is decided by a human
+reading the pull request, not by the bot having opened one. The only state change Podium makes is
+the move to In Progress when a turn starts.
+
+### The `In Progress` convention
+
+The state a turn moves an issue into is resolved per team, once per process:
+
+1. the state whose **name** is `In Progress` (case-insensitively);
+2. failing that, the lowest-positioned state whose **type** is `started` — a renamed column is
+   still the column that means started;
+3. failing that, nothing: the log says so and the turn runs anyway. A board Podium does not
+   understand is not a reason to refuse the work.
+
+### Why polling, and what would be better
+
+Linear's own documentation discourages polling and points at webhooks, and it is right: an
+`AppUserNotification` webhook carries an **`issueAssignedToYou`** action, which is exactly the
+predicate this code has to reconstruct, and `AgentSessionEvent` fires on assignment to an agent.
+Both require an OAuth `actor=app` application, which this track deliberately does not build, and
+an inbound HTTP endpoint, which this host deliberately does not expose. So: polling, at one query
+per tick against a budget of 2,500 requests an hour — two orders of magnitude inside it. If a
+future step builds the OAuth app, the webhook is the better mechanism and this is the place to say
+so.
+
+Two consequences of using a personal API key, both worth knowing:
+
+- **There is no `assignedAt` field and no assignment-time filter in Linear's API.** An
+  `updatedAt` watermark fires on *any* change to an assigned issue, so "newly assigned" is
+  reconstructed from Podium's own `sessions` table, not from the query.
+- **An OAuth `actor=app` bot would be the issue's `delegate`, not its `assignee`.** A personal
+  key on a normal seat is the `assignee`, which is what this code filters on. If the bot is ever
+  moved to an app seat, the filter has to change with it.
+
+---
+
+## The coder skill
+
+The one skill that writes code:
+[`../examples/agent/skills/coder.yaml`](../examples/agent/skills/coder.yaml), with its working
+agreement in [`../examples/agent/prompts/coder.md`](../examples/agent/prompts/coder.md). It is
+what Linear tickets run, and it is reachable from Slack as `/coder write a PR that …`.
+
+A coder turn reads the request, works on a branch, runs the repository's own tests, verifies a UI
+change by taking a screenshot of it, opens a **draft** pull request, and ends with the PR URL on
+the last line of its answer. Screenshots it names are attached to the reply.
+
+### The GitHub token
+
+The skill file names one secret, and a skill only ever gets the secrets its own file names:
+
+```yaml
+secrets:
+  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+```
+
+Set it once, as an operator:
+
+```sh
+podium secret set podium.agent.github_token      # the value on stdin
+```
+
+Make it a **fine-grained personal access token**, scoped to exactly the repositories in the
+skill's `repos:` list, with **Contents: read and write** and **Pull requests: read and write** and
+nothing else. Not `repo` on a classic token, which is every repository the owner can see. Not
+`workflow`. Rotate it on a schedule; a token that never expires is a token nobody will notice the
+loss of.
+
+- It reaches `coder` tasks and no others, because no other skill file names it. The `general`
+  skill's turns do not have it.
+- Inside the container it never appears in an argument vector or in `.git/config`: git gets it
+  through a credential helper that reads the environment at the moment git asks, and `gh` reads
+  `GH_TOKEN`, which the runtime sets from it.
+- Log redaction covers it, as it covers every injected secret — as defence in depth, not as the
+  control. See [`security.md`](security.md#redaction--what-it-does-and-does-not-guarantee).
+
+### Repositories
+
+`repos:` is copied into the brief and the runtime shallow-clones each one into
+`/workspace/repos/<name>` at the start of the turn, on its `default_branch`, with `user.name
+podium-agent` and `user.email podium-agent@users.noreply.github.com`. Only `https` with a token is
+supported: no SSH, no GitHub App, no GitLab.
+
+There is no working tree carried between turns. Every turn clones again. A follow-up comment that
+says "now also do X" starts from the default branch, and the agent has to find its own earlier
+branch if it wants it — the branch naming convention in the prompt is what makes that possible.
+
+### The `browser` label and Chromium
+
+The coder skill runs the **browser** runtime image and asks for the `browser` label. That label is
+a convention, not a schema: put it on the nodes that have enough free memory to run Chromium.
+**2 GB free is the floor**, and the skill asks for a 4096 MB limit.
+
+`/opt/podium-agent/bin/screenshot URL OUT.png [--width N] [--height N] [--full-page]` is the
+helper the prompt tells the agent to use. It launches Chromium headless with
+`--disable-dev-shm-usage`, waits for `networkidle` with a 15-second timeout, writes the PNG and
+prints its path. A task container's `/dev/shm` is Docker's default 64 MB and a Podium task spec
+has no knob for it, so an agent writing its own Playwright must pass the same flag. Chromium
+refuses a full-page capture of a very long page on its own account — take the viewport instead.
+
+---
+
 ## The limits that bite
 
 - **The brief is capped at 256 KiB encoded.** The conductor drops the oldest transcript entries
@@ -367,20 +550,26 @@ once before the call fails.
   too large" — start a new thread with just the question.
 - **One turn per session at a time.** A busy thread queues rather than parallelises.
 - **4000 characters per Slack message.** Longer answers arrive as several messages.
-- **25 MB per attachment.**
+- **25 MB per attachment** out of Podium, and **50 MB** into Linear's asset store; over either,
+  the reply carries a link to the task page instead of the file.
+- **Two comments per Linear turn.** Progress edits one of them; it is not a running commentary.
+- **The Linear poll interval** is how long an assignment waits before anything happens: up to 30
+  seconds by default, and never less than 10.
 - **No RBAC, anywhere.** See below.
 
 ---
 
 ## No RBAC
 
-**Whoever can tag the bot can run code on a worker with that skill's credentials.** There is no
-allowlist of users, no roles, and no read-only mode. The skill file is the only boundary: keep
+**Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
+credentials.** There is no allowlist of users, no roles, and no read-only mode. The skill file is the only boundary: keep
 `secrets:` minimal per skill, and do not put a credential in a skill that anybody in a public
 channel can reach.
 
-The two Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`. So is `PODIUM_AGENT_TOKEN`, which is
-the only thing guarding every session the bot has had.
+The two Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`. So are the Linear API key (full
+read/write of everything that user can see) and the GitHub token (write access to the listed
+repositories). So is `PODIUM_AGENT_TOKEN`, which is the only thing guarding every session the bot
+has had.
 
 Text relayed out of a task is **untrusted content**. The conductor posts it verbatim and acts on
 none of it: it never parses an answer for a command, a channel name or a user ID. See
@@ -602,19 +791,24 @@ PODIUM_AGENT_TOKEN=agenttoken \
 PODIUM_AGENT_PROFILE_DIR=examples/agent \
 PODIUM_AGENT_SLACK_APP_TOKEN=xapp-... \
 PODIUM_AGENT_SLACK_BOT_TOKEN=xoxb-... \
+PODIUM_AGENT_LINEAR_API_KEY=... \
+PODIUM_AGENT_UI_URL=http://127.0.0.1:8080 \
 PODIUM_AGENT_MEMORY_URL=http://127.0.0.1:8888 \
 PODIUM_AGENT_MEMORY_API_KEY=memtoken \
 ./bin/podium-agent
 ```
 
-The two memory variables are optional; drop them to run with no memory. Note that
+The Slack, Linear and memory variables are all optional; drop any of them to run without that
+source or without a memory. A `coder` turn also needs `podium secret set
+podium.agent.github_token` and a node labelled `browser` — `PODIUM_NODE_LABELS=browser` on the
+node daemon, or `--label browser` on the enrollment token. Note that
 `PODIUM_AGENT_MEMORY_TASK_URL` keeps its default (`http://host.docker.internal:8888`) even here:
 the conductor reaches the service on loopback, and a turn's container reaches it through the
 bridge gateway. The dev compose publishes it on loopback only, which is fine for the conductor
 and **not** for a task — set `PODIUM_MEMORY_BIND=0.0.0.0` if you want a real turn to recall.
 
-Without the Slack tokens it starts and listens to nothing, which is a fine way to check the
-profile loads and the database migrates — and it is enough for the Agent screen in the UI: the
+Without the Slack tokens and the Linear key it starts and listens to nothing, which is a fine way
+to check the profile loads and the database migrates — and it is enough for the Agent screen in the UI: the
 Settings tab needs no source at all.
 
 To drive one turn with no Slack and no model at all, see

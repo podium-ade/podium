@@ -93,6 +93,12 @@ type Skill struct {
 	Repos         []Repo            `yaml:"repos"`
 	SlackChannels []string          `yaml:"slack_channels"`
 	Env           map[string]string `yaml:"env"`
+	// Linear marks the one skill Linear tickets run. Tickets are not chat, so there is no
+	// /skill prefix to route them and no channel to match: the flag is the routing rule.
+	// At most one skill may set it; zero means this bot does not take tickets, which is
+	// only a misconfiguration when a Linear API key is also set — and the conductor says
+	// so at start-up, where the key is known.
+	Linear bool `yaml:"linear"`
 
 	// Name is the file name without the extension.
 	Name string `yaml:"-"`
@@ -326,6 +332,19 @@ func (p *Profile) validate(path string) error {
 		errs = append(errs, fmt.Errorf("default_skill %q names no skill in skills/ (have %s)",
 			p.DefaultSkill, strings.Join(p.SkillNames(), ", ")))
 	}
+	// Two skills claiming Linear is ambiguous routing with no tie-breaker at all — there
+	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.
+	var linear []string
+	for _, name := range p.SkillNames() {
+		if p.Skills[name].Linear {
+			linear = append(linear, name)
+		}
+	}
+	if len(linear) > 1 {
+		errs = append(errs, fmt.Errorf("skills %s all set linear: true; exactly one skill may, "+
+			"because a ticket has no channel and no /skill prefix to choose with",
+			strings.Join(linear, ", ")))
+	}
 	// Two skills claiming one channel is ambiguous routing, and ambiguous routing that
 	// resolves by map iteration order is worse than a refusal at start-up.
 	claimed := map[string]string{}
@@ -342,6 +361,17 @@ func (p *Profile) validate(path string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
+}
+
+// LinearSkill is the name of the skill Linear tickets run, or "" when no skill claims
+// them. validate has already refused more than one.
+func (p *Profile) LinearSkill() string {
+	for _, name := range p.SkillNames() {
+		if p.Skills[name].Linear {
+			return name
+		}
+	}
+	return ""
 }
 
 // SkillNames is every loaded skill, sorted.

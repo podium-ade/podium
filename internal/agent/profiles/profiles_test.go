@@ -223,3 +223,49 @@ func TestSkillPrefixRE(t *testing.T) {
 		assert.Nil(t, SkillPrefixRE.FindStringSubmatch(text), "%q must not match", text)
 	}
 }
+
+// TestExactlyOneSkillMayTakeLinearTickets. Two is refused at load: a ticket has no channel
+// and no /skill prefix, so there is nothing to disambiguate two claims with, and routing
+// that resolved by map iteration order would be worse than a refusal.
+func TestExactlyOneSkillMayTakeLinearTickets(t *testing.T) {
+	files := base()
+	files["skills/coder.yaml"] = goodSkill + "linear: true\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "coder", p.LinearSkill())
+	assert.True(t, p.Skills["coder"].Linear)
+	assert.False(t, p.Skills["general"].Linear)
+
+	files["skills/fixer.yaml"] = goodSkill + "linear: true\n"
+	_, err = Load(write(t, files))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "coder")
+	assert.Contains(t, err.Error(), "fixer")
+	assert.Contains(t, err.Error(), "linear: true")
+}
+
+// TestNoSkillTakingLinearTicketsIsAllowed. A bot with no Linear at all is a supported
+// deployment — most of them — so zero is not a load error. The Linear source is what
+// refuses to start when a key is set and no skill claims tickets, because that is where the
+// key is known.
+func TestNoSkillTakingLinearTicketsIsAllowed(t *testing.T) {
+	p, err := Load(write(t, base()))
+	require.NoError(t, err)
+	assert.Empty(t, p.LinearSkill())
+}
+
+// TestASourceChosenSkillWinsOverEveryRoutingRule. It is how a Linear ticket reaches the
+// coder skill: the source names it and Select honours a non-empty skill first, so neither a
+// /prefix in the ticket's text nor a channel claim can redirect it.
+func TestASourceChosenSkillWinsOverEveryRoutingRule(t *testing.T) {
+	files := base()
+	files["skills/coder.yaml"] = goodSkill + "linear: true\nslack_channels: [C999]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	sel := p.Select("coder", "C999", "/general please just answer")
+	assert.Equal(t, "coder", sel.Skill.Name)
+	assert.True(t, sel.Explicit)
+	assert.Equal(t, "/general please just answer", sel.Instruction,
+		"a ticket's text is not a command line: no prefix is stripped")
+}

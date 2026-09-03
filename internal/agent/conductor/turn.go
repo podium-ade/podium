@@ -84,7 +84,7 @@ func (r *turnRun) run(ctx context.Context) {
 	if err != nil {
 		r.c.logger.ErrorContext(ctx, "reading the turn's task back failed",
 			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "error", err)
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
 			"I lost track of this one. Task `%s`.", r.turn.TaskID)})
 		r.finish(ctx, store.TurnFailed, nil, nil)
 		return
@@ -99,7 +99,7 @@ func (r *turnRun) run(ctx context.Context) {
 			"turn_id", r.turn.ID, "task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason(),
 			"error_event", r.errText)
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, Text: result.Post})
+		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: result.Post})
 	}
 	r.finish(ctx, result.Status, summary.numTurns(), summary.cost())
 }
@@ -178,7 +178,7 @@ func (r *turnRun) relay(ctx context.Context, e *podiumv1.TaskEvent) {
 	if text == "" {
 		return
 	}
-	r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, Text: text})
+	r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Text: text})
 }
 
 // maybeEdit shows the held progress if the throttle allows it. There is no timer: the next
@@ -204,7 +204,7 @@ func (r *turnRun) flushProgress(ctx context.Context) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	out := Outbound{Type: OutProgress, Text: progressPrefix + text}
+	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: progressPrefix + text}
 	if r.placeholder == "" {
 		r.placeholder = r.c.post(ctx, r.src, r.ref, out)
 		return
@@ -263,7 +263,7 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) turnSummary {
 		if !ok {
 			// Normal, not an error: a name that matches nothing is how the runtime says
 			// "I mentioned a file I did not produce".
-			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, Text: fmt.Sprintf(
+			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
 				"no artifact named `%s` was produced", name)})
 			continue
 		}
@@ -277,7 +277,7 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) turnSummary {
 // thread rather than proxied.
 func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 	if art.GetSizeBytes() > podium.MaxAttachmentBytes {
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, Text: fmt.Sprintf(
+		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
 			"`%s` is %d MB, which is more than I will relay. It is on the task: `podium artifact get %s`.",
 			art.GetName(), art.GetSizeBytes()>>20, art.GetId())})
 		return
@@ -285,7 +285,7 @@ func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 	body, contentType, err := r.c.podium.Artifact(ctx, art.GetId())
 	if err != nil {
 		if errors.Is(err, podium.ErrTooLarge) {
-			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, Text: fmt.Sprintf(
+			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
 				"`%s` is too large for me to relay. It is on the task: `podium artifact get %s`.",
 				art.GetName(), art.GetId())})
 			return
@@ -300,6 +300,7 @@ func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 		ContentType: contentType,
 		Size:        art.GetSizeBytes(),
 		Body:        body,
+		TaskID:      r.turn.TaskID,
 	}); err != nil {
 		r.c.logger.WarnContext(ctx, "attaching a file to the conversation failed",
 			"artifact_id", art.GetId(), "name", art.GetName(), "error", err)

@@ -29,6 +29,11 @@ const (
 type Outbound struct {
 	Type string
 	Text string
+	// TaskID is the Podium task the turn is running, empty when the turn never got one.
+	// A source uses it to say where an answer came from — Linear's comments carry a
+	// footer naming it, and its fallback attachment link points at the task's page. It is
+	// NOT part of Text: whether it is shown at all is the source's decision.
+	TaskID string
 }
 
 // InboundEvent is one thing a human said, normalised. A source produces these and nothing
@@ -78,6 +83,9 @@ type Attachment struct {
 	ContentType string
 	Size        int64
 	Body        io.Reader
+	// TaskID is the task the artifact belongs to, so a source that cannot upload the file
+	// can link to it where it actually lives.
+	TaskID string
 }
 
 // Source is one place conversations happen. Steps 20 and 21 implement this same interface
