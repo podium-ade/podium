@@ -20,6 +20,12 @@ func main() {
 		fmt.Printf("podium-runner %s\n", version.String())
 		return
 	}
+	// `podium-runner artifact add PATH …` is the in-container helper: it writes one line
+	// to the event socket and exits. It is checked before the `--` strip because it is a
+	// subcommand of the runner, not a task command.
+	if len(args) >= 2 && args[0] == "artifact" && args[1] == "add" {
+		os.Exit(runner.AddArtifact(runner.ConfigFromEnv(), args[2:]))
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}

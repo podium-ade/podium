@@ -151,21 +151,89 @@ func TestAppendAndListLogChunks(t *testing.T) {
 	require.Equal(t, "db", got[1].Sidecar)
 }
 
-func TestPruneLogChunks(t *testing.T) {
+// TestPruneLogChunksOnlyTouchesRolledUpTasks: the prune is scoped by task, not by chunk
+// age. A task whose logs are not in the object store keeps every row no matter how old
+// they are — deleting them would lose the log and, worse, move the resume offsets a
+// reconnecting node is handed (step 12) backwards.
+func TestPruneLogChunksOnlyTouchesRolledUpTasks(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	rolled := mustCreateTask(t, s, 1)
+	live := mustCreateTask(t, s, 2)
+
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	for _, task := range []Task{rolled, live} {
+		_, err := s.AppendLogChunks(ctx, task.ID, logBatch(1, 3, old))
+		require.NoError(t, err)
+		_, err = s.AppendLogChunks(ctx, task.ID, logBatch(4, 6, time.Now().UTC()))
+		require.NoError(t, err)
+	}
+
+	// Nothing has been rolled up, so nothing may go.
+	n, err := s.PruneLogChunks(ctx, time.Now().UTC())
+	require.NoError(t, err)
+	require.Zero(t, n)
+	require.Equal(t, 6, countRows(t, s, "select count(*) from task_log_chunks where task_id = $1", live.ID))
+
+	require.NoError(t, s.MarkLogsRolledUp(ctx, rolled.ID, LogRollUp{
+		HighSeq: 6, StdoutOffset: 4096, StderrOffset: 512,
+	}))
+
+	// The grace period has not passed yet.
+	n, err = s.PruneLogChunks(ctx, time.Now().UTC().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	n, err = s.PruneLogChunks(ctx, time.Now().UTC().Add(time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, int64(6), n)
+	require.Zero(t, countRows(t, s, "select count(*) from task_log_chunks where task_id = $1", rolled.ID))
+	require.Equal(t, 6, countRows(t, s, "select count(*) from task_log_chunks where task_id = $1", live.ID),
+		"a task that has not been rolled up keeps its rows")
+}
+
+// TestRollUpMarksKeepTheReconciliationAnswersMonotonic is the invariant the log roll-up
+// rests on: store.TaskStreamOffsets and store.MaxTaskSeq are what a restarting node is
+// told to resume from, and they are computed from the rows the prune deletes.
+func TestRollUpMarksKeepTheReconciliationAnswersMonotonic(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	task := mustCreateTask(t, s, 1)
 
-	old := time.Now().UTC().Add(-48 * time.Hour)
-	_, err := s.AppendLogChunks(ctx, task.ID, logBatch(1, 3, old))
-	require.NoError(t, err)
-	_, err = s.AppendLogChunks(ctx, task.ID, logBatch(4, 6, time.Now().UTC()))
+	_, err := s.AppendLogChunks(ctx, task.ID, []LogChunk{
+		{Seq: 1, Stream: StreamStdout, TS: time.Now().UTC(), Bytes: []byte("a"), SourceOffset: 100},
+		{Seq: 2, Stream: StreamStderr, TS: time.Now().UTC(), Bytes: []byte("b"), SourceOffset: 20},
+		{Seq: 3, Stream: StreamSidecar, Sidecar: "db", TS: time.Now().UTC(), Bytes: []byte("c"), SourceOffset: 999},
+	})
 	require.NoError(t, err)
 
-	n, err := s.PruneLogChunks(ctx, time.Now().UTC().Add(-24*time.Hour))
+	before, err := s.TaskStreamOffsets(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, StreamOffsets{Stdout: 100, Stderr: 20}, before,
+		"a sidecar's offset is not the task container's")
+	highBefore, err := s.MaxTaskSeq(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), highBefore)
+
+	require.NoError(t, s.MarkLogsRolledUp(ctx, task.ID, LogRollUp{
+		HighSeq: highBefore, StdoutOffset: before.Stdout, StderrOffset: before.Stderr,
+	}))
+	n, err := s.PruneLogChunks(ctx, time.Now().UTC().Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, int64(3), n)
-	require.Equal(t, 3, countRows(t, s, "select count(*) from task_log_chunks where task_id = $1", task.ID))
+
+	after, err := s.TaskStreamOffsets(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	highAfter, err := s.MaxTaskSeq(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, highBefore, highAfter)
+
+	// A second roll-up may only ever raise the marks.
+	require.NoError(t, s.MarkLogsRolledUp(ctx, task.ID, LogRollUp{}))
+	again, err := s.TaskStreamOffsets(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, before, again)
 }
 
 func TestSubscribeTaskEventsDeliversNotifications(t *testing.T) {

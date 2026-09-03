@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"time"
 )
 
 const listLogChunks = `-- name: ListLogChunks :many
@@ -65,10 +64,14 @@ func (q *Queries) MaxLogChunkSeq(ctx context.Context, taskID string) (int64, err
 const maxTaskSeq = `-- name: MaxTaskSeq :one
 select greatest(
   (select coalesce(max(e.seq), 0) from task_events e     where e.task_id = $1),
-  (select coalesce(max(c.seq), 0) from task_log_chunks c where c.task_id = $1)
+  (select coalesce(max(c.seq), 0) from task_log_chunks c where c.task_id = $1),
+  (select coalesce(max(t.logs_high_seq), 0) from tasks t where t.id = $1)
 )::bigint as high_seq
 `
 
+// MaxTaskSeq folds in tasks.logs_high_seq for the same reason TaskStreamOffsets folds in
+// the offsets: pruning a rolled-up task's chunks must not let the high-water mark drop, or
+// a synthetic event would collide with a sequence number that is already spent.
 func (q *Queries) MaxTaskSeq(ctx context.Context, taskID string) (int64, error) {
 	row := q.db.QueryRow(ctx, maxTaskSeq, taskID)
 	var high_seq int64
@@ -76,49 +79,36 @@ func (q *Queries) MaxTaskSeq(ctx context.Context, taskID string) (int64, error) 
 	return high_seq, err
 }
 
-const pruneLogChunks = `-- name: PruneLogChunks :execrows
-delete from task_log_chunks where ts < $1
-`
-
-func (q *Queries) PruneLogChunks(ctx context.Context, olderThan time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, pruneLogChunks, olderThan)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const taskStreamOffsets = `-- name: TaskStreamOffsets :many
-select stream, coalesce(max(source_offset), 0)::bigint as source_offset
-from task_log_chunks
-where task_id = $1 and coalesce(sidecar, '') = ''
-group by stream
+const taskStreamOffsets = `-- name: TaskStreamOffsets :one
+select
+  greatest(
+    (select coalesce(max(c.source_offset), 0) from task_log_chunks c
+      where c.task_id = $1 and c.stream = 'stdout' and coalesce(c.sidecar, '') = ''),
+    t.logs_stdout_offset)::bigint as stdout_offset,
+  greatest(
+    (select coalesce(max(c.source_offset), 0) from task_log_chunks c
+      where c.task_id = $1 and c.stream = 'stderr' and coalesce(c.sidecar, '') = ''),
+    t.logs_stderr_offset)::bigint as stderr_offset
+from tasks t
+where t.id = $1
 `
 
 type TaskStreamOffsetsRow struct {
-	Stream       string
-	SourceOffset int64
+	StdoutOffset int64
+	StderrOffset int64
 }
 
 // TaskStreamOffsets is the reconciliation answer for one task: how far into each of the
 // container's own streams the control plane has committed. Sidecar chunks are excluded —
 // an adopted task's sidecars are never re-attached, so their offsets mean nothing.
-func (q *Queries) TaskStreamOffsets(ctx context.Context, taskID string) ([]TaskStreamOffsetsRow, error) {
-	rows, err := q.db.Query(ctx, taskStreamOffsets, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []TaskStreamOffsetsRow{}
-	for rows.Next() {
-		var i TaskStreamOffsetsRow
-		if err := rows.Scan(&i.Stream, &i.SourceOffset); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+//
+// The stored roll-up watermarks are folded in with greatest() so the answer cannot go
+// backwards when a rolled-up task's chunks are pruned. A node resumed from a smaller
+// offset would re-send the whole container log under fresh sequence numbers, which is
+// exactly the duplicate step 12 exists to have fixed.
+func (q *Queries) TaskStreamOffsets(ctx context.Context, taskID string) (TaskStreamOffsetsRow, error) {
+	row := q.db.QueryRow(ctx, taskStreamOffsets, taskID)
+	var i TaskStreamOffsetsRow
+	err := row.Scan(&i.StdoutOffset, &i.StderrOffset)
+	return i, err
 }

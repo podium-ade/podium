@@ -42,6 +42,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/node/docker"
 	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/alvaroibarguen/podium/internal/server/logs"
 	"github.com/alvaroibarguen/podium/internal/server/secrets"
 )
 
@@ -147,18 +148,22 @@ type harness struct {
 	// masterKeyFile is created once per harness and reused across restarts: a server that
 	// came back with a different master key could not decrypt anything it had stored.
 	masterKeyFile string
+	// configure is applied to every incarnation's config, so a restart keeps whatever the
+	// test asked for.
+	configure []func(*server.Config)
 
 	mu  sync.Mutex
 	srv *server.Server
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, opts ...func(*server.Config)) *harness {
 	t.Helper()
 	h := &harness{
 		t:             t,
 		addr:          freeLoopbackAddr(t),
 		databaseURL:   newDatabase(t),
 		masterKeyFile: newMasterKeyFile(t),
+		configure:     opts,
 	}
 	h.startServer()
 	t.Cleanup(h.stopServer)
@@ -190,13 +195,18 @@ func (h *harness) startServer() {
 	// the kernel's hands for a beat.
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		srv, err = server.New(context.Background(), server.Config{
+		cfg := server.Config{
 			DatabaseURL:   h.databaseURL,
 			Transport:     server.TransportDev,
 			DevListen:     h.addr,
 			DevToken:      devToken,
 			MasterKeyFile: h.masterKeyFile,
-		}, logger)
+			Rollup:        logs.DefaultRollupConfig(),
+		}
+		for _, opt := range h.configure {
+			opt(&cfg)
+		}
+		srv, err = server.New(context.Background(), cfg, logger)
 		if err == nil {
 			err = srv.Start(context.Background())
 			if err == nil {

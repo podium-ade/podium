@@ -12,19 +12,21 @@ import (
 // server-streaming calls, so plain HTTP/1.1 is enough — none of the h2c setup the node
 // daemon needs applies here.
 type clients struct {
-	tasks    podiumv1connect.TaskServiceClient
-	admin    podiumv1connect.NodeAdminServiceClient
-	identity podiumv1connect.IdentityServiceClient
-	secrets  podiumv1connect.SecretServiceClient
+	tasks     podiumv1connect.TaskServiceClient
+	admin     podiumv1connect.NodeAdminServiceClient
+	identity  podiumv1connect.IdentityServiceClient
+	secrets   podiumv1connect.SecretServiceClient
+	artifacts podiumv1connect.ArtifactServiceClient
 }
 
 func newClients(cfg Config) *clients {
 	httpClient := httpClientFor(cfg)
 	return &clients{
-		tasks:    podiumv1connect.NewTaskServiceClient(httpClient, cfg.Server),
-		admin:    podiumv1connect.NewNodeAdminServiceClient(httpClient, cfg.Server),
-		identity: podiumv1connect.NewIdentityServiceClient(httpClient, cfg.Server),
-		secrets:  podiumv1connect.NewSecretServiceClient(httpClient, cfg.Server),
+		tasks:     podiumv1connect.NewTaskServiceClient(httpClient, cfg.Server),
+		admin:     podiumv1connect.NewNodeAdminServiceClient(httpClient, cfg.Server),
+		identity:  podiumv1connect.NewIdentityServiceClient(httpClient, cfg.Server),
+		secrets:   podiumv1connect.NewSecretServiceClient(httpClient, cfg.Server),
+		artifacts: podiumv1connect.NewArtifactServiceClient(httpClient, cfg.Server),
 	}
 }
 

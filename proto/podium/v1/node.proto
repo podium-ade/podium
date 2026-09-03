@@ -13,6 +13,12 @@ service NodeService {
   // Stream is the steady-state bidirectional stream. The node reopens it with backoff on any
   // disconnect and must send Hello as its first message.
   rpc Stream(stream NodeMessage) returns (stream ServerMessage);
+  // UploadArtifact streams one file a task produced through the control plane and into the
+  // object store. It is client-streaming: the first message carries the metadata, every
+  // message after it carries a chunk of the body. The node never talks to S3 itself —
+  // "nodes only ever talk to the server" is the invariant the whole networking design
+  // rests on, and a presigned PUT straight from the node would break it.
+  rpc UploadArtifact(stream UploadArtifactRequest) returns (UploadArtifactResponse);
 }
 
 message EnrollRequest {
@@ -30,6 +36,42 @@ message EnrollResponse {
   string node_id = 1;
   // SENSITIVE: never log. Returned once; the server keeps only its SHA-256.
   string node_key = 2;
+}
+
+// UploadArtifactRequest is one message of an artifact upload. The first must be the
+// metadata; every message after it must be a chunk. Chunks are 1 MB and an artifact is
+// capped at 512 MB.
+message UploadArtifactRequest {
+  oneof msg {
+    ArtifactMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+// ArtifactMetadata opens an upload. It re-presents the node's credentials because an
+// upload is a separate HTTP request from the node stream and carries no session with it.
+message ArtifactMetadata {
+  string node_id = 1;
+  // SENSITIVE: never log. The same node key Hello presents.
+  string node_key = 2;
+  string task_id = 3;
+  string lease_id = 4;
+  // name is what the producer called the file: the runner's --name, or the path relative
+  // to the auto-collection directory. The object key carries a sanitised copy.
+  string name = 5;
+  string content_type = 6;
+  // size_bytes is what the node expects to send, for an early rejection. Zero means
+  // unknown; the server counts what actually arrives either way.
+  int64 size_bytes = 7;
+  // kind is "file" (default) or "log".
+  string kind = 8;
+}
+
+message UploadArtifactResponse {
+  string artifact_id = 1;
+  string object_key = 2;
+  int64 size_bytes = 3;
+  string sha256 = 4;
 }
 
 // NodeMessage is everything a node can send on the stream.
@@ -155,8 +197,8 @@ message Drain {
   bool undo = 1;
 }
 
-// TaskEventKind is the canonical event taxonomy. STEP and ARTIFACT are reserved and are
-// never emitted in MVP-0 (they arrive with the runner and the artifact store).
+// TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04)
+// and ARTIFACT with the artifact store (step 10); neither is emitted in MVP-0.
 enum TaskEventKind {
   TASK_EVENT_KIND_UNSPECIFIED = 0;
   TASK_EVENT_KIND_PROVISIONING = 1;
@@ -187,6 +229,17 @@ message LogChunk {
   // The server hands the maximum back in HelloAck so an adopting node resumes exactly
   // where the last one stopped.
   int64 source_offset = 4;
+}
+
+// ArtifactRef names an artifact the control plane has already stored. The node emits one
+// after UploadArtifact has returned, so an artifact event always refers to bytes that are
+// durable — never to an upload that is still in flight.
+message ArtifactRef {
+  string artifact_id = 1;
+  string name = 2;
+  string object_key = 3;
+  int64 size_bytes = 4;
+  string content_type = 5;
 }
 
 // Step is emitted by the runner. Reserved: unused in MVP-0.
@@ -225,5 +278,6 @@ message TaskEvent {
     Exited exited = 8;
     Finished finished = 9;
     Error error = 10;
+    ArtifactRef artifact = 11;
   }
 }

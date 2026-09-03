@@ -37,3 +37,6 @@ func NewNode() string { return New("node") }
 
 // NewLease returns a lease_… ID.
 func NewLease() string { return New("lease") }
+
+// NewArtifact returns an art_… ID.
+func NewArtifact() string { return New("art") }

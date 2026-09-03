@@ -37,6 +37,9 @@ const (
 	NodeServiceEnrollProcedure = "/podium.v1.NodeService/Enroll"
 	// NodeServiceStreamProcedure is the fully-qualified name of the NodeService's Stream RPC.
 	NodeServiceStreamProcedure = "/podium.v1.NodeService/Stream"
+	// NodeServiceUploadArtifactProcedure is the fully-qualified name of the NodeService's
+	// UploadArtifact RPC.
+	NodeServiceUploadArtifactProcedure = "/podium.v1.NodeService/UploadArtifact"
 )
 
 // NodeServiceClient is a client for the podium.v1.NodeService service.
@@ -46,6 +49,12 @@ type NodeServiceClient interface {
 	// Stream is the steady-state bidirectional stream. The node reopens it with backoff on any
 	// disconnect and must send Hello as its first message.
 	Stream(context.Context) *connect.BidiStreamForClient[v1.NodeMessage, v1.ServerMessage]
+	// UploadArtifact streams one file a task produced through the control plane and into the
+	// object store. It is client-streaming: the first message carries the metadata, every
+	// message after it carries a chunk of the body. The node never talks to S3 itself —
+	// "nodes only ever talk to the server" is the invariant the whole networking design
+	// rests on, and a presigned PUT straight from the node would break it.
+	UploadArtifact(context.Context) *connect.ClientStreamForClient[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
 }
 
 // NewNodeServiceClient constructs a client for the podium.v1.NodeService service. By default, it
@@ -71,13 +80,20 @@ func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nodeServiceMethods.ByName("Stream")),
 			connect.WithClientOptions(opts...),
 		),
+		uploadArtifact: connect.NewClient[v1.UploadArtifactRequest, v1.UploadArtifactResponse](
+			httpClient,
+			baseURL+NodeServiceUploadArtifactProcedure,
+			connect.WithSchema(nodeServiceMethods.ByName("UploadArtifact")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // nodeServiceClient implements NodeServiceClient.
 type nodeServiceClient struct {
-	enroll *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
-	stream *connect.Client[v1.NodeMessage, v1.ServerMessage]
+	enroll         *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
+	stream         *connect.Client[v1.NodeMessage, v1.ServerMessage]
+	uploadArtifact *connect.Client[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
 }
 
 // Enroll calls podium.v1.NodeService.Enroll.
@@ -90,6 +106,11 @@ func (c *nodeServiceClient) Stream(ctx context.Context) *connect.BidiStreamForCl
 	return c.stream.CallBidiStream(ctx)
 }
 
+// UploadArtifact calls podium.v1.NodeService.UploadArtifact.
+func (c *nodeServiceClient) UploadArtifact(ctx context.Context) *connect.ClientStreamForClient[v1.UploadArtifactRequest, v1.UploadArtifactResponse] {
+	return c.uploadArtifact.CallClientStream(ctx)
+}
+
 // NodeServiceHandler is an implementation of the podium.v1.NodeService service.
 type NodeServiceHandler interface {
 	// Enroll exchanges a single-use enrollment token for a durable node identity. Called once.
@@ -97,6 +118,12 @@ type NodeServiceHandler interface {
 	// Stream is the steady-state bidirectional stream. The node reopens it with backoff on any
 	// disconnect and must send Hello as its first message.
 	Stream(context.Context, *connect.BidiStream[v1.NodeMessage, v1.ServerMessage]) error
+	// UploadArtifact streams one file a task produced through the control plane and into the
+	// object store. It is client-streaming: the first message carries the metadata, every
+	// message after it carries a chunk of the body. The node never talks to S3 itself —
+	// "nodes only ever talk to the server" is the invariant the whole networking design
+	// rests on, and a presigned PUT straight from the node would break it.
+	UploadArtifact(context.Context, *connect.ClientStream[v1.UploadArtifactRequest]) (*connect.Response[v1.UploadArtifactResponse], error)
 }
 
 // NewNodeServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -118,12 +145,20 @@ func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nodeServiceMethods.ByName("Stream")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeServiceUploadArtifactHandler := connect.NewClientStreamHandler(
+		NodeServiceUploadArtifactProcedure,
+		svc.UploadArtifact,
+		connect.WithSchema(nodeServiceMethods.ByName("UploadArtifact")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.NodeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NodeServiceEnrollProcedure:
 			nodeServiceEnrollHandler.ServeHTTP(w, r)
 		case NodeServiceStreamProcedure:
 			nodeServiceStreamHandler.ServeHTTP(w, r)
+		case NodeServiceUploadArtifactProcedure:
+			nodeServiceUploadArtifactHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -139,4 +174,8 @@ func (UnimplementedNodeServiceHandler) Enroll(context.Context, *connect.Request[
 
 func (UnimplementedNodeServiceHandler) Stream(context.Context, *connect.BidiStream[v1.NodeMessage, v1.ServerMessage]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.Stream is not implemented"))
+}
+
+func (UnimplementedNodeServiceHandler) UploadArtifact(context.Context, *connect.ClientStream[v1.UploadArtifactRequest]) (*connect.Response[v1.UploadArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.UploadArtifact is not implemented"))
 }

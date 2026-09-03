@@ -19,6 +19,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/alvaroibarguen/podium/internal/server/api"
+	"github.com/alvaroibarguen/podium/internal/server/artifacts"
 	"github.com/alvaroibarguen/podium/internal/server/logs"
 	"github.com/alvaroibarguen/podium/internal/server/nodes"
 	"github.com/alvaroibarguen/podium/internal/server/scheduler"
@@ -44,6 +45,7 @@ type Server struct {
 	nodes     *nodes.Service
 	logs      *logs.Service
 	secrets   *secrets.Service
+	artifacts *artifacts.Service
 	scheduler *scheduler.Service
 	http      *http.Server
 
@@ -93,6 +95,13 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	})
 	logSvc.SetSlots(nodeSvc.Registry())
 	secretSvc := secrets.New(st, masterKey, logger)
+	artifactSvc, err := newArtifacts(ctx, cfg, st, logger)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	nodeSvc.SetArtifacts(artifactSvc)
+	logSvc.SetArchive(artifactSvc, cfg.Rollup)
 	warnAboutPlaintextTransport(ctx, cfg, st, logger)
 	if timing != scheduler.DefaultTiming() {
 		logger.Warn("scheduler timers are shrunk for testing; this is not a production configuration",
@@ -106,6 +115,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		nodes:     nodeSvc,
 		logs:      logSvc,
 		secrets:   secretSvc,
+		artifacts: artifactSvc,
 		scheduler: scheduler.New(st, nodeSvc, secretSvc, timing, logger),
 		serveErr:  make(chan error, 1),
 	}
@@ -158,6 +168,36 @@ func (u userStore) UpsertUser(ctx context.Context, login, displayName string) er
 	_, err := u.st.UpsertUser(ctx, login, displayName)
 	return err
 }
+
+// newArtifacts builds the object-store service. An unconfigured endpoint is a supported
+// deployment — a task does not need artifacts to run — and so is an endpoint that is down
+// at start: the bucket probe is best effort and /readyz is what reports the truth. Refusing
+// to start would make S3 a dependency of running any task at all, which is exactly the
+// coupling step 10 exists to avoid.
+func newArtifacts(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) (*artifacts.Service, error) {
+	if !cfg.S3.Enabled() {
+		logger.Info("artifacts are off: PODIUM_S3_ENDPOINT is not set")
+		return artifacts.New(st, nil, logger), nil
+	}
+	s3, err := artifacts.NewS3(cfg.S3)
+	if err != nil {
+		return nil, err
+	}
+	svc := artifacts.New(st, s3, logger)
+	probeCtx, cancel := context.WithTimeout(ctx, artifactProbeTimeout)
+	defer cancel()
+	if err := svc.EnsureBucket(probeCtx); err != nil {
+		logger.WarnContext(ctx, "the object store is not reachable; artifacts and log roll-up will fail "+
+			"until it is. Tasks are unaffected: /readyz reports 503 and uploads emit a retryable error.",
+			"endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket, "error", err)
+	} else {
+		logger.Info("artifacts enabled", "endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket)
+	}
+	return svc, nil
+}
+
+// artifactProbeTimeout bounds the start-up and readiness probes of the object store.
+const artifactProbeTimeout = 5 * time.Second
 
 // loadMasterKey resolves PODIUM_MASTER_KEY_FILE, then PODIUM_MASTER_KEY. Returning (nil,
 // nil) is legitimate and means secrets are disabled: this is still a task runner without
@@ -243,6 +283,8 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(api.NewIdentityService(), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
+		api.NewArtifactService(s.artifacts, s.logger), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -265,9 +307,14 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
 		podiumv1connect.SecretServiceName,
+		podiumv1connect.ArtifactServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
 	}
+	// The artifact proxy is a plain HTTP route rather than a Connect procedure because a
+	// 512 MB artifact has to stream. It sits behind the same identity middleware.
+	root.Handle(api.ArtifactDownloadPrefix,
+		transport.WithIdentity(s.transport, api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
 	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
 }
@@ -279,6 +326,15 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.Ping(ctx); err != nil {
 		s.logger.WarnContext(ctx, "readyz: postgres unreachable", "error", err)
 		writePlain(w, http.StatusServiceUnavailable, "postgres unreachable")
+		return
+	}
+	if err := s.artifacts.Ready(ctx); err != nil {
+		// Artifacts being down does not stop a task from running; it stops files from
+		// being kept. Saying so on /readyz is the point — a load balancer that drains this
+		// process would be the wrong reaction, and an operator who never hears about it is
+		// the worse one.
+		s.logger.WarnContext(ctx, "readyz: object store unreachable", "error", err)
+		writePlain(w, http.StatusServiceUnavailable, "object store unreachable: "+err.Error())
 		return
 	}
 	detail := "ok"
@@ -326,6 +382,11 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		if err := s.nodes.RunWatchdog(baseCtx); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "node health watchdog stopped", "error", err)
+		}
+	}()
+	go func() {
+		if err := s.logs.RunRollUp(baseCtx); err != nil && baseCtx.Err() == nil {
+			s.logger.ErrorContext(baseCtx, "log roll-up stopped", "error", err)
 		}
 	}()
 	go func() {

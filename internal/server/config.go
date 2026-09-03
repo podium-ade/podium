@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/alvaroibarguen/podium/internal/server/artifacts"
+	"github.com/alvaroibarguen/podium/internal/server/logs"
 	"github.com/alvaroibarguen/podium/internal/transport/dev"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
@@ -58,6 +60,13 @@ type Config struct {
 	// enroll as a node. It removes the network-level proof that a caller is an authorised
 	// worker and exists only for a tailnet that has no ACL tags yet.
 	TSAllowUntaggedNodes bool
+
+	// S3 is the PODIUM_S3_* object store: where artifacts and rolled-up logs live. An
+	// empty endpoint disables artifacts entirely, which is a supported configuration —
+	// a task does not need artifacts to run.
+	S3 artifacts.Config
+	// Rollup is the log roll-up schedule.
+	Rollup logs.RollupConfig
 }
 
 // ConfigFromEnv reads the canonical environment variables and applies the defaults.
@@ -74,6 +83,8 @@ func ConfigFromEnv() Config {
 		TSAuthKey:            os.Getenv("TS_AUTHKEY"),
 		TSRequiredNodeTag:    envOr("PODIUM_TS_REQUIRED_NODE_TAG", tailnet.DefaultNodeTag),
 		TSAllowUntaggedNodes: envBool("PODIUM_TS_ALLOW_UNTAGGED_NODES"),
+		S3:                   artifacts.ConfigFromEnv(),
+		Rollup:               logs.RollupConfigFromEnv(),
 	}
 }
 
@@ -101,7 +112,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("PODIUM_TRANSPORT=%q is not a transport (want %s, %s or %s)",
 			c.Transport, TransportDev, TransportTailnet, TransportHost)
 	}
-	return nil
+	return c.S3.Validate()
 }
 
 func envOr(key, fallback string) string {

@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ArtifactService is the operator-facing half of the artifact store. Uploads never come
+// through here: a node hands its files to NodeService.UploadArtifact and the control
+// plane is the only thing that ever talks to S3.
+service ArtifactService {
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+  // GetArtifactURL mints a short-lived presigned GET for one artifact. A caller with no
+  // route to the object store can fetch the same bytes from the server instead, at
+  // GET /artifacts/{artifact_id}, which is what `podium artifact get` does by default.
+  rpc GetArtifactURL(GetArtifactURLRequest) returns (GetArtifactURLResponse);
+}
+
+// Artifact is one stored object: a file a task produced, or a rolled-up log stream.
+message Artifact {
+  string id = 1;
+  string task_id = 2;
+  // name is what the producer called it, unsanitised. The object key carries a
+  // sanitised copy; this is what a human asked for.
+  string name = 3;
+  string object_key = 4;
+  int64 size_bytes = 5;
+  string content_type = 6;
+  // sha256 of the stored bytes, lowercase hex.
+  string sha256 = 7;
+  // kind is "file" for anything a task produced and "log" for a rolled-up log stream.
+  string kind = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message ListArtifactsRequest {
+  string task_id = 1;
+}
+
+message ListArtifactsResponse {
+  repeated Artifact artifacts = 1;
+}
+
+message GetArtifactURLRequest {
+  string artifact_id = 1;
+}
+
+message GetArtifactURLResponse {
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  Artifact artifact = 3;
+}

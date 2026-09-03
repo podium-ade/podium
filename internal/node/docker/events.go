@@ -18,6 +18,7 @@ const (
 	KindStarted      = "started"
 	KindLog          = "log"
 	KindStep         = "step"
+	KindArtifact     = "artifact"
 	KindExited       = "exited"
 	KindFinished     = "finished"
 	KindError        = "error"

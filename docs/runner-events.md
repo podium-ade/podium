@@ -22,11 +22,17 @@ the task.
 
 ## Transport
 
-- `AF_UNIX`, `SOCK_STREAM`. The node listens, the runner connects. One connection per task.
-- Newline-delimited JSON, one object per line, **runner → node only** in this slice. The node
-  never writes to the socket.
-- The node stops accepting after five seconds. The runner connects within milliseconds of the
-  container starting; anything slower is a container that will never connect.
+- `AF_UNIX`, `SOCK_STREAM`. The node listens; anything inside the container may connect.
+- Newline-delimited JSON, one object per line, **container → node only** in this slice. The
+  node never writes to the socket.
+- **More than one connection is allowed.** The runner dials once at start and holds its
+  connection for the life of the task; `podium-runner artifact add` is a second process in
+  the same container dialling the same socket, which is what makes it usable from any shell.
+  The node accepts connections until the container has exited, then drains what is still
+  open.
+- The runner's own connection is expected within five seconds of the container starting
+  (`runnerConnectTimeout`); anything slower is a container whose runner will never connect,
+  and the executor emits `started` from the Docker API instead.
 - The runner retries the connection for five seconds and then **gives up and runs the command
   anyway**, with one warning on the task's stderr. Events are diagnostics; the task's own
   output flows through Docker and is never at risk.
@@ -53,9 +59,10 @@ Kind-specific fields follow.
 |---|---|---|
 | `started` | `pid` | the task command has been forked and exec'd successfully |
 | `exited` | `exit_code`, `signal` | the task command exited; `signal` is the `SIGxxx` name when one killed it, and absent otherwise |
+| `artifact` | `name`, `path`, `content_type` | a file inside the container should be kept; `path` is the container path, `name` is what to call it |
 
 Reserved for the playbook engine, which arrives with a later step: `step{name,status,exit_code}`,
-`artifact{name,path,content_type}`, `usage{...}`, `log{level,msg}`.
+`usage{...}`, `log{level,msg}`.
 
 **A node treats any kind it does not know as an opaque `step` event**
 (`TASK_EVENT_KIND_STEP`, with `name` set to the kind when the event carries no `name` of its
@@ -72,6 +79,13 @@ store. An undecodable line is logged and skipped; it never fails a task.
 - **`exited` is not.** The container's exit code comes from `ContainerWait`, which is the
   only source available for a container the node adopted after a restart. The runner's
   `exited` is logged for diagnosis and goes no further.
+- **`artifact` starts a copy-and-upload.** The node reads the file out of the container with
+  `CopyFromContainer` and streams it to the control plane over
+  `NodeService.UploadArtifact`, then emits a `TaskEvent` of kind `artifact` naming what was
+  stored. It runs on its own goroutine — the socket has a two-second write deadline and a
+  failed write retires it, so a synchronous upload of a large file would cost the task every
+  event after it — and the run waits for all of them before it emits `exited`. The runner
+  never reads the file itself.
 
 ## Container shape
 
