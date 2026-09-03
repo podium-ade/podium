@@ -89,7 +89,20 @@ func (s *S3) Put(ctx context.Context, key string, r io.Reader, size int64, conte
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	info, err := s.cli.PutObject(ctx, s.bucket, key, r, size, minio.PutObjectOptions{ContentType: contentType})
+	opts := minio.PutObjectOptions{ContentType: contentType}
+	if size == 0 {
+		// An empty artifact is a real one — the agent runtime's transcript.jsonl is empty
+		// whenever a turn produces no SDK message — and it needs one option of its own.
+		// Over plain HTTP minio-go signs a PUT with the streaming signature, which hands
+		// net/http a non-nil body and a ContentLength of 0; net/http reads that pair as "I
+		// do not know the length" and sends Transfer-Encoding: chunked with no
+		// Content-Length, which S3 answers with 411 MissingContentLength. Without the
+		// streaming signer the zero-length body is dropped altogether and the request goes
+		// out as the Content-Length: 0 PUT it always was. The payload hash it gives up is
+		// the hash of nothing.
+		opts.DisableContentSha256 = true
+	}
+	info, err := s.cli.PutObject(ctx, s.bucket, key, r, size, opts)
 	if err != nil {
 		s.ready.Store(false)
 		return 0, fmt.Errorf("artifacts: put %s: %w", key, err)

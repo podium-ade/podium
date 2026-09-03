@@ -1,0 +1,49 @@
+# podium-agent-runtime-data — the base runtime plus a warehouse client set.
+#
+# Purpose: the analyst skill (step 21). psql for Postgres, bq for BigQuery, duckdb for
+# everything local.
+ARG RUNTIME_IMAGE=podium-agent-runtime:dev
+
+FROM ${RUNTIME_IMAGE}
+
+ARG VERSION=dev
+ARG REVISION=none
+ARG DUCKDB_VERSION=v1.5.5
+LABEL org.opencontainers.image.title="podium-agent-runtime-data" \
+      org.opencontainers.image.source="https://github.com/alvaroibarguen/podium" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
+USER root
+
+# psql from Debian, and bq from Google's own apt repository.
+#
+# bq writes a default configuration on its first run, and the base image sets
+# HOME=/home/agent for every process — so the build-time smoke test, which runs as root,
+# would leave a root-owned ~/.config/gcloud that the agent user cannot read, and every later
+# bq call would die on it. The smoke gets a home of its own, and it is thrown away.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends apt-transport-https gnupg postgresql-client; \
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/cloud.google.gpg; \
+    chmod go+r /etc/apt/keyrings/cloud.google.gpg; \
+    printf 'deb [signed-by=/etc/apt/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main\n' \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends google-cloud-cli; \
+    rm -rf /var/lib/apt/lists/*; \
+    psql --version; \
+    HOME=/tmp/bq-smoke bq version; \
+    rm -rf /tmp/bq-smoke
+
+# The duckdb CLI is a single static binary from a pinned GitHub release.
+RUN set -eux; \
+    curl -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-$(dpkg --print-architecture).gz" \
+        | gzip -d > /usr/local/bin/duckdb; \
+    chmod 0755 /usr/local/bin/duckdb; \
+    duckdb -c "select 1"
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["node", "/opt/podium-agent/dist/main.js"]
