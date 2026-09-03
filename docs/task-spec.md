@@ -228,6 +228,54 @@ there.
 nothing else: a stock database image usually chowns a data directory and drops to an
 unprivileged user on the way up, which dropping every capability would break.
 
+## Artifacts
+
+A task keeps a file by putting it in one place, or by naming it.
+
+```yaml
+image: alpine:3
+command: ["sh", "-c", "my-tool --out /workspace/.podium/artifacts/report.txt"]
+```
+
+**`/workspace/.podium/artifacts/` is collected when the container exits.** Every regular
+file under it becomes an artifact whose name is its path relative to that directory, so
+`/workspace/.podium/artifacts/shots/first.png` arrives as `shots/first.png`. The directory
+does not have to exist; most tasks never create one, and that costs nothing.
+
+It is inside the workspace volume on purpose: `/workspace` outlives any single step, a
+sidecar can write there too, and a read-only rootfs (`hardening.read_only_rootfs`) leaves it
+writable.
+
+To hand a file over **during** the run, from any shell inside the container:
+
+```sh
+/podium/runner artifact add /tmp/shot.png --type image/png
+/podium/runner artifact add /tmp/out.csv --name results.csv --type text/csv
+```
+
+`--name` defaults to the file's basename and `--type` to nothing, which the object store
+stores as `application/octet-stream`. The helper writes one line to the node's event socket
+and exits; the node copies the file out of the container and uploads it through the server.
+It is not a library and needs no credential — the socket is already mounted at
+`/podium/events.sock`, and the node is the only thing listening on it.
+
+Either way the bytes go **node → server → object store**. A node never talks to S3.
+
+Three things worth knowing:
+
+- **An artifact is capped at 512 MB**, and the node refuses an oversized one before it
+  crosses the wire.
+- **A failed artifact never fails the task.** An upload that is refused — too large, object
+  store down, no object store configured at all — becomes a `retryable` error event in the
+  task's log, which implies no status transition. A task does not need artifacts to run.
+- **A task adopted after a node restart collects nothing.** The auto-collection pass belongs
+  to the run that created the container, and an adopted run has no runner event socket
+  either, so a mid-run `artifact add` is lost as well. This is the same seam the log
+  redactor falls through — see [Redaction](#redaction).
+
+`podium artifacts TASK_ID` lists them and `podium artifact get ARTIFACT_ID` downloads one;
+see [docs/cli.md](cli.md).
+
 ## Egress
 
 A task's network reaches the internet and its own sidecars, and nothing else on the host or

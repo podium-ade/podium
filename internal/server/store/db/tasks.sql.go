@@ -20,7 +20,7 @@ set status           = 'scheduled',
     scheduled_at     = now(),
     attempts         = attempts + 1
 where id = $4 and status = 'queued'
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset
 `
 
 type AssignTaskParams struct {
@@ -61,12 +61,16 @@ func (q *Queries) AssignTask(ctx context.Context, arg AssignTaskParams) (Task, e
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }
 
 const claimActiveTasks = `-- name: ClaimActiveTasks :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks
 where status in ('scheduled', 'provisioning', 'running')
 order by id
 `
@@ -106,6 +110,10 @@ func (q *Queries) ClaimActiveTasks(ctx context.Context) ([]Task, error) {
 			&i.CancelRequestedAt,
 			&i.CancelReason,
 			&i.CancelStatus,
+			&i.LogsRolledUpAt,
+			&i.LogsHighSeq,
+			&i.LogsStdoutOffset,
+			&i.LogsStderrOffset,
 		); err != nil {
 			return nil, err
 		}
@@ -118,7 +126,7 @@ func (q *Queries) ClaimActiveTasks(ctx context.Context) ([]Task, error) {
 }
 
 const claimQueuedTasks = `-- name: ClaimQueuedTasks :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks
 where status = 'queued'
 order by priority desc, created_at
 for update skip locked
@@ -159,6 +167,10 @@ func (q *Queries) ClaimQueuedTasks(ctx context.Context, pageLimit int32) ([]Task
 			&i.CancelRequestedAt,
 			&i.CancelReason,
 			&i.CancelStatus,
+			&i.LogsRolledUpAt,
+			&i.LogsHighSeq,
+			&i.LogsStdoutOffset,
+			&i.LogsStderrOffset,
 		); err != nil {
 			return nil, err
 		}
@@ -173,7 +185,7 @@ func (q *Queries) ClaimQueuedTasks(ctx context.Context, pageLimit int32) ([]Task
 const createTask = `-- name: CreateTask :one
 insert into tasks (id, spec, status, priority, requested_by, max_attempts)
 values ($1, $2, $3, $4, $5, $6)
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset
 `
 
 type CreateTaskParams struct {
@@ -218,6 +230,10 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }
@@ -247,7 +263,7 @@ func (q *Queries) ExtendLease(ctx context.Context, arg ExtendLeaseParams) (int64
 }
 
 const getTask = `-- name: GetTask :one
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks where id = $1
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks where id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -276,12 +292,16 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }
 
 const getTaskForUpdate = `-- name: GetTaskForUpdate :one
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks where id = $1 for update
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks where id = $1 for update
 `
 
 func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (Task, error) {
@@ -310,12 +330,16 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (Task, error)
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }
 
 const listTasks = `-- name: ListTasks :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks
 where (cardinality($1::text[]) = 0 or status = any ($1::text[]))
   and ($2::text = '' or node_id = $2::text)
   and ($3::text = '' or requested_by = $3::text)
@@ -370,6 +394,10 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 			&i.CancelRequestedAt,
 			&i.CancelReason,
 			&i.CancelStatus,
+			&i.LogsRolledUpAt,
+			&i.LogsHighSeq,
+			&i.LogsStdoutOffset,
+			&i.LogsStderrOffset,
 		); err != nil {
 			return nil, err
 		}
@@ -382,7 +410,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 }
 
 const listTasksOnNode = `-- name: ListTasksOnNode :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset from tasks
 where node_id = $1 and status = any ($2::text[])
 order by id
 `
@@ -424,6 +452,10 @@ func (q *Queries) ListTasksOnNode(ctx context.Context, arg ListTasksOnNodeParams
 			&i.CancelRequestedAt,
 			&i.CancelReason,
 			&i.CancelStatus,
+			&i.LogsRolledUpAt,
+			&i.LogsHighSeq,
+			&i.LogsStdoutOffset,
+			&i.LogsStderrOffset,
 		); err != nil {
 			return nil, err
 		}
@@ -459,7 +491,7 @@ set cancel_requested_at = coalesce(cancel_requested_at, now()),
     cancel_status       = coalesce(cancel_status, $2::text)
 where id = $3
   and status in ('queued', 'scheduled', 'provisioning', 'running')
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset
 `
 
 type RequestCancelParams struct {
@@ -497,6 +529,10 @@ func (q *Queries) RequestCancel(ctx context.Context, arg RequestCancelParams) (T
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }
@@ -517,7 +553,7 @@ set status           = $1::text,
     lease_expires_at = case when $1::text = 'queued' then null
                             else coalesce($9::timestamptz, lease_expires_at) end
 where id = $10
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status, logs_rolled_up_at, logs_high_seq, logs_stdout_offset, logs_stderr_offset
 `
 
 type UpdateTaskTransitionParams struct {
@@ -572,6 +608,10 @@ func (q *Queries) UpdateTaskTransition(ctx context.Context, arg UpdateTaskTransi
 		&i.CancelRequestedAt,
 		&i.CancelReason,
 		&i.CancelStatus,
+		&i.LogsRolledUpAt,
+		&i.LogsHighSeq,
+		&i.LogsStdoutOffset,
+		&i.LogsStderrOffset,
 	)
 	return i, err
 }

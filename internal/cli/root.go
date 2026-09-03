@@ -89,6 +89,8 @@ func NewRootCommand() *cobra.Command {
 		newNodesCommand(e),
 		newNodeCommand(e),
 		newSecretCommand(e),
+		newArtifactsCommand(e),
+		newArtifactCommand(e),
 		newVersionCommand(e),
 	)
 	return root

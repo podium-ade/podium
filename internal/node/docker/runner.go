@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -130,31 +131,43 @@ type runnerEvent struct {
 	Signal   string `json:"signal"`
 	Name     string `json:"name"`
 	Status   string `json:"status"`
+	// Path and ContentType belong to the artifact kind: the file inside the container
+	// the node should collect, and what it is.
+	Path        string `json:"path"`
+	ContentType string `json:"content_type"`
 }
 
 // Runner event kinds the executor understands. Everything else is opaque.
 const (
-	runnerKindStarted = "started"
-	runnerKindExited  = "exited"
+	runnerKindStarted  = "started"
+	runnerKindExited   = "exited"
+	runnerKindArtifact = "artifact"
 )
 
-// runnerLink is the executor's end of one task's event socket: a listener that accepts a
-// single connection, the runner's, and decodes what it sends.
+// runnerLink is the executor's end of one task's event socket: a listener that stays open
+// for the whole run and decodes every line anything inside the container sends it.
+//
+// It accepts more than one connection on purpose. The runner itself dials once, at start,
+// and holds that connection for the life of the task — but `podium-runner artifact add` is
+// a second process inside the same container dialling the same socket, and it is the
+// documented way for a task to hand Podium a file from any shell. A single-connection
+// listener would refuse it.
 type runnerLink struct {
 	path    string
 	log     *slog.Logger
 	events  chan runnerEvent
 	stopped chan struct{}
 	once    sync.Once
+	conns   sync.WaitGroup
 
-	mu   sync.Mutex
-	ln   net.Listener
-	conn net.Conn
+	mu     sync.Mutex
+	ln     net.Listener
+	active []net.Conn
 }
 
 // listenRunner opens the task's event socket. It must be called before ContainerStart so
-// the runner never finds a missing socket, and its listener is deadlined: a runner that
-// has not dialled in by then is never going to.
+// the runner never finds a missing socket. The listener has no deadline: it stays open
+// until the run stops accepting, because a task may write an artifact event at any point.
 func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 	path := e.eventsSocketPath(taskID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -171,9 +184,6 @@ func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 	if err := os.Chmod(path, 0o666); err != nil { //nolint:gosec // a socket, not a secret
 		e.log.Warn("chmod runner event socket", "task", taskID, "error", err)
 	}
-	if ul, ok := ln.(*net.UnixListener); ok {
-		_ = ul.SetDeadline(time.Now().Add(runnerConnectTimeout))
-	}
 
 	l := &runnerLink{
 		path:    path,
@@ -186,26 +196,37 @@ func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 	return l, nil
 }
 
-// serve accepts the runner's single connection and decodes its lines until the runner
-// exits. Closing the events channel is how every reader learns the runner is done.
+// serve accepts connections until the listener is closed and decodes the lines each one
+// sends. Closing the events channel — once every connection has ended — is how every
+// reader learns there is nothing more coming.
 func (l *runnerLink) serve(taskID string, ln net.Listener) {
-	defer close(l.events)
-
-	conn, err := ln.Accept()
-	// One connection per task: stop listening either way.
-	l.stopListening()
-	if err != nil {
-		if !l.isClosed() {
-			l.log.Warn("no runner connected on the event socket", "task", taskID, "error", err)
+	defer func() {
+		l.conns.Wait()
+		close(l.events)
+	}()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if !l.isClosed() {
+				l.log.Debug("runner event socket stopped accepting", "task", taskID, "error", err)
+			}
+			return
 		}
-		return
+		l.mu.Lock()
+		l.active = append(l.active, conn)
+		l.mu.Unlock()
+
+		l.conns.Add(1)
+		go func() {
+			defer l.conns.Done()
+			defer func() { _ = conn.Close() }()
+			l.read(taskID, conn)
+		}()
 	}
+}
 
-	l.mu.Lock()
-	l.conn = conn
-	l.mu.Unlock()
-	defer func() { _ = conn.Close() }()
-
+// read decodes one connection's newline-delimited JSON until it ends.
+func (l *runnerLink) read(taskID string, conn net.Conn) {
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 4096), maxRunnerLine)
 	for sc.Scan() {
@@ -247,9 +268,10 @@ func (l *runnerLink) awaitStarted(timeout time.Duration) (pid int, ok bool) {
 
 // drain forwards the rest of the runner's events and closes the returned channel once the
 // runner is done. The Docker API is authoritative for the exit, so `exited` is only
-// logged; every other kind becomes an opaque step event, which is how the node stays
-// forward compatible with a runner that learns to report playbook steps.
-func (l *runnerLink) drain(taskID string, em *emitter) <-chan struct{} {
+// logged; `artifact` is handed to onArtifact, which copies the file out and uploads it;
+// every other kind becomes an opaque step event, which is how the node stays forward
+// compatible with a runner that learns to report playbook steps.
+func (l *runnerLink) drain(taskID string, em *emitter, onArtifact func(name, path, contentType string)) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -260,6 +282,18 @@ func (l *runnerLink) drain(taskID string, em *emitter) <-chan struct{} {
 					"exit_code", ev.ExitCode, "signal", ev.Signal)
 			case runnerKindStarted:
 				// Already consumed by awaitStarted; a second one is a broken runner.
+			case runnerKindArtifact:
+				if ev.Path == "" {
+					l.log.Warn("runner artifact event with no path", "task", taskID)
+					continue
+				}
+				name := ev.Name
+				if name == "" {
+					name = path.Base(ev.Path)
+				}
+				if onArtifact != nil {
+					onArtifact(name, ev.Path, ev.ContentType)
+				}
 			default:
 				name := ev.Name
 				if name == "" {
@@ -272,7 +306,8 @@ func (l *runnerLink) drain(taskID string, em *emitter) <-chan struct{} {
 	return done
 }
 
-// close releases the socket. It is safe to call more than once and unblocks serve.
+// close releases the socket and every connection on it. It is safe to call more than once
+// and unblocks serve.
 func (l *runnerLink) close() {
 	if l == nil {
 		return
@@ -280,20 +315,25 @@ func (l *runnerLink) close() {
 	l.once.Do(func() { close(l.stopped) })
 
 	l.mu.Lock()
-	ln, conn := l.ln, l.conn
-	l.ln, l.conn = nil, nil
+	ln, active := l.ln, l.active
+	l.ln, l.active = nil, nil
 	l.mu.Unlock()
 
 	if ln != nil {
 		_ = ln.Close()
 	}
-	if conn != nil {
-		_ = conn.Close()
+	for _, c := range active {
+		_ = c.Close()
 	}
 	_ = os.Remove(l.path)
 }
 
-func (l *runnerLink) stopListening() {
+// stopAccepting closes the listener without touching the connections that are already
+// open, so the run can wait for the events still in flight and then see the channel close.
+func (l *runnerLink) stopAccepting() {
+	if l == nil {
+		return
+	}
 	l.mu.Lock()
 	ln := l.ln
 	l.ln = nil

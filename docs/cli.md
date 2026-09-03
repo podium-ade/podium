@@ -279,6 +279,23 @@ PODIUM_MASTER_KEY_FILE=/etc/podium/master.key podium-server
 - **There is no recovery path.** A lost master key is every secret encrypted under it lost
   with it. Back the file up somewhere that is not the control-plane machine.
 
+### The object store
+
+Artifacts and rolled-up logs live in an S3-compatible bucket, configured with the
+`PODIUM_S3_*` environment (see the README). The bucket is created on start if it is missing.
+
+- **Nodes never talk to it.** An artifact travels node → server → S3 over
+  `NodeService.UploadArtifact`, so a worker needs neither a route to the object store nor a
+  credential for one. That is the same invariant the whole networking design rests on.
+- **The object store being down never stops a task.** `/readyz` reports 503, uploads fail
+  with a retryable error event, and task creation, assignment and execution are untouched.
+- **No `PODIUM_S3_ENDPOINT` is a supported deployment.** Podium is still a task runner
+  without artifacts; uploads answer `FailedPrecondition` and logs simply stay in Postgres
+  forever.
+- Object keys are `tasks/<task_id>/artifacts/<artifact_id>-<sanitised name>` and
+  `tasks/<task_id>/logs/<stream>.log.zst`. The original name is kept in the database; only
+  the key is sanitised to `[A-Za-z0-9._-]`, at most 128 characters.
+
 ### Rotating the master key
 
 ```sh
@@ -293,6 +310,61 @@ half under the other, and the rows are locked for the duration so a concurrent `
 waits rather than being clobbered. Afterwards the old key decrypts nothing; `podium secret
 ls` shows the new key id on every row. Rotation re-encrypts a value, it does not change it,
 so versions do not move.
+
+### `podium artifacts TASK_ID`
+
+Lists the files a task produced.
+
+```
+ID                              KIND   NAME              SIZE      TYPE              CREATED
+art_01k2v…                      file   report.txt        1.2 KB    text/plain        3m ago
+art_01k2w…                      file   shots/first.png   84.0 KB   image/png         3m ago
+art_01k2x…                      log    stdout            9.1 KB    text/plain+zstd   1m ago
+```
+
+`kind` is `file` for anything the task produced and `log` for a rolled-up log stream. A
+finished task's log moves out of Postgres and into the object store, so after the prune
+horizon that `log` row *is* the task's log — `podium logs` reads it back transparently.
+
+A task produces artifacts two ways, both from inside the container:
+
+```sh
+# 1. Anything under /workspace/.podium/artifacts is collected when the task exits. The
+#    artifact's name is its path relative to that directory.
+mkdir -p /workspace/.podium/artifacts
+my-tool --report /workspace/.podium/artifacts/report.txt
+
+# 2. Or hand one over mid-run, from any shell:
+/podium/runner artifact add /tmp/shot.png --type image/png
+/podium/runner artifact add /tmp/out.csv --name results.csv --type text/csv
+```
+
+An artifact is capped at **512 MB**. Anything larger, and anything the object store refuses,
+becomes a retryable `error` event in the task's log and **does not fail the task**: a task
+does not need artifacts to run, and a screenshot that was too big is not a reason to fail a
+run that did what it was asked.
+
+### `podium artifact get ARTIFACT_ID [-o FILE] [--via-server] [--url]`
+
+Downloads one artifact.
+
+```sh
+podium artifact get art_01k2v…                 # writes ./report.txt
+podium artifact get art_01k2v… -o /tmp/r.txt
+podium artifact get art_01k2v… -o -  | less    # to stdout
+podium artifact get art_01k2v… --url           # print a presigned URL, download nothing
+```
+
+By default the bytes are **proxied through the control plane** (`--via-server`, on), because
+that is the one endpoint a client is guaranteed to be able to reach: the object store may
+well have no route from your laptop, and under the tailnet transport it certainly does not.
+`--via-server=false` asks for a presigned GET and fetches it straight from the object store,
+which is faster and needs a route to it. A presigned URL is good for 15 minutes and carries
+its own credential — the CLI sends no bearer token with it, because that would hand your API
+token to a third party.
+
+A rolled-up log downloads as the zstd-compressed object it is; `zstd -d` it, or use
+`podium logs`, which decompresses for you.
 
 ### `podium node rekey NODE_ID`
 

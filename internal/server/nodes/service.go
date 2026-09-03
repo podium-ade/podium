@@ -17,6 +17,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/ids"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/alvaroibarguen/podium/internal/server/artifacts"
 	"github.com/alvaroibarguen/podium/internal/server/store"
 	"github.com/alvaroibarguen/podium/internal/transport"
 )
@@ -48,6 +49,9 @@ type Service struct {
 
 	// watchdog is the health-sweep policy, set by the server from the scheduler's Timing.
 	watchdog Watchdog
+
+	// artifacts is the object store UploadArtifact writes to, nil when none is configured.
+	artifacts *artifacts.Service
 
 	// allowUntagged mirrors PODIUM_TS_ALLOW_UNTAGGED_NODES. Off, a tailnet caller must carry
 	// the node tag to enroll; on, any tailnet device with a valid token may, which is the

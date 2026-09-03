@@ -47,10 +47,11 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 	taskSpec := spec.FromProto(a.GetSpec())
 	go n.execute(buf, red, func(events chan<- docker.Event) error {
 		_, err := n.exec.Run(n.runCtx, docker.Request{
-			TaskID:  taskID,
-			LeaseID: a.GetLeaseId(),
-			Spec:    *taskSpec,
-			Secrets: injected,
+			TaskID:    taskID,
+			LeaseID:   a.GetLeaseId(),
+			Spec:      *taskSpec,
+			Secrets:   injected,
+			Artifacts: artifactUploader{n},
 		}, events)
 		return err
 	})

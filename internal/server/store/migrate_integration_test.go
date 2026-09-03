@@ -17,13 +17,15 @@ var expectedTables = []string{
 	"users",
 	// secrets and audit_log arrive with 0003_secrets.sql.
 	"secrets", "audit_log",
+	// artifacts was trimmed out of 0001_init.sql for MVP-0 and arrives with
+	// 0005_artifacts.sql, kind column and all.
+	"artifacts",
 }
 
-// trimmedTables are the step-03 tables that are still deliberately absent.
-var trimmedTables = []string{"artifacts"}
-
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
-var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql"}
+var migrationFiles = []string{
+	"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql", "0005_artifacts.sql",
+}
 
 func tableExists(t *testing.T, s *Store, name string) bool {
 	t.Helper()
@@ -48,10 +50,6 @@ func TestMigrateFromEmptyDatabase(t *testing.T) {
 	for _, name := range expectedTables {
 		require.True(t, tableExists(t, s, name), "%s must exist after Migrate", name)
 	}
-	for _, name := range trimmedTables {
-		require.False(t, tableExists(t, s, name), "%s is trimmed for MVP-0 and must not be created", name)
-	}
-
 	var versions []string
 	rows, err := s.pool.Query(ctx, "select version from schema_migrations order by version")
 	require.NoError(t, err)

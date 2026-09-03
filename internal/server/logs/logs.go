@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/alvaroibarguen/podium/internal/server/artifacts"
 	"github.com/alvaroibarguen/podium/internal/server/store"
 )
 
@@ -35,6 +36,9 @@ type Service struct {
 	store  *store.Store
 	logger *slog.Logger
 	slots  Slots
+	// archive is the object store rolled-up logs live in, nil when none is configured.
+	archive *artifacts.Service
+	rollup  RollupConfig
 
 	mu        sync.Mutex
 	watchers  map[string]map[chan struct{}]struct{}
@@ -49,6 +53,7 @@ func New(st *store.Store, logger *slog.Logger) *Service {
 	return &Service{
 		store:     st,
 		logger:    logger,
+		rollup:    DefaultRollupConfig(),
 		watchers:  make(map[string]map[chan struct{}]struct{}),
 		oomKilled: make(map[string]struct{}),
 	}
@@ -304,9 +309,30 @@ func (s *Service) watch(taskID string) (chan struct{}, func()) {
 // and then follows live ones. The returned channel is closed when the task is terminal and
 // every event has been delivered, or when ctx is cancelled.
 func (s *Service) Subscribe(ctx context.Context, taskID string, fromSeq uint64) (<-chan *podiumv1.TaskEvent, error) {
-	if _, err := s.store.GetTask(ctx, taskID); err != nil {
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
 		return nil, err
 	}
+
+	// A task old enough to have had its hot rows pruned is served from the object store
+	// instead. It is terminal by construction — roll-up never touches anything else — so
+	// there is nothing to follow and the stream ends as soon as the replay does.
+	if task.Status.Terminal() {
+		if _, gone, aerr := s.archived(ctx, taskID); aerr != nil {
+			return nil, aerr
+		} else if gone {
+			out := make(chan *podiumv1.TaskEvent, pageSize)
+			go func() {
+				defer close(out)
+				if err := s.replayArchived(ctx, taskID, fromSeq, out); err != nil && ctx.Err() == nil {
+					s.logger.ErrorContext(ctx, "replaying a rolled-up task log failed",
+						"task_id", taskID, "error", err)
+				}
+			}()
+			return out, nil
+		}
+	}
+
 	wake, unwatch := s.watch(taskID)
 	out := make(chan *podiumv1.TaskEvent, pageSize)
 

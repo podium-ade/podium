@@ -1,0 +1,124 @@
+# A single-machine Podium: Postgres, MinIO and the control plane, with a worker node
+# alongside it.
+#
+#   PODIUM_DEV_TOKEN=... PODIUM_PG_PASSWORD=... PODIUM_S3_SECRET_KEY=... \
+#     docker compose -f deploy/docker-compose.yml up -d --wait
+#
+# The images podium/podium-server and podium/podium-node are not published yet (step 14):
+# build them yourself, or run the binaries and use this file for postgres and minio only:
+#
+#   docker compose -f deploy/docker-compose.yml up -d --wait postgres minio
+#
+# NOTE FOR THIS REPOSITORY: this file has never been brought up on the build machine. Its
+# Docker engine hosts unrelated work and the standing rule there is that no image may be
+# pulled, so minio/minio was never fetched. Everything under internal/server/artifacts is
+# tested against an in-process S3 endpoint instead (internal/server/artifacts/fakes3),
+# which speaks the same API and verifies presigned signatures for real. Treat the MinIO
+# service below as reviewed but unexercised.
+name: podium
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
+      POSTGRES_DB: podium
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  # The object store artifacts and rolled-up logs live in. Nodes never talk to it: an
+  # artifact travels node -> server -> MinIO over NodeService.UploadArtifact, which is why
+  # there is no published port here and no credential anywhere near a worker.
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${PODIUM_S3_ACCESS_KEY:-podium}
+      MINIO_ROOT_PASSWORD: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+    volumes:
+      # Artifacts and rolled-up logs are the only copy of a finished task's output once
+      # its chunks have been pruned out of Postgres. This volume is not a cache.
+      - miniodata:/data
+    ports:
+      # The console, on loopback only, so an operator can browse the bucket. The API port
+      # (9000) is deliberately not published: the server reaches it over the compose
+      # network, and a presigned URL is only useful to somebody who can already route to
+      # it. Publish 9000 too if you want `podium artifact get --via-server=false` to work
+      # from your laptop.
+      - "127.0.0.1:${PODIUM_MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  server:
+    image: podium/podium-server:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
+      PODIUM_TRANSPORT: dev
+      PODIUM_DEV_LISTEN: 0.0.0.0:8080
+      PODIUM_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?set PODIUM_DEV_TOKEN}
+      PODIUM_MASTER_KEY_FILE: /etc/podium/master.key
+      # The object store. The bucket is created on start if it is missing.
+      PODIUM_S3_ENDPOINT: minio:9000
+      PODIUM_S3_BUCKET: ${PODIUM_S3_BUCKET:-podium}
+      PODIUM_S3_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?}
+      # Log roll-up. The defaults are here to be seen rather than because they need
+      # setting: a finished task's logs move into the object store a minute after it
+      # settles, and the hot rows are dropped a day later.
+      PODIUM_LOG_ROLLUP_INTERVAL: 1m
+      PODIUM_LOG_PRUNE_INTERVAL: 1h
+      PODIUM_LOG_CHUNK_GRACE: 24h
+    volumes:
+      - server-state:/var/lib/podium
+      # The AES-256 key every stored secret is encrypted under, generated once with
+      # `podium-server gen-master-key --out master.key`. Mode 0600 or the server refuses
+      # to start. Back it up somewhere that is not this machine.
+      - ./master.key:/etc/podium/master.key:ro
+    ports:
+      - "127.0.0.1:${PODIUM_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  node:
+    image: podium/podium-node:dev
+    depends_on:
+      - server
+    environment:
+      PODIUM_NODE_SERVER: http://server:8080
+      PODIUM_NODE_TRANSPORT: dev
+      PODIUM_NODE_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?}
+      # Podium's own single-use enrollment token, from `podium node enroll-token`. Needed
+      # on the first run only; drop it afterwards.
+      PODIUM_NODE_ENROLL_TOKEN: ${PODIUM_NODE_ENROLL_TOKEN:-}
+      PODIUM_NODE_DATA_DIR: /var/lib/podium-node
+      PODIUM_NODE_MAX_TASKS: "4"
+    volumes:
+      # identity.json holds the node key and there is no recovery path for it.
+      - node-state:/var/lib/podium-node
+      # Root-equivalent on the host. A node is a machine you are willing to let arbitrary
+      # containers run on; do not point this at a machine that is anything else.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  server-state:
+  node-state:

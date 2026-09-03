@@ -84,10 +84,16 @@ func (s *Store) ListLogChunks(ctx context.Context, taskID string, fromSeq uint64
 	return out, nil
 }
 
-// PruneLogChunks deletes hot log chunks older than olderThan and reports how many went. Rolled
-// up logs live in the object store (step 10); this only trims the Postgres tail.
+// PruneLogChunks drops the hot rows of every task whose logs were rolled up into the
+// object store before olderThan, and reports how many went.
+//
+// It is scoped by *task*, not by chunk age. A blanket "delete every chunk older than a
+// day" would truncate the log of a task that is still running after a day, and worse, it
+// would move store.TaskStreamOffsets backwards for a task a node might still be holding —
+// which is the exact duplicate-log defect step 12 fixed. Only a task that is terminal, has
+// been rolled up, and has been rolled up for longer than the grace period is touched.
 func (s *Store) PruneLogChunks(ctx context.Context, olderThan time.Time) (int64, error) {
-	n, err := s.q.PruneLogChunks(ctx, olderThan.UTC())
+	n, err := s.q.PruneRolledUpLogChunks(ctx, olderThan.UTC())
 	if err != nil {
 		return 0, fmt.Errorf("prune log chunks: %w", err)
 	}
@@ -109,20 +115,14 @@ const (
 //
 // Sidecar chunks are excluded: an adopted task's sidecars are never re-attached.
 func (s *Store) TaskStreamOffsets(ctx context.Context, taskID string) (StreamOffsets, error) {
-	rows, err := s.q.TaskStreamOffsets(ctx, taskID)
+	row, err := s.q.TaskStreamOffsets(ctx, taskID)
 	if err != nil {
+		if noRows(err) {
+			return StreamOffsets{}, fmt.Errorf("task %s: %w", taskID, ErrNotFound)
+		}
 		return StreamOffsets{}, fmt.Errorf("read stream offsets of task %s: %w", taskID, err)
 	}
-	var out StreamOffsets
-	for _, r := range rows {
-		switch r.Stream {
-		case StreamStdout:
-			out.Stdout = r.SourceOffset
-		case StreamStderr:
-			out.Stderr = r.SourceOffset
-		}
-	}
-	return out, nil
+	return StreamOffsets{Stdout: row.StdoutOffset, Stderr: row.StderrOffset}, nil
 }
 
 // MaxTaskSeq is the highest sequence number stored for a task across both event tables. A

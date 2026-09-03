@@ -8,6 +8,18 @@ import (
 	"time"
 )
 
+type Artifact struct {
+	ID          string
+	TaskID      string
+	Kind        string
+	Name        string
+	ObjectKey   string
+	SizeBytes   int64
+	ContentType string
+	Sha256      string
+	CreatedAt   time.Time
+}
+
 type AuditLog struct {
 	ID      int64
 	Ts      time.Time
@@ -76,6 +88,10 @@ type Task struct {
 	CancelRequestedAt     *time.Time
 	CancelReason          *string
 	CancelStatus          *string
+	LogsRolledUpAt        *time.Time
+	LogsHighSeq           int64
+	LogsStdoutOffset      int64
+	LogsStderrOffset      int64
 }
 
 type TaskEvent struct {

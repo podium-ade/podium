@@ -53,6 +53,10 @@ type Request struct {
 	// Secrets are the resolved values of Spec.Secrets. SENSITIVE: they are plaintext,
 	// they are never logged, and Run zeroes them once the container has started.
 	Secrets []Secret
+	// Artifacts is how files the task produces reach the control plane. A nil one means
+	// this node stores no artifacts: the task still runs, and anything it asks to keep
+	// becomes a retryable error event.
+	Artifacts ArtifactUploader
 }
 
 // Usage is a best-effort resource accounting for a finished task.
@@ -260,7 +264,10 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	em.emit(KindStarted, nil)
 
-	runnerDone := link.drain(req.TaskID, em)
+	artifacts := e.newArtifactCollector(req, em, cid)
+	runnerDone := link.drain(req.TaskID, em, func(name, path, contentType string) {
+		artifacts.submit(ctx, name, path, contentType)
+	})
 	logsDone := e.streamLogs(ctx, cid, em)
 
 	statsCtx, stopStats := context.WithCancel(ctx)
@@ -284,6 +291,11 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	wallMS := time.Since(startedAt).Milliseconds()
 
+	// The container is gone, so nothing inside it can open the event socket again. Stop
+	// accepting and let the connections that are still open finish, which is what closes
+	// the runner's event channel and ends the drain below.
+	link.stopAccepting()
+
 	// Let both streams drain so every log and step event precedes exited.
 	select {
 	case <-logsDone:
@@ -295,6 +307,12 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	case <-time.After(logDrainTimeout):
 		e.log.Warn("runner event stream did not close after exit", "task", req.TaskID)
 	}
+
+	// Everything the task asked to keep, plus whatever it left in the auto-collection
+	// directory, before exited: an artifact event after finished would break the ordering
+	// the whole event contract rests on, and would arrive after the task is terminal.
+	artifacts.collectDir(ctx, AutoArtifactDir)
+	artifacts.wait(artifactUploadTimeout)
 
 	// Nothing may emit after this point but exited and finished, so the sidecars' log
 	// streams end here rather than when the run returns.

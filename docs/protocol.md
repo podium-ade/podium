@@ -11,12 +11,22 @@ token today, Tailscale `WhoIs` later — and never travels inside a message.
 
 | Service | RPCs |
 |---|---|
-| `NodeService` | `Enroll`, `Stream` |
+| `NodeService` | `Enroll`, `Stream`, `UploadArtifact` |
 | `TaskService` | `CreateTask`, `GetTask`, `ListTasks`, `CancelTask`, `StreamTaskEvents` |
-| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes` |
+| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `DrainNode`, `UndrainNode`, `DeleteNode` |
+| `SecretService` | `SetSecret`, `ListSecrets`, `DeleteSecret` |
+| `ArtifactService` | `ListArtifacts`, `GetArtifactURL` |
 
-`SecretService` and `ArtifactService` are deferred (steps 09 and 10). There is no
-`IdentityService`: under the dev transport the UI shows a hard-coded `dev`.
+`NodeService.UploadArtifact` is **client-streaming and not part of the node stream**: it is
+its own HTTP request, so its first message re-presents the node's `node_id` and `node_key`
+exactly as `Hello` does, and every message after it is a chunk of the body (1 MB, 512 MB
+per artifact). The bytes go node → server → object store; a node never talks to S3, which is
+the same "nodes only ever talk to the server" invariant the transport design rests on.
+
+There is one route outside Connect: `GET /artifacts/{artifact_id}` streams an artifact's
+bytes through the server, behind the same identity middleware. It is a plain HTTP handler
+because a 512 MB artifact has to stream, and a unary Connect response would have to be
+buffered whole at both ends.
 
 ## Stream lifecycle
 
@@ -137,15 +147,20 @@ correlated but not redundant: `provisioning`, `pulling` and `started` have no pa
 | `TASK_EVENT_KIND_STARTED` | — | yes |
 | `TASK_EVENT_KIND_LOG` | `LogChunk` | yes |
 | `TASK_EVENT_KIND_STEP` | `Step` | yes — a sidecar's lifecycle, `name: "sidecar/<name>"`, `status: started \| ready \| failed` |
-| `TASK_EVENT_KIND_ARTIFACT` | *(no message defined)* | **no — reserved**, arrives with step 10 |
+| `TASK_EVENT_KIND_ARTIFACT` | `ArtifactRef{artifact_id, name, object_key, size_bytes, content_type}` | yes — after the upload, see below |
 | `TASK_EVENT_KIND_EXITED` | `Exited{exit_code, oom_killed}` | yes |
 | `TASK_EVENT_KIND_FINISHED` | `Finished{exit_code, usage}` | yes |
 | `TASK_EVENT_KIND_ERROR` | `Error{message, retryable}` | yes |
 
-`ARTIFACT` is in the enum because the value list is contractual and enum numbers must never
-be reused; there is deliberately **no `Artifact` message** until step 10 adds one. `Step` is
-also what the runner's event socket forwards for any kind a node does not otherwise
-understand (see [runner-events.md](runner-events.md)).
+An **`artifact` event is only ever emitted after `UploadArtifact` has returned**, so it
+always names bytes that are already durable — never an upload in flight. Artifact events
+come before `exited`: the run waits for its uploads, and for the sweep of
+`/workspace/.podium/artifacts/`, before it emits the exit. An upload that fails becomes an
+`error` event with `retryable: true`, which implies no status transition, so a task that did
+its job still succeeds.
+
+`Step` is also what the runner's event socket forwards for any kind a node does not
+otherwise understand (see [runner-events.md](runner-events.md)).
 
 `LogChunk.stream` keeps `STREAM_STDOUT`, `STREAM_STDERR` and `STREAM_SIDECAR`;
 `sidecar_name` is set only for the third and names the sidecar the output came from.

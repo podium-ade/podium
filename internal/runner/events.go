@@ -11,10 +11,11 @@ import (
 const protocolVersion = 1
 
 // Event kinds this slice of the runner emits. Everything else the protocol reserves
-// (step, artifact, usage, log) belongs to the playbook engine and arrives later.
+// (step, usage, log) belongs to the playbook engine and arrives later.
 const (
-	kindStarted = "started"
-	kindExited  = "exited"
+	kindStarted  = "started"
+	kindExited   = "exited"
+	kindArtifact = "artifact"
 )
 
 // writeTimeout bounds a single write to the node. The runner must never block on the
@@ -40,6 +41,17 @@ type exitedEvent struct {
 	envelope
 	ExitCode int    `json:"exit_code"`
 	Signal   string `json:"signal,omitempty"`
+}
+
+// artifactEvent asks the node to collect a file out of the container. Path is inside the
+// container; the node copies it out and uploads it through the server. The runner never
+// reads the file itself — it may be gigabytes, and the node already has a copy channel
+// that does not cost the task any memory.
+type artifactEvent struct {
+	envelope
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // eventClient writes newline-delimited JSON to the node. A nil *eventClient is a working
@@ -75,6 +87,15 @@ func (c *eventClient) started(pid int) {
 
 func (c *eventClient) exited(code int, signal string) {
 	c.send(exitedEvent{envelope: head(kindExited), ExitCode: code, Signal: signal})
+}
+
+func (c *eventClient) artifact(name, path, contentType string) {
+	c.send(artifactEvent{
+		envelope:    head(kindArtifact),
+		Name:        name,
+		Path:        path,
+		ContentType: contentType,
+	})
 }
 
 func head(kind string) envelope {

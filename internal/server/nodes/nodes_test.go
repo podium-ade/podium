@@ -33,6 +33,7 @@ import (
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/alvaroibarguen/podium/internal/server/logs"
 	"github.com/alvaroibarguen/podium/internal/server/secrets"
 )
 
@@ -111,6 +112,7 @@ type harness struct {
 	admin       podiumv1connect.NodeAdminServiceClient
 	nodes       podiumv1connect.NodeServiceClient
 	secrets     podiumv1connect.SecretServiceClient
+	artifacts   podiumv1connect.ArtifactServiceClient
 }
 
 // masterKeyFile writes a fresh 0600 master key for one harness. Every harness gets its own,
@@ -124,23 +126,28 @@ func masterKeyFile(t *testing.T) string {
 	return path
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, opts ...func(*server.Config)) *harness {
 	t.Helper()
-	return newHarnessOn(t, newDatabase(t))
+	return newHarnessOn(t, newDatabase(t), opts...)
 }
 
-func newHarnessOn(t *testing.T, databaseURL string) *harness {
+func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)) *harness {
 	t.Helper()
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	srv, err := server.New(ctx, server.Config{
+	cfg := server.Config{
 		DatabaseURL:   databaseURL,
 		Transport:     server.TransportDev,
 		DevListen:     "127.0.0.1:0",
 		DevToken:      devToken,
 		MasterKeyFile: masterKeyFile(t),
-	}, logger)
+		Rollup:        logs.DefaultRollupConfig(),
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	srv, err := server.New(ctx, cfg, logger)
 	require.NoError(t, err)
 	require.NoError(t, srv.Start(ctx))
 	t.Cleanup(func() {
@@ -160,6 +167,7 @@ func newHarnessOn(t *testing.T, databaseURL string) *harness {
 		admin:       podiumv1connect.NewNodeAdminServiceClient(client, srv.URL()),
 		nodes:       podiumv1connect.NewNodeServiceClient(client, srv.URL()),
 		secrets:     podiumv1connect.NewSecretServiceClient(client, srv.URL()),
+		artifacts:   podiumv1connect.NewArtifactServiceClient(client, srv.URL()),
 	}
 }
 

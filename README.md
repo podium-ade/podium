@@ -73,6 +73,25 @@ because Tailscale has already said who you are.
 > If port 5432 or 8080 is already taken on your machine, set `PODIUM_PG_PORT` and
 > `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and match `PODIUM_DATABASE_URL` to the Postgres port.
 
+### Keeping what a task produces
+
+Point the server at an S3-compatible store and anything a task drops in
+`/workspace/.podium/artifacts/` is kept, along with the task's log once it finishes:
+
+```sh
+docker compose -f deploy/docker-compose.yml up -d --wait postgres minio
+PODIUM_S3_ENDPOINT=127.0.0.1:9000 PODIUM_S3_BUCKET=podium \
+  PODIUM_S3_ACCESS_KEY=podium PODIUM_S3_SECRET_KEY=... ./bin/podium-server
+
+podium run --image alpine:3 -- sh -c \
+  'mkdir -p /workspace/.podium/artifacts; echo ok > /workspace/.podium/artifacts/r.txt'
+podium artifacts TASK_ID
+podium artifact get ARTIFACT_ID
+```
+
+Nodes never talk to the object store: an artifact travels node → server → S3. See
+[docs/task-spec.md](docs/task-spec.md#artifacts).
+
 ## Running across machines
 
 The `dev` transport above is loopback-only, so node and server share a host. For real workers,
@@ -140,6 +159,13 @@ upgrade path. See [docs/cli.md](docs/cli.md) and [docs/protocol.md](docs/protoco
 | `PODIUM_DEV_TOKEN` | **required** for `dev` — the shared bearer token |
 | `PODIUM_MASTER_KEY_FILE` | the 32-byte AES key secrets are encrypted under. Must be mode `0600`/`0400`. Unset means secrets are unavailable |
 | `PODIUM_MASTER_KEY` | the same key inline, for development only; the server warns loudly |
+| `PODIUM_S3_ENDPOINT` | `host:port` (or a URL) of the S3-compatible store artifacts and rolled-up logs live in. Unset disables artifacts entirely, which is supported |
+| `PODIUM_S3_BUCKET` | the bucket, created on start if missing |
+| `PODIUM_S3_ACCESS_KEY` / `PODIUM_S3_SECRET_KEY` | its credentials |
+| `PODIUM_S3_REGION` | `us-east-1`. MinIO ignores it; a real S3 does not |
+| `PODIUM_LOG_ROLLUP_INTERVAL` | `1m`. How often finished tasks' logs are swept into the object store |
+| `PODIUM_LOG_PRUNE_INTERVAL` | `1h`. How often rolled-up log chunks are pruned from Postgres |
+| `PODIUM_LOG_CHUNK_GRACE` | `24h`. How long a task's hot log rows survive after they reach the object store |
 | `TS_AUTHKEY` | `tailnet` only, first run — a reusable, pre-approved key tagged `tag:podium-server` |
 | `PODIUM_TS_HOSTNAME` | `podium`. The device name, and the first label of the MagicDNS name |
 | `PODIUM_TS_STATE_DIR` | `/var/lib/podium/tsnet`. **Must persist**, or the server re-registers as a new device |
@@ -181,8 +207,17 @@ This is an early slice. Known and deliberate:
 - **The tailnet transport is unproven in the wild.** It is implemented and unit-tested, but it
   has not yet been run against a real tailnet — that needs tagged auth keys and HTTPS enabled on
   the tailnet. The `host` transport is likewise unverified. The `dev` transport is the tested one.
-- **No artifacts.** Secrets, sidecars, resource limits and container hardening are implemented
-  — see [`docs/task-spec.md`](docs/task-spec.md) — but nothing a task produces is collected.
+- **Artifacts have never run against a real S3.** The client is `minio-go` against the S3 API
+  and `deploy/docker-compose.yml` wires up MinIO, but the build machine may not pull images, so
+  every object-store path is tested against an in-process endpoint
+  (`internal/server/artifacts/fakes3`) that verifies presigned signatures for real. A run
+  against an actual MinIO or S3 is still owed.
+- **A task adopted after a node restart collects no artifacts**, the same way it loses its log
+  redactor: the auto-collection pass and the runner's event socket both belong to the run that
+  created the container.
+- **Rolled-up logs lose the interleaving between streams.** Once a finished task's chunks have
+  been pruned, its log is replayed from one object per stream — stdout as one run, then stderr —
+  because nothing records how they were braided together. Within a stream the order is exact.
 - **Secrets have no UI and no per-sidecar refs.** `podium secret set/ls/rm` and
   `--secret NAME[:env:KEY|:file:/path]` are the whole surface; the web UI has no Secrets screen,
   a sidecar cannot reference a secret of its own, and log redaction is best-effort string

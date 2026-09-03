@@ -81,6 +81,8 @@ func payloadJSON(e *podiumv1.TaskEvent) (json.RawMessage, error) {
 		m = e.GetFinished()
 	case e.GetError() != nil:
 		m = e.GetError()
+	case e.GetArtifact() != nil:
+		m = e.GetArtifact()
 	default:
 		return json.RawMessage("{}"), nil
 	}
@@ -146,6 +148,12 @@ func eventToProto(taskID string, row store.Event) (*podiumv1.TaskEvent, error) {
 			return nil, err
 		}
 		out.Payload = &podiumv1.TaskEvent_Error{Error: p}
+	case KindArtifact:
+		p := &podiumv1.ArtifactRef{}
+		if err := unmarshal(p); err != nil {
+			return nil, err
+		}
+		out.Payload = &podiumv1.TaskEvent_Artifact{Artifact: p}
 	}
 	return out, nil
 }
