@@ -49,6 +49,6 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Design plans. Alvaro decides whether these are published with the code;
-# uncomment the line below to keep them out of the repository.
-# plans/
+# Design plans stay local: they are the working notes this repo was built from, not
+# published material. They remain on disk, they are simply not tracked.
+plans/

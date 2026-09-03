@@ -19,7 +19,7 @@ import (
 // environment.
 const DefaultConfigPath = "/etc/podium/node.yaml"
 
-// Config defaults, as declared in plans/steps/00-index.md.
+// Config defaults. Mirrored in docs/node-setup.md; keep the two in step.
 const (
 	DefaultServer                  = "http://127.0.0.1:8080"
 	DefaultTransport               = "dev"
