@@ -4,23 +4,43 @@
 export PATH := $(CURDIR)/web/node_modules/.bin:$(shell go env GOPATH)/bin:$(PATH)
 
 MODULE   := github.com/alvaroibarguen/podium
-BINARIES := podium podium-server podium-node podium-runner
+BINARIES := podium podium-server podium-node
+
+# podium-runner is embedded into podium-node, not linked into it.
+RUNNERBIN   := internal/node/docker/runnerbin
+HOST_GOARCH := $(shell go env GOARCH)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
-.PHONY: build dist-node dist-node-all web web-deps web-test test test-integration e2e lint proto proto-lint proto-breaking fmt clean
+.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e lint proto proto-lint proto-breaking fmt clean
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
 # built in. For Go-only iteration use `go build -tags noui ./...`, which needs no Node at all.
-build: web
+build: web runner-embed
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		echo "go build ./cmd/$$b -> bin/$$b"; \
 		go build -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
 	done
+
+# podium-runner is PID 1 inside a Linux task container, so every build of it is a Linux
+# cross-compile: a darwin binary would be useless. Both architectures land in $(RUNNERBIN),
+# which internal/node/docker embeds, and the host architecture's copy is also written to
+# bin/podium-runner so it can be inspected and run by hand. The binaries are build output
+# and are gitignored; only the .gitkeep placeholder that keeps //go:embed compiling on a
+# fresh clone is committed.
+runner-embed:
+	@mkdir -p $(RUNNERBIN) bin
+	@for a in amd64 arm64; do \
+		out=$(RUNNERBIN)/runner-linux-$$a; \
+		echo "GOOS=linux GOARCH=$$a CGO_ENABLED=0 go build ./cmd/podium-runner -> $$out"; \
+		GOOS=linux GOARCH=$$a CGO_ENABLED=0 \
+			go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $$out ./cmd/podium-runner || exit 1; \
+	done
+	@cp $(RUNNERBIN)/runner-linux-$(HOST_GOARCH) bin/podium-runner
 
 # Cross-compiled worker binaries.
 #
@@ -37,7 +57,7 @@ GOOS   ?= linux
 GOARCH ?= amd64
 DIST_BINARIES := podium-node podium
 
-dist-node:
+dist-node: runner-embed
 	@mkdir -p bin
 	@for b in $(DIST_BINARIES); do \
 		out=bin/$$b-$(GOOS)-$(GOARCH); \
@@ -64,13 +84,13 @@ web-test: web-deps
 test:
 	go test ./...
 
-test-integration:
+test-integration: runner-embed
 	go test -tags integration ./...
 
 # End-to-end: a real Postgres (testcontainers), a real podium-server and podium-node, and
 # the CLI driven as a subprocess. Needs a working Docker engine. The test builds the
 # binaries it drives, so `build` is not a prerequisite.
-e2e:
+e2e: runner-embed
 	go test -tags e2e ./test/e2e/... -count=1 -timeout 30m -v
 
 lint:
@@ -92,3 +112,4 @@ fmt:
 
 clean:
 	rm -rf bin web/dist/assets web/dist/index.html
+	rm -f $(RUNNERBIN)/runner-linux-*

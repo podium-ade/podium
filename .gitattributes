@@ -1,0 +1,3 @@
+# The embedded runner builds are binaries. They are gitignored, but say so anyway so a
+# stray `git add -f` cannot turn one into a diff.
+internal/node/docker/runnerbin/runner-linux-* binary

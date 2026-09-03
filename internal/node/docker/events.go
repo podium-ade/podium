@@ -17,6 +17,7 @@ const (
 	KindPulling      = "pulling"
 	KindStarted      = "started"
 	KindLog          = "log"
+	KindStep         = "step"
 	KindExited       = "exited"
 	KindFinished     = "finished"
 	KindError        = "error"
@@ -52,6 +53,15 @@ type PullingPayload struct {
 	LayerID string
 	Current int64
 	Total   int64
+}
+
+// StepPayload carries a structured event the runner reported over its event socket. In
+// this slice the runner emits none of its own: the kind exists so that a runner newer than
+// its node still delivers something the server can store instead of nothing.
+type StepPayload struct {
+	Name     string
+	Status   string
+	ExitCode int
 }
 
 // ExitedPayload reports the container's exit as observed from the Docker API.

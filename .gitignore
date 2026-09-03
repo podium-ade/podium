@@ -60,3 +60,10 @@ tailscaled.state
 tailscaled.log.conf
 /tsnet/
 /ts-state/
+
+# Cross-compiled podium-runner binaries embedded into podium-node. Built by
+# `make runner-embed`, never committed. The directory itself must exist and be non-empty:
+# //go:embed of a missing or empty directory is a compile error, so a clone that has never
+# run the target would fail `go build ./...` without the placeholder.
+internal/node/docker/runnerbin/*
+!internal/node/docker/runnerbin/.gitkeep

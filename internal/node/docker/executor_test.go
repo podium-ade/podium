@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -124,5 +126,45 @@ func TestContainerEnvIsDeterministic(t *testing.T) {
 		"PODIUM_TASK_ID=task_1",
 		"PODIUM_LEASE_ID=lease_1",
 		"PODIUM_WORKDIR=/workspace",
+		"PODIUM_EVENTS_SOCK=/podium/events.sock",
 	}, containerEnv(req, "/workspace"))
+}
+
+func TestRunnerArch(t *testing.T) {
+	for _, engine := range []string{"x86_64", "amd64"} {
+		got, err := runnerArch(engine)
+		require.NoError(t, err)
+		require.Equal(t, "amd64", got, "engine architecture %q", engine)
+	}
+	for _, engine := range []string{"aarch64", "arm64", "armv8l"} {
+		got, err := runnerArch(engine)
+		require.NoError(t, err)
+		require.Equal(t, "arm64", got, "engine architecture %q", engine)
+	}
+	_, err := runnerArch("riscv64")
+	require.ErrorContains(t, err, "riscv64")
+	require.ErrorContains(t, err, "linux/amd64")
+}
+
+func TestEventSocketPathStaysInsideTheUnixBudget(t *testing.T) {
+	const taskID = "task_01jabcdefghijklmnopqrstuv"
+
+	// A sane data dir keeps the socket next to the task's other state.
+	dir, err := socketDirFor("/var/lib/podium-node")
+	require.NoError(t, err)
+	require.Empty(t, dir)
+	e := &Executor{dataDir: "/var/lib/podium-node"}
+	require.Equal(t, "/var/lib/podium-node/tasks/"+taskID+"/events.sock", e.eventsSocketPath(taskID))
+	require.LessOrEqual(t, len(e.eventsSocketPath(taskID)), maxUnixPath)
+
+	// A data dir deep enough to blow the AF_UNIX budget moves the sockets aside.
+	deep := "/Users/somebody/Library/Application Support/podium/nodes/worker-01/state"
+	dir, err = socketDirFor(deep)
+	require.NoError(t, err)
+	require.NotEmpty(t, dir)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+
+	e = &Executor{dataDir: deep, sockDir: dir}
+	require.Equal(t, filepath.Join(dir, taskID+".sock"), e.eventsSocketPath(taskID))
+	require.LessOrEqual(t, len(e.eventsSocketPath(taskID)), maxUnixPath)
 }
