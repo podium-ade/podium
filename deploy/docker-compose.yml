@@ -29,16 +29,17 @@ services:
   # Base images are pinned by digest. A tag is a moving target, and a base image is the part
   # of a supply chain nobody looks at.
   postgres:
-    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     environment:
       POSTGRES_USER: podium
       POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Creates podium_agent, the conductor's own database. Init scripts run ONLY when the
-      # data directory is empty, so on an existing install create it by hand:
-      #   docker compose exec -T postgres createdb -U podium podium_agent
+      # Creates podium_agent (the conductor's) and podium_memory (Hindsight's), and the
+      # pgvector extension in the latter. Init scripts run ONLY when the data directory is
+      # empty, so on an existing install create them by hand — the recipe is in
+      # docs/operations.md and at the top of this script.
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
@@ -49,6 +50,67 @@ services:
     restart: unless-stopped
     # No published port. The server reaches it over the compose network, and nothing else
     # has any business talking to it.
+
+  # The agents' shared memory: https://github.com/vectorize-io/hindsight, pointed at
+  # podium_memory in the Postgres above. Podium writes no memory code — the conductor wires
+  # a URL and a key into every turn, retains one item after each successful turn, and the
+  # web UI's Memory tab reads and forgets memories through this REST API. See docs/agent.md.
+  #
+  # The full image, not -slim: it has the embedding and reranking models baked in, so it
+  # comes up in seconds with no HuggingFace egress and needs no volume of its own. Every
+  # byte of state is in Postgres — back THAT up, not this container.
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: 1g
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_memory
+      # THERE IS NO AUTHENTICATION BY DEFAULT — the tenant extension is what turns it on,
+      # for the REST API and the MCP endpoint alike. It is mandatory here because 8888 is
+      # published on all interfaces below, and it is the same value tasks get as the Podium
+      # secret podium.agent.memory_api_key.
+      # `:-` and not `:?` on purpose: a `:?` here makes compose refuse to interpolate the
+      # WHOLE file, so `docker compose up postgres` would stop working on a deployment with
+      # no memory. Left empty, the container refuses to start and says which variable is
+      # missing — "HINDSIGHT_API_TENANT_API_KEY is required when using ApiKeyTenantExtension"
+      # and "LLM API key is required" — which is fail-closed and names the fix.
+      HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
+      HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      # Fact extraction. This is Hindsight's own key, read at container start, so it comes
+      # from .env rather than from the UI's secret store — and its calls are billed like any
+      # other. It may be the same key the agents use.
+      HINDSIGHT_API_LLM_PROVIDER: anthropic
+      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
+      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}
+      # Local, bundled, and therefore offline: BAAI/bge-small-en-v1.5 at 384 dimensions.
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+      # Hindsight's own control-plane UI. Off, and 9999 is not published: Podium's UI is the
+      # front door. An operator who needs it can port-forward.
+      HINDSIGHT_ENABLE_CP: "false"
+      # A STABLE worker id. Left unset it defaults to the container hostname, which changes
+      # on every `docker compose up --force-recreate`, and tasks left 'processing' under the
+      # old hostname are then never recovered — consolidation gets stuck indefinitely.
+      HINDSIGHT_API_WORKER_ID: hindsight
+    ports:
+      # ALL INTERFACES, on purpose. Agent turns run in task containers on a node, on their
+      # own bridge network, and reach the host through the bridge gateway
+      # (host.docker.internal) — which a service bound to 127.0.0.1 is not reachable from.
+      # That is why the API key above is required and why docs/security.md and
+      # docs/networking.md tell you to firewall 8888 down to the Docker bridge and tailnet
+      # ranges. Set PODIUM_MEMORY_BIND to the tailnet or bridge-gateway IP for something
+      # tighter.
+      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:8888:8888"
+    healthcheck:
+      # GET / is a 404 here; /health is the one that reports the database too. curl is in
+      # the image.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
 
   # The object store artifacts and rolled-up logs live in. Nodes never talk to it: an
   # artifact travels node -> server -> MinIO over NodeService.UploadArtifact, which is why
@@ -138,6 +200,7 @@ services:
     image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
+      - hindsight
     environment:
       PODIUM_AGENT_SERVER: http://server:8080
       PODIUM_AGENT_API_TOKEN: ${PODIUM_DEV_TOKEN:?}
@@ -153,6 +216,14 @@ services:
       # Both or neither. Without them no source is started and the bot listens to nothing.
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+      # Shared memory. Two URLs because there are two vantage points: the conductor reaches
+      # Hindsight over the compose network, and a task container reaches it through the
+      # host. Set PODIUM_AGENT_MEMORY_URL to the empty string to run with no memory at all —
+      # briefs then carry no memory block and nothing is retained.
+      PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://hindsight:8888}
+      PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
+      PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
+      PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
     volumes:
       # Read-only, and it is the only boundary around what a turn may do: a skill file names
       # the image, the tools and the secrets its turns get.

@@ -124,14 +124,27 @@ type running struct {
 }
 
 func start(t *testing.T, st *store.Store, fake *fakePodium, src *fakesource.Source) *running {
+	return startWith(t, st, fake, src, nil)
+}
+
+// startWith is start with a hook on the options, which is how the memory tests attach a
+// brief memory block and a recording client (see retain_integration_test.go).
+func startWith(
+	t *testing.T, st *store.Store, fake *fakePodium, src *fakesource.Source,
+	tweak func(*conductor.Options),
+) *running {
 	t.Helper()
-	cond, err := conductor.New(conductor.Options{
+	opts := conductor.Options{
 		Store:   st,
 		Podium:  podium.New(fake.URL(), "devtoken"),
 		Profile: testProfile(t),
 		Sources: []conductor.Source{src},
 		Logger:  quietLogger(),
-	})
+	}
+	if tweak != nil {
+		tweak(&opts)
+	}
+	cond, err := conductor.New(opts)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())

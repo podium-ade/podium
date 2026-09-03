@@ -97,7 +97,7 @@ func TestCostIncludesSidecars(t *testing.T) {
 	ts := spec.TaskSpec{
 		Resources: spec.Resources{CPU: 1, MemoryMB: 512},
 		Sidecars: map[string]spec.Sidecar{
-			"db":    {Image: "postgres:16-alpine", Resources: spec.Resources{CPU: 2, MemoryMB: 1024}},
+			"db":    {Image: "pgvector/pgvector:pg16", Resources: spec.Resources{CPU: 2, MemoryMB: 1024}},
 			"cache": {Image: "redis:7-alpine", Resources: spec.Resources{CPU: 0.5, MemoryMB: 256}},
 		},
 	}

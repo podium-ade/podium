@@ -103,10 +103,11 @@ describe("AgentPage", () => {
       "aria-current",
       "page",
     );
-    // The two tabs this step ships. 19 and 21 add one line each to the same array.
+    // The three tabs this build ships. 21 adds one more line to the same array.
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
       "Settings",
       "Sessions",
+      "Memory",
     ]);
 
     await userEvent.click(screen.getByRole("link", { name: "Settings" }));

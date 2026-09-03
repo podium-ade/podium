@@ -32,10 +32,10 @@ func TestEveryExampleParses(t *testing.T) {
 
 			// Every image an example uses must be one a reader can actually pull, and one
 			// this repository is allowed to use.
-			require.Contains(t, []string{"alpine:3", "postgres:16-alpine", "redis:7-alpine"}, s.Image,
+			require.Contains(t, []string{"alpine:3", "pgvector/pgvector:pg16", "redis:7-alpine"}, s.Image,
 				"examples stick to images the test environment already has")
 			for name, sc := range s.Sidecars {
-				require.Contains(t, []string{"alpine:3", "postgres:16-alpine", "redis:7-alpine"}, sc.Image,
+				require.Contains(t, []string{"alpine:3", "pgvector/pgvector:pg16", "redis:7-alpine"}, sc.Image,
 					"sidecar %q uses an image outside the allowed set", name)
 			}
 		})

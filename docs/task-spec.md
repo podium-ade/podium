@@ -5,7 +5,7 @@ The YAML a `podium run --spec FILE` reads, and the shape of `pkg/spec.TaskSpec`.
 written in a file.
 
 ```yaml
-image: postgres:16-alpine          # required
+image: pgvector/pgvector:pg16          # required
 command: ["psql", "-h", "db", "-c", "select 1"]
 working_dir: /workspace            # default
 env:
@@ -29,7 +29,7 @@ misspelled `privilged: true` fails loudly instead of quietly submitting a task t
 what you asked. The web UI's YAML editor mirrors that.
 
 Complete, runnable examples — every one of them parsed by `go test ./examples/...` with this same
-decoder, and every one using only `alpine:3`, `postgres:16-alpine` or `redis:7-alpine`:
+decoder, and every one using only `alpine:3`, `pgvector/pgvector:pg16` or `redis:7-alpine`:
 
 | | |
 |---|---|
@@ -139,12 +139,12 @@ removed after it. The key is its DNS name, so the task reaches `db` at `db`.
 ```yaml
 sidecars:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     command: ["postgres", "-c", "fsync=off"]   # optional; the image's own by default
     env:
       POSTGRES_PASSWORD: podium
     readiness:
-      tcp_port: 5432
+      command: ["pg_isready", "-U", "postgres"]   # or tcp_port: 5432 — see below
       timeout: 60s
     resources:
       cpu: 1
@@ -181,9 +181,13 @@ is almost never what you want for a database.
 dials the sidecar's address on the task bridge directly. Everywhere else — Docker Desktop
 on macOS or Windows, where the engine lives in a VM the host cannot route into — the probe
 runs *inside* the sidecar with `ContainerExec`, using the `nc` and `wget` that busybox-based
-images have. An image with neither (a `scratch`-based one, say) fails immediately with a
-message saying so rather than waiting out the timeout; give it a `readiness.command` that
-uses a binary it does have.
+images have. An image with neither fails immediately with a message saying so rather than
+waiting out the timeout; give it a `readiness.command` that uses a binary it does have.
+
+That is not only `scratch` images: **the Debian-based database images have no `nc` either**,
+`postgres:16` and `pgvector/pgvector:pg16` included. Use their own health command —
+`pg_isready`, `redis-cli ping`, `mysqladmin ping` — which is the better probe anyway, because
+`nc` succeeds as soon as the port is bound and a database binds before it will serve.
 
 ## Resources
 

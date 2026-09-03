@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiKwoXQ2xlYXJQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkiGgoYQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlMrwECgxBZ2VudFNlcnZpY2USWwoMTGlzdFNlc3Npb25zEiQucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVQoKR2V0U2Vzc2lvbhIiLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVzcG9uc2USUgoJTGlzdFR1cm5zEiEucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVzcG9uc2USWAoLR2V0U2V0dGluZ3MSIy5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVzcG9uc2USYQoOU2V0UHJvdmlkZXJLZXkSJi5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVzcG9uc2USZwoQQ2xlYXJQcm92aWRlcktleRIoLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVzcG9uc2VCyAEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCkFnZW50UHJvdG9QAVpHZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiKwoXQ2xlYXJQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkiGgoYQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlIpUCCgZNZW1vcnkSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCRIRCglmYWN0X3R5cGUYAyABKAkSDAoEdGFncxgEIAMoCRI3CghtZXRhZGF0YRgFIAMoCzIlLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkuTWV0YWRhdGFFbnRyeRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghlbnRpdGllcxgHIAMoCRIPCgdjb250ZXh0GAggASgJEhMKC2RvY3VtZW50X2lkGAkgASgJGi8KDU1ldGFkYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI0ChNMaXN0TWVtb3JpZXNSZXF1ZXN0Eg4KBmN1cnNvchgBIAEoCRINCgVsaW1pdBgCIAEoBSJTChRMaXN0TWVtb3JpZXNSZXNwb25zZRImCgVpdGVtcxgBIAMoCzIXLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkSEwoLbmV4dF9jdXJzb3IYAiABKAkiNQoVU2VhcmNoTWVtb3JpZXNSZXF1ZXN0Eg0KBXF1ZXJ5GAEgASgJEg0KBWxpbWl0GAIgASgFIkAKFlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5IiEKE0RlbGV0ZU1lbW9yeVJlcXVlc3QSCgoCaWQYASABKAkiFgoURGVsZXRlTWVtb3J5UmVzcG9uc2Uy2QYKDEFnZW50U2VydmljZRJbCgxMaXN0U2Vzc2lvbnMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJVCgpHZXRTZXNzaW9uEiIucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXNwb25zZRJSCglMaXN0VHVybnMSIS5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXNwb25zZRJYCgtHZXRTZXR0aW5ncxIjLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1JlcXVlc3QaJC5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXNwb25zZRJhCg5TZXRQcm92aWRlcktleRImLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXNwb25zZRJnChBDbGVhclByb3ZpZGVyS2V5EigucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXNwb25zZRJbCgxMaXN0TWVtb3JpZXMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXNwb25zZRJhCg5TZWFyY2hNZW1vcmllcxImLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1JlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXNwb25zZRJbCgxEZWxldGVNZW1vcnkSJC5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXNwb25zZULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -453,6 +453,204 @@ export const ClearProviderKeyResponseSchema: GenMessage<ClearProviderKeyResponse
   messageDesc(file_podium_agent_v1_agent, 15);
 
 /**
+ * Memory is one thing the organisation remembers, shared by every agent turn.
+ *
+ * EVERY FIELD IS CONTENT. A memory was written by a task, out of material a human, a
+ * repository or a ticket supplied; nothing in Podium interprets it. The provenance fields
+ * exist so a person can tell where a memory came from and forget one that should not be
+ * there — which is the only defence there is against a turn planting a false memory.
+ *
+ * @generated from message podium.agent.v1.Memory
+ */
+export type Memory = Message<"podium.agent.v1.Memory"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * fact_type is world, experience or observation. An observation is derived by the memory
+   * engine from the facts under it.
+   *
+   * @generated from field: string fact_type = 3;
+   */
+  factType: string;
+
+  /**
+   * tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+   *
+   * @generated from field: repeated string tags = 4;
+   */
+  tags: string[];
+
+  /**
+   * metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
+   * and source_url.
+   *
+   * @generated from field: map<string, string> metadata = 5;
+   */
+  metadata: { [key: string]: string };
+
+  /**
+   * created_at is when the memory was learned.
+   *
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * entities are the people, systems and concepts the memory engine linked this to.
+   *
+   * @generated from field: repeated string entities = 7;
+   */
+  entities: string[];
+
+  /**
+   * context is the retaining caller's note about where the memory came from.
+   *
+   * @generated from field: string context = 8;
+   */
+  context: string;
+
+  /**
+   * document_id is what the retainer grouped the memory under: the turn id, for anything
+   * the conductor retained.
+   *
+   * @generated from field: string document_id = 9;
+   */
+  documentId: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.Memory.
+ * Use `create(MemorySchema)` to create a new message.
+ */
+export const MemorySchema: GenMessage<Memory> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 16);
+
+/**
+ * @generated from message podium.agent.v1.ListMemoriesRequest
+ */
+export type ListMemoriesRequest = Message<"podium.agent.v1.ListMemoriesRequest"> & {
+  /**
+   * cursor is opaque and comes from a previous response.
+   *
+   * @generated from field: string cursor = 1;
+   */
+  cursor: string;
+
+  /**
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListMemoriesRequest.
+ * Use `create(ListMemoriesRequestSchema)` to create a new message.
+ */
+export const ListMemoriesRequestSchema: GenMessage<ListMemoriesRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 17);
+
+/**
+ * @generated from message podium.agent.v1.ListMemoriesResponse
+ */
+export type ListMemoriesResponse = Message<"podium.agent.v1.ListMemoriesResponse"> & {
+  /**
+   * @generated from field: repeated podium.agent.v1.Memory items = 1;
+   */
+  items: Memory[];
+
+  /**
+   * Empty when there is no further page.
+   *
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListMemoriesResponse.
+ * Use `create(ListMemoriesResponseSchema)` to create a new message.
+ */
+export const ListMemoriesResponseSchema: GenMessage<ListMemoriesResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 18);
+
+/**
+ * @generated from message podium.agent.v1.SearchMemoriesRequest
+ */
+export type SearchMemoriesRequest = Message<"podium.agent.v1.SearchMemoriesRequest"> & {
+  /**
+   * @generated from field: string query = 1;
+   */
+  query: string;
+
+  /**
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message podium.agent.v1.SearchMemoriesRequest.
+ * Use `create(SearchMemoriesRequestSchema)` to create a new message.
+ */
+export const SearchMemoriesRequestSchema: GenMessage<SearchMemoriesRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 19);
+
+/**
+ * @generated from message podium.agent.v1.SearchMemoriesResponse
+ */
+export type SearchMemoriesResponse = Message<"podium.agent.v1.SearchMemoriesResponse"> & {
+  /**
+   * @generated from field: repeated podium.agent.v1.Memory items = 1;
+   */
+  items: Memory[];
+};
+
+/**
+ * Describes the message podium.agent.v1.SearchMemoriesResponse.
+ * Use `create(SearchMemoriesResponseSchema)` to create a new message.
+ */
+export const SearchMemoriesResponseSchema: GenMessage<SearchMemoriesResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 20);
+
+/**
+ * @generated from message podium.agent.v1.DeleteMemoryRequest
+ */
+export type DeleteMemoryRequest = Message<"podium.agent.v1.DeleteMemoryRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteMemoryRequest.
+ * Use `create(DeleteMemoryRequestSchema)` to create a new message.
+ */
+export const DeleteMemoryRequestSchema: GenMessage<DeleteMemoryRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 21);
+
+/**
+ * @generated from message podium.agent.v1.DeleteMemoryResponse
+ */
+export type DeleteMemoryResponse = Message<"podium.agent.v1.DeleteMemoryResponse"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteMemoryResponse.
+ * Use `create(DeleteMemoryResponseSchema)` to create a new message.
+ */
+export const DeleteMemoryResponseSchema: GenMessage<DeleteMemoryResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 22);
+
+/**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
  * bearer token and reached from a browser only through podium-server, which proxies
  * /podium.agent.v1.AgentService/ behind its identity middleware. Later steps grow it:
@@ -520,6 +718,37 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof ClearProviderKeyRequestSchema;
     output: typeof ClearProviderKeyResponseSchema;
+  },
+  /**
+   * ListMemories pages through the shared memory, newest first.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ListMemories
+   */
+  listMemories: {
+    methodKind: "unary";
+    input: typeof ListMemoriesRequestSchema;
+    output: typeof ListMemoriesResponseSchema;
+  },
+  /**
+   * SearchMemories is a semantic search of the same memory.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.SearchMemories
+   */
+  searchMemories: {
+    methodKind: "unary";
+    input: typeof SearchMemoriesRequestSchema;
+    output: typeof SearchMemoriesResponseSchema;
+  },
+  /**
+   * DeleteMemory takes one memory out of every future recall. It is a tombstone rather
+   * than a row deletion: the memory engine keeps the record for audit and stops serving it.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.DeleteMemory
+   */
+  deleteMemory: {
+    methodKind: "unary";
+    input: typeof DeleteMemoryRequestSchema;
+    output: typeof DeleteMemoryResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_agent, 0);

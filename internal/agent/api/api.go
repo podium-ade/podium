@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/alvaroibarguen/podium/internal/agent/config"
+	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
@@ -80,7 +81,10 @@ type AgentServiceOptions struct {
 	AnthropicBaseURL string
 	// HTTPClient validates the key. Nil means a client with a timeout of its own.
 	HTTPClient *http.Client
-	Logger     *slog.Logger
+	// Memory is the shared-memory client. Nil is a supported configuration: the three
+	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
+	Memory memory.Client
+	Logger *slog.Logger
 }
 
 // AgentService implements podium.agent.v1.AgentService.
@@ -90,6 +94,7 @@ type AgentService struct {
 	model   string
 	baseURL string
 	http    *http.Client
+	memory  memory.Client
 	logger  *slog.Logger
 }
 
@@ -110,6 +115,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		model:   opts.Model,
 		baseURL: opts.AnthropicBaseURL,
 		http:    opts.HTTPClient,
+		memory:  opts.Memory,
 		logger:  opts.Logger,
 	}
 }

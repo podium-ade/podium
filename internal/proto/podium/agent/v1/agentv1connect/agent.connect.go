@@ -49,6 +49,15 @@ const (
 	// AgentServiceClearProviderKeyProcedure is the fully-qualified name of the AgentService's
 	// ClearProviderKey RPC.
 	AgentServiceClearProviderKeyProcedure = "/podium.agent.v1.AgentService/ClearProviderKey"
+	// AgentServiceListMemoriesProcedure is the fully-qualified name of the AgentService's ListMemories
+	// RPC.
+	AgentServiceListMemoriesProcedure = "/podium.agent.v1.AgentService/ListMemories"
+	// AgentServiceSearchMemoriesProcedure is the fully-qualified name of the AgentService's
+	// SearchMemories RPC.
+	AgentServiceSearchMemoriesProcedure = "/podium.agent.v1.AgentService/SearchMemories"
+	// AgentServiceDeleteMemoryProcedure is the fully-qualified name of the AgentService's DeleteMemory
+	// RPC.
+	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -66,6 +75,13 @@ type AgentServiceClient interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// ListMemories pages through the shared memory, newest first.
+	ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error)
+	// SearchMemories is a semantic search of the same memory.
+	SearchMemories(context.Context, *connect.Request[v1.SearchMemoriesRequest]) (*connect.Response[v1.SearchMemoriesResponse], error)
+	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
+	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
+	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -115,6 +131,24 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
 			connect.WithClientOptions(opts...),
 		),
+		listMemories: connect.NewClient[v1.ListMemoriesRequest, v1.ListMemoriesResponse](
+			httpClient,
+			baseURL+AgentServiceListMemoriesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListMemories")),
+			connect.WithClientOptions(opts...),
+		),
+		searchMemories: connect.NewClient[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse](
+			httpClient,
+			baseURL+AgentServiceSearchMemoriesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SearchMemories")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteMemory: connect.NewClient[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteMemoryProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -126,6 +160,9 @@ type agentServiceClient struct {
 	getSettings      *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	setProviderKey   *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
 	clearProviderKey *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
+	listMemories     *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
+	searchMemories   *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
+	deleteMemory     *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -158,6 +195,21 @@ func (c *agentServiceClient) ClearProviderKey(ctx context.Context, req *connect.
 	return c.clearProviderKey.CallUnary(ctx, req)
 }
 
+// ListMemories calls podium.agent.v1.AgentService.ListMemories.
+func (c *agentServiceClient) ListMemories(ctx context.Context, req *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error) {
+	return c.listMemories.CallUnary(ctx, req)
+}
+
+// SearchMemories calls podium.agent.v1.AgentService.SearchMemories.
+func (c *agentServiceClient) SearchMemories(ctx context.Context, req *connect.Request[v1.SearchMemoriesRequest]) (*connect.Response[v1.SearchMemoriesResponse], error) {
+	return c.searchMemories.CallUnary(ctx, req)
+}
+
+// DeleteMemory calls podium.agent.v1.AgentService.DeleteMemory.
+func (c *agentServiceClient) DeleteMemory(ctx context.Context, req *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
+	return c.deleteMemory.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -173,6 +225,13 @@ type AgentServiceHandler interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// ListMemories pages through the shared memory, newest first.
+	ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error)
+	// SearchMemories is a semantic search of the same memory.
+	SearchMemories(context.Context, *connect.Request[v1.SearchMemoriesRequest]) (*connect.Response[v1.SearchMemoriesResponse], error)
+	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
+	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
+	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -218,6 +277,24 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListMemoriesHandler := connect.NewUnaryHandler(
+		AgentServiceListMemoriesProcedure,
+		svc.ListMemories,
+		connect.WithSchema(agentServiceMethods.ByName("ListMemories")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSearchMemoriesHandler := connect.NewUnaryHandler(
+		AgentServiceSearchMemoriesProcedure,
+		svc.SearchMemories,
+		connect.WithSchema(agentServiceMethods.ByName("SearchMemories")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteMemoryHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteMemoryProcedure,
+		svc.DeleteMemory,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -232,6 +309,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
 		case AgentServiceClearProviderKeyProcedure:
 			agentServiceClearProviderKeyHandler.ServeHTTP(w, r)
+		case AgentServiceListMemoriesProcedure:
+			agentServiceListMemoriesHandler.ServeHTTP(w, r)
+		case AgentServiceSearchMemoriesProcedure:
+			agentServiceSearchMemoriesHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteMemoryProcedure:
+			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -263,4 +346,16 @@ func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearProviderKey is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListMemories is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SearchMemories(context.Context, *connect.Request[v1.SearchMemoriesRequest]) (*connect.Response[v1.SearchMemoriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SearchMemories is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMemory is not implemented"))
 }

@@ -122,7 +122,7 @@ db` — started before the task and waited for. More in [`examples/`](examples):
 
 | | |
 |---|---|
-| `podium-server` | API, scheduler, node registry, secrets, log ingest, embedded web UI. Needs Postgres; optionally an S3-compatible store |
+| `podium-server` | API, scheduler, node registry, secrets, log ingest, embedded web UI. Needs Postgres (`pgvector/pgvector:pg16`); optionally an S3-compatible store |
 | `podium-node` | One per worker. Runs tasks on the local Docker engine. **Root-equivalent on its host** — read [security.md](docs/security.md) |
 | `podium` | The CLI. Talks only to the server, never to Docker, so it runs anywhere |
 | `podium-runner` | PID 1 inside every task container: runs the command, forwards signals, reaps orphans, reports events. Embedded in `podium-node` and bind-mounted in; never installed by hand |
@@ -222,7 +222,7 @@ M5 the web UI, M6 packaging and documentation — this commit.
 - [docs/storage.md](docs/storage.md) — Postgres, the object store, a worker's data dir, the image cache
 - [docs/networking.md](docs/networking.md) — the tailnet transport, identity, the ACL, troubleshooting
 - [docs/node-setup.md](docs/node-setup.md) — setting up a worker
-- [docs/agent.md](docs/agent.md) — the conductor (`podium-agent`): the Slack bot, profiles and skills, how a turn works
+- [docs/agent.md](docs/agent.md) — the conductor (`podium-agent`): the Slack bot, profiles and skills, how a turn works, the agents' shared memory
 - [deploy/README.md](deploy/README.md) — compose, the installer, the systemd unit
 - [deploy/.env.example](deploy/.env.example) — every `PODIUM_*` variable, commented
 

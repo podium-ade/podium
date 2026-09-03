@@ -943,6 +943,412 @@ func (*ClearProviderKeyResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
+// Memory is one thing the organisation remembers, shared by every agent turn.
+//
+// EVERY FIELD IS CONTENT. A memory was written by a task, out of material a human, a
+// repository or a ticket supplied; nothing in Podium interprets it. The provenance fields
+// exist so a person can tell where a memory came from and forget one that should not be
+// there — which is the only defence there is against a turn planting a false memory.
+type Memory struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Text  string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// fact_type is world, experience or observation. An observation is derived by the memory
+	// engine from the facts under it.
+	FactType string `protobuf:"bytes,3,opt,name=fact_type,json=factType,proto3" json:"fact_type,omitempty"`
+	// tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+	Tags []string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
+	// metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
+	// and source_url.
+	Metadata map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// created_at is when the memory was learned.
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// entities are the people, systems and concepts the memory engine linked this to.
+	Entities []string `protobuf:"bytes,7,rep,name=entities,proto3" json:"entities,omitempty"`
+	// context is the retaining caller's note about where the memory came from.
+	Context string `protobuf:"bytes,8,opt,name=context,proto3" json:"context,omitempty"`
+	// document_id is what the retainer grouped the memory under: the turn id, for anything
+	// the conductor retained.
+	DocumentId    string `protobuf:"bytes,9,opt,name=document_id,json=documentId,proto3" json:"document_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Memory) Reset() {
+	*x = Memory{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Memory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Memory) ProtoMessage() {}
+
+func (x *Memory) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Memory.ProtoReflect.Descriptor instead.
+func (*Memory) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *Memory) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Memory) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *Memory) GetFactType() string {
+	if x != nil {
+		return x.FactType
+	}
+	return ""
+}
+
+func (x *Memory) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *Memory) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *Memory) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Memory) GetEntities() []string {
+	if x != nil {
+		return x.Entities
+	}
+	return nil
+}
+
+func (x *Memory) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
+func (x *Memory) GetDocumentId() string {
+	if x != nil {
+		return x.DocumentId
+	}
+	return ""
+}
+
+type ListMemoriesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cursor is opaque and comes from a previous response.
+	Cursor        string `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	Limit         int32  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMemoriesRequest) Reset() {
+	*x = ListMemoriesRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMemoriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMemoriesRequest) ProtoMessage() {}
+
+func (x *ListMemoriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMemoriesRequest.ProtoReflect.Descriptor instead.
+func (*ListMemoriesRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListMemoriesRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *ListMemoriesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListMemoriesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Items []*Memory              `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	// Empty when there is no further page.
+	NextCursor    string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMemoriesResponse) Reset() {
+	*x = ListMemoriesResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMemoriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMemoriesResponse) ProtoMessage() {}
+
+func (x *ListMemoriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMemoriesResponse.ProtoReflect.Descriptor instead.
+func (*ListMemoriesResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListMemoriesResponse) GetItems() []*Memory {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListMemoriesResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+type SearchMemoriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchMemoriesRequest) Reset() {
+	*x = SearchMemoriesRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchMemoriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchMemoriesRequest) ProtoMessage() {}
+
+func (x *SearchMemoriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchMemoriesRequest.ProtoReflect.Descriptor instead.
+func (*SearchMemoriesRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SearchMemoriesRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchMemoriesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type SearchMemoriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*Memory              `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchMemoriesResponse) Reset() {
+	*x = SearchMemoriesResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchMemoriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchMemoriesResponse) ProtoMessage() {}
+
+func (x *SearchMemoriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchMemoriesResponse.ProtoReflect.Descriptor instead.
+func (*SearchMemoriesResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SearchMemoriesResponse) GetItems() []*Memory {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type DeleteMemoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMemoryRequest) Reset() {
+	*x = DeleteMemoryRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMemoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMemoryRequest) ProtoMessage() {}
+
+func (x *DeleteMemoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMemoryRequest.ProtoReflect.Descriptor instead.
+func (*DeleteMemoryRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DeleteMemoryRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteMemoryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMemoryResponse) Reset() {
+	*x = DeleteMemoryResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMemoryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMemoryResponse) ProtoMessage() {}
+
+func (x *DeleteMemoryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMemoryResponse.ProtoReflect.Descriptor instead.
+func (*DeleteMemoryResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{22}
+}
+
 var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
@@ -1019,7 +1425,37 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06status\x18\x03 \x01(\tR\x06status\"5\n" +
 	"\x17ClearProviderKeyRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\"\x1a\n" +
-	"\x18ClearProviderKeyResponse2\xbc\x04\n" +
+	"\x18ClearProviderKeyResponse\"\xef\x02\n" +
+	"\x06Memory\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
+	"\tfact_type\x18\x03 \x01(\tR\bfactType\x12\x12\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x12A\n" +
+	"\bmetadata\x18\x05 \x03(\v2%.podium.agent.v1.Memory.MetadataEntryR\bmetadata\x129\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1a\n" +
+	"\bentities\x18\a \x03(\tR\bentities\x12\x18\n" +
+	"\acontext\x18\b \x01(\tR\acontext\x12\x1f\n" +
+	"\vdocument_id\x18\t \x01(\tR\n" +
+	"documentId\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"C\n" +
+	"\x13ListMemoriesRequest\x12\x16\n" +
+	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"f\n" +
+	"\x14ListMemoriesResponse\x12-\n" +
+	"\x05items\x18\x01 \x03(\v2\x17.podium.agent.v1.MemoryR\x05items\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursor\"C\n" +
+	"\x15SearchMemoriesRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"G\n" +
+	"\x16SearchMemoriesResponse\x12-\n" +
+	"\x05items\x18\x01 \x03(\v2\x17.podium.agent.v1.MemoryR\x05items\"%\n" +
+	"\x13DeleteMemoryRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
+	"\x14DeleteMemoryResponse2\xd9\x06\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
@@ -1027,7 +1463,10 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\tListTurns\x12!.podium.agent.v1.ListTurnsRequest\x1a\".podium.agent.v1.ListTurnsResponse\x12X\n" +
 	"\vGetSettings\x12#.podium.agent.v1.GetSettingsRequest\x1a$.podium.agent.v1.GetSettingsResponse\x12a\n" +
 	"\x0eSetProviderKey\x12&.podium.agent.v1.SetProviderKeyRequest\x1a'.podium.agent.v1.SetProviderKeyResponse\x12g\n" +
-	"\x10ClearProviderKey\x12(.podium.agent.v1.ClearProviderKeyRequest\x1a).podium.agent.v1.ClearProviderKeyResponseB\xc8\x01\n" +
+	"\x10ClearProviderKey\x12(.podium.agent.v1.ClearProviderKeyRequest\x1a).podium.agent.v1.ClearProviderKeyResponse\x12[\n" +
+	"\fListMemories\x12$.podium.agent.v1.ListMemoriesRequest\x1a%.podium.agent.v1.ListMemoriesResponse\x12a\n" +
+	"\x0eSearchMemories\x12&.podium.agent.v1.SearchMemoriesRequest\x1a'.podium.agent.v1.SearchMemoriesResponse\x12[\n" +
+	"\fDeleteMemory\x12$.podium.agent.v1.DeleteMemoryRequest\x1a%.podium.agent.v1.DeleteMemoryResponseB\xc8\x01\n" +
 	"\x13com.podium.agent.v1B\n" +
 	"AgentProtoP\x01ZGgithub.com/alvaroibarguen/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
@@ -1043,7 +1482,7 @@ func file_podium_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_agent_proto_rawDescData
 }
 
-var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*Session)(nil),                  // 0: podium.agent.v1.Session
 	(*Turn)(nil),                     // 1: podium.agent.v1.Turn
@@ -1061,37 +1500,55 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*SetProviderKeyResponse)(nil),   // 13: podium.agent.v1.SetProviderKeyResponse
 	(*ClearProviderKeyRequest)(nil),  // 14: podium.agent.v1.ClearProviderKeyRequest
 	(*ClearProviderKeyResponse)(nil), // 15: podium.agent.v1.ClearProviderKeyResponse
-	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
+	(*Memory)(nil),                   // 16: podium.agent.v1.Memory
+	(*ListMemoriesRequest)(nil),      // 17: podium.agent.v1.ListMemoriesRequest
+	(*ListMemoriesResponse)(nil),     // 18: podium.agent.v1.ListMemoriesResponse
+	(*SearchMemoriesRequest)(nil),    // 19: podium.agent.v1.SearchMemoriesRequest
+	(*SearchMemoriesResponse)(nil),   // 20: podium.agent.v1.SearchMemoriesResponse
+	(*DeleteMemoryRequest)(nil),      // 21: podium.agent.v1.DeleteMemoryRequest
+	(*DeleteMemoryResponse)(nil),     // 22: podium.agent.v1.DeleteMemoryResponse
+	nil,                              // 23: podium.agent.v1.Memory.MetadataEntry
+	(*timestamppb.Timestamp)(nil),    // 24: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
-	16, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	16, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
-	16, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
-	16, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
+	24, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	24, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
+	24, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
+	24, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
 	0,  // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
 	0,  // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
 	1,  // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
-	16, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
+	24, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
 	10, // 9: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	10, // 10: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	3,  // 11: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
-	5,  // 12: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
-	7,  // 13: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
-	9,  // 14: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
-	12, // 15: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
-	14, // 16: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
-	4,  // 17: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,  // 18: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,  // 19: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	11, // 20: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
-	13, // 21: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
-	15, // 22: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	23, // 11: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
+	24, // 12: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
+	16, // 13: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	16, // 14: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	3,  // 15: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
+	5,  // 16: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
+	7,  // 17: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
+	9,  // 18: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
+	12, // 19: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
+	14, // 20: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
+	17, // 21: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
+	19, // 22: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
+	21, // 23: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
+	4,  // 24: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,  // 25: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,  // 26: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	11, // 27: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	13, // 28: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	15, // 29: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	18, // 30: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
+	20, // 31: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
+	22, // 32: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
+	24, // [24:33] is the sub-list for method output_type
+	15, // [15:24] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_agent_proto_init() }
@@ -1106,7 +1563,7 @@ func file_podium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_agent_proto_rawDesc), len(file_podium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

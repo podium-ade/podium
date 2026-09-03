@@ -21,6 +21,11 @@ const (
 	// tmpPath is the writable scratch a read-only rootfs still needs.
 	tmpPath  = "/tmp"
 	tmpTmpfs = "size=1g"
+
+	// hostGatewayEntry makes the control-plane host resolvable by name from inside a task
+	// container. `host-gateway` is the engine's own placeholder for the bridge gateway
+	// address; Docker Desktop provides the name anyway, a native Linux engine does not.
+	hostGatewayEntry = "host.docker.internal:host-gateway"
 )
 
 const megabyte = 1024 * 1024

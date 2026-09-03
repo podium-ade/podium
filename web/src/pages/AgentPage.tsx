@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProviderKeyCard } from "../components/agent/ProviderKeyCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { Empty } from "../components/Empty";
@@ -8,14 +9,15 @@ import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 
 /**
- * Tab is one sub-route of /agent. The array below is the whole extension point: steps 19 and
- * 21 add a line each (`/agent/memory`, `/agent/chat`) and nothing else here changes.
+ * Tab is one sub-route of /agent. The array below is the whole extension point: step 21 adds
+ * a line (`/agent/chat`) and nothing else here changes.
  */
 type Tab = { path: string; label: string; element: ReactNode };
 
 const tabs: Tab[] = [
   { path: "settings", label: "Settings", element: <SettingsTab /> },
   { path: "sessions", label: "Sessions", element: <SessionsTable /> },
+  { path: "memory", label: "Memory", element: <MemoryPanel /> },
 ];
 
 const tabLink = ({ isActive }: { isActive: boolean }) =>
