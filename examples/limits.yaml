@@ -1,0 +1,42 @@
+# Resource limits, hardening, and what a task can and cannot see of them.
+#
+#   podium run --spec examples/limits.yaml
+#
+# This one deliberately exceeds its memory limit at the end, so it demonstrates what an OOM
+# kill looks like: the task ends `failed` with exit code 137 and failure_reason `oom`.
+# Remove the last line to see it succeed.
+image: alpine:3
+command:
+  - sh
+  - -c
+  - |
+    echo "cgroup memory limit: $(cat /sys/fs/cgroup/memory.max) bytes"
+    echo "nproc says: $(nproc)"   # the HOST's cores: a CPU quota is not namespaced
+    echo "pids limit:  $(cat /sys/fs/cgroup/pids.max)"
+    echo "rootfs is read-only, so this fails:"; touch /nope || echo "  ...as expected"
+    echo "/tmp is a tmpfs and is writable:"; touch /tmp/fine && echo "  ...as expected"
+    echo "now allocating more than the limit"
+    dd if=/dev/zero of=/dev/null bs=200M count=1
+
+resources:
+  # Fractional CPU is allowed: 0.5 is half a core's worth of quota. It is a QUOTA, not a
+  # pinned core, and nothing inside the container can observe it — `nproc` reports the
+  # host's cores whatever this says.
+  cpu: 0.5
+  # Swap is pinned to this number, so exceeding it is an OOM kill rather than a machine
+  # that swaps itself to a standstill. The kill is reported as failure_reason: oom.
+  memory_mb: 64
+  # A fork bomb's ceiling. The default is 4096.
+  pids: 128
+
+hardening:
+  # The image's filesystem is mounted read-only. /workspace is still writable (it is a
+  # volume) and so is /tmp, which Podium mounts as a 1G tmpfs when the rootfs is read-only —
+  # without it far too many images break.
+  read_only_rootfs: true
+  # Every capability is dropped and this is the allow-list to add back. Leaving it out —
+  # the usual case — means the container has none at all. Names are accepted with or
+  # without CAP_ and in any case. See docs/task-spec.md for the seven that are permitted.
+  capabilities: []
+
+timeout: 2m

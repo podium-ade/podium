@@ -1,14 +1,28 @@
-# Stub only: builds the four binaries. Publishing (GHCR images, installer, checksums)
-# is deliberately deferred to step 14.
+# GoReleaser builds and publishes every Podium release. It is driven by
+# .github/workflows/release.yml on a v* tag; nothing here runs on a push to main except the
+# snapshot job, which builds the same artifacts and publishes none of them.
+#
+# Try it locally without creating anything:
+#
+#   goreleaser release --snapshot --clean --skip=docker,publish,sign
+#
+# Drop --skip=docker to build the container images too. That needs buildx and it creates
+# images on whatever engine is configured, so it is off by default here on purpose.
+#
+# BEFORE THE FIRST REAL RELEASE: LICENSE still says TODO. release.yml refuses to run until
+# that is resolved, and it must stay that way — a published archive that contains a
+# placeholder where its licence should be is a legal problem, not a formatting one.
 version: 2
 
 project_name: podium
 
-# podium-node embeds the two Linux runner builds, so they have to exist before goreleaser
-# compiles it. See the runner-embed target.
+# Both hooks produce inputs the binaries embed, and both are silent failures if skipped:
+# podium-node would ship without a runner and refuse every task, and podium-server would
+# ship without a web UI and serve a page saying so.
 before:
   hooks:
     - make runner-embed
+    - make web
 
 builds:
   - id: podium
@@ -20,6 +34,9 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
+    flags: [-trimpath]
+    # A reproducible build needs a deterministic timestamp; the commit's is the honest one.
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
@@ -34,6 +51,8 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
@@ -48,18 +67,24 @@ builds:
     ignore:
       - goos: darwin
         goarch: amd64
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
       - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
 
-  # The runner is PID 1 inside a Linux task container, so it is Linux only.
+  # The runner is PID 1 inside a Linux task container, so it is Linux only. It is also
+  # embedded into podium-node by the runner-embed hook above; it is shipped separately so
+  # that a container image can be inspected and a runner can be debugged by hand.
   - id: podium-runner
     main: ./cmd/podium-runner
     binary: podium-runner
     env: [CGO_ENABLED=0]
     goos: [linux]
     goarch: [amd64, arm64]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
@@ -70,6 +95,142 @@ archives:
     ids: [podium, podium-server, podium-node, podium-runner]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # deploy/install-node.sh untars podium-node and podium straight out of this archive, so
+    # the layout is flat on purpose: no version-named directory to strip.
+    wrap_in_directory: false
+    # The darwin archive has three binaries and the linux archive has four: podium-runner is
+    # PID 1 inside a Linux task container and a darwin build of it could never run. That is
+    # the whole reason for this flag, and it is not "users may be confused" — it is that a
+    # Mac cannot use a runner.
+    allow_different_binary_count: true
+    files:
+      - LICENSE
+      - README.md
+      - deploy/systemd/podium-node.service
+      - deploy/.env.example
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# One SBOM per archive. syft has to be on PATH; the release workflow installs it.
+sboms:
+  - id: archive
+    artifacts: archive
+
+# Keyless signing: no key to store, no key to leak. The signature is bound to the workflow
+# identity that produced it (the OIDC subject), so `cosign verify-blob` can require that the
+# checksums were signed by this repository's release workflow and not by a laptop.
+#
+#   cosign verify-blob \
+#     --certificate checksums.txt.pem --signature checksums.txt.sig \
+#     --certificate-identity-regexp 'https://github.com/alvaroibarguen/podium/.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     checksums.txt
+#
+# It only works where there is a real OIDC identity, which means CI. Running it on a laptop
+# opens a browser and mints a personal identity that proves nothing, so local snapshots pass
+# --skip=sign.
+signs:
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - --yes
+    artifacts: checksum
+    output: true
+
+# --------------------------------------------------------------------------------- images
+#
+# One entry per image, built for both architectures and pushed as a multi-arch manifest.
+# The Dockerfiles pin their base image by digest.
+#
+# vX.Y.Z is immutable; vX.Y and latest move; sha-<short> identifies a build unambiguously
+# when a moving tag has been re-pointed. `latest` is skipped for a prerelease.
+dockers_v2:
+  - id: server
+    ids: [podium-server]
+    dockerfile: deploy/docker/server.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images: ["ghcr.io/alvaroibarguen/podium-server"]
+    tags:
+      - "{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "sha-{{ .ShortCommit }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: true
+    labels: &labels
+      org.opencontainers.image.source: https://github.com/alvaroibarguen/podium
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+
+  - id: node
+    ids: [podium-node]
+    dockerfile: deploy/docker/node.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images: ["ghcr.io/alvaroibarguen/podium-node"]
+    tags:
+      - "{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "sha-{{ .ShortCommit }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: true
+    labels: *labels
+
+  - id: cli
+    ids: [podium]
+    dockerfile: deploy/docker/cli.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images: ["ghcr.io/alvaroibarguen/podium"]
+    tags:
+      - "{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "sha-{{ .ShortCommit }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: true
+    labels: *labels
+
+# The manifests are what people pull, so they are what is signed. UNVERIFIED: no image has
+# been built or signed from this repository yet, because the build machine may not create
+# container images. The first real release is where this is proved.
+docker_signs:
+  - id: images
+    cmd: cosign
+    artifacts: manifests
+    args: ["sign", "--yes", "${artifact}@${digest}"]
+    output: true
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
 
 release:
-  disable: true
+  # v0.x until playbooks and connectors exist. Anything with a hyphen in the tag — v0.4.0-rc1
+  # — is published as a prerelease and does not move :latest.
+  prerelease: auto
+  name_template: "{{ .Tag }}"
+  footer: |
+    ## Verifying
+
+        cosign verify-blob \
+          --certificate checksums.txt.pem --signature checksums.txt.sig \
+          --certificate-identity-regexp 'https://github.com/alvaroibarguen/podium/.*' \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          checksums.txt
+        sha256sum --check --ignore-missing checksums.txt
+
+    ## Installing a worker
+
+        curl -fsSL https://raw.githubusercontent.com/alvaroibarguen/podium/main/deploy/install-node.sh \
+          | sudo PODIUM_SERVER=... PODIUM_ENROLL_TOKEN=... bash

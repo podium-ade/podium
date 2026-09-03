@@ -26,7 +26,7 @@ func main() {
 	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	serve := newServeCommand()
-	root.AddCommand(serve, newGenMasterKeyCommand(), newRotateMasterKeyCommand())
+	root.AddCommand(serve, newInitCommand(), newGenMasterKeyCommand(), newRotateMasterKeyCommand())
 	// A bare `podium-server` serves: that is what the deployment docs and the compose file run.
 	root.RunE = serve.RunE
 

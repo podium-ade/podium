@@ -247,6 +247,38 @@ on matching nodes. That is exactly what labels are for: label your workers `linu
 
 ## Troubleshooting
 
+Work from the bottom of the stack up. Almost every report of "the node will not connect" is one
+of four things: HTTPS is off, the key is not tagged, the key is not pre-approved, or the state
+directory is not persisting.
+
+```sh
+# 1. Is this machine on the tailnet at all, and what is the MagicDNS suffix?
+tailscale status --json | grep -i magicdnssuffix
+
+# 2. Does the control plane's name resolve, and does anything answer?
+curl -sS -o /dev/null -w '%{http_code}\n' https://podium.<tailnet>.ts.net/healthz
+
+# 3. What does the control plane think this caller is? There is no `podium whoami`; the web
+#    UI's header shows it (it calls IdentityService.WhoAmI), and the server logs it.
+podium --server https://podium.<tailnet>.ts.net nodes    # 200 = it named you, 401/403 = it did not
+
+# 4. The node's own view.
+curl -sS http://127.0.0.1:9091/readyz
+journalctl -u podium-node -n 50
+```
+
+`/healthz` needs no credential under either transport, so a 200 there and a 401/403 on an RPC
+separates "cannot reach it" from "not allowed".
+
+**Reading a status code:**
+
+| | |
+|---|---|
+| connection refused / DNS failure | not a Podium problem. MagicDNS, the ACL, or the server is not running |
+| **401** with `WWW-Authenticate: Bearer` | the transport does not know who you are. Under `dev`: no token or a wrong one. Under `tailnet`: WhoIs returned nothing, which usually means the request did not arrive over the tailnet at all |
+| **403**, no challenge | it knows who you are and says no. A tagged device that is not `tag:podium-node`, or the control plane's own device calling itself |
+| 200 on `/healthz`, 401 on everything else | the server is up and the credential is the problem |
+
 | Symptom | Cause and fix |
 |---|---|
 | `HTTPS certificates are not enabled on this tailnet` | Admin console → DNS → HTTPS Certificates |
@@ -260,12 +292,24 @@ on matching nodes. That is exactly what labels are for: label your workers `linu
 | `more than 5 attempts in 1m0s from this address` | The enrollment rate limit. Wait a minute |
 | The name drifts to `podium-1`, `podium-2`, … | The tsnet state directory is not persisting |
 | `/readyz` says `node key expires in Nd` | An untagged device's key is expiring. Tag the device — tagged devices do not expire |
-| The node connects but no task ever runs | Not a networking problem: check `max_tasks` and that the spec's labels are a subset of the node's |
+| The node connects but no task ever runs | Not a networking problem: check `max_tasks` and that the spec's labels are a subset of the node's. `podium task get` prints `queued_reason` |
+| `podium` asks for a token against an `https://` server | The CLI decides on the URL scheme. An `https://` server needs none; if one is configured it is sent anyway, which keeps a mixed setup working |
+| A user gets 403 where you expected 401 | Their device carries an ACL tag. A tagged device is never treated as a person, because Tailscale reports the *tag owner's* profile for one |
+| Certificate errors from a browser or `curl` | HTTPS Certificates were enabled after the server started. Restart it; the certificate is fetched at listen time |
+| `cannot get a certificate for podium.<tailnet>.ts.net` | The device's name is not what you think. Check `PODIUM_TS_HOSTNAME`, and that no other device already owns that name |
+| Everything works, then stops after ~90 days | An untagged device's node key expired. Tag it — tagged devices do not expire — or re-authenticate it |
+| An ACL change takes effect for new connections only | Tailscale evaluates the policy at connection time. Restart the node to pick up a widened ACL |
+| The ACL denies the node and you cannot tell why | `tailscale ping podium` from the worker, and use the admin console's ACL preview. Podium sees only "the connection did not arrive" |
 
 ## What is not built
 
 - `mtls` transport (server-issued client certificates for teams that cannot adopt Tailscale) is
   deliberately deferred and has no step.
 - Per-task tailnet attachment — giving a task container its own tailnet identity — is a later
-  add-on. Task containers today have internet egress and no access to the host's tailnet.
+  add-on. **There is no egress policy for task containers.** A task reaches its own sidecars and
+  the internet; whether it can also reach the *host's* tailnet or LAN depends entirely on the
+  host's routing and firewall, and Docker's default bridge setup forwards it. This has never
+  been tested and nothing in Podium restricts it — **assume a task can reach whatever its worker
+  can reach**, and firewall the host if that matters. See
+  [`security.md`](security.md#3-a-task-container--untrusted).
 - Tailscale Funnel for webhooks, as above.

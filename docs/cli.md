@@ -377,4 +377,133 @@ reconnects the node key alone is enough, so rekey immediately before the move, n
 
 ### `podium version`
 
-Prints `podium <version> (<commit>)`.
+Prints the client's build and the control plane's, and warns when they are not the same.
+
+```
+$ podium version
+podium v0.3.1 (a1b2c3d)
+server v0.4.0 (e4f5g6h)
+→ version skew: client v0.3.1, control plane v0.4.0. The wire is only guaranteed between
+  matching releases; upgrade whichever is older.
+```
+
+The server line comes from `IdentityService.WhoAmI`, which is behind the same identity
+middleware as everything else — so under the dev transport this command needs the token like any
+other. It **degrades rather than failing**: with nothing configured, or a control plane that
+cannot be reached, it prints the client's own build and says so on stderr, and still exits 0.
+A control plane older than the `server_version` field prints
+`server   (does not report a version)`.
+
+The warning is a diagnostic, not a gate. Podium is `v0.x` and the wire is only guaranteed
+between matching releases; see [operations.md](operations.md#upgrading) for the upgrade order.
+
+---
+
+## `podium-server` subcommands
+
+`podium-server` is configured entirely by environment (see
+[`deploy/.env.example`](../deploy/.env.example)), and has four subcommands. A bare
+`podium-server` and `podium-server serve` both serve.
+
+### `podium-server init [--dir DIR] [--transport dev|tailnet] [--tailnet SUFFIX] [--force]`
+
+Turns a copied `deploy/` directory into a deployment. It writes two files and **never**
+overwrites either:
+
+| | |
+|---|---|
+| `master.key` | the AES-256 key every stored secret is encrypted under, mode 0600 |
+| `.env` | the compose file's variables, with fresh random credentials, mode 0600 |
+
+It generates the Postgres password, the dev token and the object-store secret. Everything it
+does not set is documented in `.env.example`.
+
+```sh
+cd deploy
+podium-server init
+docker compose up -d --wait
+```
+
+With `--transport tailnet` the `.env` instead carries `PODIUM_TAILNET`, `TS_AUTHKEY` and
+`PODIUM_NODE_TS_AUTHKEY` — the values only you can supply — and the command reports which
+Tailscale prerequisites it can see:
+
+```
+$ podium-server init --transport tailnet --tailnet taila79bf6
+wrote ./master.key (mode 0600, key 3f2a1b0c)
+wrote ./.env (mode 0600)
+
+Back up ./master.key. Losing it loses every secret encrypted under it.
+
+Tailscale prerequisites:
+  [x] PODIUM_TAILNET=taila79bf6 — the server will be https://podium.taila79bf6.ts.net
+  [ ] TS_AUTHKEY is empty in .env. Generate two auth keys …
+  [?] MagicDNS and HTTPS Certificates must both be ON for your tailnet …
+  [?] Apply deploy/tailscale-acl.example.json to your Access Controls …
+```
+
+`[?]` means it cannot be checked from a shell, not that it is optional. Both are required.
+
+### `podium-server gen-master-key [--out FILE]`
+
+See [Secrets at rest](#secrets-at-rest).
+
+### `podium-server rotate-master-key --old FILE --new FILE`
+
+See [Rotating the master key](#rotating-the-master-key).
+
+---
+
+## `podium-node` subcommands
+
+### `podium-node upgrade VERSION [flags]`
+
+Downloads a released `podium-node`, verifies it, drains this node, swaps the binary and
+restarts the service.
+
+```sh
+sudo podium-node upgrade v0.4.0
+```
+
+The order is not negotiable, and it is what makes a failed upgrade harmless:
+
+1. fetch the release archive and `checksums.txt`;
+2. **verify the SHA-256 and unpack to a staging file** — nothing on the machine has changed yet;
+3. drain this node through the control plane and wait for its running tasks to finish;
+4. replace the binary with an atomic `rename`;
+5. restart the service;
+6. undrain.
+
+A failure at any step before step 4 leaves the running node untouched and removes the staged
+file.
+
+| flag | default | |
+|---|---|---|
+| `--drain` | `true` | `--drain=false` skips steps 3 and 6 |
+| `--drain-timeout` | `15m` | give up rather than swap under a running task |
+| `--dest` | this binary | which `podium-node` to replace |
+| `--restart-command` | `systemctl restart podium-node` | empty skips the restart |
+| `--base-url` | GitHub releases | an air-gapped mirror, or a test |
+| `--config` | `/etc/podium/node.yaml` | where the server URL and credentials come from |
+
+Draining needs a credential this machine holds: under the dev transport that is the shared
+token from the node's own config. A tailnet node with its own embedded Tailscale device has
+none to lend, so drain from the control plane instead and pass `--no-drain`:
+
+```sh
+podium node drain worker-3        # on the control plane
+# wait for `podium nodes` to show 0 running
+sudo podium-node upgrade v0.4.0 --drain=false
+podium node undrain worker-3
+```
+
+**There is no `auto_upgrade`.** A worker that replaces its own binary without an operator
+asking is a worker that can take a whole fleet down at 3am.
+
+> **Partly verified.** There has never been a release, so this has never been run against two
+> real published versions. What *has* been exercised, against a local release server and a live
+> control plane: the download, the checksum verification (including a corrupted manifest being
+> refused with the destination left untouched and no staged file left behind), the extraction,
+> the atomic swap, and the drain → wait → swap → undrain sequence. What has **not** been
+> exercised is `systemctl restart podium-node` — the build machine is macOS — and the tailnet
+> path, where this machine has no credential to lend to the drain.

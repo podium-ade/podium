@@ -1,0 +1,39 @@
+# Keeping what a task produces.
+#
+#   podium run --spec examples/artifacts.yaml
+#   podium artifacts TASK_ID
+#   podium artifact get ARTIFACT_ID
+#
+# The server needs PODIUM_S3_* pointing at an S3-compatible store. Without one the task
+# still runs and still succeeds — artifact failures are never task failures — and the
+# events say the deployment has no object store.
+#
+# There are two ways to keep a file and this uses both:
+#
+#   1. Anything under /workspace/.podium/artifacts is collected automatically when the task
+#      exits. Subdirectories are kept in the name (shots/a.png stays shots/a.png).
+#   2. `/podium/runner artifact add PATH` uploads a file mid-run, from anywhere in the
+#      container. Use it when a file matters even if the task later fails.
+#
+# 512 MB per artifact. The node refuses an oversized one before it crosses the wire.
+image: alpine:3
+command:
+  - sh
+  - -c
+  - |
+    mkdir -p /workspace/.podium/artifacts/shots
+    echo "collected at exit" > /workspace/.podium/artifacts/report.txt
+    echo "nested names are kept" > /workspace/.podium/artifacts/shots/note.txt
+
+    # Uploaded immediately, so it survives even if the next line fails the task.
+    echo "uploaded mid-run" > /tmp/early.txt
+    /podium/runner artifact add /tmp/early.txt
+
+    echo done
+
+# A finished task's log is rolled up into the same object store a minute after it settles
+# and is then pruned out of Postgres, so `podium artifacts` on an older task lists its
+# stdout and stderr as artifacts of kind `log` alongside the files. They are compressed, so
+# their size_bytes is the compressed size and is not comparable with a file's.
+
+timeout: 5m

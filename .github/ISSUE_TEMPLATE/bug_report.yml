@@ -1,0 +1,86 @@
+name: Bug report
+description: Something does not work the way the docs say it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report a security problem here.** Use
+        [Security → Report a vulnerability](../../security/advisories/new), and read
+        [SECURITY.md](../../blob/main/SECURITY.md) first — several things people expect to be
+        vulnerabilities are documented limitations.
+
+        Podium is pre-alpha. Before filing, check the
+        [Limitations](../../blob/main/README.md#limitations) section: the tailnet transport, the
+        object store against a real S3, the container images and the node installer are all
+        known to be unproven, and a report that one of them does not work is expected rather
+        than surprising.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        The exact commands, and the task spec if there is one. A spec that reproduces it with
+        `alpine:3` is worth more than a description of one with your own image.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component
+      multiple: true
+      options:
+        - podium-server (control plane)
+        - podium-node (worker daemon)
+        - podium-runner (PID 1 in the task container)
+        - podium (CLI)
+        - web UI
+        - deploy/ (compose, installer, systemd unit)
+        - docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - dev (loopback, shared token)
+        - tailnet (tsnet)
+        - host (the machine's own tailscaled)
+    validations:
+      required: true
+
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "`podium version` prints both the client's and the control plane's."
+      value: |
+        podium version:
+        OS / arch:
+        docker info --format 'engine {{.ServerVersion}}, cgroup v{{.CgroupVersion}}':
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        `podium task get TASK_ID --json`, and the relevant part of the server's or node's log.
+        Redact anything sensitive yourself — Podium's log redaction is best-effort and does not
+        cover what you paste here.
+      render: shell

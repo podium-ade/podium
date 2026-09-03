@@ -1,10 +1,13 @@
-# A Podium control plane on a tailnet, plus a worker node, as an example rather than a shipped
-# artefact: the images are not published yet (step 14), so build them yourself or run the
-# binaries directly. Everything here is about *placement and state*, which is the part that is
-# easy to get wrong.
+# A Podium control plane on a tailnet, plus a worker node. Everything here is about
+# *placement and state*, which is the part that is easy to get wrong.
 #
-#   TS_AUTHKEY=tskey-auth-...        # tagged tag:podium-server, reusable, pre-approved
-#   docker compose -f deploy/docker-compose.tailnet.yml up -d --wait
+#   cd deploy
+#   podium-server init --transport tailnet --tailnet <your MagicDNS suffix>
+#   # fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
+#   docker compose -f docker-compose.tailnet.yml up -d --wait
+#
+# UNVERIFIED: no part of this file has been run. The tailnet transport has never been
+# exercised against a real tailnet, and these images have never been published.
 #
 # HTTPS on the tailnet must be enabled first (admin console -> DNS -> HTTPS Certificates), and
 # so must MagicDNS. The server refuses to start with an actionable message if either is off.
@@ -12,7 +15,7 @@ name: podium
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_USER: podium
       POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
@@ -30,7 +33,7 @@ services:
     # server, and by nothing else.
 
   server:
-    image: podium/podium-server:dev
+    image: ghcr.io/alvaroibarguen/podium-server:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,7 +57,7 @@ services:
   # A worker. In practice this runs on a *different machine* — that is the whole point of the
   # tailnet transport — so treat this service as the recipe rather than as a co-located node.
   node:
-    image: podium/podium-node:dev
+    image: ghcr.io/alvaroibarguen/podium-node:${PODIUM_IMAGE_TAG:-latest}
     environment:
       PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
       PODIUM_NODE_TRANSPORT: tailnet
