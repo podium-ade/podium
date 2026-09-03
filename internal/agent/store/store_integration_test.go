@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// expectedTables is every table 0001_init.sql creates, including the ones steps 20 and 21
-// own. linear_cursor is written by step 20's Linear source; the two chat tables are still
-// unused.
+// expectedTables is every table 0001_init.sql creates. linear_cursor is written by step
+// 20's Linear source and the two chat tables by step 21's chat source; no step has needed a
+// second migration.
 var expectedTables = []string{
 	"schema_migrations", "sessions", "turns", "relayed", "settings",
 	"linear_cursor", "chats", "chat_messages",

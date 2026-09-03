@@ -13,6 +13,10 @@ lint:
       - proto/podium/v1/node.proto
       # TaskService.StreamTaskEvents streams the same TaskEvent nodes emit, unwrapped.
       - proto/podium/v1/task.proto
+      # AgentService.StreamChat streams ChatFrame, which is also what the conductor's
+      # in-process broadcaster fans out. Naming it StreamChatResponse would name one thing
+      # twice.
+      - proto/podium/agent/v1/agent.proto
 breaking:
   use:
     - FILE

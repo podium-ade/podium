@@ -17,6 +17,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/agent/config"
 	"github.com/alvaroibarguen/podium/internal/agent/memory"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
@@ -84,6 +85,11 @@ type AgentServiceOptions struct {
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
 	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
 	Memory memory.Client
+	// Profile is what ListSkills reports. Nil makes that RPC answer FailedPrecondition.
+	Profile *profiles.Profile
+	// Chat is the web chat's write path and live fan-out. Nil makes the chat RPCs answer
+	// FailedPrecondition.
+	Chat   ChatSource
 	Logger *slog.Logger
 }
 
@@ -95,6 +101,8 @@ type AgentService struct {
 	baseURL string
 	http    *http.Client
 	memory  memory.Client
+	profile *profiles.Profile
+	chat    ChatSource
 	logger  *slog.Logger
 }
 
@@ -116,6 +124,8 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		baseURL: opts.AnthropicBaseURL,
 		http:    opts.HTTPClient,
 		memory:  opts.Memory,
+		profile: opts.Profile,
+		chat:    opts.Chat,
 		logger:  opts.Logger,
 	}
 }

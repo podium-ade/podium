@@ -12,6 +12,18 @@ const BAD_KEY = "sk-ant-test-bad";
 /** The reserved secret SetProviderKey writes. */
 const KEY_SECRET = "podium.agent.anthropic_api_key";
 
+/**
+ * DRY_RUN says the stack's conductor is running a profile whose chat skill sets
+ * PODIUM_AGENT_DRY_RUN=1 — the test seam step 16 defined, which makes the agent runtime skip
+ * the model and answer "dry run: <instruction>".
+ *
+ * The chat round trip needs more of a stack than the rest of this file: a node, Docker, and
+ * the agent runtime image. It also needs a real turn, and this machine has no provider key.
+ * So the round trip runs only when the operator says the profile is a dry run; the rest of
+ * the chat screen is exercised either way. See playwright.config.ts for the recipe.
+ */
+const DRY_RUN = process.env.PODIUM_AGENT_DRY_RUN === "1";
+
 function podium(...args: string[]): string {
   return execFileSync(CLI, ["--server", SERVER, "--token", TOKEN, ...args], {
     encoding: "utf8",
@@ -35,6 +47,20 @@ test.afterEach(() => {
     // Already gone, which is the state this wants.
   }
 });
+
+/**
+ * seedProviderKey makes the reserved secret EXIST, which is what a turn needs before the
+ * control plane will admit its task. A dry run never reads it.
+ *
+ * Every test in this file removes it again in afterEach — the settings test asserts the
+ * empty state and has to start from it — so a test that needs a turn seeds it itself rather
+ * than relying on the stack having one. Without this a chat turn fails admission in about a
+ * second with "This bot is missing a credential", which is correct behaviour and not what
+ * these tests are about.
+ */
+function seedProviderKey() {
+  podium("secret", "set", KEY_SECRET, "--value", "sk-ant-not-a-real-key");
+}
 
 test("the agent settings page validates and stores a provider key", async ({ page }) => {
   await authenticate(page);
@@ -103,12 +129,18 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/memory$/);
   await expect(page.getByText("Memory is not configured on this host")).toBeVisible();
 
+  // The Chat tab. It needs no configuration at all — the conductor serves it always — so
+  // what must be here is the New chat button.
+  await page.getByRole("link", { name: "Chat" }).click();
+  await expect(page).toHaveURL(/\/agent\/chat$/);
+  await expect(page.getByTestId("chat-new")).toBeVisible();
+
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
 
   // And the back button works, because a tab is a navigation and not a state flag.
   await page.goBack();
-  await expect(page).toHaveURL(/\/agent\/memory$/);
+  await expect(page).toHaveURL(/\/agent\/chat$/);
 });
 
 test("the agent page makes no third-party requests", async ({ page }) => {
@@ -119,7 +151,13 @@ test("the agent page makes no third-party requests", async ({ page }) => {
     if (!req.url().startsWith(origin) && !req.url().startsWith("data:")) foreign.push(req.url());
   });
 
-  for (const path of ["/agent", "/agent/settings", "/agent/sessions", "/agent/memory"]) {
+  for (const path of [
+    "/agent",
+    "/agent/settings",
+    "/agent/sessions",
+    "/agent/memory",
+    "/agent/chat",
+  ]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
   }
@@ -133,4 +171,83 @@ test("the agent page makes no third-party requests", async ({ page }) => {
   await expect(page.getByTestId("provider-key-status")).toContainText("Saved.");
 
   expect(foreign, `third-party requests: ${foreign.join(", ")}`).toEqual([]);
+});
+
+test("a new chat stores the question and disables the composer", async ({ page }) => {
+  seedProviderKey();
+  await authenticate(page);
+  await page.goto("/agent/chat");
+
+  await page.getByTestId("chat-new").click();
+  // A chat is a real URL, so this is a deep link somebody can send to a colleague.
+  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
+  const url = page.url();
+
+  // The skill chip shows what the next message will run: the profile's chat_default_skill.
+  await expect(page.getByTestId("chat-skill")).toBeVisible();
+
+  await page.getByTestId("chat-composer").fill("how many active accounts last month");
+  await page.getByTestId("chat-send").click();
+
+  // The human's own bubble appears immediately, and the composer closes: turn-based, one
+  // question in flight per conversation.
+  const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
+  await expect(mine).toHaveCount(1);
+  await expect(mine).toContainText("how many active accounts last month");
+  await expect(page.getByTestId("chat-composer")).toBeDisabled();
+
+  // And it survives a reload, because the question is a row rather than a frame.
+  await page.reload();
+  await expect(page.locator('[data-testid="chat-message"][data-role="user"]')).toContainText(
+    "how many active accounts last month",
+  );
+  expect(page.url()).toBe(url);
+});
+
+test("a chat turn streams progress and lands a final message", async ({ page }) => {
+  test.skip(
+    !DRY_RUN,
+    "needs a stack whose chat skill sets PODIUM_AGENT_DRY_RUN=1, plus a node and the " +
+      "agent runtime image; set PODIUM_AGENT_DRY_RUN=1 when running against one",
+  );
+  test.setTimeout(240_000);
+  seedProviderKey();
+  await authenticate(page);
+  await page.goto("/agent/chat");
+
+  await page.getByTestId("chat-new").click();
+  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
+
+  await page.getByTestId("chat-composer").fill("hello");
+  await page.getByTestId("chat-send").click();
+
+  // A progress line appears while the turn works — the whole reason StreamChat is a
+  // server-streaming RPC and the proxy does not buffer.
+  await expect(page.getByTestId("chat-progress")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("chat-composer")).toBeDisabled();
+
+  // Then the answer the runtime produced, verbatim.
+  const bot = page.locator('[data-testid="chat-message"][data-role="assistant"]');
+  await expect(bot).toContainText("dry run: hello", { timeout: 180_000 });
+  await expect(page.getByTestId("chat-progress")).toBeHidden();
+  await expect(page.getByTestId("chat-composer")).toBeEnabled();
+
+  // A reload shows the two messages and no progress line: progress is never stored.
+  await page.reload();
+  await expect(page.locator('[data-testid="chat-message"]')).toHaveCount(2);
+  await expect(page.getByTestId("chat-progress")).toBeHidden();
+});
+
+test("chats are per login", async ({ page }) => {
+  // NOT RUN, and it says so rather than pretending. The dev transport has exactly one
+  // identity ("dev"), so a browser cannot present a second login on this stack: the proxy
+  // derives X-Podium-Login from the authenticated identity and strips anything the client
+  // sent. Two logins need the tailnet transport and two real tailnet users.
+  //
+  // The partition itself is proved where it is decided, without a browser:
+  // internal/agent/store's TestTwoLoginsSeeDisjointChatLists, internal/agent/api's
+  // TestTwoLoginsSeeDisjointChatsThroughTheService, and test/e2e's TestChatsArePerLogin,
+  // which drives two logins straight at the conductor with the server's own bearer.
+  test.skip(true, "the dev transport has one identity; see the comment and TestChatsArePerLogin");
+  await authenticate(page);
 });

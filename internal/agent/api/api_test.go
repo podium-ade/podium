@@ -21,6 +21,12 @@ var echoLogin = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(Login(r.Context())))
 })
 
+// loginCtx is what RequireBearer would have put in the context: the login
+// podium-server's proxy asserted.
+func loginCtx(login string) context.Context {
+	return context.WithValue(context.Background(), loginKey{}, login)
+}
+
 func TestRequireBearer(t *testing.T) {
 	h := RequireBearer("agenttoken", echoLogin)
 

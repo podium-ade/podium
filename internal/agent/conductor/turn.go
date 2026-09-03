@@ -301,6 +301,7 @@ func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 		Size:        art.GetSizeBytes(),
 		Body:        body,
 		TaskID:      r.turn.TaskID,
+		ArtifactID:  art.GetId(),
 	}); err != nil {
 		r.c.logger.WarnContext(ctx, "attaching a file to the conversation failed",
 			"artifact_id", art.GetId(), "name", art.GetName(), "error", err)

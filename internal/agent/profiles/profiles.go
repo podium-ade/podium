@@ -65,6 +65,10 @@ type Profile struct {
 	SystemPrompt string `yaml:"system_prompt"`
 	Model        string `yaml:"model"`
 	DefaultSkill string `yaml:"default_skill"`
+	// ChatDefaultSkill is the skill a web-chat message runs when the human has not chosen
+	// one. It is a profile decision rather than a page constant: the profile owner decides
+	// what the chat is for. Empty falls back to DefaultSkill.
+	ChatDefaultSkill string `yaml:"chat_default_skill"`
 
 	// Skills is every skills/*.yaml, keyed by file name without the extension.
 	Skills map[string]Skill `yaml:"-"`
@@ -332,6 +336,15 @@ func (p *Profile) validate(path string) error {
 		errs = append(errs, fmt.Errorf("default_skill %q names no skill in skills/ (have %s)",
 			p.DefaultSkill, strings.Join(p.SkillNames(), ", ")))
 	}
+	// An unset chat_default_skill is fine and means "whatever default_skill is"; one
+	// naming a skill that is not there is a silent fall-back to a different skill than the
+	// operator asked for, which is worse than a refusal at start-up.
+	if p.ChatDefaultSkill != "" {
+		if _, ok := p.Skills[p.ChatDefaultSkill]; !ok {
+			errs = append(errs, fmt.Errorf("chat_default_skill %q names no skill in skills/ (have %s)",
+				p.ChatDefaultSkill, strings.Join(p.SkillNames(), ", ")))
+		}
+	}
 	// Two skills claiming Linear is ambiguous routing with no tie-breaker at all — there
 	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.
 	var linear []string
@@ -372,6 +385,16 @@ func (p *Profile) LinearSkill() string {
 		}
 	}
 	return ""
+}
+
+// ChatSkill is the skill a web-chat message runs when nothing else picks one: the
+// profile's chat_default_skill, or default_skill when it is unset. validate has already
+// refused a name that is not there.
+func (p *Profile) ChatSkill() string {
+	if p.ChatDefaultSkill != "" {
+		return p.ChatDefaultSkill
+	}
+	return p.DefaultSkill
 }
 
 // SkillNames is every loaded skill, sorted.

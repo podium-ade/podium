@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiKwoXQ2xlYXJQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkiGgoYQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlIpUCCgZNZW1vcnkSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCRIRCglmYWN0X3R5cGUYAyABKAkSDAoEdGFncxgEIAMoCRI3CghtZXRhZGF0YRgFIAMoCzIlLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkuTWV0YWRhdGFFbnRyeRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghlbnRpdGllcxgHIAMoCRIPCgdjb250ZXh0GAggASgJEhMKC2RvY3VtZW50X2lkGAkgASgJGi8KDU1ldGFkYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI0ChNMaXN0TWVtb3JpZXNSZXF1ZXN0Eg4KBmN1cnNvchgBIAEoCRINCgVsaW1pdBgCIAEoBSJTChRMaXN0TWVtb3JpZXNSZXNwb25zZRImCgVpdGVtcxgBIAMoCzIXLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkSEwoLbmV4dF9jdXJzb3IYAiABKAkiNQoVU2VhcmNoTWVtb3JpZXNSZXF1ZXN0Eg0KBXF1ZXJ5GAEgASgJEg0KBWxpbWl0GAIgASgFIkAKFlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5IiEKE0RlbGV0ZU1lbW9yeVJlcXVlc3QSCgoCaWQYASABKAkiFgoURGVsZXRlTWVtb3J5UmVzcG9uc2Uy2QYKDEFnZW50U2VydmljZRJbCgxMaXN0U2Vzc2lvbnMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJVCgpHZXRTZXNzaW9uEiIucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXNwb25zZRJSCglMaXN0VHVybnMSIS5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXNwb25zZRJYCgtHZXRTZXR0aW5ncxIjLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1JlcXVlc3QaJC5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXNwb25zZRJhCg5TZXRQcm92aWRlcktleRImLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXNwb25zZRJnChBDbGVhclByb3ZpZGVyS2V5EigucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXNwb25zZRJbCgxMaXN0TWVtb3JpZXMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXNwb25zZRJhCg5TZWFyY2hNZW1vcmllcxImLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1JlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXNwb25zZRJbCgxEZWxldGVNZW1vcnkSJC5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXNwb25zZULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiKwoXQ2xlYXJQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkiGgoYQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlIpUCCgZNZW1vcnkSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCRIRCglmYWN0X3R5cGUYAyABKAkSDAoEdGFncxgEIAMoCRI3CghtZXRhZGF0YRgFIAMoCzIlLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkuTWV0YWRhdGFFbnRyeRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghlbnRpdGllcxgHIAMoCRIPCgdjb250ZXh0GAggASgJEhMKC2RvY3VtZW50X2lkGAkgASgJGi8KDU1ldGFkYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI0ChNMaXN0TWVtb3JpZXNSZXF1ZXN0Eg4KBmN1cnNvchgBIAEoCRINCgVsaW1pdBgCIAEoBSJTChRMaXN0TWVtb3JpZXNSZXNwb25zZRImCgVpdGVtcxgBIAMoCzIXLnBvZGl1bS5hZ2VudC52MS5NZW1vcnkSEwoLbmV4dF9jdXJzb3IYAiABKAkiNQoVU2VhcmNoTWVtb3JpZXNSZXF1ZXN0Eg0KBXF1ZXJ5GAEgASgJEg0KBWxpbWl0GAIgASgFIkAKFlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5IiEKE0RlbGV0ZU1lbW9yeVJlcXVlc3QSCgoCaWQYASABKAkiFgoURGVsZXRlTWVtb3J5UmVzcG9uc2UiSAoFU2tpbGwSDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIMCgRoaW50GAMgASgJEhQKDGNoYXRfZGVmYXVsdBgEIAEoCCITChFMaXN0U2tpbGxzUmVxdWVzdCJaChJMaXN0U2tpbGxzUmVzcG9uc2USJgoGc2tpbGxzGAEgAygLMhYucG9kaXVtLmFnZW50LnYxLlNraWxsEhwKFHByb2ZpbGVfZGlzcGxheV9uYW1lGAIgASgJIq0BCgRDaGF0EgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEi4KCmNyZWF0ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjMKD2xhc3RfbWVzc2FnZV9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDwoHcHJldmlldxgFIAEoCRIUCgx0dXJuX3J1bm5pbmcYBiABKAgiXQoOQ2hhdEF0dGFjaG1lbnQSEwoLYXJ0aWZhY3RfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIUCgxjb250ZW50X3R5cGUYAyABKAkSEgoKc2l6ZV9ieXRlcxgEIAEoAyKlAQoLQ2hhdE1lc3NhZ2USDwoHY2hhdF9pZBgBIAEoCRILCgNzZXEYAiABKAQSDAoEcm9sZRgDIAEoCRIMCgR0ZXh0GAQgASgJEjQKC2F0dGFjaG1lbnRzGAUgAygLMh8ucG9kaXVtLmFnZW50LnYxLkNoYXRBdHRhY2htZW50EiYKAnRzGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIsCgpDaGF0U3RhdHVzEg0KBXN0YXRlGAEgASgJEg8KB3Rhc2tfaWQYAiABKAkimgEKCUNoYXRGcmFtZRIvCgdtZXNzYWdlGAEgASgLMhwucG9kaXVtLmFnZW50LnYxLkNoYXRNZXNzYWdlSAASEgoIcHJvZ3Jlc3MYAiABKAlIABItCgZzdGF0dXMYAyABKAsyGy5wb2RpdW0uYWdlbnQudjEuQ2hhdFN0YXR1c0gAEhAKBnJlc3luYxgEIAEoCEgAQgcKBWZyYW1lIiIKEUNyZWF0ZUNoYXRSZXF1ZXN0Eg0KBXRpdGxlGAEgASgJIjkKEkNyZWF0ZUNoYXRSZXNwb25zZRIjCgRjaGF0GAEgASgLMhUucG9kaXVtLmFnZW50LnYxLkNoYXQiNwoQTGlzdENoYXRzUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiTgoRTGlzdENoYXRzUmVzcG9uc2USJAoFY2hhdHMYASADKAsyFS5wb2RpdW0uYWdlbnQudjEuQ2hhdBITCgtuZXh0X2N1cnNvchgCIAEoCSJGChZTZW5kQ2hhdE1lc3NhZ2VSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAkSDAoEdGV4dBgCIAEoCRINCgVza2lsbBgDIAEoCSJIChdTZW5kQ2hhdE1lc3NhZ2VSZXNwb25zZRItCgdtZXNzYWdlGAEgASgLMhwucG9kaXVtLmFnZW50LnYxLkNoYXRNZXNzYWdlIjYKEVN0cmVhbUNoYXRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAQykQoKDEFnZW50U2VydmljZRJbCgxMaXN0U2Vzc2lvbnMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJVCgpHZXRTZXNzaW9uEiIucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXNwb25zZRJSCglMaXN0VHVybnMSIS5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXNwb25zZRJYCgtHZXRTZXR0aW5ncxIjLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1JlcXVlc3QaJC5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXNwb25zZRJhCg5TZXRQcm92aWRlcktleRImLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXNwb25zZRJnChBDbGVhclByb3ZpZGVyS2V5EigucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNsZWFyUHJvdmlkZXJLZXlSZXNwb25zZRJbCgxMaXN0TWVtb3JpZXMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXNwb25zZRJhCg5TZWFyY2hNZW1vcmllcxImLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1JlcXVlc3QaJy5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXNwb25zZRJbCgxEZWxldGVNZW1vcnkSJC5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXNwb25zZRJVCgpMaXN0U2tpbGxzEiIucG9kaXVtLmFnZW50LnYxLkxpc3RTa2lsbHNSZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkxpc3RTa2lsbHNSZXNwb25zZRJVCgpDcmVhdGVDaGF0EiIucG9kaXVtLmFnZW50LnYxLkNyZWF0ZUNoYXRSZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkNyZWF0ZUNoYXRSZXNwb25zZRJSCglMaXN0Q2hhdHMSIS5wb2RpdW0uYWdlbnQudjEuTGlzdENoYXRzUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5MaXN0Q2hhdHNSZXNwb25zZRJkCg9TZW5kQ2hhdE1lc3NhZ2USJy5wb2RpdW0uYWdlbnQudjEuU2VuZENoYXRNZXNzYWdlUmVxdWVzdBooLnBvZGl1bS5hZ2VudC52MS5TZW5kQ2hhdE1lc3NhZ2VSZXNwb25zZRJOCgpTdHJlYW1DaGF0EiIucG9kaXVtLmFnZW50LnYxLlN0cmVhbUNoYXRSZXF1ZXN0GhoucG9kaXVtLmFnZW50LnYxLkNoYXRGcmFtZTABQsgBChNjb20ucG9kaXVtLmFnZW50LnYxQgpBZ2VudFByb3RvUAFaR2dpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS9hZ2VudC92MTthZ2VudHYxogIDUEFYqgIPUG9kaXVtLkFnZW50LlYxygIPUG9kaXVtXEFnZW50XFYx4gIbUG9kaXVtXEFnZW50XFYxXEdQQk1ldGFkYXRh6gIRUG9kaXVtOjpBZ2VudDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -651,10 +651,451 @@ export const DeleteMemoryResponseSchema: GenMessage<DeleteMemoryResponse> = /*@_
   messageDesc(file_podium_agent_v1_agent, 22);
 
 /**
+ * Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
+ *
+ * @generated from message podium.agent.v1.Skill
+ */
+export type Skill = Message<"podium.agent.v1.Skill"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * image is the runtime image a turn of this skill runs. Shown so a human can tell the
+   * data skill from the browser one.
+   *
+   * @generated from field: string image = 2;
+   */
+  image: string;
+
+  /**
+   * hint is the first line of the skill's prompt, capped. It is a description, not a
+   * contract: the prompt is the operator's own file.
+   *
+   * @generated from field: string hint = 3;
+   */
+  hint: string;
+
+  /**
+   * chat_default is true for the skill a new chat message uses when nothing else picks one.
+   *
+   * @generated from field: bool chat_default = 4;
+   */
+  chatDefault: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.Skill.
+ * Use `create(SkillSchema)` to create a new message.
+ */
+export const SkillSchema: GenMessage<Skill> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 23);
+
+/**
+ * @generated from message podium.agent.v1.ListSkillsRequest
+ */
+export type ListSkillsRequest = Message<"podium.agent.v1.ListSkillsRequest"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.ListSkillsRequest.
+ * Use `create(ListSkillsRequestSchema)` to create a new message.
+ */
+export const ListSkillsRequestSchema: GenMessage<ListSkillsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 24);
+
+/**
+ * @generated from message podium.agent.v1.ListSkillsResponse
+ */
+export type ListSkillsResponse = Message<"podium.agent.v1.ListSkillsResponse"> & {
+  /**
+   * @generated from field: repeated podium.agent.v1.Skill skills = 1;
+   */
+  skills: Skill[];
+
+  /**
+   * profile_display_name labels the bot's own messages in the chat.
+   *
+   * @generated from field: string profile_display_name = 2;
+   */
+  profileDisplayName: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListSkillsResponse.
+ * Use `create(ListSkillsResponseSchema)` to create a new message.
+ */
+export const ListSkillsResponseSchema: GenMessage<ListSkillsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 25);
+
+/**
+ * Chat is one web-chat conversation. EVERY message in it is content: a human wrote the user
+ * turns and a task wrote the assistant ones, and nothing in Podium interprets either.
+ *
+ * @generated from message podium.agent.v1.Chat
+ */
+export type Chat = Message<"podium.agent.v1.Chat"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 3;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * last_message_at is unset for a chat nobody has spoken in yet.
+   *
+   * @generated from field: google.protobuf.Timestamp last_message_at = 4;
+   */
+  lastMessageAt?: Timestamp | undefined;
+
+  /**
+   * preview is the first 80 characters of the last message, for the chat list.
+   *
+   * @generated from field: string preview = 5;
+   */
+  preview: string;
+
+  /**
+   * turn_running is true while a turn of this chat is in flight, which is when the
+   * composer is disabled and SendChatMessage answers FailedPrecondition.
+   *
+   * @generated from field: bool turn_running = 6;
+   */
+  turnRunning: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.Chat.
+ * Use `create(ChatSchema)` to create a new message.
+ */
+export const ChatSchema: GenMessage<Chat> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 26);
+
+/**
+ * ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
+ * is what the browser downloads through GET /artifacts/{id}; the name alone would be
+ * ambiguous the moment two turns produce a report.csv.
+ *
+ * @generated from message podium.agent.v1.ChatAttachment
+ */
+export type ChatAttachment = Message<"podium.agent.v1.ChatAttachment"> & {
+  /**
+   * @generated from field: string artifact_id = 1;
+   */
+  artifactId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string content_type = 3;
+   */
+  contentType: string;
+
+  /**
+   * @generated from field: int64 size_bytes = 4;
+   */
+  sizeBytes: bigint;
+};
+
+/**
+ * Describes the message podium.agent.v1.ChatAttachment.
+ * Use `create(ChatAttachmentSchema)` to create a new message.
+ */
+export const ChatAttachmentSchema: GenMessage<ChatAttachment> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 27);
+
+/**
+ * ChatMessage is one stored turn of a conversation. seq is per chat and monotonic, which is
+ * what makes replay-then-follow exactly once.
+ *
+ * @generated from message podium.agent.v1.ChatMessage
+ */
+export type ChatMessage = Message<"podium.agent.v1.ChatMessage"> & {
+  /**
+   * @generated from field: string chat_id = 1;
+   */
+  chatId: string;
+
+  /**
+   * @generated from field: uint64 seq = 2;
+   */
+  seq: bigint;
+
+  /**
+   * role is "user" or "assistant".
+   *
+   * @generated from field: string role = 3;
+   */
+  role: string;
+
+  /**
+   * @generated from field: string text = 4;
+   */
+  text: string;
+
+  /**
+   * @generated from field: repeated podium.agent.v1.ChatAttachment attachments = 5;
+   */
+  attachments: ChatAttachment[];
+
+  /**
+   * @generated from field: google.protobuf.Timestamp ts = 6;
+   */
+  ts?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.ChatMessage.
+ * Use `create(ChatMessageSchema)` to create a new message.
+ */
+export const ChatMessageSchema: GenMessage<ChatMessage> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 28);
+
+/**
+ * ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
+ * re-derives it from Chat.turn_running.
+ *
+ * @generated from message podium.agent.v1.ChatStatus
+ */
+export type ChatStatus = Message<"podium.agent.v1.ChatStatus"> & {
+  /**
+   * state is started, finished or failed.
+   *
+   * @generated from field: string state = 1;
+   */
+  state: string;
+
+  /**
+   * @generated from field: string task_id = 2;
+   */
+  taskId: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ChatStatus.
+ * Use `create(ChatStatusSchema)` to create a new message.
+ */
+export const ChatStatusSchema: GenMessage<ChatStatus> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 29);
+
+/**
+ * ChatFrame is one thing that happened in a chat.
+ *
+ * A message frame is durable and may repeat with the same seq when its attachments are
+ * resolved after the fact — a client keyed on seq replaces rather than appends. A progress
+ * frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
+ * not show it. A resync frame means this subscriber fell behind and dropped something
+ * durable: re-read from the last seq seen.
+ *
+ * @generated from message podium.agent.v1.ChatFrame
+ */
+export type ChatFrame = Message<"podium.agent.v1.ChatFrame"> & {
+  /**
+   * @generated from oneof podium.agent.v1.ChatFrame.frame
+   */
+  frame: {
+    /**
+     * @generated from field: podium.agent.v1.ChatMessage message = 1;
+     */
+    value: ChatMessage;
+    case: "message";
+  } | {
+    /**
+     * @generated from field: string progress = 2;
+     */
+    value: string;
+    case: "progress";
+  } | {
+    /**
+     * @generated from field: podium.agent.v1.ChatStatus status = 3;
+     */
+    value: ChatStatus;
+    case: "status";
+  } | {
+    /**
+     * @generated from field: bool resync = 4;
+     */
+    value: boolean;
+    case: "resync";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message podium.agent.v1.ChatFrame.
+ * Use `create(ChatFrameSchema)` to create a new message.
+ */
+export const ChatFrameSchema: GenMessage<ChatFrame> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 30);
+
+/**
+ * @generated from message podium.agent.v1.CreateChatRequest
+ */
+export type CreateChatRequest = Message<"podium.agent.v1.CreateChatRequest"> & {
+  /**
+   * title is optional; an empty one becomes "New chat".
+   *
+   * @generated from field: string title = 1;
+   */
+  title: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.CreateChatRequest.
+ * Use `create(CreateChatRequestSchema)` to create a new message.
+ */
+export const CreateChatRequestSchema: GenMessage<CreateChatRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 31);
+
+/**
+ * @generated from message podium.agent.v1.CreateChatResponse
+ */
+export type CreateChatResponse = Message<"podium.agent.v1.CreateChatResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.Chat chat = 1;
+   */
+  chat?: Chat | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.CreateChatResponse.
+ * Use `create(CreateChatResponseSchema)` to create a new message.
+ */
+export const CreateChatResponseSchema: GenMessage<CreateChatResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 32);
+
+/**
+ * @generated from message podium.agent.v1.ListChatsRequest
+ */
+export type ListChatsRequest = Message<"podium.agent.v1.ListChatsRequest"> & {
+  /**
+   * @generated from field: podium.agent.v1.Page page = 1;
+   */
+  page?: Page | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListChatsRequest.
+ * Use `create(ListChatsRequestSchema)` to create a new message.
+ */
+export const ListChatsRequestSchema: GenMessage<ListChatsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 33);
+
+/**
+ * @generated from message podium.agent.v1.ListChatsResponse
+ */
+export type ListChatsResponse = Message<"podium.agent.v1.ListChatsResponse"> & {
+  /**
+   * @generated from field: repeated podium.agent.v1.Chat chats = 1;
+   */
+  chats: Chat[];
+
+  /**
+   * Empty when there is no further page.
+   *
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListChatsResponse.
+ * Use `create(ListChatsResponseSchema)` to create a new message.
+ */
+export const ListChatsResponseSchema: GenMessage<ListChatsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 34);
+
+/**
+ * @generated from message podium.agent.v1.SendChatMessageRequest
+ */
+export type SendChatMessageRequest = Message<"podium.agent.v1.SendChatMessageRequest"> & {
+  /**
+   * @generated from field: string chat_id = 1;
+   */
+  chatId: string;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * skill names the skill this message runs, bypassing the profile's routing rules. Empty
+   * means the profile decides (a leading /skill in the text still works).
+   *
+   * @generated from field: string skill = 3;
+   */
+  skill: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.SendChatMessageRequest.
+ * Use `create(SendChatMessageRequestSchema)` to create a new message.
+ */
+export const SendChatMessageRequestSchema: GenMessage<SendChatMessageRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 35);
+
+/**
+ * @generated from message podium.agent.v1.SendChatMessageResponse
+ */
+export type SendChatMessageResponse = Message<"podium.agent.v1.SendChatMessageResponse"> & {
+  /**
+   * message is the stored human message, with the seq it was given.
+   *
+   * @generated from field: podium.agent.v1.ChatMessage message = 1;
+   */
+  message?: ChatMessage | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.SendChatMessageResponse.
+ * Use `create(SendChatMessageResponseSchema)` to create a new message.
+ */
+export const SendChatMessageResponseSchema: GenMessage<SendChatMessageResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 36);
+
+/**
+ * @generated from message podium.agent.v1.StreamChatRequest
+ */
+export type StreamChatRequest = Message<"podium.agent.v1.StreamChatRequest"> & {
+  /**
+   * @generated from field: string chat_id = 1;
+   */
+  chatId: string;
+
+  /**
+   * from_seq is exclusive: everything with a higher seq is replayed before the stream
+   * starts following. 0 replays the whole conversation.
+   *
+   * @generated from field: uint64 from_seq = 2;
+   */
+  fromSeq: bigint;
+};
+
+/**
+ * Describes the message podium.agent.v1.StreamChatRequest.
+ * Use `create(StreamChatRequestSchema)` to create a new message.
+ */
+export const StreamChatRequestSchema: GenMessage<StreamChatRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 37);
+
+/**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
  * bearer token and reached from a browser only through podium-server, which proxies
- * /podium.agent.v1.AgentService/ behind its identity middleware. Later steps grow it:
- * settings (18), memory (19), skills and chat (21).
+ * /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
+ * sessions (17), settings (18), memory (19), skills and chat (21).
  *
  * @generated from service podium.agent.v1.AgentService
  */
@@ -749,6 +1190,61 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof DeleteMemoryRequestSchema;
     output: typeof DeleteMemoryResponseSchema;
+  },
+  /**
+   * ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+   * a name, an image and which one the chat starts with.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ListSkills
+   */
+  listSkills: {
+    methodKind: "unary";
+    input: typeof ListSkillsRequestSchema;
+    output: typeof ListSkillsResponseSchema;
+  },
+  /**
+   * CreateChat opens a new web-chat conversation owned by the calling login.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.CreateChat
+   */
+  createChat: {
+    methodKind: "unary";
+    input: typeof CreateChatRequestSchema;
+    output: typeof CreateChatResponseSchema;
+  },
+  /**
+   * ListChats returns the caller's own chats, newest first. Another login's chats are
+   * never returned.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ListChats
+   */
+  listChats: {
+    methodKind: "unary";
+    input: typeof ListChatsRequestSchema;
+    output: typeof ListChatsResponseSchema;
+  },
+  /**
+   * SendChatMessage stores one human message and starts a turn on it. It is refused with
+   * FailedPrecondition while a turn for that chat is already running: one turn at a time
+   * per conversation is the whole model.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.SendChatMessage
+   */
+  sendChatMessage: {
+    methodKind: "unary";
+    input: typeof SendChatMessageRequestSchema;
+    output: typeof SendChatMessageResponseSchema;
+  },
+  /**
+   * StreamChat replays a chat from from_seq and then follows it live. It never ends on its
+   * own; the client cancels. Progress frames are ephemeral and are not replayed.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.StreamChat
+   */
+  streamChat: {
+    methodKind: "server_streaming";
+    input: typeof StreamChatRequestSchema;
+    output: typeof ChatFrameSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_agent, 0);

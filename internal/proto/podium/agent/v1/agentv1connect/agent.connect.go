@@ -58,6 +58,17 @@ const (
 	// AgentServiceDeleteMemoryProcedure is the fully-qualified name of the AgentService's DeleteMemory
 	// RPC.
 	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
+	// AgentServiceListSkillsProcedure is the fully-qualified name of the AgentService's ListSkills RPC.
+	AgentServiceListSkillsProcedure = "/podium.agent.v1.AgentService/ListSkills"
+	// AgentServiceCreateChatProcedure is the fully-qualified name of the AgentService's CreateChat RPC.
+	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
+	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
+	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
+	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
+	// SendChatMessage RPC.
+	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
+	// AgentServiceStreamChatProcedure is the fully-qualified name of the AgentService's StreamChat RPC.
+	AgentServiceStreamChatProcedure = "/podium.agent.v1.AgentService/StreamChat"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -82,6 +93,21 @@ type AgentServiceClient interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+	// a name, an image and which one the chat starts with.
+	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// CreateChat opens a new web-chat conversation owned by the calling login.
+	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
+	// ListChats returns the caller's own chats, newest first. Another login's chats are
+	// never returned.
+	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// SendChatMessage stores one human message and starts a turn on it. It is refused with
+	// FailedPrecondition while a turn for that chat is already running: one turn at a time
+	// per conversation is the whole model.
+	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
+	// own; the client cancels. Progress frames are ephemeral and are not replayed.
+	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -149,6 +175,36 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
 			connect.WithClientOptions(opts...),
 		),
+		listSkills: connect.NewClient[v1.ListSkillsRequest, v1.ListSkillsResponse](
+			httpClient,
+			baseURL+AgentServiceListSkillsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+			connect.WithClientOptions(opts...),
+		),
+		createChat: connect.NewClient[v1.CreateChatRequest, v1.CreateChatResponse](
+			httpClient,
+			baseURL+AgentServiceCreateChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreateChat")),
+			connect.WithClientOptions(opts...),
+		),
+		listChats: connect.NewClient[v1.ListChatsRequest, v1.ListChatsResponse](
+			httpClient,
+			baseURL+AgentServiceListChatsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
+			connect.WithClientOptions(opts...),
+		),
+		sendChatMessage: connect.NewClient[v1.SendChatMessageRequest, v1.SendChatMessageResponse](
+			httpClient,
+			baseURL+AgentServiceSendChatMessageProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
+			connect.WithClientOptions(opts...),
+		),
+		streamChat: connect.NewClient[v1.StreamChatRequest, v1.ChatFrame](
+			httpClient,
+			baseURL+AgentServiceStreamChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -163,6 +219,11 @@ type agentServiceClient struct {
 	listMemories     *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
 	searchMemories   *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
 	deleteMemory     *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	listSkills       *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	createChat       *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
+	listChats        *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	sendChatMessage  *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	streamChat       *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -210,6 +271,31 @@ func (c *agentServiceClient) DeleteMemory(ctx context.Context, req *connect.Requ
 	return c.deleteMemory.CallUnary(ctx, req)
 }
 
+// ListSkills calls podium.agent.v1.AgentService.ListSkills.
+func (c *agentServiceClient) ListSkills(ctx context.Context, req *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
+	return c.listSkills.CallUnary(ctx, req)
+}
+
+// CreateChat calls podium.agent.v1.AgentService.CreateChat.
+func (c *agentServiceClient) CreateChat(ctx context.Context, req *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
+	return c.createChat.CallUnary(ctx, req)
+}
+
+// ListChats calls podium.agent.v1.AgentService.ListChats.
+func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error) {
+	return c.listChats.CallUnary(ctx, req)
+}
+
+// SendChatMessage calls podium.agent.v1.AgentService.SendChatMessage.
+func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
+	return c.sendChatMessage.CallUnary(ctx, req)
+}
+
+// StreamChat calls podium.agent.v1.AgentService.StreamChat.
+func (c *agentServiceClient) StreamChat(ctx context.Context, req *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error) {
+	return c.streamChat.CallServerStream(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -232,6 +318,21 @@ type AgentServiceHandler interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
+	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+	// a name, an image and which one the chat starts with.
+	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// CreateChat opens a new web-chat conversation owned by the calling login.
+	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
+	// ListChats returns the caller's own chats, newest first. Another login's chats are
+	// never returned.
+	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// SendChatMessage stores one human message and starts a turn on it. It is refused with
+	// FailedPrecondition while a turn for that chat is already running: one turn at a time
+	// per conversation is the whole model.
+	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
+	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
+	// own; the client cancels. Progress frames are ephemeral and are not replayed.
+	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -295,6 +396,36 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListSkillsHandler := connect.NewUnaryHandler(
+		AgentServiceListSkillsProcedure,
+		svc.ListSkills,
+		connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreateChatHandler := connect.NewUnaryHandler(
+		AgentServiceCreateChatProcedure,
+		svc.CreateChat,
+		connect.WithSchema(agentServiceMethods.ByName("CreateChat")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListChatsHandler := connect.NewUnaryHandler(
+		AgentServiceListChatsProcedure,
+		svc.ListChats,
+		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSendChatMessageHandler := connect.NewUnaryHandler(
+		AgentServiceSendChatMessageProcedure,
+		svc.SendChatMessage,
+		connect.WithSchema(agentServiceMethods.ByName("SendChatMessage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStreamChatHandler := connect.NewServerStreamHandler(
+		AgentServiceStreamChatProcedure,
+		svc.StreamChat,
+		connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -315,6 +446,16 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSearchMemoriesHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteMemoryProcedure:
 			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
+		case AgentServiceListSkillsProcedure:
+			agentServiceListSkillsHandler.ServeHTTP(w, r)
+		case AgentServiceCreateChatProcedure:
+			agentServiceCreateChatHandler.ServeHTTP(w, r)
+		case AgentServiceListChatsProcedure:
+			agentServiceListChatsHandler.ServeHTTP(w, r)
+		case AgentServiceSendChatMessageProcedure:
+			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
+		case AgentServiceStreamChatProcedure:
+			agentServiceStreamChatHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -358,4 +499,24 @@ func (UnimplementedAgentServiceHandler) SearchMemories(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMemory is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSkills is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SendChatMessage is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StreamChat is not implemented"))
 }

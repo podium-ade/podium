@@ -6,8 +6,8 @@ import "google/protobuf/timestamp.proto";
 
 // AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
 // bearer token and reached from a browser only through podium-server, which proxies
-// /podium.agent.v1.AgentService/ behind its identity middleware. Later steps grow it:
-// settings (18), memory (19), skills and chat (21).
+// /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
+// sessions (17), settings (18), memory (19), skills and chat (21).
 service AgentService {
   // ListSessions returns conversations the bot has taken part in, newest first.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
@@ -29,6 +29,21 @@ service AgentService {
   // DeleteMemory takes one memory out of every future recall. It is a tombstone rather
   // than a row deletion: the memory engine keeps the record for audit and stops serving it.
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+  // ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+  // a name, an image and which one the chat starts with.
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  // CreateChat opens a new web-chat conversation owned by the calling login.
+  rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
+  // ListChats returns the caller's own chats, newest first. Another login's chats are
+  // never returned.
+  rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
+  // SendChatMessage stores one human message and starts a turn on it. It is refused with
+  // FailedPrecondition while a turn for that chat is already running: one turn at a time
+  // per conversation is the whole model.
+  rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
+  // own; the client cancels. Progress frames are ephemeral and are not replayed.
+  rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -196,3 +211,124 @@ message DeleteMemoryRequest {
 }
 
 message DeleteMemoryResponse {}
+
+// Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
+message Skill {
+  string name = 1;
+  // image is the runtime image a turn of this skill runs. Shown so a human can tell the
+  // data skill from the browser one.
+  string image = 2;
+  // hint is the first line of the skill's prompt, capped. It is a description, not a
+  // contract: the prompt is the operator's own file.
+  string hint = 3;
+  // chat_default is true for the skill a new chat message uses when nothing else picks one.
+  bool chat_default = 4;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  // profile_display_name labels the bot's own messages in the chat.
+  string profile_display_name = 2;
+}
+
+// Chat is one web-chat conversation. EVERY message in it is content: a human wrote the user
+// turns and a task wrote the assistant ones, and nothing in Podium interprets either.
+message Chat {
+  string id = 1;
+  string title = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // last_message_at is unset for a chat nobody has spoken in yet.
+  google.protobuf.Timestamp last_message_at = 4;
+  // preview is the first 80 characters of the last message, for the chat list.
+  string preview = 5;
+  // turn_running is true while a turn of this chat is in flight, which is when the
+  // composer is disabled and SendChatMessage answers FailedPrecondition.
+  bool turn_running = 6;
+}
+
+// ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
+// is what the browser downloads through GET /artifacts/{id}; the name alone would be
+// ambiguous the moment two turns produce a report.csv.
+message ChatAttachment {
+  string artifact_id = 1;
+  string name = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+}
+
+// ChatMessage is one stored turn of a conversation. seq is per chat and monotonic, which is
+// what makes replay-then-follow exactly once.
+message ChatMessage {
+  string chat_id = 1;
+  uint64 seq = 2;
+  // role is "user" or "assistant".
+  string role = 3;
+  string text = 4;
+  repeated ChatAttachment attachments = 5;
+  google.protobuf.Timestamp ts = 6;
+}
+
+// ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
+// re-derives it from Chat.turn_running.
+message ChatStatus {
+  // state is started, finished or failed.
+  string state = 1;
+  string task_id = 2;
+}
+
+// ChatFrame is one thing that happened in a chat.
+//
+// A message frame is durable and may repeat with the same seq when its attachments are
+// resolved after the fact — a client keyed on seq replaces rather than appends. A progress
+// frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
+// not show it. A resync frame means this subscriber fell behind and dropped something
+// durable: re-read from the last seq seen.
+message ChatFrame {
+  oneof frame {
+    ChatMessage message = 1;
+    string progress = 2;
+    ChatStatus status = 3;
+    bool resync = 4;
+  }
+}
+
+message CreateChatRequest {
+  // title is optional; an empty one becomes "New chat".
+  string title = 1;
+}
+
+message CreateChatResponse {
+  Chat chat = 1;
+}
+
+message ListChatsRequest {
+  Page page = 1;
+}
+
+message ListChatsResponse {
+  repeated Chat chats = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message SendChatMessageRequest {
+  string chat_id = 1;
+  string text = 2;
+  // skill names the skill this message runs, bypassing the profile's routing rules. Empty
+  // means the profile decides (a leading /skill in the text still works).
+  string skill = 3;
+}
+
+message SendChatMessageResponse {
+  // message is the stored human message, with the seq it was given.
+  ChatMessage message = 1;
+}
+
+message StreamChatRequest {
+  string chat_id = 1;
+  // from_seq is exclusive: everything with a higher seq is replayed before the stream
+  // starts following. 0 replays the whole conversation.
+  uint64 from_seq = 2;
+}

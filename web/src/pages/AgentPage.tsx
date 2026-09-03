@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChatPanel } from "../components/agent/ChatPanel";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProviderKeyCard } from "../components/agent/ProviderKeyCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
@@ -9,15 +10,21 @@ import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 
 /**
- * Tab is one sub-route of /agent. The array below is the whole extension point: step 21 adds
- * a line (`/agent/chat`) and nothing else here changes.
+ * Tab is one sub-route of /agent. The array below is the whole extension point: a new screen
+ * is a line here and nothing else in this file.
+ *
+ * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
+ * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
+ * is the pattern the nested Routes matches, and it exists only for Chat, whose own screen
+ * takes a chat id after the segment.
  */
-type Tab = { path: string; label: string; element: ReactNode };
+type Tab = { path: string; label: string; element: ReactNode; route?: string };
 
 const tabs: Tab[] = [
   { path: "settings", label: "Settings", element: <SettingsTab /> },
   { path: "sessions", label: "Sessions", element: <SessionsTable /> },
   { path: "memory", label: "Memory", element: <MemoryPanel /> },
+  { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*" },
 ];
 
 const tabLink = ({ isActive }: { isActive: boolean }) =>
@@ -56,7 +63,7 @@ export function AgentPage() {
       <Routes>
         <Route index element={<Navigate to="/agent/settings" replace />} />
         {tabs.map((t) => (
-          <Route key={t.path} path={t.path} element={t.element} />
+          <Route key={t.path} path={t.route ?? t.path} element={t.element} />
         ))}
         <Route path="*" element={<Navigate to="/agent/settings" replace />} />
       </Routes>

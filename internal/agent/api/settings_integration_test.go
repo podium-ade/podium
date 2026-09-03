@@ -100,12 +100,6 @@ func (f *fakeSecrets) removeBehindTheUI(name string) {
 	delete(f.versions, name)
 }
 
-// loginCtx is what RequireBearer would have put in the context: the login podium-server's
-// proxy asserted.
-func loginCtx(login string) context.Context {
-	return context.WithValue(context.Background(), loginKey{}, login)
-}
-
 type settingsFixture struct {
 	svc     *AgentService
 	secrets *fakeSecrets
