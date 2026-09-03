@@ -143,3 +143,16 @@ path again. Both sides degrade quietly:
 So a re-adopted task loses only its structured events, which today means nothing beyond the
 `started` timestamp. When the playbook engine starts reporting steps and artifacts over this
 socket, an adopted task will lose those for the remainder of its run.
+
+The seam is marked. An adopted run emits `step{name: "node/reattached", status: "started"}`
+as its first event, so the task's own history says where one daemon incarnation handed the
+container to the next — which is also where the log redactor and any sidecar log stream
+stopped. `podium run` prints it as `→ the node restarted; this task was re-adopted`.
+
+What does **not** degrade is the container's own stdout and stderr. The adopting daemon asks
+the control plane, in the `HelloAck` answer to its `Hello`, how far into each stream the
+store has actually committed, and discards exactly that many bytes of the log Docker replays
+to it. It does not use its own bookmark: the server commits a batch and *then* acks it, so a
+daemon killed in between has no record of an acknowledgement that did happen, and resuming
+from the bookmark used to duplicate a line at the seam. See
+[protocol.md](protocol.md#reconciliation-hello--helloack).

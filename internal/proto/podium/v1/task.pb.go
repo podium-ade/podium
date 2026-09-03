@@ -40,8 +40,14 @@ type Task struct {
 	// it: a missing secret, an out-of-memory kill, an assignment that never reached a node.
 	// Empty otherwise. It never carries a secret value — only names.
 	FailureReason string `protobuf:"bytes,12,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// queued_reason says why a queued task has not been scheduled yet — no node carries its
+	// labels, every eligible node is full, nothing is online. Empty once it is assigned.
+	QueuedReason string `protobuf:"bytes,13,opt,name=queued_reason,json=queuedReason,proto3" json:"queued_reason,omitempty"`
+	// last_schedule_attempt_at is when the scheduler last looked at this task and could not
+	// place it. Unset for a task it has never had to skip.
+	LastScheduleAttemptAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_schedule_attempt_at,json=lastScheduleAttemptAt,proto3" json:"last_schedule_attempt_at,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -156,6 +162,20 @@ func (x *Task) GetFailureReason() string {
 		return x.FailureReason
 	}
 	return ""
+}
+
+func (x *Task) GetQueuedReason() string {
+	if x != nil {
+		return x.QueuedReason
+	}
+	return ""
+}
+
+func (x *Task) GetLastScheduleAttemptAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastScheduleAttemptAt
+	}
+	return nil
 }
 
 type CreateTaskRequest struct {
@@ -712,7 +732,7 @@ var File_podium_v1_task_proto protoreflect.FileDescriptor
 
 const file_podium_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xf8\x03\n" +
+	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xf2\x04\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x04spec\x18\x02 \x01(\v2\x13.podium.v1.TaskSpecR\x04spec\x12-\n" +
@@ -729,7 +749,9 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x05usage\x18\n" +
 	" \x01(\v2\x10.podium.v1.UsageR\x05usage\x12!\n" +
 	"\frequested_by\x18\v \x01(\tR\vrequestedBy\x12%\n" +
-	"\x0efailure_reason\x18\f \x01(\tR\rfailureReasonB\f\n" +
+	"\x0efailure_reason\x18\f \x01(\tR\rfailureReason\x12#\n" +
+	"\rqueued_reason\x18\r \x01(\tR\fqueuedReason\x12S\n" +
+	"\x18last_schedule_attempt_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x15lastScheduleAttemptAtB\f\n" +
 	"\n" +
 	"_exit_code\"X\n" +
 	"\x11CreateTaskRequest\x12'\n" +
@@ -814,29 +836,30 @@ var file_podium_v1_task_proto_depIdxs = []int32{
 	14, // 3: podium.v1.Task.started_at:type_name -> google.protobuf.Timestamp
 	14, // 4: podium.v1.Task.finished_at:type_name -> google.protobuf.Timestamp
 	15, // 5: podium.v1.Task.usage:type_name -> podium.v1.Usage
-	12, // 6: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
-	0,  // 7: podium.v1.CreateTaskResponse.task:type_name -> podium.v1.Task
-	0,  // 8: podium.v1.GetTaskResponse.task:type_name -> podium.v1.Task
-	13, // 9: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
-	5,  // 10: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
-	6,  // 11: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
-	0,  // 12: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
-	0,  // 13: podium.v1.CancelTaskResponse.task:type_name -> podium.v1.Task
-	1,  // 14: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
-	3,  // 15: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
-	7,  // 16: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
-	9,  // 17: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
-	11, // 18: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
-	2,  // 19: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
-	4,  // 20: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
-	8,  // 21: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
-	10, // 22: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
-	16, // 23: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
-	19, // [19:24] is the sub-list for method output_type
-	14, // [14:19] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	14, // 6: podium.v1.Task.last_schedule_attempt_at:type_name -> google.protobuf.Timestamp
+	12, // 7: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
+	0,  // 8: podium.v1.CreateTaskResponse.task:type_name -> podium.v1.Task
+	0,  // 9: podium.v1.GetTaskResponse.task:type_name -> podium.v1.Task
+	13, // 10: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
+	5,  // 11: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
+	6,  // 12: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
+	0,  // 13: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
+	0,  // 14: podium.v1.CancelTaskResponse.task:type_name -> podium.v1.Task
+	1,  // 15: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
+	3,  // 16: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
+	7,  // 17: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
+	9,  // 18: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
+	11, // 19: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
+	2,  // 20: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
+	4,  // 21: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
+	8,  // 22: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
+	10, // 23: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
+	16, // 24: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
+	20, // [20:25] is the sub-list for method output_type
+	15, // [15:20] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_task_proto_init() }

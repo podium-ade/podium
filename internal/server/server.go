@@ -44,7 +44,7 @@ type Server struct {
 	nodes     *nodes.Service
 	logs      *logs.Service
 	secrets   *secrets.Service
-	scheduler scheduler.Scheduler
+	scheduler *scheduler.Service
 	http      *http.Server
 
 	ln         net.Listener
@@ -82,12 +82,22 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, err
 	}
 
+	timing := scheduler.TimingFromEnv()
 	logSvc := logs.New(st, logger)
 	nodeSvc := nodes.NewService(st, logSvc, logger)
 	nodeSvc.SetAllowUntaggedNodes(cfg.TSAllowUntaggedNodes)
+	nodeSvc.SetWatchdog(nodes.Watchdog{
+		Interval:         timing.Watchdog,
+		UnreachableAfter: timing.UnreachableAfter,
+		OfflineAfter:     timing.OfflineAfter,
+	})
 	logSvc.SetSlots(nodeSvc.Registry())
 	secretSvc := secrets.New(st, masterKey, logger)
 	warnAboutPlaintextTransport(ctx, cfg, st, logger)
+	if timing != scheduler.DefaultTiming() {
+		logger.Warn("scheduler timers are shrunk for testing; this is not a production configuration",
+			"env", scheduler.FastTimersEnv, "tick", timing.Tick, "offline_after", timing.OfflineAfter)
+	}
 	s := &Server{
 		cfg:       cfg,
 		logger:    logger,
@@ -96,7 +106,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		nodes:     nodeSvc,
 		logs:      logSvc,
 		secrets:   secretSvc,
-		scheduler: scheduler.NewNaive(st, nodeSvc, secretSvc, logger),
+		scheduler: scheduler.New(st, nodeSvc, secretSvc, timing, logger),
 		serveErr:  make(chan error, 1),
 	}
 	s.http = &http.Server{
@@ -226,10 +236,10 @@ func (s *Server) mux() http.Handler {
 
 	rpc := http.NewServeMux()
 	rpc.Handle(podiumv1connect.NewTaskServiceHandler(
-		api.NewTaskService(s.store, s.logs, s.nodes, s.logger), opts...))
+		api.NewTaskService(s.store, s.logs, s.nodes, s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
-		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.logger), opts...))
+		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(api.NewIdentityService(), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
@@ -311,6 +321,11 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		if err := s.scheduler.Run(baseCtx); err != nil && baseCtx.Err() == nil {
 			s.logger.ErrorContext(baseCtx, "scheduler stopped", "error", err)
+		}
+	}()
+	go func() {
+		if err := s.nodes.RunWatchdog(baseCtx); err != nil && baseCtx.Err() == nil {
+			s.logger.ErrorContext(baseCtx, "node health watchdog stopped", "error", err)
 		}
 	}()
 	go func() {

@@ -30,9 +30,12 @@ const (
 	nodeKeyBytes  = 32
 )
 
-// Ingestor is the logs service, as much of it as the stream needs.
+// Ingestor is the logs service, as much of it as the node stream needs.
 type Ingestor interface {
 	Ingest(ctx context.Context, taskID string, batch []*podiumv1.TaskEvent) (uint64, error)
+	// Note records something the control plane observed about a task rather than
+	// something the node reported — losing the node being the case that matters.
+	Note(ctx context.Context, taskID, message string) error
 }
 
 // Service implements podium.v1.NodeService.
@@ -42,6 +45,9 @@ type Service struct {
 	reg    *Registry
 	logger *slog.Logger
 	enroll *rateLimiter
+
+	// watchdog is the health-sweep policy, set by the server from the scheduler's Timing.
+	watchdog Watchdog
 
 	// allowUntagged mirrors PODIUM_TS_ALLOW_UNTAGGED_NODES. Off, a tailnet caller must carry
 	// the node tag to enroll; on, any tailnet device with a valid token may, which is the
@@ -55,11 +61,12 @@ func NewService(st *store.Store, ing Ingestor, logger *slog.Logger) *Service {
 		logger = slog.Default()
 	}
 	return &Service{
-		store:  st,
-		logs:   ing,
-		reg:    NewRegistry(),
-		logger: logger,
-		enroll: newRateLimiter(enrollBurst, enrollWindow, nil),
+		store:    st,
+		logs:     ing,
+		reg:      NewRegistry(),
+		logger:   logger,
+		enroll:   newRateLimiter(enrollBurst, enrollWindow, nil),
+		watchdog: Watchdog{Interval: 5 * time.Second, UnreachableAfter: 30 * time.Second, OfflineAfter: 120 * time.Second},
 	}
 }
 
@@ -189,9 +196,11 @@ func unionLabels(a, b []string) []string {
 	return out
 }
 
-// Assign hands a task to a connected node. Every log statement that touches an Assign goes
-// through podiumv1.RedactForLog; nothing else may log one.
-func (s *Service) Assign(ctx context.Context, nodeID string, a *podiumv1.Assign) error {
+// Assign hands a task to a connected node and charges the task's cost against the node's
+// budget, so the scheduler's next tick sees the capacity go rather than waiting for a
+// heartbeat up to ten seconds away. Every log statement that touches an Assign goes through
+// podiumv1.RedactForLog; nothing else may log one.
+func (s *Service) Assign(ctx context.Context, nodeID string, a *podiumv1.Assign, cost TaskCost) error {
 	sess, ok := s.reg.Get(nodeID)
 	if !ok {
 		return fmt.Errorf("assign task %s to node %s: %w", a.GetTaskId(), nodeID, ErrNoSession)
@@ -199,8 +208,30 @@ func (s *Service) Assign(ctx context.Context, nodeID string, a *podiumv1.Assign)
 	if err := sess.Send(ctx, &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Assign{Assign: a}}); err != nil {
 		return fmt.Errorf("assign task %s to node %s: %w", a.GetTaskId(), nodeID, err)
 	}
-	sess.reserve(a.GetTaskId())
+	sess.reserve(a.GetTaskId(), cost)
 	s.logger.InfoContext(ctx, "task assigned", "node_id", nodeID, "assign", podiumv1.RedactForLog(a))
+	return nil
+}
+
+// SetDrain tells a connected node to stop accepting work, or to start again. The stored
+// nodes.draining column is the durable half and is the caller's job; this is what makes the
+// live session act on it immediately.
+//
+// A node with no live session is not an error: draining an offline node is a legitimate
+// thing to do before it comes back, and the column is what it reads when it does.
+func (s *Service) SetDrain(ctx context.Context, nodeID string, draining bool) error {
+	sess, ok := s.reg.Get(nodeID)
+	if !ok {
+		return fmt.Errorf("drain node %s: %w", nodeID, ErrNoSession)
+	}
+	sess.setDraining(draining)
+	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Drain{
+		Drain: &podiumv1.Drain{Undo: !draining},
+	}}
+	if err := sess.Send(ctx, msg); err != nil {
+		return fmt.Errorf("drain node %s: %w", nodeID, err)
+	}
+	s.logger.InfoContext(ctx, "node drain state sent", "node_id", nodeID, "draining", draining)
 	return nil
 }
 
@@ -224,3 +255,11 @@ func (s *Service) Cancel(ctx context.Context, nodeID, taskID, reason string) err
 
 // Candidates is what the scheduler matches against.
 func (s *Service) Candidates() []Snapshot { return s.reg.Snapshot() }
+
+// Release gives back the slot and the resources a node was holding for a task, on whichever
+// session claims it. The event path already does this for a task that reaches a terminal
+// status; this is for the ones that never get there — an assignment revoked before the node
+// accepted it, or a cancelled task the server wrote off without its node. Without it the
+// session keeps a phantom entry until the node reconnects, and reports both a running task
+// that is not running and less free CPU and memory than it has.
+func (s *Service) Release(taskID string) { s.reg.Release(taskID) }

@@ -6,14 +6,20 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "podium/v1/common.proto";
 
-// NodeAdminService is the operator-facing node API. GetNode, DrainNode and DeleteNode are
-// deliberately absent in MVP-0.
+// NodeAdminService is the operator-facing node API.
 service NodeAdminService {
   rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
   // RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
   // identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
   rpc RekeyNode(RekeyNodeRequest) returns (RekeyNodeResponse);
+  // DrainNode stops a node being given new work. Running tasks finish; the node exits 0
+  // when it was started with --exit-on-drain, which is the upgrade path.
+  rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
+  // UndrainNode puts a drained node back in the pool.
+  rpc UndrainNode(UndrainNodeRequest) returns (UndrainNodeResponse);
+  // DeleteNode forgets a node. It refuses a node that is still online and not drained.
+  rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
 }
 
 message Node {
@@ -30,6 +36,9 @@ message Node {
   // ts_stable_id is the Tailscale device this node is bound to, empty when it is unbound
   // (never enrolled over a tailnet, or rekeyed).
   string ts_stable_id = 11;
+  // draining is the operator's standing instruction that this node takes no new work. It
+  // survives a node restart and a server restart; status is DRAINING while it is connected.
+  bool draining = 12;
 }
 
 message CreateEnrollmentTokenRequest {
@@ -56,3 +65,27 @@ message RekeyNodeRequest {
 message RekeyNodeResponse {
   Node node = 1;
 }
+
+message DrainNodeRequest {
+  string node_id = 1;
+}
+
+message DrainNodeResponse {
+  Node node = 1;
+}
+
+message UndrainNodeRequest {
+  string node_id = 1;
+}
+
+message UndrainNodeResponse {
+  Node node = 1;
+}
+
+message DeleteNodeRequest {
+  string node_id = 1;
+  // force deletes a node that is still online. It does not stop what it is running.
+  bool force = 2;
+}
+
+message DeleteNodeResponse {}

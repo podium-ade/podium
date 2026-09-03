@@ -13,6 +13,7 @@ env:
 labels: [linux/arm64]              # node labels the task requires
 timeout: 1h                        # default
 max_attempts: 1                    # default
+retry_on_node_loss: false          # default: see below
 
 secrets: []                        # see below
 sidecars: {}                       # see below
@@ -24,6 +25,26 @@ hardening: {}                      # see below
 `env` keys must be valid shell identifiers.
 
 A complete example is `examples/postgres-sidecar.yaml`.
+
+## Timeout, attempts and losing a node
+
+`timeout` is enforced by the control plane, not by the node: past it the server asks the node
+to stop the container and the task ends `failed` with `failure_reason: timeout`. The exit
+code and the usage are still the container's own, because the container is what actually
+stops.
+
+`max_attempts` counts *assignments*, not runs. An attempt is spent when a task is handed to a
+node, so a node that takes an assignment and never acknowledges it costs one; the task is
+requeued until the budget runs out and then fails with `node did not accept assignment`.
+
+`retry_on_node_loss` is the one dial for what happens when the machine running a task goes
+offline mid-run. It is **off by default**, and the default is the careful one: with it off the
+task is marked `lost` and a human decides, because a task that is not idempotent must not be
+silently run twice. With it on the task comes back as a new attempt on whatever node can take
+it, up to `max_attempts`.
+
+`lost` is deliberately not `failed`. Nothing about the task went wrong — its machine
+disappeared — and the two need different answers.
 
 ## Secrets
 

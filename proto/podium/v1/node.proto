@@ -48,6 +48,7 @@ message ServerMessage {
     Ack ack = 2;
     Cancel cancel = 3;
     Drain drain = 4;
+    HelloAck hello_ack = 5;
   }
 }
 
@@ -61,6 +62,37 @@ message Hello {
   NodeCapacity capacity = 4;
   repeated string running_task_ids = 5;
   string version = 6;
+}
+
+// HelloAck answers a Hello. It is always the first message the server sends on a stream
+// and it carries reconciliation: for every task the node said it still holds, what the
+// control plane actually has.
+//
+// It exists because a node cannot know what the server committed. The server commits an
+// event batch and *then* sends the Ack, so a node killed in between loses the record of
+// an ack that did happen; resuming from a local bookmark then re-sends bytes the server
+// already stored, under fresh sequence numbers the (task_id, seq) key cannot dedupe. The
+// control plane is the only authority on what it holds, so it says so here.
+message HelloAck {
+  // One entry per task_id the Hello reported, in the order the node reported them.
+  repeated TaskCheckpoint tasks = 1;
+}
+
+// TaskCheckpoint is the server's view of one task the node still has a container for.
+message TaskCheckpoint {
+  string task_id = 1;
+  // adopt is false when the control plane no longer holds this task on this node — it was
+  // requeued elsewhere, lost, or finished. The node tears the container down. A Cancel for
+  // the same task follows.
+  bool adopt = 2;
+  // high_seq is the highest sequence number the server has stored for the task, across
+  // both events and log chunks. An adopting node numbers its next event high_seq + 1.
+  uint64 high_seq = 3;
+  // stdout_offset and stderr_offset are how many bytes of the container's own output the
+  // server has committed for each stream. An adopting node discards that many bytes of the
+  // replayed container log before it emits anything.
+  int64 stdout_offset = 4;
+  int64 stderr_offset = 5;
 }
 
 message NodeLoad {
@@ -117,7 +149,11 @@ message Cancel {
 }
 
 // Drain tells the node to stop accepting work and finish what it is running.
-message Drain {}
+message Drain {
+  // undo lifts a previous drain: the node accepts assignments again and stops planning to
+  // exit. Without it there is no way back from a drain except restarting the daemon.
+  bool undo = 1;
+}
 
 // TaskEventKind is the canonical event taxonomy. STEP and ARTIFACT are reserved and are
 // never emitted in MVP-0 (they arrive with the runner and the artifact store).
@@ -145,6 +181,12 @@ message LogChunk {
   // Set only when stream is STREAM_SIDECAR.
   string sidecar_name = 2;
   bytes bytes = 3;
+  // source_offset is how many bytes of this stream the container had produced by the end
+  // of this chunk. It is not len(bytes) summed: redaction rewrites the bytes that are
+  // stored, so only the producer knows where in the container's own output a chunk ends.
+  // The server hands the maximum back in HelloAck so an adopting node resumes exactly
+  // where the last one stopped.
+  int64 source_offset = 4;
 }
 
 // Step is emitted by the runner. Reserved: unused in MVP-0.

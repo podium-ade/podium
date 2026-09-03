@@ -29,6 +29,10 @@ const (
 	// healthy again, so a server that accepts and immediately drops does not get
 	// hammered at one connection per second.
 	stableSession = 30 * time.Second
+	// helloAckWait is how long a reconnecting node waits for the control plane's answer
+	// to Hello before it adopts whatever it found from its own on-disk bookmark. It only
+	// matters against a server too old to send one.
+	helloAckWait = 15 * time.Second
 )
 
 // received is one result of stream.Receive, handed over by the reader goroutine because
@@ -51,7 +55,10 @@ func (n *Node) Run(ctx context.Context) error {
 		n.stopMetrics(stopCtx)
 	}()
 
-	n.adoptOwned(ctx)
+	// The containers a previous incarnation left behind are found now but adopted later:
+	// only the control plane knows how much of their output it already has.
+	n.discoverOwned(ctx)
+	go n.runPruneLoop(ctx)
 
 	backoff := backoffMin
 	for {
@@ -142,6 +149,8 @@ func (n *Node) session(ctx context.Context) error {
 	defer flush.Stop()
 	retransmit := time.NewTicker(retransmitTick)
 	defer retransmit.Stop()
+	reconcileDeadline := time.NewTimer(helloAckWait)
+	defer reconcileDeadline.Stop()
 
 	for {
 		if err := n.flushEvents(stream); err != nil {
@@ -160,6 +169,10 @@ func (n *Node) session(ctx context.Context) error {
 		case <-hb.C:
 			if err := n.sendHeartbeat(sctx, stream); err != nil {
 				return err
+			}
+		case <-reconcileDeadline.C:
+			if n.hasPending() {
+				n.adoptStranded(sctx)
 			}
 		case <-retransmit.C:
 			for _, b := range n.buffers() {
@@ -199,6 +212,7 @@ func (n *Node) sendHeartbeat(
 	stream *connect.BidiStreamForClient[podiumv1.NodeMessage, podiumv1.ServerMessage],
 ) error {
 	load := sampleLoad(ctx, n.cfg.DataDir, n.logger)
+	n.maybePrune(ctx, load)
 	err := stream.Send(&podiumv1.NodeMessage{Msg: &podiumv1.NodeMessage_Heartbeat{
 		Heartbeat: &podiumv1.Heartbeat{
 			Load: &podiumv1.NodeLoad{
@@ -248,13 +262,21 @@ func (n *Node) handle(
 		return n.handleAssign(ctx, stream, msg.GetAssign())
 	case msg.GetAck() != nil:
 		n.handleAck(msg.GetAck())
+	case msg.GetHelloAck() != nil:
+		n.applyCheckpoints(ctx, msg.GetHelloAck().GetTasks())
 	case msg.GetCancel() != nil:
 		c := msg.GetCancel()
 		n.logger.InfoContext(ctx, "cancel requested", "task_id", c.GetTaskId(), "reason", c.GetReason())
-		n.exec.Cancel(c.GetTaskId())
+		// A container found at startup has no run to interrupt; the control plane
+		// disowning it means tear it down, not signal it.
+		if !n.dropPendingContainer(ctx, c.GetTaskId(), c.GetReason()) {
+			n.exec.Cancel(c.GetTaskId())
+		}
 	case msg.GetDrain() != nil:
-		n.logger.InfoContext(ctx, "drain requested", "running_tasks", n.runningCount())
-		n.setDraining()
+		d := msg.GetDrain()
+		n.logger.InfoContext(ctx, "drain state received",
+			"undo", d.GetUndo(), "running_tasks", n.runningCount(), "exit_on_drain", n.cfg.ExitOnDrain)
+		n.setDraining(!d.GetUndo())
 	default:
 		n.logger.WarnContext(ctx, "ignoring unknown server message")
 	}

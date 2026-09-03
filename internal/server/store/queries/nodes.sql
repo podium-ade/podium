@@ -29,3 +29,6 @@ delete from nodes where id = @id;
 
 -- name: SetNodeTSStableID :execrows
 update nodes set ts_stable_id = sqlc.narg(ts_stable_id)::text where id = @id;
+
+-- name: SetNodeDraining :execrows
+update nodes set draining = @draining where id = @id;

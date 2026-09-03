@@ -13,13 +13,14 @@ import (
 const assignTask = `-- name: AssignTask :one
 update tasks
 set status           = 'scheduled',
+    queued_reason    = null,
     node_id          = $1,
     lease_id         = $2,
     lease_expires_at = $3,
     scheduled_at     = now(),
     attempts         = attempts + 1
 where id = $4 and status = 'queued'
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
 `
 
 type AssignTaskParams struct {
@@ -55,12 +56,69 @@ func (q *Queries) AssignTask(ctx context.Context, arg AssignTaskParams) (Task, e
 		&i.ExitCode,
 		&i.Usage,
 		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
 	)
 	return i, err
 }
 
+const claimActiveTasks = `-- name: ClaimActiveTasks :many
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+where status in ('scheduled', 'provisioning', 'running')
+order by id
+`
+
+// ClaimActiveTasks is the reconciliation sweep: every task the control plane still owes
+// someone an answer for. It is deliberately not paginated — a control plane with more than
+// a few thousand tasks in flight has a bigger problem than this query.
+func (q *Queries) ClaimActiveTasks(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.Query(ctx, claimActiveTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Spec,
+			&i.Status,
+			&i.Priority,
+			&i.RequestedBy,
+			&i.NodeID,
+			&i.LeaseID,
+			&i.LeaseExpiresAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.CreatedAt,
+			&i.ScheduledAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ExitCode,
+			&i.Usage,
+			&i.FailureReason,
+			&i.LastScheduleAttemptAt,
+			&i.QueuedReason,
+			&i.CancelRequestedAt,
+			&i.CancelReason,
+			&i.CancelStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimQueuedTasks = `-- name: ClaimQueuedTasks :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
 where status = 'queued'
 order by priority desc, created_at
 for update skip locked
@@ -96,6 +154,11 @@ func (q *Queries) ClaimQueuedTasks(ctx context.Context, pageLimit int32) ([]Task
 			&i.ExitCode,
 			&i.Usage,
 			&i.FailureReason,
+			&i.LastScheduleAttemptAt,
+			&i.QueuedReason,
+			&i.CancelRequestedAt,
+			&i.CancelReason,
+			&i.CancelStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -110,7 +173,7 @@ func (q *Queries) ClaimQueuedTasks(ctx context.Context, pageLimit int32) ([]Task
 const createTask = `-- name: CreateTask :one
 insert into tasks (id, spec, status, priority, requested_by, max_attempts)
 values ($1, $2, $3, $4, $5, $6)
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
 `
 
 type CreateTaskParams struct {
@@ -150,12 +213,41 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.ExitCode,
 		&i.Usage,
 		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
 	)
 	return i, err
 }
 
+const extendLease = `-- name: ExtendLease :execrows
+update tasks
+set lease_expires_at = $1
+where id = $2
+  and lease_id = $3
+  and status in ('scheduled', 'provisioning', 'running')
+`
+
+type ExtendLeaseParams struct {
+	LeaseExpiresAt *time.Time
+	ID             string
+	LeaseID        *string
+}
+
+// ExtendLease pushes a live task's lease out. It is guarded by the lease id as well as the
+// id, so a stale scheduler cannot extend a lease that has already moved to another node.
+func (q *Queries) ExtendLease(ctx context.Context, arg ExtendLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, extendLease, arg.LeaseExpiresAt, arg.ID, arg.LeaseID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getTask = `-- name: GetTask :one
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason from tasks where id = $1
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks where id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -179,12 +271,17 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.ExitCode,
 		&i.Usage,
 		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
 	)
 	return i, err
 }
 
 const getTaskForUpdate = `-- name: GetTaskForUpdate :one
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason from tasks where id = $1 for update
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks where id = $1 for update
 `
 
 func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (Task, error) {
@@ -208,12 +305,17 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (Task, error)
 		&i.ExitCode,
 		&i.Usage,
 		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
 	)
 	return i, err
 }
 
 const listTasks = `-- name: ListTasks :many
-select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason from tasks
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
 where (cardinality($1::text[]) = 0 or status = any ($1::text[]))
   and ($2::text = '' or node_id = $2::text)
   and ($3::text = '' or requested_by = $3::text)
@@ -263,6 +365,11 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 			&i.ExitCode,
 			&i.Usage,
 			&i.FailureReason,
+			&i.LastScheduleAttemptAt,
+			&i.QueuedReason,
+			&i.CancelRequestedAt,
+			&i.CancelReason,
+			&i.CancelStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -274,9 +381,130 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 	return items, nil
 }
 
+const listTasksOnNode = `-- name: ListTasksOnNode :many
+select id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status from tasks
+where node_id = $1 and status = any ($2::text[])
+order by id
+`
+
+type ListTasksOnNodeParams struct {
+	NodeID   *string
+	Statuses []string
+}
+
+func (q *Queries) ListTasksOnNode(ctx context.Context, arg ListTasksOnNodeParams) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listTasksOnNode, arg.NodeID, arg.Statuses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Spec,
+			&i.Status,
+			&i.Priority,
+			&i.RequestedBy,
+			&i.NodeID,
+			&i.LeaseID,
+			&i.LeaseExpiresAt,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.CreatedAt,
+			&i.ScheduledAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ExitCode,
+			&i.Usage,
+			&i.FailureReason,
+			&i.LastScheduleAttemptAt,
+			&i.QueuedReason,
+			&i.CancelRequestedAt,
+			&i.CancelReason,
+			&i.CancelStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markScheduleAttempt = `-- name: MarkScheduleAttempt :exec
+update tasks
+set last_schedule_attempt_at = now(),
+    queued_reason            = $1::text
+where id = $2 and status = 'queued'
+`
+
+type MarkScheduleAttemptParams struct {
+	QueuedReason string
+	ID           string
+}
+
+func (q *Queries) MarkScheduleAttempt(ctx context.Context, arg MarkScheduleAttemptParams) error {
+	_, err := q.db.Exec(ctx, markScheduleAttempt, arg.QueuedReason, arg.ID)
+	return err
+}
+
+const requestCancel = `-- name: RequestCancel :one
+update tasks
+set cancel_requested_at = coalesce(cancel_requested_at, now()),
+    cancel_reason       = coalesce(cancel_reason, $1::text),
+    cancel_status       = coalesce(cancel_status, $2::text)
+where id = $3
+  and status in ('queued', 'scheduled', 'provisioning', 'running')
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
+`
+
+type RequestCancelParams struct {
+	CancelReason string
+	CancelStatus string
+	ID           string
+}
+
+// RequestCancel records a durable stop intent. TransitionTask reads it back and rewrites
+// the terminal status the node's finished event would otherwise have produced, so a server
+// restart between the request and the event cannot lose it.
+func (q *Queries) RequestCancel(ctx context.Context, arg RequestCancelParams) (Task, error) {
+	row := q.db.QueryRow(ctx, requestCancel, arg.CancelReason, arg.CancelStatus, arg.ID)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Spec,
+		&i.Status,
+		&i.Priority,
+		&i.RequestedBy,
+		&i.NodeID,
+		&i.LeaseID,
+		&i.LeaseExpiresAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.CreatedAt,
+		&i.ScheduledAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.ExitCode,
+		&i.Usage,
+		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
+	)
+	return i, err
+}
+
 const updateTaskTransition = `-- name: UpdateTaskTransition :one
 update tasks
 set status           = $1::text,
+    queued_reason    = null,
     started_at       = coalesce($2::timestamptz, started_at),
     finished_at      = coalesce($3::timestamptz, finished_at),
     exit_code        = coalesce($4::int, exit_code),
@@ -289,7 +517,7 @@ set status           = $1::text,
     lease_expires_at = case when $1::text = 'queued' then null
                             else coalesce($9::timestamptz, lease_expires_at) end
 where id = $10
-returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason
+returning id, spec, status, priority, requested_by, node_id, lease_id, lease_expires_at, attempts, max_attempts, created_at, scheduled_at, started_at, finished_at, exit_code, usage, failure_reason, last_schedule_attempt_at, queued_reason, cancel_requested_at, cancel_reason, cancel_status
 `
 
 type UpdateTaskTransitionParams struct {
@@ -339,6 +567,11 @@ func (q *Queries) UpdateTaskTransition(ctx context.Context, arg UpdateTaskTransi
 		&i.ExitCode,
 		&i.Usage,
 		&i.FailureReason,
+		&i.LastScheduleAttemptAt,
+		&i.QueuedReason,
+		&i.CancelRequestedAt,
+		&i.CancelReason,
+		&i.CancelStatus,
 	)
 	return i, err
 }

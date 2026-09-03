@@ -10,6 +10,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 )
 
+// StepReattached is the marker an adopted run puts in a task's history at the point where
+// one daemon incarnation handed the container to the next.
+const StepReattached = "node/reattached"
+
 // AdoptRequest re-attaches to a task container that outlived the daemon.
 type AdoptRequest struct {
 	TaskID  string
@@ -72,6 +76,14 @@ func (e *Executor) adopt(ctx context.Context, req AdoptRequest, em *emitter, rs 
 	}
 
 	running := insp.State != nil && insp.State.Running
+
+	// Say so in the task's own history. Everything the previous incarnation of the daemon
+	// had in memory is gone with it: the runner's event socket, the log redactor, and any
+	// sidecar log stream it had attached. The container keeps working and its stdout and
+	// stderr resume exactly where the control plane says they stopped, but a reader of
+	// this log deserves to know there is a seam here rather than wonder why the sidecar
+	// went quiet. See docs/runner-events.md.
+	em.emit(KindStep, StepPayload{Name: StepReattached, Status: "started"})
 
 	// Attach unconditionally: a container that has already exited still holds the
 	// output the previous incarnation never got acknowledged, and Docker ends the

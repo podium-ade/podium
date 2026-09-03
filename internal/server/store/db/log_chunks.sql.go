@@ -11,7 +11,7 @@ import (
 )
 
 const listLogChunks = `-- name: ListLogChunks :many
-select task_id, seq, stream, sidecar, ts, bytes from task_log_chunks
+select task_id, seq, stream, sidecar, ts, bytes, source_offset from task_log_chunks
 where task_id = $1 and seq >= $2
 order by seq
 limit $3::int
@@ -39,6 +39,7 @@ func (q *Queries) ListLogChunks(ctx context.Context, arg ListLogChunksParams) ([
 			&i.Sidecar,
 			&i.Ts,
 			&i.Bytes,
+			&i.SourceOffset,
 		); err != nil {
 			return nil, err
 		}
@@ -61,6 +62,20 @@ func (q *Queries) MaxLogChunkSeq(ctx context.Context, taskID string) (int64, err
 	return high_seq, err
 }
 
+const maxTaskSeq = `-- name: MaxTaskSeq :one
+select greatest(
+  (select coalesce(max(e.seq), 0) from task_events e     where e.task_id = $1),
+  (select coalesce(max(c.seq), 0) from task_log_chunks c where c.task_id = $1)
+)::bigint as high_seq
+`
+
+func (q *Queries) MaxTaskSeq(ctx context.Context, taskID string) (int64, error) {
+	row := q.db.QueryRow(ctx, maxTaskSeq, taskID)
+	var high_seq int64
+	err := row.Scan(&high_seq)
+	return high_seq, err
+}
+
 const pruneLogChunks = `-- name: PruneLogChunks :execrows
 delete from task_log_chunks where ts < $1
 `
@@ -71,4 +86,39 @@ func (q *Queries) PruneLogChunks(ctx context.Context, olderThan time.Time) (int6
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const taskStreamOffsets = `-- name: TaskStreamOffsets :many
+select stream, coalesce(max(source_offset), 0)::bigint as source_offset
+from task_log_chunks
+where task_id = $1 and coalesce(sidecar, '') = ''
+group by stream
+`
+
+type TaskStreamOffsetsRow struct {
+	Stream       string
+	SourceOffset int64
+}
+
+// TaskStreamOffsets is the reconciliation answer for one task: how far into each of the
+// container's own streams the control plane has committed. Sidecar chunks are excluded —
+// an adopted task's sidecars are never re-attached, so their offsets mean nothing.
+func (q *Queries) TaskStreamOffsets(ctx context.Context, taskID string) ([]TaskStreamOffsetsRow, error) {
+	rows, err := q.db.Query(ctx, taskStreamOffsets, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskStreamOffsetsRow{}
+	for rows.Next() {
+		var i TaskStreamOffsetsRow
+		if err := rows.Scan(&i.Stream, &i.SourceOffset); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvaroibarguen/podium/internal/node/docker"
 )
 
 // TestM1Acceptance is the MVP-0 acceptance script, run against real everything: the CLI
@@ -152,6 +154,8 @@ func TestNodeRestartAdoptsItsContainers(t *testing.T) {
 	task := waitForTaskStatus(t, h, taskID, "TASK_STATUS_FAILED", 3*time.Minute)
 	require.Equal(t, 7, task.ExitCode, "the adopted run reports the container's real exit code")
 
+	requireStepEvent(t, h, taskID, docker.StepReattached)
+
 	lines := nonEmptyLines(h.podiumOK("logs", taskID))
 	require.Len(t, lines, ticks, "the adopted task's output is complete and unrepeated")
 	for i, line := range lines {
@@ -194,6 +198,24 @@ func TestCancelStopsARunningTask(t *testing.T) {
 // assertions that read the database directly
 // ---------------------------------------------------------------------------
 
+// requireStepEvent asserts a named step marker is in the task's stored history. The
+// node/reattached marker is the seam where one daemon handed the container to the next: the
+// runner's event socket and the log redactor did not survive it, and a reader of the log is
+// owed that fact rather than left wondering.
+func requireStepEvent(t *testing.T, h *harness, taskID, name string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, h.databaseURL)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close(ctx) }()
+
+	var n int
+	require.NoError(t, conn.QueryRow(ctx,
+		`select count(*) from task_events where task_id = $1 and kind = 'step' and payload->>'name' = $2`,
+		taskID, name).Scan(&n))
+	require.Equal(t, 1, n, "the task's history must carry exactly one %s marker", name)
+}
+
 // requireEventsExactlyOnce is the replay-buffer assertion: every sequence number the node
 // produced landed once, the two tables never claim the same one, and no error marker was
 // recorded. A replayed batch is a no-op server side, so a reconnect must not show up here.
@@ -234,10 +256,13 @@ func requireEventsExactlyOnce(t *testing.T, h *harness, taskID string) {
 }
 
 type taskJSON struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	ExitCode int    `json:"exitCode"`
-	NodeID   string `json:"nodeId"`
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	ExitCode      int    `json:"exitCode"`
+	NodeID        string `json:"nodeId"`
+	Attempts      int    `json:"attempts"`
+	FailureReason string `json:"failureReason"`
+	QueuedReason  string `json:"queuedReason"`
 }
 
 func waitForTaskStatus(t *testing.T, h *harness, taskID, want string, timeout time.Duration) taskJSON {

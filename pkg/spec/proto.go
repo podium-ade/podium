@@ -14,13 +14,14 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		return nil
 	}
 	p := &podiumv1.TaskSpec{
-		Image:       s.Image,
-		Command:     append([]string(nil), s.Command...),
-		WorkingDir:  s.WorkingDir,
-		Labels:      append([]string(nil), s.Labels...),
-		MaxAttempts: int32(s.MaxAttempts),
-		Resources:   s.Resources.toProto(),
-		Hardening:   s.Hardening.toProto(),
+		Image:           s.Image,
+		Command:         append([]string(nil), s.Command...),
+		WorkingDir:      s.WorkingDir,
+		Labels:          append([]string(nil), s.Labels...),
+		MaxAttempts:     int32(s.MaxAttempts),
+		RetryOnNodeLoss: s.RetryOnNodeLoss,
+		Resources:       s.Resources.toProto(),
+		Hardening:       s.Hardening.toProto(),
 	}
 	if len(s.Env) > 0 {
 		p.Env = maps.Clone(s.Env)
@@ -51,13 +52,14 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		return nil
 	}
 	s := &TaskSpec{
-		Image:       p.GetImage(),
-		Command:     append([]string(nil), p.GetCommand()...),
-		WorkingDir:  p.GetWorkingDir(),
-		Labels:      append([]string(nil), p.GetLabels()...),
-		MaxAttempts: int(p.GetMaxAttempts()),
-		Resources:   resourcesFromProto(p.GetResources()),
-		Hardening:   hardeningFromProto(p.GetHardening()),
+		Image:           p.GetImage(),
+		Command:         append([]string(nil), p.GetCommand()...),
+		WorkingDir:      p.GetWorkingDir(),
+		Labels:          append([]string(nil), p.GetLabels()...),
+		MaxAttempts:     int(p.GetMaxAttempts()),
+		RetryOnNodeLoss: p.GetRetryOnNodeLoss(),
+		Resources:       resourcesFromProto(p.GetResources()),
+		Hardening:       hardeningFromProto(p.GetHardening()),
 	}
 	if len(p.GetEnv()) > 0 {
 		s.Env = maps.Clone(p.GetEnv())

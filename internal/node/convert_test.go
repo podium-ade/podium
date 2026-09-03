@@ -41,7 +41,7 @@ func TestToWireLeavesTaskLogsUntagged(t *testing.T) {
 }
 
 func TestLogEventCoalescesPerSource(t *testing.T) {
-	e := logEvent(docker.StreamSidecar, "cache", []byte("PONG\n"))
+	e := logEvent(docker.StreamSidecar, "cache", []byte("PONG\n"), 5)
 	assert.Equal(t, podiumv1.LogChunk_STREAM_SIDECAR, e.GetLog().GetStream())
 	assert.Equal(t, "cache", e.GetLog().GetSidecarName())
 }

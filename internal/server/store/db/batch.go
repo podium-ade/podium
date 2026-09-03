@@ -77,8 +77,8 @@ func (b *AppendEventBatchResults) Close() error {
 }
 
 const appendLogChunk = `-- name: AppendLogChunk :batchexec
-insert into task_log_chunks (task_id, seq, stream, sidecar, ts, bytes)
-values ($1, $2, $3, $4, $5, $6)
+insert into task_log_chunks (task_id, seq, stream, sidecar, ts, bytes, source_offset)
+values ($1, $2, $3, $4, $5, $6, $7)
 on conflict (task_id, seq) do nothing
 `
 
@@ -89,12 +89,13 @@ type AppendLogChunkBatchResults struct {
 }
 
 type AppendLogChunkParams struct {
-	TaskID  string
-	Seq     int64
-	Stream  string
-	Sidecar *string
-	Ts      time.Time
-	Bytes   []byte
+	TaskID       string
+	Seq          int64
+	Stream       string
+	Sidecar      *string
+	Ts           time.Time
+	Bytes        []byte
+	SourceOffset int64
 }
 
 func (q *Queries) AppendLogChunk(ctx context.Context, arg []AppendLogChunkParams) *AppendLogChunkBatchResults {
@@ -107,6 +108,7 @@ func (q *Queries) AppendLogChunk(ctx context.Context, arg []AppendLogChunkParams
 			a.Sidecar,
 			a.Ts,
 			a.Bytes,
+			a.SourceOffset,
 		}
 		batch.Queue(appendLogChunk, vals...)
 	}

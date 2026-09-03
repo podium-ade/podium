@@ -150,6 +150,17 @@ func (r *redactor) flush(stream, sidecar string) []byte {
 	return r.replace(carried)
 }
 
+// held is how many bytes of a source's output the redactor is still sitting on: the
+// trailing run that could yet turn out to be the start of a secret. The caller subtracts it
+// from the source offset it reports, so a chunk never claims to account for bytes that have
+// not been emitted.
+func (r *redactor) held(stream, sidecar string) int {
+	if r == nil {
+		return 0
+	}
+	return len(r.carry[stream+"\x00"+sidecar])
+}
+
 // replace rewrites every occurrence of every pattern. Matching is leftmost, longest: at
 // each position the longest pattern that matches wins, and scanning resumes after it.
 func (r *redactor) replace(data []byte) []byte {

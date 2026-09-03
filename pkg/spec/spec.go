@@ -52,6 +52,10 @@ type TaskSpec struct {
 	Labels      []string           `yaml:"labels,omitempty" json:"labels,omitempty"`
 	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	MaxAttempts int                `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
+	// RetryOnNodeLoss requeues the task as a new attempt when the node running it goes
+	// offline mid-run, instead of marking it lost. It is off by default because a task
+	// that is not idempotent must not be silently run twice.
+	RetryOnNodeLoss bool `yaml:"retry_on_node_loss,omitempty" json:"retry_on_node_loss,omitempty"`
 }
 
 // Secret targets. A ref says where in the container the value should appear, never what

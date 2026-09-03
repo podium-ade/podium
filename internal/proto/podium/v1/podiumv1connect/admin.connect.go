@@ -42,6 +42,15 @@ const (
 	// NodeAdminServiceRekeyNodeProcedure is the fully-qualified name of the NodeAdminService's
 	// RekeyNode RPC.
 	NodeAdminServiceRekeyNodeProcedure = "/podium.v1.NodeAdminService/RekeyNode"
+	// NodeAdminServiceDrainNodeProcedure is the fully-qualified name of the NodeAdminService's
+	// DrainNode RPC.
+	NodeAdminServiceDrainNodeProcedure = "/podium.v1.NodeAdminService/DrainNode"
+	// NodeAdminServiceUndrainNodeProcedure is the fully-qualified name of the NodeAdminService's
+	// UndrainNode RPC.
+	NodeAdminServiceUndrainNodeProcedure = "/podium.v1.NodeAdminService/UndrainNode"
+	// NodeAdminServiceDeleteNodeProcedure is the fully-qualified name of the NodeAdminService's
+	// DeleteNode RPC.
+	NodeAdminServiceDeleteNodeProcedure = "/podium.v1.NodeAdminService/DeleteNode"
 )
 
 // NodeAdminServiceClient is a client for the podium.v1.NodeAdminService service.
@@ -51,6 +60,13 @@ type NodeAdminServiceClient interface {
 	// RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
 	// identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
 	RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error)
+	// DrainNode stops a node being given new work. Running tasks finish; the node exits 0
+	// when it was started with --exit-on-drain, which is the upgrade path.
+	DrainNode(context.Context, *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error)
+	// UndrainNode puts a drained node back in the pool.
+	UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error)
+	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
+	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
 
 // NewNodeAdminServiceClient constructs a client for the podium.v1.NodeAdminService service. By
@@ -82,6 +98,24 @@ func NewNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(nodeAdminServiceMethods.ByName("RekeyNode")),
 			connect.WithClientOptions(opts...),
 		),
+		drainNode: connect.NewClient[v1.DrainNodeRequest, v1.DrainNodeResponse](
+			httpClient,
+			baseURL+NodeAdminServiceDrainNodeProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("DrainNode")),
+			connect.WithClientOptions(opts...),
+		),
+		undrainNode: connect.NewClient[v1.UndrainNodeRequest, v1.UndrainNodeResponse](
+			httpClient,
+			baseURL+NodeAdminServiceUndrainNodeProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("UndrainNode")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteNode: connect.NewClient[v1.DeleteNodeRequest, v1.DeleteNodeResponse](
+			httpClient,
+			baseURL+NodeAdminServiceDeleteNodeProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("DeleteNode")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -90,6 +124,9 @@ type nodeAdminServiceClient struct {
 	createEnrollmentToken *connect.Client[v1.CreateEnrollmentTokenRequest, v1.CreateEnrollmentTokenResponse]
 	listNodes             *connect.Client[v1.ListNodesRequest, v1.ListNodesResponse]
 	rekeyNode             *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
+	drainNode             *connect.Client[v1.DrainNodeRequest, v1.DrainNodeResponse]
+	undrainNode           *connect.Client[v1.UndrainNodeRequest, v1.UndrainNodeResponse]
+	deleteNode            *connect.Client[v1.DeleteNodeRequest, v1.DeleteNodeResponse]
 }
 
 // CreateEnrollmentToken calls podium.v1.NodeAdminService.CreateEnrollmentToken.
@@ -107,6 +144,21 @@ func (c *nodeAdminServiceClient) RekeyNode(ctx context.Context, req *connect.Req
 	return c.rekeyNode.CallUnary(ctx, req)
 }
 
+// DrainNode calls podium.v1.NodeAdminService.DrainNode.
+func (c *nodeAdminServiceClient) DrainNode(ctx context.Context, req *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error) {
+	return c.drainNode.CallUnary(ctx, req)
+}
+
+// UndrainNode calls podium.v1.NodeAdminService.UndrainNode.
+func (c *nodeAdminServiceClient) UndrainNode(ctx context.Context, req *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error) {
+	return c.undrainNode.CallUnary(ctx, req)
+}
+
+// DeleteNode calls podium.v1.NodeAdminService.DeleteNode.
+func (c *nodeAdminServiceClient) DeleteNode(ctx context.Context, req *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
+	return c.deleteNode.CallUnary(ctx, req)
+}
+
 // NodeAdminServiceHandler is an implementation of the podium.v1.NodeAdminService service.
 type NodeAdminServiceHandler interface {
 	CreateEnrollmentToken(context.Context, *connect.Request[v1.CreateEnrollmentTokenRequest]) (*connect.Response[v1.CreateEnrollmentTokenResponse], error)
@@ -114,6 +166,13 @@ type NodeAdminServiceHandler interface {
 	// RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
 	// identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
 	RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error)
+	// DrainNode stops a node being given new work. Running tasks finish; the node exits 0
+	// when it was started with --exit-on-drain, which is the upgrade path.
+	DrainNode(context.Context, *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error)
+	// UndrainNode puts a drained node back in the pool.
+	UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error)
+	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
+	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
 
 // NewNodeAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -141,6 +200,24 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 		connect.WithSchema(nodeAdminServiceMethods.ByName("RekeyNode")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeAdminServiceDrainNodeHandler := connect.NewUnaryHandler(
+		NodeAdminServiceDrainNodeProcedure,
+		svc.DrainNode,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("DrainNode")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nodeAdminServiceUndrainNodeHandler := connect.NewUnaryHandler(
+		NodeAdminServiceUndrainNodeProcedure,
+		svc.UndrainNode,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("UndrainNode")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nodeAdminServiceDeleteNodeHandler := connect.NewUnaryHandler(
+		NodeAdminServiceDeleteNodeProcedure,
+		svc.DeleteNode,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("DeleteNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.NodeAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NodeAdminServiceCreateEnrollmentTokenProcedure:
@@ -149,6 +226,12 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 			nodeAdminServiceListNodesHandler.ServeHTTP(w, r)
 		case NodeAdminServiceRekeyNodeProcedure:
 			nodeAdminServiceRekeyNodeHandler.ServeHTTP(w, r)
+		case NodeAdminServiceDrainNodeProcedure:
+			nodeAdminServiceDrainNodeHandler.ServeHTTP(w, r)
+		case NodeAdminServiceUndrainNodeProcedure:
+			nodeAdminServiceUndrainNodeHandler.ServeHTTP(w, r)
+		case NodeAdminServiceDeleteNodeProcedure:
+			nodeAdminServiceDeleteNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -168,4 +251,16 @@ func (UnimplementedNodeAdminServiceHandler) ListNodes(context.Context, *connect.
 
 func (UnimplementedNodeAdminServiceHandler) RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.RekeyNode is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) DrainNode(context.Context, *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.DrainNode is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.UndrainNode is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.DeleteNode is not implemented"))
 }

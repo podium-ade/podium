@@ -58,19 +58,48 @@ func (s *Service) Stream(
 		return err
 	}
 
-	sess := newSession(node.ID, node.Labels, capacityOf(hello, node), hello.GetRunningTaskIds())
+	sess := newSession(node.ID, node.Labels, capacityOf(hello, node), hello.GetRunningTaskIds(), node.Draining)
 	s.reg.add(sess)
 	defer s.endSession(ctx, sess)
 
-	if err := s.store.UpdateNodeHeartbeat(ctx, node.ID, store.NodeOnline, ptrCapacity(hello), hello.GetVersion()); err != nil {
+	online := store.NodeOnline
+	if node.Draining {
+		online = store.NodeDraining
+	}
+	if err := s.store.UpdateNodeHeartbeat(ctx, node.ID, online, ptrCapacity(hello), hello.GetVersion()); err != nil {
 		s.logger.WarnContext(ctx, "marking node online failed", "node_id", node.ID, "error", err)
 	}
 	s.logger.InfoContext(ctx, "node stream open",
 		"node_id", node.ID, "labels", node.Labels, "version", hello.GetVersion(),
-		"running_tasks", len(hello.GetRunningTaskIds()))
+		"running_tasks", len(hello.GetRunningTaskIds()), "draining", node.Draining)
 
 	writerErr := make(chan error, 1)
 	go func() { writerErr <- writeLoop(ctx, stream, sess) }()
+
+	// Reconciliation is the first thing on the wire after Hello, and the node waits for it
+	// before it adopts anything: only the control plane knows what it has committed. The
+	// HelloAck goes out before the Cancels it implies, so a node reading its stream in
+	// order always learns the verdict before it is told to act on one.
+	checkpoints, orphans := s.reconcile(ctx, sess, node, hello.GetRunningTaskIds())
+	ack := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_HelloAck{
+		HelloAck: &podiumv1.HelloAck{Tasks: checkpoints},
+	}}
+	if err := sess.Send(ctx, ack); err != nil {
+		s.logger.WarnContext(ctx, "sending HelloAck failed", "node_id", node.ID, "error", err)
+	}
+	for _, taskID := range orphans {
+		if err := s.Cancel(ctx, node.ID, taskID, CancelReasonNotOurs); err != nil {
+			s.logger.WarnContext(ctx, "could not ask a node to drop an orphan",
+				"node_id", node.ID, "task_id", taskID, "error", err)
+		}
+	}
+	if node.Draining {
+		if err := sess.Send(ctx, &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Drain{
+			Drain: &podiumv1.Drain{},
+		}}); err != nil {
+			s.logger.WarnContext(ctx, "re-sending drain to a draining node failed", "node_id", node.ID, "error", err)
+		}
+	}
 
 	err = s.readLoop(ctx, sess, incoming)
 	sess.Close()
@@ -186,7 +215,7 @@ func decideBinding(stored, presented string) bindingDecision {
 }
 
 // endSession unregisters the stream and, unless it was already replaced by a reconnect, marks
-// the node unreachable. Deciding it is offline and expiring its leases is step 12's job.
+// the node unreachable. The watchdog decides when it is offline and expires its leases.
 func (s *Service) endSession(ctx context.Context, sess *Session) {
 	sess.Close()
 	if !s.reg.remove(sess) {
@@ -265,7 +294,11 @@ func (s *Service) readLoop(ctx context.Context, sess *Session, incoming <-chan r
 
 func (s *Service) handleHeartbeat(ctx context.Context, sess *Session, hb *podiumv1.Heartbeat) {
 	sess.observeHeartbeat(hb)
-	if err := s.store.UpdateNodeHeartbeat(ctx, sess.nodeID, store.NodeOnline, nil, ""); err != nil {
+	status := store.NodeOnline
+	if sess.snapshot().Draining {
+		status = store.NodeDraining
+	}
+	if err := s.store.UpdateNodeHeartbeat(ctx, sess.nodeID, status, nil, ""); err != nil {
 		s.logger.WarnContext(ctx, "heartbeat update failed", "node_id", sess.nodeID, "error", err)
 	}
 }

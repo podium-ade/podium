@@ -49,6 +49,9 @@ func taskToProto(t store.Task) *podiumv1.Task {
 		ExitCode:      t.ExitCode,
 		RequestedBy:   t.RequestedBy,
 		FailureReason: t.FailureReason,
+		QueuedReason:  t.QueuedReason,
+
+		LastScheduleAttemptAt: timeToProto(t.LastScheduleAttemptAt),
 	}
 	if t.Usage != nil {
 		out.Usage = &podiumv1.Usage{
@@ -75,6 +78,7 @@ func nodeToProto(n store.Node, live nodes.Snapshot, connected bool) *podiumv1.No
 		LastHeartbeatAt: timeToProto(n.LastHeartbeatAt),
 		CreatedAt:       timestamppb.New(n.CreatedAt),
 		TsStableId:      n.TSStableID,
+		Draining:        n.Draining,
 	}
 	if connected {
 		out.RunningTasks = live.RunningTasks

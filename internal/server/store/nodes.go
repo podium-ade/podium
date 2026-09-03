@@ -140,8 +140,24 @@ func (s *Store) SetNodeTSStableID(ctx context.Context, nodeID, stableID string) 
 	return nil
 }
 
-// DeleteNode removes a node. Tasks referencing it must be finished first: the tasks.node_id
-// foreign key is deliberately not ON DELETE CASCADE.
+// SetNodeDraining records the operator's standing instruction that a node takes no new
+// work, or clears it. It is a column, not a status: a draining node that disconnects is
+// still draining when it comes back, and so is one whose control plane restarted.
+func (s *Store) SetNodeDraining(ctx context.Context, nodeID string, draining bool) error {
+	n, err := s.q.SetNodeDraining(ctx, db.SetNodeDrainingParams{Draining: draining, ID: nodeID})
+	if err != nil {
+		return fmt.Errorf("set draining of node %s: %w", nodeID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("node %s: %w", nodeID, ErrNotFound)
+	}
+	return nil
+}
+
+// DeleteNode removes a node. Its finished tasks keep the node id they ran on: that column
+// stopped being a foreign key in 0004_scheduler.sql, because a live inventory and an
+// append-only history do not belong in a referential relationship. Refusing to delete a node
+// that still has *running* tasks is the API's job, not the schema's.
 func (s *Store) DeleteNode(ctx context.Context, nodeID string) error {
 	n, err := s.q.DeleteNode(ctx, nodeID)
 	if err != nil {
@@ -164,6 +180,7 @@ func nodeFromRow(row db.Node) (Node, error) {
 		LastHeartbeatAt: utcPtr(row.LastHeartbeatAt),
 		CreatedAt:       row.CreatedAt.UTC(),
 		TSStableID:      deref(row.TsStableID),
+		Draining:        row.Draining,
 	}
 	if err := json.Unmarshal(row.Labels, &n.Labels); err != nil {
 		return Node{}, fmt.Errorf("decode labels of node %s: %w", row.ID, err)

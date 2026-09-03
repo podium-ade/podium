@@ -328,14 +328,22 @@ func enrollNode(t *testing.T, h *harness, name string, labels []string) *fakeNod
 // open starts a stream and sends Hello. The reader goroutine exists because Receive blocks.
 func (n *fakeNode) open(ctx context.Context) {
 	n.t.Helper()
+	n.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384}, nil)
+}
+
+// openWith is open with the capacity and reconciliation set spelled out: how many slots the
+// node claims, how big the machine is, and which tasks it still has containers for.
+func (n *fakeNode) openWith(ctx context.Context, capacity *podiumv1.NodeCapacity, running []string) {
+	n.t.Helper()
 	n.stream = n.h.nodes.Stream(ctx)
 	require.NoError(n.t, n.stream.Send(&podiumv1.NodeMessage{Msg: &podiumv1.NodeMessage_Hello{
 		Hello: &podiumv1.Hello{
-			NodeId:   n.id,
-			NodeKey:  n.key,
-			Labels:   n.labels,
-			Capacity: &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384},
-			Version:  "test",
+			NodeId:         n.id,
+			NodeKey:        n.key,
+			Labels:         n.labels,
+			Capacity:       capacity,
+			RunningTaskIds: running,
+			Version:        "test",
 		},
 	}}))
 

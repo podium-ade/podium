@@ -787,7 +787,16 @@ func TestAdoptRunningContainerWhoseRunnerSocketIsGone(t *testing.T) {
 		}
 	}
 	require.Contains(t, out.String(), "alive")
-	require.NotContains(t, kinds, KindStep, "no runner can be reporting into a socket nobody owns")
+
+	// The only step an adopted run emits is the node's own marker. Anything else would
+	// mean a runner was reporting into a socket nobody owns.
+	var steps []string
+	for _, ev := range events {
+		if ev.Kind == KindStep {
+			steps = append(steps, ev.Payload.(StepPayload).Name)
+		}
+	}
+	require.Equal(t, []string{StepReattached}, steps)
 	// Whether the runner notices is engine-dependent: on a native Linux engine connect(2)
 	// is refused, while Docker Desktop's socket forwarder accepts and then drops. Either
 	// way the runner runs the command and the exit code above is the proof.

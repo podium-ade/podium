@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/server/store"
 )
@@ -34,10 +36,9 @@ type Service struct {
 	logger *slog.Logger
 	slots  Slots
 
-	mu         sync.Mutex
-	watchers   map[string]map[chan struct{}]struct{}
-	cancelling map[string]string
-	oomKilled  map[string]struct{}
+	mu        sync.Mutex
+	watchers  map[string]map[chan struct{}]struct{}
+	oomKilled map[string]struct{}
 }
 
 // New returns a Service. Call Run once to follow Postgres notifications.
@@ -46,11 +47,10 @@ func New(st *store.Store, logger *slog.Logger) *Service {
 		logger = slog.Default()
 	}
 	return &Service{
-		store:      st,
-		logger:     logger,
-		watchers:   make(map[string]map[chan struct{}]struct{}),
-		cancelling: make(map[string]string),
-		oomKilled:  make(map[string]struct{}),
+		store:     st,
+		logger:    logger,
+		watchers:  make(map[string]map[chan struct{}]struct{}),
+		oomKilled: make(map[string]struct{}),
 	}
 }
 
@@ -70,15 +70,6 @@ func (s *Service) Run(ctx context.Context) error {
 		s.wake(taskID)
 	}
 	return nil
-}
-
-// MarkCancelling records that a cancel was requested for taskID, so the terminal event turns
-// the task into cancelled rather than succeeded or failed. The mark is in memory on purpose:
-// so is the session registry, and step 12 owns durable cancellation.
-func (s *Service) MarkCancelling(taskID, reason string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancelling[taskID] = reason
 }
 
 // Ingest stores one node event batch and returns the highest seq it contained, which is what
@@ -105,11 +96,12 @@ func (s *Service) Ingest(ctx context.Context, taskID string, batch []*podiumv1.T
 		if e.GetKind() == podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG {
 			lc := e.GetLog()
 			chunks = append(chunks, store.LogChunk{
-				Seq:     e.GetSeq(),
-				Stream:  streamNames[lc.GetStream()],
-				Sidecar: lc.GetSidecarName(),
-				TS:      ts,
-				Bytes:   lc.GetBytes(),
+				Seq:          e.GetSeq(),
+				Stream:       streamNames[lc.GetStream()],
+				Sidecar:      lc.GetSidecarName(),
+				TS:           ts,
+				Bytes:        lc.GetBytes(),
+				SourceOffset: lc.GetSourceOffset(),
 			})
 			continue
 		}
@@ -192,13 +184,13 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 	}
 
 	if to.Terminal() {
-		if reason, ok := s.takeCancelling(taskID); ok {
-			to = store.StatusCancelled
-			patch.FailureReason = &reason
-			from = nil
-		} else if s.takeOOM(taskID) && to == store.StatusFailed {
+		if s.takeOOM(taskID) && to == store.StatusFailed {
 			// A memory limit kills a task with a plain non-zero exit code, which tells an
 			// operator nothing. The container's exit state does, so say so.
+			//
+			// A task that was also cancelled or timed out loses this reason to the
+			// durable intent, which TransitionTask applies: "cancelled by alvaro" is a
+			// better answer than "oom" for a task somebody stopped.
 			reason := FailureReasonOOM
 			patch.FailureReason = &reason
 		}
@@ -224,6 +216,43 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 // for exceeding its memory limit.
 const FailureReasonOOM = "oom"
 
+// Note appends one synthetic event to a task's history: something the control plane
+// observed rather than the node reported. Losing a node is the case that matters — a task
+// that simply stops, with nothing in its log to say why, is the single most confusing
+// thing an operator can be shown.
+//
+// It is stored as a non-retryable error event, which is how the CLI and the UI already
+// render "this is why it ended", but it deliberately does *not* run the status transition
+// such an event would imply when a node sends one: the caller owns the transition, and for
+// a lost node the right end state is lost, not failed.
+//
+// The sequence number is one past everything stored. That is safe precisely because the
+// node whose events would have collided is gone; a node that comes back is handed the new
+// high-water mark in its HelloAck and numbers above it.
+func (s *Service) Note(ctx context.Context, taskID, message string) error {
+	high, err := s.store.MaxTaskSeq(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	payload, err := protojson.Marshal(&podiumv1.Error{Message: message})
+	if err != nil {
+		return fmt.Errorf("marshal note for task %s: %w", taskID, err)
+	}
+	if err := s.store.AppendBatch(ctx, taskID, []store.Event{{
+		Seq:     high + 1,
+		Kind:    KindError,
+		TS:      time.Now().UTC(),
+		Payload: payload,
+	}}, nil); err != nil {
+		return err
+	}
+	s.wake(taskID)
+	if err := s.store.NotifyTaskEvents(ctx, taskID); err != nil {
+		s.logger.WarnContext(ctx, "notify task events failed", "task_id", taskID, "error", err)
+	}
+	return nil
+}
+
 // markOOM records that a task's container was OOM-killed.
 func (s *Service) markOOM(taskID string) {
 	s.mu.Lock()
@@ -238,15 +267,6 @@ func (s *Service) takeOOM(taskID string) bool {
 	_, ok := s.oomKilled[taskID]
 	delete(s.oomKilled, taskID)
 	return ok
-}
-
-// takeCancelling consumes a pending cancel intent.
-func (s *Service) takeCancelling(taskID string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	reason, ok := s.cancelling[taskID]
-	delete(s.cancelling, taskID)
-	return reason, ok
 }
 
 // wake nudges every subscriber of taskID. The channel is a coalescing one-slot signal, never

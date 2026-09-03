@@ -25,23 +25,30 @@ type Canceller interface {
 // Events is the logs service, as much of it as the API needs.
 type Events interface {
 	Subscribe(ctx context.Context, taskID string, fromSeq uint64) (<-chan *podiumv1.TaskEvent, error)
-	MarkCancelling(taskID, reason string)
+}
+
+// SecretChecker answers whether the secrets a spec names exist, without reading their
+// values. It is optional: a server with no master key has no secrets to check against and
+// refuses the task at assignment instead.
+type SecretChecker interface {
+	CheckRefs(ctx context.Context, refs []spec.SecretRef) error
 }
 
 // TaskService implements podium.v1.TaskService.
 type TaskService struct {
-	store  *store.Store
-	events Events
-	nodes  Canceller
-	logger *slog.Logger
+	store   *store.Store
+	events  Events
+	nodes   Canceller
+	secrets SecretChecker
+	logger  *slog.Logger
 }
 
 // NewTaskService returns the task API.
-func NewTaskService(st *store.Store, events Events, canceller Canceller, logger *slog.Logger) *TaskService {
+func NewTaskService(st *store.Store, events Events, canceller Canceller, checker SecretChecker, logger *slog.Logger) *TaskService {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &TaskService{store: st, events: events, nodes: canceller, logger: logger}
+	return &TaskService{store: st, events: events, nodes: canceller, secrets: checker, logger: logger}
 }
 
 // CreateTask validates the spec and queues the task. Scheduling is the scheduler's problem.
@@ -57,6 +64,15 @@ func (s *TaskService) CreateTask(
 	if err := ts.Validate(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task spec: %w", err))
 	}
+	// Admission checks that the named secrets exist. The scheduler still resolves their
+	// values at assignment — the value should be in server memory for as short a time as it
+	// can be — but *existence* is settled here, because the only thing that used to notice
+	// was a dispatch, and on a cluster with no node connected there is no dispatch. A task
+	// that could never run then sat queued forever instead of saying why.
+	var admission error
+	if s.secrets != nil && len(ts.Secrets) > 0 {
+		admission = s.secrets.CheckRefs(ctx, ts.Secrets)
+	}
 
 	task, err := s.store.CreateTask(ctx, store.NewTask{
 		Spec:        *ts,
@@ -71,7 +87,31 @@ func (s *TaskService) CreateTask(
 		"task_id", task.ID, "image", task.Spec.Image, "labels", task.Spec.Labels,
 		"requested_by", task.RequestedBy, "priority", task.Priority)
 
+	if admission != nil {
+		// The task is created and then failed rather than refused outright: the row is
+		// the record of what somebody tried to run and why it could not, and it is what
+		// `podium run` follows to print the reason. No attempt is spent and no node is
+		// ever told about it.
+		task = s.failAdmission(ctx, task, admission)
+	}
 	return connect.NewResponse(&podiumv1.CreateTaskResponse{Task: taskToProto(task)}), nil
+}
+
+// failAdmission moves a task straight to failed because something about it can never be
+// satisfied, and returns whatever the row ended up as.
+func (s *TaskService) failAdmission(ctx context.Context, task store.Task, cause error) store.Task {
+	reason := cause.Error()
+	now := time.Now().UTC()
+	s.logger.WarnContext(ctx, "task cannot be satisfied and was failed at admission",
+		"task_id", task.ID, "reason", reason)
+	failed, err := s.store.TransitionTask(ctx, task.ID,
+		[]store.Status{store.StatusQueued}, store.StatusFailed,
+		store.Patch{FailureReason: &reason, FinishedAt: &now})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failing an unsatisfiable task failed", "task_id", task.ID, "error", err)
+		return task
+	}
+	return failed
 }
 
 // GetTask returns one task.
@@ -145,14 +185,22 @@ func (s *TaskService) CancelTask(
 		return connect.NewResponse(&podiumv1.CancelTaskResponse{Task: taskToProto(cancelled)}), nil
 	}
 
-	s.events.MarkCancelling(taskID, reason)
+	// The intent is written to the row, not to a map in this process: a server restart
+	// between here and the node's finished event used to lose it and land the task
+	// succeeded. TransitionTask reads it back under the row lock.
+	task, err = s.store.RequestCancel(ctx, taskID, reason, store.StatusCancelled)
+	if err != nil {
+		return nil, storeError(err)
+	}
 	if task.NodeID == "" {
 		s.logger.WarnContext(ctx, "cancelling a task with no node", "task_id", taskID, "status", task.Status)
 	} else if err := s.nodes.Cancel(ctx, task.NodeID, taskID, reason); err != nil {
-		// The node is gone; step 12's reconciliation is what eventually resolves this.
+		// The node is unreachable. The scheduler's sweep re-sends the cancel while the
+		// node is back, and gives up on it after the cancel grace.
 		s.logger.WarnContext(ctx, "cancel could not reach the node",
 			"task_id", taskID, "node_id", task.NodeID, "error", err)
 	}
+	s.logger.InfoContext(ctx, "task cancel requested", "task_id", taskID, "status", task.Status, "reason", reason)
 	return connect.NewResponse(&podiumv1.CancelTaskResponse{Task: taskToProto(task)}), nil
 }
 

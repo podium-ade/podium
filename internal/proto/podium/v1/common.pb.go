@@ -171,9 +171,13 @@ type TaskSpec struct {
 	Hardening *Hardening `protobuf:"bytes,10,opt,name=hardening,proto3" json:"hardening,omitempty"`
 	// Named secrets the task needs. The spec carries names only; the values are resolved
 	// by the server immediately before the assignment and never stored on the task.
-	Secrets       []*SecretRef `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Secrets []*SecretRef `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	// When the node running this task goes offline mid-run, requeue the task as a new
+	// attempt (up to max_attempts) instead of marking it lost. Off by default: a task that
+	// is not idempotent must not be silently run twice.
+	RetryOnNodeLoss bool `protobuf:"varint,12,opt,name=retry_on_node_loss,json=retryOnNodeLoss,proto3" json:"retry_on_node_loss,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *TaskSpec) Reset() {
@@ -281,6 +285,13 @@ func (x *TaskSpec) GetSecrets() []*SecretRef {
 		return x.Secrets
 	}
 	return nil
+}
+
+func (x *TaskSpec) GetRetryOnNodeLoss() bool {
+	if x != nil {
+		return x.RetryOnNodeLoss
+	}
+	return false
 }
 
 // SecretRef names a stored secret and says where the task wants it. Nothing here is
@@ -753,7 +764,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xdb\x04\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\x88\x05\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -767,7 +778,8 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\tresources\x18\t \x01(\v2\x14.podium.v1.ResourcesR\tresources\x122\n" +
 	"\thardening\x18\n" +
 	" \x01(\v2\x14.podium.v1.HardeningR\thardening\x12.\n" +
-	"\asecrets\x18\v \x03(\v2\x14.podium.v1.SecretRefR\asecrets\x1a6\n" +
+	"\asecrets\x18\v \x03(\v2\x14.podium.v1.SecretRefR\asecrets\x12+\n" +
+	"\x12retry_on_node_loss\x18\f \x01(\bR\x0fretryOnNodeLoss\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +

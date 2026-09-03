@@ -14,16 +14,23 @@ import (
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
+// stepReattached mirrors docker.StepReattached. The CLI never links the Docker SDK — it
+// talks only to the server — so the one string is spelled twice rather than dragging the
+// engine client into a binary that has no engine.
+const stepReattached = "node/reattached"
+
 func newRunCommand(e *env) *cobra.Command {
 	var (
-		image      string
-		labels     []string
-		envVars    []string
-		secretRefs []string
-		timeout    time.Duration
-		specFile   string
-		workdir    string
-		detach     bool
+		image       string
+		labels      []string
+		envVars     []string
+		secretRefs  []string
+		timeout     time.Duration
+		specFile    string
+		workdir     string
+		detach      bool
+		maxAttempts int
+		retryOnLoss bool
 	)
 
 	cmd := &cobra.Command{
@@ -45,6 +52,15 @@ func newRunCommand(e *env) *cobra.Command {
 			if err != nil {
 				return &ExitError{Code: ExitUsage, Err: err}
 			}
+			if cmd.Flags().Changed("max-attempts") {
+				taskSpec.MaxAttempts = maxAttempts
+			}
+			if cmd.Flags().Changed("retry-on-node-loss") {
+				taskSpec.RetryOnNodeLoss = retryOnLoss
+			}
+			if err := taskSpec.Validate(); err != nil {
+				return &ExitError{Code: ExitUsage, Err: err}
+			}
 			return runTask(cmd.Context(), e, taskSpec, detach)
 		},
 	}
@@ -58,6 +74,9 @@ func newRunCommand(e *env) *cobra.Command {
 	cmd.Flags().StringVar(&specFile, "spec", "", "task spec YAML file; flags override its fields")
 	cmd.Flags().StringVar(&workdir, "working-dir", "", "working directory inside the container (default /workspace)")
 	cmd.Flags().BoolVar(&detach, "detach", false, "print the task ID and return immediately")
+	cmd.Flags().IntVar(&maxAttempts, "max-attempts", 0, "how many times the task may be assigned (default 1)")
+	cmd.Flags().BoolVar(&retryOnLoss, "retry-on-node-loss", false,
+		"re-run the task on another node if the one running it goes offline, instead of marking it lost")
 	return cmd
 }
 
@@ -167,8 +186,11 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 					e.note("scheduled on %s", nodeOf(ctx, e, taskID))
 				}
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STEP:
-				if name := ev.GetStep().GetName(); strings.HasPrefix(name, "sidecar/") {
+				switch name := ev.GetStep().GetName(); {
+				case strings.HasPrefix(name, "sidecar/"):
 					e.note("%s %s", name, ev.GetStep().GetStatus())
+				case name == stepReattached:
+					e.note("the node restarted; this task was re-adopted")
 				}
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 				e.note("running")

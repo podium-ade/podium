@@ -123,7 +123,16 @@ func printTaskDetail(e *env, t *podiumv1.Task) error {
 		line("labels", labels)
 	}
 	line("node", orDash(t.GetNodeId()))
-	line("attempts", t.GetAttempts())
+	line("attempts", fmt.Sprintf("%d of %d", t.GetAttempts(), max(t.GetSpec().GetMaxAttempts(), 1)))
+	if r := t.GetQueuedReason(); r != "" {
+		line("queued_reason", r)
+	}
+	if t.GetLastScheduleAttemptAt() != nil {
+		line("last_schedule_attempt", stamp(t.GetLastScheduleAttemptAt().AsTime(), true))
+	}
+	if r := t.GetFailureReason(); r != "" {
+		line("failure_reason", r)
+	}
 	line("requested_by", orDash(t.GetRequestedBy()))
 	line("created_at", stamp(t.GetCreatedAt().AsTime(), t.GetCreatedAt() != nil))
 	line("started_at", stamp(t.GetStartedAt().AsTime(), t.GetStartedAt() != nil))

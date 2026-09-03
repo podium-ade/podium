@@ -158,9 +158,10 @@ func chunkToProto(taskID string, row store.LogChunk) *podiumv1.TaskEvent {
 		Ts:     timestamppb.New(row.TS),
 		Kind:   podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG,
 		Payload: &podiumv1.TaskEvent_Log{Log: &podiumv1.LogChunk{
-			Stream:      streamValues[row.Stream],
-			SidecarName: row.Sidecar,
-			Bytes:       row.Bytes,
+			Stream:       streamValues[row.Stream],
+			SidecarName:  row.Sidecar,
+			Bytes:        row.Bytes,
+			SourceOffset: row.SourceOffset,
 		}},
 	}
 }
