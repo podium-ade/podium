@@ -12,11 +12,18 @@ import (
 )
 
 // IdentityService implements podium.v1.IdentityService. It reads nothing and writes nothing: the
-// whole answer is the Identity the transport already put in the context.
-type IdentityService struct{}
+// whole answer is the Identity the transport already put in the context, plus one fact about
+// how this control plane is configured.
+type IdentityService struct {
+	agentEnabled bool
+}
 
-// NewIdentityService returns the identity handler.
-func NewIdentityService() *IdentityService { return &IdentityService{} }
+// NewIdentityService returns the identity handler. agentEnabled is cfg.AgentEnabled(): whether
+// this server proxies the conductor's API, which is how the web UI knows to show its Agent
+// screen at all.
+func NewIdentityService(agentEnabled bool) *IdentityService {
+	return &IdentityService{agentEnabled: agentEnabled}
+}
 
 // WhoAmI reports who the transport says the caller is.
 //
@@ -41,6 +48,7 @@ func (s *IdentityService) WhoAmI(
 		// about a CLI and a control plane that are not the same release.
 		ServerVersion: version.Version,
 		ServerCommit:  version.Commit,
+		AgentEnabled:  s.agentEnabled,
 	}), nil
 }
 

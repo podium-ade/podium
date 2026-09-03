@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { Header } from "./components/Header";
 import { ToastHost } from "./components/Toast";
 import { TokenGate } from "./components/TokenGate";
+import { AgentPage } from "./pages/AgentPage";
 import { NodesPage } from "./pages/NodesPage";
 import { SecretsPage } from "./pages/SecretsPage";
 import { SubmitPage } from "./pages/SubmitPage";
@@ -28,6 +29,8 @@ export function App() {
                   <Route path="/submit" element={<SubmitPage />} />
                   <Route path="/nodes" element={<NodesPage />} />
                   <Route path="/secrets" element={<SecretsPage />} />
+                  {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
+                  <Route path="/agent/*" element={<AgentPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </main>

@@ -14,6 +14,14 @@ service AgentService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   // ListTurns returns one session's turns, newest first.
   rpc ListTurns(ListTurnsRequest) returns (ListTurnsResponse);
+  // GetSettings reports what the conductor is configured with. It reads no secret value:
+  // there is no read endpoint on the secret store, by design.
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  // SetProviderKey validates a provider key with the provider itself and, only if that
+  // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
+  rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
+  // ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
+  rpc ClearProviderKey(ClearProviderKeyRequest) returns (ClearProviderKeyResponse);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -82,3 +90,47 @@ message ListTurnsRequest {
 message ListTurnsResponse {
   repeated Turn turns = 1;
 }
+
+message GetSettingsRequest {}
+
+// ProviderSettings is everything the UI may know about a stored provider key. key_hint is
+// the last four characters, computed once at save time: that is the only form in which any
+// part of the key is ever read back.
+message ProviderSettings {
+  // provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+  string provider = 1;
+  bool key_set = 2;
+  // key_hint is the last four characters of the key, or "" when no key is set.
+  string key_hint = 3;
+  // model is profile.yaml's model. Informational: the UI is not a model picker.
+  string model = 4;
+  // set_by is the X-Podium-Login at the time of SetProviderKey, or "unknown".
+  string set_by = 5;
+  google.protobuf.Timestamp set_at = 6;
+}
+
+message GetSettingsResponse {
+  ProviderSettings provider = 1;
+}
+
+message SetProviderKeyRequest {
+  string provider = 1;
+  // SENSITIVE: never log this field. The handler wraps the request in a redacting
+  // slog.LogValuer so no log site has to remember.
+  string key = 2;
+}
+
+message SetProviderKeyResponse {
+  ProviderSettings provider = 1;
+  // models is the ids the provider says this key can see, capped at 20. It exists so the UI
+  // can show proof that the key works.
+  repeated string models = 2;
+  // status is a human sentence about the save, or "" when there is nothing to add.
+  string status = 3;
+}
+
+message ClearProviderKeyRequest {
+  string provider = 1;
+}
+
+message ClearProviderKeyResponse {}

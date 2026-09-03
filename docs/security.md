@@ -125,6 +125,28 @@ delete secrets and delete nodes.
   API token, and no master key, no Docker socket and no node key. Compromising it gets an
   attacker the bot's Slack tokens and the ability to submit tasks — which is already everything,
   because there is no RBAC.
+- **The provider key is a secret like any other, and the web UI can replace or remove it.**
+  Whoever can reach the UI can paste a new Anthropic key over the current one, or remove it and
+  stop every turn. There is no confirmation beyond an inline one and no audit of who did it
+  beyond `set_by`, which records the login at the time of the last successful save and is
+  overwritten by the next. Only the last four characters of the key are ever stored outside the
+  secret store, and there is no read endpoint: `podium secret rm
+  podium.agent.anthropic_api_key` is the CLI equivalent of the UI's Remove.
+- **`X-Podium-Login` is trusted because the bearer proves where it came from.** `podium-server`
+  reverse-proxies `/podium.agent.v1.AgentService/` to `PODIUM_AGENT_URL` behind its own identity
+  middleware. On the way it **deletes** any client-supplied `Authorization` and
+  `X-Podium-Login` and sets its own: the conductor's bearer, and the login of the caller the
+  server authenticated. The conductor accepts the header only because the bearer is known to
+  exactly one party — the server — and that party is the one that named the human. A node
+  identity is refused with 403 before anything is forwarded, and the conductor's own
+  `/healthz`, `/readyz` and `/metrics` are not proxied at all.
+
+  **It is a plain header, not a signed assertion.** That is sound while the conductor listens on
+  loopback or a compose network that only the server can reach, which is why
+  `PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090`. Expose that listener any wider and
+  anything able to reach it that also learns `PODIUM_AGENT_TOKEN` can claim to be any operator;
+  at that point the header has to become a signed assertion, and this document is the record
+  that it is not one yet.
 
 ---
 
@@ -352,6 +374,11 @@ Everything below is a real hole, not a hypothetical:
   roles; a skill's `secrets:` list is the only boundary. See *5. The conductor and the bot*.
 - **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
   a Slack thread.
+- **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the
+  only record of who did it is `set_by` on the current key.
+- **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
+  proves the request came through `podium-server`. That holds only while the conductor's
+  listener is loopback or a network only the server can reach.
 - **No audit for reads.** `audit_log` records secret set/delete/resolve/rotate. It does not
   record who listed nodes, read a task's log, or downloaded an artifact.
 - **Single server process.** Sessions are in memory; a second replica would see every node as

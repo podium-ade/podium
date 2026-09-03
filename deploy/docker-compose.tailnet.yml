@@ -49,6 +49,11 @@ services:
       # The Tailscale auth key. Read on the first run only: after that the state volume below
       # *is* the device identity. Never bake it into an image.
       TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY to a reusable, pre-approved key tagged tag:podium-server}
+      # The conductor's API, reverse-proxied behind this server's identity middleware — which
+      # under this transport is Tailscale's WhoIs, so the login the conductor records is a
+      # real person. Set PODIUM_AGENT_URL to the empty string to run without a conductor.
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
     volumes:
       # The tsnet state must outlive the container. Without it the server registers a brand new
       # Tailscale device on every restart, the MagicDNS name drifts to podium-1, podium-2, ...

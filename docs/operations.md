@@ -365,6 +365,42 @@ off.
 Don't. `podium-node` claims every container labelled `podium.task` on its engine, so two daemons
 adopt each other's work. Nothing enforces this.
 
+### The Agent tab is missing from the web UI
+
+The header only shows it when `WhoAmI` reports `agent_enabled`, which is true when
+`PODIUM_AGENT_URL` is set on **`podium-server`** — not on the conductor. Two causes, in order of
+likelihood:
+
+1. `PODIUM_AGENT_URL` is unset (or empty) on the server. The conductor being up and healthy
+   makes no difference; the server is what mounts the prefix and answers `WhoAmI`. Set
+   `PODIUM_AGENT_URL` and `PODIUM_AGENT_TOKEN` — the server refuses to start with a URL and no
+   token — and restart it.
+2. The control plane predates the field. `podium version` will report the skew; an older server
+   sends nothing for `agent_enabled`, proto3 reads that as false, and the tab stays hidden.
+   Nothing breaks: `/agent` still resolves and says the conductor is not configured.
+
+```sh
+curl -s http://127.0.0.1:8080/podium.v1.IdentityService/WhoAmI \
+  -H 'Authorization: Bearer $PODIUM_DEV_TOKEN' -H 'Content-Type: application/json' -d '{}'
+```
+
+### Agent settings say "podium-agent is not reachable"
+
+The server's proxy could not dial `PODIUM_AGENT_URL`. It answers a Connect `unavailable` (HTTP
+503) rather than a bare 502, which is what the page renders. The server's own `/readyz` stays
+200 on purpose: a control plane whose bot is down is still a working task runner.
+
+```sh
+curl -si http://127.0.0.1:8090/readyz        # the conductor's own, unauthenticated
+```
+
+- 503 there means the conductor is up but a dependency is not: its database, or the Podium API's
+  `WhoAmI`. The body names which.
+- Connection refused means the process is not running, or `PODIUM_AGENT_LISTEN` and
+  `PODIUM_AGENT_URL` disagree.
+- A 401 on the settings RPCs and nothing in the conductor's log means the two sides hold
+  different `PODIUM_AGENT_TOKEN` values.
+
 ### Two servers on one database
 
 Don't, yet. Node sessions are in memory, so only the server holding a node's stream can assign

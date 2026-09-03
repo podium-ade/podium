@@ -40,6 +40,15 @@ const (
 	AgentServiceGetSessionProcedure = "/podium.agent.v1.AgentService/GetSession"
 	// AgentServiceListTurnsProcedure is the fully-qualified name of the AgentService's ListTurns RPC.
 	AgentServiceListTurnsProcedure = "/podium.agent.v1.AgentService/ListTurns"
+	// AgentServiceGetSettingsProcedure is the fully-qualified name of the AgentService's GetSettings
+	// RPC.
+	AgentServiceGetSettingsProcedure = "/podium.agent.v1.AgentService/GetSettings"
+	// AgentServiceSetProviderKeyProcedure is the fully-qualified name of the AgentService's
+	// SetProviderKey RPC.
+	AgentServiceSetProviderKeyProcedure = "/podium.agent.v1.AgentService/SetProviderKey"
+	// AgentServiceClearProviderKeyProcedure is the fully-qualified name of the AgentService's
+	// ClearProviderKey RPC.
+	AgentServiceClearProviderKeyProcedure = "/podium.agent.v1.AgentService/ClearProviderKey"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -49,6 +58,14 @@ type AgentServiceClient interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// ListTurns returns one session's turns, newest first.
 	ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error)
+	// GetSettings reports what the conductor is configured with. It reads no secret value:
+	// there is no read endpoint on the secret store, by design.
+	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	// SetProviderKey validates a provider key with the provider itself and, only if that
+	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
+	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
+	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
+	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -80,14 +97,35 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListTurns")),
 			connect.WithClientOptions(opts...),
 		),
+		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
+			httpClient,
+			baseURL+AgentServiceGetSettingsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		setProviderKey: connect.NewClient[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse](
+			httpClient,
+			baseURL+AgentServiceSetProviderKeyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetProviderKey")),
+			connect.WithClientOptions(opts...),
+		),
+		clearProviderKey: connect.NewClient[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse](
+			httpClient,
+			baseURL+AgentServiceClearProviderKeyProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	listSessions *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession   *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	listTurns    *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	listSessions     *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession       *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	listTurns        *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	getSettings      *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
+	setProviderKey   *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
+	clearProviderKey *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -105,6 +143,21 @@ func (c *agentServiceClient) ListTurns(ctx context.Context, req *connect.Request
 	return c.listTurns.CallUnary(ctx, req)
 }
 
+// GetSettings calls podium.agent.v1.AgentService.GetSettings.
+func (c *agentServiceClient) GetSettings(ctx context.Context, req *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
+	return c.getSettings.CallUnary(ctx, req)
+}
+
+// SetProviderKey calls podium.agent.v1.AgentService.SetProviderKey.
+func (c *agentServiceClient) SetProviderKey(ctx context.Context, req *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error) {
+	return c.setProviderKey.CallUnary(ctx, req)
+}
+
+// ClearProviderKey calls podium.agent.v1.AgentService.ClearProviderKey.
+func (c *agentServiceClient) ClearProviderKey(ctx context.Context, req *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
+	return c.clearProviderKey.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -112,6 +165,14 @@ type AgentServiceHandler interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// ListTurns returns one session's turns, newest first.
 	ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error)
+	// GetSettings reports what the conductor is configured with. It reads no secret value:
+	// there is no read endpoint on the secret store, by design.
+	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	// SetProviderKey validates a provider key with the provider itself and, only if that
+	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
+	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
+	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
+	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -139,6 +200,24 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListTurns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetSettingsHandler := connect.NewUnaryHandler(
+		AgentServiceGetSettingsProcedure,
+		svc.GetSettings,
+		connect.WithSchema(agentServiceMethods.ByName("GetSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetProviderKeyHandler := connect.NewUnaryHandler(
+		AgentServiceSetProviderKeyProcedure,
+		svc.SetProviderKey,
+		connect.WithSchema(agentServiceMethods.ByName("SetProviderKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearProviderKeyHandler := connect.NewUnaryHandler(
+		AgentServiceClearProviderKeyProcedure,
+		svc.ClearProviderKey,
+		connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -147,6 +226,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetSessionHandler.ServeHTTP(w, r)
 		case AgentServiceListTurnsProcedure:
 			agentServiceListTurnsHandler.ServeHTTP(w, r)
+		case AgentServiceGetSettingsProcedure:
+			agentServiceGetSettingsHandler.ServeHTTP(w, r)
+		case AgentServiceSetProviderKeyProcedure:
+			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
+		case AgentServiceClearProviderKeyProcedure:
+			agentServiceClearProviderKeyHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -166,4 +251,16 @@ func (UnimplementedAgentServiceHandler) GetSession(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListTurns is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetSettings is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetProviderKey is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearProviderKey is not implemented"))
 }

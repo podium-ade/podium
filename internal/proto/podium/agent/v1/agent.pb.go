@@ -575,6 +575,374 @@ func (x *ListTurnsResponse) GetTurns() []*Turn {
 	return nil
 }
 
+type GetSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSettingsRequest) Reset() {
+	*x = GetSettingsRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSettingsRequest) ProtoMessage() {}
+
+func (x *GetSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSettingsRequest.ProtoReflect.Descriptor instead.
+func (*GetSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+// ProviderSettings is everything the UI may know about a stored provider key. key_hint is
+// the last four characters, computed once at save time: that is the only form in which any
+// part of the key is ever read back.
+type ProviderSettings struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	KeySet   bool   `protobuf:"varint,2,opt,name=key_set,json=keySet,proto3" json:"key_set,omitempty"`
+	// key_hint is the last four characters of the key, or "" when no key is set.
+	KeyHint string `protobuf:"bytes,3,opt,name=key_hint,json=keyHint,proto3" json:"key_hint,omitempty"`
+	// model is profile.yaml's model. Informational: the UI is not a model picker.
+	Model string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	// set_by is the X-Podium-Login at the time of SetProviderKey, or "unknown".
+	SetBy         string                 `protobuf:"bytes,5,opt,name=set_by,json=setBy,proto3" json:"set_by,omitempty"`
+	SetAt         *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=set_at,json=setAt,proto3" json:"set_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProviderSettings) Reset() {
+	*x = ProviderSettings{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderSettings) ProtoMessage() {}
+
+func (x *ProviderSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderSettings.ProtoReflect.Descriptor instead.
+func (*ProviderSettings) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ProviderSettings) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ProviderSettings) GetKeySet() bool {
+	if x != nil {
+		return x.KeySet
+	}
+	return false
+}
+
+func (x *ProviderSettings) GetKeyHint() string {
+	if x != nil {
+		return x.KeyHint
+	}
+	return ""
+}
+
+func (x *ProviderSettings) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ProviderSettings) GetSetBy() string {
+	if x != nil {
+		return x.SetBy
+	}
+	return ""
+}
+
+func (x *ProviderSettings) GetSetAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SetAt
+	}
+	return nil
+}
+
+type GetSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Provider      *ProviderSettings      `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSettingsResponse) Reset() {
+	*x = GetSettingsResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSettingsResponse) ProtoMessage() {}
+
+func (x *GetSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSettingsResponse.ProtoReflect.Descriptor instead.
+func (*GetSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetSettingsResponse) GetProvider() *ProviderSettings {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+type SetProviderKeyRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	// SENSITIVE: never log this field. The handler wraps the request in a redacting
+	// slog.LogValuer so no log site has to remember.
+	Key           string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetProviderKeyRequest) Reset() {
+	*x = SetProviderKeyRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetProviderKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetProviderKeyRequest) ProtoMessage() {}
+
+func (x *SetProviderKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetProviderKeyRequest.ProtoReflect.Descriptor instead.
+func (*SetProviderKeyRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SetProviderKeyRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SetProviderKeyRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type SetProviderKeyResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider *ProviderSettings      `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	// models is the ids the provider says this key can see, capped at 20. It exists so the UI
+	// can show proof that the key works.
+	Models []string `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
+	// status is a human sentence about the save, or "" when there is nothing to add.
+	Status        string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetProviderKeyResponse) Reset() {
+	*x = SetProviderKeyResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetProviderKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetProviderKeyResponse) ProtoMessage() {}
+
+func (x *SetProviderKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetProviderKeyResponse.ProtoReflect.Descriptor instead.
+func (*SetProviderKeyResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SetProviderKeyResponse) GetProvider() *ProviderSettings {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+func (x *SetProviderKeyResponse) GetModels() []string {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+func (x *SetProviderKeyResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type ClearProviderKeyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearProviderKeyRequest) Reset() {
+	*x = ClearProviderKeyRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearProviderKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearProviderKeyRequest) ProtoMessage() {}
+
+func (x *ClearProviderKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearProviderKeyRequest.ProtoReflect.Descriptor instead.
+func (*ClearProviderKeyRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ClearProviderKeyRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+type ClearProviderKeyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearProviderKeyResponse) Reset() {
+	*x = ClearProviderKeyResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearProviderKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearProviderKeyResponse) ProtoMessage() {}
+
+func (x *ClearProviderKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearProviderKeyResponse.ProtoReflect.Descriptor instead.
+func (*ClearProviderKeyResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+}
+
 var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
@@ -631,12 +999,35 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\"@\n" +
 	"\x11ListTurnsResponse\x12+\n" +
-	"\x05turns\x18\x01 \x03(\v2\x15.podium.agent.v1.TurnR\x05turns2\x96\x02\n" +
+	"\x05turns\x18\x01 \x03(\v2\x15.podium.agent.v1.TurnR\x05turns\"\x14\n" +
+	"\x12GetSettingsRequest\"\xc2\x01\n" +
+	"\x10ProviderSettings\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x17\n" +
+	"\akey_set\x18\x02 \x01(\bR\x06keySet\x12\x19\n" +
+	"\bkey_hint\x18\x03 \x01(\tR\akeyHint\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12\x15\n" +
+	"\x06set_by\x18\x05 \x01(\tR\x05setBy\x121\n" +
+	"\x06set_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x05setAt\"T\n" +
+	"\x13GetSettingsResponse\x12=\n" +
+	"\bprovider\x18\x01 \x01(\v2!.podium.agent.v1.ProviderSettingsR\bprovider\"E\n" +
+	"\x15SetProviderKeyRequest\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\"\x87\x01\n" +
+	"\x16SetProviderKeyResponse\x12=\n" +
+	"\bprovider\x18\x01 \x01(\v2!.podium.agent.v1.ProviderSettingsR\bprovider\x12\x16\n" +
+	"\x06models\x18\x02 \x03(\tR\x06models\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"5\n" +
+	"\x17ClearProviderKeyRequest\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\"\x1a\n" +
+	"\x18ClearProviderKeyResponse2\xbc\x04\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
 	"GetSession\x12\".podium.agent.v1.GetSessionRequest\x1a#.podium.agent.v1.GetSessionResponse\x12R\n" +
-	"\tListTurns\x12!.podium.agent.v1.ListTurnsRequest\x1a\".podium.agent.v1.ListTurnsResponseB\xc8\x01\n" +
+	"\tListTurns\x12!.podium.agent.v1.ListTurnsRequest\x1a\".podium.agent.v1.ListTurnsResponse\x12X\n" +
+	"\vGetSettings\x12#.podium.agent.v1.GetSettingsRequest\x1a$.podium.agent.v1.GetSettingsResponse\x12a\n" +
+	"\x0eSetProviderKey\x12&.podium.agent.v1.SetProviderKeyRequest\x1a'.podium.agent.v1.SetProviderKeyResponse\x12g\n" +
+	"\x10ClearProviderKey\x12(.podium.agent.v1.ClearProviderKeyRequest\x1a).podium.agent.v1.ClearProviderKeyResponseB\xc8\x01\n" +
 	"\x13com.podium.agent.v1B\n" +
 	"AgentProtoP\x01ZGgithub.com/alvaroibarguen/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
@@ -652,39 +1043,55 @@ func file_podium_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_agent_proto_rawDescData
 }
 
-var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_podium_agent_v1_agent_proto_goTypes = []any{
-	(*Session)(nil),               // 0: podium.agent.v1.Session
-	(*Turn)(nil),                  // 1: podium.agent.v1.Turn
-	(*Page)(nil),                  // 2: podium.agent.v1.Page
-	(*ListSessionsRequest)(nil),   // 3: podium.agent.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),  // 4: podium.agent.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),     // 5: podium.agent.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),    // 6: podium.agent.v1.GetSessionResponse
-	(*ListTurnsRequest)(nil),      // 7: podium.agent.v1.ListTurnsRequest
-	(*ListTurnsResponse)(nil),     // 8: podium.agent.v1.ListTurnsResponse
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*Session)(nil),                  // 0: podium.agent.v1.Session
+	(*Turn)(nil),                     // 1: podium.agent.v1.Turn
+	(*Page)(nil),                     // 2: podium.agent.v1.Page
+	(*ListSessionsRequest)(nil),      // 3: podium.agent.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),     // 4: podium.agent.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),        // 5: podium.agent.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),       // 6: podium.agent.v1.GetSessionResponse
+	(*ListTurnsRequest)(nil),         // 7: podium.agent.v1.ListTurnsRequest
+	(*ListTurnsResponse)(nil),        // 8: podium.agent.v1.ListTurnsResponse
+	(*GetSettingsRequest)(nil),       // 9: podium.agent.v1.GetSettingsRequest
+	(*ProviderSettings)(nil),         // 10: podium.agent.v1.ProviderSettings
+	(*GetSettingsResponse)(nil),      // 11: podium.agent.v1.GetSettingsResponse
+	(*SetProviderKeyRequest)(nil),    // 12: podium.agent.v1.SetProviderKeyRequest
+	(*SetProviderKeyResponse)(nil),   // 13: podium.agent.v1.SetProviderKeyResponse
+	(*ClearProviderKeyRequest)(nil),  // 14: podium.agent.v1.ClearProviderKeyRequest
+	(*ClearProviderKeyResponse)(nil), // 15: podium.agent.v1.ClearProviderKeyResponse
+	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
-	9,  // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
-	9,  // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
-	9,  // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
+	16, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	16, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
+	16, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
+	16, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
 	0,  // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
 	0,  // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
 	1,  // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
-	3,  // 8: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
-	5,  // 9: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
-	7,  // 10: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
-	4,  // 11: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,  // 12: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,  // 13: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	16, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
+	10, // 9: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	10, // 10: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	3,  // 11: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
+	5,  // 12: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
+	7,  // 13: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
+	9,  // 14: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
+	12, // 15: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
+	14, // 16: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
+	4,  // 17: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,  // 18: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,  // 19: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	11, // 20: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	13, // 21: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	15, // 22: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_agent_proto_init() }
@@ -699,7 +1106,7 @@ func file_podium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_agent_proto_rawDesc), len(file_podium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

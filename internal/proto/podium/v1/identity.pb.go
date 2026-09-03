@@ -125,7 +125,11 @@ type WhoAmIResponse struct {
 	// "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.
 	ServerVersion string `protobuf:"bytes,5,opt,name=server_version,json=serverVersion,proto3" json:"server_version,omitempty"`
 	// server_commit is the short git commit the control plane was built from, or "none".
-	ServerCommit  string `protobuf:"bytes,6,opt,name=server_commit,json=serverCommit,proto3" json:"server_commit,omitempty"`
+	ServerCommit string `protobuf:"bytes,6,opt,name=server_commit,json=serverCommit,proto3" json:"server_commit,omitempty"`
+	// agent_enabled is true when this control plane has a conductor configured
+	// (PODIUM_AGENT_URL is set) and therefore proxies podium.agent.v1.AgentService. The web
+	// UI hides its Agent screen when it is false; `podium version` ignores it.
+	AgentEnabled  bool `protobuf:"varint,7,opt,name=agent_enabled,json=agentEnabled,proto3" json:"agent_enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,19 +206,27 @@ func (x *WhoAmIResponse) GetServerCommit() string {
 	return ""
 }
 
+func (x *WhoAmIResponse) GetAgentEnabled() bool {
+	if x != nil {
+		return x.AgentEnabled
+	}
+	return false
+}
+
 var File_podium_v1_identity_proto protoreflect.FileDescriptor
 
 const file_podium_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"\x18podium/v1/identity.proto\x12\tpodium.v1\"\x0f\n" +
-	"\rWhoAmIRequest\"\xd6\x01\n" +
+	"\rWhoAmIRequest\"\xfb\x01\n" +
 	"\x0eWhoAmIResponse\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
 	"\x04kind\x18\x03 \x01(\x0e2\x17.podium.v1.IdentityKindR\x04kind\x12\x12\n" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12%\n" +
 	"\x0eserver_version\x18\x05 \x01(\tR\rserverVersion\x12#\n" +
-	"\rserver_commit\x18\x06 \x01(\tR\fserverCommit*z\n" +
+	"\rserver_commit\x18\x06 \x01(\tR\fserverCommit\x12#\n" +
+	"\ragent_enabled\x18\a \x01(\bR\fagentEnabled*z\n" +
 	"\fIdentityKind\x12\x1d\n" +
 	"\x19IDENTITY_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12IDENTITY_KIND_USER\x10\x01\x12\x16\n" +

@@ -58,7 +58,7 @@ func TestWhoAmI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := transport.NewContext(t.Context(), tc.id)
-			res, err := NewIdentityService().WhoAmI(ctx, connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+			res, err := NewIdentityService(false).WhoAmI(ctx, connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 			require.NoError(t, err)
 			require.Equal(t, tc.want.GetLogin(), res.Msg.GetLogin())
 			require.Equal(t, tc.want.GetDisplayName(), res.Msg.GetDisplayName())
@@ -70,6 +70,6 @@ func TestWhoAmI(t *testing.T) {
 
 func TestWhoAmIWithoutTheMiddlewareIsUnauthenticated(t *testing.T) {
 	t.Parallel()
-	_, err := NewIdentityService().WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+	_, err := NewIdentityService(false).WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 	require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }

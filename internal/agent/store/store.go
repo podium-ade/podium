@@ -335,6 +335,15 @@ func (s *Store) GetSetting(ctx context.Context, key string, out any) error {
 	return nil
 }
 
+// DeleteSetting removes one stored value. A key that was never set is not an error: the
+// caller wants it gone, and it is.
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	if err := s.q.DeleteSetting(ctx, key); err != nil {
+		return fmt.Errorf("delete setting %s: %w", key, err)
+	}
+	return nil
+}
+
 func sessionFromRow(r db.Session) Session {
 	return Session{
 		ID:         r.ID,

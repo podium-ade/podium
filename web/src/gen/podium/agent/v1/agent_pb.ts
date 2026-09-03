@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4ylgIKDEFnZW50U2VydmljZRJbCgxMaXN0U2Vzc2lvbnMSJC5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVxdWVzdBolLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJVCgpHZXRTZXNzaW9uEiIucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXF1ZXN0GiMucG9kaXVtLmFnZW50LnYxLkdldFNlc3Npb25SZXNwb25zZRJSCglMaXN0VHVybnMSIS5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXNwb25zZULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiKwoXQ2xlYXJQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkiGgoYQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlMrwECgxBZ2VudFNlcnZpY2USWwoMTGlzdFNlc3Npb25zEiQucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVQoKR2V0U2Vzc2lvbhIiLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVzcG9uc2USUgoJTGlzdFR1cm5zEiEucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVzcG9uc2USWAoLR2V0U2V0dGluZ3MSIy5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVzcG9uc2USYQoOU2V0UHJvdmlkZXJLZXkSJi5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVzcG9uc2USZwoQQ2xlYXJQcm92aWRlcktleRIoLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVzcG9uc2VCyAEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCkFnZW50UHJvdG9QAVpHZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -282,6 +282,177 @@ export const ListTurnsResponseSchema: GenMessage<ListTurnsResponse> = /*@__PURE_
   messageDesc(file_podium_agent_v1_agent, 8);
 
 /**
+ * @generated from message podium.agent.v1.GetSettingsRequest
+ */
+export type GetSettingsRequest = Message<"podium.agent.v1.GetSettingsRequest"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.GetSettingsRequest.
+ * Use `create(GetSettingsRequestSchema)` to create a new message.
+ */
+export const GetSettingsRequestSchema: GenMessage<GetSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 9);
+
+/**
+ * ProviderSettings is everything the UI may know about a stored provider key. key_hint is
+ * the last four characters, computed once at save time: that is the only form in which any
+ * part of the key is ever read back.
+ *
+ * @generated from message podium.agent.v1.ProviderSettings
+ */
+export type ProviderSettings = Message<"podium.agent.v1.ProviderSettings"> & {
+  /**
+   * provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+   *
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: bool key_set = 2;
+   */
+  keySet: boolean;
+
+  /**
+   * key_hint is the last four characters of the key, or "" when no key is set.
+   *
+   * @generated from field: string key_hint = 3;
+   */
+  keyHint: string;
+
+  /**
+   * model is profile.yaml's model. Informational: the UI is not a model picker.
+   *
+   * @generated from field: string model = 4;
+   */
+  model: string;
+
+  /**
+   * set_by is the X-Podium-Login at the time of SetProviderKey, or "unknown".
+   *
+   * @generated from field: string set_by = 5;
+   */
+  setBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp set_at = 6;
+   */
+  setAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.ProviderSettings.
+ * Use `create(ProviderSettingsSchema)` to create a new message.
+ */
+export const ProviderSettingsSchema: GenMessage<ProviderSettings> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 10);
+
+/**
+ * @generated from message podium.agent.v1.GetSettingsResponse
+ */
+export type GetSettingsResponse = Message<"podium.agent.v1.GetSettingsResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.ProviderSettings provider = 1;
+   */
+  provider?: ProviderSettings | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.GetSettingsResponse.
+ * Use `create(GetSettingsResponseSchema)` to create a new message.
+ */
+export const GetSettingsResponseSchema: GenMessage<GetSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 11);
+
+/**
+ * @generated from message podium.agent.v1.SetProviderKeyRequest
+ */
+export type SetProviderKeyRequest = Message<"podium.agent.v1.SetProviderKeyRequest"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * SENSITIVE: never log this field. The handler wraps the request in a redacting
+   * slog.LogValuer so no log site has to remember.
+   *
+   * @generated from field: string key = 2;
+   */
+  key: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.SetProviderKeyRequest.
+ * Use `create(SetProviderKeyRequestSchema)` to create a new message.
+ */
+export const SetProviderKeyRequestSchema: GenMessage<SetProviderKeyRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 12);
+
+/**
+ * @generated from message podium.agent.v1.SetProviderKeyResponse
+ */
+export type SetProviderKeyResponse = Message<"podium.agent.v1.SetProviderKeyResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.ProviderSettings provider = 1;
+   */
+  provider?: ProviderSettings | undefined;
+
+  /**
+   * models is the ids the provider says this key can see, capped at 20. It exists so the UI
+   * can show proof that the key works.
+   *
+   * @generated from field: repeated string models = 2;
+   */
+  models: string[];
+
+  /**
+   * status is a human sentence about the save, or "" when there is nothing to add.
+   *
+   * @generated from field: string status = 3;
+   */
+  status: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.SetProviderKeyResponse.
+ * Use `create(SetProviderKeyResponseSchema)` to create a new message.
+ */
+export const SetProviderKeyResponseSchema: GenMessage<SetProviderKeyResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 13);
+
+/**
+ * @generated from message podium.agent.v1.ClearProviderKeyRequest
+ */
+export type ClearProviderKeyRequest = Message<"podium.agent.v1.ClearProviderKeyRequest"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ClearProviderKeyRequest.
+ * Use `create(ClearProviderKeyRequestSchema)` to create a new message.
+ */
+export const ClearProviderKeyRequestSchema: GenMessage<ClearProviderKeyRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 14);
+
+/**
+ * @generated from message podium.agent.v1.ClearProviderKeyResponse
+ */
+export type ClearProviderKeyResponse = Message<"podium.agent.v1.ClearProviderKeyResponse"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.ClearProviderKeyResponse.
+ * Use `create(ClearProviderKeyResponseSchema)` to create a new message.
+ */
+export const ClearProviderKeyResponseSchema: GenMessage<ClearProviderKeyResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 15);
+
+/**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
  * bearer token and reached from a browser only through podium-server, which proxies
  * /podium.agent.v1.AgentService/ behind its identity middleware. Later steps grow it:
@@ -317,6 +488,38 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof ListTurnsRequestSchema;
     output: typeof ListTurnsResponseSchema;
+  },
+  /**
+   * GetSettings reports what the conductor is configured with. It reads no secret value:
+   * there is no read endpoint on the secret store, by design.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.GetSettings
+   */
+  getSettings: {
+    methodKind: "unary";
+    input: typeof GetSettingsRequestSchema;
+    output: typeof GetSettingsResponseSchema;
+  },
+  /**
+   * SetProviderKey validates a provider key with the provider itself and, only if that
+   * succeeds, stores it as a Podium secret. An unvalidated key is never saved.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.SetProviderKey
+   */
+  setProviderKey: {
+    methodKind: "unary";
+    input: typeof SetProviderKeyRequestSchema;
+    output: typeof SetProviderKeyResponseSchema;
+  },
+  /**
+   * ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ClearProviderKey
+   */
+  clearProviderKey: {
+    methodKind: "unary";
+    input: typeof ClearProviderKeyRequestSchema;
+    output: typeof ClearProviderKeyResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_agent, 0);

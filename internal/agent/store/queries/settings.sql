@@ -4,3 +4,6 @@ on conflict (key) do update set value = excluded.value, updated_at = excluded.up
 
 -- name: GetSetting :one
 select value from settings where key = @key;
+
+-- name: DeleteSetting :exec
+delete from settings where key = @key;
