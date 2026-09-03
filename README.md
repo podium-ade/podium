@@ -222,6 +222,7 @@ M5 the web UI, M6 packaging and documentation — this commit.
 - [docs/storage.md](docs/storage.md) — Postgres, the object store, a worker's data dir, the image cache
 - [docs/networking.md](docs/networking.md) — the tailnet transport, identity, the ACL, troubleshooting
 - [docs/node-setup.md](docs/node-setup.md) — setting up a worker
+- [docs/agent.md](docs/agent.md) — the conductor (`podium-agent`): the Slack bot, profiles and skills, how a turn works
 - [deploy/README.md](deploy/README.md) — compose, the installer, the systemd unit
 - [deploy/.env.example](deploy/.env.example) — every `PODIUM_*` variable, commented
 
@@ -235,7 +236,7 @@ M5 the web UI, M6 packaging and documentation — this commit.
 
 ## Configuration
 
-Both daemons are configured entirely by environment. **Every variable is documented in
+Every daemon is configured entirely by environment. **Every variable is documented in
 [`deploy/.env.example`](deploy/.env.example)** — and `go test ./deploy/...` fails the build if
 the code reads one that file does not mention, or if that file documents one nothing reads any
 more.

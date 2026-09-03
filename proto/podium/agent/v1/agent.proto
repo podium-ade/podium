@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package podium.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
+// bearer token and reached from a browser only through podium-server, which proxies
+// /podium.agent.v1.AgentService/ behind its identity middleware. Later steps grow it:
+// settings (18), memory (19), skills and chat (21).
+service AgentService {
+  // ListSessions returns conversations the bot has taken part in, newest first.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // ListTurns returns one session's turns, newest first.
+  rpc ListTurns(ListTurnsRequest) returns (ListTurnsResponse);
+}
+
+// Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
+// source_key, which the source computes and the conductor never parses.
+message Session {
+  string id = 1;
+  // source_kind is "slack", "dev", and later "linear" or "chat".
+  string source_kind = 2;
+  string source_key = 3;
+  string profile = 4;
+  // skill is fixed when the session is created: one session, one skill.
+  string skill = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp last_turn_at = 7;
+}
+
+// Turn is one inbound message turned into one Podium task.
+message Turn {
+  string id = 1;
+  string session_id = 2;
+  // task_id is empty for the moment between the turn being recorded and the task being
+  // created, and stays empty for a turn whose task could not be created at all.
+  string task_id = 3;
+  // trigger_ref is the source's own reference to the message that started this turn.
+  string trigger_ref = 4;
+  // status is running, succeeded, failed, lost, cancelled or timeout.
+  string status = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  // num_turns and cost_usd come from the runtime's turn.json and are unset until it lands.
+  optional int32 num_turns = 8;
+  optional double cost_usd = 9;
+  // final_text is what the bot said, as it was relayed. It is content, never instructions.
+  string final_text = 10;
+}
+
+// Page is the same cursor shape podium.v1 uses: an opaque cursor and a bounded limit.
+message Page {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ListSessionsRequest {
+  Page page = 1;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListTurnsRequest {
+  string session_id = 1;
+  int32 limit = 2;
+}
+
+message ListTurnsResponse {
+  repeated Turn turns = 1;
+}

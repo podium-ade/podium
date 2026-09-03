@@ -22,6 +22,10 @@ services:
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates podium_agent, the conductor's own database. Init scripts run ONLY when the
+      # data directory is empty, so on an existing install create it by hand:
+      #   docker compose exec -T postgres createdb -U podium podium_agent
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
       interval: 2s
@@ -52,6 +56,33 @@ services:
       - server-state:/var/lib/podium
     # Also no published ports: the server listens only inside the tailnet, on 443 of its own
     # Tailscale device. There is no host port to firewall and no public ingress to protect.
+    restart: unless-stopped
+
+  # The conductor. See docs/agent.md.
+  #
+  # NOTE, and it is not a small one: under PODIUM_TRANSPORT=tailnet the server listens ONLY
+  # on 443 of its own Tailscale device. It has no port on the compose network, so a plain
+  # sidecar container cannot reach it — this service works only on a host where the conductor
+  # can route into the tailnet (the `host` transport with the machine's own tailscaled, or
+  # podium-agent run on the host rather than in compose). Left here as the recipe; the tested
+  # path is the dev transport in docker-compose.yml. PODIUM_AGENT_API_TOKEN is empty on
+  # purpose: over the tailnet, WhoIs names the caller.
+  #
+  # It needs a profile directory: `cp -r ../examples/agent ./agent` before the first `up`.
+  agent:
+    image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    depends_on:
+      - server
+    environment:
+      PODIUM_AGENT_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
+      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
+      PODIUM_AGENT_LISTEN: 0.0.0.0:8090
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
+      PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+    volumes:
+      - ./agent:/etc/podium/agent:ro
     restart: unless-stopped
 
   # A worker. In practice this runs on a *different machine* — that is the whole point of the

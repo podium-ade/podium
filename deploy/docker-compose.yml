@@ -36,6 +36,10 @@ services:
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates podium_agent, the conductor's own database. Init scripts run ONLY when the
+      # data directory is empty, so on an existing install create it by hand:
+      #   docker compose exec -T postgres createdb -U podium podium_agent
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
       interval: 2s
@@ -115,6 +119,42 @@ services:
     # healthcheck can exec. /healthz and /readyz are served for an external prober — point
     # your monitoring at http://127.0.0.1:8080/readyz, which is 503 while Postgres or the
     # object store is unreachable.
+
+  # The conductor: the bot's Slack identity, and the thing that turns a mention into one
+  # Podium task. It is an ordinary API client of the server — no database of the server's, no
+  # master key, no Docker socket. See docs/agent.md.
+  #
+  # It needs a profile directory. There is no default content for one, so copy the example
+  # before the first `up`:
+  #
+  #   cp -r ../examples/agent ./agent      # then edit ./agent/skills/general.yaml's image
+  #
+  agent:
+    image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    depends_on:
+      - server
+    environment:
+      PODIUM_AGENT_SERVER: http://server:8080
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_DEV_TOKEN:?}
+      # Its OWN database. deploy/postgres/init.sql creates it, but ONLY on an empty volume;
+      # on an existing install run `docker compose exec -T postgres createdb -U podium
+      # podium_agent` first.
+      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
+      # Inside the compose network only. There is deliberately no `ports:` here: the server
+      # is what a browser reaches the AgentService through.
+      PODIUM_AGENT_LISTEN: 0.0.0.0:8090
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      # Both or neither. Without them no source is started and the bot listens to nothing.
+      PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
+      PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+    volumes:
+      # Read-only, and it is the only boundary around what a turn may do: a skill file names
+      # the image, the tools and the secrets its turns get.
+      - ./agent:/etc/podium/agent:ro
+    restart: unless-stopped
+    # No healthcheck: the image is distroless, so there is nothing a compose healthcheck can
+    # exec. Point a prober at /readyz inside the network.
 
   # A worker on this same machine. Behind a profile because the usual shape is workers on
   # other machines — see deploy/install-node.sh and docs/networking.md.

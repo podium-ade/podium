@@ -58,6 +58,26 @@ builds:
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
       - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
 
+  # The conductor. Same shape as the server: a static binary and a distroless image, run on
+  # the control plane's host. It is not in the archive below on purpose — an operator who
+  # untars a release to set up a *worker* has no use for it, and the compose file pulls the
+  # image.
+  - id: podium-agent
+    main: ./cmd/podium-agent
+    binary: podium-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
   - id: podium-node
     main: ./cmd/podium-node
     binary: podium-node
@@ -188,6 +208,19 @@ dockers_v2:
     dockerfile: deploy/docker/cli.Dockerfile
     platforms: [linux/amd64, linux/arm64]
     images: ["ghcr.io/alvaroibarguen/podium"]
+    tags:
+      - "{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "sha-{{ .ShortCommit }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: true
+    labels: *labels
+
+  - id: agent
+    ids: [podium-agent]
+    dockerfile: deploy/docker/agent.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images: ["ghcr.io/alvaroibarguen/podium-agent"]
     tags:
       - "{{ .Version }}"
       - "v{{ .Major }}.{{ .Minor }}"

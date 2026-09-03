@@ -96,6 +96,36 @@ the server records who visited in a `users` table and then lets them do everythi
 reach the API can submit tasks (and therefore run code as root on every worker), drain nodes,
 delete secrets and delete nodes.
 
+### 5. The conductor and the bot
+
+`podium-agent` (see [`agent.md`](agent.md)) widens exposure and fixes nothing about the above.
+
+- **Whoever can tag the bot can run code on a worker with that skill's credentials.** Anybody in
+  a channel the bot is in — including a channel somebody else invites it to — can start a turn.
+  There is no allowlist of users and no roles. The **skill file is the only boundary**: a turn
+  gets exactly the secrets its own `skills/<name>.yaml` names, plus the reserved
+  `podium.agent.anthropic_api_key` the conductor attaches itself. Keep `secrets:` minimal per
+  skill and do not put a credential in a skill a public channel can reach.
+- **The Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`.** The `xoxb-` bot token can read and
+  post in every channel the bot is in; the `xapp-` app-level token opens the event connection.
+  `PODIUM_AGENT_TOKEN` is the only thing guarding the conductor's API, which lists every session
+  and every answer the bot has given.
+- **Text relayed out of a task is untrusted content.** The conductor posts a `final` message
+  verbatim and interprets none of it: it never parses an answer for a command, a channel name or
+  a user ID, and it cannot be talked into posting somewhere else. The reverse is also true and
+  more dangerous: a turn's *instruction* is whatever a human typed, so anybody who can tag the
+  bot can prompt-inject the agent inside its own container. The container is the boundary.
+- **A `message` event is never redacted.** The log redactor is a log-chunk pipeline and never
+  sees a message payload, so a task that puts a secret in its answer puts it in the database, in
+  the web UI and in the Slack thread. See *Redaction* below.
+- **The agent runtime runs with `bypassPermissions`.** No tool call inside a turn asks anybody
+  anything. That is deliberate — a turn is not interactive and there is nobody to ask — and it
+  means the sandbox in *3. A task container* is the whole of the protection.
+- **The conductor holds no privilege of the control plane's.** It has its own database, its own
+  API token, and no master key, no Docker socket and no node key. Compromising it gets an
+  attacker the bot's Slack tokens and the ability to submit tasks — which is already everything,
+  because there is no RBAC.
+
 ---
 
 ## Transports, and what crosses the wire
@@ -317,7 +347,11 @@ Everything below is a real hole, not a hypothetical:
   all — so a task can forge `step`, `artifact` and `message` events.
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
-- **`/metrics` and `/healthz` are unauthenticated** on both daemons.
+- **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
+- **Anyone who can tag the bot can run code on a worker.** The conductor has no allowlist and no
+  roles; a skill's `secrets:` list is the only boundary. See *5. The conductor and the bot*.
+- **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
+  a Slack thread.
 - **No audit for reads.** `audit_log` records secret set/delete/resolve/rotate. It does not
   record who listed nodes, read a task's log, or downloaded an artifact.
 - **Single server process.** Sessions are in memory; a second replica would see every node as

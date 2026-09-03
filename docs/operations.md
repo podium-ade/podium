@@ -10,14 +10,14 @@ do when something is wrong.
 Both daemons serve the same three, unauthenticated, so a probe reports what the process reports
 and not what a credential allows.
 
-| | `podium-server` | `podium-node` |
-|---|---|---|
-| where | the API listener (`127.0.0.1:8080` under `dev`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` |
-| `/healthz` | 200 while the process is up | 200 while the process is up |
-| `/readyz` | 200 `ok`; **503** with `postgres unreachable`, `object store unreachable: ...`, or (tailnet) a transport problem such as a node key within 30 days of expiring | 200 only while the **stream to the control plane is up**; 503 with `control plane stream is down` |
-| `/metrics` | Prometheus | Prometheus |
+| | `podium-server` | `podium-node` | `podium-agent` |
+|---|---|---|---|
+| where | the API listener (`127.0.0.1:8080` under `dev`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` | `PODIUM_AGENT_LISTEN`, default `127.0.0.1:8090` |
+| `/healthz` | 200 while the process is up | 200 while the process is up | 200 while the process is up |
+| `/readyz` | 200 `ok`; **503** with `postgres unreachable`, `object store unreachable: ...`, or (tailnet) a transport problem such as a node key within 30 days of expiring | 200 only while the **stream to the control plane is up**; 503 with `control plane stream is down` | 200 `ok, podium as <login>`; **503** with `agent database unreachable` or `podium api unreachable` |
+| `/metrics` | Prometheus | Prometheus | Prometheus, with `podium_agent_*` |
 
-Two things about `/readyz` that will confuse you otherwise:
+Three things about `/readyz` that will confuse you otherwise:
 
 - **The node's `/readyz` does not probe Docker.** The engine is checked once, at startup. After
   that readiness tracks only the control plane stream, so a node whose Docker daemon has died
@@ -25,6 +25,11 @@ Two things about `/readyz` that will confuse you otherwise:
 - **The server's `/readyz` failing on a near-expiry Tailscale node key is deliberate.** Tagged
   devices do not expire, so in a correctly tagged install it never fires; it exists to make an
   untagged deployment fail visibly at 60 days instead of silently at 90.
+- **The conductor's `/readyz` calls the Podium API's `WhoAmI`.** So it is 503 whenever the
+  control plane is down, which is correct — a conductor that cannot submit a task cannot run a
+  turn — but it means a server restart shows up as an unready conductor for a few seconds. It
+  does not probe Slack: the library reconnects on its own and a disconnect is logged and counted
+  rather than made a readiness failure.
 
 ---
 
@@ -103,6 +108,19 @@ docker compose exec -T postgres \
 ```
 
 `pg_dump` takes a snapshot, so nothing has to stop.
+
+If you run `podium-agent`, `podium_agent` is a **second database on the same server** and needs
+its own dump:
+
+```sh
+docker compose exec -T postgres \
+  pg_dump -U podium -Fc podium_agent > podium-agent-$(date -u +%Y%m%dT%H%M%SZ).dump
+```
+
+It is the lower-value of the two. It holds session and turn records — which conversation ran
+which skill, which task answered it, what the answer was — and nothing that cannot be
+reconstructed by asking again: the conversations themselves live in Slack. Losing it costs
+history and the relay's exactly-once ledger, not work.
 
 ```sh
 docker compose exec -T postgres \
