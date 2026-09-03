@@ -53,6 +53,7 @@ A task is somebody else's code. Podium sandboxes it:
 | Memory | `memory_mb`, with swap pinned to the same number, so exceeding it is an OOM kill and not a swapped-out machine |
 | PIDs | `resources.pids`, default 4096 |
 | Network | its own bridge network per task, shared only with its own sidecars |
+| Groups | gid 0 as a supplementary group, so a non-root task image can still open the runner event socket — see below |
 
 What that does **not** buy you:
 
@@ -66,11 +67,19 @@ What that does **not** buy you:
 - **Sidecars are not hardened like the task container.** They keep their capabilities and their
   writable root filesystem, because a stock database image chowns files and drops privileges on
   the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task.
-- **The runner event socket is world-writable inside the container** (mode 0666, so that a task
-  running as a non-root user can report). Any process in the task container can therefore forge
-  `step`, `artifact` and `message` events. Today that only produces cosmetic log entries and an
-  artifact upload the task could have made anyway; it becomes a real problem the moment those
-  events drive server-side state.
+- **The runner event socket is reachable by every process in the container**, so that a task
+  image running as a non-root user can report at all. The node sets the socket to mode 0666 on
+  the host, which is what a native Linux engine carries into the container. Docker Desktop does
+  not: it forwards a bind-mounted Unix socket through a proxy and presents it inside the
+  container as `root:root` mode 0660 whatever the host mode is, which locks out every non-root
+  image — so the task container also gets **gid 0 as a supplementary group**. That is the same
+  remedy people use for `/var/run/docker.sock`. With every capability dropped and
+  `no-new-privileges` set it buys nothing else than the group bit on root-group files, in an
+  image the task chose anyway; it is still a widening, and it is listed here because it applies
+  to every task, not only to an agent one.
+  Either way, any process in the task container can forge `step`, `artifact` and `message`
+  events. Today that only produces cosmetic log entries and an artifact upload the task could
+  have made anyway; it becomes a real problem the moment those events drive server-side state.
 - **A `message` event's text is untrusted content, and it is not redacted.** A task can forge a
   `message` of any type, with any text, naming any attachment. None of it drives server state —
   no status transition, no storage beyond the `task_events` row — but the text is written by an
@@ -303,8 +312,9 @@ Everything below is a real hole, not a hypothetical:
 - **The dev transport is plaintext**, secret values included.
 - **The tailnet transport has never been run against a real tailnet.**
 - **Redaction does not survive a node restart** and is best-effort at the best of times.
-- **The runner event socket is world-writable inside the container**, so a task can forge `step`
-  and `artifact` events.
+- **Every process in the task container can reach the runner event socket** — mode 0666 on the
+  host, plus gid 0 as a supplementary group on the container so a non-root image can open it at
+  all — so a task can forge `step`, `artifact` and `message` events.
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on both daemons.

@@ -196,6 +196,31 @@ dockers_v2:
     sbom: true
     labels: *labels
 
+  # TODO(step 16 → step 14's owner): publish the three agent runtime images.
+  #
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime          agent/runtime/Dockerfile
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime-browser  agent/runtime/Dockerfile.browser
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime-data     agent/runtime/Dockerfile.data
+  #
+  # Same tag set as every entry above ({{ .Version }}, v{{ .Major }}.{{ .Minor }},
+  # sha-{{ .ShortCommit }}, latest off a prerelease), same labels, sbom: true. Deliberately
+  # not wired up in step 16: `make agent-runtime` builds them locally as :dev and that is all
+  # the agentic track needs — a node runs tasks on its own engine, so a local tag is visible
+  # to a task without a registry.
+  #
+  # Three things make these entries unlike the ones above, and each needs deciding rather
+  # than copying:
+  #   1. They build from `agent/runtime`, not from a Go binary. `ids:` does not apply, and the
+  #      build context is that directory. goreleaser's dockers_v2 can do it, but there is no
+  #      binary to gate on, so nothing stops it running on a tree where pnpm never ran.
+  #   2. -browser and -data are layered on the base image (ARG RUNTIME_IMAGE, default
+  #      podium-agent-runtime:dev). Published builds must pass the pushed base by digest, and
+  #      goreleaser builds all entries in parallel — so either the ARG points at a published
+  #      tag or the three become one buildx bake.
+  #   3. The base is Debian and the browser base is Ubuntu Noble, so an amd64+arm64 manifest
+  #      under qemu is slow: the browser image is 4 GB on one architecture already.
+  # Also mirror the tags into deploy/docker-compose.yml, where the conductor's image goes.
+
 # The manifests are what people pull, so they are what is signed. UNVERIFIED: no image has
 # been built or signed from this repository yet, because the build machine may not create
 # container images. The first real release is where this is proved.
