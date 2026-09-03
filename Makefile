@@ -99,8 +99,11 @@ agent-runtime:
 		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
 		-t $(AGENT_RUNTIME)-data:dev -f agent/runtime/Dockerfile.data agent/runtime
 
+# The runtime's unit tests, then the image tests. The image tests need Docker and the
+# `make agent-runtime` tags; they SKIP with a message naming that target when either is
+# missing, so this target still works on a machine with no engine.
 agent-runtime-test:
-	cd agent/runtime && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+	cd agent/runtime && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm test:images
 
 test:
 	go test ./...

@@ -105,12 +105,39 @@ delete secrets and delete nodes.
 
 `podium-agent` (see [`agent.md`](agent.md)) widens exposure and fixes nothing about the above.
 
-- **Whoever can tag the bot can run code on a worker with that skill's credentials.** Anybody in
-  a channel the bot is in — including a channel somebody else invites it to — can start a turn.
-  There is no allowlist of users and no roles. The **skill file is the only boundary**: a turn
-  gets exactly the secrets its own `skills/<name>.yaml` names, plus the reserved
+- **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
+  credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
+  it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
+  allowlist of users and no roles. The **skill file is the only boundary**: a turn gets exactly
+  the secrets its own `skills/<name>.yaml` names, plus the reserved
   `podium.agent.anthropic_api_key` the conductor attaches itself. Keep `secrets:` minimal per
   skill and do not put a credential in a skill a public channel can reach.
+- **The `coder` skill has write access to your repositories, and a prompt injection can steer
+  it.** It is the one skill that names `podium.agent.github_token`, so it is the one skill whose
+  turns can push a branch and open a pull request. Everything a turn reads is untrusted: a
+  ticket's description, a comment on it, a Slack message, and **a README, a `CONTRIBUTING.md` or
+  a comment in the repository it just cloned**. Any of them can carry instructions, and the agent
+  has no way to tell them from the request. The mitigations reduce this and do not remove it:
+  - the pull request is opened as a **draft**, so no reviewer is paged and no automation merges
+    it, and a human reads the diff before anything happens;
+  - the prompt forbids committing to, pushing to, rebasing onto or force-pushing the default
+    branch — but a prompt is guidance, not a control, so put **branch protection** on the default
+    branch of every repository in `repos:` and require a review;
+  - the token should be a **fine-grained** PAT scoped to exactly those repositories, with
+    *Contents* and *Pull requests* read/write and nothing else — never a classic `repo` token,
+    which is every repository its owner can see, and never `workflow`;
+  - **do not point it at a repository that deploys on merge**, or at one whose CI runs on a
+    branch push with credentials of its own. A draft PR is not a boundary if pushing the branch
+    is already enough to run something.
+
+  Said plainly: an attacker who can write a Linear comment on a ticket the bot is assigned, or
+  post in a channel the bot is in, can attempt to make it commit code. Everything above makes
+  that attempt visible and slow. None of it makes it impossible.
+- **The Linear API key is as sensitive as `PODIUM_DEV_TOKEN`.** It is a *personal* API key on a
+  user seat: full read and write of every issue, comment, project and document that user can
+  see. Give the bot user access to only what it needs, the way you would a contractor. Podium
+  never logs it and sends it in one header to one endpoint (`PODIUM_AGENT_LINEAR_URL`), and it
+  is **never** injected into a task container — a turn cannot read the bot's Linear account.
 - **The Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`.** The `xoxb-` bot token can read and
   post in every channel the bot is in; the `xapp-` app-level token opens the event connection.
   `PODIUM_AGENT_TOKEN` is the only thing guarding the conductor's API, which lists every session
@@ -412,8 +439,12 @@ Everything below is a real hole, not a hypothetical:
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
-- **Anyone who can tag the bot can run code on a worker.** The conductor has no allowlist and no
-  roles; a skill's `secrets:` list is the only boundary. See *5. The conductor and the bot*.
+- **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
+  conductor has no allowlist and no roles; a skill's `secrets:` list is the only boundary. See
+  *5. The conductor and the bot*.
+- **The `coder` skill can push branches and open pull requests, and a prompt injection in a
+  ticket, a comment or a cloned repository's own files can steer it.** Draft PRs, branch
+  protection and a fine-grained token reduce this; nothing here removes it.
 - **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
   a Slack thread.
 - **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the

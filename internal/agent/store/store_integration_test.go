@@ -7,13 +7,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// expectedTables is every table 0001_init.sql creates, including the three that steps 20
-// and 21 own and this step deliberately leaves empty.
+// expectedTables is every table 0001_init.sql creates, including the ones steps 20 and 21
+// own. linear_cursor is written by step 20's Linear source; the two chat tables are still
+// unused.
 var expectedTables = []string{
 	"schema_migrations", "sessions", "turns", "relayed", "settings",
 	"linear_cursor", "chats", "chat_messages",
@@ -298,12 +300,37 @@ func TestSettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, "sam", got.SetBy, "a second put replaces the value")
 }
 
-// Steps 20 and 21 own these; this step creates them and leaves them empty so neither step
-// has to ship a migration for a shape that is already decided.
+// TestTheLinearCursorRoundTrips. The watermark is the whole of the Linear source's state:
+// the source itself never touches this store, so this pair of methods is the only place it
+// is persisted, and losing it means replaying 24 hours of tickets.
+func TestTheLinearCursorRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	_, err := s.GetLinearCursor(ctx, LinearCursorKey)
+	require.ErrorIs(t, err, ErrNotFound, "a database that has never polled has no watermark")
+
+	first := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	require.NoError(t, s.PutLinearCursor(ctx, LinearCursorKey, first))
+	got, err := s.GetLinearCursor(ctx, LinearCursorKey)
+	require.NoError(t, err)
+	assert.True(t, got.Equal(first), "want %s, got %s", first, got)
+	assert.Equal(t, time.UTC, got.Location(), "every timestamp out of this store is UTC")
+
+	second := first.Add(30 * time.Minute)
+	require.NoError(t, s.PutLinearCursor(ctx, LinearCursorKey, second))
+	got, err = s.GetLinearCursor(ctx, LinearCursorKey)
+	require.NoError(t, err)
+	assert.True(t, got.Equal(second), "a second put advances the watermark")
+}
+
+// Steps 20 and 21 own these; step 17 creates them and leaves them empty so neither step
+// has to ship a migration for a shape that is already decided. linear_cursor is now
+// written by the Linear source, so only the chat tables are still untouched.
 func TestTheLaterStepsTablesExistAndAreEmpty(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	for _, table := range []string{"linear_cursor", "chats", "chat_messages"} {
+	for _, table := range []string{"chats", "chat_messages"} {
 		var n int
 		require.NoError(t, s.pool.QueryRow(ctx, "select count(*) from "+table).Scan(&n))
 		assert.Zero(t, n, "%s must be created empty", table)

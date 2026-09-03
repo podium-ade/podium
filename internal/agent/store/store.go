@@ -344,6 +344,33 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	return nil
 }
 
+// LinearCursorKey is the only key in the linear_cursor table: the high-water mark of
+// Issue.updatedAt the Linear source has already turned into events.
+const LinearCursorKey = "issues_updated_at"
+
+// GetLinearCursor reads the poll watermark. ErrNotFound means the source has never run
+// against this database, which is what makes the first tick look 24 hours back.
+func (s *Store) GetLinearCursor(ctx context.Context, key string) (time.Time, error) {
+	at, err := s.q.GetLinearCursor(ctx, key)
+	if noRows(err) {
+		return time.Time{}, fmt.Errorf("%w: linear cursor %s", ErrNotFound, key)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get linear cursor %s: %w", key, err)
+	}
+	return at.UTC(), nil
+}
+
+// PutLinearCursor advances the poll watermark. The caller writes it AFTER the page's
+// events have been handed to the conductor, so a crash in between replays the page rather
+// than losing it.
+func (s *Store) PutLinearCursor(ctx context.Context, key string, at time.Time) error {
+	if err := s.q.PutLinearCursor(ctx, db.PutLinearCursorParams{Key: key, UpdatedAt: at.UTC()}); err != nil {
+		return fmt.Errorf("put linear cursor %s: %w", key, err)
+	}
+	return nil
+}
+
 func sessionFromRow(r db.Session) Session {
 	return Session{
 		ID:         r.ID,

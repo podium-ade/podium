@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 // DefaultListen is where the conductor serves its API, health and metrics. Loopback,
@@ -37,6 +38,20 @@ const DefaultMemoryTaskURL = "http://host.docker.internal:8888"
 // DefaultMemoryBank is the one memory bank every turn shares. Hindsight creates a bank on
 // its first write, so nothing provisions this.
 const DefaultMemoryBank = "podium"
+
+// DefaultLinearURL is Linear's GraphQL endpoint. It is overridable so a test can point the
+// source at an httptest stub and so an install behind an egress proxy can name one; it is
+// not a "which Linear" knob.
+const DefaultLinearURL = "https://api.linear.app/graphql"
+
+// DefaultLinearPollInterval is how often the Linear source asks for issues that changed.
+// Linear bills 2,500 requests an hour against a personal API key, so 30s of one query is
+// two orders of magnitude inside the budget.
+const DefaultLinearPollInterval = 30 * time.Second
+
+// MinLinearPollInterval is the floor. Polling harder than this buys nothing a human would
+// notice and spends a quota shared by every key that user owns.
+const MinLinearPollInterval = 10 * time.Second
 
 // bankNameRE constrains the bank name because it becomes a path segment in the MCP URL the
 // runtime is handed, and in the REST paths this process builds.
@@ -83,6 +98,21 @@ type Config struct {
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
 	// every turn's container gets it. SENSITIVE: never log it.
 	MemoryAPIKey string
+	// LinearAPIKey is PODIUM_AGENT_LINEAR_API_KEY: a PERSONAL API key belonging to the bot
+	// user, sent bare in Authorization (Linear reserves Bearer for OAuth tokens). Empty
+	// turns the Linear source off entirely. SENSITIVE: never log it.
+	LinearAPIKey string
+	// LinearURL is PODIUM_AGENT_LINEAR_URL, default DefaultLinearURL.
+	LinearURL string
+	// LinearPollInterval is PODIUM_AGENT_LINEAR_POLL_INTERVAL, default 30s, floor 10s.
+	// Linear is polled and never listened to: the conductor dials out, like every other
+	// thing on this host.
+	LinearPollInterval time.Duration
+	// UIURL is PODIUM_AGENT_UI_URL: the Podium web UI as a HUMAN reaches it, which is not
+	// always how this process reaches the API (a tailnet name, a reverse proxy). Default
+	// Server. It is used only to build the fallback link to a task page when an
+	// attachment cannot be uploaded into the conversation.
+	UIURL string
 	// DevSource is PODIUM_AGENT_DEV_SOURCE. TEST ONLY: it mounts an in-process source and
 	// two unauthenticated-by-anything-but-the-bearer routes that inject inbound events.
 	DevSource bool
@@ -104,7 +134,13 @@ func FromEnv() Config {
 		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
 		MemoryBank:       envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
 		MemoryAPIKey:     os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
-		DevSource:        envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearAPIKey:     os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
+		LinearURL:        envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		// A malformed duration is left at zero here and named by Validate, which is where
+		// every other bad value is reported too.
+		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
+		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -112,6 +148,20 @@ func FromEnv() Config {
 // rejected exactly one of them.
 func (c Config) SlackEnabled() bool {
 	return c.SlackAppToken != "" && c.SlackBotToken != ""
+}
+
+// LinearEnabled reports whether the Linear source should be started. One variable turns it
+// on: an API key belonging to the bot user.
+func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// WebURL is the base URL a human uses for the Podium web UI. PODIUM_AGENT_UI_URL when set,
+// the API base URL otherwise — which is right for every dev install and wrong for exactly
+// the case the variable exists for.
+func (c Config) WebURL() string {
+	if c.UIURL != "" {
+		return c.UIURL
+	}
+	return c.Server
 }
 
 // MemoryEnabled reports whether shared memory is configured. Memory is optional: an
@@ -174,6 +224,9 @@ func (c Config) Validate() error {
 	if err := c.validateMemory(); err != nil {
 		return err
 	}
+	if err := c.validateLinear(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -206,8 +259,53 @@ func (c Config) LogValue() slog.Value {
 		slog.String("memory_task_url", c.MemoryTaskURL),
 		slog.String("memory_bank", c.MemoryBank),
 		slog.Bool("memory_api_key_set", c.MemoryAPIKey != ""),
+		slog.Bool("linear", c.LinearEnabled()),
+		slog.String("linear_url", c.LinearURL),
+		slog.Duration("linear_poll_interval", c.LinearPollInterval),
+		slog.String("ui_url", c.WebURL()),
 		slog.Bool("dev_source", c.DevSource),
 	)
+}
+
+// validateLinear checks the endpoint and the interval. An empty value means the default:
+// FromEnv has already applied it, so an empty one here can only come from a hand-built
+// Config, and it only matters when a key makes the source start.
+func (c Config) validateLinear() error {
+	if c.LinearURL != "" {
+		u, err := url.Parse(c.LinearURL)
+		if err != nil {
+			return fmt.Errorf("PODIUM_AGENT_LINEAR_URL=%q is not a URL: %w", c.LinearURL, err)
+		}
+		if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("PODIUM_AGENT_LINEAR_URL=%q must be an absolute http:// or https:// "+
+				"URL ending in the GraphQL path (default %s)", c.LinearURL, DefaultLinearURL)
+		}
+	}
+	switch {
+	case c.LinearPollInterval < 0:
+		// envDuration reports an unparseable value this way, so the name is reported here
+		// rather than the process running on a number nobody chose.
+		return errors.New("PODIUM_AGENT_LINEAR_POLL_INTERVAL is not a duration: write it as " +
+			"30s, 2m or 1h")
+	case c.LinearPollInterval > 0 && c.LinearPollInterval < MinLinearPollInterval:
+		return fmt.Errorf("PODIUM_AGENT_LINEAR_POLL_INTERVAL=%s is below the %s floor: Linear's "+
+			"per-hour request budget is shared by every key the bot user owns",
+			c.LinearPollInterval, MinLinearPollInterval)
+	}
+	if c.LinearEnabled() {
+		if c.LinearURL == "" {
+			return errors.New("PODIUM_AGENT_LINEAR_URL is empty")
+		}
+		if c.LinearPollInterval == 0 {
+			return errors.New("PODIUM_AGENT_LINEAR_POLL_INTERVAL is empty")
+		}
+	}
+	if c.UIURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateMemory refuses a half-configured memory: a URL with no key would mean every
@@ -260,6 +358,21 @@ func envOr(key, fallback string) string {
 // envBool treats anything strconv understands as such and everything else as false: the
 // same rule internal/server/config.go uses, and for the same reason — a knob that widens
 // exposure must not turn itself on because somebody wrote "yes".
+// envDuration parses a Go duration, falling back to the default when the variable is
+// absent. An unparseable value becomes -1 rather than the default, so Validate names it
+// instead of the process quietly running on a number nobody asked for.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return -1
+	}
+	return d
+}
+
 func envBool(key string) bool {
 	v, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && v

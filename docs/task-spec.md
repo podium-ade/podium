@@ -241,6 +241,18 @@ binding port 80 — and exclude everything that is a route out of the container.
 and stays writable; `/tmp` gets a 1 GB tmpfs, because too much software assumes it can write
 there.
 
+**There is no `/dev/shm` knob.** Every task container gets the engine's default, **64 MB**, and
+a spec cannot change it. The one thing Podium runs that would plausibly want more is Chromium in
+the browser agent image, and it was measured: rendering and full-page-capturing a 32 MB page
+(eight 1000×1000 images, 1500 DOM nodes, thirty canvases) inside a Podium task with the default
+hardening used **0 KB** of `/dev/shm`, with and without `--disable-dev-shm-usage`. Modern
+Chromium on Linux prefers `memfd` for its shared buffers. So the helper at
+`/opt/podium-agent/bin/screenshot` passes `--disable-dev-shm-usage` anyway — it costs nothing and
+covers the engines where Chromium does fall back to `/dev/shm` — and anything writing its own
+Playwright inside a task should pass it too. If some future workload genuinely needs shared
+memory, adding `hardening.shm_mb` is an additive proto field (`Hardening` field 3) applied as
+`HostConfig.ShmSize`; nothing needs it today.
+
 **Sidecars are hardened less.** They get `no-new-privileges` and their own `resources`, and
 nothing else: a stock database image usually chowns a data directory and drops to an
 unprivileged user on the way up, which dropping every capability would break.

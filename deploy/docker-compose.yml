@@ -213,9 +213,18 @@ services:
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
       PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
-      # Both or neither. Without them no source is started and the bot listens to nothing.
+      # Both or neither. Without them no Slack source is started.
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+      # The bot user's personal Linear API key. Empty means no Linear source. A key that is
+      # set and does not work stops this container at boot.
+      PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
+      PODIUM_AGENT_LINEAR_POLL_INTERVAL: ${PODIUM_AGENT_LINEAR_POLL_INTERVAL:-30s}
+      PODIUM_AGENT_LINEAR_URL: ${PODIUM_AGENT_LINEAR_URL:-https://api.linear.app/graphql}
+      # The web UI as a human reaches it. Default is PODIUM_AGENT_SERVER, which inside this
+      # network is http://server:8080 and is NOT reachable from a browser — so set it to
+      # whatever address people actually use if you want the fallback links to work.
+      PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}
       # Shared memory. Two URLs because there are two vantage points: the conductor reaches
       # Hindsight over the compose network, and a task container reaches it through the
       # host. Set PODIUM_AGENT_MEMORY_URL to the empty string to run with no memory at all —

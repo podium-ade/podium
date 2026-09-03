@@ -124,6 +124,12 @@ services:
       PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+      PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
+      PODIUM_AGENT_LINEAR_POLL_INTERVAL: ${PODIUM_AGENT_LINEAR_POLL_INTERVAL:-30s}
+      PODIUM_AGENT_LINEAR_URL: ${PODIUM_AGENT_LINEAR_URL:-https://api.linear.app/graphql}
+      # The web UI as a human reaches it. On a tailnet that is the server's tailnet name,
+      # which is also PODIUM_AGENT_SERVER, so the default is right here.
+      PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}
       # Shared memory. The task URL is what a container on a WORKER reaches Hindsight at,
       # which on a tailnet is this host's tailnet IP rather than host.docker.internal.
       PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://hindsight:8888}
