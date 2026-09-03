@@ -16,6 +16,9 @@ const setProviderKey = vi.fn();
 const clearProviderKey = vi.fn();
 const listSessions = vi.fn();
 const listTurns = vi.fn();
+const listChats = vi.fn();
+const listSkills = vi.fn();
+const streamChat = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -27,6 +30,9 @@ vi.mock("../lib/client", async () => {
       clearProviderKey: (...a: unknown[]) => clearProviderKey(...a),
       listSessions: (...a: unknown[]) => listSessions(...a),
       listTurns: (...a: unknown[]) => listTurns(...a),
+      listChats: (...a: unknown[]) => listChats(...a),
+      listSkills: (...a: unknown[]) => listSkills(...a),
+      streamChat: (...a: unknown[]) => streamChat(...a),
     },
   };
 });
@@ -74,8 +80,13 @@ describe("AgentPage", () => {
     clearProviderKey.mockReset();
     listSessions.mockReset();
     listTurns.mockReset();
+    listChats.mockReset();
+    listSkills.mockReset();
+    streamChat.mockReset();
     getSettings.mockResolvedValue(notSet);
     listSessions.mockResolvedValue({ sessions: [], nextCursor: "" });
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    listSkills.mockResolvedValue({ skills: [], profileDisplayName: "Podium" });
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
@@ -103,15 +114,28 @@ describe("AgentPage", () => {
       "aria-current",
       "page",
     );
-    // The three tabs this build ships. 21 adds one more line to the same array.
+    // The four tabs this build ships. This assertion exists so a tab cannot appear
+    // without a test noticing: add the line to the tabs array and this list together.
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
       "Settings",
       "Sessions",
       "Memory",
+      "Chat",
     ]);
+
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("link", { name: "Settings" }));
     expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+  });
+
+  it("keeps the Chat tab active on a deep link to one chat", async () => {
+    // /agent/chat/<id> is a real route, not a state flag, so a link into a conversation
+    // opens it with the tab lit.
+    mount("/agent/chat/chat_01abc");
+    expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
   });
 
   it("saves a key through the RPC and shows it as set afterwards", async () => {

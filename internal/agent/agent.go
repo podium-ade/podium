@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/alvaroibarguen/podium/internal/agent/api"
+	"github.com/alvaroibarguen/podium/internal/agent/chat"
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/config"
 	agentlinear "github.com/alvaroibarguen/podium/internal/agent/linear"
@@ -47,6 +48,7 @@ type Agent struct {
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
+	chat      *chat.Source
 	dev       *api.DevSource
 	memory    memory.Client
 	http      *http.Server
@@ -162,6 +164,23 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		sources = append(sources, a.linear)
 	}
+	// The web chat is always on: it needs no credential and no external service, and the
+	// UI's Chat tab is only as good as the source behind it.
+	a.chat, err = chat.New(chat.Options{
+		Store:       st,
+		DisplayName: profile.DisplayName,
+		UIURL:       cfg.WebURL(),
+		// The web chat is what profile.yaml's chat_default_skill is for, so a message
+		// that names no skill runs it rather than the profile's general default.
+		DefaultSkill: profile.ChatSkill(),
+		Logger:       logger,
+	})
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	sources = append(sources, a.chat)
+
 	if cfg.DevSource {
 		logger.Warn("DEV SOURCE ENABLED — TEST ONLY. /dev/inbound injects messages as if a human " +
 			"had sent them and /dev/outbound reports everything this bot says. Never set " +
@@ -221,11 +240,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		kinds = append(kinds, src.Kind())
 	}
 	logger.Info("conductor configured", "config", cfg,
-		"profile", profile.Name, "skills", profile.SkillNames(), "sources", kinds)
-	if len(kinds) == 0 {
-		logger.Warn("no source is enabled: nothing will ever start a turn. Set both " +
-			"PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN, or " +
-			"PODIUM_AGENT_LINEAR_API_KEY.")
+		"profile", profile.Name, "skills", profile.SkillNames(),
+		"chat_skill", profile.ChatSkill(), "sources", kinds)
+	if !cfg.SlackEnabled() && !cfg.LinearEnabled() {
+		logger.Info("no Slack or Linear credentials: the web chat at /agent/chat is the only " +
+			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
+			"PODIUM_AGENT_SLACK_BOT_TOKEN, or PODIUM_AGENT_LINEAR_API_KEY, to add the others.")
 	}
 	return a, nil
 }
@@ -248,6 +268,8 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 		Model:            a.profile.Model,
 		AnthropicBaseURL: a.cfg.AnthropicBaseURL,
 		Memory:           a.memory,
+		Profile:          a.profile,
+		Chat:             a.chat,
 		Logger:           a.logger,
 	}), opts...))
 

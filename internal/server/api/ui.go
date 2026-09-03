@@ -15,10 +15,18 @@ import (
 // compiled at build time into one stylesheet, and the only network the page makes is Connect
 // calls back to this origin. Nothing here needs 'unsafe-inline' — React applies dynamic styles
 // through the CSSOM, which CSP does not govern.
+//
+// img-src allows blob: because a chat message's image attachment CANNOT be an <img src>
+// pointing at /artifacts/{id}: that route is behind the identity middleware and an <img>
+// carries no Authorization header. The page fetches the bytes itself (connect-src 'self',
+// already allowed) and shows them from a blob URL. blob: does not widen what the page can
+// reach — a blob's bytes came from a request this policy already permitted — it only lets
+// the page display bytes it already has. Without it the browser blocks the image and the
+// chat shows an empty box, which is how this was found.
 const contentSecurityPolicy = "default-src 'self'; " +
 	"script-src 'self'; " +
 	"style-src 'self'; " +
-	"img-src 'self' data:; " +
+	"img-src 'self' data: blob:; " +
 	"font-src 'self'; " +
 	"connect-src 'self'; " +
 	"base-uri 'none'; " +

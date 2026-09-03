@@ -19,7 +19,7 @@ func TestAgentProfileLoads(t *testing.T) {
 
 	require.Equal(t, "podium", p.Name)
 	require.Equal(t, "general", p.DefaultSkill)
-	require.Equal(t, []string{"coder", "general"}, p.SkillNames())
+	require.Equal(t, []string{"analyst", "coder", "general"}, p.SkillNames())
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
 
 	general := p.Skills["general"]
@@ -45,6 +45,41 @@ func TestAgentProfileLoads(t *testing.T) {
 	require.Equal(t, "podium.agent.github_token", coder.Secrets[0].Name)
 	require.Equal(t, "GITHUB_TOKEN", coder.Secrets[0].Key)
 	require.False(t, general.Linear, "only one skill takes tickets")
+
+	// The analyst skill is what the web chat starts with, and its two warehouse secrets are
+	// the whole of its access: the read-only role behind one of them is the real control.
+	// The example ships both because docs/agent.md tells a deployment to delete the line it
+	// does not use, and a test that pinned one would make the other look wrong.
+	analyst := p.Skills["analyst"]
+	require.Equal(t, "analyst", p.ChatSkill(), "profile.yaml: chat_default_skill")
+	require.Equal(t, "podium-agent-runtime-data:dev", analyst.Image)
+	require.NotEmpty(t, analyst.SystemPrompt, "the skill prompt must be read from prompts/analyst.md")
+	require.False(t, analyst.Linear, "only one skill takes tickets")
+	require.Empty(t, analyst.Labels, "a warehouse query needs no special node")
+	require.Len(t, analyst.Secrets, 2)
+	require.Equal(t, "podium.agent.warehouse_url", analyst.Secrets[0].Name)
+	require.Equal(t, "WAREHOUSE_URL", analyst.Secrets[0].Key)
+	require.Equal(t, "podium.agent.warehouse_credentials", analyst.Secrets[1].Name)
+	require.Equal(t, "/podium/secrets/warehouse.json", analyst.Secrets[1].Key)
+	// Nothing but the coder skill gets the GitHub token, and nothing but the analyst gets a
+	// warehouse credential. A skill only ever gets the secrets its own file names.
+	for _, ref := range coder.Secrets {
+		require.NotContains(t, ref.Name, "warehouse", "the coder skill has no warehouse access")
+	}
+	for _, ref := range analyst.Secrets {
+		require.NotEqual(t, "podium.agent.github_token", ref.Name,
+			"the analyst skill has no repository access")
+	}
+
+	// The chat's skill chip: an explicit skill from the source wins over every routing rule,
+	// which is how a human overrides the chat default for one message.
+	chip := p.Select("general", "", "how many active accounts last month")
+	require.Equal(t, "general", chip.Skill.Name)
+	require.True(t, chip.Explicit)
+	// And typing it still works.
+	typed := p.Select("", "", "/analyst how many active accounts last month")
+	require.Equal(t, "analyst", typed.Skill.Name)
+	require.Equal(t, "how many active accounts last month", typed.Instruction)
 
 	// Story four's entry point: `/coder …` in Slack. The prefix rule is step 17's and the
 	// skill is this step's, and the two only meet in this directory.

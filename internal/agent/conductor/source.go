@@ -86,6 +86,11 @@ type Attachment struct {
 	// TaskID is the task the artifact belongs to, so a source that cannot upload the file
 	// can link to it where it actually lives.
 	TaskID string
+	// ArtifactID is the artifact this file is, in the control plane. A source whose reader
+	// is on the same origin as the control plane — the web chat — records the id and lets
+	// the browser fetch GET /artifacts/{id} itself rather than relaying the bytes. Slack
+	// and Linear ignore it and upload Body.
+	ArtifactID string
 }
 
 // Source is one place conversations happen. Steps 20 and 21 implement this same interface

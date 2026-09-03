@@ -217,6 +217,56 @@ delete secrets and delete nodes.
   at that point the header has to become a signed assertion, and this document is the record
   that it is not one yet.
 
+### The analyst and your warehouse
+
+The `analyst` skill (see [`agent.md`](agent.md#the-analyst-skill)) is the third widening in this
+track, and it is the one that touches data nobody wrote for a bot.
+
+- **It reads everything its credential can read.** There is no table allowlist, no column
+  masking and no row filter anywhere in Podium. Whatever `podium.agent.warehouse_url` or
+  `podium.agent.warehouse_credentials` can select, a turn can select — and any question from
+  anybody who can reach the chat, or the channel, can be the one that selects it. **Use a
+  read-only role with a statement timeout**, and scope it to the schemas an analyst may see. The
+  recipe is in [`agent.md`](agent.md#the-read-only-role-is-the-control-not-the-prompt).
+- **The read-only role is the control. The prompt is not.** `prompts/analyst.md` tells the agent
+  never to modify data, and says in as many words that the credential is the real control and
+  the instruction is a courtesy. A prompt injection in a question, in a Slack thread, or in a
+  memory a previous turn retained can talk past a prompt; it cannot talk past
+  `default_transaction_read_only`.
+- **Row-level data can end up in a chat transcript, in Hindsight memory, and (for the same skill
+  via Slack) in a Slack channel.** Those are the words, and they mean exactly what they say. An
+  answer is stored in `chat_messages` in `podium_agent` for ever; the same skill asked over Slack
+  posts its answer into the channel, where everybody in it can read it and Slack keeps it under
+  your workspace's retention; and the end-of-turn retain puts the answer into the shared memory
+  bank, which every later turn of every skill reads. **A customer's name, email address or
+  balance that reaches an answer has left the warehouse's access controls behind and is now
+  governed by Slack's, by `podium_agent`'s and by `podium_memory`'s** — three places with no
+  RBAC, no retention and no per-user scoping. If your warehouse holds personal data, that is the
+  sentence to take to whoever owns your data-protection obligations before you point this skill
+  at it.
+- The prompt's "keep result tables to 50 rows, and never retain row-level data" rules exist for
+  exactly that reason, and they are **a courtesy, not a control** — the same distinction as
+  above. Nothing in Podium inspects an answer for personal data, and a `message` event is never
+  redacted (see *Redaction* below). The only real controls are the credential's own grants and
+  which channels the skill is reachable from.
+- **The web UI's CSP allows `blob:` images, and that is new in this step.** A chat
+  attachment cannot be an `<img src="/artifacts/{id}">`: that route is behind the identity
+  middleware and an `<img>` carries no Authorization header. So the page fetches the bytes
+  itself — a request `connect-src 'self'` already allowed — and displays them from a blob
+  URL, which needs `img-src … blob:`. It widens nothing about what the page can *reach*: a
+  blob's bytes came from a request this policy already permitted, and `blob:` in `img-src`
+  cannot name a remote host. What it does mean is that **bytes a task produced are decoded
+  by the browser**, so an image decoder bug is reachable from a turn's output. The
+  compensating decision is in `ChatAttachments.tsx`: only raster types are ever rendered or
+  handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
+  `blob:` URL inherits the app's origin, which is where the dev token lives.
+- **A chat belongs to a login, and that is a partition rather than a permission.**
+  `ListChats`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
+  and the login is the one `podium-server` asserted. But every login is fully trusted — there is
+  still no RBAC — so this stops an accident and one honest mistake, not an operator who wants to
+  read somebody else's conversation: whoever can reach the API can read `podium_agent` directly,
+  and the answers are also in `turns.final_text` with no login on them at all.
+
 ---
 
 ## Transports, and what crosses the wire
@@ -446,7 +496,13 @@ Everything below is a real hole, not a hypothetical:
   ticket, a comment or a cloned repository's own files can steer it.** Draft PRs, branch
   protection and a fine-grained token reduce this; nothing here removes it.
 - **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
-  a Slack thread.
+  a Slack thread, a web-chat transcript and the shared memory.
+- **The `analyst` skill reads everything its warehouse credential can read**, and row-level data
+  in an answer lands in a chat transcript, in Hindsight memory and (over Slack) in a channel. A
+  read-only role with a statement timeout is the only real control; the prompt's rules are a
+  courtesy. See *The analyst and your warehouse*.
+- **A web chat is partitioned by login, not protected by it.** Another login's chat answers
+  `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the
   only record of who did it is `set_by` on the current key.
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`

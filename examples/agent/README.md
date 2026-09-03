@@ -149,9 +149,19 @@ Exit codes, and never any others:
 ## The other two images
 
 `podium-agent-runtime-browser:dev` adds Playwright and Chromium (the `coder` skill).
-`podium-agent-runtime-data:dev` adds `psql`, `bq` and `duckdb` (the analyst skill, step 21). Both
-run the same `dist/` and the same `node_modules` as the base image — the layer is copied out of it
+`podium-agent-runtime-data:dev` adds `psql`, `bq`, `duckdb`, and `python3` with `matplotlib` and
+`pandas` (the `analyst` skill — see [`docs/agent.md`](../../docs/agent.md#the-analyst-skill)). It
+does **not** inherit the browser image: a warehouse query has no business carrying Chromium. All
+three run the same `dist/` and the same `node_modules` as the base image — the layer is copied out of it
 rather than rebuilt — so they cannot drift, and both take exactly the same brief.
+
+Check the data image the way its acceptance item does — note the `--entrypoint`, without which
+`sh -c …` is passed to the agent runtime as arguments and the probe silently runs the agent:
+
+```sh
+docker run --rm --user agent --entrypoint sh podium-agent-runtime-data:dev \
+  -c 'psql --version && bq version && duckdb --version && python3 -c "import matplotlib, pandas"'
+```
 
 ### The screenshot helper
 

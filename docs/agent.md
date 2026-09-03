@@ -181,6 +181,8 @@ display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
 model: claude-opus-5         # required
 default_skill: general       # required; must name a loaded skill
+chat_default_skill: analyst  # optional; the skill /agent/chat starts with.
+                             # Must name a loaded skill; unset means default_skill.
 ```
 
 ### `skills/<name>.yaml`
@@ -246,8 +248,8 @@ its own environment.
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | the `coder` skill — the only one whose file names it. See *The coder skill* |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
-| `podium.agent.warehouse_url` | (step 21) | the analyst skill |
-| `podium.agent.warehouse_credentials` | (step 21) | the analyst skill |
+| `podium.agent.warehouse_url` | `WAREHOUSE_URL` | the `analyst` skill, for a Postgres-compatible warehouse. See *The analyst skill* |
+| `podium.agent.warehouse_credentials` | `/podium/secrets/warehouse.json` | the `analyst` skill, for BigQuery. **Set one of these two and delete the other line from the skill file** |
 
 The Anthropic key must **exist** before any turn can run, even a dry run: the task spec names it
 and the control plane refuses a task that names a secret it does not have. That failure reaches
@@ -542,13 +544,91 @@ refuses a full-page capture of a very long page on its own account — take the 
 
 ---
 
+## The analyst skill
+
+`examples/agent/skills/analyst.yaml` and `examples/agent/prompts/analyst.md`. It is what the web
+chat starts with (`profile.yaml: chat_default_skill: analyst`) and it is reachable from Slack as
+`/analyst …`. It answers a question from the data warehouse, shows the SQL it ran, and attaches a
+CSV or a PNG when the answer does not fit in a bubble.
+
+It runs `podium-agent-runtime-data`, which carries `psql`, `bq`, the `duckdb` CLI, and `python3`
+with `matplotlib` and `pandas` (`MPLBACKEND=Agg`, so a chart needs no display). It deliberately
+does **not** inherit the browser image: a warehouse query has no business carrying Chromium.
+
+### The two credential modes
+
+A deployment sets **one** of these and **deletes the other line from the skill file**. A task
+naming a secret the control plane does not have is refused before it reaches a node, so leaving
+both in place means no turn of this skill ever runs.
+
+```sh
+# Postgres-compatible: one connection string.
+podium secret set podium.agent.warehouse_url        # postgres://podium_analyst:…@host/warehouse
+# BigQuery: a service-account key file.
+podium secret set podium.agent.warehouse_credentials --file sa.json
+```
+
+The first lands as `WAREHOUSE_URL` in the container's environment; the second as
+`/podium/secrets/warehouse.json` on a tmpfs, and the prompt exports
+`GOOGLE_APPLICATION_CREDENTIALS` at it. The prompt checks which one is there rather than assuming.
+
+### The read-only role is the control, not the prompt
+
+The prompt says not to modify data. **That is a courtesy.** The thing that actually stops a turn
+writing to your warehouse is the credential it is given, so give it one that cannot write:
+
+```sql
+create role podium_analyst login password '…';
+grant connect on database warehouse to podium_analyst;
+grant usage on schema public to podium_analyst;
+grant select on all tables in schema public to podium_analyst;
+alter default privileges in schema public grant select on tables to podium_analyst;
+alter role podium_analyst set statement_timeout = '60s';
+alter role podium_analyst set default_transaction_read_only = on;
+```
+
+With that role, an `update` fails with `ERROR: cannot execute UPDATE in a read-only transaction`
+before it touches a row, and a runaway query is stopped by the statement timeout rather than by
+somebody noticing. `alter default privileges` covers tables created after the grant; run the
+`grant select on all tables` again after a schema migration adds one to an existing schema.
+
+For BigQuery, the equivalent is a service account with `roles/bigquery.dataViewer` on the
+datasets it may read plus `roles/bigquery.jobUser` on the project so it can run a query at all —
+and **not** `dataEditor`, `admin` or `roles/bigquery.user`.
+
+### Why the row limits
+
+The prompt keeps a result table in the answer to 50 rows and writes anything longer to a CSV
+under `/workspace/.podium/artifacts/`, which Podium attaches to the message. That is not a
+formatting preference:
+
+- **Everything in an answer is stored.** A chat answer is a row in `chat_messages` and a Slack
+  answer is a message in a channel, both for ever.
+- **The transcript is fed back.** Every later turn of the same conversation reads the whole
+  transcript, so a thousand-row dump eats the 256 KiB brief and crowds out the actual question.
+- An attachment is a file behind `GET /artifacts/{id}`, which is behind the same identity as
+  everything else, and it is not in the transcript.
+
+### What it retains
+
+One memory per answered question: the metric, the definition used, and the shape of the query.
+**Never the numbers** — they go stale and a stale number read back as fact is worse than no
+memory — and **never row-level data**. That rule is in the prompt, and like the "do not modify
+data" rule it is a courtesy rather than a control: see
+[`security.md`](security.md#the-analyst-and-your-warehouse).
+
+---
+
 ## The limits that bite
 
 - **The brief is capped at 256 KiB encoded.** The conductor drops the oldest transcript entries
   until it fits and sets `transcript_truncated: true`, which the runtime tells the model about. A
   brief that does not fit even with an empty transcript fails the turn with "this conversation is
   too large" — start a new thread with just the question.
-- **One turn per session at a time.** A busy thread queues rather than parallelises.
+- **One turn per session at a time.** A busy thread queues rather than parallelises; the web
+  chat refuses the second message outright, because a browser can be told before it tries.
+- **32 KiB per chat message** from a human. The whole conversation has to fit the brief.
+- **50 rows** in an analyst's answer, by prompt; longer results become a CSV attachment.
 - **4000 characters per Slack message.** Longer answers arrive as several messages.
 - **25 MB per attachment** out of Podium, and **50 MB** into Linear's asset store; over either,
   the reply carries a link to the task page instead of the file.
@@ -714,6 +794,53 @@ engine features Podium does not surface.
 
 ---
 
+## Chat
+
+`/agent/chat` in the web UI is the third place a turn can start from, and the only one whose
+conversation Podium itself holds: Slack has threads and Linear has issues, and a browser has
+nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the conversation.
+
+- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
+  is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
+  another login's chat id gets you `not_found`, not access.
+- **One turn at a time per chat.** The composer is disabled while a turn runs and
+  `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
+  turn-based rule as everywhere else: a turn ends with an answer and exits.
+- **Progress is not stored.** While a turn runs, the line under the last question is the latest
+  `progress` message the runtime sent, pushed to whoever is watching and then forgotten. Reload
+  and you see the question and the answer, which is what actually happened.
+- **A failure is stored**, so a turn that died leaves words behind rather than a question that
+  looks ignored.
+- **Attachments come from the task's artifacts.** An answer that names a file it wrote under
+  `/workspace/.podium/artifacts/` gets that file attached: the conductor resolves the name to an
+  artifact id and stores the id, and the browser fetches `GET /artifacts/{id}` with its own
+  credential. Raster images render inline (capped at 480px); everything else, SVG included,
+  is a download chip. Note that **a Podium artifact usually has no content type**: the node
+  records one only when a task calls `podium-runner artifact add --content-type`, and a file
+  the agent simply writes into the artifacts directory is collected with none — so the
+  chat decides from the file's extension when the store has nothing to say.
+- **Which skill a message runs**: the skill chip beside the composer, which starts at
+  `profile.yaml: chat_default_skill` (falling back to `default_skill`). Typing `/analyst …` works
+  too and moves the chip. A conversation keeps the skill it started with — the same
+  one-session-one-skill rule as a Slack thread — so switching the chip in an existing chat is
+  refused with a sentence saying to start a new one.
+- **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
+  after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
+  is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one
+  process by design and the two tables are the durable half.
+
+Answers are rendered through a deliberately small markdown subset — paragraphs, fenced code,
+inline code, bold, italic, `- ` lists, and `http(s)` links. **No raw HTML is ever emitted and any
+other link scheme renders as literal text**, because an answer is content a task wrote out of
+material somebody else supplied. Ask for a table and you get a fenced block, which is what the
+analyst prompt asks the model for.
+
+What is deliberately not built: renaming or deleting a chat, sharing one, a model-written title,
+uploading a file into the chat, and streaming the model's tokens. The unit of streaming is the
+`progress` message the runtime sends, not a token.
+
+---
+
 ## The conductor's API
 
 One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LISTEN` under
@@ -724,6 +851,9 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
 | `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: the provider key |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
+| `ListSkills` | the chat's skill chip: name, image, prompt hint, which is the chat default |
+| `CreateChat`, `ListChats`, `SendChatMessage` | the Chat tab: the caller's own conversations |
+| `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
 mounts that one prefix behind its own identity middleware and reverse-proxies it, and on the way

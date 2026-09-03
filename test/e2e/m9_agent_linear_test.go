@@ -267,29 +267,7 @@ func firstIndexOf(ops []string, want string) int {
 // is what the secret assertions below read.
 func linearProfileDir(t *testing.T, extra map[string]string) string {
 	t.Helper()
-	root, err := repoRoot()
-	require.NoError(t, err)
-	src := filepath.Join(root, "examples", "agent")
-	dst := t.TempDir()
-
-	require.NoError(t, filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o750)
-		}
-		raw, err := os.ReadFile(path) //nolint:gosec // the repository's own example
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, raw, 0o600)
-	}))
+	dst := copyExampleProfile(t)
 
 	coder := filepath.Join(dst, "skills", "coder.yaml")
 	raw, err := os.ReadFile(coder) //nolint:gosec // this test's own copy
