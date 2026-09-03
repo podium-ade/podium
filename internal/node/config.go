@@ -69,13 +69,25 @@ type Config struct {
 	// TSHostname overrides the Tailscale device name, PODIUM_NODE_TS_HOSTNAME. Empty derives
 	// it from the machine's hostname.
 	TSHostname string `yaml:"ts_hostname"`
-	// ImageCacheHighWatermark is recorded for step 12's LRU prune; nothing reads it yet.
+	// ImageCachePrune turns on the LRU image cache prune, PODIUM_NODE_IMAGE_CACHE_PRUNE.
+	// It is off by default and must be turned on deliberately: a developer running a node
+	// on a laptop shares that Docker engine with the rest of their work, and no amount of
+	// disk pressure justifies deleting an image out from under it. See docs/node-setup.md.
+	ImageCachePrune bool `yaml:"image_cache_prune"`
+	// ImageCacheHighWatermark is the disk-usage fraction above which pruning starts, when
+	// pruning is enabled at all: PODIUM_NODE_IMAGE_CACHE_HIGH_WATERMARK.
 	ImageCacheHighWatermark float64 `yaml:"image_cache_high_watermark"`
 	// MetricsListen serves /healthz, /readyz and /metrics, PODIUM_NODE_METRICS_LISTEN.
 	MetricsListen string `yaml:"metrics_listen"`
 	// DockerHost overrides the engine endpoint, PODIUM_NODE_DOCKER_HOST. Empty means
 	// the usual DOCKER_HOST / docker context / default socket resolution.
 	DockerHost string `yaml:"docker_host"`
+	// ExitOnDrain makes the daemon exit 0 once a drain has been requested and the last
+	// running task has finished, PODIUM_NODE_EXIT_ON_DRAIN or --exit-on-drain. It is the
+	// upgrade path: a supervisor restarts the process on the new binary. Without it a
+	// drained node stays connected and idle, which is what an operator taking a machine
+	// out of service for maintenance wants.
+	ExitOnDrain bool `yaml:"exit_on_drain"`
 }
 
 // DefaultConfig is the configuration a node with no file and no environment runs with.
@@ -145,6 +157,16 @@ func applyEnv(cfg *Config) {
 			cfg.ImageCacheHighWatermark = f
 		}
 	}
+	envBool("PODIUM_NODE_IMAGE_CACHE_PRUNE", &cfg.ImageCachePrune)
+	envBool("PODIUM_NODE_EXIT_ON_DRAIN", &cfg.ExitOnDrain)
+}
+
+func envBool(key string, dst *bool) {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			*dst = b
+		}
+	}
 }
 
 func envString(key string, dst *string) {
@@ -202,6 +224,10 @@ func (c *Config) Validate() error {
 	}
 	if err := checkWritableDir(c.DataDir); err != nil {
 		return err
+	}
+	if c.ImageCachePrune && (c.ImageCacheHighWatermark <= 0 || c.ImageCacheHighWatermark >= 1) {
+		return fmt.Errorf("image_cache_high_watermark is %v: it is a fraction of the disk and must be between 0 and 1",
+			c.ImageCacheHighWatermark)
 	}
 	return nil
 }

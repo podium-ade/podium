@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/alvaroibarguen/podium/internal/server/store"
 	"github.com/alvaroibarguen/podium/pkg/spec"
@@ -165,6 +167,42 @@ func (s *Service) Resolve(ctx context.Context, taskID string, refs []spec.Secret
 
 	s.audit(ctx, "scheduler", store.ActionSecretResolve, taskID, map[string]any{"names": sortedUnique(names)})
 	return out, nil
+}
+
+// CheckRefs reports whether every name a spec references exists, without decrypting
+// anything. It is the admission check: a task naming a secret that is not there can be
+// refused at `podium run` rather than sitting queued until some node happens to connect,
+// which is what used to happen — the scheduler resolved at dispatch, and with an empty
+// cluster there is no dispatch.
+//
+// It deliberately does not read a value. Admission answers "could this ever run?"; the
+// value still comes out of the database once, at assignment, and lives in server memory for
+// as short a time as it can.
+func (s *Service) CheckRefs(ctx context.Context, refs []spec.SecretRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	if !s.Enabled() {
+		return fmt.Errorf("%w: this task references %d secret(s)", ErrNoKey, len(refs))
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.Name)
+	}
+	rows, err := s.store.GetSecrets(ctx, names)
+	if err != nil {
+		return err
+	}
+	var missing []string
+	for _, name := range sortedUnique(names) {
+		if _, ok := rows[name]; !ok {
+			missing = append(missing, strconv.Quote(name))
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w %s", ErrMissing, strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // Rotate re-encrypts every stored secret from oldKey to newKey in one transaction. It is

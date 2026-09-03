@@ -51,6 +51,10 @@ message TaskSpec {
   // Named secrets the task needs. The spec carries names only; the values are resolved
   // by the server immediately before the assignment and never stored on the task.
   repeated SecretRef secrets = 11;
+  // When the node running this task goes offline mid-run, requeue the task as a new
+  // attempt (up to max_attempts) instead of marking it lost. Off by default: a task that
+  // is not idempotent must not be silently run twice.
+  bool retry_on_node_loss = 12;
 }
 
 // SecretRef names a stored secret and says where the task wants it. Nothing here is

@@ -403,6 +403,9 @@ func (e *Executor) resolveCommand(ctx context.Context, s spec.TaskSpec) ([]strin
 // throttled pulling events while it does.
 func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) error {
 	if _, err := e.cli.ImageInspect(ctx, ref); err == nil {
+		// Already here. It may or may not be one Podium pulled; either way, using it
+		// only refreshes the LRU order of an image already in the cache.
+		e.images.Used(ref)
 		return nil
 	}
 
@@ -450,9 +453,13 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 
 	// The pull stream reports per-layer errors inline and only fails the HTTP
 	// request for transport problems, so confirm the image really landed.
-	if _, err := e.cli.ImageInspect(ctx, ref); err != nil {
+	insp, err := e.cli.ImageInspect(ctx, ref)
+	if err != nil {
 		return fmt.Errorf("pull image %s: image not present after pull: %w", ref, err)
 	}
+	// This is the moment an image becomes ours, and the only one. Nothing that is not
+	// recorded here can ever be a prune candidate.
+	e.images.Pulled(ref, insp.ID, insp.Size)
 	return nil
 }
 
@@ -500,6 +507,10 @@ type logWriter struct {
 	stream  string
 	sidecar string
 	skip    int64
+	// offset counts every byte of this source that has passed through, skipped ones
+	// included, so an emitted chunk can say where in the container's own output it
+	// ends. That is what a later adoption resumes from.
+	offset int64
 }
 
 func (w *logWriter) Write(p []byte) (int, error) {
@@ -507,17 +518,25 @@ func (w *logWriter) Write(p []byte) (int, error) {
 	if w.skip > 0 {
 		if w.skip >= int64(n) {
 			w.skip -= int64(n)
+			w.offset += int64(n)
 			return n, nil
 		}
 		p = p[w.skip:]
+		w.offset += w.skip
 		w.skip = 0
 	}
 	for off := 0; off < len(p); off += maxLogChunk {
 		end := min(off+maxLogChunk, len(p))
 		chunk := make([]byte, end-off)
 		copy(chunk, p[off:end])
-		w.em.emit(KindLog, LogPayload{Stream: w.stream, Sidecar: w.sidecar, Bytes: chunk})
+		w.em.emit(KindLog, LogPayload{
+			Stream:  w.stream,
+			Sidecar: w.sidecar,
+			Bytes:   chunk,
+			Offset:  w.offset + int64(end),
+		})
 	}
+	w.offset += int64(len(p))
 	return n, nil
 }
 

@@ -40,6 +40,7 @@ type Node struct {
 	LastHeartbeatAt *time.Time
 	CreatedAt       time.Time
 	TsStableID      *string
+	Draining        bool
 }
 
 type Secret struct {
@@ -53,23 +54,28 @@ type Secret struct {
 }
 
 type Task struct {
-	ID             string
-	Spec           []byte
-	Status         string
-	Priority       int32
-	RequestedBy    string
-	NodeID         *string
-	LeaseID        *string
-	LeaseExpiresAt *time.Time
-	Attempts       int32
-	MaxAttempts    int32
-	CreatedAt      time.Time
-	ScheduledAt    *time.Time
-	StartedAt      *time.Time
-	FinishedAt     *time.Time
-	ExitCode       *int32
-	Usage          []byte
-	FailureReason  *string
+	ID                    string
+	Spec                  []byte
+	Status                string
+	Priority              int32
+	RequestedBy           string
+	NodeID                *string
+	LeaseID               *string
+	LeaseExpiresAt        *time.Time
+	Attempts              int32
+	MaxAttempts           int32
+	CreatedAt             time.Time
+	ScheduledAt           *time.Time
+	StartedAt             *time.Time
+	FinishedAt            *time.Time
+	ExitCode              *int32
+	Usage                 []byte
+	FailureReason         *string
+	LastScheduleAttemptAt *time.Time
+	QueuedReason          *string
+	CancelRequestedAt     *time.Time
+	CancelReason          *string
+	CancelStatus          *string
 }
 
 type TaskEvent struct {
@@ -81,12 +87,13 @@ type TaskEvent struct {
 }
 
 type TaskLogChunk struct {
-	TaskID  string
-	Seq     int64
-	Stream  string
-	Sidecar *string
-	Ts      time.Time
-	Bytes   []byte
+	TaskID       string
+	Seq          int64
+	Stream       string
+	Sidecar      *string
+	Ts           time.Time
+	Bytes        []byte
+	SourceOffset int64
 }
 
 type User struct {

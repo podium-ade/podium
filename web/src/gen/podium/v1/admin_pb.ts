@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/admin.proto.
  */
 export const file_podium_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSK7AgoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCSJWChxDcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0Eg4KBmxhYmVscxgBIAMoCRImCgN0dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iXgodQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiEgoQTGlzdE5vZGVzUmVxdWVzdCIzChFMaXN0Tm9kZXNSZXNwb25zZRIeCgVub2RlcxgBIAMoCzIPLnBvZGl1bS52MS5Ob2RlIiMKEFJla2V5Tm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIyChFSZWtleU5vZGVSZXNwb25zZRIdCgRub2RlGAEgASgLMg8ucG9kaXVtLnYxLk5vZGUyjgIKEE5vZGVBZG1pblNlcnZpY2USagoVQ3JlYXRlRW5yb2xsbWVudFRva2VuEicucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QaKC5wb2RpdW0udjEuQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USRgoJTGlzdE5vZGVzEhsucG9kaXVtLnYxLkxpc3ROb2Rlc1JlcXVlc3QaHC5wb2RpdW0udjEuTGlzdE5vZGVzUmVzcG9uc2USRgoJUmVrZXlOb2RlEhsucG9kaXVtLnYxLlJla2V5Tm9kZVJlcXVlc3QaHC5wb2RpdW0udjEuUmVrZXlOb2RlUmVzcG9uc2VCpAEKDWNvbS5wb2RpdW0udjFCCkFkbWluUHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSLNAgoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCRIQCghkcmFpbmluZxgMIAEoCCJWChxDcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0Eg4KBmxhYmVscxgBIAMoCRImCgN0dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iXgodQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiEgoQTGlzdE5vZGVzUmVxdWVzdCIzChFMaXN0Tm9kZXNSZXNwb25zZRIeCgVub2RlcxgBIAMoCzIPLnBvZGl1bS52MS5Ob2RlIiMKEFJla2V5Tm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIyChFSZWtleU5vZGVSZXNwb25zZRIdCgRub2RlGAEgASgLMg8ucG9kaXVtLnYxLk5vZGUiIwoQRHJhaW5Ob2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjIKEURyYWluTm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIlChJVbmRyYWluTm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSI0ChNVbmRyYWluTm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIzChFEZWxldGVOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWZvcmNlGAIgASgIIhQKEkRlbGV0ZU5vZGVSZXNwb25zZTLvAwoQTm9kZUFkbWluU2VydmljZRJqChVDcmVhdGVFbnJvbGxtZW50VG9rZW4SJy5wb2RpdW0udjEuQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVxdWVzdBooLnBvZGl1bS52MS5DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRJGCglMaXN0Tm9kZXMSGy5wb2RpdW0udjEuTGlzdE5vZGVzUmVxdWVzdBocLnBvZGl1bS52MS5MaXN0Tm9kZXNSZXNwb25zZRJGCglSZWtleU5vZGUSGy5wb2RpdW0udjEuUmVrZXlOb2RlUmVxdWVzdBocLnBvZGl1bS52MS5SZWtleU5vZGVSZXNwb25zZRJGCglEcmFpbk5vZGUSGy5wb2RpdW0udjEuRHJhaW5Ob2RlUmVxdWVzdBocLnBvZGl1bS52MS5EcmFpbk5vZGVSZXNwb25zZRJMCgtVbmRyYWluTm9kZRIdLnBvZGl1bS52MS5VbmRyYWluTm9kZVJlcXVlc3QaHi5wb2RpdW0udjEuVW5kcmFpbk5vZGVSZXNwb25zZRJJCgpEZWxldGVOb2RlEhwucG9kaXVtLnYxLkRlbGV0ZU5vZGVSZXF1ZXN0Gh0ucG9kaXVtLnYxLkRlbGV0ZU5vZGVSZXNwb25zZUKkAQoNY29tLnBvZGl1bS52MUIKQWRtaW5Qcm90b1ABWkJnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.Node
@@ -77,6 +77,14 @@ export type Node = Message<"podium.v1.Node"> & {
    * @generated from field: string ts_stable_id = 11;
    */
   tsStableId: string;
+
+  /**
+   * draining is the operator's standing instruction that this node takes no new work. It
+   * survives a node restart and a server restart; status is DRAINING while it is connected.
+   *
+   * @generated from field: bool draining = 12;
+   */
+  draining: boolean;
 };
 
 /**
@@ -197,8 +205,112 @@ export const RekeyNodeResponseSchema: GenMessage<RekeyNodeResponse> = /*@__PURE_
   messageDesc(file_podium_v1_admin, 6);
 
 /**
- * NodeAdminService is the operator-facing node API. GetNode, DrainNode and DeleteNode are
- * deliberately absent in MVP-0.
+ * @generated from message podium.v1.DrainNodeRequest
+ */
+export type DrainNodeRequest = Message<"podium.v1.DrainNodeRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+};
+
+/**
+ * Describes the message podium.v1.DrainNodeRequest.
+ * Use `create(DrainNodeRequestSchema)` to create a new message.
+ */
+export const DrainNodeRequestSchema: GenMessage<DrainNodeRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 7);
+
+/**
+ * @generated from message podium.v1.DrainNodeResponse
+ */
+export type DrainNodeResponse = Message<"podium.v1.DrainNodeResponse"> & {
+  /**
+   * @generated from field: podium.v1.Node node = 1;
+   */
+  node?: Node | undefined;
+};
+
+/**
+ * Describes the message podium.v1.DrainNodeResponse.
+ * Use `create(DrainNodeResponseSchema)` to create a new message.
+ */
+export const DrainNodeResponseSchema: GenMessage<DrainNodeResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 8);
+
+/**
+ * @generated from message podium.v1.UndrainNodeRequest
+ */
+export type UndrainNodeRequest = Message<"podium.v1.UndrainNodeRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+};
+
+/**
+ * Describes the message podium.v1.UndrainNodeRequest.
+ * Use `create(UndrainNodeRequestSchema)` to create a new message.
+ */
+export const UndrainNodeRequestSchema: GenMessage<UndrainNodeRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 9);
+
+/**
+ * @generated from message podium.v1.UndrainNodeResponse
+ */
+export type UndrainNodeResponse = Message<"podium.v1.UndrainNodeResponse"> & {
+  /**
+   * @generated from field: podium.v1.Node node = 1;
+   */
+  node?: Node | undefined;
+};
+
+/**
+ * Describes the message podium.v1.UndrainNodeResponse.
+ * Use `create(UndrainNodeResponseSchema)` to create a new message.
+ */
+export const UndrainNodeResponseSchema: GenMessage<UndrainNodeResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 10);
+
+/**
+ * @generated from message podium.v1.DeleteNodeRequest
+ */
+export type DeleteNodeRequest = Message<"podium.v1.DeleteNodeRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * force deletes a node that is still online. It does not stop what it is running.
+   *
+   * @generated from field: bool force = 2;
+   */
+  force: boolean;
+};
+
+/**
+ * Describes the message podium.v1.DeleteNodeRequest.
+ * Use `create(DeleteNodeRequestSchema)` to create a new message.
+ */
+export const DeleteNodeRequestSchema: GenMessage<DeleteNodeRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 11);
+
+/**
+ * @generated from message podium.v1.DeleteNodeResponse
+ */
+export type DeleteNodeResponse = Message<"podium.v1.DeleteNodeResponse"> & {
+};
+
+/**
+ * Describes the message podium.v1.DeleteNodeResponse.
+ * Use `create(DeleteNodeResponseSchema)` to create a new message.
+ */
+export const DeleteNodeResponseSchema: GenMessage<DeleteNodeResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 12);
+
+/**
+ * NodeAdminService is the operator-facing node API.
  *
  * @generated from service podium.v1.NodeAdminService
  */
@@ -229,6 +341,37 @@ export const NodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof RekeyNodeRequestSchema;
     output: typeof RekeyNodeResponseSchema;
+  },
+  /**
+   * DrainNode stops a node being given new work. Running tasks finish; the node exits 0
+   * when it was started with --exit-on-drain, which is the upgrade path.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.DrainNode
+   */
+  drainNode: {
+    methodKind: "unary";
+    input: typeof DrainNodeRequestSchema;
+    output: typeof DrainNodeResponseSchema;
+  },
+  /**
+   * UndrainNode puts a drained node back in the pool.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.UndrainNode
+   */
+  undrainNode: {
+    methodKind: "unary";
+    input: typeof UndrainNodeRequestSchema;
+    output: typeof UndrainNodeResponseSchema;
+  },
+  /**
+   * DeleteNode forgets a node. It refuses a node that is still online and not drained.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.DeleteNode
+   */
+  deleteNode: {
+    methodKind: "unary";
+    input: typeof DeleteNodeRequestSchema;
+    output: typeof DeleteNodeResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_admin, 0);

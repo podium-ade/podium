@@ -18,12 +18,13 @@ func (s *Store) AppendLogChunks(ctx context.Context, taskID string, chunks []Log
 			return 0, fmt.Errorf("task %s: log chunk seq %d overflows bigint", taskID, c.Seq)
 		}
 		params = append(params, db.AppendLogChunkParams{
-			TaskID:  taskID,
-			Seq:     int64(c.Seq),
-			Stream:  c.Stream,
-			Sidecar: ptr(c.Sidecar),
-			Ts:      c.TS.UTC(),
-			Bytes:   c.Bytes,
+			TaskID:       taskID,
+			Seq:          int64(c.Seq),
+			Stream:       c.Stream,
+			Sidecar:      ptr(c.Sidecar),
+			Ts:           c.TS.UTC(),
+			Bytes:        c.Bytes,
+			SourceOffset: c.SourceOffset,
 		})
 	}
 
@@ -72,11 +73,12 @@ func (s *Store) ListLogChunks(ctx context.Context, taskID string, fromSeq uint64
 	out := make([]LogChunk, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, LogChunk{
-			Seq:     uint64(r.Seq),
-			Stream:  r.Stream,
-			Sidecar: deref(r.Sidecar),
-			TS:      r.Ts.UTC(),
-			Bytes:   r.Bytes,
+			Seq:          uint64(r.Seq),
+			Stream:       r.Stream,
+			Sidecar:      deref(r.Sidecar),
+			TS:           r.Ts.UTC(),
+			Bytes:        r.Bytes,
+			SourceOffset: r.SourceOffset,
 		})
 	}
 	return out, nil
@@ -90,4 +92,48 @@ func (s *Store) PruneLogChunks(ctx context.Context, olderThan time.Time) (int64,
 		return 0, fmt.Errorf("prune log chunks: %w", err)
 	}
 	return n, nil
+}
+
+// Log stream names as they are stored in task_log_chunks.stream.
+const (
+	StreamStdout  = "stdout"
+	StreamStderr  = "stderr"
+	StreamSidecar = "sidecar"
+)
+
+// TaskStreamOffsets is how far into the task container's own stdout and stderr this store
+// has committed. It is the honest answer to "what do you already have?" that a node
+// adopting a container after a restart needs, and the reason the node no longer guesses
+// from a local bookmark: the server commits rows and then acks, so an ack lost to a
+// SIGTERM used to make the node re-send bytes under fresh sequence numbers.
+//
+// Sidecar chunks are excluded: an adopted task's sidecars are never re-attached.
+func (s *Store) TaskStreamOffsets(ctx context.Context, taskID string) (StreamOffsets, error) {
+	rows, err := s.q.TaskStreamOffsets(ctx, taskID)
+	if err != nil {
+		return StreamOffsets{}, fmt.Errorf("read stream offsets of task %s: %w", taskID, err)
+	}
+	var out StreamOffsets
+	for _, r := range rows {
+		switch r.Stream {
+		case StreamStdout:
+			out.Stdout = r.SourceOffset
+		case StreamStderr:
+			out.Stderr = r.SourceOffset
+		}
+	}
+	return out, nil
+}
+
+// MaxTaskSeq is the highest sequence number stored for a task across both event tables. A
+// node adopting the task numbers its next event above it.
+func (s *Store) MaxTaskSeq(ctx context.Context, taskID string) (uint64, error) {
+	high, err := s.q.MaxTaskSeq(ctx, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("read sequence high-water mark of task %s: %w", taskID, err)
+	}
+	if high < 0 {
+		return 0, nil
+	}
+	return uint64(high), nil
 }

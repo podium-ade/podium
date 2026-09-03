@@ -33,6 +33,7 @@ operator      podium node                       podium server
    |               |======== Stream (bidi) ==========>|   reopened with backoff
    |               |  Hello{node_id, node_key, labels,|
    |               |        capacity, running_task_ids, version}
+   |               | <-- HelloAck{tasks: [TaskCheckpoint]}  always the first reply
    |               |                                  |   -> reconcile, mark online
    |               |  Heartbeat{load, free_slots, ...}|   every 10s
    |               | <-- Assign{task_id, lease_id, spec, deadline,
@@ -48,7 +49,8 @@ operator      podium node                       podium server
    never log`.
 2. **Stream** is one bidirectional stream per node. The first `NodeMessage` **must** be
    `Hello`, within 5s, or the server closes the stream. `Hello` carries the task IDs the node
-   still has containers for, which is the server's reconciliation input.
+   still has containers for, which is the server's reconciliation input; `HelloAck` is the
+   answer, and is always the first `ServerMessage` on the stream. See **Reconciliation** below.
 3. **Heartbeat** every 10s. Missing 3 (≈30s) marks the node `unreachable`; missing 12 (≈120s)
    marks it `offline` and expires its leases.
 4. **Assign** hands over a task under a lease. The node must emit a `provisioning` `TaskEvent`
@@ -59,8 +61,48 @@ operator      podium node                       podium server
    loopback and warns at startup when any secret exists.
 5. **Cancel** is idempotent and is also how server-computed timeouts arrive: SIGTERM, 30s
    grace, SIGKILL, teardown.
-6. **Drain** tells the node to stop accepting work and finish what is running.
+6. **Drain** tells the node to stop accepting work and finish what is running. `Drain{undo:
+   true}` lifts it.
 7. A new stream from the same node replaces the old session, which is closed.
+
+## Reconciliation: `Hello` → `HelloAck`
+
+A node that restarts finds its containers still running and has to work out where to resume
+each one's output. It cannot work that out by itself, and the reason is worth stating
+plainly: **the server commits an event batch and then sends the `Ack`**. A daemon killed in
+between has no record of an acknowledgement that did in fact happen. If it resumes from its
+own bookmark it re-reads those bytes and re-emits them under fresh sequence numbers, which
+`(task_id, seq)` cannot deduplicate, and an operator sees a duplicated line. Resuming from
+*sent* rather than *acked* bytes trades the duplicate for a gap, which is worse.
+
+So the control plane answers the question, because it is the only party that knows:
+
+```proto
+message HelloAck { repeated TaskCheckpoint tasks = 1; }
+
+message TaskCheckpoint {
+  string task_id      = 1;
+  bool   adopt        = 2;  // false: the control plane has moved on; tear the container down
+  uint64 high_seq     = 3;  // highest seq stored, across events and log chunks
+  int64  stdout_offset = 4; // bytes of the container's own stdout the store has committed
+  int64  stderr_offset = 5;
+}
+```
+
+There is one checkpoint per task id the `Hello` reported, in the same order. A node adopting a
+container numbers its next event `high_seq + 1` and discards `stdout_offset` / `stderr_offset`
+bytes of the log Docker replays to it. A `Cancel` follows for every checkpoint with
+`adopt: false`, after the `HelloAck`, so a node reading its stream in order always learns the
+verdict before it is told to act on one.
+
+The offsets are **the container's own byte counts, not the length of what was stored**:
+redaction rewrites the bytes on their way out, so `sum(length(bytes))` is a different number.
+Each `LogChunk` therefore carries `source_offset`, the position in the container's stream that
+that chunk ends at, and the server hands back the maximum it holds.
+
+Tasks the store still has on a node that the node did *not* report have lost their containers:
+they are requeued (`retry_on_node_loss`) or marked `lost`. Tasks in `scheduled` are the one
+exception — an `Assign` may still be in flight — and are left to the 15s provisioning deadline.
 
 ## `TaskEvent.seq` — ordering, replay and acks
 

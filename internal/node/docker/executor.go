@@ -66,7 +66,10 @@ type Executor struct {
 	// the engine lives in a VM and a dial to a container address hangs rather than
 	// failing.
 	directDial bool
-	log        *slog.Logger
+	// images is the record of what this node pulled: the LRU bookkeeping, and the
+	// allow-list that makes it impossible to remove an image Podium did not fetch.
+	images *ImageCache
+	log    *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -152,6 +155,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		runnerPath:    runnerPath,
 		sockDir:       sockDir,
 		directDial:    canDialTaskNetworks(runtime.GOOS, info.OSType),
+		images:        NewImageCache(opts.DataDir),
 		log:           logger,
 		runs:          make(map[string]*runState),
 	}, nil

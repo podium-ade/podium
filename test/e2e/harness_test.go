@@ -309,6 +309,9 @@ type nodeProc struct {
 	dataDir string
 	metrics string
 	labels  []string
+	// extraEnv is appended to the daemon's environment, which is how the drain tests get
+	// --exit-on-drain without a second start path.
+	extraEnv []string
 
 	cmd *exec.Cmd
 	log *bytes.Buffer
@@ -319,12 +322,20 @@ type nodeProc struct {
 // keeps its identity and adopts whatever containers it left behind.
 func startNode(t *testing.T, h *harness, labels ...string) *nodeProc {
 	t.Helper()
+	return startNodeWithEnv(t, h, nil, labels...)
+}
+
+// startNodeWithEnv is startNode with extra PODIUM_NODE_* variables, for the tests that need
+// a daemon configured differently from the default one.
+func startNodeWithEnv(t *testing.T, h *harness, extraEnv []string, labels ...string) *nodeProc {
+	t.Helper()
 	n := &nodeProc{
-		t:       t,
-		h:       h,
-		dataDir: t.TempDir(),
-		metrics: freeLoopbackAddr(t),
-		labels:  labels,
+		t:        t,
+		h:        h,
+		dataDir:  t.TempDir(),
+		metrics:  freeLoopbackAddr(t),
+		labels:   labels,
+		extraEnv: extraEnv,
 	}
 	n.start(h.enrollToken(labels...))
 	t.Cleanup(func() {
@@ -348,6 +359,7 @@ func (n *nodeProc) start(enrollToken string) {
 		"PODIUM_NODE_METRICS_LISTEN="+n.metrics,
 		"PODIUM_NODE_LABELS="+strings.Join(n.labels, ","),
 	)
+	cmd.Env = append(cmd.Env, n.extraEnv...)
 	buf := &bytes.Buffer{}
 	cmd.Stdout = buf
 	cmd.Stderr = buf
@@ -384,6 +396,53 @@ func (n *nodeProc) stop() {
 	case <-done:
 	case <-time.After(20 * time.Second):
 		_ = cmd.Process.Kill()
+	}
+}
+
+// kill is SIGKILL: the daemon dies with no chance to do anything, which is the closest a
+// test can get to the machine being unplugged. The containers it started keep running.
+//
+// It only ever signals the process this test started, by PID. Nothing here looks for other
+// podium-node processes, and nothing here may: this engine is shared.
+func (n *nodeProc) kill() {
+	n.mu.Lock()
+	cmd := n.cmd
+	n.cmd = nil
+	n.mu.Unlock()
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+}
+
+// awaitExit waits for the daemon to exit by itself and returns its exit code. It is how the
+// drain tests assert that --exit-on-drain really does end the process cleanly.
+func (n *nodeProc) awaitExit(timeout time.Duration) int {
+	n.t.Helper()
+	n.mu.Lock()
+	cmd := n.cmd
+	n.cmd = nil
+	n.mu.Unlock()
+	require.NotNil(n.t, cmd, "the node is not running")
+
+	done := make(chan *os.ProcessState, 1)
+	go func() {
+		state, err := cmd.Process.Wait()
+		if err != nil {
+			done <- nil
+			return
+		}
+		done <- state
+	}()
+	select {
+	case state := <-done:
+		require.NotNil(n.t, state, "waiting for the node process failed\nnode log:\n%s", n.logs())
+		return state.ExitCode()
+	case <-time.After(timeout):
+		_ = cmd.Process.Kill()
+		n.t.Fatalf("the node did not exit within %s\nnode log:\n%s", timeout, n.logs())
+		return -1
 	}
 }
 

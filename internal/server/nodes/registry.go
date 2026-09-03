@@ -33,23 +33,43 @@ type Session struct {
 	capacity      store.NodeCapacity
 	freeSlots     int32
 	lastHeartbeat time.Time
-	running       map[string]struct{}
+	// running maps every task this session is accounted for to what it costs. The cost is
+	// what makes "does this task fit?" answerable: max_tasks alone cannot tell a node with
+	// four idle slots and 200MB left from one with four idle slots and 60GB.
+	running map[string]TaskCost
+	// draining is the operator's standing "no new work", mirrored from nodes.draining so
+	// the scheduler need not read the row on every tick.
+	draining bool
+	// lastAssignedAt breaks ties between equally free nodes, so a fleet fills evenly
+	// instead of the lowest node ID taking everything.
+	lastAssignedAt time.Time
 }
 
-func newSession(nodeID string, labels []string, capacity store.NodeCapacity, running []string) *Session {
+// TaskCost is what one task takes out of a node's budget: the task container's limits plus
+// every sidecar's, because a pod's sidecars run on the same machine as the task.
+type TaskCost struct {
+	CPU      float64
+	MemoryMB int64
+}
+
+func newSession(nodeID string, labels []string, capacity store.NodeCapacity, running []string, draining bool) *Session {
 	s := &Session{
 		nodeID:   nodeID,
 		send:     make(chan *podiumv1.ServerMessage, sendBuffer),
 		done:     make(chan struct{}),
 		labels:   append([]string(nil), labels...),
 		capacity: capacity,
-		running:  make(map[string]struct{}, len(running)),
+		running:  make(map[string]TaskCost, len(running)),
+		draining: draining,
 	}
 	for _, id := range running {
-		s.running[id] = struct{}{}
+		s.running[id] = TaskCost{}
 	}
 	s.freeSlots = capacity.MaxTasks - int32(len(s.running))
 	if s.freeSlots < 0 {
+		s.freeSlots = 0
+	}
+	if draining {
 		s.freeSlots = 0
 	}
 	s.lastHeartbeat = time.Now().UTC()
@@ -95,17 +115,59 @@ func (s *Session) observeHeartbeat(hb *podiumv1.Heartbeat) {
 	if n := hb.GetLoad().GetRunningTasks(); n >= 0 {
 		s.capacity.MaxTasks = max(s.capacity.MaxTasks, n)
 	}
+	if s.draining {
+		// A heartbeat in flight when the drain was requested must not undo it.
+		s.freeSlots = 0
+	}
 }
 
-// reserve books a slot for taskID. The scheduler assigns faster than the node heartbeats, so
-// without this a single 1s tick could hand one node every queued task.
-func (s *Session) reserve(taskID string) {
+// reserve books a slot for taskID and charges its cost. The scheduler assigns faster than
+// the node heartbeats, so without this a single tick could hand one node every queued task.
+func (s *Session) reserve(taskID string, cost TaskCost) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.running[taskID] = struct{}{}
+	s.running[taskID] = cost
+	s.lastAssignedAt = time.Now().UTC()
 	if s.freeSlots > 0 {
 		s.freeSlots--
 	}
+}
+
+// account rebuilds the session's cost bookkeeping from what the store says this node is
+// running. It is called on reconciliation, where the node has just told us which tasks it
+// holds and the store can say what each of them costs — a Hello carries ids, not specs.
+func (s *Session) account(costs map[string]TaskCost) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.running {
+		if c, ok := costs[id]; ok {
+			s.running[id] = c
+		}
+	}
+}
+
+// forget drops a task from the session without pretending it ever had a slot. It is what
+// reconciliation does with a task the node reported but the control plane has moved on.
+func (s *Session) forget(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.running, taskID)
+}
+
+// setDraining mirrors the operator's instruction onto the live session. A draining node
+// advertises no free slots, whatever its last heartbeat said, so the scheduler stops
+// considering it the moment the drain is requested rather than up to a heartbeat later.
+func (s *Session) setDraining(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.draining = v
+	if v {
+		s.freeSlots = 0
+		return
+	}
+	// Undraining has to give the slots back now rather than at the next heartbeat, or a
+	// node put back in the pool sits idle for up to ten seconds looking broken.
+	s.freeSlots = max(s.capacity.MaxTasks-int32(len(s.running)), 0)
 }
 
 // release gives back the slot booked for taskID and reports whether this session held one.
@@ -121,25 +183,53 @@ func (s *Session) release(taskID string) bool {
 	return true
 }
 
-// Snapshot is what the scheduler and ListNodes read off a live session.
+// Snapshot is what the scheduler and ListNodes read off a live session. It is a value, so
+// a scheduler tick can decrement its own copy while it places a batch without holding a
+// lock on the session or racing the node's next heartbeat.
 type Snapshot struct {
 	NodeID       string
 	Labels       []string
 	FreeSlots    int32
 	RunningTasks int32
 	LastSeen     time.Time
+	Draining     bool
+	Capacity     store.NodeCapacity
+	// FreeCPU and FreeMemoryMB are what the node advertised minus what it is already
+	// committed to. A capacity of zero means "unmeasured", not "none", and is treated as
+	// no constraint: refusing every task because gopsutil could not count the cores would
+	// be a worse failure than over-committing one.
+	FreeCPU        float64
+	FreeMemoryMB   int64
+	LastAssignedAt time.Time
 }
 
 func (s *Session) snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Snapshot{
-		NodeID:       s.nodeID,
-		Labels:       append([]string(nil), s.labels...),
-		FreeSlots:    s.freeSlots,
-		RunningTasks: int32(len(s.running)),
-		LastSeen:     s.lastHeartbeat,
+
+	var usedCPU float64
+	var usedMem int64
+	for _, c := range s.running {
+		usedCPU += c.CPU
+		usedMem += c.MemoryMB
 	}
+	snap := Snapshot{
+		NodeID:         s.nodeID,
+		Labels:         append([]string(nil), s.labels...),
+		FreeSlots:      s.freeSlots,
+		RunningTasks:   int32(len(s.running)),
+		LastSeen:       s.lastHeartbeat,
+		Draining:       s.draining,
+		Capacity:       s.capacity,
+		LastAssignedAt: s.lastAssignedAt,
+	}
+	if s.capacity.CPUCores > 0 {
+		snap.FreeCPU = float64(s.capacity.CPUCores) - usedCPU
+	}
+	if s.capacity.MemoryMB > 0 {
+		snap.FreeMemoryMB = s.capacity.MemoryMB - usedMem
+	}
+	return snap
 }
 
 // Registry holds the live node sessions of this server process. It is deliberately in memory
@@ -211,6 +301,24 @@ func (r *Registry) SnapshotOf(nodeID string) (Snapshot, bool) {
 		return Snapshot{}, false
 	}
 	return s.snapshot(), true
+}
+
+// Drain marks a node's live session draining (or undraining) and reports whether it had one.
+func (r *Registry) Drain(nodeID string, draining bool) bool {
+	s, ok := r.Get(nodeID)
+	if !ok {
+		return false
+	}
+	s.setDraining(draining)
+	return true
+}
+
+// Forget drops a task from whichever session claims it, without crediting a slot back. It
+// is what reconciliation does with a container the control plane no longer owns.
+func (r *Registry) Forget(nodeID, taskID string) {
+	if s, ok := r.Get(nodeID); ok {
+		s.forget(taskID)
+	}
 }
 
 // Release frees the slot whichever session is holding taskID booked for it. A task no session

@@ -37,6 +37,11 @@ const (
 	StatusLost         Status = "lost"
 )
 
+// ActiveStatuses are the statuses in which a task is somebody's live responsibility: it
+// has been handed to a node and neither the node nor the control plane has finished with
+// it. They are exactly the statuses the reconciler sweeps.
+var ActiveStatuses = []Status{StatusScheduled, StatusProvisioning, StatusRunning}
+
 // AllStatuses lists every legal value of tasks.status.
 var AllStatuses = []Status{
 	StatusQueued, StatusScheduled, StatusProvisioning, StatusRunning,
@@ -112,6 +117,16 @@ type Task struct {
 	ExitCode       *int32
 	Usage          *Usage
 	FailureReason  string
+	// LastScheduleAttemptAt and QueuedReason are why a queued task is still queued. The
+	// scheduler stamps them every time it looks at a task and cannot place it.
+	LastScheduleAttemptAt *time.Time
+	QueuedReason          string
+	// CancelRequestedAt, CancelReason and CancelStatus are the durable stop intent.
+	// TransitionTask honours them: a task with one lands in CancelStatus rather than in
+	// the succeeded/failed the node's own event implied.
+	CancelRequestedAt *time.Time
+	CancelReason      string
+	CancelStatus      Status
 }
 
 // NewTask is the input to CreateTask. An empty ID is minted, a zero MaxAttempts falls back to
@@ -167,6 +182,17 @@ type LogChunk struct {
 	Sidecar string
 	TS      time.Time
 	Bytes   []byte
+	// SourceOffset is how many bytes of this stream the container had produced by the end
+	// of this chunk. Bytes may be shorter (redaction rewrites them) or longer (a
+	// replacement marker is longer than what it hides), so it is not derivable from them.
+	SourceOffset int64
+}
+
+// StreamOffsets is how far into a task container's own output the store has committed. It
+// is what an adopting node resumes from; a stream nobody wrote is simply zero.
+type StreamOffsets struct {
+	Stdout int64
+	Stderr int64
 }
 
 // Node is one row of the nodes table.
@@ -184,6 +210,10 @@ type Node struct {
 	// TSStableID is the Tailscale device this node enrolled from, empty when unbound. It is
 	// what makes a copied identity.json useless on a different machine.
 	TSStableID string
+	// Draining is the operator's standing instruction that this node takes no new work. It
+	// is a column rather than a status because it must survive both daemons restarting,
+	// and because a draining node that disconnects is still draining when it comes back.
+	Draining bool
 }
 
 // User is a person the tailnet transport has seen. Podium never stores a credential for one:

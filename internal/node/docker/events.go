@@ -47,6 +47,13 @@ type LogPayload struct {
 	Stream  string
 	Sidecar string
 	Bytes   []byte
+	// Offset is how many bytes of this source the container had produced by the end
+	// of this chunk, counting from the start of the container's life and including
+	// anything an adopting run skipped. It is the cursor Docker does not give us:
+	// ContainerLogs replays the whole stream on every attach, so a daemon adopting a
+	// container has to be told where to resume, and the control plane can only say so
+	// in these terms.
+	Offset int64
 }
 
 // PullingPayload reports image pull progress. Current and Total are bytes and

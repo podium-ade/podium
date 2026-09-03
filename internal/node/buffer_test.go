@@ -12,7 +12,7 @@ import (
 )
 
 func logChunk(n int) *podiumv1.TaskEvent {
-	return logEvent("stdout", "", make([]byte, n))
+	return logEvent("stdout", "", make([]byte, n), int64(n))
 }
 
 func TestBufferNumbersOneSequenceSpacePerTask(t *testing.T) {

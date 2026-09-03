@@ -207,7 +207,53 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_MAX_TASKS` | `max_tasks` | `4` | Concurrency budget. **`0` means the node never gets work.** |
 | `PODIUM_NODE_METRICS_LISTEN` | `metrics_listen` | `127.0.0.1:9091` | Health and metrics |
 | `PODIUM_NODE_DOCKER_HOST` | `docker_host` | — | Engine endpoint; empty uses the normal Docker resolution |
-| `PODIUM_NODE_IMAGE_CACHE_HIGH_WATERMARK` | `image_cache_high_watermark` | `0.80` | Recorded for a later step; nothing reads it yet |
+| `PODIUM_NODE_IMAGE_CACHE_PRUNE` | `image_cache_prune` | `false` | Turns the image cache prune on. **Off by default — read the section below before turning it on.** |
+| `PODIUM_NODE_IMAGE_CACHE_HIGH_WATERMARK` | `image_cache_high_watermark` | `0.80` | Disk-usage fraction above which the node stops accepting work, and prunes if pruning is enabled |
+| `PODIUM_NODE_EXIT_ON_DRAIN` | `exit_on_drain` | `false` | Exit 0 once drained and the last task has finished. `--exit-on-drain` is the flag form |
+
+### Draining a node
+
+`podium node drain NODE` stops the control plane giving a node new work; whatever it is
+already running finishes normally. The instruction is stored on the node's row, so it
+survives both daemons restarting and can be set on a node that is offline right now.
+`podium node undrain NODE` puts it back.
+
+A node started with `--exit-on-drain` exits 0 once its last task finishes, which is what an
+upgrade wants: drain, wait, let the supervisor start the new binary. Without the flag the
+daemon stays connected and idle, which is what maintenance wants.
+
+```sh
+podium node drain worker-3        # from anywhere with a CLI
+# … wait for `podium nodes` to show 0 running …
+# the daemon exits 0; systemd restarts it on the new binary
+```
+
+### The image cache — pruning is off by default, and why
+
+A node's Docker engine is not Podium's. On a developer's laptop it holds their own images;
+on a shared build host it holds someone else's. So the LRU prune is **opt-in**
+(`image_cache_prune: true`), and even when it is on it can only ever remove an image
+**Podium itself pulled**.
+
+The record is `data_dir/images.json`, written at the moment of a successful pull. It is the
+LRU bookkeeping *and* the allow-list: the one function in the tree that calls Docker's image
+remove refuses anything absent from it, so an image that arrived some other way is not a
+candidate however old it is and however full the disk gets. Podium never runs `docker system
+prune`, `docker image prune`, or any other bulk removal.
+
+What the watermark does when pruning is **off** — which is the default — is make the node
+advertise zero free slots while the data dir's filesystem is above it. A machine that cannot
+fit another image cannot reliably start another task, and refusing the work is more honest
+than accepting it and failing at the pull. The scheduler stops assigning to it and says so in
+the queued task's reason.
+
+With pruning on, the node also removes its own least recently used images until the disk is
+ten points below the watermark, never touching one a running task needs.
+
+```yaml
+image_cache_prune: true
+image_cache_high_watermark: 0.85
+```
 
 Equivalent config file:
 

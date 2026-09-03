@@ -29,7 +29,7 @@ const teardownTimeout = 60 * time.Second
 func (n *Node) startTask(a *podiumv1.Assign) {
 	taskID := a.GetTaskId()
 	buf := newBuffer(taskID, a.GetLeaseId(), n.exec.TaskDir(taskID), 0)
-	if !n.addTask(taskID, buf) {
+	if !n.addTask(taskID, buf, taskImages(a.GetSpec())...) {
 		n.logger.Warn("ignoring duplicate assignment", "task_id", taskID)
 		return
 	}
@@ -54,6 +54,16 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 		}, events)
 		return err
 	})
+}
+
+// taskImages is every image reference an assignment needs, so the image cache prune can
+// never take one out from under it.
+func taskImages(sp *podiumv1.TaskSpec) []string {
+	out := []string{sp.GetImage()}
+	for _, sc := range sp.GetSidecars() {
+		out = append(out, sc.GetImage())
+	}
+	return out
 }
 
 // requestSecrets copies the resolved secrets onto the executor's own type, with their own
@@ -107,6 +117,11 @@ type pendingLog struct {
 	stream  string
 	sidecar string
 	data    []byte
+	// endOffset is how many bytes of this source the container had produced by the end
+	// of everything in data. It travels with the emitted chunk so the control plane can
+	// tell a future adoption where to resume — the stored bytes cannot say, because
+	// redaction rewrites them.
+	endOffset int64
 }
 
 // execute drives one container run: it consumes the executor's event channel, coalesces
@@ -131,7 +146,10 @@ func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event)
 		out := red.redact(pend.stream, pend.sidecar, pend.data)
 		pend.data = nil
 		if len(out) > 0 {
-			n.push(buf, logEvent(pend.stream, pend.sidecar, out))
+			// Whatever the redactor is still holding has not been accounted for yet:
+			// those source bytes belong to the next chunk, not this one.
+			held := int64(red.held(pend.stream, pend.sidecar))
+			n.push(buf, logEvent(pend.stream, pend.sidecar, out, pend.endOffset-held))
 		}
 	}
 	// closeRun ends a source's run of output: flush, then release whatever the redactor
@@ -139,7 +157,7 @@ func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event)
 	closeRun := func() {
 		flush()
 		if tail := red.flush(pend.stream, pend.sidecar); len(tail) > 0 {
-			n.push(buf, logEvent(pend.stream, pend.sidecar, tail))
+			n.push(buf, logEvent(pend.stream, pend.sidecar, tail, pend.endOffset))
 		}
 		pend = pendingLog{}
 	}
@@ -209,6 +227,7 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush, cl
 		}
 		pend.stream, pend.sidecar = p.Stream, p.Sidecar
 		pend.data = append(pend.data, p.Bytes...)
+		pend.endOffset = p.Offset
 		if len(pend.data) >= coalesceBytes {
 			flush()
 		}

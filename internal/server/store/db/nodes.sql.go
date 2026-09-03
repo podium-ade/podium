@@ -12,7 +12,7 @@ import (
 const createNode = `-- name: CreateNode :one
 insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version, ts_stable_id)
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9::text)
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining
 `
 
 type CreateNodeParams struct {
@@ -52,6 +52,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
 		&i.TsStableID,
+		&i.Draining,
 	)
 	return i, err
 }
@@ -69,7 +70,7 @@ func (q *Queries) DeleteNode(ctx context.Context, id string) (int64, error) {
 }
 
 const getNode = `-- name: GetNode :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes where id = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes where id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -87,12 +88,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
 		&i.TsStableID,
+		&i.Draining,
 	)
 	return i, err
 }
 
 const getNodeByKeyHash = `-- name: GetNodeByKeyHash :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes where node_key_hash = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes where node_key_hash = $1
 `
 
 func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Node, error) {
@@ -110,12 +112,13 @@ func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Nod
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
 		&i.TsStableID,
+		&i.Draining,
 	)
 	return i, err
 }
 
 const listNodes = `-- name: ListNodes :many
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes order by created_at, id
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes order by created_at, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -139,6 +142,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.LastHeartbeatAt,
 			&i.CreatedAt,
 			&i.TsStableID,
+			&i.Draining,
 		); err != nil {
 			return nil, err
 		}
@@ -148,6 +152,23 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setNodeDraining = `-- name: SetNodeDraining :execrows
+update nodes set draining = $1 where id = $2
+`
+
+type SetNodeDrainingParams struct {
+	Draining bool
+	ID       string
+}
+
+func (q *Queries) SetNodeDraining(ctx context.Context, arg SetNodeDrainingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNodeDraining, arg.Draining, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setNodeStatus = `-- name: SetNodeStatus :execrows
@@ -191,7 +212,7 @@ set status            = $1,
     version           = coalesce($3::text, version),
     last_heartbeat_at = now()
 where id = $4
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining
 `
 
 type UpdateNodeHeartbeatParams struct {
@@ -221,6 +242,7 @@ func (q *Queries) UpdateNodeHeartbeat(ctx context.Context, arg UpdateNodeHeartbe
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
 		&i.TsStableID,
+		&i.Draining,
 	)
 	return i, err
 }

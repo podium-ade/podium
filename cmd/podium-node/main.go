@@ -27,6 +27,7 @@ func main() {
 func newRootCommand() *cobra.Command {
 	var configPath string
 	var logLevel string
+	var exitOnDrain bool
 
 	root := &cobra.Command{
 		Use:   "podium-node",
@@ -48,6 +49,9 @@ func newRootCommand() *cobra.Command {
 			cfg, err := node.LoadConfig(configPath)
 			if err != nil {
 				return err
+			}
+			if cmd.Flags().Changed("exit-on-drain") {
+				cfg.ExitOnDrain = exitOnDrain
 			}
 
 			// SIGTERM ends the stream and the process, and deliberately does not cancel
@@ -71,6 +75,8 @@ func newRootCommand() *cobra.Command {
 	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 	root.Flags().StringVar(&configPath, "config", "", "path to node.yaml (default "+node.DefaultConfigPath+")")
 	root.Flags().StringVar(&logLevel, "log-level", "info", "debug, info, warn or error")
+	root.Flags().BoolVar(&exitOnDrain, "exit-on-drain", false,
+		"exit 0 once the control plane has drained this node and its last task has finished")
 	return root
 }
 

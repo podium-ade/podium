@@ -39,6 +39,11 @@ type hostLoad struct {
 	CPUPct        float64
 	MemPct        float64
 	DiskFreeBytes int64
+	// DiskTotalBytes and DiskUsedPct describe the filesystem the data dir is on, which
+	// is where images and workspaces land. They are what the image cache watermark is
+	// measured against.
+	DiskTotalBytes int64
+	DiskUsedPct    float64
 }
 
 // sampleLoad reads CPU, memory and the free space of the data dir. cpu.Percent with a
@@ -59,6 +64,8 @@ func sampleLoad(ctx context.Context, dataDir string, logger *slog.Logger) hostLo
 	}
 	if u, err := disk.UsageWithContext(ctx, dataDir); err == nil {
 		l.DiskFreeBytes = int64(u.Free)
+		l.DiskTotalBytes = int64(u.Total)
+		l.DiskUsedPct = u.UsedPercent
 	}
 	return l
 }

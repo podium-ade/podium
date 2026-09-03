@@ -93,6 +93,32 @@ Read **[docs/networking.md](docs/networking.md)** first: it covers what to creat
 Tailscale admin console, the ACL, and the two different keys involved (a Tailscale auth key and a
 Podium enrollment token are not the same thing).
 
+## What happens when things go wrong
+
+The control plane places work on the node with the most free slots that carries every label
+the task asks for and has room for its CPU and memory (its sidecars' included). A task it
+cannot place stays `queued` and says why — `podium task get` shows `queued_reason`.
+
+After that it keeps the promises placement made:
+
+- a node that takes an assignment and does not acknowledge it within 15 seconds loses it;
+- a task that outruns its `timeout` is stopped and ends `failed{reason: timeout}`;
+- a node that stops heartbeating is `unreachable` at 30 seconds and `offline` at 120, at
+  which point its tasks are requeued (`retry_on_node_loss: true`) or marked **`lost`** —
+  which is not `failed`: nothing about the task went wrong, its machine went away;
+- a node that comes back is told what the control plane actually holds for each container it
+  still has, so its logs resume at the right byte, and any container the control plane has
+  written off is torn down instead of being left running.
+
+```sh
+podium node drain worker-3      # finishes what it has, takes nothing new
+podium node undrain worker-3
+podium node rm worker-3         # once it is drained and idle
+```
+
+A node started with `--exit-on-drain` exits 0 when its last task finishes, which is the
+upgrade path. See [docs/cli.md](docs/cli.md) and [docs/protocol.md](docs/protocol.md).
+
 ## Documentation
 
 - **[docs/networking.md](docs/networking.md)** — the tailnet transport, identity, ACL, the two keys
@@ -166,11 +192,18 @@ This is an early slice. Known and deliberate:
   else on the host or the tailnet. Narrowing that is not implemented.
 - **A CPU limit is not visible inside the container.** `nproc` reports the host's cores whatever
   `resources.cpu` says, because a CPU quota is not namespaced.
-- **No lease expiry or reconciliation** — nothing marks a task `lost` or reschedules one whose
-  node vanished, and `timeout` in a task spec is not enforced.
+- **Image cache pruning is off by default and only ever removes images Podium pulled.** A node
+  shares its Docker engine with everything else on the machine, so the LRU prune is opt-in
+  (`image_cache_prune: true`) and treats `data_dir/images.json` — written at pull time — as an
+  allow-list. An image Podium did not fetch is never a candidate, however full the disk gets.
+- **One `podium-node` per Docker engine.** The daemon claims every container labelled
+  `podium.task` on the engine, so two of them adopt each other's work.
 - **A task adopted after a node restart loses its runner event socket** for the rest of the run
   and falls back to Docker API events. See [`docs/runner-events.md`](docs/runner-events.md).
-- **Single server process.** Node sessions are held in memory; two replicas would not share them.
+- **Single server process, and now emphatically so.** Node sessions are held in memory, so only
+  the server holding a node's stream can assign to it, cancel on it or drain it — and the health
+  watchdog on a second replica would see every node as sessionless and start expiring leases.
+  A leader lock is needed before a second replica is ever started.
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table, and every one of
   them can do everything.
 - Verified on macOS/arm64 with Docker Desktop only. Linux CI is unproven, though the node and CLI

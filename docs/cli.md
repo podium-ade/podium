@@ -82,6 +82,8 @@ podium run --spec task.yaml --detach                                     # print
 | `--working-dir` | working directory inside the container (default `/workspace`) |
 | `--spec FILE` | task spec YAML; flags override its fields |
 | `--detach` | print the task ID and return 0 |
+| `--max-attempts N` | how many times the task may be assigned (default 1) |
+| `--retry-on-node-loss` | re-run the task elsewhere if its node goes offline, instead of marking it `lost` |
 
 Everything after `--` is the command. Progress lines on stderr:
 
@@ -128,13 +130,32 @@ Table of tasks, newest first. Statuses: `queued`, `scheduled`, `provisioning`, `
 
 One task. `--json` prints the wire representation, which is what scripts should parse.
 
+Two fields answer "why has nothing happened?":
+
+- `queued_reason` — why the scheduler has not placed the task, in one sentence: nothing is
+  connected, no node carries a label it asks for, every candidate is draining or full, or
+  nothing has enough free CPU or memory. `last_schedule_attempt_at` says when it last looked.
+- `failure_reason` — why a task that will never run ended: a missing secret, `timeout`, `oom`,
+  `node did not accept assignment`, or the name of the node that went offline under it.
+
+`lost` is not `failed`. A task is `lost` when the machine running it went away and the spec
+did not say it could be re-run; nothing about the task itself went wrong, and re-running it is
+the operator's call. `retry_on_node_loss: true` (or `--retry-on-node-loss`) makes that call in
+advance, and the task comes back as a new attempt instead — up to `max_attempts`.
+
 ### `podium task cancel TASK_ID [--reason TEXT]`
 
-Asks the node to stop the task and returns immediately. Cancellation is **slow**: the node
-sends SIGTERM and SIGKILLs 30 seconds later, and in MVP-0 the task command is PID 1, so a
-command that does not trap SIGTERM ignores it and dies at the SIGKILL with exit 137. Allow
-about 35 seconds before expecting a terminal status. A command that traps SIGTERM exits 143
-in a couple of seconds.
+Asks the node to stop the task and returns immediately. Cancellation is asynchronous: the
+node sends SIGTERM through `podium-runner`, which forwards it to the task, and SIGKILLs 30
+seconds later. A task that handles SIGTERM stops in a second or two and reports exit 143.
+
+The intent is recorded on the task row, not in the server's memory, so a control plane that
+restarts between the cancel and the container dying still lands the task `cancelled`. If the
+node never comes back at all, the server writes the terminal status itself 60 seconds later
+rather than leaving the task `running` forever.
+
+A task that outruns its spec's `timeout` is cancelled the same way, and ends `failed` with
+`failure_reason: timeout` — a stop the operator did not ask for is not a cancellation.
 
 ### `podium logs [-f] [--from-seq N] TASK_ID`
 
@@ -149,6 +170,45 @@ breaks.
 
 Table of enrolled nodes: name, ID, status, labels, running/max slots and heartbeat age.
 `RUNNING/MAX` is filled in only for nodes holding a live stream on the server you asked.
+
+Status is derived from the heartbeat: `online`, `unreachable` after 30 seconds of silence,
+`offline` after 120 — at which point the node's tasks are requeued or marked `lost` —
+and `draining` for a node an operator has taken out of the pool. A node that is drained but
+not connected reads `offline (draining)`, because the instruction outlives the connection.
+
+### `podium node drain NODE` · `podium node undrain NODE`
+
+`NODE` is a node's name or its ID, whichever is easier to type.
+
+Draining stops a node being given new work. Whatever it is already running finishes
+normally — that is the whole point: a drain takes a machine out of service without killing
+the jobs on it. The instruction is stored, so it survives both daemons restarting and can be
+set on a node that is offline right now.
+
+```sh
+podium node drain worker-3          # finishes what it has, takes nothing new
+podium nodes                        # worker-3 … draining
+podium node undrain worker-3        # back in the pool immediately
+```
+
+A node started with `--exit-on-drain` (or `PODIUM_NODE_EXIT_ON_DRAIN=1`) exits 0 once its
+last task finishes, which is how a supervisor replaces the binary. Without that flag a
+drained node stays connected and idle until it is undrained, which is what you want when the
+machine is being worked on rather than upgraded.
+
+### `podium node rm NODE [--force]`
+
+Forgets a node. It is refused while the node holds a live stream and has not been drained,
+and refused outright while any task is still running on it — pass `--force` only for the
+first of those.
+
+```sh
+podium node drain worker-3 && podium node rm worker-3
+```
+
+Removing a node does not stop its daemon. A worker whose `identity.json` still exists keeps
+trying to reconnect and is told its key is unknown; delete the data dir to re-enroll it.
+Finished tasks keep the node ID they ran on, so the history stays readable.
 
 ### `podium node enroll-token [--label L]... [--ttl 1h]`
 

@@ -37,9 +37,11 @@ type taskState struct {
 	TaskID  string `json:"task_id"`
 	LeaseID string `json:"lease_id"`
 	HighSeq uint64 `json:"high_seq"`
-	// AckedStdout and AckedStderr are how many bytes of each stream the server has
-	// committed. Docker replays a container's whole output on every attach, so an
-	// adopting daemon uses them to resume exactly where this one stopped.
+	// AckedStdout and AckedStderr are how far into each of the container's streams the
+	// server has committed, as this daemon last saw it. They are a *fallback*: the
+	// control plane hands the true offsets back in its HelloAck, because a node killed
+	// between the server's commit and its Ack has no record of an ack that did happen.
+	// These are what an adoption uses only when no checkpoint arrives at all.
 	AckedStdout int64 `json:"acked_stdout"`
 	AckedStderr int64 `json:"acked_stderr"`
 }
@@ -65,7 +67,10 @@ type buffer struct {
 	// progress is the last time the buffer moved: an event sent, or an ack landing.
 	// A buffer that has not moved for a while is retransmitted.
 	progress time.Time
-	// ackedStdout and ackedStderr count the log bytes the server has committed.
+	// ackedStdout and ackedStderr are how far into each of the container's own streams
+	// the server has committed, as the last Ack showed. They are the offsets the
+	// container produced, not the bytes that were stored: redaction rewrites what is
+	// stored, so len(bytes) summed is a different number.
 	ackedStdout int64
 	ackedStderr int64
 	// overflowed latches on the first dropped chunk; reported makes the marker
@@ -212,9 +217,9 @@ func (b *buffer) ack(seq uint64) {
 		}
 		switch e.GetLog().GetStream() {
 		case podiumv1.LogChunk_STREAM_STDOUT:
-			b.ackedStdout += int64(len(e.GetLog().GetBytes()))
+			b.ackedStdout = max(b.ackedStdout, e.GetLog().GetSourceOffset())
 		case podiumv1.LogChunk_STREAM_STDERR:
-			b.ackedStderr += int64(len(e.GetLog().GetBytes()))
+			b.ackedStderr = max(b.ackedStderr, e.GetLog().GetSourceOffset())
 		}
 	}
 	b.events = kept
@@ -228,6 +233,23 @@ func (b *buffer) ackedBytes() (stdout, stderr int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ackedStdout, b.ackedStderr
+}
+
+// resume moves an untouched buffer onto the control plane's own view of the task before
+// anything is read from the container: the sequence space continues above what the server
+// stored, and the byte offsets are what the server actually holds.
+//
+// It is only ever called on a buffer whose adoption has not started, so there is nothing
+// buffered to renumber and nothing in flight to confuse.
+func (b *buffer) resume(highSeq uint64, stdout, stderr int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if highSeq > b.seq {
+		b.seq, b.acked, b.sent = highSeq, highSeq, highSeq
+	}
+	b.ackedStdout = max(b.ackedStdout, stdout)
+	b.ackedStderr = max(b.ackedStderr, stderr)
+	b.persistLocked(true)
 }
 
 // high is the highest seq assigned so far.

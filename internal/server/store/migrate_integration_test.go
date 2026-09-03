@@ -23,7 +23,7 @@ var expectedTables = []string{
 var trimmedTables = []string{"artifacts"}
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
-var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql"}
+var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql"}
 
 func tableExists(t *testing.T, s *Store, name string) bool {
 	t.Helper()

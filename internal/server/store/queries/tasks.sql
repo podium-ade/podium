@@ -27,9 +27,50 @@ order by priority desc, created_at
 for update skip locked
 limit @page_limit::int;
 
+-- ClaimActiveTasks is the reconciliation sweep: every task the control plane still owes
+-- someone an answer for. It is deliberately not paginated — a control plane with more than
+-- a few thousand tasks in flight has a bigger problem than this query.
+-- name: ClaimActiveTasks :many
+select * from tasks
+where status in ('scheduled', 'provisioning', 'running')
+order by id;
+
+-- name: ListTasksOnNode :many
+select * from tasks
+where node_id = @node_id and status = any (@statuses::text[])
+order by id;
+
+-- name: MarkScheduleAttempt :exec
+update tasks
+set last_schedule_attempt_at = now(),
+    queued_reason            = @queued_reason::text
+where id = @id and status = 'queued';
+
+-- RequestCancel records a durable stop intent. TransitionTask reads it back and rewrites
+-- the terminal status the node's finished event would otherwise have produced, so a server
+-- restart between the request and the event cannot lose it.
+-- name: RequestCancel :one
+update tasks
+set cancel_requested_at = coalesce(cancel_requested_at, now()),
+    cancel_reason       = coalesce(cancel_reason, @cancel_reason::text),
+    cancel_status       = coalesce(cancel_status, @cancel_status::text)
+where id = @id
+  and status in ('queued', 'scheduled', 'provisioning', 'running')
+returning *;
+
+-- ExtendLease pushes a live task's lease out. It is guarded by the lease id as well as the
+-- id, so a stale scheduler cannot extend a lease that has already moved to another node.
+-- name: ExtendLease :execrows
+update tasks
+set lease_expires_at = @lease_expires_at
+where id = @id
+  and lease_id = @lease_id
+  and status in ('scheduled', 'provisioning', 'running');
+
 -- name: AssignTask :one
 update tasks
 set status           = 'scheduled',
+    queued_reason    = null,
     node_id          = @node_id,
     lease_id         = @lease_id,
     lease_expires_at = @lease_expires_at,
@@ -43,6 +84,7 @@ returning *;
 -- name: UpdateTaskTransition :one
 update tasks
 set status           = @to_status::text,
+    queued_reason    = null,
     started_at       = coalesce(sqlc.narg(started_at)::timestamptz, started_at),
     finished_at      = coalesce(sqlc.narg(finished_at)::timestamptz, finished_at),
     exit_code        = coalesce(sqlc.narg(exit_code)::int, exit_code),

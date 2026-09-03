@@ -39,12 +39,13 @@ func (s *Store) AppendBatch(ctx context.Context, taskID string, events []Event, 
 			return fmt.Errorf("task %s: log chunk seq %d overflows bigint", taskID, c.Seq)
 		}
 		chunkParams = append(chunkParams, db.AppendLogChunkParams{
-			TaskID:  taskID,
-			Seq:     int64(c.Seq),
-			Stream:  c.Stream,
-			Sidecar: ptr(c.Sidecar),
-			Ts:      c.TS.UTC(),
-			Bytes:   c.Bytes,
+			TaskID:       taskID,
+			Seq:          int64(c.Seq),
+			Stream:       c.Stream,
+			Sidecar:      ptr(c.Sidecar),
+			Ts:           c.TS.UTC(),
+			Bytes:        c.Bytes,
+			SourceOffset: c.SourceOffset,
 		})
 	}
 
