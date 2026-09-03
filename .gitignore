@@ -52,3 +52,11 @@ Thumbs.db
 # Design plans stay local: they are the working notes this repo was built from, not
 # published material. They remain on disk, they are simply not tracked.
 plans/
+
+# tsnet state. Both daemons keep their Tailscale device identity — a real credential — on disk:
+# the server under PODIUM_TS_STATE_DIR and a node under <data_dir>/ts. These are the spellings
+# that end up next to a repo when someone points a state dir at their working copy.
+tailscaled.state
+tailscaled.log.conf
+/tsnet/
+/ts-state/

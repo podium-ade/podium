@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -76,8 +77,16 @@ func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	if cfg.Server == "" {
 		return Config{}, errors.New("no server: pass --server, set PODIUM_SERVER, or put `server:` in " + ConfigPath())
 	}
-	if cfg.Token == "" {
-		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN, or put `token:` in " + ConfigPath())
+	// A token is a dev-transport artefact. Over the tailnet the server serves HTTPS on its
+	// MagicDNS name and Tailscale's WhoIs names the caller, so there is nothing to present and
+	// asking for one would be wrong.
+	if cfg.Token == "" && !cfg.Tailnet() {
+		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN, or put `token:` in " + ConfigPath() +
+			" (a tailnet control plane needs none: use its https:// MagicDNS URL)")
 	}
 	return cfg, nil
 }
+
+// Tailnet reports whether the configured server is a tailnet control plane, which is the only
+// case in which the CLI needs no credential of its own.
+func (c Config) Tailnet() bool { return strings.HasPrefix(c.Server, "https://") }

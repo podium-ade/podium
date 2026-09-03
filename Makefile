@@ -10,7 +10,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
-.PHONY: build web web-deps web-test test test-integration e2e lint proto proto-lint proto-breaking fmt clean
+.PHONY: build dist-node dist-node-all web web-deps web-test test test-integration e2e lint proto proto-lint proto-breaking fmt clean
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -21,6 +21,34 @@ build: web
 		echo "go build ./cmd/$$b -> bin/$$b"; \
 		go build -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
 	done
+
+# Cross-compiled worker binaries.
+#
+# The control plane and its workers do not have to share an architecture: a darwin/arm64 server
+# drives linux/amd64 workers perfectly well. `make build` above is host-native, which on this
+# machine produces a Mach-O binary that cannot run on a Linux worker, so a node binary has to be
+# built *for the worker*. linux/amd64 is the expected default; check the target with `uname -m`
+# (x86_64 -> amd64, aarch64 -> arm64).
+#
+# CGO_ENABLED=0 gives a static binary that runs on any glibc or musl Linux. Nothing the node
+# needs wants cgo: the Docker SDK, pgx, tsnet and gopsutil (which reads /proc on Linux) are all
+# pure Go. The matrix matches .goreleaser.yaml, which is the release build of the same set.
+GOOS   ?= linux
+GOARCH ?= amd64
+DIST_BINARIES := podium-node podium
+
+dist-node:
+	@mkdir -p bin
+	@for b in $(DIST_BINARIES); do \
+		out=bin/$$b-$(GOOS)-$(GOARCH); \
+		echo "GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 go build ./cmd/$$b -> $$out"; \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 \
+			go build -trimpath -ldflags "$(LDFLAGS)" -o $$out ./cmd/$$b || exit 1; \
+	done
+
+dist-node-all:
+	$(MAKE) dist-node GOOS=linux GOARCH=amd64
+	$(MAKE) dist-node GOOS=linux GOARCH=arm64
 
 # web builds the UI into web/dist, which //go:embed picks up. VERSION reaches the bundle so the
 # header shows the version of the binary serving it.

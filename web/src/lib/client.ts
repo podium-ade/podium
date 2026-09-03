@@ -1,9 +1,12 @@
 import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { NodeAdminService } from "../gen/podium/v1/admin_pb";
+import { IdentityService } from "../gen/podium/v1/identity_pb";
 import { TaskService } from "../gen/podium/v1/task_pb";
 import { getToken, notifyRejected } from "./auth";
 
+// The tailnet transport wants no header at all — identity comes from the connection — so the
+// interceptor only adds one when a dev token has actually been entered.
 const bearer: Interceptor = (next) => async (req) => {
   const token = getToken();
   if (token) req.header.set("Authorization", `Bearer ${token}`);
@@ -32,3 +35,4 @@ const transport = createConnectTransport({
 
 export const tasks = createClient(TaskService, transport);
 export const admin = createClient(NodeAdminService, transport);
+export const identity = createClient(IdentityService, transport);

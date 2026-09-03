@@ -52,8 +52,33 @@ func newNodeCommand(e *env) *cobra.Command {
 		Short: "Node administration",
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(newEnrollTokenCommand(e))
+	cmd.AddCommand(newEnrollTokenCommand(e), newRekeyCommand(e))
 	return cmd
+}
+
+func newRekeyCommand(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rekey NODE_ID",
+		Short: "Unbind a node from the Tailscale device it enrolled from",
+		Long: "Unbind a node from the Tailscale device it enrolled from.\n\n" +
+			"A node enrolled over the tailnet is pinned to the Tailscale device it enrolled\n" +
+			"from, so a copied identity.json is useless on another machine. Rekey when the\n" +
+			"worker is genuinely rebuilt or replaced: the node keeps its ID, labels and\n" +
+			"history, and the next Hello binds it to whatever device it arrives from.\n\n" +
+			"Until it reconnects the node key alone is enough, so rekey immediately before\n" +
+			"the move, not as a matter of routine.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := e.client.admin.RekeyNode(cmd.Context(),
+				connect.NewRequest(&podiumv1.RekeyNodeRequest{NodeId: args[0]}))
+			if err != nil {
+				return &ExitError{Code: ExitInfra, Err: fmt.Errorf("rekey node: %w", err)}
+			}
+			n := res.Msg.GetNode()
+			e.note("node %s (%s) is unbound; the next connection binds it to that device", n.GetId(), n.GetName())
+			return nil
+		},
+	}
 }
 
 func newEnrollTokenCommand(e *env) *cobra.Command {

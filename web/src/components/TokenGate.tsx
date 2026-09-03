@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { admin, errorMessage, isUnauthenticated } from "../lib/client";
+import { errorMessage, identity, isUnauthenticated } from "../lib/client";
 import { getToken, onRejected, setToken } from "../lib/auth";
+import { ViewerContext, viewerFrom } from "../lib/identity";
 
 /**
- * TokenGate is the browser half of the dev transport's static-token auth.
+ * TokenGate decides whether this deployment needs a credential from the browser at all.
  *
- * The server requires `Authorization: Bearer <PODIUM_DEV_TOKEN>` on every Connect endpoint and a
- * freshly loaded page has no token, so the UI probes once with ListNodes: if the call succeeds
- * (which is what happens behind `pnpm dev`, where Vite injects the header) nothing is asked for.
- * Otherwise it asks, stores the answer in localStorage, and re-probes. The token is never baked
- * into the served HTML, and the server's auth is not relaxed for the UI. Step 11's tailnet
- * transport derives identity from WhoIs, and this component goes away with it.
+ * It probes WhoAmI once. Under the tailnet transport the call succeeds with no header: Tailscale
+ * named the caller at the transport layer, so there is nothing to ask for and the gate never
+ * shows — the answer goes straight into the header. Under the dev transport the same probe comes
+ * back Unauthenticated, and only then does the UI ask for PODIUM_DEV_TOKEN, keep it in
+ * localStorage and probe again.
+ *
+ * The probe is deliberately the same authenticated endpoint as everything else. Relaxing the
+ * server's auth for a "who am I" endpoint would publish it to anything that can reach the port,
+ * and templating the token into the served HTML would hand it to every reader of the page.
  */
 export function TokenGate({ children }: { children: ReactNode }) {
   const [attempt, setAttempt] = useState(0);
@@ -20,8 +24,8 @@ export function TokenGate({ children }: { children: ReactNode }) {
   const [value, setValue] = useState(getToken());
 
   const probe = useQuery({
-    queryKey: ["auth-probe", attempt],
-    queryFn: () => admin.listNodes({}),
+    queryKey: ["whoami", attempt],
+    queryFn: () => identity.whoAmI({}),
     retry: false,
     staleTime: Infinity,
     gcTime: Infinity,
@@ -30,7 +34,9 @@ export function TokenGate({ children }: { children: ReactNode }) {
   // Any later 401 — an expired session, or a token changed out from under us — re-gates.
   useEffect(() => onRejected(() => setForced(true)), []);
 
-  if (!forced && probe.isSuccess) return <>{children}</>;
+  if (!forced && probe.isSuccess) {
+    return <ViewerContext value={viewerFrom(probe.data)}>{children}</ViewerContext>;
+  }
 
   if (!forced && probe.isPending) {
     return <div className="grid h-full place-items-center text-sm text-muted">connecting…</div>;
@@ -53,10 +59,14 @@ export function TokenGate({ children }: { children: ReactNode }) {
       >
         <h1 className="text-lg font-semibold">podium</h1>
         <p className="mt-2 text-sm text-muted">
-          The dev transport authenticates every API call with a shared bearer token. Paste{" "}
+          This server is on the <code className="font-mono text-fg">dev</code> transport, which
+          authenticates every API call with a shared bearer token. Paste{" "}
           <code className="font-mono text-fg">PODIUM_DEV_TOKEN</code> to continue. It is kept in
           this browser&apos;s local storage and sent as an{" "}
           <code className="font-mono">Authorization</code> header.
+        </p>
+        <p className="mt-2 text-xs text-muted">
+          A server on a tailnet never shows this: Tailscale identifies you and there is no token.
         </p>
         {rejected ? <p className="mt-3 text-sm text-err">Token rejected — re-enter it.</p> : null}
         {failure ? <p className="mt-3 text-sm text-err">{failure}</p> : null}

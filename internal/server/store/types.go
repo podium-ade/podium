@@ -181,6 +181,19 @@ type Node struct {
 	Version         string
 	LastHeartbeatAt *time.Time
 	CreatedAt       time.Time
+	// TSStableID is the Tailscale device this node enrolled from, empty when unbound. It is
+	// what makes a copied identity.json useless on a different machine.
+	TSStableID string
+}
+
+// User is a person the tailnet transport has seen. Podium never stores a credential for one:
+// Tailscale's WhoIs is the authentication, and this row only carries what can be attached to a
+// login afterwards.
+type User struct {
+	Login       string
+	DisplayName string
+	Roles       []string
+	FirstSeenAt time.Time
 }
 
 // NewNode is the input to CreateNode. An empty ID is minted.
@@ -191,6 +204,9 @@ type NewNode struct {
 	Labels      []string
 	Capacity    NodeCapacity
 	NodeKeyHash []byte
-	Status      NodeStatus
-	Version     string
+	// TSStableID binds the node to the Tailscale device it enrolled from. Empty under the dev
+	// transport, where there is no device to bind to.
+	TSStableID string
+	Status     NodeStatus
+	Version    string
 }

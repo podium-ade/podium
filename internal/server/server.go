@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/server/store"
 	"github.com/alvaroibarguen/podium/internal/transport"
 	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
 // ShutdownTimeout is how long Run gives in-flight work to finish after a signal.
@@ -67,7 +69,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, err
 	}
 
-	listener, err := dev.New(dev.Options{Listen: cfg.DevListen, Token: cfg.DevToken})
+	listener, err := newListener(cfg, st, logger)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -75,6 +77,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 
 	logSvc := logs.New(st, logger)
 	nodeSvc := nodes.NewService(st, logSvc, logger)
+	nodeSvc.SetAllowUntaggedNodes(cfg.TSAllowUntaggedNodes)
 	logSvc.SetSlots(nodeSvc.Registry())
 	s := &Server{
 		cfg:       cfg,
@@ -92,6 +95,60 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return s, nil
+}
+
+// newListener builds the transport named by PODIUM_TRANSPORT. The dev transport keeps its
+// loopback-only guard exactly as it was: the tailnet transports are additions beside it, not a
+// loosening of it.
+func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Listener, error) {
+	identity := tailnet.IdentityOptions{NodeTag: cfg.TSRequiredNodeTag}
+	if cfg.TSAllowUntaggedNodes {
+		logger.Warn("PODIUM_TS_ALLOW_UNTAGGED_NODES is on: any untagged tailnet device may " +
+			"enroll as a node with a valid enrollment token. The ACL tag is the network-level " +
+			"proof that a caller is an authorised worker; without it only the token stands " +
+			"between the tailnet and a running container. Tag your workers " + tailnet.DefaultNodeTag +
+			" and turn this off.")
+	}
+	switch cfg.Transport {
+	case TransportTailnet:
+		return tailnet.New(tailnet.Options{
+			Hostname: cfg.TSHostname,
+			StateDir: cfg.TSStateDir,
+			AuthKey:  cfg.TSAuthKey,
+			Identity: identity,
+			Users:    userStore{st},
+			Logger:   logger,
+		})
+	case TransportHost:
+		return tailnet.NewHost(tailnet.HostOptions{
+			Identity: identity,
+			Users:    userStore{st},
+			Logger:   logger,
+		})
+	default:
+		return dev.New(dev.Options{Listen: cfg.DevListen, Token: cfg.DevToken})
+	}
+}
+
+// userStore adapts the store to the one method the tailnet transport needs. The transport does
+// not care what a user row looks like, only that a login has been recorded.
+type userStore struct{ st *store.Store }
+
+func (u userStore) UpsertUser(ctx context.Context, login, displayName string) error {
+	_, err := u.st.UpsertUser(ctx, login, displayName)
+	return err
+}
+
+// readyProber is the optional half of a transport that has something of its own to report on
+// /readyz — for the tailnet transports, whether the device is still up and when its key expires.
+type readyProber interface {
+	Ready(ctx context.Context) (string, error)
+}
+
+// baseURLer is the optional half of a transport that knows the URL clients should dial. Only the
+// tailnet transports do: they learn their MagicDNS name from the control plane.
+type baseURLer interface {
+	BaseURL() string
 }
 
 // plaintextHTTP2 keeps HTTP/1.1 for unary Connect calls and curl, and adds cleartext HTTP/2 so
@@ -114,6 +171,7 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(api.NewIdentityService(), opts...))
 
 	metrics := prometheus.NewRegistry()
 	metrics.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -134,6 +192,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.TaskServiceName,
 		podiumv1connect.NodeServiceName,
 		podiumv1connect.NodeAdminServiceName,
+		podiumv1connect.IdentityServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
 	}
@@ -150,7 +209,17 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		writePlain(w, http.StatusServiceUnavailable, "postgres unreachable")
 		return
 	}
-	writePlain(w, http.StatusOK, "ok")
+	detail := "ok"
+	if p, ok := s.transport.(readyProber); ok {
+		d, err := p.Ready(ctx)
+		if err != nil {
+			s.logger.WarnContext(ctx, "readyz: transport not ready", "error", err)
+			writePlain(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		detail = "ok, " + d
+	}
+	writePlain(w, http.StatusOK, detail)
 }
 
 func writePlain(w http.ResponseWriter, code int, body string) {
@@ -191,7 +260,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	s.logger.InfoContext(ctx, "podium-server listening",
-		"addr", ln.Addr().String(), "transport", s.cfg.Transport)
+		"addr", ln.Addr().String(), "transport", s.cfg.Transport, "url", s.URL())
 	return nil
 }
 
@@ -203,8 +272,16 @@ func (s *Server) Addr() string {
 	return s.ln.Addr().String()
 }
 
-// URL is the base URL a Connect client should dial.
-func (s *Server) URL() string { return "http://" + s.Addr() }
+// URL is the base URL a Connect client should dial. Under the tailnet transports that is the
+// MagicDNS name the certificate is issued for, not the address the socket is bound to.
+func (s *Server) URL() string {
+	if b, ok := s.transport.(baseURLer); ok {
+		if url := b.BaseURL(); url != "" {
+			return url
+		}
+	}
+	return "http://" + s.Addr()
+}
 
 // Shutdown stops accepting, closes every node stream so the nodes reconnect elsewhere, and
 // waits for in-flight requests until ctx expires. Streams still open at the deadline are cut.
@@ -221,8 +298,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return err
 }
 
-// Close releases the store. Call it after Shutdown.
-func (s *Server) Close() { s.store.Close() }
+// Close releases the store and leaves the tailnet. Call it after Shutdown.
+func (s *Server) Close() {
+	if c, ok := s.transport.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			s.logger.Warn("closing the transport failed", "error", err)
+		}
+	}
+	s.store.Close()
+}
 
 // Run serves until ctx is cancelled, then shuts down within ShutdownTimeout.
 func (s *Server) Run(ctx context.Context) error {

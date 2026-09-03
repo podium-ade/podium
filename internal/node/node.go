@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/node/docker"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
 // adoptSeqFloor is where an adopted task restarts its sequence space when the bookmark
@@ -29,6 +31,9 @@ type Node struct {
 	id     Identity
 	facts  HostFacts
 	client podiumv1connect.NodeServiceClient
+
+	// tsnet is the node's own Tailscale device under transport: tailnet, nil otherwise.
+	tsnet *tailnet.Client
 
 	// runCtx outlives the daemon's own context on purpose: a SIGTERM must not cancel a
 	// container run, because cancelling it makes the executor tear the container down.
@@ -69,17 +74,29 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 	}
 
 	facts := hostFacts(ctx, exec.ServerVersion())
-	client := podiumv1connect.NewNodeServiceClient(dev.NewStreamClient(cfg.DevToken), cfg.Server)
+	httpClient, ts, err := dialer(ctx, cfg, logger)
+	if err != nil {
+		_ = exec.Close()
+		return nil, err
+	}
+	client := podiumv1connect.NewNodeServiceClient(httpClient, cfg.Server)
+
+	closeAll := func() {
+		_ = exec.Close()
+		if ts != nil {
+			_ = ts.Close()
+		}
+	}
 
 	id, ok, err := LoadIdentity(cfg.DataDir)
 	if err != nil {
-		_ = exec.Close()
+		closeAll()
 		return nil, err
 	}
 	if !ok {
 		id, err = enroll(ctx, client, cfg, facts, logger)
 		if err != nil {
-			_ = exec.Close()
+			closeAll()
 			return nil, err
 		}
 	}
@@ -91,11 +108,39 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		id:        id,
 		facts:     facts,
 		client:    client,
+		tsnet:     ts,
 		runCtx:    context.Background(),
 		tasks:     make(map[string]*buffer),
 		wake:      make(chan struct{}, 1),
 		drainDone: make(chan struct{}),
 	}, nil
+}
+
+// dialer builds the HTTP client every RPC goes through, and the tailnet device behind it when
+// there is one. A node never listens: under transport: tailnet it joins the tailnet purely to
+// dial out, which is what lets a worker sit behind NAT with no open ports.
+func dialer(ctx context.Context, cfg Config, logger *slog.Logger) (*http.Client, *tailnet.Client, error) {
+	switch cfg.Transport {
+	case TransportTailnet:
+		ts, err := tailnet.NewClient(tailnet.ClientOptions{
+			Hostname: cfg.TSHostname,
+			StateDir: cfg.TSStateDir(),
+			AuthKey:  cfg.TSAuthKey,
+			Logger:   logger,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := ts.Up(ctx); err != nil {
+			_ = ts.Close()
+			return nil, nil, err
+		}
+		return ts.HTTPClient(), ts, nil
+	case TransportHost:
+		return tailnet.NewHostClient(), nil, nil
+	default:
+		return dev.NewStreamClient(cfg.DevToken), nil, nil
+	}
 }
 
 // NodeID is the enrolled identity's ID.
@@ -110,8 +155,17 @@ func (n *Node) MetricsAddr() string {
 	return n.metrics.addr()
 }
 
-// Close releases the Docker client. Running containers are deliberately left alone.
-func (n *Node) Close() error { return n.exec.Close() }
+// Close releases the Docker client and leaves the tailnet. Running containers are deliberately
+// left alone: the next incarnation adopts them.
+func (n *Node) Close() error {
+	err := n.exec.Close()
+	if n.tsnet != nil {
+		if tsErr := n.tsnet.Close(); tsErr != nil && err == nil {
+			err = tsErr
+		}
+	}
+	return err
+}
 
 // signal nudges the stream loop to flush whatever the task goroutines have buffered.
 func (n *Node) signal() {

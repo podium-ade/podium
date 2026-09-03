@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/admin.proto.
  */
 export const file_podium_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSKlAgoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIlYKHENyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QSDgoGbGFiZWxzGAEgAygJEiYKA3R0bBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJeCh1DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCISChBMaXN0Tm9kZXNSZXF1ZXN0IjMKEUxpc3ROb2Rlc1Jlc3BvbnNlEh4KBW5vZGVzGAEgAygLMg8ucG9kaXVtLnYxLk5vZGUyxgEKEE5vZGVBZG1pblNlcnZpY2USagoVQ3JlYXRlRW5yb2xsbWVudFRva2VuEicucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QaKC5wb2RpdW0udjEuQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USRgoJTGlzdE5vZGVzEhsucG9kaXVtLnYxLkxpc3ROb2Rlc1JlcXVlc3QaHC5wb2RpdW0udjEuTGlzdE5vZGVzUmVzcG9uc2VCpAEKDWNvbS5wb2RpdW0udjFCCkFkbWluUHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSK7AgoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCSJWChxDcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0Eg4KBmxhYmVscxgBIAMoCRImCgN0dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iXgodQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiEgoQTGlzdE5vZGVzUmVxdWVzdCIzChFMaXN0Tm9kZXNSZXNwb25zZRIeCgVub2RlcxgBIAMoCzIPLnBvZGl1bS52MS5Ob2RlIiMKEFJla2V5Tm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIyChFSZWtleU5vZGVSZXNwb25zZRIdCgRub2RlGAEgASgLMg8ucG9kaXVtLnYxLk5vZGUyjgIKEE5vZGVBZG1pblNlcnZpY2USagoVQ3JlYXRlRW5yb2xsbWVudFRva2VuEicucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QaKC5wb2RpdW0udjEuQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USRgoJTGlzdE5vZGVzEhsucG9kaXVtLnYxLkxpc3ROb2Rlc1JlcXVlc3QaHC5wb2RpdW0udjEuTGlzdE5vZGVzUmVzcG9uc2USRgoJUmVrZXlOb2RlEhsucG9kaXVtLnYxLlJla2V5Tm9kZVJlcXVlc3QaHC5wb2RpdW0udjEuUmVrZXlOb2RlUmVzcG9uc2VCpAEKDWNvbS5wb2RpdW0udjFCCkFkbWluUHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.Node
@@ -69,6 +69,14 @@ export type Node = Message<"podium.v1.Node"> & {
    * @generated from field: google.protobuf.Timestamp created_at = 10;
    */
   createdAt?: Timestamp | undefined;
+
+  /**
+   * ts_stable_id is the Tailscale device this node is bound to, empty when it is unbound
+   * (never enrolled over a tailnet, or rekeyed).
+   *
+   * @generated from field: string ts_stable_id = 11;
+   */
+  tsStableId: string;
 };
 
 /**
@@ -155,6 +163,40 @@ export const ListNodesResponseSchema: GenMessage<ListNodesResponse> = /*@__PURE_
   messageDesc(file_podium_v1_admin, 4);
 
 /**
+ * @generated from message podium.v1.RekeyNodeRequest
+ */
+export type RekeyNodeRequest = Message<"podium.v1.RekeyNodeRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+};
+
+/**
+ * Describes the message podium.v1.RekeyNodeRequest.
+ * Use `create(RekeyNodeRequestSchema)` to create a new message.
+ */
+export const RekeyNodeRequestSchema: GenMessage<RekeyNodeRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 5);
+
+/**
+ * @generated from message podium.v1.RekeyNodeResponse
+ */
+export type RekeyNodeResponse = Message<"podium.v1.RekeyNodeResponse"> & {
+  /**
+   * @generated from field: podium.v1.Node node = 1;
+   */
+  node?: Node | undefined;
+};
+
+/**
+ * Describes the message podium.v1.RekeyNodeResponse.
+ * Use `create(RekeyNodeResponseSchema)` to create a new message.
+ */
+export const RekeyNodeResponseSchema: GenMessage<RekeyNodeResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 6);
+
+/**
  * NodeAdminService is the operator-facing node API. GetNode, DrainNode and DeleteNode are
  * deliberately absent in MVP-0.
  *
@@ -176,6 +218,17 @@ export const NodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof ListNodesRequestSchema;
     output: typeof ListNodesResponseSchema;
+  },
+  /**
+   * RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
+   * identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.RekeyNode
+   */
+  rekeyNode: {
+    methodKind: "unary";
+    input: typeof RekeyNodeRequestSchema;
+    output: typeof RekeyNodeResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_admin, 0);

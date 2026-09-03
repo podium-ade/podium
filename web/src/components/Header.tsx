@@ -1,9 +1,11 @@
 import { NavLink } from "react-router";
+import { useViewer, viewerLabel } from "../lib/identity";
 
 const link = ({ isActive }: { isActive: boolean }) =>
   `rounded px-2 py-1 text-sm ${isActive ? "bg-raised text-fg" : "text-muted hover:text-fg"}`;
 
 export function Header() {
+  const viewer = viewerLabel(useViewer());
   return (
     <header className="flex items-center gap-4 border-b border-border bg-panel px-4 py-2">
       <span className="font-mono text-sm font-semibold tracking-tight">
@@ -18,9 +20,9 @@ export function Header() {
         </NavLink>
       </nav>
       <div className="ml-auto flex items-center gap-3 text-xs text-muted">
-        {/* Dev transport has no per-user identity: every caller is the shared token. The
-            tailnet transport (step 11) replaces this with the visiting user's login. */}
-        <span title="dev transport: the shared bearer token has no per-user identity">dev</span>
+        {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
+            transport, which has no per-user identity at all. */}
+        <span title={viewer.title}>{viewer.text}</span>
         <span className="font-mono">{__PODIUM_VERSION__}</span>
       </div>
     </header>

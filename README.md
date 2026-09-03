@@ -47,14 +47,35 @@ PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium \
 Then enroll a node and run something — see **[docs/node-setup.md](docs/node-setup.md)**.
 
 Open <http://127.0.0.1:8080> for the UI. Under the `dev` transport it asks once for the bearer
-token (`devtoken` above) and keeps it in `localStorage`; that prompt disappears when the Tailscale
-transport lands and identity comes from the tailnet.
+token (`devtoken` above) and keeps it in `localStorage`; on a tailnet that prompt never appears,
+because Tailscale has already said who you are.
 
 > If port 5432 or 8080 is already taken on your machine, set `PODIUM_PG_PORT` and
 > `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and match `PODIUM_DATABASE_URL` to the Postgres port.
 
+## Running across machines
+
+The `dev` transport above is loopback-only, so node and server share a host. For real workers,
+Podium joins your Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial
+out and listen for nothing, and there is no login page, no API token and no public ingress.
+
+```sh
+PODIUM_TRANSPORT=tailnet \
+TS_AUTHKEY=tskey-auth-...                        `# reusable, pre-approved, tag:podium-server` \
+PODIUM_DATABASE_URL=postgres://... \
+  ./bin/podium-server
+
+# from any device on the tailnet — no token, no login
+./bin/podium --server https://podium.<tailnet>.ts.net nodes
+```
+
+Read **[docs/networking.md](docs/networking.md)** first: it covers what to create in the
+Tailscale admin console, the ACL, and the two different keys involved (a Tailscale auth key and a
+Podium enrollment token are not the same thing).
+
 ## Documentation
 
+- **[docs/networking.md](docs/networking.md)** — the tailnet transport, identity, ACL, the two keys
 - **[docs/node-setup.md](docs/node-setup.md)** — setting up a worker node
 - [docs/cli.md](docs/cli.md) — CLI reference, exit codes and streams (contractual)
 - [docs/protocol.md](docs/protocol.md) — the node↔server stream, event ordering and acks
@@ -66,16 +87,24 @@ transport lands and identity comes from the tailnet.
 | | |
 |---|---|
 | `PODIUM_DATABASE_URL` | **required** — Postgres DSN; the server migrates on start |
-| `PODIUM_TRANSPORT` | `dev` (default). `tailnet` is not implemented yet |
-| `PODIUM_DEV_LISTEN` | `127.0.0.1:8080`. Must be loopback or the server refuses to start |
+| `PODIUM_TRANSPORT` | `dev` (default), `tailnet`, or `host` |
+| `PODIUM_DEV_LISTEN` | `dev` only. `127.0.0.1:8080`; must be loopback or the server refuses to start |
 | `PODIUM_DEV_TOKEN` | **required** for `dev` — the shared bearer token |
+| `TS_AUTHKEY` | `tailnet` only, first run — a reusable, pre-approved key tagged `tag:podium-server` |
+| `PODIUM_TS_HOSTNAME` | `podium`. The device name, and the first label of the MagicDNS name |
+| `PODIUM_TS_STATE_DIR` | `/var/lib/podium/tsnet`. **Must persist**, or the server re-registers as a new device |
+| `PODIUM_TS_REQUIRED_NODE_TAG` | `tag:podium-node`. Which tag makes a device a worker |
+| `PODIUM_TS_ALLOW_UNTAGGED_NODES` | `false`. Escape hatch for a tailnet with no tags; warns loudly |
 
-`/healthz`, `/readyz` and `/metrics` are open; every RPC requires `Authorization: Bearer`.
+`/healthz`, `/readyz` and `/metrics` are open. Under `dev` every RPC requires
+`Authorization: Bearer`; under `tailnet` identity comes from the connection and no RPC takes a
+credential at all.
 
 ## Development
 
 ```sh
-make build              # UI + all four binaries into bin/
+make build              # UI + all four binaries into bin/, host-native
+make dist-node-all      # cross-compiled podium-node + podium for linux/amd64 and linux/arm64
 make test               # unit tests
 make test-integration   # + real Postgres and Docker via testcontainers
 make e2e                # boots a full stack and drives the real CLI
@@ -87,15 +116,19 @@ go build -tags noui ./...   # skip the embedded UI, no Node required
 
 This is an early slice. Known and deliberate:
 
-- **Single machine only.** The `dev` transport is loopback-only, so nodes must share a host with
-  the server. Multi-machine needs the Tailscale transport, which is not built.
+- **The tailnet transport is unproven in the wild.** It is implemented and unit-tested, but it
+  has not yet been run against a real tailnet — that needs tagged auth keys and HTTPS enabled on
+  the tailnet. The `host` transport is likewise unverified. The `dev` transport is the tested one.
 - **No secrets, sidecars, resource limits, or artifacts.**
 - **No lease expiry or reconciliation** — nothing marks a task `lost` or reschedules one whose
   node vanished, and `timeout` in a task spec is not enforced.
 - **Cancelling takes up to 30s.** Without the runner as PID 1, the kernel discards a
   default-disposition SIGTERM to a namespace's init, so containers die at the SIGKILL (exit 137).
 - **Single server process.** Node sessions are held in memory; two replicas would not share them.
-- Verified on macOS/arm64 with Docker Desktop only. Linux CI is unproven.
+- **No RBAC.** The tailnet transport records who is visiting in a `users` table, and every one of
+  them can do everything.
+- Verified on macOS/arm64 with Docker Desktop only. Linux CI is unproven, though the node and CLI
+  do cross-compile (`make dist-node-all`).
 
 ## License
 

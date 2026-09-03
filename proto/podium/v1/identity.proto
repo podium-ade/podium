@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package podium.v1;
+
+// IdentityService answers "who does the server think I am". Under the tailnet transport the
+// answer comes from Tailscale's WhoIs and the call needs no credential at all, which is how the
+// web UI knows it can skip its dev-token prompt: if WhoAmI succeeds unauthenticated, identity is
+// already established.
+service IdentityService {
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+}
+
+// IdentityKind mirrors the transport's own taxonomy.
+enum IdentityKind {
+  IDENTITY_KIND_UNSPECIFIED = 0;
+  // A human, named by their Tailscale login.
+  IDENTITY_KIND_USER = 1;
+  // A worker, proved by its Tailscale ACL tag.
+  IDENTITY_KIND_NODE = 2;
+  // The dev transport's shared bearer token, which has no per-user identity.
+  IDENTITY_KIND_DEV_TOKEN = 3;
+}
+
+message WhoAmIRequest {}
+
+message WhoAmIResponse {
+  // login is the Tailscale login name of a user, the device name of a node, or "dev".
+  string login = 1;
+  string display_name = 2;
+  IdentityKind kind = 3;
+  // tags are the calling device's ACL tags. Empty for a human and under the dev transport.
+  repeated string tags = 4;
+}
