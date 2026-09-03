@@ -1,0 +1,12 @@
+-- Databases the compose stack needs beside podium's own.
+--
+-- MOUNTED AT /docker-entrypoint-initdb.d/10-databases.sql, which Postgres runs ONLY when
+-- the data directory is empty. On an existing install nothing here happens: create the
+-- database by hand instead.
+--
+--   docker compose exec -T postgres createdb -U podium podium_agent
+--
+-- podium-agent owns podium_agent and migrates it on start. It is a separate database, not a
+-- schema in podium's: the conductor is an API client of the control plane and never opens
+-- the control plane's schema.
+create database podium_agent owner podium;

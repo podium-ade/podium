@@ -103,6 +103,11 @@ jobs:
         with:
           cosign-release: v2.6.1
 
+      # podium-agent (the conductor) is built and its image published by the `agent` entry in
+      # .goreleaser.yaml, alongside the server, the node and the CLI. It is deliberately NOT in
+      # the release archive: an operator untars a release to set up a worker, and the conductor
+      # runs on the control plane's host from its image.
+      #
       # TODO(step 16 → step 14's owner): the three agent runtime images are not published.
       # ghcr.io/alvaroibarguen/podium-agent-runtime, -browser and -data, tagged like every
       # other image ({{ .Version }}, v{{ .Major }}.{{ .Minor }}, sha-<short>, latest off a

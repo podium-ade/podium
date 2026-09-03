@@ -1,0 +1,7 @@
+# The bot's identity. One profile per conductor; PODIUM_AGENT_PROFILE_DIR points at the
+# directory this file lives in. See docs/agent.md for every field.
+name: podium
+display_name: Podium
+system_prompt: file:./prompts/profile.md
+model: claude-opus-5
+default_skill: general

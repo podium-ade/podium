@@ -100,14 +100,14 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// buildBinaries compiles the two binaries the tests drive, so a stale bin/ can never make
-// a green run mean nothing.
+// buildBinaries compiles the binaries the tests drive, so a stale bin/ can never make a
+// green run mean nothing.
 func buildBinaries(ctx context.Context, dir string) error {
 	root, err := repoRoot()
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"podium", "podium-node"} {
+	for _, name := range []string{"podium", "podium-node", "podium-agent"} {
 		cmd := exec.CommandContext(ctx, "go", "build", "-o", filepath.Join(dir, name), "./cmd/"+name)
 		cmd.Dir = root
 		cmd.Stderr = os.Stderr
@@ -493,8 +493,19 @@ func freeLoopbackAddr(t *testing.T) string {
 
 func newDatabase(t *testing.T) string {
 	t.Helper()
+	return newNamedDatabase(t, fmt.Sprintf("podium_e2e_%d", dbSeq.Add(1)))
+}
+
+// newAgentDatabase is the conductor's own database, beside the control plane's. The two are
+// never the same database: podium-agent is an API client of podium-server.
+func newAgentDatabase(t *testing.T) string {
+	t.Helper()
+	return newNamedDatabase(t, fmt.Sprintf("podium_agent_e2e_%d", dbSeq.Add(1)))
+}
+
+func newNamedDatabase(t *testing.T, name string) string {
+	t.Helper()
 	ctx := context.Background()
-	name := fmt.Sprintf("podium_e2e_%d", dbSeq.Add(1))
 
 	conn, err := pgx.Connect(ctx, adminURL)
 	require.NoError(t, err)

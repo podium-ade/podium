@@ -4,7 +4,7 @@
 export PATH := $(CURDIR)/web/node_modules/.bin:$(shell go env GOPATH)/bin:$(PATH)
 
 MODULE   := github.com/alvaroibarguen/podium
-BINARIES := podium podium-server podium-node
+BINARIES := podium podium-server podium-node podium-agent
 
 # podium-runner is embedded into podium-node, not linked into it.
 RUNNERBIN   := internal/node/docker/runnerbin
