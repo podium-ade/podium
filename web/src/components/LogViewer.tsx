@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StreamPhase } from "../hooks/useTaskEvents";
-import { filterLines, toRawText, type LogLine } from "../lib/logs";
+import { filterLines, sidecarNames, sidecarOf, toRawText, type LogLine } from "../lib/logs";
 
 const ROW_PX = 18;
 const OVERSCAN = 12;
@@ -26,15 +26,19 @@ export function LogViewer({
 }) {
   const [stdout, setStdout] = useState(true);
   const [stderr, setStderr] = useState(true);
+  // Keyed by sidecar name and sparse: a name that is not in here is shown, so a sidecar that
+  // first speaks half way through the run appears rather than arriving pre-hidden.
+  const [sidecars, setSidecars] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [follow, setFollow] = useState(true);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
+  const names = useMemo(() => sidecarNames(lines), [lines]);
   const visible = useMemo(
-    () => filterLines(lines, { stdout, stderr, search }),
-    [lines, stdout, stderr, search],
+    () => filterLines(lines, { stdout, stderr, sidecars, search }),
+    [lines, stdout, stderr, sidecars, search],
   );
 
   useLayoutEffect(() => {
@@ -79,7 +83,7 @@ export function LogViewer({
 
   return (
     <section className="rounded border border-border bg-panel">
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-2 text-xs">
         <span className="font-medium">Logs</span>
         <span className={phase === "error" ? "text-err" : "text-muted"}>{PHASE_TEXT[phase]}</span>
         <label className="flex items-center gap-1">
@@ -90,6 +94,20 @@ export function LogViewer({
           <input type="checkbox" checked={stderr} onChange={(e) => setStderr(e.target.checked)} />
           stderr
         </label>
+        {/* One checkbox per sidecar that has actually produced output. A task with no sidecars
+            shows nothing here, which is why the list is derived from the lines rather than from
+            the spec: a declared sidecar that never logged has no lines to filter. */}
+        {names.map((name) => (
+          <label key={name} className="flex items-center gap-1 text-warn">
+            <input
+              type="checkbox"
+              aria-label={`sidecar ${name}`}
+              checked={sidecars[name] !== false}
+              onChange={(e) => setSidecars((prev) => ({ ...prev, [name]: e.target.checked }))}
+            />
+            {name}
+          </label>
+        ))}
         <label className="flex items-center gap-1">
           <input
             type="checkbox"
@@ -107,7 +125,7 @@ export function LogViewer({
           placeholder="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="rounded border border-border bg-bg px-2 py-0.5 font-mono outline-none focus:border-accent"
+          className="w-28 rounded border border-border bg-bg px-2 py-0.5 font-mono outline-none focus:border-accent"
         />
         <span className="text-muted">
           {visible.length} / {lines.length} lines
@@ -141,13 +159,14 @@ export function LogViewer({
                   key={l.id}
                   data-testid="log-line"
                   data-stream={l.stream}
+                  data-sidecar={l.stream === "sidecar" ? sidecarOf(l) : undefined}
                   style={{ height: ROW_PX }}
                   className={`whitespace-pre px-3 ${
                     l.stream === "stderr" ? "text-err" : l.stream === "sidecar" ? "text-warn" : ""
                   }`}
                 >
                   {l.stream === "sidecar" && l.source !== "" ? `[${l.source}] ` : ""}
-                  {l.text === "" ? " " : l.text}
+                  {l.text === "" ? " " : l.text}
                 </div>
               ))}
             </div>

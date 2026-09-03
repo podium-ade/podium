@@ -13,7 +13,7 @@ token today, Tailscale `WhoIs` later — and never travels inside a message.
 |---|---|
 | `NodeService` | `Enroll`, `Stream`, `UploadArtifact` |
 | `TaskService` | `CreateTask`, `GetTask`, `ListTasks`, `CancelTask`, `StreamTaskEvents` |
-| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `DrainNode`, `UndrainNode`, `DeleteNode` |
+| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `DeleteNode` |
 | `SecretService` | `SetSecret`, `ListSecrets`, `DeleteSecret` |
 | `ArtifactService` | `ListArtifacts`, `GetArtifactURL` |
 
@@ -22,6 +22,10 @@ its own HTTP request, so its first message re-presents the node's `node_id` and 
 exactly as `Hello` does, and every message after it is a chunk of the body (1 MB, 512 MB
 per artifact). The bytes go node → server → object store; a node never talks to S3, which is
 the same "nodes only ever talk to the server" invariant the transport design rests on.
+
+`ListTasks` filters on `status`, `node_id`, `requested_by` and `search`. `search` matches a
+task whose ID starts with it or whose image contains it, case-insensitively — a substring
+match, not a query language, and `%` and `_` are characters rather than wildcards.
 
 There is one route outside Connect: `GET /artifacts/{artifact_id}` streams an artifact's
 bytes through the server, behind the same identity middleware. It is a plain HTTP handler

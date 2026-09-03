@@ -18,6 +18,9 @@ export function Header() {
         <NavLink to="/nodes" className={link}>
           Nodes
         </NavLink>
+        <NavLink to="/secrets" className={link}>
+          Secrets
+        </NavLink>
       </nav>
       <div className="ml-auto flex items-center gap-3 text-xs text-muted">
         {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev

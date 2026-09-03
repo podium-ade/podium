@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -132,7 +133,11 @@ func (s *TaskService) ListTasks(
 	req *connect.Request[podiumv1.ListTasksRequest],
 ) (*connect.Response[podiumv1.ListTasksResponse], error) {
 	f := req.Msg.GetFilter()
-	filter := store.Filter{NodeID: f.GetNodeId(), RequestedBy: f.GetRequestedBy()}
+	filter := store.Filter{
+		NodeID:      f.GetNodeId(),
+		RequestedBy: f.GetRequestedBy(),
+		Search:      strings.TrimSpace(f.GetSearch()),
+	}
 	for _, st := range f.GetStatus() {
 		if mapped, ok := taskStatusStore[st]; ok {
 			filter.Status = append(filter.Status, mapped)

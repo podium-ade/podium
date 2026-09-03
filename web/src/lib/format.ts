@@ -1,7 +1,10 @@
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { NodeStatus, TaskStatus, type TaskSpec } from "../gen/podium/v1/common_pb";
+import type { Tone } from "../components/Badge";
+import { NodeStatus, TaskStatus } from "../gen/podium/v1/common_pb";
 import { TaskEventKind } from "../gen/podium/v1/node_pb";
+import type { Node } from "../gen/podium/v1/admin_pb";
+import type { Task } from "../gen/podium/v1/task_pb";
 
 export function toDate(ts?: Timestamp): Date | undefined {
   return ts ? timestampDate(ts) : undefined;
@@ -61,13 +64,17 @@ export function taskStatusLabel(s: TaskStatus): string {
 }
 
 /** Colour is the only presentation logic the UI owns; everything else comes from the API. */
-export function taskStatusTone(s: TaskStatus): "ok" | "err" | "run" | "idle" | "warn" {
+export function taskStatusTone(s: TaskStatus): Tone {
   switch (s) {
     case TaskStatus.SUCCEEDED:
       return "ok";
     case TaskStatus.FAILED:
-    case TaskStatus.LOST:
       return "err";
+    // lost is deliberately not err. Nothing about the task went wrong: the machine running it
+    // went away. Colouring it like a failure tells the operator to go and read logs that do not
+    // exist, and hides the one thing that is actually true — the node is gone.
+    case TaskStatus.LOST:
+      return "lost";
     case TaskStatus.RUNNING:
     case TaskStatus.PROVISIONING:
       return "run";
@@ -140,29 +147,80 @@ export function eventKindLabel(k: TaskEventKind): string {
   return EVENT_KIND_LABEL[k] ?? "unknown";
 }
 
-function yamlScalar(v: string): string {
-  return /^[A-Za-z0-9_./:@-]+$/.test(v) && v !== "" ? v : JSON.stringify(v);
+/** humanBytes matches the CLI's rendering, so a size reads the same in both. */
+export function humanBytes(n: bigint | number): string {
+  const v = Number(n);
+  const unit = 1024;
+  if (v < unit) return `${v} B`;
+  let div = unit;
+  let exp = 0;
+  for (let x = Math.floor(v / unit); x >= unit; x = Math.floor(x / unit)) {
+    div *= unit;
+    exp++;
+  }
+  return `${(v / div).toFixed(1)} ${"KMGTPE"[exp]}B`;
 }
 
-/** specToYaml renders the defaulted spec the server echoed back. Display only. */
-export function specToYaml(spec?: TaskSpec): string {
-  if (!spec) return "# no spec";
-  const out: string[] = [`image: ${yamlScalar(spec.image)}`];
-  if (spec.command.length > 0) {
-    out.push("command:");
-    for (const c of spec.command) out.push(`  - ${yamlScalar(c)}`);
+/**
+ * nodeStateLabel is the node's status *and* the operator's standing drain instruction, which
+ * are separate things: a drained node that has gone offline is `offline (draining)`, and an
+ * operator who sees only one of the two cannot tell why nothing is being scheduled on it.
+ */
+export function nodeStateLabel(n: Node): string {
+  const status = nodeStatusLabel(n.status);
+  if (n.draining && n.status !== NodeStatus.DRAINING) return `${status} (draining)`;
+  return status;
+}
+
+export function nodeStateTone(n: Node): Tone {
+  if (n.draining || n.status === NodeStatus.DRAINING) return "warn";
+  return nodeStatusTone(n.status);
+}
+
+/**
+ * taskOutcome is the sentence under a terminal task's badge: what happened, in words, when the
+ * status alone does not say it. `lost` and `failed` are given different words on purpose.
+ */
+export function taskOutcome(task: Task): string {
+  const reason = task.failureReason;
+  switch (task.status) {
+    case TaskStatus.LOST:
+      return task.nodeId
+        ? `The node running this task (${task.nodeId}) went away before it finished. ` +
+            "Nothing about the task itself failed" +
+            (reason ? ` — ${reason}.` : ".") +
+            " Re-running it is your call; set retry_on_node_loss to have Podium do it."
+        : "The node running this task went away before it finished. Nothing about the task itself failed.";
+    case TaskStatus.FAILED:
+      if (reason === "oom") {
+        return "Killed for running out of memory. Raise resources.memory_mb, or make the task use less.";
+      }
+      if (reason === "timeout") return "Stopped for exceeding the task's timeout.";
+      if (reason) return reason;
+      if (task.exitCode !== undefined) return `The command exited ${task.exitCode}.`;
+      return "The task failed without an exit code.";
+    case TaskStatus.CANCELLED:
+      return reason || "Cancelled by an operator.";
+    case TaskStatus.SUCCEEDED:
+      return "";
+    default:
+      return reason;
   }
-  if (spec.workingDir) out.push(`working_dir: ${yamlScalar(spec.workingDir)}`);
-  const env = Object.keys(spec.env).sort();
-  if (env.length > 0) {
-    out.push("env:");
-    for (const k of env) out.push(`  ${k}: ${yamlScalar(spec.env[k])}`);
+}
+
+/**
+ * queuedExplanation answers "why is this still queued?" from the two fields the scheduler
+ * writes when it looks at a task and cannot place it.
+ */
+export function queuedExplanation(task: Task, now = Date.now()): string | undefined {
+  if (task.status !== TaskStatus.QUEUED) return undefined;
+  if (task.queuedReason === "") {
+    return task.lastScheduleAttemptAt
+      ? "Waiting for the scheduler."
+      : "Waiting for the scheduler to look at it for the first time.";
   }
-  if (spec.labels.length > 0) {
-    out.push("labels:");
-    for (const l of spec.labels) out.push(`  - ${yamlScalar(l)}`);
-  }
-  if (spec.timeout) out.push(`timeout: ${Number(spec.timeout.seconds)}s`);
-  if (spec.maxAttempts) out.push(`max_attempts: ${spec.maxAttempts}`);
-  return out.join("\n");
+  const when = task.lastScheduleAttemptAt
+    ? ` (last checked ${relative(task.lastScheduleAttemptAt, now)})`
+    : "";
+  return `${task.queuedReason}${when}.`;
 }

@@ -15,6 +15,8 @@
   --color-err: #f87171;
   --color-run: #38bdf8;
   --color-idle: #94a3b8;
+  /* lost is not a failure: it gets its own colour so it cannot be read as one. */
+  --color-lost: #c084fc;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -33,6 +35,7 @@
     --color-err: #b91c1c;
     --color-run: #0369a1;
     --color-idle: #64748b;
+    --color-lost: #7e22ce;
   }
 }
 

@@ -98,6 +98,38 @@ func TestListTasksFiltersAndPaginates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 
+	// Search is an ID prefix or a case-insensitive image substring, and it composes with
+	// the other filters rather than replacing them.
+	got, _, err = s.ListTasks(ctx, Filter{Search: "ALPINE"}, Page{})
+	require.NoError(t, err)
+	require.Len(t, got, 6)
+
+	// ULIDs minted in the same millisecond share their whole timestamp prefix, so a short
+	// prefix legitimately matches every task here; take one long enough to be unique.
+	prefix := all[3].ID[:len(all[3].ID)-2]
+	got, _, err = s.ListTasks(ctx, Filter{Search: prefix}, Page{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, all[3].ID, got[0].ID)
+
+	// It is a prefix match on the ID, not a substring one.
+	got, _, err = s.ListTasks(ctx, Filter{Search: all[3].ID[8:]}, Page{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, _, err = s.ListTasks(ctx, Filter{Search: "alpine", RequestedBy: "bot"}, Page{})
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+
+	// A % is a character to search for, not a wildcard.
+	got, _, err = s.ListTasks(ctx, Filter{Search: "%"}, Page{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, _, err = s.ListTasks(ctx, Filter{Search: "redis"}, Page{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
 	// Cursor pagination walks the whole set exactly once.
 	var seen []string
 	cursor := ""

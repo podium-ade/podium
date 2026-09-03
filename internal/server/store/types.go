@@ -144,6 +144,9 @@ type Filter struct {
 	Status      []Status
 	NodeID      string
 	RequestedBy string
+	// Search matches a task whose ID starts with it or whose image contains it,
+	// case-insensitively.
+	Search string
 }
 
 // Page controls ListTasks pagination. Cursor is the ID returned as nextCursor by the previous

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type Tone = "ok" | "err" | "warn" | "run" | "idle";
+export type Tone = "ok" | "err" | "warn" | "run" | "idle" | "lost";
 
 const TONE: Record<Tone, string> = {
   ok: "text-ok border-ok/40 bg-ok/10",
@@ -8,6 +8,7 @@ const TONE: Record<Tone, string> = {
   warn: "text-warn border-warn/40 bg-warn/10",
   run: "text-run border-run/40 bg-run/10",
   idle: "text-idle border-idle/40 bg-idle/10",
+  lost: "text-lost border-lost/40 bg-lost/10",
 };
 
 export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
@@ -27,6 +28,7 @@ export function Dot({ tone, title }: { tone: Tone; title: string }) {
     warn: "bg-warn",
     run: "bg-run",
     idle: "bg-idle",
+    lost: "bg-lost",
   };
   return (
     <span

@@ -80,7 +80,30 @@ export class Accumulator {
 export interface LogFilter {
   stdout: boolean;
   stderr: boolean;
+  /**
+   * Which sidecars to show, by name. A sidecar missing from the map is shown: a sidecar that
+   * only starts producing output half way through a run must not appear pre-hidden.
+   */
+  sidecars: Record<string, boolean>;
   search: string;
+}
+
+/** UNNAMED_SIDECAR is the bucket for a sidecar chunk that carries no name. */
+export const UNNAMED_SIDECAR = "sidecar";
+
+export function sidecarOf(line: LogLine): string {
+  return line.source === "" ? UNNAMED_SIDECAR : line.source;
+}
+
+/** sidecarNames lists, in first-seen order, the sidecars that have produced output. */
+export function sidecarNames(lines: readonly LogLine[]): string[] {
+  const seen: string[] = [];
+  for (const l of lines) {
+    if (l.stream !== "sidecar") continue;
+    const name = sidecarOf(l);
+    if (!seen.includes(name)) seen.push(name);
+  }
+  return seen;
 }
 
 export function filterLines(lines: readonly LogLine[], f: LogFilter): LogLine[] {
@@ -88,6 +111,7 @@ export function filterLines(lines: readonly LogLine[], f: LogFilter): LogLine[] 
   return lines.filter((l) => {
     if (l.stream === "stdout" && !f.stdout) return false;
     if (l.stream === "stderr" && !f.stderr) return false;
+    if (l.stream === "sidecar" && f.sidecars[sidecarOf(l)] === false) return false;
     if (needle !== "" && !l.text.toLowerCase().includes(needle)) return false;
     return true;
   });

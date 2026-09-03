@@ -343,24 +343,31 @@ select id, spec, status, priority, requested_by, node_id, lease_id, lease_expire
 where (cardinality($1::text[]) = 0 or status = any ($1::text[]))
   and ($2::text = '' or node_id = $2::text)
   and ($3::text = '' or requested_by = $3::text)
-  and ($4::text = '' or id < $4::text)
+  and ($4::text = ''
+       or starts_with(id, $4::text)
+       or strpos(lower(spec ->> 'image'), lower($4::text)) > 0)
+  and ($5::text = '' or id < $5::text)
 order by id desc
-limit $5::int
+limit $6::int
 `
 
 type ListTasksParams struct {
 	Statuses    []string
 	NodeID      string
 	RequestedBy string
+	Search      string
 	AfterID     string
 	PageLimit   int32
 }
 
+// The search clause uses starts_with/strpos rather than like, so a user typing % or _ is
+// searching for those characters instead of writing a wildcard nobody asked for.
 func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, error) {
 	rows, err := q.db.Query(ctx, listTasks,
 		arg.Statuses,
 		arg.NodeID,
 		arg.RequestedBy,
+		arg.Search,
 		arg.AfterID,
 		arg.PageLimit,
 	)

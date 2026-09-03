@@ -363,10 +363,13 @@ func (x *GetTaskResponse) GetTask() *Task {
 }
 
 type TaskFilter struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        []TaskStatus           `protobuf:"varint,1,rep,packed,name=status,proto3,enum=podium.v1.TaskStatus" json:"status,omitempty"`
-	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	RequestedBy   string                 `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Status      []TaskStatus           `protobuf:"varint,1,rep,packed,name=status,proto3,enum=podium.v1.TaskStatus" json:"status,omitempty"`
+	NodeId      string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	RequestedBy string                 `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	// search narrows the page to tasks whose id starts with it or whose image contains it,
+	// case-insensitively. It is a substring match, not a query language.
+	Search        string `protobuf:"bytes,4,opt,name=search,proto3" json:"search,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -418,6 +421,13 @@ func (x *TaskFilter) GetNodeId() string {
 func (x *TaskFilter) GetRequestedBy() string {
 	if x != nil {
 		return x.RequestedBy
+	}
+	return ""
+}
+
+func (x *TaskFilter) GetSearch() string {
+	if x != nil {
+		return x.Search
 	}
 	return ""
 }
@@ -762,12 +772,13 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x0eGetTaskRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\"6\n" +
 	"\x0fGetTaskResponse\x12#\n" +
-	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"w\n" +
+	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"\x8f\x01\n" +
 	"\n" +
 	"TaskFilter\x12-\n" +
 	"\x06status\x18\x01 \x03(\x0e2\x15.podium.v1.TaskStatusR\x06status\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12!\n" +
-	"\frequested_by\x18\x03 \x01(\tR\vrequestedBy\"4\n" +
+	"\frequested_by\x18\x03 \x01(\tR\vrequestedBy\x12\x16\n" +
+	"\x06search\x18\x04 \x01(\tR\x06search\"4\n" +
 	"\x04Page\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"f\n" +

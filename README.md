@@ -70,6 +70,11 @@ Open <http://127.0.0.1:8080> for the UI. Under the `dev` transport it asks once 
 token (`devtoken` above) and keeps it in `localStorage`; on a tailnet that prompt never appears,
 because Tailscale has already said who you are.
 
+The UI runs the fleet, not just watches it: submit a task from a form or from the same YAML
+`--spec` takes, re-run a finished one, follow live logs with a per-sidecar filter, cancel,
+download artifacts, drain / undrain / delete / rekey a node, and set or delete secrets. A task
+that is still `queued` says which of the scheduler's reasons is keeping it there.
+
 > If port 5432 or 8080 is already taken on your machine, set `PODIUM_PG_PORT` and
 > `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and match `PODIUM_DATABASE_URL` to the Postgres port.
 
@@ -218,11 +223,11 @@ This is an early slice. Known and deliberate:
 - **Rolled-up logs lose the interleaving between streams.** Once a finished task's chunks have
   been pruned, its log is replayed from one object per stream — stdout as one run, then stderr —
   because nothing records how they were braided together. Within a stream the order is exact.
-- **Secrets have no UI and no per-sidecar refs.** `podium secret set/ls/rm` and
-  `--secret NAME[:env:KEY|:file:/path]` are the whole surface; the web UI has no Secrets screen,
-  a sidecar cannot reference a secret of its own, and log redaction is best-effort string
-  matching rather than a guarantee — see
-  [`docs/task-spec.md`](docs/task-spec.md#redaction).
+- **A sidecar cannot reference a secret of its own**, and log redaction is best-effort string
+  matching rather than a guarantee — see [`docs/task-spec.md`](docs/task-spec.md#redaction).
+  Secrets are set from `podium secret set/ls/rm`, from the web UI, and consumed with
+  `--secret NAME[:env:KEY|:file:/path]`. A value cannot be read back from anywhere: there is no
+  read endpoint, by design.
 - **No egress policy.** A task's network reaches its own sidecars and the internet, and nothing
   else on the host or the tailnet. Narrowing that is not implemented.
 - **A CPU limit is not visible inside the container.** `nproc` reports the host's cores whatever
@@ -240,7 +245,12 @@ This is an early slice. Known and deliberate:
   watchdog on a second replica would see every node as sessionless and start expiring leases.
   A leader lock is needed before a second replica is ever started.
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table, and every one of
-  them can do everything.
+  them can do everything. The web UI is the same: whoever can reach it can submit tasks, drain
+  nodes and delete secrets.
+- **The web UI holds a task's whole log in memory** and has no charts, no node CPU/memory
+  utilisation (`ListNodes` returns enrolment-time capacity, not the last heartbeat's readings)
+  and no way to jump to an arbitrary page of the task list — paging walks cursors it has
+  already seen.
 - Verified on macOS/arm64 with Docker Desktop only. Linux CI is unproven, though the node and CLI
   do cross-compile (`make dist-node-all`).
 
