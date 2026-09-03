@@ -1,0 +1,36 @@
+name: Feature request
+description: Something Podium should do and does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [docs/concepts.md](../../blob/main/docs/concepts.md#what-a-task-is-not-in-this-version)
+        first. Several of the most-requested things are deliberate absences rather than gaps:
+        Podium has no pipelines, no cron, no task retries, no build cache, no interactive exec,
+        and a task cannot span two machines.
+
+        The roadmap beyond this point is not public. Filing something already planned is fine —
+        it says somebody wants it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what stops you? Not the solution — the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: If you have a shape in mind, describe it. A YAML sketch of a task spec helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you are doing instead
+      description: The workaround, if there is one. "Nothing, I gave up" is a useful answer.

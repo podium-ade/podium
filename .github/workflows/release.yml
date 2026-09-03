@@ -1,0 +1,114 @@
+name: release
+
+# A v* tag is the only thing that publishes anything. Everything else — including a push to
+# main — goes through ci.yml, which builds the same artifacts and throws them away.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # ===========================================================================
+  # STOP. Podium has no licence yet.
+  #
+  # LICENSE contains a placeholder that says so. Publishing archives and container
+  # images of code that carries no licence gives nobody the right to use it and
+  # cannot be undone by editing the file afterwards — the tag, the release and every
+  # copy anyone pulled are already out there.
+  #
+  # This job gates every other job in this workflow. Choosing the licence is the
+  # only way past it, and it is deliberately a decision a human makes.
+  # ===========================================================================
+  license:
+    name: LICENSE must not be a TODO
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Refuse to release unlicensed code
+        run: |
+          if grep -qi 'TODO' LICENSE; then
+            echo "::error file=LICENSE::LICENSE still contains a TODO placeholder."
+            cat <<'MSG'
+
+          ============================================================
+           RELEASE REFUSED: Podium has no licence.
+          ============================================================
+
+          LICENSE currently reads:
+
+          MSG
+            sed 's/^/    /' LICENSE
+            cat <<'MSG'
+
+          Nothing is published until a real licence text is in that file.
+          Choose one — Apache-2.0 and AGPL-3.0 are the two this project has been
+          weighing since step 01 — put the full text in LICENSE, add the SPDX
+          identifier to README.md, delete the tag, and tag again.
+
+          Until then every artifact this workflow would produce is code that
+          nobody has the right to use, and republishing under a licence later
+          does not retract what was already downloaded.
+          ============================================================
+          MSG
+            exit 1
+          fi
+          echo "LICENSE looks like a real licence. Proceeding."
+
+  release:
+    name: goreleaser
+    needs: [license]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload artifacts
+      packages: write # push images to ghcr.io
+      id-token: write # cosign keyless signing needs the OIDC token
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # the changelog is generated from history
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+
+      # `make web` is a goreleaser before-hook and the server binary embeds web/dist, so a
+      # release built without Node would ship a control plane with no UI.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # Multi-arch images: qemu emulates the other architecture, buildx drives the build.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # syft produces the SBOMs, cosign signs checksums.txt and the image manifests. Both
+      # have to be on PATH before goreleaser runs; goreleaser shells out to them by name.
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          # Only install the binary; the SBOMs themselves are goreleaser's job.
+          version: v1.51.1
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: v2.6.1
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Keyless signing: cosign reads the workflow's OIDC identity, so the signature
+          # names this repository and this workflow rather than a key somebody holds.
+          COSIGN_EXPERIMENTAL: "1"

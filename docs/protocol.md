@@ -16,6 +16,7 @@ token today, Tailscale `WhoIs` later — and never travels inside a message.
 | `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `DeleteNode` |
 | `SecretService` | `SetSecret`, `ListSecrets`, `DeleteSecret` |
 | `ArtifactService` | `ListArtifacts`, `GetArtifactURL` |
+| `IdentityService` | `WhoAmI` |
 
 `NodeService.UploadArtifact` is **client-streaming and not part of the node stream**: it is
 its own HTTP request, so its first message re-presents the node's `node_id` and `node_key`
@@ -26,6 +27,17 @@ the same "nodes only ever talk to the server" invariant the transport design res
 `ListTasks` filters on `status`, `node_id`, `requested_by` and `search`. `search` matches a
 task whose ID starts with it or whose image contains it, case-insensitively — a substring
 match, not a query language, and `%` and `_` are characters rather than wildcards.
+
+`IdentityService.WhoAmI` answers "who does the server think I am", and it sits behind the
+**same identity middleware as everything else** — which is the whole trick. A client that gets
+an answer without presenting a credential knows it is on a tailnet and needs no login step; a
+client that gets 401 knows it must supply the dev token. The web UI decides whether to prompt
+on exactly that.
+
+`WhoAmIResponse` also carries `server_version` and `server_commit`, the build identity of the
+process answering. `podium version` prints both and warns when the client and the control plane
+are different builds. Fields 5 and 6 — a control plane older than they are answers with them
+empty, and the CLI says so rather than printing a blank.
 
 There is one route outside Connect: `GET /artifacts/{artifact_id}` streams an artifact's
 bytes through the server, behind the same identity middleware. It is a plain HTTP handler

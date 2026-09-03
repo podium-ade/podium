@@ -30,4 +30,9 @@ message WhoAmIResponse {
   IdentityKind kind = 3;
   // tags are the calling device's ACL tags. Empty for a human and under the dev transport.
   repeated string tags = 4;
+  // server_version is the control plane's build version: a release tag such as "v0.3.1", or
+  // "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.
+  string server_version = 5;
+  // server_commit is the short git commit the control plane was built from, or "none".
+  string server_commit = 6;
 }

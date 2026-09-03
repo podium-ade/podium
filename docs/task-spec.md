@@ -24,7 +24,20 @@ hardening: {}                      # see below
 `command` is optional: a task that names none runs the image's own `ENTRYPOINT` plus `CMD`.
 `env` keys must be valid shell identifiers.
 
-A complete example is `examples/postgres-sidecar.yaml`.
+Unknown keys are an **error**, not a warning: the decoder runs with `KnownFields(true)`, so a
+misspelled `privilged: true` fails loudly instead of quietly submitting a task that does not do
+what you asked. The web UI's YAML editor mirrors that.
+
+Complete, runnable examples — every one of them parsed by `go test ./examples/...` with this same
+decoder, and every one using only `alpine:3`, `postgres:16-alpine` or `redis:7-alpine`:
+
+| | |
+|---|---|
+| [`examples/hello.yaml`](../examples/hello.yaml) | the smallest useful task |
+| [`examples/postgres-sidecar.yaml`](../examples/postgres-sidecar.yaml) | a database beside the task, waited for |
+| [`examples/secrets.yaml`](../examples/secrets.yaml) | both secret targets, and what redaction does not cover |
+| [`examples/limits.yaml`](../examples/limits.yaml) | limits and hardening, from inside the container — including an OOM kill |
+| [`examples/artifacts.yaml`](../examples/artifacts.yaml) | both ways to keep a file |
 
 ## Timeout, attempts and losing a node
 

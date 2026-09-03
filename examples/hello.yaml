@@ -1,0 +1,17 @@
+# The smallest useful task.
+#
+#   podium run --spec examples/hello.yaml
+#
+# The CLI follows it and exits with the task's own exit code, so this is also the shape of
+# a CI step. Everything not set here has a default: working_dir is /workspace, timeout is
+# 1h, max_attempts is 1, and the container drops every Linux capability and runs with
+# no-new-privileges whether or not a hardening: block says so.
+image: alpine:3
+command: ["sh", "-c", "echo hello from $(hostname); uname -m"]
+
+# /workspace is a fresh volume for this task alone, mounted at working_dir and removed with
+# everything else when the task ends. Anything a task wants to keep goes in
+# /workspace/.podium/artifacts — see artifacts.yaml.
+working_dir: /workspace
+
+timeout: 1m

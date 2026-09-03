@@ -120,7 +120,12 @@ type WhoAmIResponse struct {
 	DisplayName string       `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	Kind        IdentityKind `protobuf:"varint,3,opt,name=kind,proto3,enum=podium.v1.IdentityKind" json:"kind,omitempty"`
 	// tags are the calling device's ACL tags. Empty for a human and under the dev transport.
-	Tags          []string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
+	Tags []string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
+	// server_version is the control plane's build version: a release tag such as "v0.3.1", or
+	// "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.
+	ServerVersion string `protobuf:"bytes,5,opt,name=server_version,json=serverVersion,proto3" json:"server_version,omitempty"`
+	// server_commit is the short git commit the control plane was built from, or "none".
+	ServerCommit  string `protobuf:"bytes,6,opt,name=server_commit,json=serverCommit,proto3" json:"server_commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -183,17 +188,33 @@ func (x *WhoAmIResponse) GetTags() []string {
 	return nil
 }
 
+func (x *WhoAmIResponse) GetServerVersion() string {
+	if x != nil {
+		return x.ServerVersion
+	}
+	return ""
+}
+
+func (x *WhoAmIResponse) GetServerCommit() string {
+	if x != nil {
+		return x.ServerCommit
+	}
+	return ""
+}
+
 var File_podium_v1_identity_proto protoreflect.FileDescriptor
 
 const file_podium_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"\x18podium/v1/identity.proto\x12\tpodium.v1\"\x0f\n" +
-	"\rWhoAmIRequest\"\x8a\x01\n" +
+	"\rWhoAmIRequest\"\xd6\x01\n" +
 	"\x0eWhoAmIResponse\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
 	"\x04kind\x18\x03 \x01(\x0e2\x17.podium.v1.IdentityKindR\x04kind\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags*z\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x12%\n" +
+	"\x0eserver_version\x18\x05 \x01(\tR\rserverVersion\x12#\n" +
+	"\rserver_commit\x18\x06 \x01(\tR\fserverCommit*z\n" +
 	"\fIdentityKind\x12\x1d\n" +
 	"\x19IDENTITY_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12IDENTITY_KIND_USER\x10\x01\x12\x16\n" +

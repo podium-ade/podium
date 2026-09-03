@@ -8,6 +8,7 @@ import (
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/alvaroibarguen/podium/internal/version"
 )
 
 // IdentityService implements podium.v1.IdentityService. It reads nothing and writes nothing: the
@@ -36,6 +37,10 @@ func (s *IdentityService) WhoAmI(
 		DisplayName: id.DisplayName,
 		Kind:        identityKind(id.Kind),
 		Tags:        id.NodeTags,
+		// The build identity of the process answering. `podium version` reads it to warn
+		// about a CLI and a control plane that are not the same release.
+		ServerVersion: version.Version,
+		ServerCommit:  version.Commit,
 	}), nil
 }
 

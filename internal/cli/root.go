@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
@@ -64,11 +65,13 @@ func NewRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Name() == "version" || cmd.Name() == "help" {
-				return nil
-			}
 			cfg, err := LoadConfig(serverFlag, tokenFlag)
 			if err != nil {
+				// `version` still answers when there is nowhere to ask: it reports the
+				// client's own build and says it could not reach a control plane.
+				if cmd.Name() == "version" || cmd.Name() == "help" {
+					return nil
+				}
 				return err
 			}
 			e.cfg = cfg
@@ -99,13 +102,49 @@ func NewRootCommand() *cobra.Command {
 func newVersionCommand(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the CLI version",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(e.stdout, "podium %s\n", version.String())
-			return err
+		Short: "Print the client and control plane versions",
+		Long: "Print the client and control plane versions.\n\n" +
+			"A client and a server from different releases can disagree about the wire, so\n" +
+			"a mismatch is reported as a warning on stderr. The command still exits 0: it is\n" +
+			"a diagnostic, not a gate.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Fprintf(e.stdout, "podium %s\n", version.String())
+			if e.client == nil {
+				e.note("no control plane configured: pass --server and --token, "+
+					"set PODIUM_SERVER and PODIUM_TOKEN, or write %s", ConfigPath())
+				return nil
+			}
+			res, err := e.client.identity.WhoAmI(cmd.Context(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+			if err != nil {
+				e.note("control plane %s unreachable: %v", e.cfg.Server, err)
+				return nil
+			}
+			serverVersion, serverCommit := res.Msg.GetServerVersion(), res.Msg.GetServerCommit()
+			if serverVersion == "" {
+				// A control plane older than this field. Say so rather than printing a blank.
+				fmt.Fprintf(e.stdout, "server   (does not report a version)\n")
+				return nil
+			}
+			fmt.Fprintf(e.stdout, "server %s (%s)\n", serverVersion, serverCommit)
+			if warning := skewWarning(version.Version, serverVersion); warning != "" {
+				e.note("%s", warning)
+			}
+			return nil
 		},
 	}
+}
+
+// skewWarning returns the sentence to print when a client and a control plane are not the
+// same build, and "" when they agree. Two unstamped "dev" builds are not a skew worth
+// mentioning: that is every developer checkout.
+func skewWarning(client, server string) string {
+	if client == server {
+		return ""
+	}
+	return fmt.Sprintf("version skew: client %s, control plane %s. "+
+		"The wire is only guaranteed between matching releases; upgrade whichever is older.",
+		client, server)
 }
 
 // note prints a lifecycle line on stderr, dimmed on a terminal, so that piping a task's

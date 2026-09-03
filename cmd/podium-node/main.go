@@ -77,6 +77,7 @@ func newRootCommand() *cobra.Command {
 	root.Flags().StringVar(&logLevel, "log-level", "info", "debug, info, warn or error")
 	root.Flags().BoolVar(&exitOnDrain, "exit-on-drain", false,
 		"exit 0 once the control plane has drained this node and its last task has finished")
+	root.AddCommand(newUpgradeCommand())
 	return root
 }
 

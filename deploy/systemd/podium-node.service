@@ -1,0 +1,72 @@
+# podium-node, the Podium worker daemon.
+#
+# Installed by deploy/install-node.sh to /etc/systemd/system/podium-node.service.
+# Configuration lives in /etc/podium/node.yaml; every key there can also be given as a
+# PODIUM_NODE_* environment variable (see deploy/.env.example), and an optional
+# /etc/podium/node.env is read for exactly that.
+#
+# Read docs/security.md before deciding which machines run this. A node has the Docker
+# socket, and the Docker socket is root on the host: a task container is untrusted, and a
+# node is a machine you are willing to let arbitrary containers run on.
+
+[Unit]
+Description=Podium worker node
+Documentation=https://github.com/alvaroibarguen/podium
+# The daemon refuses to start without a working engine, so let systemd order it rather than
+# making the first thousand restarts do the waiting.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/podium-node
+EnvironmentFile=-/etc/podium/node.env
+
+# The daemon is restarted, not the tasks. A restarted node re-discovers the containers it
+# left behind, asks the control plane what it already holds for each of them, and resumes
+# their logs at the right byte — so a crash costs a reconnect, not a task.
+Restart=always
+RestartSec=5s
+
+# Draining is the graceful path: the control plane stops giving it work, the running tasks
+# finish, and with exit_on_drain the process exits 0 — which systemd treats as success and
+# restarts, picking up a replaced binary. SIGTERM without a drain is also safe; it just
+# leaves the containers running for the next incarnation to adopt.
+KillSignal=SIGTERM
+TimeoutStopSec=60s
+
+# Root, deliberately. The daemon needs /var/run/docker.sock, and anything that can talk to
+# the Docker socket can start a privileged container and own the host — so a dedicated
+# unprivileged user in the docker group is the same power with a longer name. What the
+# hardening below buys is protection from mistakes, not from a determined attacker with the
+# socket. SupplementaryGroups is kept so that changing User= to a service account works.
+User=root
+SupplementaryGroups=docker
+
+# Everything the node writes lives in one directory: identity.json (the node key), each
+# task's state, the extracted podium-runner, the image cache bookkeeping, and any file-target
+# secret staged for a running task.
+StateDirectory=podium-node
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/podium-node
+
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+NoNewPrivileges=true
+LockPersonality=true
+
+# PrivateTmp is deliberately NOT set. When data_dir is deep enough that
+# <data_dir>/tasks/<id>/events.sock would exceed the 108-byte sun_path limit, the node falls
+# back to creating that socket under /tmp and bind-mounting it into the task container — and
+# a private /tmp is invisible to dockerd, so the mount would fail with an error that says
+# nothing useful. With the default /var/lib/podium-node the fallback never triggers; turn
+# PrivateTmp on only if you have also kept data_dir short.
+
+[Install]
+WantedBy=multi-user.target

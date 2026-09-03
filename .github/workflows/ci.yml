@@ -102,3 +102,43 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make test-integration
+
+  # The same artifacts release.yml produces, built and thrown away. It is here so that a
+  # broken .goreleaser.yaml is found on the commit that broke it rather than on the tag.
+  # Images are deliberately not built: that needs qemu, buildx and a registry login, and
+  # none of it can be verified without pushing.
+  snapshot:
+    name: release snapshot (no publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # `make web` is a goreleaser before-hook: the server binary embeds web/dist.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # Podium has no licence yet. This is a warning here and a hard failure in
+      # release.yml, so the state is visible on every push without blocking development.
+      - name: LICENSE placeholder check
+        run: |
+          if grep -qi 'TODO' LICENSE; then
+            echo "::warning file=LICENSE::LICENSE is still a TODO placeholder. \
+          release.yml refuses to publish until a real licence is chosen."
+          fi
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=docker,publish,sign,sbom
+      - name: Artifact listing
+        run: ls -la dist/ && cat dist/checksums.txt

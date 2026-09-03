@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/identity.proto.
  */
 export const file_podium_v1_identity: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0ImoKDldob0FtSVJlc3BvbnNlEg0KBWxvZ2luGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIlCgRraW5kGAMgASgOMhcucG9kaXVtLnYxLklkZW50aXR5S2luZBIMCgR0YWdzGAQgAygJKnoKDElkZW50aXR5S2luZBIdChlJREVOVElUWV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSSURFTlRJVFlfS0lORF9VU0VSEAESFgoSSURFTlRJVFlfS0lORF9OT0RFEAISGwoXSURFTlRJVFlfS0lORF9ERVZfVE9LRU4QAzJQCg9JZGVudGl0eVNlcnZpY2USPQoGV2hvQW1JEhgucG9kaXVtLnYxLldob0FtSVJlcXVlc3QaGS5wb2RpdW0udjEuV2hvQW1JUmVzcG9uc2VCpwEKDWNvbS5wb2RpdW0udjFCDUlkZW50aXR5UHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
+  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IpkBCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJKnoKDElkZW50aXR5S2luZBIdChlJREVOVElUWV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSSURFTlRJVFlfS0lORF9VU0VSEAESFgoSSURFTlRJVFlfS0lORF9OT0RFEAISGwoXSURFTlRJVFlfS0lORF9ERVZfVE9LRU4QAzJQCg9JZGVudGl0eVNlcnZpY2USPQoGV2hvQW1JEhgucG9kaXVtLnYxLldob0FtSVJlcXVlc3QaGS5wb2RpdW0udjEuV2hvQW1JUmVzcG9uc2VCpwEKDWNvbS5wb2RpdW0udjFCDUlkZW50aXR5UHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
 
 /**
  * @generated from message podium.v1.WhoAmIRequest
@@ -52,6 +52,21 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
    * @generated from field: repeated string tags = 4;
    */
   tags: string[];
+
+  /**
+   * server_version is the control plane's build version: a release tag such as "v0.3.1", or
+   * "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.
+   *
+   * @generated from field: string server_version = 5;
+   */
+  serverVersion: string;
+
+  /**
+   * server_commit is the short git commit the control plane was built from, or "none".
+   *
+   * @generated from field: string server_commit = 6;
+   */
+  serverCommit: string;
 };
 
 /**

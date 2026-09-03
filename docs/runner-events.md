@@ -39,6 +39,16 @@ the task.
 - Every write carries a two-second deadline. A failed write retires the connection for the
   rest of the run: the node is gone, and the runner has nothing useful to do about it.
 
+### Trust
+
+The socket is **mode 0666 inside the container**, so that a task running as a non-root user can
+still report. That means *any* process in the task container can write to it, and a task is
+untrusted code — so a task can forge `step` and `artifact` events, or flood them.
+
+Today that costs only cosmetic log entries and an artifact upload the task could have performed
+anyway. It becomes a real problem the moment one of these events drives server-side state.
+Nothing here is an authentication boundary. See [`security.md`](security.md#3-a-task-container--untrusted).
+
 ## Envelope
 
 ```json
