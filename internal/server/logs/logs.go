@@ -37,6 +37,7 @@ type Service struct {
 	mu         sync.Mutex
 	watchers   map[string]map[chan struct{}]struct{}
 	cancelling map[string]string
+	oomKilled  map[string]struct{}
 }
 
 // New returns a Service. Call Run once to follow Postgres notifications.
@@ -49,6 +50,7 @@ func New(st *store.Store, logger *slog.Logger) *Service {
 		logger:     logger,
 		watchers:   make(map[string]map[chan struct{}]struct{}),
 		cancelling: make(map[string]string),
+		oomKilled:  make(map[string]struct{}),
 	}
 }
 
@@ -153,6 +155,14 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 		from, to = []store.Status{store.StatusProvisioning}, store.StatusRunning
 		patch.StartedAt = &ts
+	case podiumv1.TaskEventKind_TASK_EVENT_KIND_EXITED:
+		// The exit itself implies no transition — finished carries the outcome — but it
+		// is the only place the kernel's verdict is reported, so remember it for the
+		// transition that follows.
+		if e.GetExited().GetOomKilled() {
+			s.markOOM(taskID)
+		}
+		return
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:
 		fin := e.GetFinished()
 		code := fin.GetExitCode()
@@ -186,6 +196,11 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 			to = store.StatusCancelled
 			patch.FailureReason = &reason
 			from = nil
+		} else if s.takeOOM(taskID) && to == store.StatusFailed {
+			// A memory limit kills a task with a plain non-zero exit code, which tells an
+			// operator nothing. The container's exit state does, so say so.
+			reason := FailureReasonOOM
+			patch.FailureReason = &reason
 		}
 		// The slot the scheduler booked on assign is only ever given back here. It happens
 		// before the transition on purpose: a replayed batch has its transition rejected as
@@ -203,6 +218,26 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 		s.logger.Log(ctx, level, "task transition from event rejected",
 			"task_id", taskID, "kind", KindString(e.GetKind()), "to", to, "error", err)
 	}
+}
+
+// FailureReasonOOM is the tasks.failure_reason a task gets when its container was killed
+// for exceeding its memory limit.
+const FailureReasonOOM = "oom"
+
+// markOOM records that a task's container was OOM-killed.
+func (s *Service) markOOM(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.oomKilled[taskID] = struct{}{}
+}
+
+// takeOOM consumes the OOM mark, if any.
+func (s *Service) takeOOM(taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.oomKilled[taskID]
+	delete(s.oomKilled, taskID)
+	return ok
 }
 
 // takeCancelling consumes a pending cancel intent.

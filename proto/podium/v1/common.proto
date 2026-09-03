@@ -40,6 +40,55 @@ message TaskSpec {
   google.protobuf.Duration timeout = 6;
   // Defaults to 1.
   int32 max_attempts = 7;
+  // Sibling containers started before the task, keyed by the DNS name the task reaches
+  // them under on the task network. "task" is reserved.
+  map<string, Sidecar> sidecars = 8;
+  // Limits applied to the task container.
+  Resources resources = 9;
+  // The task container's sandbox. Capabilities are all dropped and no-new-privileges is
+  // always set; these fields are the only dials.
+  Hardening hardening = 10;
+}
+
+// Resources caps one container. The node applies the limits blindly; refusing a task that
+// asks for more than a node has is the scheduler's job.
+message Resources {
+  // Cores. 0.5 means half a core; 0 means unlimited.
+  double cpu = 1;
+  // Memory cap in MB. Swap is pinned to the same value, so a container never swaps.
+  int64 memory_mb = 2;
+  // Maximum process count. Defaults to 4096.
+  int32 pids = 3;
+}
+
+// Readiness is how the node decides a sidecar is usable. At most one probe may be set; a
+// sidecar with none is ready as soon as its container is running.
+message Readiness {
+  int32 tcp_port = 1;
+  string http_path = 2;
+  // Defaults to 80 when http_path is set.
+  int32 http_port = 3;
+  repeated string command = 4;
+  // Defaults to 60s.
+  google.protobuf.Duration timeout = 5;
+}
+
+// Sidecar is a sibling container on the task's network.
+message Sidecar {
+  string image = 1;
+  repeated string command = 2;
+  map<string, string> env = 3;
+  Readiness readiness = 4;
+  Resources resources = 5;
+}
+
+// Hardening relaxes or tightens the task container's sandbox.
+message Hardening {
+  // When true the image's filesystem is read-only; /workspace and /tmp stay writable.
+  bool read_only_rootfs = 1;
+  // Capabilities added back after all are dropped. Restricted to CHOWN, DAC_OVERRIDE,
+  // FOWNER, SETUID, SETGID, NET_BIND_SERVICE and KILL.
+  repeated string capabilities = 2;
 }
 
 // Usage is the resource accounting reported when a task finishes.

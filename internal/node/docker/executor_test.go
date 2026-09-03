@@ -1,14 +1,20 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/system"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
 func TestCheckEngine(t *testing.T) {
@@ -167,4 +173,93 @@ func TestEventSocketPathStaysInsideTheUnixBudget(t *testing.T) {
 	e = &Executor{dataDir: deep, sockDir: dir}
 	require.Equal(t, filepath.Join(dir, taskID+".sock"), e.eventsSocketPath(taskID))
 	require.LessOrEqual(t, len(e.eventsSocketPath(taskID)), maxUnixPath)
+}
+
+func TestApplyResources(t *testing.T) {
+	var hc container.HostConfig
+	applyResources(&hc, spec.Resources{CPU: 0.5, MemoryMB: 64, PIDs: 50})
+
+	assert.Equal(t, int64(500_000_000), hc.NanoCPUs)
+	assert.Equal(t, int64(64*1024*1024), hc.Memory)
+	assert.Equal(t, hc.Memory, hc.MemorySwap, "swap must be pinned to memory so a task never swaps")
+	require.NotNil(t, hc.PidsLimit)
+	assert.Equal(t, int64(50), *hc.PidsLimit)
+}
+
+func TestApplyResourcesLeavesUnsetLimitsAlone(t *testing.T) {
+	var hc container.HostConfig
+	applyResources(&hc, spec.Resources{})
+
+	assert.Zero(t, hc.NanoCPUs)
+	assert.Zero(t, hc.Memory)
+	assert.Zero(t, hc.MemorySwap)
+	assert.Nil(t, hc.PidsLimit)
+}
+
+func TestApplyTaskHardening(t *testing.T) {
+	var hc container.HostConfig
+	applyTaskHardening(&hc, spec.Hardening{Capabilities: []string{"chown", "CAP_NET_BIND_SERVICE"}})
+
+	assert.Equal(t, []string{noNewPrivileges}, hc.SecurityOpt)
+	assert.Equal(t, strslice.StrSlice{"ALL"}, hc.CapDrop)
+	assert.Equal(t, strslice.StrSlice{"CHOWN", "NET_BIND_SERVICE"}, hc.CapAdd, "capabilities are normalised for the engine")
+	assert.False(t, hc.ReadonlyRootfs)
+	assert.Equal(t, secretsTmpfs, hc.Tmpfs[secretsPath])
+	assert.NotContains(t, hc.Tmpfs, tmpPath, "a writable rootfs needs no tmpfs on /tmp")
+	assert.NotContains(t, hc.SecurityOpt, "seccomp=unconfined")
+}
+
+func TestApplyTaskHardeningReadOnlyRootfs(t *testing.T) {
+	var hc container.HostConfig
+	applyTaskHardening(&hc, spec.Hardening{ReadOnlyRootfs: true})
+
+	assert.True(t, hc.ReadonlyRootfs)
+	assert.Equal(t, tmpTmpfs, hc.Tmpfs[tmpPath])
+	assert.Equal(t, secretsTmpfs, hc.Tmpfs[secretsPath])
+	assert.Empty(t, hc.CapAdd)
+}
+
+func TestApplySidecarHardeningOnlyDeniesNewPrivileges(t *testing.T) {
+	var hc container.HostConfig
+	applySidecarHardening(&hc)
+
+	assert.Equal(t, []string{noNewPrivileges}, hc.SecurityOpt)
+	assert.Empty(t, hc.CapDrop, "a stock database image usually needs its default capabilities")
+	assert.False(t, hc.ReadonlyRootfs)
+	assert.Empty(t, hc.Tmpfs)
+}
+
+func TestCanDialTaskNetworks(t *testing.T) {
+	assert.True(t, canDialTaskNetworks("linux", "linux"))
+	assert.False(t, canDialTaskNetworks("darwin", "linux"), "docker desktop's bridges are inside a VM")
+	assert.False(t, canDialTaskNetworks("windows", "linux"))
+	assert.False(t, canDialTaskNetworks("linux", "windows"))
+}
+
+func TestSidecarNamesAndLabels(t *testing.T) {
+	assert.Equal(t, "podium-task_1-db", sidecarContainerName("task_1", "db"))
+	assert.Equal(t, map[string]string{
+		LabelTask:    "task_1",
+		LabelLease:   "lease_1",
+		LabelRole:    RoleSidecar,
+		LabelSidecar: "db",
+	}, sidecarLabels("task_1", "lease_1", "db"))
+}
+
+func TestSidecarEnvIsSorted(t *testing.T) {
+	assert.Equal(t,
+		[]string{"A=1", "B=2", "C=3"},
+		sidecarEnv(map[string]string{"C": "3", "A": "1", "B": "2"}))
+	assert.Empty(t, sidecarEnv(nil))
+}
+
+func TestShellQuote(t *testing.T) {
+	assert.Equal(t, `'/healthz'`, shellQuote("/healthz"))
+	assert.Equal(t, `'a'\''b'`, shellQuote("a'b"))
+}
+
+func TestTrimProbeOutput(t *testing.T) {
+	assert.Equal(t, "(no output)", trimProbeOutput([]byte("  \n ")))
+	assert.Equal(t, "boom", trimProbeOutput([]byte("boom\n")))
+	assert.Len(t, trimProbeOutput(bytes.Repeat([]byte("x"), 500)), 200+len("…"))
 }

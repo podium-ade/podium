@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvaroibarguen/podium/pkg/spec"
@@ -53,4 +54,30 @@ func TestParseTaskStatus(t *testing.T) {
 	_, err = parseTaskStatus("nope")
 	require.ErrorContains(t, err, "unknown status")
 	require.ErrorContains(t, err, "cancelled")
+}
+
+// The shipped examples must stay valid: they are the first thing an adopter runs.
+func TestShippedExamplesParse(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+
+	for _, p := range paths {
+		t.Run(filepath.Base(p), func(t *testing.T) {
+			s, err := buildSpec(p, "", "", nil, nil, 0, nil)
+			require.NoError(t, err)
+			assert.NotEmpty(t, s.Image)
+		})
+	}
+}
+
+func TestPostgresSidecarExampleShape(t *testing.T) {
+	s, err := buildSpec(filepath.Join("..", "..", "examples", "postgres-sidecar.yaml"), "", "", nil, nil, 0, nil)
+	require.NoError(t, err)
+
+	require.Contains(t, s.Sidecars, "db")
+	assert.Equal(t, 5432, s.Sidecars["db"].Readiness.TCPPort)
+	assert.Equal(t, "postgres:16-alpine", s.Sidecars["db"].Image)
+	assert.True(t, s.Hardening.ReadOnlyRootfs)
+	assert.Equal(t, 256, s.Resources.MemoryMB)
 }

@@ -41,13 +41,14 @@ max_attempts: 3
 		Labels:      []string{"linux/arm64", "docker"},
 		Timeout:     Duration(30 * time.Second),
 		MaxAttempts: 3,
+		Resources:   Resources{PIDs: DefaultPIDs},
 	}, got)
 }
 
 func TestParseTaskSpecRejectsUnknownField(t *testing.T) {
-	_, err := ParseTaskSpec(strings.NewReader("image: alpine:3\nsidecars: {}\n"))
+	_, err := ParseTaskSpec(strings.NewReader("image: alpine:3\nprivileged: true\n"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "sidecars")
+	assert.Contains(t, err.Error(), "privileged")
 }
 
 func TestYAMLRoundTrip(t *testing.T) {
@@ -59,6 +60,14 @@ func TestYAMLRoundTrip(t *testing.T) {
 		Labels:      []string{"demo"},
 		Timeout:     Duration(90 * time.Second),
 		MaxAttempts: 2,
+		Resources:   Resources{CPU: 1.5, MemoryMB: 512, PIDs: DefaultPIDs},
+		Hardening:   Hardening{ReadOnlyRootfs: true, Capabilities: []string{"CHOWN"}},
+		Sidecars: map[string]Sidecar{"db": {
+			Image:     "postgres:16-alpine",
+			Env:       map[string]string{"POSTGRES_PASSWORD": "pw"},
+			Readiness: Readiness{TCPPort: 5432, Timeout: Duration(DefaultReadinessTimeout)},
+			Resources: Resources{PIDs: DefaultPIDs},
+		}},
 	}
 	b, err := yaml.Marshal(want)
 	require.NoError(t, err)
@@ -134,4 +143,211 @@ func TestDurationJSON(t *testing.T) {
 	assert.JSONEq(t, `"1h30m0s"`, string(b))
 
 	require.Error(t, d.UnmarshalJSON([]byte(`"nonsense"`)))
+}
+
+func TestApplyDefaultsFillsSidecarsAndResources(t *testing.T) {
+	s := &TaskSpec{
+		Image: "alpine:3",
+		Sidecars: map[string]Sidecar{
+			"db":  {Image: "postgres:16-alpine", Readiness: Readiness{TCPPort: 5432}},
+			"api": {Image: "alpine:3", Readiness: Readiness{HTTPPath: "/healthz"}},
+			"raw": {Image: "alpine:3"},
+		},
+	}
+	s.ApplyDefaults()
+
+	assert.Equal(t, DefaultPIDs, s.Resources.PIDs)
+	for name, sc := range s.Sidecars {
+		assert.Equal(t, DefaultPIDs, sc.Resources.PIDs, "sidecar %s", name)
+		assert.Equal(t, Duration(DefaultReadinessTimeout), sc.Readiness.Timeout, "sidecar %s", name)
+	}
+	assert.Equal(t, DefaultHTTPPort, s.Sidecars["api"].Readiness.HTTPPort)
+	assert.Zero(t, s.Sidecars["db"].Readiness.HTTPPort, "an http port is only defaulted for an http probe")
+	assert.Zero(t, s.Sidecars["raw"].Readiness.Probes())
+}
+
+func TestParseSidecarSpec(t *testing.T) {
+	const doc = `
+image: postgres:16-alpine
+command: ["psql", "-h", "db", "-c", "select 1"]
+env:
+  PGPASSWORD: podium
+sidecars:
+  db:
+    image: postgres:16-alpine
+    env:
+      POSTGRES_PASSWORD: podium
+    readiness:
+      tcp_port: 5432
+      timeout: 30s
+    resources:
+      cpu: 1
+      memory_mb: 256
+resources:
+  cpu: 0.5
+  memory_mb: 128
+  pids: 64
+hardening:
+  read_only_rootfs: true
+  capabilities: [CHOWN, NET_BIND_SERVICE]
+`
+	got, err := ParseTaskSpec(strings.NewReader(doc))
+	require.NoError(t, err)
+	assert.Equal(t, Resources{CPU: 0.5, MemoryMB: 128, PIDs: 64}, got.Resources)
+	assert.Equal(t, Hardening{ReadOnlyRootfs: true, Capabilities: []string{"CHOWN", "NET_BIND_SERVICE"}}, got.Hardening)
+	require.Contains(t, got.Sidecars, "db")
+	db := got.Sidecars["db"]
+	assert.Equal(t, "postgres:16-alpine", db.Image)
+	assert.Equal(t, Readiness{TCPPort: 5432, Timeout: Duration(30 * time.Second)}, db.Readiness)
+	assert.Equal(t, Resources{CPU: 1, MemoryMB: 256, PIDs: DefaultPIDs}, db.Resources)
+}
+
+func TestValidateSidecarsResourcesAndHardening(t *testing.T) {
+	valid := func() *TaskSpec {
+		s := &TaskSpec{
+			Image:    "alpine:3",
+			Sidecars: map[string]Sidecar{"db": {Image: "postgres:16-alpine", Readiness: Readiness{TCPPort: 5432}}},
+		}
+		s.ApplyDefaults()
+		return s
+	}
+	require.NoError(t, valid().Validate())
+
+	rename := func(s *TaskSpec, to string) {
+		sc := s.Sidecars["db"]
+		delete(s.Sidecars, "db")
+		s.Sidecars[to] = sc
+	}
+	mutateDB := func(s *TaskSpec, f func(*Sidecar)) {
+		sc := s.Sidecars["db"]
+		f(&sc)
+		s.Sidecars["db"] = sc
+	}
+
+	for name, tc := range map[string]struct {
+		mutate func(*TaskSpec)
+		want   string
+	}{
+		"reserved sidecar name": {
+			func(s *TaskSpec) { rename(s, "task") }, `sidecar name "task" is reserved`,
+		},
+		"sidecar name with an upper case letter": {
+			func(s *TaskSpec) { rename(s, "DB") }, "is not a valid hostname label",
+		},
+		"sidecar name with an underscore": {
+			func(s *TaskSpec) { rename(s, "my_db") }, "is not a valid hostname label",
+		},
+		"sidecar name with a leading dash": {
+			func(s *TaskSpec) { rename(s, "-db") }, "is not a valid hostname label",
+		},
+		"sidecar name with a trailing dash": {
+			func(s *TaskSpec) { rename(s, "db-") }, "is not a valid hostname label",
+		},
+		"empty sidecar name": {
+			func(s *TaskSpec) { rename(s, "") }, "is not a valid hostname label",
+		},
+		"sidecar without an image": {
+			func(s *TaskSpec) { mutateDB(s, func(sc *Sidecar) { sc.Image = "" }) }, "sidecars.db.image is required",
+		},
+		"sidecar env key that is not an identifier": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) { sc.Env = map[string]string{"NOT-OK": "1"} })
+			},
+			`sidecars.db.env key "NOT-OK" is not a valid shell identifier`,
+		},
+		"two readiness probes": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) { sc.Readiness.HTTPPath = "/healthz" })
+			},
+			"declares 2 probes",
+		},
+		"three readiness probes": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) {
+					sc.Readiness.HTTPPath = "/healthz"
+					sc.Readiness.Command = []string{"true"}
+				})
+			},
+			"declares 3 probes",
+		},
+		"readiness port out of range": {
+			func(s *TaskSpec) { mutateDB(s, func(sc *Sidecar) { sc.Readiness.TCPPort = 70000 }) },
+			"is not a port number",
+		},
+		"http port without a path": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) { sc.Readiness = Readiness{HTTPPort: 8080} })
+			},
+			"http_port is set without http_path",
+		},
+		"http path that is not absolute": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) { sc.Readiness = Readiness{HTTPPath: "healthz"} })
+			},
+			"must start with /",
+		},
+		"negative readiness timeout": {
+			func(s *TaskSpec) {
+				mutateDB(s, func(sc *Sidecar) { sc.Readiness.Timeout = Duration(-time.Second) })
+			},
+			"readiness.timeout must not be negative",
+		},
+		"negative sidecar cpu": {
+			func(s *TaskSpec) { mutateDB(s, func(sc *Sidecar) { sc.Resources.CPU = -1 }) },
+			"sidecars.db.resources.cpu must not be negative",
+		},
+		"negative cpu":    {func(s *TaskSpec) { s.Resources.CPU = -0.5 }, "resources.cpu must not be negative"},
+		"negative memory": {func(s *TaskSpec) { s.Resources.MemoryMB = -1 }, "resources.memory_mb must not be negative"},
+		"negative pids":   {func(s *TaskSpec) { s.Resources.PIDs = -1 }, "resources.pids must not be negative"},
+		"capability outside the allow-list": {
+			func(s *TaskSpec) { s.Hardening.Capabilities = []string{"SYS_ADMIN"} },
+			`"SYS_ADMIN" is not allowed`,
+		},
+		"capability that does not exist": {
+			func(s *TaskSpec) { s.Hardening.Capabilities = []string{"MAKE_ME_ROOT"} },
+			"see " + SpecDocs,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := valid()
+			tc.mutate(s)
+			err := s.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestValidateAcceptsEveryAllowedCapabilitySpelling(t *testing.T) {
+	s := &TaskSpec{Image: "alpine:3"}
+	s.ApplyDefaults()
+	for _, c := range AllowedCapabilities {
+		for _, spelling := range []string{c, strings.ToLower(c), "CAP_" + c, "cap_" + strings.ToLower(c)} {
+			s.Hardening.Capabilities = []string{spelling}
+			require.NoError(t, s.Validate(), "capability %q", spelling)
+			assert.Equal(t, c, NormalizeCapability(spelling))
+		}
+	}
+}
+
+func TestProtoRoundTripWithSidecars(t *testing.T) {
+	want := &TaskSpec{
+		Image:   "postgres:16-alpine",
+		Command: []string{"psql", "-h", "db"},
+		Sidecars: map[string]Sidecar{
+			"db": {
+				Image:     "postgres:16-alpine",
+				Command:   []string{"postgres", "-c", "fsync=off"},
+				Env:       map[string]string{"POSTGRES_PASSWORD": "pw"},
+				Readiness: Readiness{TCPPort: 5432, Timeout: Duration(5 * time.Second)},
+				Resources: Resources{CPU: 1, MemoryMB: 256, PIDs: 128},
+			},
+			"cache": {Image: "redis:7-alpine", Readiness: Readiness{Command: []string{"redis-cli", "ping"}}},
+		},
+		Resources: Resources{CPU: 0.5, MemoryMB: 64, PIDs: 50},
+		Hardening: Hardening{ReadOnlyRootfs: true, Capabilities: []string{"CHOWN", "SETUID"}},
+	}
+	want.ApplyDefaults()
+	require.NoError(t, want.Validate())
+	assert.Equal(t, want, FromProto(want.ToProto()))
 }

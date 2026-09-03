@@ -135,17 +135,24 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 	var wallMS int64
 	var failure string
 
+	out := newLogPrinter(e.stdout, e.stderr)
+	defer out.flush()
+
 	f := &follower{
 		tasks:  e.client.tasks,
 		taskID: taskID,
 		onEvent: func(ev *podiumv1.TaskEvent) {
 			switch ev.GetKind() {
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG:
-				writeLog(e.stdout, e.stderr, ev)
+				out.write(ev)
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_PROVISIONING:
 				if !scheduled {
 					scheduled = true
 					e.note("scheduled on %s", nodeOf(ctx, e, taskID))
+				}
+			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STEP:
+				if name := ev.GetStep().GetName(); strings.HasPrefix(name, "sidecar/") {
+					e.note("%s %s", name, ev.GetStep().GetStatus())
 				}
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 				e.note("running")
@@ -175,6 +182,17 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 
 	switch task.GetStatus() {
 	case podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, podiumv1.TaskStatus_TASK_STATUS_FAILED:
+		// A task that failed before its container ran — a sidecar that never became ready,
+		// an image that does not exist — is terminal with no exit code at all. exit_code is
+		// optional on the wire for exactly this reason, and reading it as 0 would report a
+		// failed task as a success.
+		if task.ExitCode == nil {
+			if failure == "" {
+				failure = "task failed without an exit code"
+			}
+			e.note("failed: %s", failure)
+			return &ExitError{Code: ExitInfra}
+		}
 		code := int(task.GetExitCode())
 		e.note("finished exit %d in %s", code, elapsed.Round(100*time.Millisecond))
 		if code == 0 {

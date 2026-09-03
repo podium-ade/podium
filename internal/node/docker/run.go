@@ -36,6 +36,13 @@ const (
 	// logDrainTimeout bounds how long we wait for the log stream to end after
 	// the container has exited.
 	logDrainTimeout = 5 * time.Second
+	// exitSIGKILL is the exit status of a process the kernel killed with SIGKILL, which
+	// is how an OOM kill looks from the outside.
+	exitSIGKILL = 137
+	// oomFlagGrace and oomFlagPoll bound the wait for the engine's OOM flag to catch up
+	// with the container's exit. See exitedOOM.
+	oomFlagGrace = time.Second
+	oomFlagPoll  = 50 * time.Millisecond
 )
 
 // Request is one assignment to execute.
@@ -83,7 +90,7 @@ func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (R
 
 	res, err := e.run(ctx, req, em, rs)
 	if err != nil {
-		retryable := !errors.Is(err, errSpec)
+		retryable := !errors.Is(err, errSpec) && !errors.Is(err, errSidecarNotReady)
 		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable})
 		// Never leak: drop anything this call created, on a context that
 		// survives the caller cancelling.
@@ -137,6 +144,16 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		return Result{}, fmt.Errorf("create volume %s: %w", volumeName(req.TaskID), err)
 	}
 
+	// Sidecars are siblings on the task network, addressed by the name they are keyed
+	// under. The task container is not created until every one of them is ready, and
+	// their log streams are stopped again before this run emits its exit — a log event
+	// after `finished` would break the ordering the whole event contract rests on.
+	sidecars, serr := e.startSidecars(ctx, req, netResp.ID, em)
+	defer sidecars.stopLogs()
+	if serr != nil {
+		return Result{}, serr
+	}
+
 	workdir := req.Spec.WorkingDir
 	if workdir == "" {
 		workdir = spec.DefaultWorkingDir
@@ -185,6 +202,8 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Init:          &initFalse,
 	}
+	applyResources(hostCfg, req.Spec.Resources)
+	applyTaskHardening(hostCfg, req.Spec.Hardening)
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 		networkName(req.TaskID): {NetworkID: netResp.ID, Aliases: []string{networkAlias}},
 	}}
@@ -262,20 +281,52 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		e.log.Warn("runner event stream did not close after exit", "task", req.TaskID)
 	}
 
+	// Nothing may emit after this point but exited and finished, so the sidecars' log
+	// streams end here rather than when the run returns.
+	sidecars.stopLogs()
+
 	usage := <-usageCh
 	usage.WallMS = wallMS
 
-	oom := false
-	if insp, err := e.cli.ContainerInspect(ctx, cid); err == nil && insp.State != nil {
-		oom = insp.State.OOMKilled
-	} else if err != nil {
-		e.log.Warn("inspect after exit", "task", req.TaskID, "error", err)
-	}
+	oom := e.exitedOOM(ctx, cid, exitCode, req.Spec.Resources.MemoryMB > 0)
 
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})
 	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage})
 
 	return Result{ExitCode: exitCode, OOMKilled: oom, Usage: usage}, nil
+}
+
+// exitedOOM reports whether the container was killed for exceeding its memory limit.
+//
+// The engine learns of the exit and of the cgroup's OOM event on two different paths, and
+// the OOM flag can land a few milliseconds after ContainerWait has already returned. A
+// single inspect therefore reports a plain SIGKILL for a task that really was OOM-killed,
+// which is exactly the difference this step exists to make visible. So a memory-limited
+// task that died of SIGKILL is re-inspected for a moment before the flag is believed to be
+// absent; every other exit is inspected once and answered immediately.
+func (e *Executor) exitedOOM(ctx context.Context, cid string, exitCode int, memoryLimited bool) bool {
+	deadline := time.Now()
+	if memoryLimited && exitCode == exitSIGKILL {
+		deadline = deadline.Add(oomFlagGrace)
+	}
+	for {
+		insp, err := e.cli.ContainerInspect(ctx, cid)
+		if err != nil {
+			e.log.Warn("inspect after exit", "container", cid, "error", err)
+			return false
+		}
+		if insp.State != nil && insp.State.OOMKilled {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-time.After(oomFlagPoll):
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 func (e *Executor) mkTaskDir(taskID string) error {
@@ -415,11 +466,13 @@ func (e *Executor) streamLogsFrom(ctx context.Context, cid string, em *emitter, 
 
 // logWriter turns each demultiplexed frame into one log event, splitting
 // anything larger than maxLogChunk. skip discards that many leading bytes of
-// the stream before anything is emitted.
+// the stream before anything is emitted. sidecar is set only for a sidecar's
+// output and names which one it came from.
 type logWriter struct {
-	em     *emitter
-	stream string
-	skip   int64
+	em      *emitter
+	stream  string
+	sidecar string
+	skip    int64
 }
 
 func (w *logWriter) Write(p []byte) (int, error) {
@@ -436,7 +489,7 @@ func (w *logWriter) Write(p []byte) (int, error) {
 		end := min(off+maxLogChunk, len(p))
 		chunk := make([]byte, end-off)
 		copy(chunk, p[off:end])
-		w.em.emit(KindLog, LogPayload{Stream: w.stream, Bytes: chunk})
+		w.em.emit(KindLog, LogPayload{Stream: w.stream, Sidecar: w.sidecar, Bytes: chunk})
 	}
 	return n, nil
 }

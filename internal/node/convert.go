@@ -19,8 +19,9 @@ var eventKinds = map[string]podiumv1.TaskEventKind{
 }
 
 var logStreams = map[string]podiumv1.LogChunk_Stream{
-	docker.StreamStdout: podiumv1.LogChunk_STREAM_STDOUT,
-	docker.StreamStderr: podiumv1.LogChunk_STREAM_STDERR,
+	docker.StreamStdout:  podiumv1.LogChunk_STREAM_STDOUT,
+	docker.StreamStderr:  podiumv1.LogChunk_STREAM_STDERR,
+	docker.StreamSidecar: podiumv1.LogChunk_STREAM_SIDECAR,
 }
 
 // toWire turns an executor event into its wire form, minus the task, lease and seq
@@ -37,8 +38,9 @@ func toWire(ev docker.Event) *podiumv1.TaskEvent {
 	switch p := ev.Payload.(type) {
 	case docker.LogPayload:
 		out.Payload = &podiumv1.TaskEvent_Log{Log: &podiumv1.LogChunk{
-			Stream: logStreams[p.Stream],
-			Bytes:  p.Bytes,
+			Stream:      logStreams[p.Stream],
+			SidecarName: p.Sidecar,
+			Bytes:       p.Bytes,
 		}}
 	case docker.StepPayload:
 		out.Payload = &podiumv1.TaskEvent_Step{Step: &podiumv1.Step{
@@ -81,13 +83,15 @@ func errorEvent(message string, retryable bool) *podiumv1.TaskEvent {
 	}
 }
 
-// logEvent is one coalesced run of container output on a single stream.
-func logEvent(stream string, data []byte) *podiumv1.TaskEvent {
+// logEvent is one coalesced run of output from a single source: one of the task
+// container's two streams, or one sidecar's.
+func logEvent(stream, sidecar string, data []byte) *podiumv1.TaskEvent {
 	return &podiumv1.TaskEvent{
 		Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG,
 		Payload: &podiumv1.TaskEvent_Log{Log: &podiumv1.LogChunk{
-			Stream: logStreams[stream],
-			Bytes:  data,
+			Stream:      logStreams[stream],
+			SidecarName: sidecar,
+			Bytes:       data,
 		}},
 	}
 }

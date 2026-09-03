@@ -146,6 +146,7 @@ export function LogViewer({
                     l.stream === "stderr" ? "text-err" : l.stream === "sidecar" ? "text-warn" : ""
                   }`}
                 >
+                  {l.stream === "sidecar" && l.source !== "" ? `[${l.source}] ` : ""}
                   {l.text === "" ? " " : l.text}
                 </div>
               ))}

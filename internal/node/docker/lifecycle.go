@@ -103,8 +103,13 @@ func (e *Executor) ListOwned(ctx context.Context) ([]OwnedContainer, error) {
 	return owned, nil
 }
 
-// Teardown removes everything a task owns: its containers (forcibly), its
-// network, its workspace volume unless keepWorkspace, and its state directory.
+// Teardown removes everything a task owns, in the order the design requires:
+// its sidecars first (stop signal, 10s grace, SIGKILL, then remove), then its
+// task container, then its network, then its workspace volume unless
+// keepWorkspace, then its state directory. Sidecars go first because the task
+// container is the thing that talks to them; killing a database out from under
+// a still-running client is how you get confusing logs on the way out.
+//
 // It is idempotent — resources that are already gone are not an error.
 func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bool) error {
 	if taskID == "" {
@@ -119,7 +124,21 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bo
 	if err != nil {
 		errs = append(errs, fmt.Errorf("list containers of task %s: %w", taskID, err))
 	}
+
+	var sidecars, rest []container.Summary
 	for _, s := range summaries {
+		if s.Labels[LabelRole] == RoleSidecar {
+			sidecars = append(sidecars, s)
+			continue
+		}
+		rest = append(rest, s)
+	}
+
+	errs = append(errs, e.stopSidecars(ctx, sidecars)...)
+	ordered := make([]container.Summary, 0, len(sidecars)+len(rest))
+	ordered = append(ordered, sidecars...)
+	ordered = append(ordered, rest...)
+	for _, s := range ordered {
 		if err := e.cli.ContainerRemove(ctx, s.ID, container.RemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("remove container %s: %w", s.ID, err))
 		}

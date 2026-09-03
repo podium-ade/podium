@@ -1,0 +1,41 @@
+# A task with a database beside it.
+#
+#   podium run --spec examples/postgres-sidecar.yaml
+#
+# The sidecar is a sibling container on the task's private network, reachable by the name
+# it is keyed under — `db` — so nothing in the task has to know an address. The task
+# container is not started until the readiness probe says Postgres is accepting
+# connections, and both containers, the network and the workspace volume are removed when
+# the task ends.
+image: postgres:16-alpine
+command: ["psql", "-h", "db", "-U", "postgres", "-c", "select 1"]
+env:
+  PGPASSWORD: podium
+
+sidecars:
+  db:
+    image: postgres:16-alpine
+    env:
+      POSTGRES_PASSWORD: podium
+    readiness:
+      # Ready when something answers on 5432. Give a cold database a minute.
+      tcp_port: 5432
+      timeout: 60s
+    resources:
+      cpu: 1
+      memory_mb: 512
+
+# Limits on the task container. Swap is pinned to the memory cap, so a task that runs out
+# of memory is OOM-killed and reported as such rather than swapping the node to a halt.
+resources:
+  cpu: 1
+  memory_mb: 256
+  pids: 512
+
+# The task container drops every Linux capability and runs with no-new-privileges and the
+# engine's default seccomp profile whatever this section says; these are the only dials.
+# psql needs neither a writable image nor any capability.
+hardening:
+  read_only_rootfs: true
+
+timeout: 5m
