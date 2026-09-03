@@ -1,0 +1,83 @@
+# A Podium control plane on a tailnet, plus a worker node, as an example rather than a shipped
+# artefact: the images are not published yet (step 14), so build them yourself or run the
+# binaries directly. Everything here is about *placement and state*, which is the part that is
+# easy to get wrong.
+#
+#   TS_AUTHKEY=tskey-auth-...        # tagged tag:podium-server, reusable, pre-approved
+#   docker compose -f deploy/docker-compose.tailnet.yml up -d --wait
+#
+# HTTPS on the tailnet must be enabled first (admin console -> DNS -> HTTPS Certificates), and
+# so must MagicDNS. The server refuses to start with an actionable message if either is off.
+name: podium
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
+      POSTGRES_DB: podium
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+    # No published ports at all. The database is reached over the compose network by the
+    # server, and by nothing else.
+
+  server:
+    image: podium/podium-server:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
+      PODIUM_TRANSPORT: tailnet
+      PODIUM_TS_HOSTNAME: podium
+      PODIUM_TS_STATE_DIR: /var/lib/podium/tsnet
+      # The Tailscale auth key. Read on the first run only: after that the state volume below
+      # *is* the device identity. Never bake it into an image.
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY to a reusable, pre-approved key tagged tag:podium-server}
+    volumes:
+      # The tsnet state must outlive the container. Without it the server registers a brand new
+      # Tailscale device on every restart, the MagicDNS name drifts to podium-1, podium-2, ...
+      # and the admin console fills with ghosts.
+      - server-state:/var/lib/podium
+    # Also no published ports: the server listens only inside the tailnet, on 443 of its own
+    # Tailscale device. There is no host port to firewall and no public ingress to protect.
+    restart: unless-stopped
+
+  # A worker. In practice this runs on a *different machine* — that is the whole point of the
+  # tailnet transport — so treat this service as the recipe rather than as a co-located node.
+  node:
+    image: podium/podium-node:dev
+    environment:
+      PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
+      PODIUM_NODE_TRANSPORT: tailnet
+      # The *Tailscale* auth key for workers: reusable, pre-approved, tagged tag:podium-node.
+      # A different key from the server's, and a completely different thing from the Podium
+      # enrollment token below.
+      PODIUM_NODE_TS_AUTHKEY: ${PODIUM_NODE_TS_AUTHKEY:?set PODIUM_NODE_TS_AUTHKEY}
+      # Podium's own single-use enrollment token, from `podium node enroll-token`. Needed on the
+      # first run only; drop it afterwards.
+      PODIUM_NODE_ENROLL_TOKEN: ${PODIUM_NODE_ENROLL_TOKEN:-}
+      PODIUM_NODE_DATA_DIR: /var/lib/podium-node
+      PODIUM_NODE_LABELS: linux/amd64
+      PODIUM_NODE_MAX_TASKS: "4"
+    volumes:
+      # identity.json (the node key) and the node's own tsnet state both live here, and both are
+      # credentials. Losing this volume means a new enrollment token and a ghost device.
+      - node-state:/var/lib/podium-node
+      # Root-equivalent on the host. A node is a machine you are willing to let arbitrary
+      # containers run on; do not point this at a machine that is anything else.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  server-state:
+  node-state:

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
 // DefaultConfigPath is where podium-node looks for its config file when --config is not
@@ -29,11 +31,15 @@ const (
 	DefaultMetricsListen           = "127.0.0.1:9091"
 )
 
-// The transports podium-node understands. tailnet arrives in step 11.
+// The transports podium-node understands.
 const (
-	TransportDev     = "dev"
+	// TransportDev dials a loopback server with a shared bearer token.
+	TransportDev = "dev"
+	// TransportTailnet embeds the node's own Tailscale device (tsnet) and dials the control
+	// plane's MagicDNS name over it. The node listens for nothing.
 	TransportTailnet = "tailnet"
-	TransportHost    = "host"
+	// TransportHost dials over the machine's existing tailscaled instead of embedding a device.
+	TransportHost = "host"
 )
 
 // Config is the whole of podium-node's configuration: /etc/podium/node.yaml overlaid by
@@ -55,6 +61,14 @@ type Config struct {
 	EnrollToken string `yaml:"enroll_token"`
 	// DevToken is the shared bearer token of the dev transport, PODIUM_NODE_DEV_TOKEN.
 	DevToken string `yaml:"dev_token"`
+	// TSAuthKey is the *Tailscale* auth key, PODIUM_NODE_TS_AUTHKEY or TS_AUTHKEY: reusable,
+	// pre-approved, tagged tag:podium-node. It is read on the first run only, and it is a
+	// different thing from EnrollToken, which is Podium's own single-use secret.
+	// SENSITIVE: never log it.
+	TSAuthKey string `yaml:"ts_auth_key"`
+	// TSHostname overrides the Tailscale device name, PODIUM_NODE_TS_HOSTNAME. Empty derives
+	// it from the machine's hostname.
+	TSHostname string `yaml:"ts_hostname"`
 	// ImageCacheHighWatermark is recorded for step 12's LRU prune; nothing reads it yet.
 	ImageCacheHighWatermark float64 `yaml:"image_cache_high_watermark"`
 	// MetricsListen serves /healthz, /readyz and /metrics, PODIUM_NODE_METRICS_LISTEN.
@@ -110,6 +124,11 @@ func applyEnv(cfg *Config) {
 	envString("PODIUM_NODE_DATA_DIR", &cfg.DataDir)
 	envString("PODIUM_NODE_ENROLL_TOKEN", &cfg.EnrollToken)
 	envString("PODIUM_NODE_DEV_TOKEN", &cfg.DevToken)
+	envString("PODIUM_NODE_TS_HOSTNAME", &cfg.TSHostname)
+	// TS_AUTHKEY is the name tsnet itself documents, so it is honoured as a fallback; the
+	// PODIUM_NODE_ prefixed name wins when both are set.
+	envString("TS_AUTHKEY", &cfg.TSAuthKey)
+	envString("PODIUM_NODE_TS_AUTHKEY", &cfg.TSAuthKey)
 	envString("PODIUM_NODE_METRICS_LISTEN", &cfg.MetricsListen)
 	envString("PODIUM_NODE_DOCKER_HOST", &cfg.DockerHost)
 
@@ -161,10 +180,19 @@ func (c *Config) Validate() error {
 		if c.DevToken == "" {
 			return errors.New("dev_token is empty: set PODIUM_NODE_DEV_TOKEN to the server's PODIUM_DEV_TOKEN")
 		}
+		if !strings.HasPrefix(c.Server, "http://") {
+			return fmt.Errorf("transport dev dials %q, but the dev transport is loopback HTTP; "+
+				"an https:// control plane means transport: tailnet", c.Server)
+		}
 	case TransportTailnet, TransportHost:
-		return fmt.Errorf("transport %q is not implemented yet (step 11); use %s", c.Transport, TransportDev)
+		if !strings.HasPrefix(c.Server, "https://") {
+			return fmt.Errorf("transport %s dials %q, but a tailnet control plane serves HTTPS "+
+				"on its MagicDNS name; set PODIUM_NODE_SERVER to https://podium.<tailnet>.ts.net",
+				c.Transport, c.Server)
+		}
 	default:
-		return fmt.Errorf("transport %q is not a transport (want %s)", c.Transport, TransportDev)
+		return fmt.Errorf("transport %q is not a transport (want %s, %s or %s)",
+			c.Transport, TransportDev, TransportTailnet, TransportHost)
 	}
 	if c.MaxTasks < 1 {
 		return fmt.Errorf("max_tasks is %d: a node with no slots never gets work; set PODIUM_NODE_MAX_TASKS to 1 or more", c.MaxTasks)
@@ -191,4 +219,11 @@ func checkWritableDir(dir string) error {
 	_ = f.Close()
 	_ = os.Remove(probe)
 	return nil
+}
+
+// TSStateDir is where the node's own Tailscale device identity lives. It sits under the data
+// dir because it is exactly as durable as identity.json: lose it and the node re-registers as a
+// new Tailscale device, leaving a ghost in the admin console.
+func (c *Config) TSStateDir() string {
+	return filepath.Join(c.DataDir, tailnet.NodeStateSubdir)
 }

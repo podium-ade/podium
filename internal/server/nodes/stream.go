@@ -10,6 +10,7 @@ import (
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/alvaroibarguen/podium/internal/transport"
 )
 
 // received is one result of stream.Receive, handed to the handler by the reader goroutine so
@@ -51,6 +52,9 @@ func (s *Service) Stream(
 	}
 	node, err := s.authenticate(ctx, hello)
 	if err != nil {
+		return err
+	}
+	if err := s.checkDeviceBinding(ctx, node); err != nil {
 		return err
 	}
 
@@ -116,6 +120,69 @@ func (s *Service) authenticate(ctx context.Context, hello *podiumv1.Hello) (stor
 			errors.New("stream: node key does not belong to that node"))
 	}
 	return node, nil
+}
+
+// checkDeviceBinding enforces that a node keeps reconnecting from the Tailscale device it
+// enrolled from. The node key alone is a bearer credential: anyone who copies identity.json owns
+// the node. Pinning the device means a stolen key is only usable from the machine it was issued
+// to, which is a machine the operator already controls.
+//
+// A node with no binding is bound on the first tailnet Hello it sends — that is how a node that
+// enrolled over the dev transport, or one an admin has rekeyed, picks up its device. Under the
+// dev transport there is no device to bind to, so nothing happens at all.
+func (s *Service) checkDeviceBinding(ctx context.Context, node store.Node) error {
+	id, _ := transport.From(ctx)
+	switch decideBinding(node.TSStableID, id.NodeStableID) {
+	case bindingBind:
+		if err := s.store.SetNodeTSStableID(ctx, node.ID, id.NodeStableID); err != nil {
+			s.logger.WarnContext(ctx, "binding node to its tailscale device failed",
+				"node_id", node.ID, "error", err)
+			return nil
+		}
+		s.logger.InfoContext(ctx, "node bound to a tailscale device",
+			"node_id", node.ID, "ts_stable_id", id.NodeStableID)
+	case bindingReject:
+		s.logger.WarnContext(ctx, "rejecting a node key presented from the wrong tailscale device",
+			"node_id", node.ID, "enrolled_from", node.TSStableID, "presented_from", id.NodeStableID,
+			"remote_addr", id.RemoteAddr)
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf(
+			"stream: node %s is bound to another Tailscale device; if this machine really "+
+				"replaces it, run `podium node rekey %s` and reconnect", node.ID, node.ID))
+	case bindingNoop:
+	}
+	return nil
+}
+
+// bindingDecision is what a Hello does to a node's device binding.
+type bindingDecision int
+
+const (
+	// bindingNoop: nothing to bind and nothing to check — the dev transport, or a node
+	// already on its own device.
+	bindingNoop bindingDecision = iota
+	// bindingBind: the node has no device yet and the caller has one. Trust on first use.
+	bindingBind
+	// bindingReject: the node key arrived from a device that is not the one it is bound to.
+	bindingReject
+)
+
+// decideBinding is the whole rule, in one place so the table of cases is testable.
+//
+// stored is nodes.ts_stable_id; presented is the Tailscale device the current connection came
+// from, empty under the dev transport. An unbound node binds to whatever device it first
+// arrives from — that is how a node enrolled over the dev transport, or one an admin has
+// rekeyed, picks up its device. A bound node must keep arriving from the same one.
+func decideBinding(stored, presented string) bindingDecision {
+	switch {
+	case presented == "":
+		return bindingNoop
+	case stored == "":
+		return bindingBind
+	case stored != presented:
+		return bindingReject
+	default:
+		return bindingNoop
+	}
 }
 
 // endSession unregisters the stream and, unless it was already replaced by a reconnect, marks

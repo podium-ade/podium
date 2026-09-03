@@ -19,8 +19,18 @@ server: http://127.0.0.1:8080
 token: devtoken
 ```
 
-The default server is `http://127.0.0.1:8080`. There is no default token: under the dev
-transport it is the server's `PODIUM_DEV_TOKEN`.
+The default server is `http://127.0.0.1:8080`.
+
+**A token is a dev-transport artefact.** Over the tailnet, Tailscale names the caller at the
+connection level, so there is nothing to present and none is asked for:
+
+```sh
+podium --server https://podium.taila79bf6.ts.net nodes     # no --token
+```
+
+The rule is the URL scheme: an `https://` server is a tailnet control plane and needs no token; a
+`http://` one is the dev transport and the CLI refuses to run without one, because every RPC
+would 401. See [networking.md](networking.md).
 
 ## Exit codes — contractual
 
@@ -121,6 +131,18 @@ TOKEN=$(podium node enroll-token --label linux/arm64)
 ```
 
 The token is shown once. The server keeps only its SHA-256.
+
+This is Podium's own enrollment token, not a Tailscale auth key — a worker needs both, and they
+are different things. See [networking.md](networking.md#the-two-keys-which-are-not-the-same-thing).
+
+### `podium node rekey NODE_ID`
+
+Unbinds a node from the Tailscale device it enrolled from.
+
+A node enrolled over the tailnet is pinned to one device, so a copied `identity.json` is useless
+elsewhere. Rekey when the worker is genuinely rebuilt or replaced: the node keeps its ID, labels
+and history, and the next connection binds it to whatever device it arrives from. Until it
+reconnects the node key alone is enough, so rekey immediately before the move, not routinely.
 
 ### `podium version`
 

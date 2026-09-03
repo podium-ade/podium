@@ -131,11 +131,66 @@ func TestValidateRefusesToStart(t *testing.T) {
 		require.ErrorContains(t, c.Validate(), "never gets work")
 	})
 
-	t.Run("tailnet is not implemented", func(t *testing.T) {
+	t.Run("tailnet needs an https server", func(t *testing.T) {
 		c := base()
 		c.Transport = TransportTailnet
-		require.ErrorContains(t, c.Validate(), "step 11")
+		err := c.Validate()
+		require.ErrorContains(t, err, "MagicDNS")
+		require.ErrorContains(t, err, "https://podium.")
 	})
+
+	t.Run("tailnet with an https server is accepted", func(t *testing.T) {
+		c := base()
+		c.Transport = TransportTailnet
+		c.Server = "https://podium.taila79bf6.ts.net"
+		c.DevToken = ""
+		require.NoError(t, c.Validate(), "the tailnet transport needs no dev token")
+	})
+
+	t.Run("host with an https server is accepted", func(t *testing.T) {
+		c := base()
+		c.Transport = TransportHost
+		c.Server = "https://podium.taila79bf6.ts.net"
+		c.DevToken = ""
+		require.NoError(t, c.Validate())
+	})
+
+	t.Run("dev refuses an https server", func(t *testing.T) {
+		c := base()
+		c.Server = "https://podium.taila79bf6.ts.net"
+		require.ErrorContains(t, c.Validate(), "transport: tailnet")
+	})
+
+	t.Run("an unknown transport names the three that exist", func(t *testing.T) {
+		c := base()
+		c.Transport = "carrier-pigeon"
+		err := c.Validate()
+		require.ErrorContains(t, err, "is not a transport")
+		require.ErrorContains(t, err, "tailnet")
+		require.ErrorContains(t, err, "host")
+	})
+}
+
+func TestTailnetEnvironment(t *testing.T) {
+	t.Setenv("PODIUM_NODE_TRANSPORT", "tailnet")
+	t.Setenv("PODIUM_NODE_SERVER", "https://podium.taila79bf6.ts.net")
+	t.Setenv("PODIUM_NODE_DATA_DIR", t.TempDir())
+	t.Setenv("PODIUM_NODE_TS_HOSTNAME", "podium-node-podiumbot1")
+	t.Setenv("TS_AUTHKEY", "tskey-auth-fallback")
+
+	cfg, err := LoadConfig("")
+	require.NoError(t, err)
+	require.Equal(t, TransportTailnet, cfg.Transport)
+	require.Equal(t, "podium-node-podiumbot1", cfg.TSHostname)
+	require.Equal(t, "tskey-auth-fallback", cfg.TSAuthKey, "TS_AUTHKEY is honoured as a fallback")
+	require.NoError(t, cfg.Validate())
+	require.Equal(t, filepath.Join(cfg.DataDir, "ts"), cfg.TSStateDir())
+
+	// The PODIUM_NODE_ prefixed name wins when both are set.
+	t.Setenv("PODIUM_NODE_TS_AUTHKEY", "tskey-auth-specific")
+	cfg, err = LoadConfig("")
+	require.NoError(t, err)
+	require.Equal(t, "tskey-auth-specific", cfg.TSAuthKey)
 }
 
 func TestIdentityRoundTrip(t *testing.T) {

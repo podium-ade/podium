@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -40,6 +41,12 @@ type Service struct {
 	logs   Ingestor
 	reg    *Registry
 	logger *slog.Logger
+	enroll *rateLimiter
+
+	// allowUntagged mirrors PODIUM_TS_ALLOW_UNTAGGED_NODES. Off, a tailnet caller must carry
+	// the node tag to enroll; on, any tailnet device with a valid token may, which is the
+	// documented escape hatch for a tailnet that has no ACL tags yet.
+	allowUntagged bool
 }
 
 // NewService returns the node-facing service and its (empty) session registry.
@@ -47,8 +54,18 @@ func NewService(st *store.Store, ing Ingestor, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{store: st, logs: ing, reg: NewRegistry(), logger: logger}
+	return &Service{
+		store:  st,
+		logs:   ing,
+		reg:    NewRegistry(),
+		logger: logger,
+		enroll: newRateLimiter(enrollBurst, enrollWindow, nil),
+	}
 }
+
+// SetAllowUntaggedNodes lets an untagged tailnet device enroll. It is a setter because the
+// server reads the flag from its own configuration, which nodes must not import.
+func (s *Service) SetAllowUntaggedNodes(v bool) { s.allowUntagged = v }
 
 // Registry is the live session registry, which the scheduler and the admin API read.
 func (s *Service) Registry() *Registry { return s.reg }
@@ -60,9 +77,24 @@ func (s *Service) Enroll(
 	req *connect.Request[podiumv1.EnrollRequest],
 ) (*connect.Response[podiumv1.EnrollResponse], error) {
 	id, ok := transport.From(ctx)
-	if !ok || (id.Kind != transport.KindNode && id.Kind != transport.KindDevToken) {
-		return nil, connect.NewError(connect.CodePermissionDenied,
-			errors.New("enroll: caller is not a node"))
+	if !ok {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("enroll: no identity"))
+	}
+	if !s.mayEnroll(id) {
+		s.logger.WarnContext(ctx, "enrollment refused: caller is not a node",
+			"kind", id.Kind, "login", id.Login, "remote_addr", id.RemoteAddr, "tags", id.NodeTags)
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf(
+			"enroll: this device is not tagged as a Podium node; give it a Tailscale auth key "+
+				"tagged %s (or set PODIUM_TS_ALLOW_UNTAGGED_NODES=true on the server, which is "+
+				"weaker)", tailnetNodeTagHint(id)))
+	}
+	// The budget is per remote IP, before the token is looked at: an unlimited Enroll is an
+	// unlimited guessing run at a 32-byte token, and refusing early costs no database work.
+	if !s.enroll.allow(rateKey(id.RemoteAddr)) {
+		s.logger.WarnContext(ctx, "enrollment rate limited", "remote_addr", id.RemoteAddr)
+		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf(
+			"enroll: more than %d attempts in %s from this address; wait and try again",
+			enrollBurst, enrollWindow))
 	}
 	in := req.Msg
 	if in.GetToken() == "" {
@@ -101,15 +133,44 @@ func (s *Service) Enroll(
 		Capacity:    store.NodeCapacity{CPUCores: in.GetCpuCores(), MemoryMB: in.GetMemoryMb()},
 		NodeKeyHash: store.HashToken(nodeKey),
 		Status:      store.NodeOffline,
+		TSStableID:  id.NodeStableID,
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("enroll: %w", err))
 	}
 	s.logger.InfoContext(ctx, "node enrolled",
 		"node_id", node.ID, "name", node.Name, "labels", node.Labels,
-		"arch", in.GetArch(), "os", in.GetOs(), "docker_version", in.GetDockerVersion())
+		"arch", in.GetArch(), "os", in.GetOs(), "docker_version", in.GetDockerVersion(),
+		"ts_stable_id", node.TSStableID, "tags", id.NodeTags)
 
 	return connect.NewResponse(&podiumv1.EnrollResponse{NodeId: node.ID, NodeKey: nodeKey}), nil
+}
+
+// mayEnroll decides whether an identity is allowed to become a node.
+//
+//   - KindNode: the device carries the required ACL tag. This is the tailnet path.
+//   - KindDevToken: the dev transport has no device tags at all, and its token is already the
+//     only thing between a caller and the whole API.
+//   - KindUser: only under PODIUM_TS_ALLOW_UNTAGGED_NODES, the escape hatch for a tailnet with
+//     no tags yet.
+func (s *Service) mayEnroll(id transport.Identity) bool {
+	switch id.Kind {
+	case transport.KindNode, transport.KindDevToken:
+		return true
+	case transport.KindUser:
+		return s.allowUntagged
+	default:
+		return false
+	}
+}
+
+// tailnetNodeTagHint names the tag the caller is missing. The transport does not tell the
+// handler which tag it required, so the canonical one is the honest thing to print.
+func tailnetNodeTagHint(id transport.Identity) string {
+	if len(id.NodeTags) > 0 {
+		return "tag:podium-node (this device carries " + strings.Join(id.NodeTags, ",") + ")"
+	}
+	return "tag:podium-node"
 }
 
 // unionLabels merges the token's labels with the ones the node asked for, sorted and deduped.

@@ -1,6 +1,6 @@
 -- name: CreateNode :one
-insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version)
-values (@id, @name, @tags, @labels, @capacity, @node_key_hash, @status, @version)
+insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version, ts_stable_id)
+values (@id, @name, @tags, @labels, @capacity, @node_key_hash, @status, @version, sqlc.narg(ts_stable_id)::text)
 returning *;
 
 -- name: GetNode :one
@@ -26,3 +26,6 @@ update nodes set status = @status where id = @id;
 
 -- name: DeleteNode :execrows
 delete from nodes where id = @id;
+
+-- name: SetNodeTSStableID :execrows
+update nodes set ts_stable_id = sqlc.narg(ts_stable_id)::text where id = @id;

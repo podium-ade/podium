@@ -1,0 +1,55 @@
+// Example Tailscale ACL policy for a Podium install.
+//
+// Paste this into Access Controls in the Tailscale admin console (the editor is HuJSON, so
+// these comments are legal). It encodes Podium's outbound-only guarantee at the network layer,
+// independent of anything the application code does:
+//
+//   * workers may reach the control plane on 443, and nothing else on the tailnet;
+//   * people may reach the control plane on 443;
+//   * nothing grants server -> node, or node -> node.
+//
+// Merge it with your existing policy rather than replacing one; in particular keep whatever
+// rules your own devices already rely on.
+{
+  "tagOwners": {
+    // Who is allowed to mint auth keys carrying these tags. Narrow "autogroup:admin" to a
+    // specific group if you have one.
+    "tag:podium-server": ["autogroup:admin"],
+    "tag:podium-node": ["autogroup:admin"]
+  },
+
+  "acls": [
+    // Workers dial the control plane and nothing else. There is deliberately no rule the other
+    // way: the server never opens a connection to a node, it answers the stream the node holds
+    // open. A worker behind NAT with no port forwards therefore works unchanged.
+    {
+      "action": "accept",
+      "src": ["tag:podium-node"],
+      "dst": ["tag:podium-server:443"]
+    },
+
+    // People reach the UI, the API and the CLI. Tailscale's WhoIs is what names them, so there
+    // is no login page and no API token: membership of the tailnet *is* the credential.
+    // Narrow "autogroup:member" to a group such as group:podium-users to restrict it.
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["tag:podium-server:443"]
+    }
+  ],
+
+  // Optional but recommended: prove the policy still says what you think it says. `tailscale
+  // ping` from the server's device to a node's device should fail, and these tests assert the
+  // same thing in the admin console before the policy is saved.
+  "tests": [
+    {
+      "src": "tag:podium-node",
+      "accept": ["tag:podium-server:443"],
+      "deny": ["tag:podium-node:443", "tag:podium-server:22"]
+    },
+    {
+      "src": "tag:podium-server",
+      "deny": ["tag:podium-node:443", "tag:podium-node:22"]
+    }
+  ]
+}

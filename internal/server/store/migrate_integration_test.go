@@ -12,10 +12,16 @@ import (
 
 var expectedTables = []string{
 	"schema_migrations", "nodes", "enrollment_tokens", "tasks", "task_events", "task_log_chunks",
+	// users arrives with 0002_tailnet.sql: the tailnet transport records a login the first
+	// time it sees one.
+	"users",
 }
 
-// trimmedTables are the step-03 tables MVP-0 deliberately does not create.
-var trimmedTables = []string{"artifacts", "secrets", "users", "audit_log"}
+// trimmedTables are the step-03 tables that are still deliberately absent.
+var trimmedTables = []string{"artifacts", "secrets", "audit_log"}
+
+// migrationFiles is every migration this build carries, in the order Migrate applies them.
+var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql"}
 
 func tableExists(t *testing.T, s *Store, name string) bool {
 	t.Helper()
@@ -54,7 +60,7 @@ func TestMigrateFromEmptyDatabase(t *testing.T) {
 		versions = append(versions, v)
 	}
 	require.NoError(t, rows.Err())
-	require.Equal(t, []string{"0001_init.sql"}, versions)
+	require.Equal(t, migrationFiles, versions)
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -65,7 +71,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 
 	var n int
 	require.NoError(t, s.pool.QueryRow(ctx, "select count(*) from schema_migrations").Scan(&n))
-	require.Equal(t, 1, n)
+	require.Equal(t, len(migrationFiles), n)
 }
 
 func TestMigrateIsConcurrencySafe(t *testing.T) {
@@ -101,7 +107,7 @@ func TestMigrateIsConcurrencySafe(t *testing.T) {
 	}
 	var n int
 	require.NoError(t, stores[0].pool.QueryRow(ctx, "select count(*) from schema_migrations").Scan(&n))
-	require.Equal(t, 1, n)
+	require.Equal(t, len(migrationFiles), n)
 	for _, name := range expectedTables {
 		require.True(t, tableExists(t, stores[0], name))
 	}
@@ -110,4 +116,14 @@ func TestMigrateIsConcurrencySafe(t *testing.T) {
 func TestPingReportsReachability(t *testing.T) {
 	s := newStore(t)
 	require.NoError(t, s.Ping(context.Background()))
+}
+
+// 0001_init.sql is already applied in real databases and the runner tracks applied files by
+// name, so it must never be edited: a change there would silently never run. This asserts the
+// set of migration files matches what the tests above expect, which is the cheapest way to make
+// someone adding 0003 notice.
+func TestEveryEmbeddedMigrationIsAccountedFor(t *testing.T) {
+	names, err := migrationNames()
+	require.NoError(t, err)
+	require.Equal(t, migrationFiles, names)
 }

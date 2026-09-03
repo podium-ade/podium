@@ -1,0 +1,271 @@
+# Networking: the tailnet transport
+
+Podium's control plane has no public address, no login page and no API token. The server joins
+your Tailscale network as a device, serves HTTPS on its MagicDNS name, and asks Tailscale who is
+on the other end of every connection. Workers dial out and never listen.
+
+This document covers the two keys you need, the ACL, the two ways to join the tailnet, and what
+to do when it does not work.
+
+## The two keys, which are not the same thing
+
+This is the single most common source of confusion, so it comes first.
+
+| | **Tailscale auth key** | **Podium enrollment token** |
+|---|---|---|
+| What it is | A Tailscale credential that lets a process join your tailnet as a device | A Podium credential that lets a daemon become a specific node |
+| Who issues it | You, in the Tailscale admin console | Your control plane: `podium node enroll-token` |
+| Looks like | `tskey-auth-…` | 43 URL-safe base64 characters |
+| Reusable? | **Yes** — one key enrolls your whole fleet | **No** — single use, and expires in 1h by default |
+| Where it goes | `TS_AUTHKEY` (server), `PODIUM_NODE_TS_AUTHKEY` (node) | `PODIUM_NODE_ENROLL_TOKEN` |
+| Read when | First run only; after that the state directory is the identity | First run only; after that `identity.json` is the identity |
+| Podium sees it? | Never stores it, never logs it | Stores only its SHA-256 |
+
+They authenticate different layers and both are required for a new worker. The Tailscale key gets
+the process onto the network and gives it the `tag:podium-node` tag; the enrollment token tells
+Podium *which* node this is and what labels it has. Neither substitutes for the other:
+
+- Right key, no token → the daemon joins the tailnet, then stops with
+  `no identity … and no enrollment token`.
+- Right token, no key → the daemon never reaches the tailnet at all, and says so.
+- Right token, key that is not tagged → the server answers `this device is not tagged as a
+  Podium node`.
+
+## What you must create in the Tailscale admin console
+
+1. **Enable MagicDNS** — Admin console → **DNS**. Without it there is no name to put in a
+   certificate.
+2. **Enable HTTPS Certificates** — Admin console → **DNS** → *HTTPS Certificates*. Podium fails
+   to start with a message linking to
+   [the Tailscale HTTPS docs](https://tailscale.com/kb/1153/enabling-https) if this is off.
+3. **Define the tags** — Admin console → **Access Controls**. Start from
+   [`deploy/tailscale-acl.example.json`](../deploy/tailscale-acl.example.json).
+4. **Mint two auth keys** — Admin console → **Settings** → **Keys** → *Generate auth key*. Both
+   must be **Reusable** and **Pre-approved**; if your tailnet has device approval on, a key that
+   is not pre-approved leaves the process hanging until a human clicks Approve.
+   - one tagged `tag:podium-server` → the control plane's `TS_AUTHKEY`
+   - one tagged `tag:podium-node` → every worker's `PODIUM_NODE_TS_AUTHKEY`
+
+Auth keys expire (90 days by default). They are only read on a device's *first* run, so an
+expired key does not disconnect anything that is already running — it only stops you adding new
+workers. Mint a fresh one when that happens.
+
+## The ACL
+
+[`deploy/tailscale-acl.example.json`](../deploy/tailscale-acl.example.json) is the policy from
+the design, ready to paste. In one line: workers may reach the server on 443, people may reach
+the server on 443, and **nothing grants server → node or node → node**.
+
+That last part is the point. Podium's design has no server-initiated connection to a worker: the
+node holds one outbound bidirectional stream and the server answers on it. The ACL turns that
+from a property of the code into a property of the network, so a bug in Podium cannot reach a
+worker either.
+
+Verify it by hand after applying:
+
+```sh
+# From the machine running the server. This must FAIL.
+tailscale ping podiumbot1
+
+# From a worker. This must SUCCEED.
+tailscale ping podium
+curl -sf https://podium.<tailnet>.ts.net/healthz
+```
+
+The example policy also carries `tests`, which the admin console evaluates before it lets you
+save — so a policy edit that accidentally opens server → node is rejected at the source.
+
+## Identity: WhoIs replaces login
+
+Every connection into the control plane arrives from a WireGuard peer that Tailscale can name.
+The server calls `WhoIs(remoteAddr)` once per request and decides:
+
+| WhoIs says | Podium concludes | On failure |
+|---|---|---|
+| device carries `tag:podium-node` | a worker (`Kind: node`), bound to that device's stable ID | — |
+| device carries `tag:podium-server` | refused: control planes do not call control planes | **403** |
+| device carries some other tag | refused | **403** |
+| device is untagged and has a login name | a person (`Kind: user`), login recorded in `users` | — |
+| nothing usable | — | **401** |
+
+Consequences worth spelling out:
+
+- **The web UI has no login step.** Open `https://podium.<tailnet>.ts.net` and the header already
+  shows your name. The UI probes `IdentityService.WhoAmI` before deciding whether to ask for
+  anything; over the tailnet that call succeeds with no credential, so the prompt never appears.
+- **The CLI needs no token.** `podium --server https://podium.<tailnet>.ts.net nodes` works as
+  it stands. `--token` still exists and is for the dev transport only.
+- **`requested_by` on a task is the real person's login**, because that is who Tailscale said
+  submitted it.
+- **A tagged device never counts as its owner.** Tailscale reports the tag owner's profile for a
+  tagged device; treating that as a human login would let any tagged machine act as whoever
+  created its tag. Podium checks tags first, and a tagged device that is not a Podium node is a
+  403 rather than a fallback to the user path.
+
+The first time a login is seen it is written to the `users` table (`login`, `display_name`,
+`roles`, `first_seen_at`). There is no password column and never will be: `users` exists to hang
+roles off later, not to authenticate anybody.
+
+### Knobs
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PODIUM_TS_REQUIRED_NODE_TAG` | `tag:podium-node` | Which tag makes a device a worker |
+| `PODIUM_TS_ALLOW_UNTAGGED_NODES` | `false` | Let an *untagged* device enroll as a node |
+
+`PODIUM_TS_ALLOW_UNTAGGED_NODES` is an escape hatch for a tailnet that has no ACL tags yet. With
+it on, the ACL tag stops being the network-level proof that a caller is an authorised worker, and
+only the enrollment token stands between the tailnet and a running container. The server logs a
+loud warning at startup whenever it is on. Only `1`, `true`, `t` (and their case variants) turn
+it on — a knob that weakens authentication should not enable itself because someone wrote `yes`.
+
+## Enrollment, and what binds a node to a machine
+
+```
+operator:  podium node enroll-token --label linux/amd64   -> single-use token
+worker:    Enroll{token, hostname, arch, …}               -> {node_id, node_key}
+worker:    Hello{node_id, node_key}                        (every reconnect, forever)
+```
+
+Three things are checked, in this order:
+
+1. **The device tag.** `Enroll` requires `Kind: node`, i.e. a device carrying
+   `tag:podium-node`. An untagged device is refused (unless the escape hatch above is on).
+2. **A rate limit.** Five `Enroll` attempts per minute per remote IP, applied before the token is
+   even looked at, so an unlimited endpoint is not an unlimited guessing run at a 32-byte token.
+3. **The enrollment token.** Single use, enforced by the database rather than by a
+   read-then-write, so eight concurrent redemptions produce exactly one winner.
+
+The node's Tailscale **stable device ID** is recorded on the `nodes` row at enrollment
+(`nodes.ts_stable_id`), and every later `Hello` must arrive from the same device. This is what
+makes a copied `identity.json` useless: the node key is a bearer credential, so without the
+binding whoever holds the file owns the node. A mismatch is refused with
+
+```
+node node_01j… is bound to another Tailscale device; if this machine really
+replaces it, run `podium node rekey node_01j…` and reconnect
+```
+
+`podium node rekey NODE_ID` clears the binding. The node keeps its ID, labels and history, and
+the next `Hello` binds it to whatever device it arrives from. Between the rekey and that
+reconnect the node key alone is enough, so rekey immediately before moving a worker, not as a
+matter of routine. A node that enrolled over the dev transport has no binding and picks one up on
+its first tailnet connection.
+
+## tsnet or host mode
+
+Podium can join the tailnet two ways. `PODIUM_TRANSPORT` (server) and `transport:` (node) choose.
+
+### `tailnet` — embedded device (tsnet), the default and the tested path
+
+Each **process** is its own Tailscale device with its own identity and its own tags. The host
+does not need `tailscaled` installed, and containers work exactly like bare metal.
+
+This is why the host machine's own Tailscale tags do not matter: `podium-server` and
+`podium-node` take their tags from the auth key each one uses, not from the machine they run on.
+An untagged laptop can run a `tag:podium-server` control plane.
+
+| | Server | Node |
+|---|---|---|
+| Device name | `PODIUM_TS_HOSTNAME` (default `podium`) | `PODIUM_NODE_TS_HOSTNAME`, else `podium-node-<short hostname>` |
+| State | `PODIUM_TS_STATE_DIR` (default `/var/lib/podium/tsnet`) | `<data_dir>/ts` |
+| Listens | 443 (HTTPS) and 80 (redirect), **inside the tailnet only** | **nothing** |
+
+**The state directory must persist.** It holds the device's node key. Lose it and the process
+registers as a brand new device on the next start: the MagicDNS name drifts to `podium-1`,
+`podium-2`, … and the admin console fills with ghosts. In Docker that means a named volume, which
+is what `deploy/docker-compose.tailnet.yml` does.
+
+### `host` — borrow the machine's `tailscaled`
+
+`PODIUM_TRANSPORT=host` / `transport: host` uses the machine's existing `tailscaled` through its
+local API instead of embedding a device: same identity model, same `WhoIs`, one fewer device in
+the admin console. The server binds the machine's own tailnet IP on 443 and gets its certificate
+from `tailscaled`.
+
+Two caveats. The machine's own device must carry `tag:podium-server` (or `tag:podium-node` for a
+worker), because there is no separate device to tag. And 443 is a privileged port, so the server
+needs root or `CAP_NET_BIND_SERVICE`.
+
+> **Host mode is unverified.** It is implemented and it compiles, but it has not been run against
+> a real `tailscaled`. Use `tailnet` unless you have a specific reason not to.
+
+## Why there is no public ingress
+
+Nothing in Podium needs a public address:
+
+- Workers **dial out**. A worker behind NAT, on a home connection, in a coffee shop, with every
+  inbound port closed, works unchanged. `ss -ltnp` on a worker shows nothing listening but the
+  metrics port on loopback.
+- The control plane listens **only inside the tailnet**, on its own device's 443. There is no
+  host port to firewall.
+- People reach it because they are on the tailnet, not because it is on the internet.
+
+When webhooks eventually arrive, the documented options are Slack Socket Mode and polling (still
+zero ingress) or Tailscale Funnel for a single `/webhooks/*` route on a separate mux — so
+exposing a webhook never exposes the API or the UI.
+
+## Architecture: the daemon binary and the task image are different questions
+
+**The control plane and its workers do not have to share an architecture.** A darwin/arm64 server
+drives linux/amd64 workers perfectly well; only the wire is shared. **linux/amd64 is the expected
+default for workers.**
+
+Check the target, then copy the matching binary:
+
+```sh
+uname -m            # x86_64 -> GOARCH=amd64 ; aarch64 -> GOARCH=arm64
+```
+
+```sh
+make dist-node GOOS=linux GOARCH=amd64      # -> bin/podium-node-linux-amd64, bin/podium-linux-amd64
+make dist-node GOOS=linux GOARCH=arm64      # -> bin/podium-node-linux-arm64, bin/podium-linux-arm64
+make dist-node-all                          # both
+```
+
+These are static (`CGO_ENABLED=0`) and run on any glibc or musl Linux. The matrix matches
+`.goreleaser.yaml`, which builds the same set for releases.
+
+**A task container's image architecture is a separate matter.** A task running `alpine:3` on a
+linux/amd64 node pulls the amd64 image; on an arm64 node, the arm64 one. Multi-arch images make
+that invisible, but an image pinned to one architecture — or one you built yourself — only works
+on matching nodes. That is exactly what labels are for: label your workers `linux/amd64` and put
+`labels: [linux/amd64]` in specs that need it, and the scheduler will only place them there.
+
+## Placement and storage — read before you deploy
+
+- **Postgres is not disposable.** Every task, event and log chunk lives there. Put it on real
+  storage with real backups, not on the same disposable machine as a worker.
+- **A worker's `data_dir` and image cache are I/O heavy.** Local disk, never a network share.
+  `identity.json` (the node key) and `ts/` (the Tailscale device) both live there and are both
+  credentials: `0600`, never in a git repository, never copied between machines. The device
+  binding above will refuse a copied `identity.json`, but do not rely on that as your only
+  control.
+- **The server's tsnet state directory is a credential too**, and must persist. See above.
+- **A node host is root-equivalent to whoever can submit tasks.** The daemon needs the Docker
+  socket, and a task is an arbitrary container. Run workers on machines that do nothing else.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `HTTPS certificates are not enabled on this tailnet` | Admin console → DNS → HTTPS Certificates |
+| `MagicDNS is not enabled on this tailnet` | Admin console → DNS → MagicDNS |
+| `holds no Tailscale device yet and TS_AUTHKEY is not set` | First run needs an auth key; later runs read the state dir |
+| Process hangs printing a login URL | The auth key was rejected or is missing — check it is reusable and not expired |
+| Device appears but stays "needs approval" | The key was not **pre-approved**, or device approval is on. Approve it, or mint a pre-approved key |
+| `this device is not tagged as a Podium node` | The worker's auth key is not tagged `tag:podium-node` |
+| `carries tag:podium-server` (403) | Something is dialling the control plane from the control plane's own device |
+| `is bound to another Tailscale device` | A different machine is presenting this node's key. If deliberate: `podium node rekey NODE_ID` |
+| `more than 5 attempts in 1m0s from this address` | The enrollment rate limit. Wait a minute |
+| The name drifts to `podium-1`, `podium-2`, … | The tsnet state directory is not persisting |
+| `/readyz` says `node key expires in Nd` | An untagged device's key is expiring. Tag the device — tagged devices do not expire |
+| The node connects but no task ever runs | Not a networking problem: check `max_tasks` and that the spec's labels are a subset of the node's |
+
+## What is not built
+
+- `mtls` transport (server-issued client certificates for teams that cannot adopt Tailscale) is
+  deliberately deferred and has no step.
+- Per-task tailnet attachment — giving a task container its own tailnet identity — is a later
+  add-on. Task containers today have internet egress and no access to the host's tailnet.
+- Tailscale Funnel for webhooks, as above.

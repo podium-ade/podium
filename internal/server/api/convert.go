@@ -73,6 +73,7 @@ func nodeToProto(n store.Node, live nodes.Snapshot, connected bool) *podiumv1.No
 		Version:         n.Version,
 		LastHeartbeatAt: timeToProto(n.LastHeartbeatAt),
 		CreatedAt:       timestamppb.New(n.CreatedAt),
+		TsStableId:      n.TSStableID,
 	}
 	if connected {
 		out.RunningTasks = live.RunningTasks

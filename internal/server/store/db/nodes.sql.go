@@ -10,9 +10,9 @@ import (
 )
 
 const createNode = `-- name: CreateNode :one
-insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at
+insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version, ts_stable_id)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::text)
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id
 `
 
 type CreateNodeParams struct {
@@ -24,6 +24,7 @@ type CreateNodeParams struct {
 	NodeKeyHash []byte
 	Status      string
 	Version     *string
+	TsStableID  *string
 }
 
 func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error) {
@@ -36,6 +37,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		arg.NodeKeyHash,
 		arg.Status,
 		arg.Version,
+		arg.TsStableID,
 	)
 	var i Node
 	err := row.Scan(
@@ -49,6 +51,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.Version,
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
+		&i.TsStableID,
 	)
 	return i, err
 }
@@ -66,7 +69,7 @@ func (q *Queries) DeleteNode(ctx context.Context, id string) (int64, error) {
 }
 
 const getNode = `-- name: GetNode :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at from nodes where id = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes where id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -83,12 +86,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.Version,
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
+		&i.TsStableID,
 	)
 	return i, err
 }
 
 const getNodeByKeyHash = `-- name: GetNodeByKeyHash :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at from nodes where node_key_hash = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes where node_key_hash = $1
 `
 
 func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Node, error) {
@@ -105,12 +109,13 @@ func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Nod
 		&i.Version,
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
+		&i.TsStableID,
 	)
 	return i, err
 }
 
 const listNodes = `-- name: ListNodes :many
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at from nodes order by created_at, id
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id from nodes order by created_at, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -133,6 +138,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Version,
 			&i.LastHeartbeatAt,
 			&i.CreatedAt,
+			&i.TsStableID,
 		); err != nil {
 			return nil, err
 		}
@@ -161,6 +167,23 @@ func (q *Queries) SetNodeStatus(ctx context.Context, arg SetNodeStatusParams) (i
 	return result.RowsAffected(), nil
 }
 
+const setNodeTSStableID = `-- name: SetNodeTSStableID :execrows
+update nodes set ts_stable_id = $1::text where id = $2
+`
+
+type SetNodeTSStableIDParams struct {
+	TsStableID *string
+	ID         string
+}
+
+func (q *Queries) SetNodeTSStableID(ctx context.Context, arg SetNodeTSStableIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNodeTSStableID, arg.TsStableID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateNodeHeartbeat = `-- name: UpdateNodeHeartbeat :one
 update nodes
 set status            = $1,
@@ -168,7 +191,7 @@ set status            = $1,
     version           = coalesce($3::text, version),
     last_heartbeat_at = now()
 where id = $4
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id
 `
 
 type UpdateNodeHeartbeatParams struct {
@@ -197,6 +220,7 @@ func (q *Queries) UpdateNodeHeartbeat(ctx context.Context, arg UpdateNodeHeartbe
 		&i.Version,
 		&i.LastHeartbeatAt,
 		&i.CreatedAt,
+		&i.TsStableID,
 	)
 	return i, err
 }

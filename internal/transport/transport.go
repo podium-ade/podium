@@ -27,10 +27,17 @@ const (
 
 // Identity is who the server believes is on the other end of a request.
 type Identity struct {
-	Kind       IdentityKind
-	Login      string
-	NodeTags   []string
-	RemoteAddr string
+	Kind IdentityKind
+	// Login is the Tailscale login name of a user, the FQDN of a node device, or "dev".
+	Login string
+	// DisplayName is the human-readable name a tailnet user profile carries. Empty otherwise.
+	DisplayName string
+	// NodeTags are the ACL tags of the calling Tailscale device, empty under the dev transport.
+	NodeTags []string
+	// NodeStableID is the calling Tailscale device's stable node ID. It is what binds a Podium
+	// node identity to one device, so a stolen identity.json is useless on another machine.
+	NodeStableID string
+	RemoteAddr   string
 }
 
 // Listener binds the server's socket and names the caller behind each request.
@@ -44,6 +51,11 @@ type Listener interface {
 
 // ErrUnauthenticated is what Identify returns for a missing or wrong credential.
 var ErrUnauthenticated = errors.New("transport: unauthenticated")
+
+// ErrForbidden is what Identify returns for a caller it recognised and refuses anyway: a
+// tailnet device carrying the wrong tag. Retrying with a credential cannot help, so the
+// middleware answers 403 and does not offer a challenge.
+var ErrForbidden = errors.New("transport: forbidden")
 
 type contextKey struct{}
 
@@ -66,6 +78,10 @@ func WithIdentity(l Listener, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := l.Identify(r)
 		if err != nil {
+			if errors.Is(err, ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return

@@ -35,8 +35,11 @@ type Node struct {
 	Version         string                 `protobuf:"bytes,8,opt,name=version,proto3" json:"version,omitempty"`
 	LastHeartbeatAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3" json:"last_heartbeat_at,omitempty"`
 	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// ts_stable_id is the Tailscale device this node is bound to, empty when it is unbound
+	// (never enrolled over a tailnet, or rekeyed).
+	TsStableId    string `protobuf:"bytes,11,opt,name=ts_stable_id,json=tsStableId,proto3" json:"ts_stable_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Node) Reset() {
@@ -137,6 +140,13 @@ func (x *Node) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Node) GetTsStableId() string {
+	if x != nil {
+		return x.TsStableId
+	}
+	return ""
 }
 
 type CreateEnrollmentTokenRequest struct {
@@ -324,11 +334,99 @@ func (x *ListNodesResponse) GetNodes() []*Node {
 	return nil
 }
 
+type RekeyNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RekeyNodeRequest) Reset() {
+	*x = RekeyNodeRequest{}
+	mi := &file_podium_v1_admin_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RekeyNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RekeyNodeRequest) ProtoMessage() {}
+
+func (x *RekeyNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_admin_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RekeyNodeRequest.ProtoReflect.Descriptor instead.
+func (*RekeyNodeRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RekeyNodeRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+type RekeyNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RekeyNodeResponse) Reset() {
+	*x = RekeyNodeResponse{}
+	mi := &file_podium_v1_admin_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RekeyNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RekeyNodeResponse) ProtoMessage() {}
+
+func (x *RekeyNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_admin_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RekeyNodeResponse.ProtoReflect.Descriptor instead.
+func (*RekeyNodeResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RekeyNodeResponse) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
 var File_podium_v1_admin_proto protoreflect.FileDescriptor
 
 const file_podium_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x15podium/v1/admin.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\"\x87\x03\n" +
+	"\x15podium/v1/admin.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\"\xa9\x03\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12-\n" +
@@ -342,7 +440,9 @@ const file_podium_v1_admin_proto_rawDesc = "" +
 	"\x11last_heartbeat_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x0flastHeartbeatAt\x129\n" +
 	"\n" +
 	"created_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"c\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
+	"\fts_stable_id\x18\v \x01(\tR\n" +
+	"tsStableId\"c\n" +
 	"\x1cCreateEnrollmentTokenRequest\x12\x16\n" +
 	"\x06labels\x18\x01 \x03(\tR\x06labels\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\"p\n" +
@@ -352,10 +452,15 @@ const file_podium_v1_admin_proto_rawDesc = "" +
 	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x12\n" +
 	"\x10ListNodesRequest\":\n" +
 	"\x11ListNodesResponse\x12%\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x0f.podium.v1.NodeR\x05nodes2\xc6\x01\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x0f.podium.v1.NodeR\x05nodes\"+\n" +
+	"\x10RekeyNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"8\n" +
+	"\x11RekeyNodeResponse\x12#\n" +
+	"\x04node\x18\x01 \x01(\v2\x0f.podium.v1.NodeR\x04node2\x8e\x02\n" +
 	"\x10NodeAdminService\x12j\n" +
 	"\x15CreateEnrollmentToken\x12'.podium.v1.CreateEnrollmentTokenRequest\x1a(.podium.v1.CreateEnrollmentTokenResponse\x12F\n" +
-	"\tListNodes\x12\x1b.podium.v1.ListNodesRequest\x1a\x1c.podium.v1.ListNodesResponseB\xa4\x01\n" +
+	"\tListNodes\x12\x1b.podium.v1.ListNodesRequest\x1a\x1c.podium.v1.ListNodesResponse\x12F\n" +
+	"\tRekeyNode\x12\x1b.podium.v1.RekeyNodeRequest\x1a\x1c.podium.v1.RekeyNodeResponseB\xa4\x01\n" +
 	"\rcom.podium.v1B\n" +
 	"AdminProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
@@ -372,35 +477,40 @@ func file_podium_v1_admin_proto_rawDescGZIP() []byte {
 	return file_podium_v1_admin_proto_rawDescData
 }
 
-var file_podium_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_podium_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_podium_v1_admin_proto_goTypes = []any{
 	(*Node)(nil),                          // 0: podium.v1.Node
 	(*CreateEnrollmentTokenRequest)(nil),  // 1: podium.v1.CreateEnrollmentTokenRequest
 	(*CreateEnrollmentTokenResponse)(nil), // 2: podium.v1.CreateEnrollmentTokenResponse
 	(*ListNodesRequest)(nil),              // 3: podium.v1.ListNodesRequest
 	(*ListNodesResponse)(nil),             // 4: podium.v1.ListNodesResponse
-	(NodeStatus)(0),                       // 5: podium.v1.NodeStatus
-	(*NodeCapacity)(nil),                  // 6: podium.v1.NodeCapacity
-	(*timestamppb.Timestamp)(nil),         // 7: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),           // 8: google.protobuf.Duration
+	(*RekeyNodeRequest)(nil),              // 5: podium.v1.RekeyNodeRequest
+	(*RekeyNodeResponse)(nil),             // 6: podium.v1.RekeyNodeResponse
+	(NodeStatus)(0),                       // 7: podium.v1.NodeStatus
+	(*NodeCapacity)(nil),                  // 8: podium.v1.NodeCapacity
+	(*timestamppb.Timestamp)(nil),         // 9: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),           // 10: google.protobuf.Duration
 }
 var file_podium_v1_admin_proto_depIdxs = []int32{
-	5, // 0: podium.v1.Node.status:type_name -> podium.v1.NodeStatus
-	6, // 1: podium.v1.Node.capacity:type_name -> podium.v1.NodeCapacity
-	7, // 2: podium.v1.Node.last_heartbeat_at:type_name -> google.protobuf.Timestamp
-	7, // 3: podium.v1.Node.created_at:type_name -> google.protobuf.Timestamp
-	8, // 4: podium.v1.CreateEnrollmentTokenRequest.ttl:type_name -> google.protobuf.Duration
-	7, // 5: podium.v1.CreateEnrollmentTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
-	0, // 6: podium.v1.ListNodesResponse.nodes:type_name -> podium.v1.Node
-	1, // 7: podium.v1.NodeAdminService.CreateEnrollmentToken:input_type -> podium.v1.CreateEnrollmentTokenRequest
-	3, // 8: podium.v1.NodeAdminService.ListNodes:input_type -> podium.v1.ListNodesRequest
-	2, // 9: podium.v1.NodeAdminService.CreateEnrollmentToken:output_type -> podium.v1.CreateEnrollmentTokenResponse
-	4, // 10: podium.v1.NodeAdminService.ListNodes:output_type -> podium.v1.ListNodesResponse
-	9, // [9:11] is the sub-list for method output_type
-	7, // [7:9] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	7,  // 0: podium.v1.Node.status:type_name -> podium.v1.NodeStatus
+	8,  // 1: podium.v1.Node.capacity:type_name -> podium.v1.NodeCapacity
+	9,  // 2: podium.v1.Node.last_heartbeat_at:type_name -> google.protobuf.Timestamp
+	9,  // 3: podium.v1.Node.created_at:type_name -> google.protobuf.Timestamp
+	10, // 4: podium.v1.CreateEnrollmentTokenRequest.ttl:type_name -> google.protobuf.Duration
+	9,  // 5: podium.v1.CreateEnrollmentTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 6: podium.v1.ListNodesResponse.nodes:type_name -> podium.v1.Node
+	0,  // 7: podium.v1.RekeyNodeResponse.node:type_name -> podium.v1.Node
+	1,  // 8: podium.v1.NodeAdminService.CreateEnrollmentToken:input_type -> podium.v1.CreateEnrollmentTokenRequest
+	3,  // 9: podium.v1.NodeAdminService.ListNodes:input_type -> podium.v1.ListNodesRequest
+	5,  // 10: podium.v1.NodeAdminService.RekeyNode:input_type -> podium.v1.RekeyNodeRequest
+	2,  // 11: podium.v1.NodeAdminService.CreateEnrollmentToken:output_type -> podium.v1.CreateEnrollmentTokenResponse
+	4,  // 12: podium.v1.NodeAdminService.ListNodes:output_type -> podium.v1.ListNodesResponse
+	6,  // 13: podium.v1.NodeAdminService.RekeyNode:output_type -> podium.v1.RekeyNodeResponse
+	11, // [11:14] is the sub-list for method output_type
+	8,  // [8:11] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_admin_proto_init() }
@@ -415,7 +525,7 @@ func file_podium_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_admin_proto_rawDesc), len(file_podium_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

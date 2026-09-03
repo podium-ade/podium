@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { admin, errorMessage } from "../lib/client";
-import { enrollCommand } from "../lib/enroll";
+import { enrollCommand, isTailnetServer } from "../lib/enroll";
 import { absolute } from "../lib/format";
 import { useToast } from "./Toast";
 
@@ -112,10 +112,20 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
           >
             {command}
           </pre>
-          <p className="text-xs text-muted">
-            Run it on the new host with <code className="font-mono">PODIUM_DEV_TOKEN</code> set to
-            the same shared token this server was started with.
-          </p>
+          {isTailnetServer(server) ? (
+            <p className="text-xs text-muted">
+              Run it on the new host with <code className="font-mono">TS_AUTHKEY</code> set to a
+              reusable, pre-approved Tailscale auth key tagged{" "}
+              <code className="font-mono">tag:podium-node</code>. That key is a Tailscale
+              credential and is a different thing from the enrollment token above, which is
+              Podium&apos;s own and single-use.
+            </p>
+          ) : (
+            <p className="text-xs text-muted">
+              Run it on the new host with <code className="font-mono">PODIUM_DEV_TOKEN</code> set
+              to the same shared token this server was started with.
+            </p>
+          )}
         </div>
       ) : null}
     </section>

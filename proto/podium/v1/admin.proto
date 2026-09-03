@@ -11,6 +11,9 @@ import "podium/v1/common.proto";
 service NodeAdminService {
   rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  // RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
+  // identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
+  rpc RekeyNode(RekeyNodeRequest) returns (RekeyNodeResponse);
 }
 
 message Node {
@@ -24,6 +27,9 @@ message Node {
   string version = 8;
   google.protobuf.Timestamp last_heartbeat_at = 9;
   google.protobuf.Timestamp created_at = 10;
+  // ts_stable_id is the Tailscale device this node is bound to, empty when it is unbound
+  // (never enrolled over a tailnet, or rekeyed).
+  string ts_stable_id = 11;
 }
 
 message CreateEnrollmentTokenRequest {
@@ -41,4 +47,12 @@ message ListNodesRequest {}
 
 message ListNodesResponse {
   repeated Node nodes = 1;
+}
+
+message RekeyNodeRequest {
+  string node_id = 1;
+}
+
+message RekeyNodeResponse {
+  Node node = 1;
 }

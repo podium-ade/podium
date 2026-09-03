@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,4 +43,36 @@ func TestLoadConfigNeedsAToken(t *testing.T) {
 	cfg, err := LoadConfig("", "t")
 	require.NoError(t, err)
 	require.Equal(t, DefaultServer, cfg.Server, "the loopback server is the default")
+}
+
+// Over the tailnet the server serves HTTPS on its MagicDNS name and Tailscale names the caller,
+// so `podium --server https://podium.<tailnet>.ts.net nodes` must work with no token at all.
+func TestLoadConfigNeedsNoTokenOverTheTailnet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg, err := LoadConfig("https://podium.taila79bf6.ts.net", "")
+	require.NoError(t, err)
+	require.Empty(t, cfg.Token)
+	require.True(t, cfg.Tailnet())
+
+	// And the client it builds carries no Authorization header.
+	rec := make(chan string, 1)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec <- r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := httpClientFor(cfg)
+	client.Transport.(*http.Transport).TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig
+	res, err := client.Get(srv.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Body.Close() })
+	require.Empty(t, <-rec)
+}
+
+func TestLoadConfigStillRequiresATokenOverPlainHTTP(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	_, err := LoadConfig("http://127.0.0.1:8080", "")
+	require.ErrorContains(t, err, "no token")
 }

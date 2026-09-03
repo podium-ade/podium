@@ -38,6 +38,7 @@ func (s *Store) CreateNode(ctx context.Context, in NewNode) (Node, error) {
 		NodeKeyHash: in.NodeKeyHash,
 		Status:      string(in.Status),
 		Version:     ptr(in.Version),
+		TsStableID:  ptr(in.TSStableID),
 	})
 	if err != nil {
 		return Node{}, fmt.Errorf("insert node %s: %w", in.ID, err)
@@ -125,6 +126,20 @@ func (s *Store) SetNodeStatus(ctx context.Context, nodeID string, status NodeSta
 	return nil
 }
 
+// SetNodeTSStableID binds a node to one Tailscale device, or unbinds it when stableID is empty
+// (that is what `podium node rekey` does). The binding is what stops a stolen identity.json from
+// working anywhere but the machine it was issued to.
+func (s *Store) SetNodeTSStableID(ctx context.Context, nodeID, stableID string) error {
+	n, err := s.q.SetNodeTSStableID(ctx, db.SetNodeTSStableIDParams{TsStableID: ptr(stableID), ID: nodeID})
+	if err != nil {
+		return fmt.Errorf("bind node %s to a tailscale device: %w", nodeID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("node %s: %w", nodeID, ErrNotFound)
+	}
+	return nil
+}
+
 // DeleteNode removes a node. Tasks referencing it must be finished first: the tasks.node_id
 // foreign key is deliberately not ON DELETE CASCADE.
 func (s *Store) DeleteNode(ctx context.Context, nodeID string) error {
@@ -148,6 +163,7 @@ func nodeFromRow(row db.Node) (Node, error) {
 		Version:         deref(row.Version),
 		LastHeartbeatAt: utcPtr(row.LastHeartbeatAt),
 		CreatedAt:       row.CreatedAt.UTC(),
+		TSStableID:      deref(row.TsStableID),
 	}
 	if err := json.Unmarshal(row.Labels, &n.Labels); err != nil {
 		return Node{}, fmt.Errorf("decode labels of node %s: %w", row.ID, err)

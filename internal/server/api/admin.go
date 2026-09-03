@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -76,4 +77,35 @@ func (s *NodeAdminService) ListNodes(
 		out = append(out, nodeToProto(n, live, connected))
 	}
 	return connect.NewResponse(&podiumv1.ListNodesResponse{Nodes: out}), nil
+}
+
+// RekeyNode unbinds a node from the Tailscale device it enrolled from. It is what an operator
+// runs when a worker is rebuilt or replaced: the node keeps its ID, its labels and its history,
+// and the next Hello binds it to whatever device it arrives from. Until then the node key alone
+// is enough to connect, which is exactly the exposure the binding removes — so rekey a node when
+// you are about to move it, not as a matter of routine.
+func (s *NodeAdminService) RekeyNode(
+	ctx context.Context,
+	req *connect.Request[podiumv1.RekeyNodeRequest],
+) (*connect.Response[podiumv1.RekeyNodeResponse], error) {
+	nodeID := req.Msg.GetNodeId()
+	if nodeID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("rekey: node_id is required"))
+	}
+	before, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if err := s.store.SetNodeTSStableID(ctx, nodeID, ""); err != nil {
+		return nil, storeError(err)
+	}
+	s.logger.InfoContext(ctx, "node unbound from its tailscale device",
+		"node_id", nodeID, "was_bound_to", before.TSStableID, "by", login(ctx))
+
+	after, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	live, connected := s.sessions.SnapshotOf(nodeID)
+	return connect.NewResponse(&podiumv1.RekeyNodeResponse{Node: nodeToProto(after, live, connected)}), nil
 }

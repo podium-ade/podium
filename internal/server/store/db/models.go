@@ -30,6 +30,7 @@ type Node struct {
 	Version         *string
 	LastHeartbeatAt *time.Time
 	CreatedAt       time.Time
+	TsStableID      *string
 }
 
 type Task struct {
@@ -67,4 +68,11 @@ type TaskLogChunk struct {
 	Sidecar *string
 	Ts      time.Time
 	Bytes   []byte
+}
+
+type User struct {
+	Login       string
+	DisplayName *string
+	Roles       []string
+	FirstSeenAt time.Time
 }

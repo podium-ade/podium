@@ -39,12 +39,18 @@ const (
 	// NodeAdminServiceListNodesProcedure is the fully-qualified name of the NodeAdminService's
 	// ListNodes RPC.
 	NodeAdminServiceListNodesProcedure = "/podium.v1.NodeAdminService/ListNodes"
+	// NodeAdminServiceRekeyNodeProcedure is the fully-qualified name of the NodeAdminService's
+	// RekeyNode RPC.
+	NodeAdminServiceRekeyNodeProcedure = "/podium.v1.NodeAdminService/RekeyNode"
 )
 
 // NodeAdminServiceClient is a client for the podium.v1.NodeAdminService service.
 type NodeAdminServiceClient interface {
 	CreateEnrollmentToken(context.Context, *connect.Request[v1.CreateEnrollmentTokenRequest]) (*connect.Response[v1.CreateEnrollmentTokenResponse], error)
 	ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error)
+	// RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
+	// identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
+	RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error)
 }
 
 // NewNodeAdminServiceClient constructs a client for the podium.v1.NodeAdminService service. By
@@ -70,6 +76,12 @@ func NewNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(nodeAdminServiceMethods.ByName("ListNodes")),
 			connect.WithClientOptions(opts...),
 		),
+		rekeyNode: connect.NewClient[v1.RekeyNodeRequest, v1.RekeyNodeResponse](
+			httpClient,
+			baseURL+NodeAdminServiceRekeyNodeProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("RekeyNode")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -77,6 +89,7 @@ func NewNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL string, op
 type nodeAdminServiceClient struct {
 	createEnrollmentToken *connect.Client[v1.CreateEnrollmentTokenRequest, v1.CreateEnrollmentTokenResponse]
 	listNodes             *connect.Client[v1.ListNodesRequest, v1.ListNodesResponse]
+	rekeyNode             *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
 }
 
 // CreateEnrollmentToken calls podium.v1.NodeAdminService.CreateEnrollmentToken.
@@ -89,10 +102,18 @@ func (c *nodeAdminServiceClient) ListNodes(ctx context.Context, req *connect.Req
 	return c.listNodes.CallUnary(ctx, req)
 }
 
+// RekeyNode calls podium.v1.NodeAdminService.RekeyNode.
+func (c *nodeAdminServiceClient) RekeyNode(ctx context.Context, req *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error) {
+	return c.rekeyNode.CallUnary(ctx, req)
+}
+
 // NodeAdminServiceHandler is an implementation of the podium.v1.NodeAdminService service.
 type NodeAdminServiceHandler interface {
 	CreateEnrollmentToken(context.Context, *connect.Request[v1.CreateEnrollmentTokenRequest]) (*connect.Response[v1.CreateEnrollmentTokenResponse], error)
 	ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error)
+	// RekeyNode unbinds a node from the Tailscale device it enrolled from, so the same node
+	// identity may reconnect from a rebuilt or replaced machine. The next Hello rebinds it.
+	RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error)
 }
 
 // NewNodeAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -114,12 +135,20 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 		connect.WithSchema(nodeAdminServiceMethods.ByName("ListNodes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeAdminServiceRekeyNodeHandler := connect.NewUnaryHandler(
+		NodeAdminServiceRekeyNodeProcedure,
+		svc.RekeyNode,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("RekeyNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.NodeAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NodeAdminServiceCreateEnrollmentTokenProcedure:
 			nodeAdminServiceCreateEnrollmentTokenHandler.ServeHTTP(w, r)
 		case NodeAdminServiceListNodesProcedure:
 			nodeAdminServiceListNodesHandler.ServeHTTP(w, r)
+		case NodeAdminServiceRekeyNodeProcedure:
+			nodeAdminServiceRekeyNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -135,4 +164,8 @@ func (UnimplementedNodeAdminServiceHandler) CreateEnrollmentToken(context.Contex
 
 func (UnimplementedNodeAdminServiceHandler) ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.ListNodes is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) RekeyNode(context.Context, *connect.Request[v1.RekeyNodeRequest]) (*connect.Response[v1.RekeyNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.RekeyNode is not implemented"))
 }

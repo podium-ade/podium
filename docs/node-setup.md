@@ -4,10 +4,16 @@ A node is any machine with a Docker engine that runs Podium tasks. It dials the 
 advertises its capacity, runs containers, and streams logs back. It never listens for inbound
 connections.
 
-> **Read this first — current limitation.** In this pre-alpha the only transport is `dev`, and the
-> server refuses to listen on anything but loopback. **A node must therefore run on the same
-> machine as `podium-server`.** Multi-machine nodes need the Tailscale transport, which is not
-> built yet. Everything below is the single-machine setup.
+There are two ways to run one:
+
+| | When | Guide |
+|---|---|---|
+| **`tailnet`** | The node is on a **different machine** from the server. This is the normal case. | [Multi-machine](#multi-machine-the-tailnet-transport) below, then [docs/networking.md](networking.md) |
+| **`dev`** | Node and server share one machine, for local development. | [Single machine](#single-machine-the-dev-transport) below |
+
+The `dev` transport is loopback-only by design — the server refuses to bind anything else,
+because a shared static token is not an authentication system. Multi-machine means the tailnet
+transport, and that is now built.
 
 ## Requirements
 
@@ -24,7 +30,96 @@ Check the engine before you start:
 docker info --format 'cgroup v{{.CgroupVersion}}  api {{.ServerVersion}}  {{.Architecture}}'
 ```
 
-## 1. Mint an enrollment token (on the control plane)
+## Which binary — architecture
+
+**The server and its nodes do not have to share an architecture.** A darwin/arm64 control plane
+drives linux/amd64 workers perfectly well. **linux/amd64 is the expected default for workers**;
+`make build` is host-native, so on a Mac it produces a binary a Linux worker cannot run.
+
+```sh
+uname -m            # on the worker. x86_64 -> amd64 ; aarch64 -> arm64
+```
+
+```sh
+# on the machine with the source
+make dist-node GOOS=linux GOARCH=amd64     # -> bin/podium-node-linux-amd64, bin/podium-linux-amd64
+make dist-node GOOS=linux GOARCH=arm64     # -> bin/podium-node-linux-arm64, bin/podium-linux-arm64
+make dist-node-all                         # both
+
+scp bin/podium-node-linux-amd64 worker:/usr/local/bin/podium-node
+scp bin/podium-linux-amd64      worker:/usr/local/bin/podium       # the CLI is handy on a worker too
+```
+
+The binaries are static (`CGO_ENABLED=0`) and run on any glibc or musl Linux.
+
+**A task container's image architecture is a different question.** A task running `alpine:3` on a
+linux/amd64 node pulls the amd64 image; on an arm64 node, the arm64 one. Multi-arch images make
+that invisible, but an image pinned to one architecture only runs on matching nodes — which is
+what labels are for. Label your workers `linux/amd64` and have such specs require it.
+
+## Multi-machine: the tailnet transport
+
+The full picture, including the ACL and what to create in the Tailscale admin console, is in
+**[docs/networking.md](networking.md)**. The short version:
+
+**Two different credentials are involved and people mix them up constantly:**
+
+- the **Tailscale auth key** (`tskey-auth-…`) — network level, reusable, tagged
+  `tag:podium-node`, minted in the Tailscale admin console. It gets the daemon onto your tailnet.
+- the **Podium enrollment token** — Podium level, single-use, minted by your control plane with
+  `podium node enroll-token`. It tells Podium which node this is.
+
+You need both, and neither substitutes for the other.
+
+### 1. Once per tailnet
+
+Enable **MagicDNS** and **HTTPS Certificates** (admin console → DNS), apply
+[`deploy/tailscale-acl.example.json`](../deploy/tailscale-acl.example.json), and mint a
+**reusable, pre-approved** auth key tagged `tag:podium-node`.
+
+### 2. Mint an enrollment token, from anywhere on the tailnet
+
+No token, no login: Tailscale identifies you.
+
+```sh
+TOKEN=$(podium --server https://podium.<tailnet>.ts.net \
+  node enroll-token --label linux/amd64 --label browser)
+```
+
+### 3. Start the node on the worker
+
+```sh
+PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net \
+PODIUM_NODE_TRANSPORT=tailnet \
+PODIUM_NODE_TS_AUTHKEY="$TS_AUTHKEY" \
+PODIUM_NODE_ENROLL_TOKEN="$TOKEN" \
+PODIUM_NODE_DATA_DIR=/var/lib/podium-node \
+PODIUM_NODE_LABELS=linux/amd64 \
+  podium-node
+```
+
+The daemon joins the tailnet as `podium-node-<hostname>`, dials the server's MagicDNS name over
+it, and **listens for nothing**. Confirm that last part:
+
+```sh
+ss -ltnp        # only 127.0.0.1:9091 (metrics) should be Podium's
+```
+
+### 4. The node is pinned to that machine
+
+The Tailscale device the node enrolled from is recorded, and every later connection must come
+from the same device — so a copied `identity.json` is useless elsewhere. When a worker is
+genuinely rebuilt or replaced:
+
+```sh
+podium --server https://podium.<tailnet>.ts.net node rekey node_01j…
+```
+
+The node keeps its ID, labels and history; the next connection binds it to the new device.
+
+## Single machine: the dev transport
+
+### 1. Mint an enrollment token (on the control plane)
 
 Tokens are single-use, expire in 1h by default, and are shown exactly once — the server stores
 only their SHA-256.
@@ -42,7 +137,7 @@ eligible for: a task whose spec lists `labels: [browser]` only ever goes to a no
 You can also mint one from the web UI under **Nodes → Add a node**, which hands you the whole
 command with the token filled in.
 
-## 2. Start the node
+### 2. Start the node
 
 Environment-only is a supported deployment — no config file needed:
 
@@ -61,11 +156,13 @@ longer needed — drop it from the environment.
 
 > **`identity.json` contains `node_key`, a real credential.** The server returns it exactly once
 > and keeps only its SHA-256, so there is no recovery path: lose it and you need a new enrollment
-> token. Do not put `data_dir` inside a git repository (`.gitignore` guards the obvious spellings)
-> and do not copy it between machines — two daemons sharing one identity will fight over the same
-> session.
+> token. Under the tailnet transport `<data_dir>/ts/` holds the node's Tailscale device identity
+> and is equally durable and equally sensitive. Do not put `data_dir` inside a git repository
+> (`.gitignore` guards the obvious spellings) and do not copy it between machines — two daemons
+> sharing one identity will fight over the same session, and over the tailnet the device binding
+> refuses the copy outright.
 
-## 3. Verify
+### 3. Verify
 
 ```sh
 podium --server http://127.0.0.1:8080 --token "$PODIUM_DEV_TOKEN" nodes
@@ -97,8 +194,10 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | Env | YAML | Default | Meaning |
 |---|---|---|---|
 | `PODIUM_NODE_SERVER` | `server` | `http://127.0.0.1:8080` | Control plane base URL |
-| `PODIUM_NODE_TRANSPORT` | `transport` | `dev` | `dev` only; `tailnet`/`host` error out |
-| `PODIUM_NODE_DEV_TOKEN` | `dev_token` | — | Must equal the server's `PODIUM_DEV_TOKEN` |
+| `PODIUM_NODE_TRANSPORT` | `transport` | `dev` | `dev`, `tailnet` or `host` |
+| `PODIUM_NODE_DEV_TOKEN` | `dev_token` | — | `dev` only. Must equal the server's `PODIUM_DEV_TOKEN` |
+| `PODIUM_NODE_TS_AUTHKEY` | `ts_auth_key` | — | `tailnet` only. The **Tailscale** auth key; `TS_AUTHKEY` is honoured as a fallback. First run only |
+| `PODIUM_NODE_TS_HOSTNAME` | `ts_hostname` | `podium-node-<hostname>` | `tailnet` only. The Tailscale device name |
 | `PODIUM_NODE_ENROLL_TOKEN` | `enroll_token` | — | First run only |
 | `PODIUM_NODE_DATA_DIR` | `data_dir` | `/var/lib/podium-node` | Identity + per-task state |
 | `PODIUM_NODE_LABELS` | `labels` | — | Comma-separated in env, a list in YAML |
@@ -110,7 +209,18 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 Equivalent config file:
 
 ```yaml
-# /etc/podium/node.yaml
+# /etc/podium/node.yaml — a tailnet worker
+server: https://podium.taila79bf6.ts.net
+transport: tailnet
+data_dir: /var/lib/podium-node
+labels: [linux/amd64, browser]
+max_tasks: 4
+ts_auth_key: ""      # or leave to PODIUM_NODE_TS_AUTHKEY / TS_AUTHKEY; first run only
+enroll_token: ""     # first run only
+```
+
+```yaml
+# /etc/podium/node.yaml — a dev worker beside the server
 server: http://127.0.0.1:8080
 transport: dev
 data_dir: /var/lib/podium-node
@@ -149,7 +259,12 @@ The daemon tries to fail with an actionable message. The common ones:
 |---|---|
 | `server is empty` | Set `PODIUM_NODE_SERVER` |
 | `dev_token is empty` | Set `PODIUM_NODE_DEV_TOKEN` to the server's `PODIUM_DEV_TOKEN` |
-| `transport "tailnet" is not implemented yet` | Use `dev`; multi-machine is not built |
+| `transport tailnet dials "http://…"` | A tailnet server serves HTTPS: use its `https://podium.<tailnet>.ts.net` URL |
+| `transport dev dials "https://…"` | An https:// control plane means `transport: tailnet` |
+| `holds no Tailscale device yet and neither PODIUM_NODE_TS_AUTHKEY nor TS_AUTHKEY is set` | First run needs the **Tailscale** auth key, not the enrollment token |
+| `this device is not tagged as a Podium node` | The auth key was not tagged `tag:podium-node` |
+| `is bound to another Tailscale device` | This node key belongs to a different machine. If the move is deliberate: `podium node rekey NODE_ID` |
+| `more than 5 attempts in 1m0s from this address` | The enrollment rate limit. Wait a minute |
 | `data_dir ... is not writable` | Fix ownership or point it somewhere writable |
 | `max_tasks is 0` | Set it to 1 or more, or the scheduler will never pick this node |
 | `no identity ... and no enrollment token` | Mint a token and pass `PODIUM_NODE_ENROLL_TOKEN` |
