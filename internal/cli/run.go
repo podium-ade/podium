@@ -192,6 +192,8 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 				case name == stepReattached:
 					e.note("the node restarted; this task was re-adopted")
 				}
+			case podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:
+				e.noteMessage(ev.GetMessage())
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 				e.note("running")
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:

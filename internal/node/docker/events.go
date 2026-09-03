@@ -22,6 +22,7 @@ const (
 	KindExited       = "exited"
 	KindFinished     = "finished"
 	KindError        = "error"
+	KindMessage      = "message"
 )
 
 // Log stream names carried by [LogPayload].
@@ -74,6 +75,15 @@ type StepPayload struct {
 	Name     string
 	Status   string
 	ExitCode int
+}
+
+// MessagePayload is the body of a KindMessage event, forwarded verbatim from the runner.
+// Attachments are artifact names the reader should resolve; the node does not check them,
+// and the text is untrusted content authored by the task.
+type MessagePayload struct {
+	Type        string
+	Text        string
+	Attachments []string
 }
 
 // ExitedPayload reports the container's exit as observed from the Docker API.

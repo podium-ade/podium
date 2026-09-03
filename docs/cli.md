@@ -54,7 +54,7 @@ indistinguishable from an infrastructure failure or a cancellation. Use `podium 
 | Stream | Carries |
 |---|---|
 | stdout | the task's stdout for `run` and `logs`; command output (tables, JSON, IDs) for everything else |
-| stderr | the task's stderr for `run` and `logs`; every sidecar's output, prefixed `[name]`; Podium's own progress lines, prefixed `→` and dimmed on a terminal |
+| stderr | the task's stderr for `run` and `logs`; every sidecar's output, prefixed `[name]`; Podium's own progress lines, prefixed `→` and dimmed on a terminal; anything the task said with `podium-runner message` |
 
 So `podium run … > out.txt` captures exactly the task's stdout, and
 `TOKEN=$(podium node enroll-token)` captures exactly the token. A sidecar's output is not
@@ -93,6 +93,21 @@ Everything after `--` is the command. Progress lines on stderr:
 → running
 → finished exit 3 in 5.2s
 ```
+
+A task that uses `podium-runner message` has what it said printed on stderr too, never on
+stdout: a message is Podium's commentary on the task, not the task's output.
+
+```
+→ message (progress): cloning the repository
+→ message (final): the PR is ready for review
+  it needs one approval and a merge
+  (attachments: before.png, after.png)
+```
+
+`(<type>)` is what the task called the message — `progress` and `final` are the canonical
+values — and the names in `(attachments: …)` are artifacts, listed by `podium artifacts`.
+**The text is written by the task**, which is untrusted code, and it is not redacted: read it
+the way you read a log line. See [runner-events.md](runner-events.md#message).
 
 A task with sidecars reports each one's lifecycle and streams its output, both on stderr:
 

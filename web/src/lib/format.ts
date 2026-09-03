@@ -130,6 +130,13 @@ export function nodeStatusTone(s: NodeStatus): "ok" | "err" | "warn" | "idle" {
   }
 }
 
+/** messageTone: an answer reads as done, a progress note as still working. */
+export function messageTone(type: string): Tone {
+  if (type === "final") return "ok";
+  if (type === "progress") return "run";
+  return "idle";
+}
+
 const EVENT_KIND_LABEL: Record<TaskEventKind, string> = {
   [TaskEventKind.UNSPECIFIED]: "unknown",
   [TaskEventKind.PROVISIONING]: "provisioning",
@@ -141,6 +148,7 @@ const EVENT_KIND_LABEL: Record<TaskEventKind, string> = {
   [TaskEventKind.EXITED]: "exited",
   [TaskEventKind.FINISHED]: "finished",
   [TaskEventKind.ERROR]: "error",
+  [TaskEventKind.MESSAGE]: "message",
 };
 
 export function eventKindLabel(k: TaskEventKind): string {

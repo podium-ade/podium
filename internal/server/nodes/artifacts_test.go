@@ -354,6 +354,10 @@ func TestNoObjectStoreConfiguredIsASupportedDeployment(t *testing.T) {
 // TestLogsRollUpAndThePrunedTaskStillReadsBack is the log half of the step: a finished
 // task's chunks move into the object store as logs/<stream>.log.zst, the hot rows go after
 // the grace period, and `podium logs` — StreamTaskEvents — still returns the whole log.
+//
+// It also carries a `message` event, which is a task_events row and therefore not rolled up
+// at all: it must survive the sweep and the prune and replay from the archive in seq order,
+// with the log put back into the gaps around it.
 func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -371,12 +375,44 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	for i := range 64 {
 		lines = append(lines, fmt.Sprintf("tick %d\n", i))
 	}
-	node.send(node.lifecycle(assign, 0, lines...)...)
+	// The lifecycle, with one message between the log and the exit — where an agent's
+	// answer arrives.
+	node.send(
+		node.stamp(assign, &podiumv1.TaskEvent{Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_PROVISIONING}),
+		node.stamp(assign, &podiumv1.TaskEvent{Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED}),
+	)
+	for _, line := range lines {
+		node.send(node.stamp(assign, &podiumv1.TaskEvent{
+			Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_LOG,
+			Payload: &podiumv1.TaskEvent_Log{Log: &podiumv1.LogChunk{
+				Stream: podiumv1.LogChunk_STREAM_STDOUT, Bytes: []byte(line),
+			}},
+		}))
+	}
+	node.send(
+		node.stamp(assign, &podiumv1.TaskEvent{
+			Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE,
+			Payload: &podiumv1.TaskEvent_Message{Message: &podiumv1.Message{
+				Type: "final", Text: "the answer\nover two lines", Attachments: []string{"report.txt"},
+			}},
+		}),
+		node.stamp(assign, &podiumv1.TaskEvent{
+			Kind:    podiumv1.TaskEventKind_TASK_EVENT_KIND_EXITED,
+			Payload: &podiumv1.TaskEvent_Exited{Exited: &podiumv1.Exited{}},
+		}),
+		node.stamp(assign, &podiumv1.TaskEvent{
+			Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED,
+			Payload: &podiumv1.TaskEvent_Finished{Finished: &podiumv1.Finished{
+				Usage: &podiumv1.Usage{CpuSeconds: 0.5, PeakMemoryMb: 12, WallMs: 1234},
+			}},
+		}),
+	)
 	h.awaitTaskStatus(taskID, podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 20*time.Second)
 
 	before := h.streamEvents(taskID, 0)
 	wantLog := logBytes(before)
 	require.Equal(t, strings.Join(lines, ""), string(wantLog))
+	requireTheMessage(t, before)
 
 	// The roll-up sweep writes tasks/<id>/logs/stdout.log.zst.
 	var logArtifact *podiumv1.Artifact
@@ -411,6 +447,7 @@ func TestLogsRollUpAndThePrunedTaskStillReadsBack(t *testing.T) {
 	after := h.streamEvents(taskID, 0)
 	require.Equal(t, wantLog, logBytes(after), "a pruned task's log must still read back in full")
 	requireAscendingSeq(t, after)
+	requireTheMessage(t, after)
 
 	// from_seq still means what it means everywhere else.
 	half := after[len(after)/2].GetSeq()
@@ -546,6 +583,23 @@ func TestARunningTaskIsNeverRolledUp(t *testing.T) {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+// requireTheMessage: exactly one message event, with its payload intact. A message is a
+// task_events row, so neither the roll-up nor the prune may touch it, and the archived
+// replay has to hand it back the same either way.
+func requireTheMessage(t *testing.T, events []*podiumv1.TaskEvent) {
+	t.Helper()
+	var found []*podiumv1.Message
+	for _, e := range events {
+		if e.GetKind() == podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE {
+			found = append(found, e.GetMessage())
+		}
+	}
+	require.Len(t, found, 1)
+	require.Equal(t, "final", found[0].GetType())
+	require.Equal(t, "the answer\nover two lines", found[0].GetText())
+	require.Equal(t, []string{"report.txt"}, found[0].GetAttachments())
+}
 
 func logBytes(events []*podiumv1.TaskEvent) []byte {
 	var out []byte
