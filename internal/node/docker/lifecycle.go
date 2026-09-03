@@ -138,6 +138,11 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bo
 	if err := os.RemoveAll(e.taskDir(taskID)); err != nil {
 		errs = append(errs, fmt.Errorf("remove task dir for %s: %w", taskID, err))
 	}
+	// The event socket normally lives inside the task dir and has just gone with it; an
+	// executor that had to keep its sockets elsewhere removes this one by hand.
+	if err := os.Remove(e.eventsSocketPath(taskID)); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("remove event socket for %s: %w", taskID, err))
+	}
 
 	return errors.Join(errs...)
 }

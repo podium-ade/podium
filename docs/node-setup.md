@@ -50,7 +50,10 @@ scp bin/podium-node-linux-amd64 worker:/usr/local/bin/podium-node
 scp bin/podium-linux-amd64      worker:/usr/local/bin/podium       # the CLI is handy on a worker too
 ```
 
-The binaries are static (`CGO_ENABLED=0`) and run on any glibc or musl Linux.
+The binaries are static (`CGO_ENABLED=0`) and run on any glibc or musl Linux. `podium-node`
+carries `podium-runner` for both Linux architectures inside itself and bind-mounts the right one
+into every task container, so there is nothing else to install on a worker and nothing for a task
+image to provide.
 
 **A task container's image architecture is a different question.** A task running `alpine:3` on a
 linux/amd64 node pulls the amd64 image; on an arm64 node, the arm64 one. Multi-arch images make

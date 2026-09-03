@@ -4,6 +4,12 @@ version: 2
 
 project_name: podium
 
+# podium-node embeds the two Linux runner builds, so they have to exist before goreleaser
+# compiles it. See the runner-embed target.
+before:
+  hooks:
+    - make runner-embed
+
 builds:
   - id: podium
     main: ./cmd/podium

@@ -50,7 +50,13 @@ type Executor struct {
 	cli           *client.Client
 	dataDir       string
 	serverVersion string
-	log           *slog.Logger
+	// runnerPath is the extracted podium-runner for this engine's architecture, bind
+	// mounted read-only into every task container as PID 1.
+	runnerPath string
+	// sockDir holds the runner event sockets when the data dir is too deep to fit an
+	// AF_UNIX path; empty means they live in the task's own state directory.
+	sockDir string
+	log     *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -102,6 +108,22 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		return nil, fmt.Errorf("docker executor: create data dir: %w", err)
 	}
 
+	arch, err := runnerArch(info.Architecture)
+	if err != nil {
+		_ = cli.Close()
+		return nil, err
+	}
+	runnerPath, err := extractRunner(opts.DataDir, arch)
+	if err != nil {
+		_ = cli.Close()
+		return nil, err
+	}
+	sockDir, err := socketDirFor(opts.DataDir)
+	if err != nil {
+		_ = cli.Close()
+		return nil, err
+	}
+
 	logger.Info("docker executor ready",
 		"api_version", cli.ClientVersion(),
 		"server_version", info.ServerVersion,
@@ -109,12 +131,15 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		"os_type", info.OSType,
 		"architecture", info.Architecture,
 		"data_dir", opts.DataDir,
+		"runner", runnerPath,
 	)
 
 	return &Executor{
 		cli:           cli,
 		dataDir:       opts.DataDir,
 		serverVersion: info.ServerVersion,
+		runnerPath:    runnerPath,
+		sockDir:       sockDir,
 		log:           logger,
 		runs:          make(map[string]*runState),
 	}, nil
@@ -128,8 +153,14 @@ func (e *Executor) ServerVersion() string { return e.serverVersion }
 // removed by Teardown; the node daemon keeps its sequence-space bookmark there.
 func (e *Executor) TaskDir(taskID string) string { return e.taskDir(taskID) }
 
-// Close releases the Docker client. It does not stop running tasks.
+// Close releases the Docker client and the private socket directory, if this executor
+// needed one. It does not stop running tasks.
 func (e *Executor) Close() error {
+	if e.sockDir != "" {
+		if err := os.RemoveAll(e.sockDir); err != nil {
+			e.log.Warn("remove socket dir", "dir", e.sockDir, "error", err)
+		}
+	}
 	if err := e.cli.Close(); err != nil {
 		return fmt.Errorf("docker executor: close client: %w", err)
 	}

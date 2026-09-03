@@ -161,15 +161,17 @@ func TestNodeRestartAdoptsItsContainers(t *testing.T) {
 	requireNoPodiumResources(t)
 }
 
-// TestCancelStopsARunningTask covers `podium task cancel`. The command must return at once
-// even though the container only dies after the node's grace period, so the task command
-// traps SIGTERM to keep the test to a few seconds rather than the full 30.
+// TestCancelStopsARunningTask covers `podium task cancel`. The command itself must return
+// at once, and the task must actually stop at once: the task command here is a bare sleep
+// loop with no SIGTERM handler of its own, which before podium-runner cost the full 30s
+// grace and ended in SIGKILL. With the runner as PID 1 the signal is caught and forwarded,
+// so the container dies of SIGTERM in a second or two.
 func TestCancelStopsARunningTask(t *testing.T) {
 	h := newHarness(t)
 	startNode(t, h)
 
 	stdout := h.podiumOK("run", "--image", "alpine:3", "--detach", "--",
-		"sh", "-c", `trap 'exit 143' TERM; for i in $(seq 1 120); do echo tick $i; sleep 1; done`)
+		"sh", "-c", `for i in $(seq 1 120); do echo tick $i; sleep 1; done`)
 	taskID := strings.TrimSpace(stdout)
 	waitForTaskStatus(t, h, taskID, "TASK_STATUS_RUNNING", 2*time.Minute)
 
@@ -178,8 +180,13 @@ func TestCancelStopsARunningTask(t *testing.T) {
 	require.Less(t, time.Since(started), 20*time.Second, "cancel must not block on the container dying")
 	require.Contains(t, out, taskID)
 
-	// The node's SIGTERM grace period is 30s, so allow the full window plus slack.
-	waitForTaskStatus(t, h, taskID, "TASK_STATUS_CANCELLED", 90*time.Second)
+	task := waitForTaskStatus(t, h, taskID, "TASK_STATUS_CANCELLED", 20*time.Second)
+	elapsed := time.Since(started)
+	require.Less(t, elapsed, 15*time.Second,
+		"an unhandled SIGTERM must not wait out the 30s grace; the runner forwards it")
+	require.Equal(t, 143, task.ExitCode, "SIGTERM death is 128+15; 137 means the runner was not PID 1")
+	t.Logf("cancel of a bare sleep loop: cancelled after %s with exit code %d", elapsed, task.ExitCode)
+
 	requireNoPodiumResources(t)
 }
 

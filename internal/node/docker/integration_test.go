@@ -6,14 +6,20 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvaroibarguen/podium/internal/ids"
@@ -22,12 +28,31 @@ import (
 
 const testImage = "alpine:3"
 
+// shortTempDir is a data dir short enough that a task's event socket fits the AF_UNIX
+// path budget, so the executor keeps its sockets in the task's own state directory. Plain
+// t.TempDir() on macOS is already ~90 characters and forces the /tmp fallback instead;
+// TestEventSocketFallsBackWhenTheDataDirIsDeep covers that path deliberately.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "pdmex")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func newTestExecutor(t *testing.T) *Executor {
 	t.Helper()
-	e, err := New(context.Background(), Options{
-		DataDir: t.TempDir(),
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	return newTestExecutorIn(t, shortTempDir(t))
+}
+
+func newTestExecutorIn(t *testing.T, dataDir string) *Executor {
+	t.Helper()
+	return newTestExecutorWithLog(t, dataDir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func newTestExecutorWithLog(t *testing.T, dataDir string, logger *slog.Logger) *Executor {
+	t.Helper()
+	e, err := New(context.Background(), Options{DataDir: dataDir, Logger: logger})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	return e
@@ -304,12 +329,12 @@ func TestCancelSignalsTheContainer(t *testing.T) {
 	requireNoLeaks(t, e, taskID)
 }
 
-// TestCancelEscalatesToSIGKILL covers the acceptance case, `sleep 60`. With no
-// runner in MVP-0 the task command is PID 1, and the kernel discards a
-// default-disposition SIGTERM sent to a PID namespace's init, so the container
-// only dies when the 30s grace expires and SIGKILL arrives — exit code 137, not
-// 143. Step 04's runner is what turns this back into a graceful 143.
-func TestCancelEscalatesToSIGKILL(t *testing.T) {
+// TestCancelOfABareSleepIsPrompt is the whole reason podium-runner exists. Before it, the
+// task command was PID 1 itself, the kernel discarded the default-disposition SIGTERM sent
+// to a PID namespace's init, and cancelling `sleep 60` cost the full 30s grace and ended in
+// exit 137. With the runner as PID 1 the signal is caught and forwarded to the child's
+// process group, so the same command dies of SIGTERM in about a second.
+func TestCancelOfABareSleepIsPrompt(t *testing.T) {
 	e := newTestExecutor(t)
 	taskID := ids.NewTask()
 	teardownAfter(t, e, taskID)
@@ -331,10 +356,49 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	}, c.ch)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
+	require.Equal(t, 143, res.ExitCode, "SIGTERM death is 128+15; 137 means the runner was not PID 1")
+	require.Less(t, elapsed, 10*time.Second, "a forwarded SIGTERM must not wait out the 30s grace")
+	t.Logf("bare `sleep 60` cancelled: finished in %s with exit code %d", elapsed, res.ExitCode)
+
+	events := c.finish()
+	assertSeq(t, events)
+	require.Equal(t, ExitedPayload{ExitCode: 143}, events[len(events)-2].Payload)
+
+	ctx := context.Background()
+	require.NoError(t, e.Teardown(ctx, taskID, false))
+	requireNoLeaks(t, e, taskID)
+}
+
+// TestCancelEscalatesToSIGKILL covers the child that refuses to die. The runner forwards
+// SIGTERM, waits PODIUM_KILL_AFTER, then SIGKILLs the whole process group — inside the
+// node's own 30s grace, so the engine's SIGKILL never has to fire. The env override keeps
+// the test to seconds instead of the 25s default.
+func TestCancelEscalatesToSIGKILL(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	go func() {
+		time.Sleep(time.Second)
+		e.Cancel(taskID)
+	}()
+
+	start := time.Now()
+	res, err := e.Run(context.Background(), Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec: spec.TaskSpec{
+			Image:   testImage,
+			Env:     map[string]string{"PODIUM_KILL_AFTER": "1s"},
+			Command: []string{"sh", "-c", `trap '' TERM; while :; do sleep 1; done`},
+		},
+	}, c.ch)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
 	require.Equal(t, 137, res.ExitCode, "SIGKILL death is 128+9")
-	require.Less(t, elapsed, 35*time.Second, "the container must be gone within the grace period + slack")
-	require.Greater(t, elapsed, cancelGrace, "SIGKILL must only follow the full grace period")
-	t.Logf("unhandled SIGTERM: finished in %s with exit code %d", elapsed, res.ExitCode)
+	require.Less(t, elapsed, cancelGrace, "the runner must kill the group before the engine's grace expires")
+	t.Logf("ignored SIGTERM: finished in %s with exit code %d", elapsed, res.ExitCode)
 
 	events := c.finish()
 	assertSeq(t, events)
@@ -488,4 +552,321 @@ func TestListOwnedAndTeardown(t *testing.T) {
 	require.NoError(t, e.Teardown(ctx, taskID, false))
 	requireNoLeaks(t, e, taskID)
 	require.NoError(t, e.Teardown(ctx, taskID, false), "teardown is idempotent")
+}
+
+// ---------------------------------------------------------------------------
+// podium-runner as PID 1 (step 04)
+// ---------------------------------------------------------------------------
+
+// TestContainerShapePutsTheRunnerAtPID1 pins the container configuration the runner needs:
+// the image's entrypoint cleared, the runner prepended to the command, the binary and the
+// event socket bind-mounted, and PODIUM_EVENTS_SOCK pointing at the latter.
+func TestContainerShapePutsTheRunnerAtPID1(t *testing.T) {
+	e := newTestExecutor(t)
+	ctx := context.Background()
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	res, err := e.Run(ctx, Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec: spec.TaskSpec{
+			Image:   testImage,
+			Command: []string{"sh", "-c", "echo $$ >&2; cat /proc/1/comm"},
+		},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.ExitCode)
+
+	events := c.finish()
+	assertSeq(t, events)
+
+	var stdout, stderr strings.Builder
+	for _, ev := range events {
+		if ev.Kind != KindLog {
+			continue
+		}
+		p := ev.Payload.(LogPayload)
+		if p.Stream == StreamStdout {
+			stdout.Write(p.Bytes)
+		} else {
+			stderr.Write(p.Bytes)
+		}
+	}
+	// /proc/1/comm is the basename of what PID 1 was exec'd as: /podium/runner.
+	require.Equal(t, "runner\n", stdout.String(), "PID 1 must be the runner, not the task command")
+	require.NotEqual(t, "1\n", stderr.String(), "the task command must not be PID 1")
+
+	insp, err := e.cli.ContainerInspect(ctx, containerName(taskID))
+	require.NoError(t, err)
+	require.Equal(t, strslice.StrSlice{"/podium/runner", "--", "sh", "-c", "echo $$ >&2; cat /proc/1/comm"}, insp.Config.Cmd)
+	require.Empty(t, insp.Config.Entrypoint, "the image entrypoint must be cleared")
+	require.Contains(t, insp.Config.Env, "PODIUM_EVENTS_SOCK=/podium/events.sock")
+	require.Contains(t, insp.Config.Env, "PODIUM_TASK_ID="+taskID)
+
+	targets := map[string]bool{}
+	for _, m := range insp.HostConfig.Mounts {
+		targets[m.Target] = m.ReadOnly
+	}
+	ro, ok := targets["/podium/runner"]
+	require.True(t, ok, "the runner binary must be bind-mounted: %v", targets)
+	require.True(t, ro, "the runner must be mounted read-only")
+	require.Equal(t, []string{e.eventsSocketPath(taskID) + ":/podium/events.sock"}, insp.HostConfig.Binds)
+
+	// A short data dir keeps the socket in the task's own state directory.
+	require.Empty(t, e.sockDir)
+	require.Equal(t, filepath.Join(e.TaskDir(taskID), "events.sock"), e.eventsSocketPath(taskID))
+}
+
+// TestRunnerReapsOrphanedGrandchildren is the other half of being PID 1: a process whose
+// own parent exits is re-parented onto the runner and would stay a zombie without a
+// wait loop.
+func TestRunnerReapsOrphanedGrandchildren(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	res, err := e.Run(context.Background(), Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec: spec.TaskSpec{
+			Image: testImage,
+			// The subshell exits immediately, orphaning its sleep onto PID 1.
+			Command: []string{"sh", "-c", "( sleep 1 & ) ; sleep 3; ps -o pid,stat,args"},
+		},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.ExitCode)
+
+	var out strings.Builder
+	for _, ev := range c.finish() {
+		if ev.Kind == KindLog {
+			out.Write(ev.Payload.(LogPayload).Bytes)
+		}
+	}
+	t.Logf("ps inside the container:\n%s", out.String())
+	require.NotContains(t, out.String(), "defunct", "a zombie survived: %s", out.String())
+	for _, line := range strings.Split(out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		require.NotEqual(t, "Z", fields[1], "zombie process left behind: %q", line)
+	}
+}
+
+// TestSpecWithoutACommandRunsTheImageCommand: the runner displaces the image's entrypoint,
+// so a spec that names no command has to get the image's own back.
+func TestSpecWithoutACommandRunsTheImageCommand(t *testing.T) {
+	e := newTestExecutor(t)
+	ctx := context.Background()
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	res, err := e.Run(ctx, Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec:    spec.TaskSpec{Image: testImage},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.ExitCode)
+	assertSeq(t, c.finish())
+
+	insp, err := e.cli.ContainerInspect(ctx, containerName(taskID))
+	require.NoError(t, err)
+	require.Equal(t, strslice.StrSlice{"/podium/runner", "--", "/bin/sh"}, insp.Config.Cmd)
+}
+
+// TestEventSocketFallsBackWhenTheDataDirIsDeep covers the other socket location: a data dir
+// too deep for the AF_UNIX path budget (t.TempDir() on macOS already is) pushes the socket
+// into a private directory, and teardown still removes it.
+func TestEventSocketFallsBackWhenTheDataDirIsDeep(t *testing.T) {
+	deep := filepath.Join(t.TempDir(), strings.Repeat("d", 40))
+	require.NoError(t, os.MkdirAll(deep, 0o700))
+
+	e := newTestExecutorIn(t, deep)
+	require.NotEmpty(t, e.sockDir, "a deep data dir must fall back to a private socket dir")
+	require.True(t, strings.HasPrefix(e.sockDir, "/tmp/"), "socket dir = %s", e.sockDir)
+
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+	sock := e.eventsSocketPath(taskID)
+	require.LessOrEqual(t, len(sock), maxUnixPath)
+
+	c := newCollector()
+	res, err := e.Run(context.Background(), Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec:    spec.TaskSpec{Image: testImage, Command: []string{"sh", "-c", "exit 5"}},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 5, res.ExitCode)
+	assertSeq(t, c.finish())
+
+	require.NoError(t, e.Teardown(context.Background(), taskID, false))
+	_, err = os.Stat(sock)
+	require.True(t, os.IsNotExist(err), "teardown must remove the event socket, stat err = %v", err)
+}
+
+// createOrphan builds and starts a task container the way a node that has since died would
+// have left it: the runner at PID 1 and an event socket path nothing is listening on.
+func createOrphan(t *testing.T, e *Executor, taskID, leaseID string, cmd []string) string {
+	t.Helper()
+	ctx := context.Background()
+	labels := taskLabels(taskID, leaseID)
+
+	sock := e.eventsSocketPath(taskID)
+	require.NoError(t, os.MkdirAll(filepath.Dir(sock), 0o700))
+	ln, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	require.NoError(t, ln.Close()) // the socket file survives; nothing accepts on it
+
+	initFalse := false
+	created, err := e.cli.ContainerCreate(ctx, &container.Config{
+		Image:      testImage,
+		Entrypoint: strslice.StrSlice{},
+		Cmd:        append([]string{runnerTarget, "--"}, cmd...),
+		WorkingDir: "/",
+		Env: []string{
+			"PODIUM_TASK_ID=" + taskID,
+			"PODIUM_EVENTS_SOCK=" + eventsTarget,
+			"PODIUM_WORKDIR=/",
+		},
+		Labels:     labels,
+	}, &container.HostConfig{
+		Mounts: []mount.Mount{
+			{Type: mount.TypeBind, Source: e.runnerPath, Target: runnerTarget, ReadOnly: true},
+		},
+		Binds:         []string{sock + ":" + eventsTarget},
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+		Init:          &initFalse,
+	}, nil, nil, containerName(taskID))
+	require.NoError(t, err)
+	require.NoError(t, e.cli.ContainerStart(ctx, created.ID, container.StartOptions{}))
+	return created.ID
+}
+
+// TestAdoptRunningContainerWhoseRunnerSocketIsGone is the node-restart case. The socket the
+// runner connected to died with the process that listened on it, and no new one can ever be
+// accepted, so adoption must fall back to Docker API events instead of waiting for a
+// connection that will never come.
+func TestAdoptRunningContainerWhoseRunnerSocketIsGone(t *testing.T) {
+	e := newTestExecutor(t)
+	ctx := context.Background()
+	taskID := ids.NewTask()
+	leaseID := ids.NewLease()
+	teardownAfter(t, e, taskID)
+
+	createOrphan(t, e, taskID, leaseID, []string{"sh", "-c", "echo alive; sleep 3; exit 7"})
+
+	c := newCollector()
+	start := time.Now()
+	res, err := e.Adopt(ctx, AdoptRequest{TaskID: taskID, LeaseID: leaseID, FromSeq: 10}, c.ch)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.Equal(t, 7, res.ExitCode)
+	require.Less(t, elapsed, 60*time.Second, "adoption must not wait on a socket nobody will connect to")
+	t.Logf("adopted a container with no runner socket in %s, exit %d", elapsed, res.ExitCode)
+
+	events := c.finish()
+	require.NotEmpty(t, events)
+	require.Equal(t, uint64(11), events[0].Seq, "an adopted run continues the previous seq space")
+	kinds := kindsOf(events)
+	require.Equal(t, KindFinished, kinds[len(kinds)-1])
+	require.Equal(t, KindExited, kinds[len(kinds)-2])
+	require.NotContains(t, kinds, KindStarted, "started belongs to the incarnation that started the container")
+
+	var out strings.Builder
+	for _, ev := range events {
+		if ev.Kind == KindLog {
+			out.Write(ev.Payload.(LogPayload).Bytes)
+		}
+	}
+	require.Contains(t, out.String(), "alive")
+	require.NotContains(t, kinds, KindStep, "no runner can be reporting into a socket nobody owns")
+	// Whether the runner notices is engine-dependent: on a native Linux engine connect(2)
+	// is refused, while Docker Desktop's socket forwarder accepts and then drops. Either
+	// way the runner runs the command and the exit code above is the proof.
+}
+
+// TestAdoptAnExitedContainerWithoutASocket is the same hole on the other side of the exit:
+// the container finished while no daemon was attached and the socket file is gone entirely.
+func TestAdoptAnExitedContainerWithoutASocket(t *testing.T) {
+	e := newTestExecutor(t)
+	ctx := context.Background()
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	_, err := e.Run(ctx, Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec:    spec.TaskSpec{Image: testImage, Command: []string{"sh", "-c", "echo done; exit 4"}},
+	}, c.ch)
+	require.NoError(t, err)
+	assertSeq(t, c.finish())
+
+	// The socket goes with the daemon that owned it.
+	require.NoError(t, os.RemoveAll(e.eventsSocketPath(taskID)))
+
+	c2 := newCollector()
+	start := time.Now()
+	res, err := e.Adopt(ctx, AdoptRequest{TaskID: taskID, LeaseID: ids.NewLease(), FromSeq: 100}, c2.ch)
+	require.NoError(t, err)
+	require.Equal(t, 4, res.ExitCode)
+	require.Less(t, time.Since(start), 30*time.Second)
+
+	kinds := kindsOf(c2.finish())
+	require.Equal(t, KindFinished, kinds[len(kinds)-1])
+	require.Equal(t, KindExited, kinds[len(kinds)-2])
+}
+
+// TestRunnerEventsReachTheExecutor proves the event socket really carries the protocol: the
+// executor's started event is the runner's, reported after it forked the task command, not
+// the Docker API's guess right after ContainerStart.
+func TestRunnerEventsReachTheExecutor(t *testing.T) {
+	var logs safeBuffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	e := newTestExecutorWithLog(t, shortTempDir(t), logger)
+
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	res, err := e.Run(context.Background(), Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec:    spec.TaskSpec{Image: testImage, Command: []string{"sh", "-c", "echo hi"}},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.ExitCode)
+	assertSeq(t, c.finish())
+
+	line := logs.String()
+	require.Contains(t, line, "runner started the task command", "no started event arrived over the socket:\n%s", line)
+	require.NotContains(t, line, "falling back to the docker api")
+	require.NotContains(t, line, "no runner connected")
+	t.Logf("executor log:\n%s", line)
+}
+
+// safeBuffer is a slog sink usable from the executor's goroutines.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

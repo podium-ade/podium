@@ -28,7 +28,7 @@ The CLI exits with the task's exit code.
 | `podium-server` | API, scheduler, node registry, embedded web UI. Needs Postgres. |
 | `podium-node` | Runs on every worker; executes tasks via the local Docker engine. |
 | `podium` | CLI. Talks only to the server — never needs Docker. |
-| `podium-runner` | Placeholder. Becomes PID 1 inside task containers; not yet implemented. |
+| `podium-runner` | PID 1 inside every task container. Runs the task command, forwards signals, reaps orphans, reports events to the node. Embedded in `podium-node` and bind-mounted in; never installed by hand. |
 
 ## Quickstart
 
@@ -79,6 +79,7 @@ Podium enrollment token are not the same thing).
 - **[docs/node-setup.md](docs/node-setup.md)** — setting up a worker node
 - [docs/cli.md](docs/cli.md) — CLI reference, exit codes and streams (contractual)
 - [docs/protocol.md](docs/protocol.md) — the node↔server stream, event ordering and acks
+- [docs/runner-events.md](docs/runner-events.md) — `podium-runner` as PID 1 and its event socket
 
 ## Configuration
 
@@ -103,7 +104,8 @@ credential at all.
 ## Development
 
 ```sh
-make build              # UI + all four binaries into bin/, host-native
+make build              # UI + runner-embed + all four binaries into bin/, host-native
+make runner-embed       # just the two Linux podium-runner builds that podium-node embeds
 make dist-node-all      # cross-compiled podium-node + podium for linux/amd64 and linux/arm64
 make test               # unit tests
 make test-integration   # + real Postgres and Docker via testcontainers
@@ -111,6 +113,13 @@ make e2e                # boots a full stack and drives the real CLI
 make lint proto fmt
 go build -tags noui ./...   # skip the embedded UI, no Node required
 ```
+
+`podium-runner` is the one binary that is never host-native: it is PID 1 inside a Linux task
+container, so `make build` cross-compiles it for `linux/amd64` and `linux/arm64` into
+`internal/node/docker/runnerbin/` (embedded into `podium-node`, gitignored, never committed) and
+copies the host architecture's build to `bin/podium-runner`. A clone that has never run
+`make runner-embed` still compiles — `go:embed` finds a committed placeholder — but a node
+started from it refuses to run tasks and says which target to build.
 
 ## Limitations
 
@@ -122,8 +131,8 @@ This is an early slice. Known and deliberate:
 - **No secrets, sidecars, resource limits, or artifacts.**
 - **No lease expiry or reconciliation** — nothing marks a task `lost` or reschedules one whose
   node vanished, and `timeout` in a task spec is not enforced.
-- **Cancelling takes up to 30s.** Without the runner as PID 1, the kernel discards a
-  default-disposition SIGTERM to a namespace's init, so containers die at the SIGKILL (exit 137).
+- **A task adopted after a node restart loses its runner event socket** for the rest of the run
+  and falls back to Docker API events. See [`docs/runner-events.md`](docs/runner-events.md).
 - **Single server process.** Node sessions are held in memory; two replicas would not share them.
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table, and every one of
   them can do everything.

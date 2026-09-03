@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/pkg/stdcopy"
 
@@ -109,6 +110,11 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		return Result{}, err
 	}
 
+	command, err := e.resolveCommand(ctx, req.Spec)
+	if err != nil {
+		return Result{}, err
+	}
+
 	if err := e.mkTaskDir(req.TaskID); err != nil {
 		return Result{}, err
 	}
@@ -136,20 +142,45 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		workdir = spec.DefaultWorkingDir
 	}
 
+	// The runner is PID 1 and the task command is its child. The image's own entrypoint is
+	// cleared — a non-nil empty Entrypoint is how the Docker API says "ignore the image's"
+	// — because anything it would have prepended is already in command.
+	link, err := e.listenRunner(req.TaskID)
+	if err != nil {
+		return Result{}, err
+	}
+	defer link.close()
+
 	initFalse := false
 	cfg := &container.Config{
 		Image:      req.Spec.Image,
-		Cmd:        req.Spec.Command,
+		Entrypoint: strslice.StrSlice{},
+		Cmd:        append([]string{runnerTarget, "--"}, command...),
 		WorkingDir: workdir,
 		Env:        containerEnv(req, workdir),
 		Labels:     labels,
 	}
 	hostCfg := &container.HostConfig{
-		Mounts: []mount.Mount{{
-			Type:   mount.TypeVolume,
-			Source: volumeName(req.TaskID),
-			Target: workspacePath,
-		}},
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: volumeName(req.TaskID),
+				Target: workspacePath,
+			},
+			{
+				Type:     mount.TypeBind,
+				Source:   e.runnerPath,
+				Target:   runnerTarget,
+				ReadOnly: true,
+			},
+		},
+		// The event socket goes in the legacy Binds form on purpose. Docker Desktop
+		// validates a Mounts-style bind by stat-ing the source through its file-sharing
+		// namespace, where Unix sockets are not visible, and rejects every socket source
+		// with "bind source path does not exist". Binds is the path `docker run -v` takes
+		// and the one that makes /var/run/docker.sock mountable; it works on both Docker
+		// Desktop and a native Linux engine.
+		Binds:         []string{link.path + ":" + eventsTarget},
 		AutoRemove:    false,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Init:          &initFalse,
@@ -174,7 +205,6 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	if err := e.cli.ContainerStart(ctx, cid, container.StartOptions{}); err != nil {
 		return Result{}, fmt.Errorf("start container for task %s: %w", req.TaskID, err)
 	}
-	em.emit(KindStarted, nil)
 
 	// A Cancel that arrived before the container existed applies now.
 	rs.mu.Lock()
@@ -185,6 +215,18 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		e.startKill(rs, cid)
 	}
 
+	// started is the runner's to declare: it means the task command has been forked, not
+	// merely that the engine accepted the container. If no runner reports in within
+	// runnerConnectTimeout the event is emitted anyway, because the status transition it
+	// drives (provisioning -> running) must never go missing.
+	if pid, ok := link.awaitStarted(runnerConnectTimeout); ok {
+		e.log.Debug("runner started the task command", "task", req.TaskID, "pid", pid)
+	} else {
+		e.log.Warn("no runner started event; falling back to the docker api", "task", req.TaskID)
+	}
+	em.emit(KindStarted, nil)
+
+	runnerDone := link.drain(req.TaskID, em)
 	logsDone := e.streamLogs(ctx, cid, em)
 
 	statsCtx, stopStats := context.WithCancel(ctx)
@@ -208,11 +250,16 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	wallMS := time.Since(startedAt).Milliseconds()
 
-	// Let the log stream drain so every log event precedes exited.
+	// Let both streams drain so every log and step event precedes exited.
 	select {
 	case <-logsDone:
 	case <-time.After(logDrainTimeout):
 		e.log.Warn("log stream did not close after exit", "task", req.TaskID)
+	}
+	select {
+	case <-runnerDone:
+	case <-time.After(logDrainTimeout):
+		e.log.Warn("runner event stream did not close after exit", "task", req.TaskID)
 	}
 
 	usage := <-usageCh
@@ -253,8 +300,25 @@ func containerEnv(req Request, workdir string) []string {
 		"PODIUM_TASK_ID="+req.TaskID,
 		"PODIUM_LEASE_ID="+req.LeaseID,
 		"PODIUM_WORKDIR="+workdir,
+		"PODIUM_EVENTS_SOCK="+eventsTarget,
 	)
 	return env
+}
+
+// resolveCommand is what the runner execs. A spec that names no command falls back to the
+// image's own entrypoint and default arguments, which the runner has displaced.
+func (e *Executor) resolveCommand(ctx context.Context, s spec.TaskSpec) ([]string, error) {
+	if len(s.Command) > 0 {
+		return s.Command, nil
+	}
+	cmd, err := e.imageCommand(ctx, s.Image)
+	if err != nil {
+		return nil, err
+	}
+	if len(cmd) == 0 {
+		return nil, fmt.Errorf("%w: no command given and image %s defines none", errSpec, s.Image)
+	}
+	return cmd, nil
 }
 
 // ensureImage pulls the image unless the engine already has it, emitting
