@@ -143,7 +143,7 @@ func (x LogChunk_Stream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LogChunk_Stream.Descriptor instead.
 func (LogChunk_Stream) EnumDescriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{11, 0}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{12, 0}
 }
 
 type EnrollRequest struct {
@@ -731,14 +731,21 @@ func (x *Heartbeat) GetTs() *timestamppb.Timestamp {
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
 // within 15s or the server revokes the lease and reschedules.
+//
+// SENSITIVE: resolved_secrets carries plaintext secret values. Never log an Assign
+// directly — every log site goes through podiumv1.RedactForLog, which clears the field.
 type Assign struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	LeaseId       string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	Spec          *TaskSpec              `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
-	Deadline      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=deadline,proto3" json:"deadline,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	TaskId   string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	LeaseId  string                 `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Spec     *TaskSpec              `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
+	Deadline *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=deadline,proto3" json:"deadline,omitempty"`
+	// SENSITIVE: never log. The values live in node memory and in the task container, and
+	// nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=dev
+	// is loopback-only for exactly this reason.
+	ResolvedSecrets []*ResolvedSecret `protobuf:"bytes,5,rep,name=resolved_secrets,json=resolvedSecrets,proto3" json:"resolved_secrets,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Assign) Reset() {
@@ -799,6 +806,85 @@ func (x *Assign) GetDeadline() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Assign) GetResolvedSecrets() []*ResolvedSecret {
+	if x != nil {
+		return x.ResolvedSecrets
+	}
+	return nil
+}
+
+// ResolvedSecret is one SecretRef with its plaintext value attached.
+type ResolvedSecret struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// target is "env" or "file", copied from the SecretRef that asked for it.
+	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// key is the environment variable name, or the absolute path inside the container.
+	Key string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	// SENSITIVE: never log.
+	Value         []byte `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolvedSecret) Reset() {
+	*x = ResolvedSecret{}
+	mi := &file_podium_v1_node_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolvedSecret) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolvedSecret) ProtoMessage() {}
+
+func (x *ResolvedSecret) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_node_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolvedSecret.ProtoReflect.Descriptor instead.
+func (*ResolvedSecret) Descriptor() ([]byte, []int) {
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ResolvedSecret) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ResolvedSecret) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *ResolvedSecret) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *ResolvedSecret) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
 // Ack is the per-task high-water mark; the node may drop buffered events with seq <= this.
 type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -810,7 +896,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_podium_v1_node_proto_msgTypes[8]
+	mi := &file_podium_v1_node_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +908,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[8]
+	mi := &file_podium_v1_node_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +921,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{8}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Ack) GetTaskId() string {
@@ -863,7 +949,7 @@ type Cancel struct {
 
 func (x *Cancel) Reset() {
 	*x = Cancel{}
-	mi := &file_podium_v1_node_proto_msgTypes[9]
+	mi := &file_podium_v1_node_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -875,7 +961,7 @@ func (x *Cancel) String() string {
 func (*Cancel) ProtoMessage() {}
 
 func (x *Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[9]
+	mi := &file_podium_v1_node_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -888,7 +974,7 @@ func (x *Cancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cancel.ProtoReflect.Descriptor instead.
 func (*Cancel) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{9}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Cancel) GetTaskId() string {
@@ -914,7 +1000,7 @@ type Drain struct {
 
 func (x *Drain) Reset() {
 	*x = Drain{}
-	mi := &file_podium_v1_node_proto_msgTypes[10]
+	mi := &file_podium_v1_node_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -926,7 +1012,7 @@ func (x *Drain) String() string {
 func (*Drain) ProtoMessage() {}
 
 func (x *Drain) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[10]
+	mi := &file_podium_v1_node_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -939,7 +1025,7 @@ func (x *Drain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Drain.ProtoReflect.Descriptor instead.
 func (*Drain) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{10}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{11}
 }
 
 type LogChunk struct {
@@ -954,7 +1040,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_podium_v1_node_proto_msgTypes[11]
+	mi := &file_podium_v1_node_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1052,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[11]
+	mi := &file_podium_v1_node_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1065,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{11}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *LogChunk) GetStream() LogChunk_Stream {
@@ -1015,7 +1101,7 @@ type Step struct {
 
 func (x *Step) Reset() {
 	*x = Step{}
-	mi := &file_podium_v1_node_proto_msgTypes[12]
+	mi := &file_podium_v1_node_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1113,7 @@ func (x *Step) String() string {
 func (*Step) ProtoMessage() {}
 
 func (x *Step) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[12]
+	mi := &file_podium_v1_node_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1126,7 @@ func (x *Step) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Step.ProtoReflect.Descriptor instead.
 func (*Step) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{12}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Step) GetName() string {
@@ -1074,7 +1160,7 @@ type Exited struct {
 
 func (x *Exited) Reset() {
 	*x = Exited{}
-	mi := &file_podium_v1_node_proto_msgTypes[13]
+	mi := &file_podium_v1_node_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1086,7 +1172,7 @@ func (x *Exited) String() string {
 func (*Exited) ProtoMessage() {}
 
 func (x *Exited) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[13]
+	mi := &file_podium_v1_node_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1185,7 @@ func (x *Exited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Exited.ProtoReflect.Descriptor instead.
 func (*Exited) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{13}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Exited) GetExitCode() int32 {
@@ -1126,7 +1212,7 @@ type Finished struct {
 
 func (x *Finished) Reset() {
 	*x = Finished{}
-	mi := &file_podium_v1_node_proto_msgTypes[14]
+	mi := &file_podium_v1_node_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1138,7 +1224,7 @@ func (x *Finished) String() string {
 func (*Finished) ProtoMessage() {}
 
 func (x *Finished) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[14]
+	mi := &file_podium_v1_node_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1151,7 +1237,7 @@ func (x *Finished) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finished.ProtoReflect.Descriptor instead.
 func (*Finished) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{14}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Finished) GetExitCode() int32 {
@@ -1178,7 +1264,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_podium_v1_node_proto_msgTypes[15]
+	mi := &file_podium_v1_node_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1190,7 +1276,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[15]
+	mi := &file_podium_v1_node_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1203,7 +1289,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{15}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Error) GetMessage() string {
@@ -1243,7 +1329,7 @@ type TaskEvent struct {
 
 func (x *TaskEvent) Reset() {
 	*x = TaskEvent{}
-	mi := &file_podium_v1_node_proto_msgTypes[16]
+	mi := &file_podium_v1_node_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1255,7 +1341,7 @@ func (x *TaskEvent) String() string {
 func (*TaskEvent) ProtoMessage() {}
 
 func (x *TaskEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[16]
+	mi := &file_podium_v1_node_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1268,7 +1354,7 @@ func (x *TaskEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskEvent.ProtoReflect.Descriptor instead.
 func (*TaskEvent) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{16}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TaskEvent) GetTaskId() string {
@@ -1437,12 +1523,18 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"free_slots\x18\x02 \x01(\x05R\tfreeSlots\x12&\n" +
 	"\x0fdisk_free_bytes\x18\x03 \x01(\x03R\rdiskFreeBytes\x12*\n" +
-	"\x02ts\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\x9d\x01\n" +
+	"\x02ts\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\xe3\x01\n" +
 	"\x06Assign\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12'\n" +
 	"\x04spec\x18\x03 \x01(\v2\x13.podium.v1.TaskSpecR\x04spec\x126\n" +
-	"\bdeadline\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\"0\n" +
+	"\bdeadline\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12D\n" +
+	"\x10resolved_secrets\x18\x05 \x03(\v2\x19.podium.v1.ResolvedSecretR\x0fresolvedSecrets\"d\n" +
+	"\x0eResolvedSecret\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x04 \x01(\fR\x05value\"0\n" +
 	"\x03Ack\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\"9\n" +
@@ -1516,7 +1608,7 @@ func file_podium_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_podium_v1_node_proto_goTypes = []any{
 	(TaskEventKind)(0),            // 0: podium.v1.TaskEventKind
 	(LogChunk_Stream)(0),          // 1: podium.v1.LogChunk.Stream
@@ -1528,51 +1620,53 @@ var file_podium_v1_node_proto_goTypes = []any{
 	(*NodeLoad)(nil),              // 7: podium.v1.NodeLoad
 	(*Heartbeat)(nil),             // 8: podium.v1.Heartbeat
 	(*Assign)(nil),                // 9: podium.v1.Assign
-	(*Ack)(nil),                   // 10: podium.v1.Ack
-	(*Cancel)(nil),                // 11: podium.v1.Cancel
-	(*Drain)(nil),                 // 12: podium.v1.Drain
-	(*LogChunk)(nil),              // 13: podium.v1.LogChunk
-	(*Step)(nil),                  // 14: podium.v1.Step
-	(*Exited)(nil),                // 15: podium.v1.Exited
-	(*Finished)(nil),              // 16: podium.v1.Finished
-	(*Error)(nil),                 // 17: podium.v1.Error
-	(*TaskEvent)(nil),             // 18: podium.v1.TaskEvent
-	(*NodeCapacity)(nil),          // 19: podium.v1.NodeCapacity
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
-	(*TaskSpec)(nil),              // 21: podium.v1.TaskSpec
-	(*Usage)(nil),                 // 22: podium.v1.Usage
+	(*ResolvedSecret)(nil),        // 10: podium.v1.ResolvedSecret
+	(*Ack)(nil),                   // 11: podium.v1.Ack
+	(*Cancel)(nil),                // 12: podium.v1.Cancel
+	(*Drain)(nil),                 // 13: podium.v1.Drain
+	(*LogChunk)(nil),              // 14: podium.v1.LogChunk
+	(*Step)(nil),                  // 15: podium.v1.Step
+	(*Exited)(nil),                // 16: podium.v1.Exited
+	(*Finished)(nil),              // 17: podium.v1.Finished
+	(*Error)(nil),                 // 18: podium.v1.Error
+	(*TaskEvent)(nil),             // 19: podium.v1.TaskEvent
+	(*NodeCapacity)(nil),          // 20: podium.v1.NodeCapacity
+	(*timestamppb.Timestamp)(nil), // 21: google.protobuf.Timestamp
+	(*TaskSpec)(nil),              // 22: podium.v1.TaskSpec
+	(*Usage)(nil),                 // 23: podium.v1.Usage
 }
 var file_podium_v1_node_proto_depIdxs = []int32{
 	6,  // 0: podium.v1.NodeMessage.hello:type_name -> podium.v1.Hello
 	8,  // 1: podium.v1.NodeMessage.heartbeat:type_name -> podium.v1.Heartbeat
-	18, // 2: podium.v1.NodeMessage.task_event:type_name -> podium.v1.TaskEvent
+	19, // 2: podium.v1.NodeMessage.task_event:type_name -> podium.v1.TaskEvent
 	9,  // 3: podium.v1.ServerMessage.assign:type_name -> podium.v1.Assign
-	10, // 4: podium.v1.ServerMessage.ack:type_name -> podium.v1.Ack
-	11, // 5: podium.v1.ServerMessage.cancel:type_name -> podium.v1.Cancel
-	12, // 6: podium.v1.ServerMessage.drain:type_name -> podium.v1.Drain
-	19, // 7: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
+	11, // 4: podium.v1.ServerMessage.ack:type_name -> podium.v1.Ack
+	12, // 5: podium.v1.ServerMessage.cancel:type_name -> podium.v1.Cancel
+	13, // 6: podium.v1.ServerMessage.drain:type_name -> podium.v1.Drain
+	20, // 7: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
 	7,  // 8: podium.v1.Heartbeat.load:type_name -> podium.v1.NodeLoad
-	20, // 9: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
-	21, // 10: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
-	20, // 11: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
-	1,  // 12: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
-	22, // 13: podium.v1.Finished.usage:type_name -> podium.v1.Usage
-	20, // 14: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
-	0,  // 15: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
-	13, // 16: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
-	14, // 17: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
-	15, // 18: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
-	16, // 19: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
-	17, // 20: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
-	2,  // 21: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
-	4,  // 22: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
-	3,  // 23: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
-	5,  // 24: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
-	23, // [23:25] is the sub-list for method output_type
-	21, // [21:23] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	21, // 9: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
+	22, // 10: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
+	21, // 11: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
+	10, // 12: podium.v1.Assign.resolved_secrets:type_name -> podium.v1.ResolvedSecret
+	1,  // 13: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
+	23, // 14: podium.v1.Finished.usage:type_name -> podium.v1.Usage
+	21, // 15: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
+	0,  // 16: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
+	14, // 17: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
+	15, // 18: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
+	16, // 19: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
+	17, // 20: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
+	18, // 21: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
+	2,  // 22: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
+	4,  // 23: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
+	3,  // 24: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
+	5,  // 25: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
+	24, // [24:26] is the sub-list for method output_type
+	22, // [22:24] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_node_proto_init() }
@@ -1592,7 +1686,7 @@ func file_podium_v1_node_proto_init() {
 		(*ServerMessage_Cancel)(nil),
 		(*ServerMessage_Drain)(nil),
 	}
-	file_podium_v1_node_proto_msgTypes[16].OneofWrappers = []any{
+	file_podium_v1_node_proto_msgTypes[17].OneofWrappers = []any{
 		(*TaskEvent_Log)(nil),
 		(*TaskEvent_Step)(nil),
 		(*TaskEvent_Exited)(nil),
@@ -1605,7 +1699,7 @@ func file_podium_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_node_proto_rawDesc), len(file_podium_v1_node_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

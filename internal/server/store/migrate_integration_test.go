@@ -15,13 +15,15 @@ var expectedTables = []string{
 	// users arrives with 0002_tailnet.sql: the tailnet transport records a login the first
 	// time it sees one.
 	"users",
+	// secrets and audit_log arrive with 0003_secrets.sql.
+	"secrets", "audit_log",
 }
 
 // trimmedTables are the step-03 tables that are still deliberately absent.
-var trimmedTables = []string{"artifacts", "secrets", "audit_log"}
+var trimmedTables = []string{"artifacts"}
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
-var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql"}
+var migrationFiles = []string{"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql"}
 
 func tableExists(t *testing.T, s *Store, name string) bool {
 	t.Helper()

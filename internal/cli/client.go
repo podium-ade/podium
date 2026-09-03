@@ -15,6 +15,7 @@ type clients struct {
 	tasks    podiumv1connect.TaskServiceClient
 	admin    podiumv1connect.NodeAdminServiceClient
 	identity podiumv1connect.IdentityServiceClient
+	secrets  podiumv1connect.SecretServiceClient
 }
 
 func newClients(cfg Config) *clients {
@@ -23,6 +24,7 @@ func newClients(cfg Config) *clients {
 		tasks:    podiumv1connect.NewTaskServiceClient(httpClient, cfg.Server),
 		admin:    podiumv1connect.NewNodeAdminServiceClient(httpClient, cfg.Server),
 		identity: podiumv1connect.NewIdentityServiceClient(httpClient, cfg.Server),
+		secrets:  podiumv1connect.NewSecretServiceClient(httpClient, cfg.Server),
 	}
 }
 

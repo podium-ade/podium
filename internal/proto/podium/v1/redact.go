@@ -7,10 +7,14 @@ import "google.golang.org/protobuf/proto"
 
 // RedactForLog returns a copy of an Assign that is safe to hand to a log statement.
 //
-// In MVP-0 Assign carries no credentials, so this is a defensive clone and nothing more.
-// It becomes load-bearing in step 09, when Assign gains resolved_secrets (and later
-// registry_auths): those fields get cleared here and every log site already goes through
-// this helper. Never log an Assign without it.
+// Assign.resolved_secrets carries plaintext secret values, so this is the only form of an
+// Assign that may ever reach a logger. The clone keeps the task ID, the lease, the spec
+// and the deadline — everything an operator needs to follow an assignment — and drops the
+// values. The names are dropped with them: a secret name is not a value, but the spec's
+// own SecretRefs already carry the names, so keeping a second copy here buys nothing.
+//
+// Never log an Assign without it. internal/server's TestNoAssignIsLoggedUnredacted is the
+// lint rule that enforces this across the tree.
 func RedactForLog(a *Assign) *Assign {
 	if a == nil {
 		return nil
@@ -19,5 +23,6 @@ func RedactForLog(a *Assign) *Assign {
 	if !ok {
 		return nil
 	}
+	c.ResolvedSecrets = nil
 	return c
 }

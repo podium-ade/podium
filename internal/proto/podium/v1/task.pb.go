@@ -33,9 +33,13 @@ type Task struct {
 	StartedAt  *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 	// Unset until the task has exited.
-	ExitCode      *int32 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
-	Usage         *Usage `protobuf:"bytes,10,opt,name=usage,proto3" json:"usage,omitempty"`
-	RequestedBy   string `protobuf:"bytes,11,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	ExitCode    *int32 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	Usage       *Usage `protobuf:"bytes,10,opt,name=usage,proto3" json:"usage,omitempty"`
+	RequestedBy string `protobuf:"bytes,11,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	// failure_reason says why a task could not run when there is no exit code to explain
+	// it: a missing secret, an out-of-memory kill, an assignment that never reached a node.
+	// Empty otherwise. It never carries a secret value — only names.
+	FailureReason string `protobuf:"bytes,12,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -143,6 +147,13 @@ func (x *Task) GetUsage() *Usage {
 func (x *Task) GetRequestedBy() string {
 	if x != nil {
 		return x.RequestedBy
+	}
+	return ""
+}
+
+func (x *Task) GetFailureReason() string {
+	if x != nil {
+		return x.FailureReason
 	}
 	return ""
 }
@@ -701,7 +712,7 @@ var File_podium_v1_task_proto protoreflect.FileDescriptor
 
 const file_podium_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xd1\x03\n" +
+	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xf8\x03\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x04spec\x18\x02 \x01(\v2\x13.podium.v1.TaskSpecR\x04spec\x12-\n" +
@@ -717,7 +728,8 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\texit_code\x18\t \x01(\x05H\x00R\bexitCode\x88\x01\x01\x12&\n" +
 	"\x05usage\x18\n" +
 	" \x01(\v2\x10.podium.v1.UsageR\x05usage\x12!\n" +
-	"\frequested_by\x18\v \x01(\tR\vrequestedByB\f\n" +
+	"\frequested_by\x18\v \x01(\tR\vrequestedBy\x12%\n" +
+	"\x0efailure_reason\x18\f \x01(\tR\rfailureReasonB\f\n" +
 	"\n" +
 	"_exit_code\"X\n" +
 	"\x11CreateTaskRequest\x12'\n" +

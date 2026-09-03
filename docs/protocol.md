@@ -35,7 +35,8 @@ operator      podium node                       podium server
    |               |        capacity, running_task_ids, version}
    |               |                                  |   -> reconcile, mark online
    |               |  Heartbeat{load, free_slots, ...}|   every 10s
-   |               | <-- Assign{task_id, lease_id, spec, deadline}
+   |               | <-- Assign{task_id, lease_id, spec, deadline,
+   |               |            resolved_secrets}      |   SENSITIVE: plaintext values
    |               |  TaskEvent{seq: 1..n} ---------> |   batched ~100ms / 64KB
    |               | <-- Ack{task_id, seq}            |   high-water mark
    |               | <-- Cancel{task_id, reason}      |   idempotent
@@ -51,7 +52,11 @@ operator      podium node                       podium server
 3. **Heartbeat** every 10s. Missing 3 (≈30s) marks the node `unreachable`; missing 12 (≈120s)
    marks it `offline` and expires its leases.
 4. **Assign** hands over a task under a lease. The node must emit a `provisioning` `TaskEvent`
-   within 15s or the server revokes the lease and reschedules.
+   within 15s or the server revokes the lease and reschedules. `resolved_secrets` carries the
+   plaintext of every secret the task's spec referenced, resolved immediately before the push
+   and sent to nobody else. The transport is what protects them in flight — WireGuard under
+   `tailnet`, and nothing at all under `dev`, which is why `dev` refuses to bind anything but
+   loopback and warns at startup when any secret exists.
 5. **Cancel** is idempotent and is also how server-computed timeouts arrive: SIGTERM, 30s
    grace, SIGKILL, teardown.
 6. **Drain** tells the node to stop accepting work and finish what is running.
@@ -126,7 +131,19 @@ a node vanishes mid-run and the retry policy says not to requeue.
 
 ## Redaction
 
-`Assign` carries no credentials in MVP-0, but every log statement that touches one must go
-through `podiumv1.RedactForLog(*Assign) *Assign`
-(`internal/proto/podium/v1/redact.go`). It is a defensive clone today and becomes
-load-bearing in step 09, when `Assign` gains `resolved_secrets` (and later `registry_auths`).
+Two separate things, both required.
+
+**`Assign` must never be logged directly.** It carries `resolved_secrets`, so every log
+statement that touches one goes through `podiumv1.RedactForLog(*Assign) *Assign`
+(`internal/proto/podium/v1/redact.go`), which clones it and clears that field.
+`internal/server`'s `TestNoAssignIsLoggedUnredacted` walks the tree and fails the build if a
+log statement mentions an `Assign` without it.
+
+**Log chunks are redacted on the node.** Before a `log` `TaskEvent` is buffered or sent, the
+node replaces every occurrence of every secret value — and its base64 and URL-encoded forms
+— with `[redacted:NAME]`, across `stdout`, `stderr` and every sidecar stream, holding back
+up to 256 trailing bytes so a value straddling a chunk boundary is still caught. A redacted
+value therefore never crosses the wire, which also means `podium run` shows the marker
+rather than the value: there is one log path and the value does not travel it. This is
+best-effort defence in depth, not a guarantee — see
+[task-spec.md](task-spec.md#redaction).

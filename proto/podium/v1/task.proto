@@ -29,6 +29,10 @@ message Task {
   optional int32 exit_code = 9;
   Usage usage = 10;
   string requested_by = 11;
+  // failure_reason says why a task could not run when there is no exit code to explain
+  // it: a missing secret, an out-of-memory kill, an assignment that never reached a node.
+  // Empty otherwise. It never carries a secret value — only names.
+  string failure_reason = 12;
 }
 
 message CreateTaskRequest {

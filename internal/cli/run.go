@@ -16,13 +16,14 @@ import (
 
 func newRunCommand(e *env) *cobra.Command {
 	var (
-		image    string
-		labels   []string
-		envVars  []string
-		timeout  time.Duration
-		specFile string
-		workdir  string
-		detach   bool
+		image      string
+		labels     []string
+		envVars    []string
+		secretRefs []string
+		timeout    time.Duration
+		specFile   string
+		workdir    string
+		detach     bool
 	)
 
 	cmd := &cobra.Command{
@@ -33,13 +34,14 @@ func newRunCommand(e *env) *cobra.Command {
 			"Podium's own progress lines go to stderr. The exit status is the task's own\n" +
 			"exit code, or 125 when the task never produced one, or 130 when it was cancelled.",
 		Example: "  podium run --image alpine:3 -- sh -c 'echo hi; exit 3'\n" +
+			"  podium run --image alpine:3 --secret DB_PASSWORD -- sh -c 'echo $DB_PASSWORD'\n" +
 			"  podium run --spec task.yaml --detach",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			command := args
 			if dash := cmd.ArgsLenAtDash(); dash >= 0 {
 				command = args[dash:]
 			}
-			taskSpec, err := buildSpec(specFile, image, workdir, labels, envVars, timeout, command)
+			taskSpec, err := buildSpec(specFile, image, workdir, labels, envVars, secretRefs, timeout, command)
 			if err != nil {
 				return &ExitError{Code: ExitUsage, Err: err}
 			}
@@ -50,6 +52,8 @@ func newRunCommand(e *env) *cobra.Command {
 	cmd.Flags().StringVar(&image, "image", "", "container image to run")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "node label the task requires (repeatable)")
 	cmd.Flags().StringArrayVar(&envVars, "env", nil, "environment variable as KEY=VALUE (repeatable)")
+	cmd.Flags().StringArrayVar(&secretRefs, "secret", nil,
+		"secret to inject as NAME, NAME:env:KEY or NAME:file:/absolute/path (repeatable)")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "task timeout (default 1h)")
 	cmd.Flags().StringVar(&specFile, "spec", "", "task spec YAML file; flags override its fields")
 	cmd.Flags().StringVar(&workdir, "working-dir", "", "working directory inside the container (default /workspace)")
@@ -59,7 +63,12 @@ func newRunCommand(e *env) *cobra.Command {
 
 // buildSpec merges the spec file, if any, with the flags. Flags win, so a spec file is a
 // starting point rather than a straitjacket.
-func buildSpec(specFile, image, workdir string, labels, envVars []string, timeout time.Duration, command []string) (*spec.TaskSpec, error) {
+func buildSpec(
+	specFile, image, workdir string,
+	labels, envVars, secretRefs []string,
+	timeout time.Duration,
+	command []string,
+) (*spec.TaskSpec, error) {
 	out := &spec.TaskSpec{}
 	if specFile != "" {
 		f, err := os.Open(specFile) //nolint:gosec // the user names their own spec file
@@ -98,6 +107,13 @@ func buildSpec(specFile, image, workdir string, labels, envVars []string, timeou
 			out.Env = make(map[string]string)
 		}
 		out.Env[k] = v
+	}
+	for _, raw := range secretRefs {
+		ref, err := parseSecretRef(raw)
+		if err != nil {
+			return nil, err
+		}
+		out.Secrets = append(out.Secrets, ref)
 	}
 
 	out.ApplyDefaults()
@@ -188,6 +204,9 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 		// failed task as a success.
 		if task.ExitCode == nil {
 			if failure == "" {
+				failure = task.GetFailureReason()
+			}
+			if failure == "" {
 				failure = "task failed without an exit code"
 			}
 			e.note("failed: %s", failure)
@@ -203,6 +222,9 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 		e.note("cancelled after %s", elapsed.Round(100*time.Millisecond))
 		return &ExitError{Code: ExitCancelled}
 	default:
+		if failure == "" {
+			failure = task.GetFailureReason()
+		}
 		if failure == "" {
 			failure = "task ended " + taskStatusName(task.GetStatus()) + " without an exit code"
 		}

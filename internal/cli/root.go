@@ -88,6 +88,7 @@ func NewRootCommand() *cobra.Command {
 		newLogsCommand(e),
 		newNodesCommand(e),
 		newNodeCommand(e),
+		newSecretCommand(e),
 		newVersionCommand(e),
 	)
 	return root
@@ -115,8 +116,8 @@ func (e *env) note(format string, args ...any) {
 	fmt.Fprintln(e.stderr, msg)
 }
 
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
+func isTerminal(v any) bool {
+	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"time"
 
@@ -33,23 +34,62 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 		return
 	}
 	n.logger.Info("task assigned", "task_id", taskID, "lease_id", a.GetLeaseId(),
-		"image", a.GetSpec().GetImage())
+		"image", a.GetSpec().GetImage(), "secrets", len(a.GetResolvedSecrets()))
+
+	// The redactor and the executor each take their own copy of the values, so the
+	// Assign's own plaintext can be scrubbed here and never outlive this call.
+	red := newRedactor(a.GetResolvedSecrets())
+	injected := requestSecrets(a.GetResolvedSecrets())
+	for _, rs := range a.GetResolvedSecrets() {
+		zeroBytes(rs.GetValue())
+	}
 
 	taskSpec := spec.FromProto(a.GetSpec())
-	go n.execute(buf, func(events chan<- docker.Event) error {
+	go n.execute(buf, red, func(events chan<- docker.Event) error {
 		_, err := n.exec.Run(n.runCtx, docker.Request{
 			TaskID:  taskID,
 			LeaseID: a.GetLeaseId(),
 			Spec:    *taskSpec,
+			Secrets: injected,
 		}, events)
 		return err
 	})
 }
 
+// requestSecrets copies the resolved secrets onto the executor's own type, with their own
+// copy of every value.
+func requestSecrets(resolved []*podiumv1.ResolvedSecret) []docker.Secret {
+	if len(resolved) == 0 {
+		return nil
+	}
+	out := make([]docker.Secret, 0, len(resolved))
+	for _, s := range resolved {
+		out = append(out, docker.Secret{
+			Name:   s.GetName(),
+			Target: s.GetTarget(),
+			Key:    s.GetKey(),
+			Value:  bytes.Clone(s.GetValue()),
+		})
+	}
+	return out
+}
+
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // adoptTask takes over a container the previous incarnation of the daemon started.
+//
+// An adopted task gets no redactor: the values were in the previous incarnation's memory
+// and are gone with it. Anything the container prints from here on reaches the server
+// unredacted. The container's own copies — its environment and its mounted files — are
+// untouched, so the task keeps working; it is only the defence-in-depth log filter that
+// does not survive a node restart. See the step 09 hand-off notes.
 func (n *Node) adoptTask(buf *buffer) {
 	stdout, stderr := buf.ackedBytes()
-	n.execute(buf, func(events chan<- docker.Event) error {
+	n.execute(buf, nil, func(events chan<- docker.Event) error {
 		_, err := n.exec.Adopt(n.runCtx, docker.AdoptRequest{
 			TaskID:     buf.taskID,
 			LeaseID:    buf.leaseID,
@@ -72,7 +112,7 @@ type pendingLog struct {
 // execute drives one container run: it consumes the executor's event channel, coalesces
 // log chunks, buffers every event for replay, and once the server has acked the last one
 // tears the task's resources down and frees the slot.
-func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
+func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event) error) {
 	events := make(chan docker.Event, 256)
 	done := make(chan error, 1)
 	go func() { done <- run(events) }()
@@ -81,11 +121,26 @@ func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
 	defer ticker.Stop()
 
 	var pend pendingLog
+	// flush emits what has been coalesced so far, redacted. The redactor may hold a few
+	// trailing bytes back to catch a secret straddling this boundary; closeRun releases
+	// them. The source is kept so closeRun knows whose carry to drain.
 	flush := func() {
 		if len(pend.data) == 0 {
 			return
 		}
-		n.push(buf, logEvent(pend.stream, pend.sidecar, pend.data))
+		out := red.redact(pend.stream, pend.sidecar, pend.data)
+		pend.data = nil
+		if len(out) > 0 {
+			n.push(buf, logEvent(pend.stream, pend.sidecar, out))
+		}
+	}
+	// closeRun ends a source's run of output: flush, then release whatever the redactor
+	// was holding, so no bytes are stranded and nothing is emitted after `finished`.
+	closeRun := func() {
+		flush()
+		if tail := red.flush(pend.stream, pend.sidecar); len(tail) > 0 {
+			n.push(buf, logEvent(pend.stream, pend.sidecar, tail))
+		}
 		pend = pendingLog{}
 	}
 
@@ -93,7 +148,7 @@ func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
 	for open := true; open; {
 		select {
 		case ev := <-events:
-			n.consume(buf, ev, &pend, flush)
+			n.consume(buf, ev, &pend, flush, closeRun)
 		case <-ticker.C:
 			flush()
 		case runErr = <-done:
@@ -107,12 +162,12 @@ func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
 	for drained := false; !drained; {
 		select {
 		case ev := <-events:
-			n.consume(buf, ev, &pend, flush)
+			n.consume(buf, ev, &pend, flush, closeRun)
 		default:
 			drained = true
 		}
 	}
-	flush()
+	closeRun()
 	buf.flushState()
 
 	high := buf.high()
@@ -143,14 +198,14 @@ func (n *Node) execute(buf *buffer, run func(chan<- docker.Event) error) {
 // consume turns one executor event into buffered wire events. Log chunks accumulate into
 // the pending run; anything else flushes that run first so the ordering the executor
 // produced survives on the wire.
-func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush func()) {
+func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush, closeRun func()) {
 	if ev.Kind == docker.KindLog {
 		p, ok := ev.Payload.(docker.LogPayload)
 		if !ok {
 			return
 		}
 		if pend.stream != "" && (pend.stream != p.Stream || pend.sidecar != p.Sidecar) {
-			flush()
+			closeRun()
 		}
 		pend.stream, pend.sidecar = p.Stream, p.Sidecar
 		pend.data = append(pend.data, p.Bytes...)
@@ -159,7 +214,7 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush fun
 		}
 		return
 	}
-	flush()
+	closeRun()
 	n.push(buf, toWire(ev))
 }
 

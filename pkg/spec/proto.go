@@ -28,6 +28,14 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 	if s.Timeout != 0 {
 		p.Timeout = durationpb.New(s.Timeout.Std())
 	}
+	if len(s.Secrets) > 0 {
+		p.Secrets = make([]*podiumv1.SecretRef, 0, len(s.Secrets))
+		for _, ref := range s.Secrets {
+			p.Secrets = append(p.Secrets, &podiumv1.SecretRef{
+				Name: ref.Name, Target: ref.Target, Key: ref.Key,
+			})
+		}
+	}
 	if len(s.Sidecars) > 0 {
 		p.Sidecars = make(map[string]*podiumv1.Sidecar, len(s.Sidecars))
 		for name, sc := range s.Sidecars {
@@ -56,6 +64,14 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 	}
 	if t := p.GetTimeout(); t != nil {
 		s.Timeout = Duration(t.AsDuration())
+	}
+	if len(p.GetSecrets()) > 0 {
+		s.Secrets = make([]SecretRef, 0, len(p.GetSecrets()))
+		for _, ref := range p.GetSecrets() {
+			s.Secrets = append(s.Secrets, SecretRef{
+				Name: ref.GetName(), Target: ref.GetTarget(), Key: ref.GetKey(),
+			})
+		}
 	}
 	if len(p.GetSidecars()) > 0 {
 		s.Sidecars = make(map[string]Sidecar, len(p.GetSidecars()))

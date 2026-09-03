@@ -79,11 +79,29 @@ message Heartbeat {
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
 // within 15s or the server revokes the lease and reschedules.
+//
+// SENSITIVE: resolved_secrets carries plaintext secret values. Never log an Assign
+// directly — every log site goes through podiumv1.RedactForLog, which clears the field.
 message Assign {
   string task_id = 1;
   string lease_id = 2;
   TaskSpec spec = 3;
   google.protobuf.Timestamp deadline = 4;
+  // SENSITIVE: never log. The values live in node memory and in the task container, and
+  // nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=dev
+  // is loopback-only for exactly this reason.
+  repeated ResolvedSecret resolved_secrets = 5;
+}
+
+// ResolvedSecret is one SecretRef with its plaintext value attached.
+message ResolvedSecret {
+  string name = 1;
+  // target is "env" or "file", copied from the SecretRef that asked for it.
+  string target = 2;
+  // key is the environment variable name, or the absolute path inside the container.
+  string key = 3;
+  // SENSITIVE: never log.
+  bytes value = 4;
 }
 
 // Ack is the per-task high-water mark; the node may drop buffered events with seq <= this.

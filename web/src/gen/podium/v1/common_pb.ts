@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/common.proto.
  */
 export const file_podium_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("ChZwb2RpdW0vdjEvY29tbW9uLnByb3RvEglwb2RpdW0udjEitAMKCFRhc2tTcGVjEg0KBWltYWdlGAEgASgJEg8KB2NvbW1hbmQYAiADKAkSEwoLd29ya2luZ19kaXIYAyABKAkSKQoDZW52GAQgAygLMhwucG9kaXVtLnYxLlRhc2tTcGVjLkVudkVudHJ5Eg4KBmxhYmVscxgFIAMoCRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhQKDG1heF9hdHRlbXB0cxgHIAEoBRIzCghzaWRlY2FycxgIIAMoCzIhLnBvZGl1bS52MS5UYXNrU3BlYy5TaWRlY2Fyc0VudHJ5EicKCXJlc291cmNlcxgJIAEoCzIULnBvZGl1bS52MS5SZXNvdXJjZXMSJwoJaGFyZGVuaW5nGAogASgLMhQucG9kaXVtLnYxLkhhcmRlbmluZxoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGkMKDVNpZGVjYXJzRW50cnkSCwoDa2V5GAEgASgJEiEKBXZhbHVlGAIgASgLMhIucG9kaXVtLnYxLlNpZGVjYXI6AjgBIjkKCVJlc291cmNlcxILCgNjcHUYASABKAESEQoJbWVtb3J5X21iGAIgASgDEgwKBHBpZHMYAyABKAUigAEKCVJlYWRpbmVzcxIQCgh0Y3BfcG9ydBgBIAEoBRIRCglodHRwX3BhdGgYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgFEg8KB2NvbW1hbmQYBCADKAkSKgoHdGltZW91dBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiLRAQoHU2lkZWNhchINCgVpbWFnZRgBIAEoCRIPCgdjb21tYW5kGAIgAygJEigKA2VudhgDIAMoCzIbLnBvZGl1bS52MS5TaWRlY2FyLkVudkVudHJ5EicKCXJlYWRpbmVzcxgEIAEoCzIULnBvZGl1bS52MS5SZWFkaW5lc3MSJwoJcmVzb3VyY2VzGAUgASgLMhQucG9kaXVtLnYxLlJlc291cmNlcxoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIjsKCUhhcmRlbmluZxIYChByZWFkX29ubHlfcm9vdGZzGAEgASgIEhQKDGNhcGFiaWxpdGllcxgCIAMoCSJFCgVVc2FnZRITCgtjcHVfc2Vjb25kcxgBIAEoARIWCg5wZWFrX21lbW9yeV9tYhgCIAEoAxIPCgd3YWxsX21zGAMgASgDIkcKDE5vZGVDYXBhY2l0eRIRCgltYXhfdGFza3MYASABKAUSEQoJY3B1X2NvcmVzGAIgASgFEhEKCW1lbW9yeV9tYhgDIAEoAyr3AQoKVGFza1N0YXR1cxIbChdUQVNLX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElRBU0tfU1RBVFVTX1FVRVVFRBABEhkKFVRBU0tfU1RBVFVTX1NDSEVEVUxFRBACEhwKGFRBU0tfU1RBVFVTX1BST1ZJU0lPTklORxADEhcKE1RBU0tfU1RBVFVTX1JVTk5JTkcQBBIZChVUQVNLX1NUQVRVU19TVUNDRUVERUQQBRIWChJUQVNLX1NUQVRVU19GQUlMRUQQBhIZChVUQVNLX1NUQVRVU19DQU5DRUxMRUQQBxIUChBUQVNLX1NUQVRVU19MT1NUEAgqkQEKCk5vZGVTdGF0dXMSGwoXTk9ERV9TVEFUVVNfVU5TUEVDSUZJRUQQABIWChJOT0RFX1NUQVRVU19PTkxJTkUQARIbChdOT0RFX1NUQVRVU19VTlJFQUNIQUJMRRACEhcKE05PREVfU1RBVFVTX09GRkxJTkUQAxIYChROT0RFX1NUQVRVU19EUkFJTklORxAEQqUBCg1jb20ucG9kaXVtLnYxQgtDb21tb25Qcm90b1ABWkJnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_duration]);
+  fileDesc("ChZwb2RpdW0vdjEvY29tbW9uLnByb3RvEglwb2RpdW0udjEi2wMKCFRhc2tTcGVjEg0KBWltYWdlGAEgASgJEg8KB2NvbW1hbmQYAiADKAkSEwoLd29ya2luZ19kaXIYAyABKAkSKQoDZW52GAQgAygLMhwucG9kaXVtLnYxLlRhc2tTcGVjLkVudkVudHJ5Eg4KBmxhYmVscxgFIAMoCRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhQKDG1heF9hdHRlbXB0cxgHIAEoBRIzCghzaWRlY2FycxgIIAMoCzIhLnBvZGl1bS52MS5UYXNrU3BlYy5TaWRlY2Fyc0VudHJ5EicKCXJlc291cmNlcxgJIAEoCzIULnBvZGl1bS52MS5SZXNvdXJjZXMSJwoJaGFyZGVuaW5nGAogASgLMhQucG9kaXVtLnYxLkhhcmRlbmluZxIlCgdzZWNyZXRzGAsgAygLMhQucG9kaXVtLnYxLlNlY3JldFJlZhoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGkMKDVNpZGVjYXJzRW50cnkSCwoDa2V5GAEgASgJEiEKBXZhbHVlGAIgASgLMhIucG9kaXVtLnYxLlNpZGVjYXI6AjgBIjYKCVNlY3JldFJlZhIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkiOQoJUmVzb3VyY2VzEgsKA2NwdRgBIAEoARIRCgltZW1vcnlfbWIYAiABKAMSDAoEcGlkcxgDIAEoBSKAAQoJUmVhZGluZXNzEhAKCHRjcF9wb3J0GAEgASgFEhEKCWh0dHBfcGF0aBgCIAEoCRIRCglodHRwX3BvcnQYAyABKAUSDwoHY29tbWFuZBgEIAMoCRIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uItEBCgdTaWRlY2FyEg0KBWltYWdlGAEgASgJEg8KB2NvbW1hbmQYAiADKAkSKAoDZW52GAMgAygLMhsucG9kaXVtLnYxLlNpZGVjYXIuRW52RW50cnkSJwoJcmVhZGluZXNzGAQgASgLMhQucG9kaXVtLnYxLlJlYWRpbmVzcxInCglyZXNvdXJjZXMYBSABKAsyFC5wb2RpdW0udjEuUmVzb3VyY2VzGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiOwoJSGFyZGVuaW5nEhgKEHJlYWRfb25seV9yb290ZnMYASABKAgSFAoMY2FwYWJpbGl0aWVzGAIgAygJIkUKBVVzYWdlEhMKC2NwdV9zZWNvbmRzGAEgASgBEhYKDnBlYWtfbWVtb3J5X21iGAIgASgDEg8KB3dhbGxfbXMYAyABKAMiRwoMTm9kZUNhcGFjaXR5EhEKCW1heF90YXNrcxgBIAEoBRIRCgljcHVfY29yZXMYAiABKAUSEQoJbWVtb3J5X21iGAMgASgDKvcBCgpUYXNrU3RhdHVzEhsKF1RBU0tfU1RBVFVTX1VOU1BFQ0lGSUVEEAASFgoSVEFTS19TVEFUVVNfUVVFVUVEEAESGQoVVEFTS19TVEFUVVNfU0NIRURVTEVEEAISHAoYVEFTS19TVEFUVVNfUFJPVklTSU9OSU5HEAMSFwoTVEFTS19TVEFUVVNfUlVOTklORxAEEhkKFVRBU0tfU1RBVFVTX1NVQ0NFRURFRBAFEhYKElRBU0tfU1RBVFVTX0ZBSUxFRBAGEhkKFVRBU0tfU1RBVFVTX0NBTkNFTExFRBAHEhQKEFRBU0tfU1RBVFVTX0xPU1QQCCqRAQoKTm9kZVN0YXR1cxIbChdOT0RFX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKEk5PREVfU1RBVFVTX09OTElORRABEhsKF05PREVfU1RBVFVTX1VOUkVBQ0hBQkxFEAISFwoTTk9ERV9TVEFUVVNfT0ZGTElORRADEhgKFE5PREVfU1RBVFVTX0RSQUlOSU5HEARCpQEKDWNvbS5wb2RpdW0udjFCC0NvbW1vblByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration]);
 
 /**
  * TaskSpec is the wire form of pkg/spec.TaskSpec.
@@ -85,6 +85,14 @@ export type TaskSpec = Message<"podium.v1.TaskSpec"> & {
    * @generated from field: podium.v1.Hardening hardening = 10;
    */
   hardening?: Hardening | undefined;
+
+  /**
+   * Named secrets the task needs. The spec carries names only; the values are resolved
+   * by the server immediately before the assignment and never stored on the task.
+   *
+   * @generated from field: repeated podium.v1.SecretRef secrets = 11;
+   */
+  secrets: SecretRef[];
 };
 
 /**
@@ -93,6 +101,43 @@ export type TaskSpec = Message<"podium.v1.TaskSpec"> & {
  */
 export const TaskSpecSchema: GenMessage<TaskSpec> = /*@__PURE__*/
   messageDesc(file_podium_v1_common, 0);
+
+/**
+ * SecretRef names a stored secret and says where the task wants it. Nothing here is
+ * sensitive: it is the name of a value, never the value.
+ *
+ * @generated from message podium.v1.SecretRef
+ */
+export type SecretRef = Message<"podium.v1.SecretRef"> & {
+  /**
+   * name is the key the secret is stored under.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * target is "env" or "file".
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * key is the environment variable name for target "env", or the absolute path the
+   * value is mounted at for target "file".
+   *
+   * @generated from field: string key = 3;
+   */
+  key: string;
+};
+
+/**
+ * Describes the message podium.v1.SecretRef.
+ * Use `create(SecretRefSchema)` to create a new message.
+ */
+export const SecretRefSchema: GenMessage<SecretRef> = /*@__PURE__*/
+  messageDesc(file_podium_v1_common, 1);
 
 /**
  * Resources caps one container. The node applies the limits blindly; refusing a task that
@@ -128,7 +173,7 @@ export type Resources = Message<"podium.v1.Resources"> & {
  * Use `create(ResourcesSchema)` to create a new message.
  */
 export const ResourcesSchema: GenMessage<Resources> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 1);
+  messageDesc(file_podium_v1_common, 2);
 
 /**
  * Readiness is how the node decides a sidecar is usable. At most one probe may be set; a
@@ -172,7 +217,7 @@ export type Readiness = Message<"podium.v1.Readiness"> & {
  * Use `create(ReadinessSchema)` to create a new message.
  */
 export const ReadinessSchema: GenMessage<Readiness> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 2);
+  messageDesc(file_podium_v1_common, 3);
 
 /**
  * Sidecar is a sibling container on the task's network.
@@ -211,7 +256,7 @@ export type Sidecar = Message<"podium.v1.Sidecar"> & {
  * Use `create(SidecarSchema)` to create a new message.
  */
 export const SidecarSchema: GenMessage<Sidecar> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 3);
+  messageDesc(file_podium_v1_common, 4);
 
 /**
  * Hardening relaxes or tightens the task container's sandbox.
@@ -240,7 +285,7 @@ export type Hardening = Message<"podium.v1.Hardening"> & {
  * Use `create(HardeningSchema)` to create a new message.
  */
 export const HardeningSchema: GenMessage<Hardening> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 4);
+  messageDesc(file_podium_v1_common, 5);
 
 /**
  * Usage is the resource accounting reported when a task finishes.
@@ -269,7 +314,7 @@ export type Usage = Message<"podium.v1.Usage"> & {
  * Use `create(UsageSchema)` to create a new message.
  */
 export const UsageSchema: GenMessage<Usage> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 5);
+  messageDesc(file_podium_v1_common, 6);
 
 /**
  * NodeCapacity is what a node advertises in Hello and what ListNodes reports back.
@@ -298,7 +343,7 @@ export type NodeCapacity = Message<"podium.v1.NodeCapacity"> & {
  * Use `create(NodeCapacitySchema)` to create a new message.
  */
 export const NodeCapacitySchema: GenMessage<NodeCapacity> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 6);
+  messageDesc(file_podium_v1_common, 7);
 
 /**
  * TaskStatus mirrors the tasks.status column.

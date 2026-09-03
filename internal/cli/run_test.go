@@ -13,7 +13,7 @@ import (
 )
 
 func TestBuildSpecFromFlags(t *testing.T) {
-	got, err := buildSpec("", "alpine:3", "", []string{"linux/arm64"}, []string{"A=1", "B=2"},
+	got, err := buildSpec("", "alpine:3", "", []string{"linux/arm64"}, []string{"A=1", "B=2"}, nil,
 		90*time.Second, []string{"sh", "-c", "echo hi"})
 	require.NoError(t, err)
 	require.Equal(t, "alpine:3", got.Image)
@@ -30,7 +30,7 @@ func TestBuildSpecFlagsOverrideTheSpecFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(
 		"image: alpine:3\ncommand: [true]\nworking_dir: /srv\nenv:\n  A: from-file\n"), 0o600))
 
-	got, err := buildSpec(path, "busybox:1", "", nil, []string{"A=from-flag"}, 0, []string{"false"})
+	got, err := buildSpec(path, "busybox:1", "", nil, []string{"A=from-flag"}, nil, 0, []string{"false"})
 	require.NoError(t, err)
 	require.Equal(t, "busybox:1", got.Image)
 	require.Equal(t, []string{"false"}, got.Command)
@@ -39,10 +39,10 @@ func TestBuildSpecFlagsOverrideTheSpecFile(t *testing.T) {
 }
 
 func TestBuildSpecRejectsBadInput(t *testing.T) {
-	_, err := buildSpec("", "", "", nil, nil, 0, []string{"true"})
+	_, err := buildSpec("", "", "", nil, nil, nil, 0, []string{"true"})
 	require.ErrorContains(t, err, "image is required")
 
-	_, err = buildSpec("", "alpine:3", "", nil, []string{"NOTKV"}, 0, nil)
+	_, err = buildSpec("", "alpine:3", "", nil, []string{"NOTKV"}, nil, 0, nil)
 	require.ErrorContains(t, err, "not KEY=VALUE")
 }
 
@@ -64,7 +64,7 @@ func TestShippedExamplesParse(t *testing.T) {
 
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
-			s, err := buildSpec(p, "", "", nil, nil, 0, nil)
+			s, err := buildSpec(p, "", "", nil, nil, nil, 0, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, s.Image)
 		})
@@ -72,7 +72,7 @@ func TestShippedExamplesParse(t *testing.T) {
 }
 
 func TestPostgresSidecarExampleShape(t *testing.T) {
-	s, err := buildSpec(filepath.Join("..", "..", "examples", "postgres-sidecar.yaml"), "", "", nil, nil, 0, nil)
+	s, err := buildSpec(filepath.Join("..", "..", "examples", "postgres-sidecar.yaml"), "", "", nil, nil, nil, 0, nil)
 	require.NoError(t, err)
 
 	require.Contains(t, s.Sidecars, "db")

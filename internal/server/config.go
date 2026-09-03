@@ -31,6 +31,16 @@ type Config struct {
 	// DevToken is PODIUM_DEV_TOKEN, the shared bearer token of the dev transport.
 	DevToken string
 
+	// MasterKeyFile is PODIUM_MASTER_KEY_FILE: the file holding the 32-byte AES-256 key
+	// every stored secret is encrypted under. The file must not be readable by other
+	// accounts on the machine or the server refuses to start. Empty disables secrets.
+	MasterKeyFile string
+	// MasterKey is PODIUM_MASTER_KEY, the same key inline. It is a development
+	// convenience — an environment variable is visible in /proc and in `docker inspect` —
+	// and the server warns loudly when it is used. MasterKeyFile wins if both are set.
+	// SENSITIVE: never log it.
+	MasterKey string
+
 	// TSHostname is PODIUM_TS_HOSTNAME: the Tailscale device name, and therefore the first
 	// label of the MagicDNS name the server is reached at.
 	TSHostname string
@@ -57,6 +67,8 @@ func ConfigFromEnv() Config {
 		Transport:            envOr("PODIUM_TRANSPORT", TransportDev),
 		DevListen:            envOr("PODIUM_DEV_LISTEN", dev.DefaultListen),
 		DevToken:             os.Getenv("PODIUM_DEV_TOKEN"),
+		MasterKeyFile:        os.Getenv("PODIUM_MASTER_KEY_FILE"),
+		MasterKey:            os.Getenv("PODIUM_MASTER_KEY"),
 		TSHostname:           envOr("PODIUM_TS_HOSTNAME", tailnet.DefaultHostname),
 		TSStateDir:           envOr("PODIUM_TS_STATE_DIR", tailnet.DefaultStateDir),
 		TSAuthKey:            os.Getenv("TS_AUTHKEY"),

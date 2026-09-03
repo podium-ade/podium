@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+type AuditLog struct {
+	ID      int64
+	Ts      time.Time
+	Actor   string
+	Action  string
+	Subject string
+	Details []byte
+}
+
 type EnrollmentToken struct {
 	ID           string
 	TokenHash    []byte
@@ -31,6 +40,16 @@ type Node struct {
 	LastHeartbeatAt *time.Time
 	CreatedAt       time.Time
 	TsStableID      *string
+}
+
+type Secret struct {
+	Name       string
+	Ciphertext []byte
+	Nonce      []byte
+	Version    int32
+	KeyID      string
+	CreatedBy  string
+	UpdatedAt  time.Time
 }
 
 type Task struct {

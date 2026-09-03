@@ -98,7 +98,7 @@ Podium enrollment token are not the same thing).
 - **[docs/networking.md](docs/networking.md)** — the tailnet transport, identity, ACL, the two keys
 - **[docs/node-setup.md](docs/node-setup.md)** — setting up a worker node
 - [docs/cli.md](docs/cli.md) — CLI reference, exit codes and streams (contractual)
-- [docs/task-spec.md](docs/task-spec.md) — the task spec: sidecars, readiness, limits, hardening
+- [docs/task-spec.md](docs/task-spec.md) — the task spec: secrets, sidecars, readiness, limits, hardening
 - [docs/protocol.md](docs/protocol.md) — the node↔server stream, event ordering and acks
 - [docs/runner-events.md](docs/runner-events.md) — `podium-runner` as PID 1 and its event socket
 
@@ -112,11 +112,17 @@ Podium enrollment token are not the same thing).
 | `PODIUM_TRANSPORT` | `dev` (default), `tailnet`, or `host` |
 | `PODIUM_DEV_LISTEN` | `dev` only. `127.0.0.1:8080`; must be loopback or the server refuses to start |
 | `PODIUM_DEV_TOKEN` | **required** for `dev` — the shared bearer token |
+| `PODIUM_MASTER_KEY_FILE` | the 32-byte AES key secrets are encrypted under. Must be mode `0600`/`0400`. Unset means secrets are unavailable |
+| `PODIUM_MASTER_KEY` | the same key inline, for development only; the server warns loudly |
 | `TS_AUTHKEY` | `tailnet` only, first run — a reusable, pre-approved key tagged `tag:podium-server` |
 | `PODIUM_TS_HOSTNAME` | `podium`. The device name, and the first label of the MagicDNS name |
 | `PODIUM_TS_STATE_DIR` | `/var/lib/podium/tsnet`. **Must persist**, or the server re-registers as a new device |
 | `PODIUM_TS_REQUIRED_NODE_TAG` | `tag:podium-node`. Which tag makes a device a worker |
 | `PODIUM_TS_ALLOW_UNTAGGED_NODES` | `false`. Escape hatch for a tailnet with no tags; warns loudly |
+
+`podium-server` also has two subcommands: `gen-master-key` mints a key for
+`PODIUM_MASTER_KEY_FILE`, and `rotate-master-key --old FILE --new FILE` re-encrypts every stored
+secret under a new one. See [docs/cli.md](docs/cli.md#secrets-at-rest).
 
 `/healthz`, `/readyz` and `/metrics` are open. Under `dev` every RPC requires
 `Authorization: Bearer`; under `tailnet` identity comes from the connection and no RPC takes a
@@ -149,9 +155,13 @@ This is an early slice. Known and deliberate:
 - **The tailnet transport is unproven in the wild.** It is implemented and unit-tested, but it
   has not yet been run against a real tailnet — that needs tagged auth keys and HTTPS enabled on
   the tailnet. The `host` transport is likewise unverified. The `dev` transport is the tested one.
-- **No secrets and no artifacts.** Sidecars, resource limits and container hardening are
-  implemented — see [`docs/task-spec.md`](docs/task-spec.md) — but a task cannot yet be given a
-  credential, and nothing it produces is collected.
+- **No artifacts.** Secrets, sidecars, resource limits and container hardening are implemented
+  — see [`docs/task-spec.md`](docs/task-spec.md) — but nothing a task produces is collected.
+- **Secrets have no UI and no per-sidecar refs.** `podium secret set/ls/rm` and
+  `--secret NAME[:env:KEY|:file:/path]` are the whole surface; the web UI has no Secrets screen,
+  a sidecar cannot reference a secret of its own, and log redaction is best-effort string
+  matching rather than a guarantee — see
+  [`docs/task-spec.md`](docs/task-spec.md#redaction).
 - **No egress policy.** A task's network reaches its own sidecars and the internet, and nothing
   else on the host or the tailnet. Narrowing that is not implemented.
 - **A CPU limit is not visible inside the container.** `nproc` reports the host's cores whatever

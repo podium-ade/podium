@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -44,12 +45,38 @@ type TaskSpec struct {
 	Command     []string           `yaml:"command,omitempty" json:"command,omitempty"`
 	WorkingDir  string             `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
 	Env         map[string]string  `yaml:"env,omitempty" json:"env,omitempty"`
+	Secrets     []SecretRef        `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Sidecars    map[string]Sidecar `yaml:"sidecars,omitempty" json:"sidecars,omitempty"`
 	Resources   Resources          `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Hardening   Hardening          `yaml:"hardening,omitempty" json:"hardening,omitempty"`
 	Labels      []string           `yaml:"labels,omitempty" json:"labels,omitempty"`
 	Timeout     Duration           `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	MaxAttempts int                `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
+}
+
+// Secret targets. A ref says where in the container the value should appear, never what
+// the value is.
+const (
+	// SecretTargetEnv puts the value in an environment variable named by Key.
+	SecretTargetEnv = "env"
+	// SecretTargetFile mounts the value read-only at the absolute path named by Key.
+	SecretTargetFile = "file"
+)
+
+// DefaultSecretTarget is what ApplyDefaults fills an unset target with.
+const DefaultSecretTarget = SecretTargetEnv
+
+// SecretsMount is the tmpfs every task container gets for secret files. A file target
+// outside it works, but this is the path the docs use and the only one guaranteed to be
+// writable, non-executable and gone when the container is.
+const SecretsMount = "/podium/secrets"
+
+// SecretRef names a stored secret and says where the task wants it. It carries the name
+// of a value, never the value: the server resolves it immediately before assignment.
+type SecretRef struct {
+	Name   string `yaml:"name" json:"name"`
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
+	Key    string `yaml:"key" json:"key"`
 }
 
 // Sidecar is a sibling container started before the task and reachable from it by the
@@ -120,6 +147,11 @@ func (s *TaskSpec) ApplyDefaults() {
 	if s.MaxAttempts == 0 {
 		s.MaxAttempts = DefaultMaxAttempts
 	}
+	for i := range s.Secrets {
+		if s.Secrets[i].Target == "" {
+			s.Secrets[i].Target = DefaultSecretTarget
+		}
+	}
 	s.Resources.applyDefaults()
 	for name, sc := range s.Sidecars {
 		sc.Resources.applyDefaults()
@@ -159,8 +191,54 @@ func (s *TaskSpec) Validate() error {
 	}
 	errs = append(errs, s.Resources.validate("resources")...)
 	errs = append(errs, s.Hardening.validate()...)
+	errs = append(errs, s.validateSecrets()...)
 	errs = append(errs, s.validateSidecars()...)
 	return errors.Join(errs...)
+}
+
+// SecretNameRE is the shape of a secret name. It is deliberately narrow: a name reaches
+// the node as a filename on the way to a file-target mount, and it is what appears in a
+// redaction marker in stored logs.
+var SecretNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+
+func (s *TaskSpec) validateSecrets() []error {
+	var errs []error
+	for i, ref := range s.Secrets {
+		field := fmt.Sprintf("secrets[%d]", i)
+		switch {
+		case ref.Name == "":
+			errs = append(errs, fmt.Errorf("%s.name is required", field))
+		case !SecretNameRE.MatchString(ref.Name):
+			errs = append(errs, fmt.Errorf("%s.name %q is not a valid secret name (%s)",
+				field, ref.Name, SecretNameRE.String()))
+		}
+		switch ref.Target {
+		case SecretTargetEnv:
+			switch {
+			case ref.Key == "":
+				errs = append(errs, fmt.Errorf("%s.key is required: name the environment variable to set", field))
+			case !envKeyRE.MatchString(ref.Key):
+				errs = append(errs, fmt.Errorf("%s.key %q is not a valid shell identifier", field, ref.Key))
+			}
+		case SecretTargetFile:
+			switch {
+			case ref.Key == "":
+				errs = append(errs, fmt.Errorf(
+					"%s.key is required: name the absolute path to mount the value at (%s/... is the tmpfs every task gets)",
+					field, SecretsMount))
+			case !path.IsAbs(ref.Key):
+				errs = append(errs, fmt.Errorf("%s.key %q must be an absolute path", field, ref.Key))
+			case path.Clean(ref.Key) != ref.Key:
+				errs = append(errs, fmt.Errorf("%s.key %q must be a clean path", field, ref.Key))
+			}
+		case "":
+			errs = append(errs, fmt.Errorf("%s.target is required (%s or %s)", field, SecretTargetEnv, SecretTargetFile))
+		default:
+			errs = append(errs, fmt.Errorf("%s.target %q is not a secret target (want %s or %s)",
+				field, ref.Target, SecretTargetEnv, SecretTargetFile))
+		}
+	}
+	return errs
 }
 
 func (s *TaskSpec) validateSidecars() []error {
