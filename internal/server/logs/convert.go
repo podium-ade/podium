@@ -24,6 +24,7 @@ const (
 	KindExited       = "exited"
 	KindFinished     = "finished"
 	KindError        = "error"
+	KindMessage      = "message"
 )
 
 var kindNames = map[podiumv1.TaskEventKind]string{
@@ -36,6 +37,7 @@ var kindNames = map[podiumv1.TaskEventKind]string{
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_EXITED:       KindExited,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:     KindFinished,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:        KindError,
+	podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:      KindMessage,
 }
 
 var kindValues = func() map[string]podiumv1.TaskEventKind {
@@ -70,7 +72,18 @@ func KindString(k podiumv1.TaskEventKind) string {
 
 // payloadJSON renders an event's oneof payload as protojson. Kinds that carry no payload —
 // provisioning, pulling and started — store an empty object.
+//
+// A message is the one payload rendered with EmitDefaultValues, so `attachments` is always
+// an empty array rather than absent: every relay reads that field and none of them should
+// need a nil check for a task that attached nothing.
 func payloadJSON(e *podiumv1.TaskEvent) (json.RawMessage, error) {
+	if msg := e.GetMessage(); msg != nil {
+		b, err := (protojson.MarshalOptions{EmitDefaultValues: true}).Marshal(msg)
+		if err != nil {
+			return nil, fmt.Errorf("marshal %s payload: %w", KindString(e.GetKind()), err)
+		}
+		return b, nil
+	}
 	var m proto.Message
 	switch {
 	case e.GetStep() != nil:
@@ -154,6 +167,12 @@ func eventToProto(taskID string, row store.Event) (*podiumv1.TaskEvent, error) {
 			return nil, err
 		}
 		out.Payload = &podiumv1.TaskEvent_Artifact{Artifact: p}
+	case KindMessage:
+		p := &podiumv1.Message{}
+		if err := unmarshal(p); err != nil {
+			return nil, err
+		}
+		out.Payload = &podiumv1.TaskEvent_Message{Message: p}
 	}
 	return out, nil
 }

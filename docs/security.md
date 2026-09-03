@@ -68,9 +68,17 @@ What that does **not** buy you:
   the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task.
 - **The runner event socket is world-writable inside the container** (mode 0666, so that a task
   running as a non-root user can report). Any process in the task container can therefore forge
-  `step` and `artifact` events. Today that only produces cosmetic log entries and an artifact
-  upload the task could have made anyway; it becomes a real problem the moment those events
-  drive server-side state.
+  `step`, `artifact` and `message` events. Today that only produces cosmetic log entries and an
+  artifact upload the task could have made anyway; it becomes a real problem the moment those
+  events drive server-side state.
+- **A `message` event's text is untrusted content, and it is not redacted.** A task can forge a
+  `message` of any type, with any text, naming any attachment. None of it drives server state —
+  no status transition, no storage beyond the `task_events` row — but the text is written by an
+  untrusted process, and secret redaction does not apply to it: the node's redactor is a
+  log-chunk pipeline and never sees a message payload. **Every relay that posts a message
+  somewhere — Slack, Linear, a web chat — must treat the text as untrusted content from an
+  untrusted process, exactly as it would treat a log line.** Relay it; never interpret it, never
+  execute it, never let it name the channel it is posted to.
 
 ### 4. Anyone who can reach the API — **fully trusted, because there is no RBAC**
 
