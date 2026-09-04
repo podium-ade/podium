@@ -116,6 +116,76 @@ A sidecar is a sibling container on the task's private network, addressed by nam
 db` — started before the task and waited for. More in [`examples/`](examples): `hello.yaml`,
 `postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`.
 
+### Starting the agent layer
+
+The conductor is a second process. It is an ordinary API client of `podium-server`, with its own
+database and its own token, so the server has to be told where it is before the **Agent** tab
+appears in the UI.
+
+```sh
+docker exec podium-dev-postgres createdb -U podium podium_agent   # once
+make build agent-runtime                                          # + the three runtime images
+
+# the server needs these two, or /agent stays hidden
+PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken \
+  ./bin/podium-server &                                           # plus its usual variables
+
+PODIUM_AGENT_SERVER=http://127.0.0.1:8080 PODIUM_AGENT_API_TOKEN=devtoken \
+PODIUM_AGENT_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium_agent \
+PODIUM_AGENT_TOKEN=agenttoken PODIUM_AGENT_PROFILE_DIR=examples/agent \
+  ./bin/podium-agent &
+
+open http://127.0.0.1:8080/agent
+```
+
+Five variables are mandatory and the conductor names the missing one and exits:
+
+| | |
+|---|---|
+| `PODIUM_AGENT_SERVER` | the Podium API base URL |
+| `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`; empty on a tailnet, where WhoIs supplies identity |
+| `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
+| `PODIUM_AGENT_TOKEN` | the bearer `podium-server` presents on proxied `AgentService` calls. The same value goes in the server's environment |
+| `PODIUM_AGENT_PROFILE_DIR` | defaults to `/etc/podium/agent`, so in a checkout you must point it at `examples/agent`. Must contain `profile.yaml` |
+
+Everything else is optional and switches a feature on: both Slack tokens together (one alone is
+an error naming the other), `PODIUM_AGENT_LINEAR_API_KEY`, and the `PODIUM_AGENT_MEMORY_*` set.
+`PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090` — keep it on loopback, because the server
+proxies it and nothing else should reach it.
+
+**To get a real answer rather than a dry run** you also need an Anthropic key, set in **Agent →
+Settings**, which validates it against `GET /v1/models` and stores it as the Podium secret
+`podium.agent.anthropic_api_key`; and at least one enrolled node whose engine has the runtime
+images. Without a key the machinery runs end to end and returns a canned answer.
+
+Full reference, including the Slack app manifest and the Linear setup:
+**[docs/agent.md](docs/agent.md)**.
+
+### Things that will trip you up locally
+
+- **The dev token is stored per browser origin.** It lives in `localStorage` under
+  `podium.devToken`, so it persists — but `127.0.0.1:8080` and `localhost:8080` and any other
+  port are each a different origin with their own copy. Pick one address and stay on it, or you
+  will be asked for the token again every time.
+- **A secret is only readable under the master key it was written with.** `secrets.key_id` records
+  which one — the first eight bytes of the key's SHA-256. Point the server at a different
+  `PODIUM_MASTER_KEY_FILE` and listing still works, because that reads metadata only, but
+  resolving the secret into a task fails with a key mismatch. `podium secret set` re-encrypts
+  under the current key.
+- **Task history belongs to the database, not the server.** Pointing `PODIUM_DATABASE_URL` at a
+  fresh database gives you an empty UI; the old one is untouched and switching back restores it.
+- **The conductor's `/readyz` is stricter than the server's.** It checks its own database, the
+  Podium API and, when configured, Hindsight. The server's readiness deliberately ignores the
+  conductor: a control plane whose bot is down is still a working task runner.
+- **There are two Anthropic keys, held very differently.** The agents' key is set in the UI and
+  encrypted at rest; the memory service's (`PODIUM_MEMORY_LLM_API_KEY`) is a container
+  environment variable it reads at start-up, before anything Podium controls is running, so it
+  is **visible in `docker inspect`**. They may be the same value. Give the memory service its own
+  scoped key with a spend limit, and prefer mounting it as a read-only `.env` at `/app/.env`
+  over passing `-e` — see [docs/security.md](docs/security.md). Memory *reads* need no key at
+  all: search and rerank run on models baked into the image. Only writing does, because storing
+  a memory means extracting facts with an LLM.
+
 ---
 
 ## The binaries
@@ -124,6 +194,7 @@ db` — started before the task and waited for. More in [`examples/`](examples):
 |---|---|
 | `podium-server` | API, scheduler, node registry, secrets, log ingest, embedded web UI. Needs Postgres (`pgvector/pgvector:pg16`); optionally an S3-compatible store |
 | `podium-node` | One per worker. Runs tasks on the local Docker engine. **Root-equivalent on its host** — read [security.md](docs/security.md) |
+| `podium-agent` | The conductor. Turns a Slack mention, a Linear assignment or a web-chat message into one task running an agent runtime image, and relays the answer back. An ordinary API client of `podium-server`: its own database, its own token, never touches Docker. See [docs/agent.md](docs/agent.md) |
 | `podium` | The CLI. Talks only to the server, never to Docker, so it runs anywhere |
 | `podium-runner` | PID 1 inside every task container: runs the command, forwards signals, reaps orphans, reports events. Embedded in `podium-node` and bind-mounted in; never installed by hand |
 
@@ -186,8 +257,8 @@ environment this has ever run in.
 | Resource limits, OOM reporting, hardening | ✅ | ✅ |
 | Secrets: encrypted store, env and file injection, shredding, log redaction | ✅ | ✅ |
 | Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
-| Web UI: submit, re-run, live logs, node actions, secrets, artifacts | ✅ | ✅ 95 unit tests, 12 Playwright tests against a live stack |
-| Artifacts and log roll-up | ✅ | ⚠️ against an **in-process** S3 endpoint only. Never a real MinIO or S3 |
+| Web UI: submit, re-run, live logs, node actions, secrets, artifacts, agent | ✅ | ✅ 221 unit tests, Playwright against a live stack |
+| Artifacts and log roll-up | ✅ | ⚠️ storing and listing proved against a **real MinIO**, including a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. Multipart, TLS, bucket policies and AWS S3 proper are unexercised |
 | Tailnet transport (tsnet, WhoIs identity, HTTPS, ACL) | ✅ | ❌ **never run against a real tailnet** |
 | `host` transport | ✅ | ❌ never run |
 | Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ❌ never built or published |
@@ -195,10 +266,19 @@ environment this has ever run in.
 | `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine |
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
 | Linux | ✅ cross-compiles | ❌ nothing has ever been run on Linux |
+| Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
+| Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
+| Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
+| Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
+| Linear source and the `coder` skill | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server. The browser image did produce a real screenshot as a task |
+| Shared memory (Hindsight, pgvector) | ✅ | ✅ against a **real Hindsight container**: auth, retain, list, search, tombstone. The SDK's own MCP client is unproven (needs a model) |
+| Web chat and the `analyst` skill | ✅ | ⚠️ chat turns round-trip for real as dry runs. The read-only warehouse role is proved against a real Postgres; **BigQuery is unproven beyond `bq version`** |
 
 Milestones, for anyone reading the history: M0 scaffold and wire contract, M1 the first
 end-to-end task, M2 sidecars / secrets / artifacts, M3 the tailnet transport, M4 the scheduler,
-M5 the web UI, M6 packaging and documentation — this commit.
+M5 the web UI, M6 packaging and documentation, M7 the `message` event and the agent runtime
+image, M8 the conductor and Slack, M9 the settings UI / memory / Linear, M10 the web chat and
+the analyst skill — this commit.
 
 ---
 
