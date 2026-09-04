@@ -63,7 +63,7 @@ func TestYAMLRoundTrip(t *testing.T) {
 		Resources:   Resources{CPU: 1.5, MemoryMB: 512, PIDs: DefaultPIDs},
 		Hardening:   Hardening{ReadOnlyRootfs: true, Capabilities: []string{"CHOWN"}},
 		Sidecars: map[string]Sidecar{"db": {
-			Image:     "postgres:16-alpine",
+			Image:     "pgvector/pgvector:pg16",
 			Env:       map[string]string{"POSTGRES_PASSWORD": "pw"},
 			Readiness: Readiness{TCPPort: 5432, Timeout: Duration(DefaultReadinessTimeout)},
 			Resources: Resources{PIDs: DefaultPIDs},
@@ -149,7 +149,7 @@ func TestApplyDefaultsFillsSidecarsAndResources(t *testing.T) {
 	s := &TaskSpec{
 		Image: "alpine:3",
 		Sidecars: map[string]Sidecar{
-			"db":  {Image: "postgres:16-alpine", Readiness: Readiness{TCPPort: 5432}},
+			"db":  {Image: "pgvector/pgvector:pg16", Readiness: Readiness{TCPPort: 5432}},
 			"api": {Image: "alpine:3", Readiness: Readiness{HTTPPath: "/healthz"}},
 			"raw": {Image: "alpine:3"},
 		},
@@ -168,13 +168,13 @@ func TestApplyDefaultsFillsSidecarsAndResources(t *testing.T) {
 
 func TestParseSidecarSpec(t *testing.T) {
 	const doc = `
-image: postgres:16-alpine
+image: pgvector/pgvector:pg16
 command: ["psql", "-h", "db", "-c", "select 1"]
 env:
   PGPASSWORD: podium
 sidecars:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     env:
       POSTGRES_PASSWORD: podium
     readiness:
@@ -197,7 +197,7 @@ hardening:
 	assert.Equal(t, Hardening{ReadOnlyRootfs: true, Capabilities: []string{"CHOWN", "NET_BIND_SERVICE"}}, got.Hardening)
 	require.Contains(t, got.Sidecars, "db")
 	db := got.Sidecars["db"]
-	assert.Equal(t, "postgres:16-alpine", db.Image)
+	assert.Equal(t, "pgvector/pgvector:pg16", db.Image)
 	assert.Equal(t, Readiness{TCPPort: 5432, Timeout: Duration(30 * time.Second)}, db.Readiness)
 	assert.Equal(t, Resources{CPU: 1, MemoryMB: 256, PIDs: DefaultPIDs}, db.Resources)
 }
@@ -206,7 +206,7 @@ func TestValidateSidecarsResourcesAndHardening(t *testing.T) {
 	valid := func() *TaskSpec {
 		s := &TaskSpec{
 			Image:    "alpine:3",
-			Sidecars: map[string]Sidecar{"db": {Image: "postgres:16-alpine", Readiness: Readiness{TCPPort: 5432}}},
+			Sidecars: map[string]Sidecar{"db": {Image: "pgvector/pgvector:pg16", Readiness: Readiness{TCPPort: 5432}}},
 		}
 		s.ApplyDefaults()
 		return s
@@ -332,11 +332,11 @@ func TestValidateAcceptsEveryAllowedCapabilitySpelling(t *testing.T) {
 
 func TestProtoRoundTripWithSidecars(t *testing.T) {
 	want := &TaskSpec{
-		Image:   "postgres:16-alpine",
+		Image:   "pgvector/pgvector:pg16",
 		Command: []string{"psql", "-h", "db"},
 		Sidecars: map[string]Sidecar{
 			"db": {
-				Image:     "postgres:16-alpine",
+				Image:     "pgvector/pgvector:pg16",
 				Command:   []string{"postgres", "-c", "fsync=off"},
 				Env:       map[string]string{"POSTGRES_PASSWORD": "pw"},
 				Readiness: Readiness{TCPPort: 5432, Timeout: Duration(5 * time.Second)},

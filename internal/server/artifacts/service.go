@@ -100,7 +100,11 @@ func (s *Service) Put(ctx context.Context, up Upload) (store.Artifact, error) {
 	// over the limit so the overrun is detectable rather than silently truncated.
 	counter := &hashingReader{r: io.LimitReader(up.Body, MaxArtifactBytes+1), h: sha256.New()}
 	size := up.Size
-	if size > MaxArtifactBytes || size <= 0 {
+	// A negative size is the caller saying it does not know; -1 is how that reaches
+	// minio-go. Zero is not that: an empty file is a legitimate artifact whose length is
+	// known exactly, and calling it unknown makes the client stream it with no
+	// Content-Length, which an S3 endpoint answers with MissingContentLength.
+	if size > MaxArtifactBytes || size < 0 {
 		size = -1
 	}
 	written, err := s.s3.Put(ctx, key, counter, size, up.ContentType)

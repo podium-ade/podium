@@ -19,12 +19,24 @@ import (
 )
 
 // Only images already on this engine may be used; nothing here pulls, builds or removes
-// one. postgres:16-alpine and redis:7-alpine stand in for the "Postgres + Redis + app"
-// environment step 08 exists to make possible.
+// one. pgvector/pgvector:pg16 and redis:7-alpine stand in for the "Postgres + Redis + app"
+// environment step 08 exists to make possible. It is the same Postgres image Podium's own
+// compose files run, which is the point: CI exercises what production runs.
+//
+// It is Debian-based and has NO `nc`, so a `readiness.tcp_port` probe cannot work against
+// it — the node's probe execs `nc` inside the sidecar, and the error it raises says to give
+// the sidecar a `readiness.command` instead. So these tests do, with pg_isready. TCP
+// readiness is still covered, by the redis sidecar below and by the never-listens test.
 const (
-	postgresImage = "postgres:16-alpine"
+	postgresImage = "pgvector/pgvector:pg16"
 	redisImage    = "redis:7-alpine"
 )
+
+// postgresReady is the readiness probe this image supports. See the note above.
+var postgresReady = spec.Readiness{
+	Command: []string{"pg_isready", "-U", "postgres"},
+	Timeout: spec.Duration(90 * time.Second),
+}
 
 // specWithSidecars builds a spec the way the CLI does: defaults applied, then validated,
 // so an integration test can never run something the public API would refuse.
@@ -96,7 +108,7 @@ func TestPostgresSidecarServesTheTask(t *testing.T) {
 				"db": {
 					Image:     postgresImage,
 					Env:       map[string]string{"POSTGRES_PASSWORD": "podium"},
-					Readiness: spec.Readiness{TCPPort: 5432, Timeout: spec.Duration(90 * time.Second)},
+					Readiness: postgresReady,
 				},
 			},
 		}),
@@ -247,16 +259,18 @@ func TestPostgresAndRedisSidecarsShareATaskNetwork(t *testing.T) {
 		TaskID:  taskID,
 		LeaseID: ids.NewLease(),
 		Spec: specWithSidecars(t, spec.TaskSpec{
-			Image:   postgresImage,
-			// postgres:16-alpine has psql and busybox nc but no redis-cli, so the cache is
-			// greeted in its own wire protocol.
-			Command: []string{"sh", "-c", `psql -h db -U postgres -tAc 'select 1' && printf 'PING\r\n' | nc -w 2 cache 6379`},
-			Env:     map[string]string{"PGPASSWORD": "podium"},
+			Image: postgresImage,
+			// The image has psql but neither redis-cli nor nc, so the cache is greeted in
+			// its own wire protocol over one of bash's /dev/tcp sockets.
+			Command: []string{"bash", "-c",
+				`psql -h db -U postgres -tAc 'select 1' && ` +
+					`exec 3<>/dev/tcp/cache/6379 && printf 'PING\r\n' >&3 && head -c 7 <&3`},
+			Env: map[string]string{"PGPASSWORD": "podium"},
 			Sidecars: map[string]spec.Sidecar{
 				"db": {
 					Image:     postgresImage,
 					Env:       map[string]string{"POSTGRES_PASSWORD": "podium"},
-					Readiness: spec.Readiness{TCPPort: 5432, Timeout: spec.Duration(90 * time.Second)},
+					Readiness: postgresReady,
 				},
 				"cache": {
 					Image:     redisImage,

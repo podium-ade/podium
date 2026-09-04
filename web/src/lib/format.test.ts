@@ -5,12 +5,15 @@ import { NodeSchema } from "../gen/podium/v1/admin_pb";
 import { NodeStatus, TaskStatus } from "../gen/podium/v1/common_pb";
 import { TaskSchema } from "../gen/podium/v1/task_pb";
 import {
+  conversationLabel,
   humanBytes,
   nodeStateLabel,
   nodeStateTone,
   queuedExplanation,
+  relative,
   taskOutcome,
   taskStatusTone,
+  turnCost,
 } from "./format";
 
 const NOW = Date.now();
@@ -130,5 +133,61 @@ describe("nodeState", () => {
     expect(
       nodeStateTone(create(NodeSchema, { status: NodeStatus.ONLINE, draining: true })),
     ).toBe("warn");
+  });
+});
+
+// relative is the web's port of the CLI's ago(): the same thresholds and the same words, so
+// a table in the UI and a table in the terminal read the same.
+describe("relative", () => {
+  const now = new Date("2026-09-03T12:00:00Z").getTime();
+  const at = (secondsAgo: number) => timestampFromDate(new Date(now - secondsAgo * 1000));
+
+  it("is 'never' for a timestamp that is not there", () => {
+    expect(relative(undefined, now)).toBe("never");
+  });
+
+  it("counts seconds, then minutes, then hours, then days", () => {
+    expect(relative(at(0), now)).toBe("0s ago");
+    expect(relative(at(45), now)).toBe("45s ago");
+    expect(relative(at(59), now)).toBe("59s ago");
+    expect(relative(at(60), now)).toBe("1m ago");
+    expect(relative(at(120), now)).toBe("2m ago");
+    expect(relative(at(3599), now)).toBe("59m ago");
+    expect(relative(at(3600), now)).toBe("1h ago");
+    expect(relative(at(86_399), now)).toBe("23h ago");
+    expect(relative(at(86_400), now)).toBe("1d ago");
+    expect(relative(at(9 * 86_400), now)).toBe("9d ago");
+  });
+
+  // Clock skew between the browser and the server is normal and must not print "-3s ago".
+  it("says 'just now' rather than a negative age", () => {
+    expect(relative(at(-30), now)).toBe("just now");
+  });
+});
+
+describe("conversationLabel", () => {
+  it("reads a Slack source key as a channel and a thread", () => {
+    expect(
+      conversationLabel({ sourceKind: "slack", sourceKey: "slack:C0123:1725000000.000100" }),
+    ).toBe("#C0123 · 1725000000.000100");
+  });
+
+  it("shows anything else exactly as the source stored it", () => {
+    expect(conversationLabel({ sourceKind: "linear", sourceKey: "linear:ENG-123" })).toBe(
+      "linear:ENG-123",
+    );
+    // A Slack key that is not three parts is not guessed at either.
+    expect(conversationLabel({ sourceKind: "slack", sourceKey: "odd" })).toBe("odd");
+  });
+});
+
+describe("turnCost", () => {
+  it("is a dash until the runtime's own accounting lands", () => {
+    expect(turnCost({ costUsd: undefined })).toBe("—");
+  });
+
+  it("shows four decimals, because a turn costs cents", () => {
+    expect(turnCost({ costUsd: 0.0123 })).toBe("$0.0123");
+    expect(turnCost({ costUsd: 0 })).toBe("$0.0000");
   });
 });

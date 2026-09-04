@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1/agentv1connect"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/alvaroibarguen/podium/internal/server/api"
 	"github.com/alvaroibarguen/podium/internal/server/artifacts"
@@ -280,7 +281,8 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
-	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(api.NewIdentityService(), opts...))
+	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
+		api.NewIdentityService(s.cfg.AgentEnabled()), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
@@ -310,6 +312,23 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.ArtifactServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
+	}
+	// The conductor's service is mounted only when there is a conductor. With the URL
+	// unset the prefix falls through to the SPA handler below, so a browser that asks for
+	// it gets index.html rather than a 404 — and the UI has already hidden the Agent screen
+	// because WhoAmI said agent_enabled is false. readyz deliberately does not probe the
+	// conductor: a control plane whose agent is down is still a working task runner, and
+	// readyz is what a load balancer and the compose healthcheck gate on.
+	if s.cfg.AgentEnabled() {
+		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger)
+		if err != nil {
+			// Validate has already parsed the URL, so this cannot fire in a started
+			// server; refusing to serve the prefix beats serving it wrongly.
+			s.logger.Error("the agent proxy could not be built; the agent API is not mounted", "error", err)
+		} else {
+			root.Handle("/"+agentv1connect.AgentServiceName+"/",
+				transport.WithIdentity(s.transport, agent))
+		}
 	}
 	// The artifact proxy is a plain HTTP route rather than a Connect procedure because a
 	// 512 MB artifact has to stream. It sits behind the same identity middleware.

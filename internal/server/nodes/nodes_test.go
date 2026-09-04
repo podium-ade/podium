@@ -72,7 +72,7 @@ func TestMain(m *testing.M) {
 }
 
 func runPostgres(ctx context.Context) (*postgres.PostgresContainer, error) {
-	return postgres.Run(ctx, "postgres:16-alpine",
+	return postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("podium"),
 		postgres.WithUsername("podium"),
 		postgres.WithPassword("podium"),

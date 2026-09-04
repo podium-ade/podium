@@ -1,0 +1,66 @@
+# The Slack app podium-agent connects as. Create the app from this file at
+# https://api.slack.com/apps → Create New App → From an app manifest, pick the workspace,
+# paste this in. docs/agent.md walks through the rest, including where each token comes from.
+#
+# What this manifest deliberately does NOT ask for: slash commands, interactivity, a Home
+# tab, an OAuth redirect URL and a Request URL. Socket Mode replaces the Request URL with a
+# WebSocket the conductor opens outbound, so nothing has to be reachable from the internet.
+#
+# NOTE: the bot must be invited to a channel before it can see anything in it —
+# `/invite @Podium`. app_mentions:read lets it receive the mention; channels:history is what
+# lets it read the thread the mention is in.
+display_information:
+  name: Podium
+  description: The engineering team's agent. Tag it in a thread and it answers there.
+  background_color: "#1b1b1f"
+  long_description: >-
+    Podium runs one agent turn per message as an ordinary Podium task: it reads the thread,
+    does the work in a container on a worker, reports back in the thread and exits. There is
+    no resident model session and no memory of a conversation outside the thread itself.
+    Whoever can tag the bot can make it run code with the skill's credentials — there is no
+    role model. See docs/security.md.
+
+features:
+  bot_user:
+    display_name: Podium
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      # Receive the mention that starts a turn.
+      - app_mentions:read
+      # Read the thread the mention is in. One per conversation type the bot is used in;
+      # drop the ones you do not need.
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+      # Post the placeholder, the progress edits and the answer.
+      - chat:write
+      # Upload a screenshot or a diff the turn produced as an artifact.
+      - files:write
+      # The 👀 / ✅ / ❌ on the triggering message.
+      - reactions:write
+      # Resolve a user ID to the display name a transcript entry carries.
+      - users:read
+
+settings:
+  event_subscriptions:
+    bot_events:
+      # The mention that starts a turn.
+      - app_mention
+      # A reply in a thread the bot is already in continues the conversation without a
+      # mention, and a DM is a conversation of its own. Everything else is ignored: anything
+      # from a bot, anything with a subtype, and any channel message that is not a reply in a
+      # known thread.
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  # The conductor dials out; nothing dials in. This is what removes the Request URL.
+  socket_mode_enabled: true
+  token_rotation_enabled: false

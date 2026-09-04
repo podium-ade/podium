@@ -153,7 +153,7 @@ Events for different tasks are independent; there is no global ordering.
 
 ## `TaskEvent.kind`
 
-`TaskEventKind` carries all nine canonical values. `kind` and the `payload` oneof are
+`TaskEventKind` carries all ten canonical values. `kind` and the `payload` oneof are
 correlated but not redundant: `provisioning`, `pulling` and `started` have no payload.
 
 | kind | payload | emitted in MVP-0 |
@@ -167,6 +167,7 @@ correlated but not redundant: `provisioning`, `pulling` and `started` have no pa
 | `TASK_EVENT_KIND_EXITED` | `Exited{exit_code, oom_killed}` | yes |
 | `TASK_EVENT_KIND_FINISHED` | `Finished{exit_code, usage}` | yes |
 | `TASK_EVENT_KIND_ERROR` | `Error{message, retryable}` | yes |
+| `TASK_EVENT_KIND_MESSAGE` | `Message{type, text, attachments}` | yes — `podium-runner message`, see below |
 
 An **`artifact` event is only ever emitted after `UploadArtifact` has returned**, so it
 always names bytes that are already durable — never an upload in flight. Artifact events
@@ -177,6 +178,19 @@ its job still succeeds.
 
 `Step` is also what the runner's event socket forwards for any kind a node does not
 otherwise understand (see [runner-events.md](runner-events.md)).
+
+**`Message` is the first payload whose content is authored by the task itself.** Everything
+else on this wire is something Podium observed; a message is something a task said. It is
+emitted by `podium-runner message`, it moves no status and the server stores it and nothing
+else. `type` is an open string, canonically `progress` (a note that the next one may
+supersede) or `final` (the answer); `attachments` are artifact **names**, not paths, and
+nobody checks that they exist — when the message arrives the artifact may still be uploading.
+`text` is capped at 32 KiB by the runner, which refuses a longer one rather than truncating.
+
+Because a task container is untrusted and its event socket is world-writable inside the
+container, a task can forge or flood `message` events. **Every reader must treat the text as
+untrusted content**, exactly as it treats a log line — see
+[security.md](security.md#3-a-task-container--untrusted).
 
 `LogChunk.stream` keeps `STREAM_STDOUT`, `STREAM_STDERR` and `STREAM_SIDECAR`;
 `sidecar_name` is set only for the third and names the sidecar the output came from.
@@ -198,6 +212,9 @@ The server derives `tasks.status` from event kinds:
 | `exited` with `oom_killed` | no transition; the following terminal transition sets `failure_reason = "oom"` |
 | `finished` | `running → succeeded` (exit 0) or `failed`, sets `finished_at`, `exit_code`, `usage` |
 | `error` with `retryable = false` | `→ failed` |
+
+`log`, `pulling`, `exited`, `step`, `artifact` and `message` are stored and imply no
+transition.
 
 `cancelled` comes from `CancelTask` plus the node's `exited`; `lost` is set by the server when
 a node vanishes mid-run and the retry policy says not to requeue.

@@ -20,3 +20,31 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
+  # The conductor's own database. Same engine, same options, a different schema entirely:
+  # internal/agent never opens the control plane's database and internal/server never opens
+  # this one.
+  - engine: postgresql
+    schema: internal/agent/store/migrations
+    queries: internal/agent/store/queries
+    gen:
+      go:
+        package: agentdb
+        out: internal/agent/store/db
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
+          # numeric(12,6) would otherwise arrive as pgtype.Numeric, which leaks pgx into
+          # every turn signature for a number the runtime reports as a float.
+          - db_type: "pg_catalog.numeric"
+            nullable: true
+            go_type:
+              type: "float64"
+              pointer: true

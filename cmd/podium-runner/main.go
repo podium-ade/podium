@@ -26,11 +26,18 @@ func main() {
 	if len(args) >= 2 && args[0] == "artifact" && args[1] == "add" {
 		os.Exit(runner.AddArtifact(runner.ConfigFromEnv(), args[2:]))
 	}
+	// `podium-runner message …` is the other in-container helper: one structured line for a
+	// human, or for whatever is relaying the task's output somewhere.
+	if len(args) >= 1 && args[0] == "message" {
+		os.Exit(runner.AddMessage(runner.ConfigFromEnv(), args[1:], os.Stdin))
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: podium-runner -- COMMAND [ARG...]")
+		fmt.Fprintln(os.Stderr, "usage: podium-runner -- COMMAND [ARG...]\n"+
+			"       podium-runner artifact add PATH [--name NAME] [--type CONTENT_TYPE]\n"+
+			"       podium-runner message [--type TYPE] [--attach NAME]... TEXT")
 		os.Exit(2)
 	}
 	os.Exit(runner.Run(context.Background(), runner.ConfigFromEnv(), args))

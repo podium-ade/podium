@@ -1,0 +1,309 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
+import {
+  ChatFrameSchema,
+  ChatMessageSchema,
+  SkillSchema,
+  type ChatFrame,
+} from "../../gen/podium/agent/v1/agent_pb";
+import { ToastHost } from "../Toast";
+import { ChatPanel } from "./ChatPanel";
+
+const listChats = vi.fn();
+const listSkills = vi.fn();
+const createChat = vi.fn();
+const sendChatMessage = vi.fn();
+const streamChat = vi.fn();
+
+vi.mock("../../lib/client", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
+  return {
+    ...actual,
+    agent: {
+      listChats: (...a: unknown[]) => listChats(...a),
+      listSkills: (...a: unknown[]) => listSkills(...a),
+      createChat: (...a: unknown[]) => createChat(...a),
+      sendChatMessage: (...a: unknown[]) => sendChatMessage(...a),
+      streamChat: (...a: unknown[]) => streamChat(...a),
+    },
+  };
+});
+
+/** live is an async iterable a test can push frames into and never closes on its own,
+ *  which is exactly how StreamChat behaves. */
+function live() {
+  const queued: ChatFrame[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  return {
+    push(frame: ChatFrame) {
+      queued.push(frame);
+      wake?.();
+    },
+    close() {
+      closed = true;
+      wake?.();
+    },
+    async *[Symbol.asyncIterator]() {
+      for (;;) {
+        while (queued.length > 0) yield queued.shift() as ChatFrame;
+        if (closed) return;
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+    },
+  };
+}
+
+function message(seq: number, role: string, text: string, attachments: unknown[] = []) {
+  return create(ChatFrameSchema, {
+    frame: {
+      case: "message",
+      value: create(ChatMessageSchema, {
+        chatId: "chat_01abc",
+        seq: BigInt(seq),
+        role,
+        text,
+        ts: timestampFromDate(new Date()),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        attachments: attachments as any,
+      }),
+    },
+  });
+}
+
+const progress = (text: string) =>
+  create(ChatFrameSchema, { frame: { case: "progress", value: text } });
+
+const status = (state: string, taskId = "") =>
+  create(ChatFrameSchema, { frame: { case: "status", value: { state, taskId } } });
+
+const chat = {
+  id: "chat_01abc",
+  title: "August numbers",
+  createdAt: timestampFromDate(new Date(Date.now() - 60_000)),
+  lastMessageAt: timestampFromDate(new Date(Date.now() - 30_000)),
+  preview: "how many active accounts",
+  turnRunning: false,
+};
+
+const skills = [
+  create(SkillSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse.", chatDefault: true }),
+  create(SkillSchema, { name: "general", image: "runtime:dev", hint: "Answer." }),
+];
+
+function mount(path = "/agent/chat") {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <ToastHost>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/agent/chat/*" element={<ChatPanel />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastHost>
+    </QueryClientProvider>,
+  );
+}
+
+describe("ChatPanel", () => {
+  beforeEach(() => {
+    listChats.mockReset();
+    listSkills.mockReset();
+    createChat.mockReset();
+    sendChatMessage.mockReset();
+    streamChat.mockReset();
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    listSkills.mockResolvedValue({ skills, profileDisplayName: "Podium" });
+    streamChat.mockImplementation(() => live());
+  });
+
+  it("says there is nothing yet and offers a new chat", async () => {
+    mount();
+    expect(await screen.findByText("No chats yet")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-new")).toBeEnabled();
+    expect(streamChat).not.toHaveBeenCalled();
+  });
+
+  it("lists the caller's chats with a preview", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    mount();
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("August numbers"));
+    expect(list).toHaveTextContent("how many active accounts");
+  });
+
+  it("creates a chat and opens it", async () => {
+    createChat.mockResolvedValue({ chat });
+    mount();
+    await userEvent.click(await screen.findByTestId("chat-new"));
+    await waitFor(() => expect(createChat).toHaveBeenCalledWith({ title: "" }));
+    // Opening it is what starts the stream.
+    await waitFor(() =>
+      expect(streamChat).toHaveBeenCalledWith(
+        { chatId: "chat_01abc", fromSeq: 0n },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("replays the conversation and follows it live", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "how many active accounts last month"));
+    stream.push(message(2, "assistant", "**4,812** in August."));
+
+    const bubbles = await waitFor(() => {
+      const found = screen.getAllByTestId("chat-message");
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(bubbles[0]).toHaveAttribute("data-role", "user");
+    expect(bubbles[1]).toHaveAttribute("data-role", "assistant");
+    // The answer goes through the markdown subset, so the bold is an element.
+    expect(bubbles[1].querySelector("strong")?.textContent).toBe("4,812");
+    // The bot's name labels its run of bubbles.
+    expect(screen.getByText("Podium")).toBeInTheDocument();
+  });
+
+  it("shows progress while a turn runs and replaces it with the answer", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+    stream.push(progress("⏳ reading the schema"));
+
+    expect(await screen.findByTestId("chat-progress")).toHaveTextContent("reading the schema");
+    // The composer is disabled in between, which is the UI half of one turn at a time.
+    await waitFor(() => expect(screen.getByTestId("chat-composer")).toBeDisabled());
+
+    stream.push(message(2, "assistant", "Here it is."));
+    stream.push(status("finished"));
+
+    await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
+  });
+
+  it("replaces a message when its attachments arrive on the same seq", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "assistant", "See report.csv."));
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(1));
+
+    stream.push(
+      message(1, "assistant", "See report.csv.", [
+        { artifactId: "art_01", name: "report.csv", contentType: "text/csv", sizeBytes: 2048n },
+      ]),
+    );
+    // One bubble, not two: the same seq replaces rather than appends.
+    await waitFor(() => expect(screen.getByTestId("chat-attachment")).toBeInTheDocument());
+    expect(screen.getAllByTestId("chat-message")).toHaveLength(1);
+    expect(screen.getByTestId("chat-attachment")).toHaveTextContent("report.csv");
+    expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
+  });
+
+  it("sends a message with the chip's skill", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    sendChatMessage.mockResolvedValue({ message: {} });
+    mount("/agent/chat/chat_01abc");
+
+    const box = await screen.findByTestId("chat-composer");
+    await waitFor(() => expect(screen.getByTestId("chat-skill")).toHaveTextContent("/analyst"));
+    await userEvent.type(box, "how many active accounts{Enter}");
+
+    await waitFor(() =>
+      expect(sendChatMessage).toHaveBeenCalledWith({
+        chatId: "chat_01abc",
+        text: "how many active accounts",
+        skill: "analyst",
+      }),
+    );
+  });
+
+  it("says so plainly when the server refuses a concurrent send", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    sendChatMessage.mockRejectedValue(
+      new ConnectError("a turn is already running for this chat", Code.FailedPrecondition),
+    );
+    mount("/agent/chat/chat_01abc");
+
+    await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");
+    expect(await screen.findByText(/A turn is already running in this chat/)).toBeInTheDocument();
+  });
+
+  it("closes the stream when the chat changes", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const signals: AbortSignal[] = [];
+    streamChat.mockImplementation((_req: unknown, opts: { signal: AbortSignal }) => {
+      signals.push(opts.signal);
+      return live();
+    });
+    const { unmount } = mount("/agent/chat/chat_01abc");
+    await waitFor(() => expect(signals).toHaveLength(1));
+    expect(signals[0].aborted).toBe(false);
+
+    // Switching chats through the rail: the first stream must be cancelled, not left open.
+    createChat.mockResolvedValue({ chat: { ...chat, id: "chat_02def" } });
+    await userEvent.click(screen.getByTestId("chat-new"));
+    await waitFor(() => expect(signals[0].aborted).toBe(true));
+    await waitFor(() => expect(signals).toHaveLength(2));
+
+    // And unmounting closes whatever is open.
+    unmount();
+    await waitFor(() => expect(signals[1].aborted).toBe(true));
+  });
+
+  it("renders an untrusted answer as text, never as markup", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(
+      message(1, "assistant", "<img src=x onerror=alert(1)> and [x](javascript:alert(1))"),
+    );
+    const bubble = await waitFor(() => screen.getByTestId("chat-message"));
+    expect(bubble.querySelectorAll("img")).toHaveLength(0);
+    expect(bubble.querySelectorAll("a")).toHaveLength(0);
+    expect(bubble.textContent).toContain("<img src=x onerror=alert(1)>");
+    expect(bubble.textContent).toContain("[x](javascript:alert(1))");
+  });
+
+  it("says the conductor is down without breaking the page", async () => {
+    listChats.mockRejectedValue(
+      new ConnectError("podium-agent is not reachable", Code.Unavailable),
+    );
+    mount();
+    expect(await screen.findByText(/podium-agent is not reachable/)).toBeInTheDocument();
+    expect(screen.getByTestId("chat-new")).toBeInTheDocument();
+  });
+
+  it("says so when the conductor does not know who is calling", async () => {
+    listChats.mockRejectedValue(new ConnectError("no login", Code.Unauthenticated));
+    mount();
+    expect(await screen.findByText(/does not know who you are/)).toBeInTheDocument();
+  });
+
+  it("says so when the chat is not available at all", async () => {
+    listChats.mockRejectedValue(new ConnectError("no chat here", Code.FailedPrecondition));
+    mount();
+    expect(await screen.findByText(/not available on this conductor/)).toBeInTheDocument();
+  });
+});

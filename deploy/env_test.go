@@ -28,6 +28,19 @@ var notConfiguration = map[string]string{
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",
+	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
+	// the container. An operator never sets any of them: the brief is built per turn, and
+	// the three dry-run knobs are the test seam step 16 defined. They are documented in
+	// examples/agent/README.md and docs/agent.md.
+	"PODIUM_AGENT_TURN":             "written by the conductor onto each turn's task spec",
+	"PODIUM_AGENT_DRY_RUN":          "test-only; the dev source puts it on a task spec",
+	"PODIUM_AGENT_DRY_RUN_SLEEP_MS": "test-only; the dev source puts it on a task spec",
+	"PODIUM_AGENT_DRY_RUN_EXIT":     "test-only; the dev source puts it on a task spec",
+	// The env var the shared memory's API key lands in INSIDE a task container. The
+	// conductor names it on every turn's spec as the target of the
+	// podium.agent.memory_api_key secret, and the runtime reads it there to authenticate
+	// its MCP client. An operator sets PODIUM_AGENT_MEMORY_API_KEY, never this.
+	"PODIUM_MEMORY_API_KEY": "the in-container target of the memory secret; set PODIUM_AGENT_MEMORY_API_KEY",
 	// Divides every scheduler timer by ten so the integration and e2e suites do not have
 	// to sleep. The server logs a loud warning when it is on. Never set in production.
 	"PODIUM_TEST_FAST_TIMERS": "test-only; the server warns loudly when it is set",

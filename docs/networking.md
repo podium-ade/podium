@@ -190,6 +190,49 @@ needs root or `CAP_NET_BIND_SERVICE`.
 > **Host mode is unverified.** It is implemented and it compiles, but it has not been run against
 > a real `tailscaled`. Use `tailnet` unless you have a specific reason not to.
 
+## Reaching the shared memory from a worker
+
+The agents' shared memory ([`agent.md`](agent.md#memory)) runs beside the control plane and is
+the one thing in Podium a **task container** has to reach over the network. There are two URLs
+because there are two vantage points, and they are almost never the same string:
+
+| variable | who reads it | typical value |
+|---|---|---|
+| `PODIUM_AGENT_MEMORY_URL` | the conductor | `http://hindsight:8888` in compose, `http://127.0.0.1:8888` for a binary |
+| `PODIUM_AGENT_MEMORY_TASK_URL` | goes into every turn's brief | `http://host.docker.internal:8888` |
+
+**Same host.** The default is right. Every task container is created with
+`host.docker.internal` mapped to the engine's bridge gateway — Docker Desktop provides the name
+anyway; a native Linux engine needs the mapping, which the node adds — so a turn reaches the
+host without knowing its address. Port 8888 must be published on an interface the bridge can
+see, which is why `PODIUM_MEMORY_BIND` defaults to `0.0.0.0` and why the API key is mandatory.
+
+**Workers on other machines.** `host.docker.internal` then points at the *worker's* host, where
+there is no memory service. The task URL has to be an address every node's containers can route
+to, and on a tailnet that is the control plane's tailnet IP:
+
+```sh
+PODIUM_MEMORY_BIND=100.x.y.z                                   # the control plane's tailnet IP
+PODIUM_AGENT_MEMORY_TASK_URL=http://100.x.y.z:8888
+```
+
+A tailnet IP rather than the MagicDNS name, because a task container does not use the host's
+resolver. Then add the rule to the ACL:
+
+```json
+{ "action": "accept", "src": ["tag:podium-node"], "dst": ["tag:podium-server:8888"] }
+```
+
+That is a **widening**: it is the first rule in
+[`deploy/tailscale-acl.example.json`](../deploy/tailscale-acl.example.json)'s shape that lets a
+worker reach the control plane on anything but 443, and what it grants is full read/write of
+every memory the organisation has, to anything running on a worker. The example policy does not
+include it; add it deliberately, and read
+[`security.md`](security.md#5-the-conductor-and-the-bot) first.
+
+**Neither.** Leave `PODIUM_AGENT_MEMORY_URL` empty. Turns then run with no memory at all, which
+is a supported configuration and costs nothing but recall.
+
 ## Why there is no public ingress
 
 Nothing in Podium needs a public address:

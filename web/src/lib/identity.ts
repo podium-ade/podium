@@ -6,10 +6,21 @@ export type Viewer = {
   login: string;
   displayName: string;
   kind: IdentityKind;
+  /** True when this control plane has a conductor and proxies its API. */
+  agentEnabled: boolean;
+  serverVersion: string;
 };
 
 export function viewerFrom(res: WhoAmIResponse): Viewer {
-  return { login: res.login, displayName: res.displayName, kind: res.kind };
+  return {
+    login: res.login,
+    displayName: res.displayName,
+    kind: res.kind,
+    // A server built before this field existed sends nothing, and proto3 reads that as
+    // false — which is the right answer: it has no conductor to proxy.
+    agentEnabled: res.agentEnabled,
+    serverVersion: res.serverVersion,
+  };
 }
 
 /**

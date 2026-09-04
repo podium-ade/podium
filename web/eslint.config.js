@@ -22,7 +22,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "e2e/**/*.ts"],
+    files: [
+      "vite.config.ts",
+      "vitest.config.ts",
+      "playwright.config.ts",
+      "e2e/**/*.ts",
+      // The e2e fixtures are plain Node scripts, started beside the dev stack.
+      "e2e/**/*.mjs",
+    ],
     languageOptions: { globals: { ...globals.node } },
   },
 );

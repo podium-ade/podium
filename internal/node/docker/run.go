@@ -216,7 +216,27 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		// with "bind source path does not exist". Binds is the path `docker run -v` takes
 		// and the one that makes /var/run/docker.sock mountable; it works on both Docker
 		// Desktop and a native Linux engine.
-		Binds:         []string{link.path + ":" + eventsTarget},
+		Binds: []string{link.path + ":" + eventsTarget},
+		// gid 0 as a supplementary group, so a task image that runs as a non-root user can
+		// still open that socket. On a native Linux engine the socket keeps the host
+		// ownership and the 0666 mode listenRunner sets, and any user could reach it; Docker
+		// Desktop forwards a bind-mounted Unix socket through a proxy and presents it inside
+		// the container as root:root 0660 no matter what the host mode is, which locks every
+		// non-root image out of its own event channel. This is the same remedy people use for
+		// /var/run/docker.sock, and in a container with every capability dropped and
+		// no-new-privileges it buys nothing else: the group bit on root-group files, in an
+		// image the task chose anyway.
+		GroupAdd: []string{"0"},
+		// The host, by name, from inside the task's private network. Docker Desktop
+		// resolves host.docker.internal already; a native Linux engine does not, and
+		// host-gateway is the engine's own placeholder for the bridge gateway address
+		// (Engine >= 20.10, well under the 24 floor install-node.sh enforces).
+		//
+		// It is here for the agents' shared memory, which runs on the control-plane host
+		// and has to be reachable from a turn's container. It is NOT added to sidecars:
+		// a sidecar has no reason to reach the host. See docs/security.md — this makes the
+		// host reachable by NAME from every task, where before it was reachable by IP.
+		ExtraHosts:    []string{hostGatewayEntry},
 		AutoRemove:    false,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Init:          &initFalse,

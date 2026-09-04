@@ -52,6 +52,27 @@ func TestPutAndGetRoundTrip(t *testing.T) {
 	require.Equal(t, body, got, "the object must come back byte-identical")
 }
 
+// TestPutOfAnEmptyObjectSucceeds pins the one case a declared size must not be rounded
+// away: an empty file is a legitimate artifact — the agent runtime's transcript.jsonl is
+// one whenever a turn produces no SDK message — and its length is known exactly. Passing
+// -1 for it instead makes minio-go stream with no Content-Length, which S3 refuses.
+func TestPutOfAnEmptyObjectSucceeds(t *testing.T) {
+	s3, _ := newS3(t)
+	ctx := context.Background()
+	key := artifacts.ArtifactKey("task_01j", "art_01j", "transcript.jsonl")
+
+	n, err := s3.Put(ctx, key, bytes.NewReader(nil), 0, "application/x-ndjson")
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	rc, err := s3.Get(ctx, key)
+	require.NoError(t, err)
+	defer func() { _ = rc.Close() }()
+	got, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
 func TestGetOfAMissingObjectFails(t *testing.T) {
 	s3, _ := newS3(t)
 	_, err := s3.Get(context.Background(), "tasks/nope/artifacts/nope")

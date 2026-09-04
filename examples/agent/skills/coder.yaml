@@ -1,0 +1,25 @@
+# The skill that writes code: read a ticket or a Slack request, work on a branch, verify it,
+# open a DRAFT pull request, say what changed. It is the one skill Linear tickets run
+# (`linear: true`) and it is also reachable from Slack as `/coder …`.
+#
+# This skill has WRITE ACCESS TO YOUR REPOSITORIES. It is the only one that names the
+# GitHub token, and it is the only one that gets it. Read docs/security.md before pointing
+# it at a repository that deploys on merge.
+#
+# The image is the locally built :dev tag, so `make agent-runtime` is all it takes for this
+# example to run against a dev stack. A real deployment pins
+# ghcr.io/alvaroibarguen/podium-agent-runtime-browser to a released tag.
+image: podium-agent-runtime-browser:dev
+linear: true
+system_prompt: file:../prompts/coder.md
+allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+max_turns: 200
+timeout: 2h
+# `browser` is a convention, not a schema: an operator puts it on nodes with enough free
+# memory to run Chromium. docs/agent.md says 2 GB is the floor.
+labels: [browser]
+resources: { cpu: 2, memory_mb: 4096 }
+secrets:
+  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+repos:
+  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }

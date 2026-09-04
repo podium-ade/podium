@@ -7,19 +7,22 @@
 # container is not started until the readiness probe says Postgres is accepting
 # connections, and both containers, the network and the workspace volume are removed when
 # the task ends.
-image: postgres:16-alpine
+image: pgvector/pgvector:pg16
 command: ["psql", "-h", "db", "-U", "postgres", "-c", "select 1"]
 env:
   PGPASSWORD: podium
 
 sidecars:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     env:
       POSTGRES_PASSWORD: podium
     readiness:
-      # Ready when something answers on 5432. Give a cold database a minute.
-      tcp_port: 5432
+      # `command` rather than `tcp_port`, because the tcp_port probe runs `nc` INSIDE the
+      # sidecar and this image (Debian-based, like the official postgres one) has none. A
+      # database's own health command is the better probe anyway: `nc` answers as soon as
+      # the port is bound, which for Postgres is before it will accept a connection.
+      command: ["pg_isready", "-U", "postgres"]
       timeout: 60s
     resources:
       cpu: 1

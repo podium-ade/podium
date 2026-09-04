@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "session_id": "sess_01m1kt1zmgng845397kadmxdyd",
+  "turn_id": "turn_01m1kt29svsjmhgrndty2jkrsc",
+  "source": {
+    "kind": "slack",
+    "ref": "C0123ABCDEF/1725000000.000100",
+    "url": "https://example.slack.com/archives/C0123ABCDEF/p1725000000000100"
+  },
+  "profile": {
+    "name": "podium",
+    "display_name": "Podium",
+    "system_prompt": "You are Podium, the engineering team's agent. You are direct and you never guess.",
+    "model": "claude-opus-5"
+  },
+  "skill": {
+    "name": "coder",
+    "system_prompt": "You write code, verify it, and open a pull request. You never push to a default branch.",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+    "max_turns": 50
+  },
+  "transcript": [
+    {
+      "role": "user",
+      "author": "alice",
+      "ts": "2026-09-03T10:00:00Z",
+      "text": "the enrollment token endpoint 500s when the label list is empty"
+    },
+    {
+      "role": "assistant",
+      "author": "Podium",
+      "ts": "2026-09-03T10:01:12Z",
+      "text": "I read the handler. It dereferences the first label without checking the slice."
+    }
+  ],
+  "transcript_truncated": true,
+  "instruction": "fix it and open a PR",
+  "repos": [
+    {
+      "name": "podium",
+      "url": "https://github.com/alvaroibarguen/podium",
+      "default_branch": "main"
+    }
+  ],
+  "memory": {
+    "mcp_url": "http://host.docker.internal:8888/mcp/podium/",
+    "api_key_env": "PODIUM_MEMORY_API_KEY"
+  }
+}

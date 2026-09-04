@@ -124,13 +124,13 @@ describe("SpecForm", () => {
     mount({
       initialMode: "yaml",
       initialYaml:
-        "image: alpine:3\nsidecars:\n  db:\n    image: postgres:16-alpine\n    readiness:\n      tcp_port: 5432\n",
+        "image: alpine:3\nsidecars:\n  db:\n    image: pgvector/pgvector:pg16\n    readiness:\n      tcp_port: 5432\n",
     });
     await userEvent.click(screen.getByRole("button", { name: "Submit task" }));
 
     await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
     expect(createTask.mock.calls[0][0].spec.sidecars.db).toMatchObject({
-      image: "postgres:16-alpine",
+      image: "pgvector/pgvector:pg16",
       readiness: { tcpPort: 5432 },
     });
   });

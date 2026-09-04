@@ -17,6 +17,7 @@ var eventKinds = map[string]podiumv1.TaskEventKind{
 	docker.KindExited:       podiumv1.TaskEventKind_TASK_EVENT_KIND_EXITED,
 	docker.KindFinished:     podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED,
 	docker.KindError:        podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
+	docker.KindMessage:      podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE,
 }
 
 var logStreams = map[string]podiumv1.LogChunk_Stream{
@@ -57,6 +58,12 @@ func toWire(ev docker.Event) *podiumv1.TaskEvent {
 			ObjectKey:   p.ObjectKey,
 			SizeBytes:   p.SizeBytes,
 			ContentType: p.ContentType,
+		}}
+	case docker.MessagePayload:
+		out.Payload = &podiumv1.TaskEvent_Message{Message: &podiumv1.Message{
+			Type:        p.Type,
+			Text:        p.Text,
+			Attachments: p.Attachments,
 		}}
 	case docker.ExitedPayload:
 		out.Payload = &podiumv1.TaskEvent_Exited{Exited: &podiumv1.Exited{

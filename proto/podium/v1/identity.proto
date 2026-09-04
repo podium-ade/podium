@@ -35,4 +35,8 @@ message WhoAmIResponse {
   string server_version = 5;
   // server_commit is the short git commit the control plane was built from, or "none".
   string server_commit = 6;
+  // agent_enabled is true when this control plane has a conductor configured
+  // (PODIUM_AGENT_URL is set) and therefore proxies podium.agent.v1.AgentService. The web
+  // UI hides its Agent screen when it is false; `podium version` ignores it.
+  bool agent_enabled = 7;
 }
