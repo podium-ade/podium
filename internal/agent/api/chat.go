@@ -1,0 +1,287 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/alvaroibarguen/podium/internal/agent/chat"
+	"github.com/alvaroibarguen/podium/internal/agent/store"
+	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+)
+
+// maxChatMessageBytes caps one human message. The brief cap is 256 KiB for the whole
+// conversation, so a single message larger than this could never be answered anyway, and
+// refusing it here says so instead of failing the turn.
+const maxChatMessageBytes = 32 << 10
+
+// ChatSource is the part of the chat source the handlers use: the write path that starts a
+// turn, and the live fan-out. Reads go to the store directly.
+type ChatSource interface {
+	Send(ctx context.Context, req chat.SendRequest) (store.ChatMessage, error)
+	Subscribe(ctx context.Context, chatID string) *chat.Subscriber
+	Running(ctx context.Context, chatID string) (bool, error)
+}
+
+// requireLogin is the whole of the chat's ownership story. There is no RBAC in this track,
+// but a login is a natural partition and it is free, so a request that arrived without one
+// gets nothing rather than somebody else's chats.
+//
+// "unknown" is what RequireBearer records for a request that carried the bearer and no
+// login header — a direct call to the conductor rather than one through podium-server's
+// proxy. It is refused here: a chat has an owner or it does not exist.
+func requireLogin(ctx context.Context) (string, error) {
+	login := Login(ctx)
+	if login == "" || login == "unknown" {
+		return "", connect.NewError(connect.CodeUnauthenticated, errors.New(
+			"the chat needs to know who is calling; this request carried no X-Podium-Login"))
+	}
+	return login, nil
+}
+
+// chatEnabled refuses the chat RPCs when no chat source was wired in. Nothing external is
+// needed for a chat to work, so in production this never fires; a service built for a test
+// that does not care about chat is the case it exists for.
+func (s *AgentService) chatEnabled() error {
+	if s.chat == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
+			"the web chat is not available on this conductor"))
+	}
+	return nil
+}
+
+// CreateChat opens a conversation owned by the caller.
+func (s *AgentService) CreateChat(
+	ctx context.Context, req *connect.Request[agentv1.CreateChatRequest],
+) (*connect.Response[agentv1.CreateChatResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.store.CreateChat(ctx, login, req.Msg.GetTitle())
+	if err != nil {
+		return nil, storeError(err)
+	}
+	s.logger.InfoContext(ctx, "a chat was created", "chat_id", row.ID, "login", login)
+	return connect.NewResponse(&agentv1.CreateChatResponse{Chat: chatToProto(row)}), nil
+}
+
+// ListChats returns the caller's own chats, newest first.
+func (s *AgentService) ListChats(
+	ctx context.Context, req *connect.Request[agentv1.ListChatsRequest],
+) (*connect.Response[agentv1.ListChatsResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	page := req.Msg.GetPage()
+	rows, next, err := s.store.ListChats(ctx, login, int(page.GetLimit()), page.GetCursor())
+	if err != nil {
+		return nil, storeError(err)
+	}
+	out := make([]*agentv1.Chat, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, chatToProto(r))
+	}
+	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
+}
+
+// SendChatMessage stores one human message and starts a turn on it.
+func (s *AgentService) SendChatMessage(
+	ctx context.Context, req *connect.Request[agentv1.SendChatMessageRequest],
+) (*connect.Response[agentv1.SendChatMessageResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.GetChatId() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("send chat message: chat_id is required"))
+	}
+	if len(req.Msg.GetText()) > maxChatMessageBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"send chat message: %d bytes is more than the %d-byte limit for one message",
+			len(req.Msg.GetText()), maxChatMessageBytes))
+	}
+	msg, err := s.chat.Send(ctx, chat.SendRequest{
+		ChatID: req.Msg.GetChatId(),
+		Login:  login,
+		Text:   req.Msg.GetText(),
+		Skill:  req.Msg.GetSkill(),
+	})
+	switch {
+	case errors.Is(err, chat.ErrTurnRunning):
+		// The UI disables the composer, so a human never sees this. It is the server-side
+		// guarantee behind that: turn-based, one in flight per conversation.
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	case err != nil:
+		return nil, storeError(err)
+	}
+	return connect.NewResponse(&agentv1.SendChatMessageResponse{Message: chatMessageToProto(msg)}), nil
+}
+
+// StreamChat replays a chat and then follows it live.
+//
+// The order is: subscribe, send the turn state, replay, then forward. Subscribing first is
+// what closes the gap — a message stored between the replay and the subscription would
+// otherwise be seen by nobody — and the cost is that a frame may arrive twice, which is
+// harmless because a client keys on seq.
+//
+// The status frame goes FIRST and unconditionally, for two reasons. It is what tells a
+// browser joining mid-turn that the composer is disabled without waiting for the next
+// progress line. And it is what puts the response headers on the wire immediately: a
+// Connect server stream writes no headers until its first message, and podium-server's
+// proxy gives the conductor 30 seconds to produce them — so a subscriber on a quiet chat
+// would otherwise be disconnected every 30 seconds and reconnect for ever.
+//
+// It never returns on its own. The client cancels, and the request context is what unwinds
+// the subscription.
+func (s *AgentService) StreamChat(
+	ctx context.Context, req *connect.Request[agentv1.StreamChatRequest],
+	stream *connect.ServerStream[agentv1.ChatFrame],
+) error {
+	if err := s.chatEnabled(); err != nil {
+		return err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("stream chat: chat_id is required"))
+	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	if row.Login != login {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+
+	sub := s.chat.Subscribe(ctx, chatID)
+	defer sub.Close()
+
+	running, err := s.chat.Running(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	state := chat.StatusFinished
+	if running {
+		state = chat.StatusStarted
+	}
+	if err := stream.Send(&agentv1.ChatFrame{
+		Frame: &agentv1.ChatFrame_Status{Status: &agentv1.ChatStatus{State: state}},
+	}); err != nil {
+		return err
+	}
+
+	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq())
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-sub.Resync():
+			// This subscriber fell behind and something durable was dropped. Saying so is
+			// better than sending a gap: the client re-reads from its last seq.
+			s.logger.WarnContext(ctx, "a chat subscriber fell behind; asked it to resync",
+				"chat_id", chatID, "last_seq", lastSeq)
+			if err := stream.Send(&agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Resync{Resync: true}}); err != nil {
+				return err
+			}
+		case f := <-sub.Frames():
+			if f.Kind == chat.FrameMessage && f.Message.Seq > lastSeq {
+				lastSeq = f.Message.Seq
+			}
+			if err := stream.Send(frameToProto(f)); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// replay sends everything stored after fromSeq and returns the highest seq it sent.
+func (s *AgentService) replay(
+	ctx context.Context, stream *connect.ServerStream[agentv1.ChatFrame], chatID string, fromSeq uint64,
+) (uint64, error) {
+	msgs, err := s.store.ListChatMessages(ctx, chatID, fromSeq)
+	if err != nil {
+		return 0, storeError(err)
+	}
+	last := fromSeq
+	for _, m := range msgs {
+		if err := stream.Send(frameToProto(chat.Frame{Kind: chat.FrameMessage, Message: m})); err != nil {
+			return 0, err
+		}
+		last = m.Seq
+	}
+	return last, nil
+}
+
+func frameToProto(f chat.Frame) *agentv1.ChatFrame {
+	switch f.Kind {
+	case chat.FrameMessage:
+		return &agentv1.ChatFrame{
+			Frame: &agentv1.ChatFrame_Message{Message: chatMessageToProto(f.Message)},
+		}
+	case chat.FrameProgress:
+		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Progress{Progress: f.Progress}}
+	case chat.FrameStatus:
+		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Status{Status: &agentv1.ChatStatus{
+			State: f.State, TaskId: f.TaskID,
+		}}}
+	default:
+		// An unknown kind is a programming error, and an empty frame is what a client can
+		// safely ignore.
+		return &agentv1.ChatFrame{}
+	}
+}
+
+func chatToProto(c store.Chat) *agentv1.Chat {
+	out := &agentv1.Chat{
+		Id:          c.ID,
+		Title:       c.Title,
+		CreatedAt:   timestamppb.New(c.CreatedAt),
+		Preview:     c.Preview,
+		TurnRunning: c.TurnRunning,
+	}
+	if c.LastMessageAt != nil {
+		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
+	}
+	return out
+}
+
+func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
+	out := &agentv1.ChatMessage{
+		ChatId: m.ChatID,
+		Seq:    m.Seq,
+		Role:   m.Role,
+		Text:   m.Text,
+		Ts:     timestamppb.New(m.TS),
+	}
+	for _, a := range m.Attachments {
+		out.Attachments = append(out.Attachments, &agentv1.ChatAttachment{
+			ArtifactId:  a.ArtifactID,
+			Name:        a.Name,
+			ContentType: a.ContentType,
+			SizeBytes:   a.SizeBytes,
+		})
+	}
+	return out
+}

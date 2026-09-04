@@ -35,5 +35,20 @@ export function sidecarLogEvent(seq: number, name: string, text: string): TaskEv
   });
 }
 
+/** messageEvent is what `podium-runner message` becomes by the time the UI sees it. */
+export function messageEvent(
+  seq: number,
+  type: string,
+  text: string,
+  attachments: string[] = [],
+): TaskEvent {
+  return create(TaskEventSchema, {
+    taskId: "task_test",
+    seq: BigInt(seq),
+    kind: TaskEventKind.MESSAGE,
+    payload: { case: "message", value: { type, text, attachments } },
+  });
+}
+
 export const stdout = LogChunk_Stream.STDOUT;
 export const stderr = LogChunk_Stream.STDERR;

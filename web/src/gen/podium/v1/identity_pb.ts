@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/identity.proto.
  */
 export const file_podium_v1_identity: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IpkBCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJKnoKDElkZW50aXR5S2luZBIdChlJREVOVElUWV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSSURFTlRJVFlfS0lORF9VU0VSEAESFgoSSURFTlRJVFlfS0lORF9OT0RFEAISGwoXSURFTlRJVFlfS0lORF9ERVZfVE9LRU4QAzJQCg9JZGVudGl0eVNlcnZpY2USPQoGV2hvQW1JEhgucG9kaXVtLnYxLldob0FtSVJlcXVlc3QaGS5wb2RpdW0udjEuV2hvQW1JUmVzcG9uc2VCpwEKDWNvbS5wb2RpdW0udjFCDUlkZW50aXR5UHJvdG9QAVpCZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
+  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IrABCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgqegoMSWRlbnRpdHlLaW5kEh0KGUlERU5USVRZX0tJTkRfVU5TUEVDSUZJRUQQABIWChJJREVOVElUWV9LSU5EX1VTRVIQARIWChJJREVOVElUWV9LSU5EX05PREUQAhIbChdJREVOVElUWV9LSU5EX0RFVl9UT0tFThADMlAKD0lkZW50aXR5U2VydmljZRI9CgZXaG9BbUkSGC5wb2RpdW0udjEuV2hvQW1JUmVxdWVzdBoZLnBvZGl1bS52MS5XaG9BbUlSZXNwb25zZUKnAQoNY29tLnBvZGl1bS52MUINSWRlbnRpdHlQcm90b1ABWkJnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM");
 
 /**
  * @generated from message podium.v1.WhoAmIRequest
@@ -67,6 +67,15 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
    * @generated from field: string server_commit = 6;
    */
   serverCommit: string;
+
+  /**
+   * agent_enabled is true when this control plane has a conductor configured
+   * (PODIUM_AGENT_URL is set) and therefore proxies podium.agent.v1.AgentService. The web
+   * UI hides its Agent screen when it is false; `podium version` ignores it.
+   *
+   * @generated from field: bool agent_enabled = 7;
+   */
+  agentEnabled: boolean;
 };
 
 /**

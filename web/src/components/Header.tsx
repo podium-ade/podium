@@ -5,7 +5,8 @@ const link = ({ isActive }: { isActive: boolean }) =>
   `rounded px-2 py-1 text-sm ${isActive ? "bg-raised text-fg" : "text-muted hover:text-fg"}`;
 
 export function Header() {
-  const viewer = viewerLabel(useViewer());
+  const who = useViewer();
+  const viewer = viewerLabel(who);
   return (
     <header className="flex items-center gap-4 border-b border-border bg-panel px-4 py-2">
       <span className="font-mono text-sm font-semibold tracking-tight">
@@ -21,6 +22,13 @@ export function Header() {
         <NavLink to="/secrets" className={link}>
           Secrets
         </NavLink>
+        {/* Only where there is a conductor to talk to. WhoAmI says so, so a control plane
+            without one shows no dead end. */}
+        {who?.agentEnabled ? (
+          <NavLink to="/agent" className={link}>
+            Agent
+          </NavLink>
+        ) : null}
       </nav>
       <div className="ml-auto flex items-center gap-3 text-xs text-muted">
         {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev

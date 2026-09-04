@@ -3,8 +3,10 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/alvaroibarguen/podium/internal/server/artifacts"
 	"github.com/alvaroibarguen/podium/internal/server/logs"
@@ -61,6 +63,17 @@ type Config struct {
 	// worker and exists only for a tailnet that has no ACL tags yet.
 	TSAllowUntaggedNodes bool
 
+	// AgentURL is PODIUM_AGENT_URL: where podium-agent, the conductor, listens. Setting it
+	// makes the server reverse-proxy /podium.agent.v1.AgentService/ to that address behind
+	// its own identity middleware, which is the only way a browser reaches the conductor.
+	// Empty means this control plane has no conductor and nothing is mounted.
+	AgentURL string
+	// AgentToken is PODIUM_AGENT_TOKEN: the bearer the proxy presents to the conductor. It
+	// is also the conductor's proof that a proxied request came through this server, which
+	// is what makes the X-Podium-Login header trustworthy at the other end.
+	// SENSITIVE: never log it.
+	AgentToken string
+
 	// S3 is the PODIUM_S3_* object store: where artifacts and rolled-up logs live. An
 	// empty endpoint disables artifacts entirely, which is a supported configuration —
 	// a task does not need artifacts to run.
@@ -83,6 +96,8 @@ func ConfigFromEnv() Config {
 		TSAuthKey:            os.Getenv("TS_AUTHKEY"),
 		TSRequiredNodeTag:    envOr("PODIUM_TS_REQUIRED_NODE_TAG", tailnet.DefaultNodeTag),
 		TSAllowUntaggedNodes: envBool("PODIUM_TS_ALLOW_UNTAGGED_NODES"),
+		AgentURL:             os.Getenv("PODIUM_AGENT_URL"),
+		AgentToken:           os.Getenv("PODIUM_AGENT_TOKEN"),
 		S3:                   artifacts.ConfigFromEnv(),
 		Rollup:               logs.RollupConfigFromEnv(),
 	}
@@ -112,7 +127,43 @@ func (c Config) Validate() error {
 		return fmt.Errorf("PODIUM_TRANSPORT=%q is not a transport (want %s, %s or %s)",
 			c.Transport, TransportDev, TransportTailnet, TransportHost)
 	}
+	if err := c.validateAgent(); err != nil {
+		return err
+	}
 	return c.S3.Validate()
+}
+
+// AgentEnabled reports whether this control plane proxies the conductor's API.
+func (c Config) AgentEnabled() bool { return c.AgentURL != "" }
+
+// validateAgent refuses a half-configured proxy. A proxy that forwards an unauthenticated
+// request into the conductor is worse than no proxy: the conductor's bearer is the whole
+// reason it may trust the login header the proxy sets.
+func (c Config) validateAgent() error {
+	if c.AgentURL == "" {
+		return nil
+	}
+	u, err := url.Parse(c.AgentURL)
+	if err != nil {
+		return fmt.Errorf("PODIUM_AGENT_URL=%q is not a URL: %w", c.AgentURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("PODIUM_AGENT_URL=%q must be an absolute http:// or https:// URL", c.AgentURL)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("PODIUM_AGENT_URL=%q has no host", c.AgentURL)
+	}
+	// The proxy owns the path: it forwards the Connect procedure path verbatim, so a base
+	// URL with a path of its own would silently produce /prefix/podium.agent.v1…
+	if p := strings.TrimSuffix(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("PODIUM_AGENT_URL=%q must be scheme://host:port with no path or query: "+
+			"the proxy forwards the Connect procedure path itself", c.AgentURL)
+	}
+	if c.AgentToken == "" {
+		return errors.New("PODIUM_AGENT_TOKEN is required when PODIUM_AGENT_URL is set: " +
+			"a proxy that forwards an unauthenticated request into the conductor is worse than no proxy")
+	}
+	return nil
 }
 
 func envOr(key, fallback string) string {

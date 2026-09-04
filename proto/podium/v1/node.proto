@@ -197,8 +197,9 @@ message Drain {
   bool undo = 1;
 }
 
-// TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04)
-// and ARTIFACT with the artifact store (step 10); neither is emitted in MVP-0.
+// TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04),
+// ARTIFACT with the artifact store (step 10) and MESSAGE with `podium-runner message`
+// (step 15) — the first kind whose content is authored by the task itself.
 enum TaskEventKind {
   TASK_EVENT_KIND_UNSPECIFIED = 0;
   TASK_EVENT_KIND_PROVISIONING = 1;
@@ -210,6 +211,7 @@ enum TaskEventKind {
   TASK_EVENT_KIND_EXITED = 7;
   TASK_EVENT_KIND_FINISHED = 8;
   TASK_EVENT_KIND_ERROR = 9;
+  TASK_EVENT_KIND_MESSAGE = 10;
 }
 
 message LogChunk {
@@ -240,6 +242,17 @@ message ArtifactRef {
   string object_key = 3;
   int64 size_bytes = 4;
   string content_type = 5;
+}
+
+// Message is something the task wants a human (or a relay) to read while it runs. `type` is
+// an open string; `progress` and `final` are the canonical values. `attachments` are
+// artifact NAMES (ArtifactRef.name) the reader should attach to this message — not paths,
+// and not validated by the node. Emitted by `podium-runner message`. A task can forge it;
+// see docs/security.md.
+message Message {
+  string type = 1;
+  string text = 2;
+  repeated string attachments = 3;
 }
 
 // Step is emitted by the runner. Reserved: unused in MVP-0.
@@ -279,5 +292,6 @@ message TaskEvent {
     Finished finished = 9;
     Error error = 10;
     ArtifactRef artifact = 11;
+    Message message = 12;
   }
 }

@@ -76,8 +76,11 @@ func TestPostgresSidecarExampleShape(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Contains(t, s.Sidecars, "db")
-	assert.Equal(t, 5432, s.Sidecars["db"].Readiness.TCPPort)
-	assert.Equal(t, "postgres:16-alpine", s.Sidecars["db"].Image)
+	// A command probe rather than tcp_port: the image is Debian-based and has no `nc`, which
+	// the tcp_port probe execs inside the sidecar. docs/task-spec.md#readiness says so.
+	assert.Equal(t, []string{"pg_isready", "-U", "postgres"}, s.Sidecars["db"].Readiness.Command)
+	assert.Zero(t, s.Sidecars["db"].Readiness.TCPPort)
+	assert.Equal(t, "pgvector/pgvector:pg16", s.Sidecars["db"].Image)
 	assert.True(t, s.Hardening.ReadOnlyRootfs)
 	assert.Equal(t, 256, s.Resources.MemoryMB)
 }

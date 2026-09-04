@@ -135,6 +135,10 @@ type runnerEvent struct {
 	// the node should collect, and what it is.
 	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
+	// Type, Text and Attachments belong to the message kind.
+	Type        string   `json:"type"`
+	Text        string   `json:"text"`
+	Attachments []string `json:"attachments"`
 }
 
 // Runner event kinds the executor understands. Everything else is opaque.
@@ -142,6 +146,7 @@ const (
 	runnerKindStarted  = "started"
 	runnerKindExited   = "exited"
 	runnerKindArtifact = "artifact"
+	runnerKindMessage  = "message"
 )
 
 // runnerLink is the executor's end of one task's event socket: a listener that stays open
@@ -269,8 +274,10 @@ func (l *runnerLink) awaitStarted(timeout time.Duration) (pid int, ok bool) {
 // drain forwards the rest of the runner's events and closes the returned channel once the
 // runner is done. The Docker API is authoritative for the exit, so `exited` is only
 // logged; `artifact` is handed to onArtifact, which copies the file out and uploads it;
-// every other kind becomes an opaque step event, which is how the node stays forward
-// compatible with a runner that learns to report playbook steps.
+// `message` is forwarded verbatim, without validating its attachments — the artifact they
+// name may still be uploading, and the relay resolves them, not the node; every other kind
+// becomes an opaque step event, which is how the node stays forward compatible with a
+// runner that learns to report playbook steps.
 func (l *runnerLink) drain(taskID string, em *emitter, onArtifact func(name, path, contentType string)) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
@@ -294,6 +301,14 @@ func (l *runnerLink) drain(taskID string, em *emitter, onArtifact func(name, pat
 				if onArtifact != nil {
 					onArtifact(name, ev.Path, ev.ContentType)
 				}
+			case runnerKindMessage:
+				if ev.Text == "" {
+					l.log.Warn("runner message event with no text", "task", taskID)
+					continue
+				}
+				em.emit(KindMessage, MessagePayload{
+					Type: ev.Type, Text: ev.Text, Attachments: ev.Attachments,
+				})
 			default:
 				name := ev.Name
 				if name == "" {

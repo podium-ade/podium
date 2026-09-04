@@ -171,8 +171,8 @@ A sibling container on the task's private network, addressed by the name it is k
 ```yaml
 sidecars:
   db:
-    image: postgres:16-alpine
-    readiness: { tcp_port: 5432 }
+    image: pgvector/pgvector:pg16
+    readiness: { command: ["pg_isready", "-U", "postgres"] }
 ```
 
 The task reaches it at `db`. Sidecars are pulled in order, started concurrently, and **waited

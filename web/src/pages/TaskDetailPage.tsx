@@ -5,6 +5,7 @@ import { ArtifactsPanel } from "../components/ArtifactsPanel";
 import { Badge } from "../components/Badge";
 import { LogViewer } from "../components/LogViewer";
 import { Skeleton } from "../components/Skeleton";
+import { TaskMessage } from "../components/TaskMessage";
 import { useToast } from "../components/Toast";
 import { TaskStatus } from "../gen/podium/v1/common_pb";
 import type { Task } from "../gen/podium/v1/task_pb";
@@ -199,7 +200,8 @@ function TaskDetail({ id }: { id: string }) {
               <li key={String(e.seq)} className="flex flex-wrap gap-3 px-3 py-1.5 text-xs">
                 <span className="w-40 shrink-0 text-muted">{absolute(e.ts)}</span>
                 <span className="w-28 shrink-0 font-medium">{eventKindLabel(e.kind)}</span>
-                <span className="text-muted">{e.detail}</span>
+                {e.message ? <TaskMessage message={e.message} /> : null}
+                {e.message ? null : <span className="text-muted">{e.detail}</span>}
               </li>
             ))}
           </ol>

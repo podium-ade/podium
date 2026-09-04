@@ -16,6 +16,7 @@ const (
 	kindStarted  = "started"
 	kindExited   = "exited"
 	kindArtifact = "artifact"
+	kindMessage  = "message"
 )
 
 // writeTimeout bounds a single write to the node. The runner must never block on the
@@ -52,6 +53,15 @@ type artifactEvent struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	ContentType string `json:"content_type,omitempty"`
+}
+
+// messageEvent is something the task wants read: an answer, a progress note, a question for
+// a human. Attachments are artifact names, not paths — the reader resolves them.
+type messageEvent struct {
+	envelope
+	Type        string   `json:"type"`
+	Text        string   `json:"text"`
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 // eventClient writes newline-delimited JSON to the node. A nil *eventClient is a working
@@ -95,6 +105,15 @@ func (c *eventClient) artifact(name, path, contentType string) {
 		Name:        name,
 		Path:        path,
 		ContentType: contentType,
+	})
+}
+
+func (c *eventClient) message(typ, text string, attachments []string) {
+	c.send(messageEvent{
+		envelope:    head(kindMessage),
+		Type:        typ,
+		Text:        text,
+		Attachments: attachments,
 	})
 }
 

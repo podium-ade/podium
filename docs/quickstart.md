@@ -44,7 +44,8 @@ make build
 ```
 
 That builds the web UI, cross-compiles the two Linux `podium-runner` binaries that
-`podium-node` embeds, and writes `podium`, `podium-server` and `podium-node` into `bin/`.
+`podium-node` embeds, and writes `podium`, `podium-server`, `podium-node` and `podium-agent`
+into `bin/`.
 
 ## 2. Start Postgres
 
@@ -57,6 +58,22 @@ docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 > If something already owns `5432` on your machine, set `PODIUM_PG_PORT=55432` here and match
 > the DSN below. The same goes for `8080`: `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and pass
 > `--server http://127.0.0.1:18080` to the CLI.
+
+The image is `pgvector/pgvector:pg16` — Postgres 16 with the `pgvector` extension available.
+Podium's own schema does not use it; the agents' shared memory does. An existing
+`podium-pgdata` volume from an earlier release keeps working: it is the same major version.
+
+If you are going to run the conductor (`podium-agent`, see [`agent.md`](agent.md)), it needs its
+own database beside Podium's — and the shared memory a third. The compose file creates both, but
+Postgres runs init scripts only on an **empty** data directory, so on a volume that already
+exists do it by hand, once:
+
+```sh
+docker exec podium-dev-postgres createdb -U podium podium_agent
+docker exec podium-dev-postgres createdb -U podium podium_memory
+docker exec podium-dev-postgres psql -U podium -d podium_memory \
+  -c 'create extension if not exists vector'
+```
 
 ## 3. Make a master key
 
@@ -200,6 +217,7 @@ still `queued` says which of the scheduler's reasons is keeping it there.
 ```sh
 pkill -f bin/podium-node
 pkill -f bin/podium-server
+pkill -f bin/podium-agent
 docker compose -f deploy/docker-compose.dev.yml down -v
 ```
 

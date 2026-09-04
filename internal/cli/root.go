@@ -150,11 +150,35 @@ func skewWarning(client, server string) string {
 // note prints a lifecycle line on stderr, dimmed on a terminal, so that piping a task's
 // stdout somewhere never picks up Podium's own commentary.
 func (e *env) note(format string, args ...any) {
-	msg := "→ " + fmt.Sprintf(format, args...)
+	e.noteLine("→ " + fmt.Sprintf(format, args...))
+}
+
+// noteLine is note without the arrow, for the continuation lines of a multi-line note.
+func (e *env) noteLine(msg string) {
 	if isTerminal(e.stderr) {
 		msg = "\x1b[2m" + msg + "\x1b[0m"
 	}
 	fmt.Fprintln(e.stderr, msg)
+}
+
+// noteMessage prints what a task said. It goes to stderr like every other progress line:
+// stdout is the task's own output, byte for byte, and a message is Podium's commentary on
+// it however much a relay cares about it.
+//
+// The text is untrusted content from an untrusted process — it is relayed, never
+// interpreted — so it is printed as it arrived, one indented line at a time.
+func (e *env) noteMessage(m *podiumv1.Message) {
+	if m == nil {
+		return
+	}
+	lines := strings.Split(m.GetText(), "\n")
+	e.note("message (%s): %s", m.GetType(), lines[0])
+	for _, line := range lines[1:] {
+		e.noteLine("  " + line)
+	}
+	if names := m.GetAttachments(); len(names) > 0 {
+		e.noteLine("  (attachments: " + strings.Join(names, ", ") + ")")
+	}
 }
 
 func isTerminal(v any) bool {

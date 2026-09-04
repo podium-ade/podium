@@ -15,13 +15,18 @@ name: podium
 
 services:
   postgres:
-    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     environment:
       POSTGRES_USER: podium
       POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates podium_agent (the conductor's) and podium_memory (Hindsight's), and the
+      # pgvector extension in the latter. Init scripts run ONLY when the data directory is
+      # empty, so on an existing install create them by hand — the recipe is in
+      # docs/operations.md and at the top of this script.
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
       interval: 2s
@@ -31,6 +36,42 @@ services:
     restart: unless-stopped
     # No published ports at all. The database is reached over the compose network by the
     # server, and by nothing else.
+
+  # The agents' shared memory. Same as docker-compose.yml, with one difference that
+  # matters: on a tailnet the workers are on other machines, so PODIUM_MEMORY_BIND should be
+  # this host's tailnet IP and the tailnet ACL should allow tag:podium-node -> 8888. See
+  # docs/networking.md.
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: 1g
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_memory
+      # There is no authentication without these two, for REST or for MCP.
+      # `:-` and not `:?` on purpose: a `:?` here makes compose refuse to interpolate the
+      # WHOLE file, so `docker compose up postgres` would stop working on a deployment with
+      # no memory. Left empty, the container refuses to start and says which variable is
+      # missing — "HINDSIGHT_API_TENANT_API_KEY is required when using ApiKeyTenantExtension"
+      # and "LLM API key is required" — which is fail-closed and names the fix.
+      HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
+      HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      HINDSIGHT_API_LLM_PROVIDER: anthropic
+      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
+      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+      HINDSIGHT_ENABLE_CP: "false"
+      HINDSIGHT_API_WORKER_ID: hindsight
+    ports:
+      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:8888:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
 
   server:
     image: ghcr.io/alvaroibarguen/podium-server:${PODIUM_IMAGE_TAG:-latest}
@@ -45,6 +86,11 @@ services:
       # The Tailscale auth key. Read on the first run only: after that the state volume below
       # *is* the device identity. Never bake it into an image.
       TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY to a reusable, pre-approved key tagged tag:podium-server}
+      # The conductor's API, reverse-proxied behind this server's identity middleware — which
+      # under this transport is Tailscale's WhoIs, so the login the conductor records is a
+      # real person. Set PODIUM_AGENT_URL to the empty string to run without a conductor.
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
     volumes:
       # The tsnet state must outlive the container. Without it the server registers a brand new
       # Tailscale device on every restart, the MagicDNS name drifts to podium-1, podium-2, ...
@@ -52,6 +98,46 @@ services:
       - server-state:/var/lib/podium
     # Also no published ports: the server listens only inside the tailnet, on 443 of its own
     # Tailscale device. There is no host port to firewall and no public ingress to protect.
+    restart: unless-stopped
+
+  # The conductor. See docs/agent.md.
+  #
+  # NOTE, and it is not a small one: under PODIUM_TRANSPORT=tailnet the server listens ONLY
+  # on 443 of its own Tailscale device. It has no port on the compose network, so a plain
+  # sidecar container cannot reach it — this service works only on a host where the conductor
+  # can route into the tailnet (the `host` transport with the machine's own tailscaled, or
+  # podium-agent run on the host rather than in compose). Left here as the recipe; the tested
+  # path is the dev transport in docker-compose.yml. PODIUM_AGENT_API_TOKEN is empty on
+  # purpose: over the tailnet, WhoIs names the caller.
+  #
+  # It needs a profile directory: `cp -r ../examples/agent ./agent` before the first `up`.
+  agent:
+    image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    depends_on:
+      - server
+      - hindsight
+    environment:
+      PODIUM_AGENT_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
+      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
+      PODIUM_AGENT_LISTEN: 0.0.0.0:8090
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
+      PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+      PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
+      PODIUM_AGENT_LINEAR_POLL_INTERVAL: ${PODIUM_AGENT_LINEAR_POLL_INTERVAL:-30s}
+      PODIUM_AGENT_LINEAR_URL: ${PODIUM_AGENT_LINEAR_URL:-https://api.linear.app/graphql}
+      # The web UI as a human reaches it. On a tailnet that is the server's tailnet name,
+      # which is also PODIUM_AGENT_SERVER, so the default is right here.
+      PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}
+      # Shared memory. The task URL is what a container on a WORKER reaches Hindsight at,
+      # which on a tailnet is this host's tailnet IP rather than host.docker.internal.
+      PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://hindsight:8888}
+      PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
+      PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
+      PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+    volumes:
+      - ./agent:/etc/podium/agent:ro
     restart: unless-stopped
 
   # A worker. In practice this runs on a *different machine* — that is the whole point of the

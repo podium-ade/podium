@@ -61,7 +61,7 @@ secrets:
     key: PGPASSWORD
 sidecars:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     env:
       POSTGRES_PASSWORD: pw
     readiness:
@@ -81,7 +81,7 @@ sidecars:
     expect(spec!.resources).toEqual({ cpu: 1.5, memoryMb: 512n, pids: 0 });
     expect(spec!.hardening).toEqual({ readOnlyRootfs: true, capabilities: ["CHOWN"] });
     expect(spec!.secrets).toEqual([{ name: "DB_PASSWORD", target: "env", key: "PGPASSWORD" }]);
-    expect(spec!.sidecars!.db.image).toBe("postgres:16-alpine");
+    expect(spec!.sidecars!.db.image).toBe("pgvector/pgvector:pg16");
     expect(spec!.sidecars!.db.readiness).toMatchObject({
       tcpPort: 5432,
       timeout: { seconds: 60n, nanos: 0 },
@@ -100,7 +100,7 @@ sidecars:
 
   it("rejects an unknown field inside a sidecar, but not the sidecar's own name", () => {
     const { problems } = parseSpecYaml(
-      "image: alpine:3\nsidecars:\n  my-db:\n    image: postgres:16-alpine\n    privileged: true\n",
+      "image: alpine:3\nsidecars:\n  my-db:\n    image: pgvector/pgvector:pg16\n    privileged: true\n",
     );
     expect(problems).toEqual(["sidecars.my-db.privileged: is not a task spec field (known: image, command, env, readiness, resources)"]);
   });
@@ -136,7 +136,7 @@ describe("specToYaml", () => {
       resources: { cpu: 1.5, memoryMb: 512n, pids: 4096 },
       hardening: { readOnlyRootfs: true, capabilities: ["CHOWN"] },
       secrets: [{ name: "TOKEN", target: "file", key: "/podium/secrets/token" }],
-      sidecars: { db: { image: "postgres:16-alpine", readiness: { tcpPort: 5432 } } },
+      sidecars: { db: { image: "pgvector/pgvector:pg16", readiness: { tcpPort: 5432 } } },
       retryOnNodeLoss: true,
     });
     const text = specToYaml(spec);
@@ -146,7 +146,7 @@ describe("specToYaml", () => {
     expect(back!.image).toBe("alpine:3");
     expect(back!.env).toEqual({ A: "1", B: "2" });
     expect(back!.secrets).toHaveLength(1);
-    expect(back!.sidecars!.db.image).toBe("postgres:16-alpine");
+    expect(back!.sidecars!.db.image).toBe("pgvector/pgvector:pg16");
     expect(back!.resources).toEqual({ cpu: 1.5, memoryMb: 512n, pids: 4096 });
     expect(back!.retryOnNodeLoss).toBe(true);
   });

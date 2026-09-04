@@ -1,0 +1,12 @@
+# The skill a mention gets when nothing else routes it: answer the question in the thread.
+# It reads and it runs shell commands; it clones nothing and it holds no credentials beyond
+# the Anthropic key the conductor attaches to every turn.
+#
+# The image is the locally built :dev tag, so `make agent-runtime` is all it takes for this
+# example to run against a dev stack. A real deployment pins
+# ghcr.io/alvaroibarguen/podium-agent-runtime to a released tag.
+image: podium-agent-runtime:dev
+system_prompt: file:../prompts/general.md
+allowed_tools: [Read, Grep, Glob, WebFetch, Bash]
+max_turns: 50
+timeout: 15m

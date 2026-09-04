@@ -53,6 +53,7 @@ A task is somebody else's code. Podium sandboxes it:
 | Memory | `memory_mb`, with swap pinned to the same number, so exceeding it is an OOM kill and not a swapped-out machine |
 | PIDs | `resources.pids`, default 4096 |
 | Network | its own bridge network per task, shared only with its own sidecars |
+| Groups | gid 0 as a supplementary group, so a non-root task image can still open the runner event socket — see below |
 
 What that does **not** buy you:
 
@@ -63,14 +64,35 @@ What that does **not** buy you:
   database on the host's LAN — depends on the host's routing and firewall, and Docker's default
   bridge setup forwards it. **Assume it can.** This has never been tested and nothing in Podium
   restricts it. If a worker sits on a network that matters, firewall it at the host.
+- **The host is now reachable by name from every task.** Every task container is created with
+  `host.docker.internal` mapped to the engine's bridge gateway, because a turn has to reach the
+  agents' shared memory on the control-plane host. It was already reachable *by IP* — the
+  bullet above — so this is not new access; it is new convenience, and it applies to every
+  task, not only an agent one. Sidecars deliberately do not get the entry.
 - **Sidecars are not hardened like the task container.** They keep their capabilities and their
   writable root filesystem, because a stock database image chowns files and drops privileges on
   the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task.
-- **The runner event socket is world-writable inside the container** (mode 0666, so that a task
-  running as a non-root user can report). Any process in the task container can therefore forge
-  `step` and `artifact` events. Today that only produces cosmetic log entries and an artifact
-  upload the task could have made anyway; it becomes a real problem the moment those events
-  drive server-side state.
+- **The runner event socket is reachable by every process in the container**, so that a task
+  image running as a non-root user can report at all. The node sets the socket to mode 0666 on
+  the host, which is what a native Linux engine carries into the container. Docker Desktop does
+  not: it forwards a bind-mounted Unix socket through a proxy and presents it inside the
+  container as `root:root` mode 0660 whatever the host mode is, which locks out every non-root
+  image — so the task container also gets **gid 0 as a supplementary group**. That is the same
+  remedy people use for `/var/run/docker.sock`. With every capability dropped and
+  `no-new-privileges` set it buys nothing else than the group bit on root-group files, in an
+  image the task chose anyway; it is still a widening, and it is listed here because it applies
+  to every task, not only to an agent one.
+  Either way, any process in the task container can forge `step`, `artifact` and `message`
+  events. Today that only produces cosmetic log entries and an artifact upload the task could
+  have made anyway; it becomes a real problem the moment those events drive server-side state.
+- **A `message` event's text is untrusted content, and it is not redacted.** A task can forge a
+  `message` of any type, with any text, naming any attachment. None of it drives server state —
+  no status transition, no storage beyond the `task_events` row — but the text is written by an
+  untrusted process, and secret redaction does not apply to it: the node's redactor is a
+  log-chunk pipeline and never sees a message payload. **Every relay that posts a message
+  somewhere — Slack, Linear, a web chat — must treat the text as untrusted content from an
+  untrusted process, exactly as it would treat a log line.** Relay it; never interpret it, never
+  execute it, never let it name the channel it is posted to.
 
 ### 4. Anyone who can reach the API — **fully trusted, because there is no RBAC**
 
@@ -78,6 +100,188 @@ There are no roles, no per-user permissions and no read-only mode. Under the tai
 the server records who visited in a `users` table and then lets them do everything. Whoever can
 reach the API can submit tasks (and therefore run code as root on every worker), drain nodes,
 delete secrets and delete nodes.
+
+### 5. The conductor and the bot
+
+`podium-agent` (see [`agent.md`](agent.md)) widens exposure and fixes nothing about the above.
+
+- **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
+  credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
+  it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
+  allowlist of users and no roles. The **skill file is the only boundary**: a turn gets exactly
+  the secrets its own `skills/<name>.yaml` names, plus the reserved
+  `podium.agent.anthropic_api_key` the conductor attaches itself. Keep `secrets:` minimal per
+  skill and do not put a credential in a skill a public channel can reach.
+- **The `coder` skill has write access to your repositories, and a prompt injection can steer
+  it.** It is the one skill that names `podium.agent.github_token`, so it is the one skill whose
+  turns can push a branch and open a pull request. Everything a turn reads is untrusted: a
+  ticket's description, a comment on it, a Slack message, and **a README, a `CONTRIBUTING.md` or
+  a comment in the repository it just cloned**. Any of them can carry instructions, and the agent
+  has no way to tell them from the request. The mitigations reduce this and do not remove it:
+  - the pull request is opened as a **draft**, so no reviewer is paged and no automation merges
+    it, and a human reads the diff before anything happens;
+  - the prompt forbids committing to, pushing to, rebasing onto or force-pushing the default
+    branch — but a prompt is guidance, not a control, so put **branch protection** on the default
+    branch of every repository in `repos:` and require a review;
+  - the token should be a **fine-grained** PAT scoped to exactly those repositories, with
+    *Contents* and *Pull requests* read/write and nothing else — never a classic `repo` token,
+    which is every repository its owner can see, and never `workflow`;
+  - **do not point it at a repository that deploys on merge**, or at one whose CI runs on a
+    branch push with credentials of its own. A draft PR is not a boundary if pushing the branch
+    is already enough to run something.
+
+  Said plainly: an attacker who can write a Linear comment on a ticket the bot is assigned, or
+  post in a channel the bot is in, can attempt to make it commit code. Everything above makes
+  that attempt visible and slow. None of it makes it impossible.
+- **The Linear API key is as sensitive as `PODIUM_DEV_TOKEN`.** It is a *personal* API key on a
+  user seat: full read and write of every issue, comment, project and document that user can
+  see. Give the bot user access to only what it needs, the way you would a contractor. Podium
+  never logs it and sends it in one header to one endpoint (`PODIUM_AGENT_LINEAR_URL`), and it
+  is **never** injected into a task container — a turn cannot read the bot's Linear account.
+- **The Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`.** The `xoxb-` bot token can read and
+  post in every channel the bot is in; the `xapp-` app-level token opens the event connection.
+  `PODIUM_AGENT_TOKEN` is the only thing guarding the conductor's API, which lists every session
+  and every answer the bot has given.
+- **Text relayed out of a task is untrusted content.** The conductor posts a `final` message
+  verbatim and interprets none of it: it never parses an answer for a command, a channel name or
+  a user ID, and it cannot be talked into posting somewhere else. The reverse is also true and
+  more dangerous: a turn's *instruction* is whatever a human typed, so anybody who can tag the
+  bot can prompt-inject the agent inside its own container. The container is the boundary.
+- **A `message` event is never redacted.** The log redactor is a log-chunk pipeline and never
+  sees a message payload, so a task that puts a secret in its answer puts it in the database, in
+  the web UI and in the Slack thread. See *Redaction* below.
+- **The agent runtime runs with `bypassPermissions`.** No tool call inside a turn asks anybody
+  anything. That is deliberate — a turn is not interactive and there is nobody to ask — and it
+  means the sandbox in *3. A task container* is the whole of the protection.
+- **The conductor holds no privilege of the control plane's.** It has its own database, its own
+  API token, and no master key, no Docker socket and no node key. Compromising it gets an
+  attacker the bot's Slack tokens and the ability to submit tasks — which is already everything,
+  because there is no RBAC.
+- **The provider key is a secret like any other, and the web UI can replace or remove it.**
+  Whoever can reach the UI can paste a new Anthropic key over the current one, or remove it and
+  stop every turn. There is no confirmation beyond an inline one and no audit of who did it
+  beyond `set_by`, which records the login at the time of the last successful save and is
+  overwritten by the next. Only the last four characters of the key are ever stored outside the
+  secret store, and there is no read endpoint: `podium secret rm
+  podium.agent.anthropic_api_key` is the CLI equivalent of the UI's Remove.
+- **Shared memory is a prompt-injection amplifier.** Every turn reads and writes one memory
+  bank, so a fact planted by one poisoned turn — out of a Slack message, a ticket, a README in a
+  cloned repository — is recalled by every later turn, including turns for other people in other
+  channels. Nothing in this track detects that. The mitigations are all human or advisory:
+  provenance on every item (`session_id`, `turn_id`, `task_id`, `source_ref`, `source_url`), the
+  Memory tab where a person can read what the organisation "knows" and forget an item, and the
+  runtime prompt's rules — which a determined injection will talk past. A turn's own answer is
+  what gets retained, so **an agent that can be talked into saying something can be talked into
+  remembering it**.
+- **The memory API key is full read/write of every memory.** One value,
+  `PODIUM_AGENT_MEMORY_API_KEY`, guards the whole service, and there is nothing finer: no
+  per-agent key, no read-only key, no per-bank key. It reaches three places — the memory
+  container, the conductor, and **every task container**, as the Podium secret
+  `podium.agent.memory_api_key`. So any turn can rewrite or wipe the whole bank, whatever its
+  skill file says. As sensitive as `PODIUM_DEV_TOKEN`.
+- **The memory service has NO authentication of its own by default.** It is switched on by
+  `HINDSIGHT_API_TENANT_EXTENSION` + `HINDSIGHT_API_TENANT_API_KEY`, which
+  `deploy/docker-compose.yml` makes mandatory. Run that image without them — by hand, or in
+  somebody else's compose file — and port 8888 is an open read/write endpoint over everything
+  the organisation has learned.
+- **Port 8888 is published on all interfaces, and it has to be.** A turn's container reaches the
+  host through the Docker bridge gateway, and a service bound to `127.0.0.1` is not reachable
+  from there. `PODIUM_MEMORY_BIND` narrows it to a tailnet or bridge-gateway IP; otherwise
+  firewall 8888 at the host to those ranges. See
+  [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
+- **The memory engine's own web UI is deliberately not published.** Its port 9999 control plane
+  would be a second, unauthenticated front door onto the same data; `HINDSIGHT_ENABLE_CP=false`
+  turns it off and no compose file maps the port. An operator who needs it can port-forward.
+- **Forgetting a memory is a tombstone, not a deletion.** `DeleteMemory` sets the curation state
+  to `invalidated`: the memory is excluded from every recall, from consolidation and from the
+  graph, and the row is kept in an archive. No future turn sees it — which is what the operator
+  asked for — but the text is still in `podium_memory`, and it is reversible through the memory
+  engine's own API. If a memory must be *destroyed*, that is a database operation, not a UI one.
+- **The memory service gets its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
+  environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
+  any compose environment value. It is not stored in Podium's encrypted secret store, because it
+  is read before anything Podium controls is running. Three things reduce what that costs
+  you, none of which removes the exposure:
+  - **Give it its own key, in its own workspace, with a spend limit.** It does one job —
+    extracting facts from prose your own agents produced — so it never needs the agents' key.
+    A separate key bounds the blast radius and makes rotation a non-event.
+  - **Mount it rather than passing `-e`.** The service calls `load_dotenv(find_dotenv(usecwd=True))`
+    at start-up and its working directory is `/app`, so a read-only bind of a mode-0600 file at
+    `/app/.env` keeps the key out of `docker inspect`, out of shell history and out of any
+    compose file that gets committed. It is still in the process environment inside the
+    container: this shrinks the exposure, it does not end it.
+  - **Or give it no key.** Reads need none — search and reranking run on models baked into the
+    image — so a bank you only ever query works unauthenticated to Anthropic. Extraction is the
+    only thing that calls a model, and the engine also supports local providers. Both routes cost
+    extraction quality and neither has been tested here.
+  Podium deliberately does **not** inject this key itself. Its secret injection is per task, and
+  the conductor never sees the master key; templating a secret into a service Podium does not
+  manage would breach that boundary to protect a narrower credential than the agents' own.
+- **`X-Podium-Login` is trusted because the bearer proves where it came from.** `podium-server`
+  reverse-proxies `/podium.agent.v1.AgentService/` to `PODIUM_AGENT_URL` behind its own identity
+  middleware. On the way it **deletes** any client-supplied `Authorization` and
+  `X-Podium-Login` and sets its own: the conductor's bearer, and the login of the caller the
+  server authenticated. The conductor accepts the header only because the bearer is known to
+  exactly one party — the server — and that party is the one that named the human. A node
+  identity is refused with 403 before anything is forwarded, and the conductor's own
+  `/healthz`, `/readyz` and `/metrics` are not proxied at all.
+
+  **It is a plain header, not a signed assertion.** That is sound while the conductor listens on
+  loopback or a compose network that only the server can reach, which is why
+  `PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090`. Expose that listener any wider and
+  anything able to reach it that also learns `PODIUM_AGENT_TOKEN` can claim to be any operator;
+  at that point the header has to become a signed assertion, and this document is the record
+  that it is not one yet.
+
+### The analyst and your warehouse
+
+The `analyst` skill (see [`agent.md`](agent.md#the-analyst-skill)) is the third widening in this
+track, and it is the one that touches data nobody wrote for a bot.
+
+- **It reads everything its credential can read.** There is no table allowlist, no column
+  masking and no row filter anywhere in Podium. Whatever `podium.agent.warehouse_url` or
+  `podium.agent.warehouse_credentials` can select, a turn can select — and any question from
+  anybody who can reach the chat, or the channel, can be the one that selects it. **Use a
+  read-only role with a statement timeout**, and scope it to the schemas an analyst may see. The
+  recipe is in [`agent.md`](agent.md#the-read-only-role-is-the-control-not-the-prompt).
+- **The read-only role is the control. The prompt is not.** `prompts/analyst.md` tells the agent
+  never to modify data, and says in as many words that the credential is the real control and
+  the instruction is a courtesy. A prompt injection in a question, in a Slack thread, or in a
+  memory a previous turn retained can talk past a prompt; it cannot talk past
+  `default_transaction_read_only`.
+- **Row-level data can end up in a chat transcript, in Hindsight memory, and (for the same skill
+  via Slack) in a Slack channel.** Those are the words, and they mean exactly what they say. An
+  answer is stored in `chat_messages` in `podium_agent` for ever; the same skill asked over Slack
+  posts its answer into the channel, where everybody in it can read it and Slack keeps it under
+  your workspace's retention; and the end-of-turn retain puts the answer into the shared memory
+  bank, which every later turn of every skill reads. **A customer's name, email address or
+  balance that reaches an answer has left the warehouse's access controls behind and is now
+  governed by Slack's, by `podium_agent`'s and by `podium_memory`'s** — three places with no
+  RBAC, no retention and no per-user scoping. If your warehouse holds personal data, that is the
+  sentence to take to whoever owns your data-protection obligations before you point this skill
+  at it.
+- The prompt's "keep result tables to 50 rows, and never retain row-level data" rules exist for
+  exactly that reason, and they are **a courtesy, not a control** — the same distinction as
+  above. Nothing in Podium inspects an answer for personal data, and a `message` event is never
+  redacted (see *Redaction* below). The only real controls are the credential's own grants and
+  which channels the skill is reachable from.
+- **The web UI's CSP allows `blob:` images, and that is new in this step.** A chat
+  attachment cannot be an `<img src="/artifacts/{id}">`: that route is behind the identity
+  middleware and an `<img>` carries no Authorization header. So the page fetches the bytes
+  itself — a request `connect-src 'self'` already allowed — and displays them from a blob
+  URL, which needs `img-src … blob:`. It widens nothing about what the page can *reach*: a
+  blob's bytes came from a request this policy already permitted, and `blob:` in `img-src`
+  cannot name a remote host. What it does mean is that **bytes a task produced are decoded
+  by the browser**, so an image decoder bug is reachable from a turn's output. The
+  compensating decision is in `ChatAttachments.tsx`: only raster types are ever rendered or
+  handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
+  `blob:` URL inherits the app's origin, which is where the dev token lives.
+- **A chat belongs to a login, and that is a partition rather than a permission.**
+  `ListChats`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
+  and the login is the one `podium-server` asserted. But every login is fully trusted — there is
+  still no RBAC — so this stops an accident and one honest mistake, not an operator who wants to
+  read somebody else's conversation: whoever can reach the API can read `podium_agent` directly,
+  and the answers are also in `turns.final_text` with no login on them at all.
 
 ---
 
@@ -295,11 +499,38 @@ Everything below is a real hole, not a hypothetical:
 - **The dev transport is plaintext**, secret values included.
 - **The tailnet transport has never been run against a real tailnet.**
 - **Redaction does not survive a node restart** and is best-effort at the best of times.
-- **The runner event socket is world-writable inside the container**, so a task can forge `step`
-  and `artifact` events.
+- **Every process in the task container can reach the runner event socket** — mode 0666 on the
+  host, plus gid 0 as a supplementary group on the container so a non-root image can open it at
+  all — so a task can forge `step`, `artifact` and `message` events.
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
-- **`/metrics` and `/healthz` are unauthenticated** on both daemons.
+- **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
+- **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
+  conductor has no allowlist and no roles; a skill's `secrets:` list is the only boundary. See
+  *5. The conductor and the bot*.
+- **The `coder` skill can push branches and open pull requests, and a prompt injection in a
+  ticket, a comment or a cloned repository's own files can steer it.** Draft PRs, branch
+  protection and a fine-grained token reduce this; nothing here removes it.
+- **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
+  a Slack thread, a web-chat transcript and the shared memory.
+- **The `analyst` skill reads everything its warehouse credential can read**, and row-level data
+  in an answer lands in a chat transcript, in Hindsight memory and (over Slack) in a channel. A
+  read-only role with a statement timeout is the only real control; the prompt's rules are a
+  courtesy. See *The analyst and your warehouse*.
+- **A web chat is partitioned by login, not protected by it.** Another login's chat answers
+  `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
+- **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the
+  only record of who did it is `set_by` on the current key.
+- **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
+  proves the request came through `podium-server`. That holds only while the conductor's
+  listener is loopback or a network only the server can reach.
+- **Shared memory is a prompt-injection amplifier**, one API key guards all of it, and every
+  task container holds that key. A false fact planted by one turn is read by every later turn;
+  the only defence is a human reading the Memory tab.
+- **The host is resolvable by name (`host.docker.internal`) from every task container**, to let
+  a turn reach the shared memory. It was reachable by IP before.
+- **`podium_memory` has no retention and no pruning.** Facts accumulate for the life of the
+  install, and forgetting one archives it rather than deleting it.
 - **No audit for reads.** `audit_log` records secret set/delete/resolve/rotate. It does not
   record who listed nodes, read a task's log, or downloaded an artifact.
 - **Single server process.** Sessions are in memory; a second replica would see every node as

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { TaskEventKind, type TaskEvent } from "../gen/podium/v1/node_pb";
+import { TaskEventKind, type Message, type TaskEvent } from "../gen/podium/v1/node_pb";
 import { errorMessage, tasks } from "../lib/client";
 import { Accumulator, type LogLine } from "../lib/logs";
 
@@ -9,6 +9,8 @@ export interface TimelineEntry {
   kind: TaskEventKind;
   ts?: Timestamp;
   detail: string;
+  /** message is the whole payload of a `message` event: the row renders it in full. */
+  message?: Message;
 }
 
 export type StreamPhase = "connecting" | "streaming" | "finished" | "error";
@@ -16,9 +18,17 @@ export type StreamPhase = "connecting" | "streaming" | "finished" | "error";
 const FLUSH_MS = 60;
 const MAX_BACKOFF_MS = 10_000;
 
+/** How much of a message's first line the timeline's one-line detail shows. */
+const MAX_DETAIL = 200;
+
+function firstLine(text: string): string {
+  const line = text.split("\n", 1)[0];
+  return line.length > MAX_DETAIL ? `${line.slice(0, MAX_DETAIL)}…` : line;
+}
+
 // Replayed events carry an unset payload for the kinds that have none, so every read below is
-// guarded by the oneof case rather than by the kind.
-function detailOf(ev: TaskEvent): string {
+// guarded by the oneof case rather than by the kind. Exported for its own test.
+export function detailOf(ev: TaskEvent): string {
   switch (ev.payload.case) {
     case "error":
       return ev.payload.value.retryable
@@ -35,6 +45,8 @@ function detailOf(ev: TaskEvent): string {
     }
     case "step":
       return `${ev.payload.value.name}: ${ev.payload.value.status}`;
+    case "message":
+      return `${ev.payload.value.type}: ${firstLine(ev.payload.value.text)}`;
     default:
       return "";
   }
@@ -115,7 +127,13 @@ export function useTaskEvents(taskId: string, onStatusEvent: () => void) {
             if (ev.kind === TaskEventKind.LOG) {
               pendingLines = pendingLines.concat(acc.append(ev));
             } else {
-              pendingEvents.push({ seq: ev.seq, kind: ev.kind, ts: ev.ts, detail: detailOf(ev) });
+              pendingEvents.push({
+                seq: ev.seq,
+                kind: ev.kind,
+                ts: ev.ts,
+                detail: detailOf(ev),
+                message: ev.payload.case === "message" ? ev.payload.value : undefined,
+              });
               notify.current();
             }
             schedule();

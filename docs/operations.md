@@ -10,14 +10,14 @@ do when something is wrong.
 Both daemons serve the same three, unauthenticated, so a probe reports what the process reports
 and not what a credential allows.
 
-| | `podium-server` | `podium-node` |
-|---|---|---|
-| where | the API listener (`127.0.0.1:8080` under `dev`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` |
-| `/healthz` | 200 while the process is up | 200 while the process is up |
-| `/readyz` | 200 `ok`; **503** with `postgres unreachable`, `object store unreachable: ...`, or (tailnet) a transport problem such as a node key within 30 days of expiring | 200 only while the **stream to the control plane is up**; 503 with `control plane stream is down` |
-| `/metrics` | Prometheus | Prometheus |
+| | `podium-server` | `podium-node` | `podium-agent` |
+|---|---|---|---|
+| where | the API listener (`127.0.0.1:8080` under `dev`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` | `PODIUM_AGENT_LISTEN`, default `127.0.0.1:8090` |
+| `/healthz` | 200 while the process is up | 200 while the process is up | 200 while the process is up |
+| `/readyz` | 200 `ok`; **503** with `postgres unreachable`, `object store unreachable: ...`, or (tailnet) a transport problem such as a node key within 30 days of expiring | 200 only while the **stream to the control plane is up**; 503 with `control plane stream is down` | 200 `ok, podium as <login>`; **503** with `agent database unreachable`, `podium api unreachable` or `memory unreachable` |
+| `/metrics` | Prometheus | Prometheus | Prometheus, with `podium_agent_*` |
 
-Two things about `/readyz` that will confuse you otherwise:
+Three things about `/readyz` that will confuse you otherwise:
 
 - **The node's `/readyz` does not probe Docker.** The engine is checked once, at startup. After
   that readiness tracks only the control plane stream, so a node whose Docker daemon has died
@@ -25,6 +25,14 @@ Two things about `/readyz` that will confuse you otherwise:
 - **The server's `/readyz` failing on a near-expiry Tailscale node key is deliberate.** Tagged
   devices do not expire, so in a correctly tagged install it never fires; it exists to make an
   untagged deployment fail visibly at 60 days instead of silently at 90.
+- **The conductor's `/readyz` calls the Podium API's `WhoAmI`.** So it is 503 whenever the
+  control plane is down, which is correct — a conductor that cannot submit a task cannot run a
+  turn — but it means a server restart shows up as an unready conductor for a few seconds. It
+  does not probe Slack: the library reconnects on its own and a disconnect is logged and counted
+  rather than made a readiness failure.
+- **`memory unreachable` on the conductor does not stop turns.** It is a readiness failure
+  because every turn's prompt names the shared memory, but a turn still runs, still answers and
+  still succeeds without it. Do not gate anything that restarts the conductor on this.
 
 ---
 
@@ -103,6 +111,31 @@ docker compose exec -T postgres \
 ```
 
 `pg_dump` takes a snapshot, so nothing has to stop.
+
+If you run `podium-agent`, `podium_agent` is a **second database on the same server** and needs
+its own dump:
+
+```sh
+docker compose exec -T postgres \
+  pg_dump -U podium -Fc podium_agent > podium-agent-$(date -u +%Y%m%dT%H%M%SZ).dump
+```
+
+It is the lower-value of the two. It holds session and turn records — which conversation ran
+which skill, which task answered it, what the answer was — and nothing that cannot be
+reconstructed by asking again: the conversations themselves live in Slack. Losing it costs
+history and the relay's exactly-once ledger, not work.
+
+If you run the agents' shared memory, `podium_memory` is a **third database** and needs its own
+dump — and this one is the only copy of what it holds:
+
+```sh
+docker compose exec -T postgres \
+  pg_dump -U podium -Fc podium_memory > podium-memory-$(date -u +%Y%m%dT%H%M%SZ).dump
+```
+
+Unlike `podium_agent`, this cannot be reconstructed by asking again. It is every durable fact
+the agents have extracted about the organisation, and the extraction cost provider tokens.
+There is no retention and no pruning: it only grows. Treat it like the object store.
 
 ```sh
 docker compose exec -T postgres \
@@ -216,11 +249,21 @@ server v0.4.0 (e4f5g6h)
 
 ### Order
 
-1. **The control plane first.** Schema migrations run on start and are additive and idempotent;
+1. **Postgres first**, if its image is changing. It is `pgvector/pgvector:pg16` — Postgres 16,
+   the same major version as the Alpine-based image earlier releases ran, so an existing data
+   volume keeps working and all that is added is the `pgvector` extension. Verified: a volume
+   initialised by the Alpine image starts under this one with its data intact.
+2. **The control plane next.** Schema migrations run on start and are additive and idempotent;
    a migration is applied under a `pg_advisory_lock`, so several servers starting at once is
    safe. There is no down-migration and no rollback — take the Postgres backup first.
-2. **Then the workers**, one at a time.
-3. **Then the CLI** on whatever submits tasks.
+3. **Then the shared memory** (`hindsight`), after `postgres` and before `agent`. It runs its
+   own migrations at startup and needs the `vector` extension in `podium_memory` — see the
+   recipe below if the volume predates it.
+4. **Then the conductor** (`agent`).
+5. **Then the workers**, one at a time. A worker upgrade is also what starts mapping
+   `host.docker.internal` into a task container, which is what lets a turn reach the shared
+   memory at all — an old node runs turns whose `recall` calls simply fail.
+6. **Then the CLI** on whatever submits tasks.
 
 A restart of the control plane does not lose a running task: the node buffers its events and
 replays anything unacked when the stream comes back, so `podium logs -f` resumes with no gap and
@@ -263,6 +306,42 @@ PODIUM_IMAGE_TAG=v0.4.0 docker compose up -d --wait
 ```
 
 Pin `PODIUM_IMAGE_TAG` in `.env` rather than relying on `latest`, which moves.
+
+---
+
+### Adding the agent and memory databases to an existing deployment
+
+`deploy/postgres/init.sql` creates `podium_agent` and `podium_memory`, and the `vector`
+extension in the second — but Postgres runs init scripts **only when the data directory is
+empty**. A volume created before those databases existed never sees the script, and the
+conductor's `/readyz` and the memory service's logs both say so. Create them by hand, once:
+
+```sh
+cd deploy
+docker compose exec -T postgres createdb -U podium podium_agent
+docker compose exec -T postgres createdb -U podium podium_memory
+docker compose exec -T postgres psql -U podium -d podium_memory \
+  -c 'create extension if not exists vector'
+```
+
+`createdb` on a database that already exists is an error and nothing else; it is safe to run.
+
+The dev compose file, whose container has a fixed name:
+
+```sh
+docker exec podium-dev-postgres createdb -U podium podium_agent
+docker exec podium-dev-postgres createdb -U podium podium_memory
+docker exec podium-dev-postgres psql -U podium -d podium_memory \
+  -c 'create extension if not exists vector'
+```
+
+The extension has to be in `public` and it has to exist before the memory service migrates.
+Given the privilege it would create it itself; given the extension in **another** schema it
+would try to `drop extension vector cascade` and recreate it in `public`. Creating it up front
+avoids both, and leaves the door open to giving the memory service a non-superuser role later.
+
+Podium's own database and the conductor's stay extension-free: neither one's migrations
+reference it.
 
 ---
 
@@ -346,6 +425,82 @@ off.
 
 Don't. `podium-node` claims every container labelled `podium.task` on its engine, so two daemons
 adopt each other's work. Nothing enforces this.
+
+### The Agent tab is missing from the web UI
+
+The header only shows it when `WhoAmI` reports `agent_enabled`, which is true when
+`PODIUM_AGENT_URL` is set on **`podium-server`** — not on the conductor. Two causes, in order of
+likelihood:
+
+1. `PODIUM_AGENT_URL` is unset (or empty) on the server. The conductor being up and healthy
+   makes no difference; the server is what mounts the prefix and answers `WhoAmI`. Set
+   `PODIUM_AGENT_URL` and `PODIUM_AGENT_TOKEN` — the server refuses to start with a URL and no
+   token — and restart it.
+2. The control plane predates the field. `podium version` will report the skew; an older server
+   sends nothing for `agent_enabled`, proto3 reads that as false, and the tab stays hidden.
+   Nothing breaks: `/agent` still resolves and says the conductor is not configured.
+
+```sh
+curl -s http://127.0.0.1:8080/podium.v1.IdentityService/WhoAmI \
+  -H 'Authorization: Bearer $PODIUM_DEV_TOKEN' -H 'Content-Type: application/json' -d '{}'
+```
+
+### Agent settings say "podium-agent is not reachable"
+
+The server's proxy could not dial `PODIUM_AGENT_URL`. It answers a Connect `unavailable` (HTTP
+503) rather than a bare 502, which is what the page renders. The server's own `/readyz` stays
+200 on purpose: a control plane whose bot is down is still a working task runner.
+
+```sh
+curl -si http://127.0.0.1:8090/readyz        # the conductor's own, unauthenticated
+```
+
+- 503 there means the conductor is up but a dependency is not: its database, or the Podium API's
+  `WhoAmI`. The body names which.
+- Connection refused means the process is not running, or `PODIUM_AGENT_LISTEN` and
+  `PODIUM_AGENT_URL` disagree.
+- A 401 on the settings RPCs and nothing in the conductor's log means the two sides hold
+  different `PODIUM_AGENT_TOKEN` values.
+
+### The Memory tab says memory is not configured
+
+`PODIUM_AGENT_MEMORY_URL` is empty on the conductor, which is a supported configuration — turns
+run with no memory and nothing is retained. Set it and `PODIUM_AGENT_MEMORY_API_KEY` and restart
+the conductor. Setting the URL without the key is a startup error naming the key: the memory
+service has no authentication until it is given one.
+
+### The conductor's readyz says `memory unreachable`
+
+```sh
+curl -si http://127.0.0.1:8888/health           # the memory service's own, unauthenticated
+docker compose logs --tail 50 hindsight
+```
+
+- **503 from `/health`** means the service is up and its database is not. Check that
+  `podium_memory` exists and that the `vector` extension is in it — the recipe is above. A log
+  line reading `pgvector extension is required but not installed` is exactly that.
+- **Connection refused** means the container is not running, or `PODIUM_AGENT_MEMORY_URL` names
+  an address the conductor cannot reach (`http://hindsight:8888` only resolves inside the
+  compose network).
+- **401 on every memory call**, with the conductor logging `the memory API key is refused`,
+  means `PODIUM_AGENT_MEMORY_API_KEY` and the container's
+  `HINDSIGHT_API_TENANT_API_KEY` disagree. The compose files build both from the same variable,
+  so this is a hand-run container or a `.env` that changed without a restart of both.
+
+Meanwhile turns keep working: `podium_agent_memory_retain_total{result="error"}` counts what was
+not remembered, and nothing about it reaches a conversation.
+
+### An agent's `recall` fails inside a turn but the conductor is fine
+
+The conductor and a task container reach the memory service from **different places**. The
+conductor uses `PODIUM_AGENT_MEMORY_URL`; the turn uses `PODIUM_AGENT_MEMORY_TASK_URL`, which
+lands in the brief as `memory.mcp_url`. See
+[`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker) — the usual causes are
+a worker on another machine (where `host.docker.internal` is the wrong host) and
+`PODIUM_MEMORY_BIND` left on loopback, which the Docker bridge cannot reach.
+
+`/workspace/.podium/artifacts/transcript.jsonl` on the turn's task is where the answer is: the
+MCP tool list the SDK saw is in it.
 
 ### Two servers on one database
 

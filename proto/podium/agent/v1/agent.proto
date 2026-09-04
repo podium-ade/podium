@@ -1,0 +1,334 @@
+syntax = "proto3";
+
+package podium.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
+// bearer token and reached from a browser only through podium-server, which proxies
+// /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
+// sessions (17), settings (18), memory (19), skills and chat (21).
+service AgentService {
+  // ListSessions returns conversations the bot has taken part in, newest first.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // ListTurns returns one session's turns, newest first.
+  rpc ListTurns(ListTurnsRequest) returns (ListTurnsResponse);
+  // GetSettings reports what the conductor is configured with. It reads no secret value:
+  // there is no read endpoint on the secret store, by design.
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  // SetProviderKey validates a provider key with the provider itself and, only if that
+  // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
+  rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
+  // ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
+  rpc ClearProviderKey(ClearProviderKeyRequest) returns (ClearProviderKeyResponse);
+  // ListMemories pages through the shared memory, newest first.
+  rpc ListMemories(ListMemoriesRequest) returns (ListMemoriesResponse);
+  // SearchMemories is a semantic search of the same memory.
+  rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
+  // DeleteMemory takes one memory out of every future recall. It is a tombstone rather
+  // than a row deletion: the memory engine keeps the record for audit and stops serving it.
+  rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
+  // ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+  // a name, an image and which one the chat starts with.
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  // CreateChat opens a new web-chat conversation owned by the calling login.
+  rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
+  // ListChats returns the caller's own chats, newest first. Another login's chats are
+  // never returned.
+  rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
+  // SendChatMessage stores one human message and starts a turn on it. It is refused with
+  // FailedPrecondition while a turn for that chat is already running: one turn at a time
+  // per conversation is the whole model.
+  rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
+  // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
+  // own; the client cancels. Progress frames are ephemeral and are not replayed.
+  rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
+}
+
+// Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
+// source_key, which the source computes and the conductor never parses.
+message Session {
+  string id = 1;
+  // source_kind is "slack", "dev", and later "linear" or "chat".
+  string source_kind = 2;
+  string source_key = 3;
+  string profile = 4;
+  // skill is fixed when the session is created: one session, one skill.
+  string skill = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp last_turn_at = 7;
+}
+
+// Turn is one inbound message turned into one Podium task.
+message Turn {
+  string id = 1;
+  string session_id = 2;
+  // task_id is empty for the moment between the turn being recorded and the task being
+  // created, and stays empty for a turn whose task could not be created at all.
+  string task_id = 3;
+  // trigger_ref is the source's own reference to the message that started this turn.
+  string trigger_ref = 4;
+  // status is running, succeeded, failed, lost, cancelled or timeout.
+  string status = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  // num_turns and cost_usd come from the runtime's turn.json and are unset until it lands.
+  optional int32 num_turns = 8;
+  optional double cost_usd = 9;
+  // final_text is what the bot said, as it was relayed. It is content, never instructions.
+  string final_text = 10;
+}
+
+// Page is the same cursor shape podium.v1 uses: an opaque cursor and a bounded limit.
+message Page {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ListSessionsRequest {
+  Page page = 1;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListTurnsRequest {
+  string session_id = 1;
+  int32 limit = 2;
+}
+
+message ListTurnsResponse {
+  repeated Turn turns = 1;
+}
+
+message GetSettingsRequest {}
+
+// ProviderSettings is everything the UI may know about a stored provider key. key_hint is
+// the last four characters, computed once at save time: that is the only form in which any
+// part of the key is ever read back.
+message ProviderSettings {
+  // provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+  string provider = 1;
+  bool key_set = 2;
+  // key_hint is the last four characters of the key, or "" when no key is set.
+  string key_hint = 3;
+  // model is profile.yaml's model. Informational: the UI is not a model picker.
+  string model = 4;
+  // set_by is the X-Podium-Login at the time of SetProviderKey, or "unknown".
+  string set_by = 5;
+  google.protobuf.Timestamp set_at = 6;
+}
+
+message GetSettingsResponse {
+  ProviderSettings provider = 1;
+}
+
+message SetProviderKeyRequest {
+  string provider = 1;
+  // SENSITIVE: never log this field. The handler wraps the request in a redacting
+  // slog.LogValuer so no log site has to remember.
+  string key = 2;
+}
+
+message SetProviderKeyResponse {
+  ProviderSettings provider = 1;
+  // models is the ids the provider says this key can see, capped at 20. It exists so the UI
+  // can show proof that the key works.
+  repeated string models = 2;
+  // status is a human sentence about the save, or "" when there is nothing to add.
+  string status = 3;
+}
+
+message ClearProviderKeyRequest {
+  string provider = 1;
+}
+
+message ClearProviderKeyResponse {}
+
+// Memory is one thing the organisation remembers, shared by every agent turn.
+//
+// EVERY FIELD IS CONTENT. A memory was written by a task, out of material a human, a
+// repository or a ticket supplied; nothing in Podium interprets it. The provenance fields
+// exist so a person can tell where a memory came from and forget one that should not be
+// there — which is the only defence there is against a turn planting a false memory.
+message Memory {
+  string id = 1;
+  string text = 2;
+  // fact_type is world, experience or observation. An observation is derived by the memory
+  // engine from the facts under it.
+  string fact_type = 3;
+  // tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+  repeated string tags = 4;
+  // metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
+  // and source_url.
+  map<string, string> metadata = 5;
+  // created_at is when the memory was learned.
+  google.protobuf.Timestamp created_at = 6;
+  // entities are the people, systems and concepts the memory engine linked this to.
+  repeated string entities = 7;
+  // context is the retaining caller's note about where the memory came from.
+  string context = 8;
+  // document_id is what the retainer grouped the memory under: the turn id, for anything
+  // the conductor retained.
+  string document_id = 9;
+}
+
+message ListMemoriesRequest {
+  // cursor is opaque and comes from a previous response.
+  string cursor = 1;
+  int32 limit = 2;
+}
+
+message ListMemoriesResponse {
+  repeated Memory items = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message SearchMemoriesRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchMemoriesResponse {
+  repeated Memory items = 1;
+}
+
+message DeleteMemoryRequest {
+  string id = 1;
+}
+
+message DeleteMemoryResponse {}
+
+// Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
+message Skill {
+  string name = 1;
+  // image is the runtime image a turn of this skill runs. Shown so a human can tell the
+  // data skill from the browser one.
+  string image = 2;
+  // hint is the first line of the skill's prompt, capped. It is a description, not a
+  // contract: the prompt is the operator's own file.
+  string hint = 3;
+  // chat_default is true for the skill a new chat message uses when nothing else picks one.
+  bool chat_default = 4;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  // profile_display_name labels the bot's own messages in the chat.
+  string profile_display_name = 2;
+}
+
+// Chat is one web-chat conversation. EVERY message in it is content: a human wrote the user
+// turns and a task wrote the assistant ones, and nothing in Podium interprets either.
+message Chat {
+  string id = 1;
+  string title = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // last_message_at is unset for a chat nobody has spoken in yet.
+  google.protobuf.Timestamp last_message_at = 4;
+  // preview is the first 80 characters of the last message, for the chat list.
+  string preview = 5;
+  // turn_running is true while a turn of this chat is in flight, which is when the
+  // composer is disabled and SendChatMessage answers FailedPrecondition.
+  bool turn_running = 6;
+}
+
+// ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
+// is what the browser downloads through GET /artifacts/{id}; the name alone would be
+// ambiguous the moment two turns produce a report.csv.
+message ChatAttachment {
+  string artifact_id = 1;
+  string name = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+}
+
+// ChatMessage is one stored turn of a conversation. seq is per chat and monotonic, which is
+// what makes replay-then-follow exactly once.
+message ChatMessage {
+  string chat_id = 1;
+  uint64 seq = 2;
+  // role is "user" or "assistant".
+  string role = 3;
+  string text = 4;
+  repeated ChatAttachment attachments = 5;
+  google.protobuf.Timestamp ts = 6;
+}
+
+// ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
+// re-derives it from Chat.turn_running.
+message ChatStatus {
+  // state is started, finished or failed.
+  string state = 1;
+  string task_id = 2;
+}
+
+// ChatFrame is one thing that happened in a chat.
+//
+// A message frame is durable and may repeat with the same seq when its attachments are
+// resolved after the fact — a client keyed on seq replaces rather than appends. A progress
+// frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
+// not show it. A resync frame means this subscriber fell behind and dropped something
+// durable: re-read from the last seq seen.
+message ChatFrame {
+  oneof frame {
+    ChatMessage message = 1;
+    string progress = 2;
+    ChatStatus status = 3;
+    bool resync = 4;
+  }
+}
+
+message CreateChatRequest {
+  // title is optional; an empty one becomes "New chat".
+  string title = 1;
+}
+
+message CreateChatResponse {
+  Chat chat = 1;
+}
+
+message ListChatsRequest {
+  Page page = 1;
+}
+
+message ListChatsResponse {
+  repeated Chat chats = 1;
+  // Empty when there is no further page.
+  string next_cursor = 2;
+}
+
+message SendChatMessageRequest {
+  string chat_id = 1;
+  string text = 2;
+  // skill names the skill this message runs, bypassing the profile's routing rules. Empty
+  // means the profile decides (a leading /skill in the text still works).
+  string skill = 3;
+}
+
+message SendChatMessageResponse {
+  // message is the stored human message, with the seq it was given.
+  ChatMessage message = 1;
+}
+
+message StreamChatRequest {
+  string chat_id = 1;
+  // from_seq is exclusive: everything with a higher seq is replayed before the stream
+  // starts following. 0 replays the whole conversation.
+  uint64 from_seq = 2;
+}

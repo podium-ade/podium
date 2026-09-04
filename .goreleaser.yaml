@@ -58,6 +58,26 @@ builds:
       - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
       - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
 
+  # The conductor. Same shape as the server: a static binary and a distroless image, run on
+  # the control plane's host. It is not in the archive below on purpose — an operator who
+  # untars a release to set up a *worker* has no use for it, and the compose file pulls the
+  # image.
+  - id: podium-agent
+    main: ./cmd/podium-agent
+    binary: podium-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
+      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+
   - id: podium-node
     main: ./cmd/podium-node
     binary: podium-node
@@ -195,6 +215,44 @@ dockers_v2:
       - "{{ if not .Prerelease }}latest{{ end }}"
     sbom: true
     labels: *labels
+
+  - id: agent
+    ids: [podium-agent]
+    dockerfile: deploy/docker/agent.Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images: ["ghcr.io/alvaroibarguen/podium-agent"]
+    tags:
+      - "{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "sha-{{ .ShortCommit }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    sbom: true
+    labels: *labels
+
+  # TODO(step 16 → step 14's owner): publish the three agent runtime images.
+  #
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime          agent/runtime/Dockerfile
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime-browser  agent/runtime/Dockerfile.browser
+  #   ghcr.io/alvaroibarguen/podium-agent-runtime-data     agent/runtime/Dockerfile.data
+  #
+  # Same tag set as every entry above ({{ .Version }}, v{{ .Major }}.{{ .Minor }},
+  # sha-{{ .ShortCommit }}, latest off a prerelease), same labels, sbom: true. Deliberately
+  # not wired up in step 16: `make agent-runtime` builds them locally as :dev and that is all
+  # the agentic track needs — a node runs tasks on its own engine, so a local tag is visible
+  # to a task without a registry.
+  #
+  # Three things make these entries unlike the ones above, and each needs deciding rather
+  # than copying:
+  #   1. They build from `agent/runtime`, not from a Go binary. `ids:` does not apply, and the
+  #      build context is that directory. goreleaser's dockers_v2 can do it, but there is no
+  #      binary to gate on, so nothing stops it running on a tree where pnpm never ran.
+  #   2. -browser and -data are layered on the base image (ARG RUNTIME_IMAGE, default
+  #      podium-agent-runtime:dev). Published builds must pass the pushed base by digest, and
+  #      goreleaser builds all entries in parallel — so either the ARG points at a published
+  #      tag or the three become one buildx bake.
+  #   3. The base is Debian and the browser base is Ubuntu Noble, so an amd64+arm64 manifest
+  #      under qemu is slow: the browser image is 4 GB on one architecture already.
+  # Also mirror the tags into deploy/docker-compose.yml, where the conductor's image goes.
 
 # The manifests are what people pull, so they are what is signed. UNVERIFIED: no image has
 # been built or signed from this repository yet, because the build machine may not create

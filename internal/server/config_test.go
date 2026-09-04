@@ -95,3 +95,54 @@ func TestConfigValidate(t *testing.T) {
 	bogus.Transport = "carrier-pigeon"
 	require.ErrorContains(t, bogus.Validate(), "is not a transport")
 }
+
+func TestAgentProxyConfig(t *testing.T) {
+	base := Config{DatabaseURL: "postgres://x", Transport: TransportDev, DevToken: "t"}
+
+	// Unset is the normal case: a control plane with no conductor.
+	require.NoError(t, base.Validate())
+	require.False(t, base.AgentEnabled())
+
+	ok := base
+	ok.AgentURL = "http://127.0.0.1:8090"
+	ok.AgentToken = "agenttoken"
+	require.NoError(t, ok.Validate())
+	require.True(t, ok.AgentEnabled())
+
+	// A trailing slash is a host, not a path.
+	slash := ok
+	slash.AgentURL = "http://127.0.0.1:8090/"
+	require.NoError(t, slash.Validate())
+
+	// A proxy that forwards an unauthenticated request into the conductor is worse than no
+	// proxy: the bearer is the conductor's only reason to trust the login header.
+	noToken := ok
+	noToken.AgentToken = ""
+	require.ErrorContains(t, noToken.Validate(), "PODIUM_AGENT_TOKEN is required")
+
+	for _, bad := range []string{
+		"127.0.0.1:8090",              // no scheme
+		"ftp://127.0.0.1:8090",        // not HTTP
+		"http://",                     // no host
+		"http://127.0.0.1:8090/agent", // the proxy owns the path
+		"http://127.0.0.1:8090/?x=1",  // and the query
+	} {
+		c := ok
+		c.AgentURL = bad
+		require.Error(t, c.Validate(), "PODIUM_AGENT_URL=%q must be refused", bad)
+	}
+
+	// With no URL the token is ignored rather than being a half-configuration.
+	tokenOnly := base
+	tokenOnly.AgentToken = "agenttoken"
+	require.NoError(t, tokenOnly.Validate())
+	require.False(t, tokenOnly.AgentEnabled())
+}
+
+func TestConfigFromEnvReadsTheAgentProxy(t *testing.T) {
+	t.Setenv("PODIUM_AGENT_URL", "http://127.0.0.1:8090")
+	t.Setenv("PODIUM_AGENT_TOKEN", "agenttoken")
+	cfg := ConfigFromEnv()
+	require.Equal(t, "http://127.0.0.1:8090", cfg.AgentURL)
+	require.Equal(t, "agenttoken", cfg.AgentToken)
+}

@@ -43,11 +43,15 @@ the task.
 
 The socket is **mode 0666 inside the container**, so that a task running as a non-root user can
 still report. That means *any* process in the task container can write to it, and a task is
-untrusted code — so a task can forge `step` and `artifact` events, or flood them.
+untrusted code — so a task can forge `step`, `artifact` and `message` events, or flood them.
 
 Today that costs only cosmetic log entries and an artifact upload the task could have performed
 anyway. It becomes a real problem the moment one of these events drives server-side state.
 Nothing here is an authentication boundary. See [`security.md`](security.md#3-a-task-container--untrusted).
+
+A `message` is the first event whose *content* the task writes. Its text is untrusted input for
+everything downstream — the CLI, the web UI and every relay that posts it into Slack, Linear or a
+chat — and it is **not** redacted: the node's redactor is a log-chunk pipeline and does not see it.
 
 ## Envelope
 
@@ -70,9 +74,38 @@ Kind-specific fields follow.
 | `started` | `pid` | the task command has been forked and exec'd successfully |
 | `exited` | `exit_code`, `signal` | the task command exited; `signal` is the `SIGxxx` name when one killed it, and absent otherwise |
 | `artifact` | `name`, `path`, `content_type` | a file inside the container should be kept; `path` is the container path, `name` is what to call it |
+| `message` | `type`, `text`, `attachments` | the task has something for a human, or a relay, to read |
 
 Reserved for the playbook engine, which arrives with a later step: `step{name,status,exit_code}`,
-`usage{...}`, `log{level,msg}`.
+`usage{...}`, `log{level,msg}`. `log` stays reserved — a `message` is not a log line and does not
+replace it.
+
+### `message`
+
+```json
+{"v":1,"kind":"message","ts":"2026-09-03T10:14:07.918273Z","type":"final","text":"the PR is ready","attachments":["shot.png"]}
+```
+
+- **`type` is an open string.** `progress` and `final` are the canonical values —
+  `progress` is a note that may be superseded by the next one, `final` is the answer — and a
+  later producer may emit `plan`, `review` or `question` without a wire change. Nothing in
+  Podium enforces what a type means.
+- **`text` is capped at 32 KiB** and the runner **refuses** a longer one with exit 2 rather
+  than truncating: half a message posted somewhere is worse than one that failed loudly, and
+  the producer is what knows how to split it. Trailing whitespace is trimmed and an empty
+  message is a usage error.
+- **`attachments` are artifact *names*** (`ArtifactRef.name`), not paths. The node does not
+  check that they exist: when the message arrives the artifact may still be uploading, and the
+  reader is what resolves names. A name containing `/` is refused by the runner.
+- **The text is not redacted.** See Trust above.
+
+```
+podium-runner message [--type progress|final] [--attach NAME]... TEXT
+podium-runner message --type progress -            # TEXT of "-" reads stdin
+```
+
+Like `artifact add` it is a second process in the container writing one line to the same
+socket, so a task says what it has to say from any shell with no library and no credentials.
 
 **A node treats any kind it does not know as an opaque `step` event**
 (`TASK_EVENT_KIND_STEP`, with `name` set to the kind when the event carries no `name` of its
@@ -96,6 +129,11 @@ store. An undecodable line is logged and skipped; it never fails a task.
   failed write retires it, so a synchronous upload of a large file would cost the task every
   event after it — and the run waits for all of them before it emits `exited`. The runner
   never reads the file itself.
+- **`message` is forwarded and forgotten.** The node emits a `TaskEvent` of kind `message`
+  carrying `type`, `text` and `attachments` verbatim. It moves no task status, drives no
+  server-side state and validates nothing; a line with no `text` is dropped and warned about.
+  The 32 KiB cap is the runner's — a line longer than the scanner's 64 KiB budget is already
+  dropped as undecodable.
 
 ## Container shape
 
