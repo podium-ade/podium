@@ -200,7 +200,23 @@ delete secrets and delete nodes.
 - **The memory service gets its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
   environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
   any compose environment value. It is not stored in Podium's encrypted secret store, because it
-  is read before anything Podium controls is running.
+  is read before anything Podium controls is running. Three things reduce what that costs
+  you, none of which removes the exposure:
+  - **Give it its own key, in its own workspace, with a spend limit.** It does one job —
+    extracting facts from prose your own agents produced — so it never needs the agents' key.
+    A separate key bounds the blast radius and makes rotation a non-event.
+  - **Mount it rather than passing `-e`.** The service calls `load_dotenv(find_dotenv(usecwd=True))`
+    at start-up and its working directory is `/app`, so a read-only bind of a mode-0600 file at
+    `/app/.env` keeps the key out of `docker inspect`, out of shell history and out of any
+    compose file that gets committed. It is still in the process environment inside the
+    container: this shrinks the exposure, it does not end it.
+  - **Or give it no key.** Reads need none — search and reranking run on models baked into the
+    image — so a bank you only ever query works unauthenticated to Anthropic. Extraction is the
+    only thing that calls a model, and the engine also supports local providers. Both routes cost
+    extraction quality and neither has been tested here.
+  Podium deliberately does **not** inject this key itself. Its secret injection is per task, and
+  the conductor never sees the master key; templating a secret into a service Podium does not
+  manage would breach that boundary to protect a narrower credential than the agents' own.
 - **`X-Podium-Login` is trusted because the bearer proves where it came from.** `podium-server`
   reverse-proxies `/podium.agent.v1.AgentService/` to `PODIUM_AGENT_URL` behind its own identity
   middleware. On the way it **deletes** any client-supplied `Authorization` and
