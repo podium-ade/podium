@@ -108,14 +108,14 @@ jobs:
       # the release archive: an operator untars a release to set up a worker, and the conductor
       # runs on the control plane's host from its image.
       #
-      # TODO(step 16 → step 14's owner): the three agent runtime images are not published.
-      # ghcr.io/alvaroibarguen/podium-agent-runtime, -browser and -data, tagged like every
-      # other image ({{ .Version }}, v{{ .Major }}.{{ .Minor }}, sha-<short>, latest off a
-      # prerelease). See the TODO in .goreleaser.yaml for the three things that make them
+      # TODO(step 16 → step 14's owner): the four agent runtime images are not published.
+      # ghcr.io/alvaroibarguen/podium-agent-runtime, -browser, -data and -dev, tagged like
+      # every other image ({{ .Version }}, v{{ .Major }}.{{ .Minor }}, sha-<short>, latest off
+      # a prerelease). See the TODO in .goreleaser.yaml for the three things that make them
       # unlike the Go images. Whoever wires it up needs pnpm and Node 22 in this job for the
       # build stage — both are already set up above — and should expect the browser image
       # (Ubuntu Noble + Chromium, 4 GB per architecture) to dominate the release's runtime
-      # under qemu.
+      # under qemu, with -dev (a Go toolchain and a Docker client, ~1.7 GB) behind it.
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           version: "~> v2"

@@ -28,6 +28,7 @@ func newRootCommand() *cobra.Command {
 	var configPath string
 	var logLevel string
 	var exitOnDrain bool
+	var allowPrivilegedSidecars bool
 
 	root := &cobra.Command{
 		Use:   "podium-node",
@@ -53,6 +54,9 @@ func newRootCommand() *cobra.Command {
 			if cmd.Flags().Changed("exit-on-drain") {
 				cfg.ExitOnDrain = exitOnDrain
 			}
+			if cmd.Flags().Changed("allow-privileged-sidecars") {
+				cfg.AllowPrivilegedSidecars = allowPrivilegedSidecars
+			}
 
 			// SIGTERM ends the stream and the process, and deliberately does not cancel
 			// the running containers: cancelling a run makes the executor tear its
@@ -77,6 +81,9 @@ func newRootCommand() *cobra.Command {
 	root.Flags().StringVar(&logLevel, "log-level", "info", "debug, info, warn or error")
 	root.Flags().BoolVar(&exitOnDrain, "exit-on-drain", false,
 		"exit 0 once the control plane has drained this node and its last task has finished")
+	root.Flags().BoolVar(&allowPrivilegedSidecars, "allow-privileged-sidecars", false,
+		"honour a spec's privileged sidecar, which is root on this machine's kernel; "+
+			"for a docker-in-docker daemon, on a machine dedicated to it")
 	root.AddCommand(newUpgradeCommand())
 	return root
 }

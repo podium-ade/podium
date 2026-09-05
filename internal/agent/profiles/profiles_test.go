@@ -99,6 +99,9 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"the anthropic env var", func(f map[string]string) {
 			f["skills/general.yaml"] = goodSkill + "env: {ANTHROPIC_API_KEY: x}\n"
 		}, []string{"skills/general.yaml", "ANTHROPIC_API_KEY"}},
+		{"a docker skill pointing DOCKER_HOST somewhere else", func(f map[string]string) {
+			f["skills/general.yaml"] = goodSkill + "docker: true\nenv: {DOCKER_HOST: tcp://elsewhere:2375}\n"
+		}, []string{"skills/general.yaml", "DOCKER_HOST"}},
 		{"a missing prompt file", func(f map[string]string) {
 			delete(f, "prompts/profile.md")
 		}, []string{"profile.yaml", "system_prompt"}},
@@ -144,6 +147,17 @@ default_skill: general
 			}
 		})
 	}
+}
+
+// Without the flag there is no attached daemon to collide with, so a skill may point its
+// turn at whatever engine it likes.
+func TestASkillWithoutDockerMaySetDockerHost(t *testing.T) {
+	files := base()
+	files["skills/general.yaml"] = goodSkill + "env: {DOCKER_HOST: tcp://elsewhere:2375}\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "tcp://elsewhere:2375", p.Skills["general"].Env["DOCKER_HOST"])
+	assert.False(t, p.Skills["general"].Docker)
 }
 
 func TestAProfileWithNoSkillsIsRefused(t *testing.T) {

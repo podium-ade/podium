@@ -1,0 +1,34 @@
+# The dogfood: the skill that develops Podium itself.
+#
+# It runs in the -dev runtime image, which carries Go, the docker CLI and golangci-lint, and
+# it sets `docker: true`, so the conductor attaches a real Docker daemon beside the turn.
+# That daemon is the whole point: `make test-integration` and `make e2e` boot real
+# containers — testcontainers Postgres, task containers, sidecars — and without one the
+# agent can run `go build` and nothing else.
+#
+# It only runs on a node started with --allow-privileged-sidecars. Podium places on labels
+# alone and knows nothing about which nodes allow privilege, so the operator who sets that
+# flag must also label those nodes, which is what `labels` matches below. A turn that lands
+# on a node without the flag fails at provisioning naming the flag, rather than hanging.
+#
+# It has WRITE ACCESS TO THIS REPOSITORY and a Docker daemon of its own. Read
+# docs/security.md before pointing it anywhere else.
+image: podium-agent-runtime-dev:dev
+docker: true
+system_prompt: file:../prompts/podium.md
+allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+max_turns: 200
+timeout: 2h
+labels: [privileged]
+# A nested build is heavier than an ordinary turn: the daemon pulls its own images and
+# `go test ./...` compiles the world. docs/agent.md says 8 GB is the floor for this skill.
+resources: { cpu: 4, memory_mb: 8192 }
+secrets:
+  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+repos:
+  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+env:
+  # The docker executor's own integration tests bind host paths into containers, and the
+  # nested daemon resolves those in ITS filesystem. /workspace is the one directory both
+  # share, so the suite's scratch dir has to live there rather than in the task's /tmp.
+  PODIUM_TEST_TMPDIR: /workspace/tmp

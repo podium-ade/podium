@@ -120,10 +120,12 @@ func hardeningFromProto(p *podiumv1.Hardening) Hardening {
 
 func (s Sidecar) toProto() *podiumv1.Sidecar {
 	p := &podiumv1.Sidecar{
-		Image:     s.Image,
-		Command:   append([]string(nil), s.Command...),
-		Readiness: s.Readiness.toProto(),
-		Resources: s.Resources.toProto(),
+		Image:          s.Image,
+		Command:        append([]string(nil), s.Command...),
+		Readiness:      s.Readiness.toProto(),
+		Resources:      s.Resources.toProto(),
+		Privileged:     s.Privileged,
+		ShareWorkspace: s.ShareWorkspace,
 	}
 	if len(s.Env) > 0 {
 		p.Env = maps.Clone(s.Env)
@@ -133,10 +135,12 @@ func (s Sidecar) toProto() *podiumv1.Sidecar {
 
 func sidecarFromProto(p *podiumv1.Sidecar) Sidecar {
 	s := Sidecar{
-		Image:     p.GetImage(),
-		Command:   append([]string(nil), p.GetCommand()...),
-		Readiness: readinessFromProto(p.GetReadiness()),
-		Resources: resourcesFromProto(p.GetResources()),
+		Image:          p.GetImage(),
+		Command:        append([]string(nil), p.GetCommand()...),
+		Readiness:      readinessFromProto(p.GetReadiness()),
+		Resources:      resourcesFromProto(p.GetResources()),
+		Privileged:     p.GetPrivileged(),
+		ShareWorkspace: p.GetShareWorkspace(),
 	}
 	if len(p.GetEnv()) > 0 {
 		s.Env = maps.Clone(p.GetEnv())

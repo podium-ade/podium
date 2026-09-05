@@ -507,14 +507,22 @@ func (x *Readiness) GetTimeout() *durationpb.Duration {
 
 // Sidecar is a sibling container on the task's network.
 type Sidecar struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Image         string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
-	Command       []string               `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"`
-	Env           map[string]string      `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Readiness     *Readiness             `protobuf:"bytes,4,opt,name=readiness,proto3" json:"readiness,omitempty"`
-	Resources     *Resources             `protobuf:"bytes,5,opt,name=resources,proto3" json:"resources,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Image     string                 `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
+	Command   []string               `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"`
+	Env       map[string]string      `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Readiness *Readiness             `protobuf:"bytes,4,opt,name=readiness,proto3" json:"readiness,omitempty"`
+	Resources *Resources             `protobuf:"bytes,5,opt,name=resources,proto3" json:"resources,omitempty"`
+	// Run the sidecar with every capability and no device restriction — root on the node's
+	// kernel. It is for a Docker daemon beside the task and nothing else, and it is only a
+	// request: a node started without --allow-privileged-sidecars refuses the task.
+	Privileged bool `protobuf:"varint,6,opt,name=privileged,proto3" json:"privileged,omitempty"`
+	// Mount the task's workspace volume in the sidecar at the task's own working path. A
+	// nested daemon resolves bind-mount sources in its own filesystem, so a build context
+	// under /workspace reaches it no other way.
+	ShareWorkspace bool `protobuf:"varint,7,opt,name=share_workspace,json=shareWorkspace,proto3" json:"share_workspace,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Sidecar) Reset() {
@@ -580,6 +588,20 @@ func (x *Sidecar) GetResources() *Resources {
 		return x.Resources
 	}
 	return nil
+}
+
+func (x *Sidecar) GetPrivileged() bool {
+	if x != nil {
+		return x.Privileged
+	}
+	return false
+}
+
+func (x *Sidecar) GetShareWorkspace() bool {
+	if x != nil {
+		return x.ShareWorkspace
+	}
+	return false
 }
 
 // Hardening relaxes or tightens the task container's sandbox.
@@ -799,13 +821,17 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\thttp_path\x18\x02 \x01(\tR\bhttpPath\x12\x1b\n" +
 	"\thttp_port\x18\x03 \x01(\x05R\bhttpPort\x12\x18\n" +
 	"\acommand\x18\x04 \x03(\tR\acommand\x123\n" +
-	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x88\x02\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xd1\x02\n" +
 	"\aSidecar\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12-\n" +
 	"\x03env\x18\x03 \x03(\v2\x1b.podium.v1.Sidecar.EnvEntryR\x03env\x122\n" +
 	"\treadiness\x18\x04 \x01(\v2\x14.podium.v1.ReadinessR\treadiness\x122\n" +
-	"\tresources\x18\x05 \x01(\v2\x14.podium.v1.ResourcesR\tresources\x1a6\n" +
+	"\tresources\x18\x05 \x01(\v2\x14.podium.v1.ResourcesR\tresources\x12\x1e\n" +
+	"\n" +
+	"privileged\x18\x06 \x01(\bR\n" +
+	"privileged\x12'\n" +
+	"\x0fshare_workspace\x18\a \x01(\bR\x0eshareWorkspace\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"Y\n" +

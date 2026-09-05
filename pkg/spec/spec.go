@@ -91,6 +91,18 @@ type Sidecar struct {
 	Env       map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 	Readiness Readiness         `yaml:"readiness,omitempty" json:"readiness,omitempty"`
 	Resources Resources         `yaml:"resources,omitempty" json:"resources,omitempty"`
+	// Privileged runs the sidecar with every capability and no device restriction, which
+	// is root on the node's kernel. It exists for one thing — a Docker daemon beside the
+	// task, so a turn can run `docker compose` and testcontainers — and the spec only
+	// *asks*: a node started without --allow-privileged-sidecars refuses the task at
+	// provisioning. Validation lets it through on purpose, because whether a machine will
+	// host such a container is an operator's answer and not a parser's.
+	Privileged bool `yaml:"privileged,omitempty" json:"privileged,omitempty"`
+	// ShareWorkspace mounts the task's workspace volume in the sidecar at the same path
+	// the task sees it. A nested daemon resolves a bind-mount source in its OWN
+	// filesystem, so a `docker run -v /workspace/...` or a build context under /workspace
+	// only works when the daemon sees that path too.
+	ShareWorkspace bool `yaml:"share_workspace,omitempty" json:"share_workspace,omitempty"`
 }
 
 // Readiness is how the node decides a sidecar is usable. At most one probe may be set; a

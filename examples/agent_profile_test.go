@@ -19,7 +19,7 @@ func TestAgentProfileLoads(t *testing.T) {
 
 	require.Equal(t, "podium", p.Name)
 	require.Equal(t, "general", p.DefaultSkill)
-	require.Equal(t, []string{"analyst", "coder", "general"}, p.SkillNames())
+	require.Equal(t, []string{"analyst", "coder", "general", "podium"}, p.SkillNames())
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
 
 	general := p.Skills["general"]
@@ -69,6 +69,23 @@ func TestAgentProfileLoads(t *testing.T) {
 	for _, ref := range analyst.Secrets {
 		require.NotEqual(t, "podium.agent.github_token", ref.Name,
 			"the analyst skill has no repository access")
+	}
+
+	// The dogfood skill is the only one that asks for a Docker daemon, and the only one
+	// that has to land on a node whose operator turned --allow-privileged-sidecars on.
+	// Podium places on labels alone, so the label and the flag are a pair an operator sets
+	// together; the label here is what makes that pairing expressible at all.
+	dogfood := p.Skills["podium"]
+	require.True(t, dogfood.Docker, "the skill exists to run Podium's own container tests")
+	require.Equal(t, "podium-agent-runtime-dev:dev", dogfood.Image)
+	require.Equal(t, []string{"privileged"}, dogfood.Labels)
+	require.NotEmpty(t, dogfood.SystemPrompt, "the skill prompt must be read from prompts/podium.md")
+	require.False(t, dogfood.Linear, "only one skill takes tickets")
+	require.Equal(t, "/workspace/tmp", dogfood.Env["PODIUM_TEST_TMPDIR"],
+		"the executor suite's scratch dir must sit on the volume the daemon also sees")
+	require.NotContains(t, dogfood.Env, "DOCKER_HOST", "the conductor writes it, not the file")
+	for _, s := range []string{"analyst", "coder", "general"} {
+		require.False(t, p.Skills[s].Docker, "%s must not ask for a privileged node", s)
 	}
 
 	// The chat's three ways of choosing, on the profile a human actually deploys: the chip

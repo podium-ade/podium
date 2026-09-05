@@ -52,6 +52,11 @@ const MemoryKeyEnv = "PODIUM_MEMORY_API_KEY"
 // BriefEnv is the env var the brief travels in. A skill's env: may not set it.
 const BriefEnv = "PODIUM_AGENT_TURN"
 
+// DockerHostEnv is what a skill with `docker: true` gets pointed at its own daemon. A
+// skill without the flag may set it itself — pointing a turn at some other engine is a
+// legitimate thing to want, and nothing is attached for it to collide with.
+const DockerHostEnv = "DOCKER_HOST"
+
 // Defaults for a skill.
 const (
 	DefaultMaxTurns = 50
@@ -105,6 +110,16 @@ type Skill struct {
 	Repos         []Repo            `yaml:"repos" json:"repos,omitempty"`
 	SlackChannels []string          `yaml:"slack_channels" json:"slack_channels,omitempty"`
 	Env           map[string]string `yaml:"env" json:"env,omitempty"`
+	// Docker gives the turn a real Docker daemon beside it: the conductor attaches a
+	// privileged `dind` sidecar and points DOCKER_HOST at it. A skill needs this to run a
+	// dev stack, `docker compose`, or testcontainers.
+	//
+	// It only works on a node started with --allow-privileged-sidecars, and Podium places
+	// on labels alone, so a skill that sets this must also carry a label its operator put
+	// on those nodes. Getting that wrong fails the turn with a message naming the flag
+	// rather than hanging.
+	Docker bool `yaml:"docker" json:"docker,omitempty"`
+
 	// Linear marks the one skill Linear tickets run. Tickets are not chat, so there is no
 	// /skill prefix to route them and no channel to match: the flag is the routing rule.
 	// At most one skill may set it; zero means this bot does not take tickets, which is
@@ -303,6 +318,11 @@ func (s Skill) validate(path string) error {
 		case MemoryKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				MemoryKeyEnv, MemoryKeySecret))
+		case DockerHostEnv:
+			if s.Docker {
+				errs = append(errs, fmt.Errorf("env may not set %s when docker is true: "+
+					"the conductor points it at the sidecar it attaches", DockerHostEnv))
+			}
 		}
 	}
 	for _, r := range s.Repos {

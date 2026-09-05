@@ -152,6 +152,8 @@ func TestPostgresSidecarServesTheTask(t *testing.T) {
 	assert.Contains(t, insp.NetworkSettings.Networks[networkName(taskID)].Aliases, "db")
 	assert.Contains(t, insp.HostConfig.SecurityOpt, noNewPrivileges)
 	assert.Empty(t, insp.HostConfig.CapDrop, "a sidecar keeps its default capabilities")
+	assert.False(t, insp.HostConfig.Privileged, "privilege is opt-in per sidecar and gated on the node")
+	assert.Empty(t, insp.HostConfig.Mounts, "a sidecar sees the workspace only if it asks for it")
 }
 
 // TestSidecarThatNeverListensFailsProvisioning covers the design's "sidecar never becomes

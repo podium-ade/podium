@@ -192,6 +192,57 @@ That is not only `scratch` images: **the Debian-based database images have no `n
 `pg_isready`, `redis-cli ping`, `mysqladmin ping` — which is the better probe anyway, because
 `nc` succeeds as soon as the port is bound and a database binds before it will serve.
 
+### A Docker daemon beside the task
+
+Two sidecar fields, both off by default, exist for one shape: `docker:28-dind` as a sidecar, so
+a task can run `docker compose`, build images, or use testcontainers.
+
+```yaml
+labels: [privileged]                    # see below; this is not automatic
+image: docker:28-dind                   # any image with the docker CLI will do
+command: ["sh", "-c", "docker compose up -d && ./run-tests"]
+env:
+  DOCKER_HOST: tcp://dind:2375          # so the CLI needs no -H
+sidecars:
+  dind:
+    image: docker:28-dind
+    privileged: true
+    share_workspace: true
+    env:
+      DOCKER_TLS_CERTDIR: ""            # plain 2375, on the task's own private bridge
+    readiness:
+      tcp_port: 2375
+      timeout: 2m                       # dockerd takes ~20s to listen
+```
+
+`privileged: true` gives that container every capability and the host's devices — **root on the
+node's kernel**, which is the one thing the rest of `hardening` exists to prevent. So the spec
+only *asks*. A node honours it only if its operator started it with `--allow-privileged-sidecars`
+(`PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS`, off by default); a node that did not **fails the task at
+provisioning**, without retrying, with a message naming the sidecar and the flag. See
+[`security.md`](security.md).
+
+**Getting the task to such a node is manual.** The scheduler matches labels and knows nothing
+about which nodes allow privilege, so pair the two by hand: start the node with
+`--allow-privileged-sidecars --labels privileged` and give the spec `labels: [privileged]`.
+Without the pairing the task lands on whatever node has a free slot and fails there.
+
+`share_workspace: true` mounts the task's workspace volume in the sidecar at `/workspace`, the
+same path the task sees it at. **A nested daemon resolves a bind-mount source in its own
+filesystem, not the task's**, so without it `docker run -v /workspace/x:/x` mounts an empty
+directory the daemon invents, and a `docker compose` build context under `/workspace` is simply
+not there. It needs no privilege of its own; it is documented here because docker-in-docker is
+the only thing that has ever wanted it.
+
+Two consequences of the daemon being a sibling container rather than the node's own:
+
+- **Its image store starts empty and dies with the task.** Everything the nested daemon pulls
+  is pulled again next run, into the `/var/lib/docker` anonymous volume Podium removes at
+  teardown along with the container. Budget the pull time, and give the sidecar a
+  `resources.memory_mb` if the stack inside it is large.
+- **A port a nested container publishes belongs to the *sidecar*.** `-p 8080:80` inside dind
+  binds dind's network namespace, so the task reaches it at `dind:8080`, not `localhost:8080`.
+
 ## Resources
 
 ```yaml
@@ -258,7 +309,9 @@ memory, adding `hardening.shm_mb` is an additive proto field (`Hardening` field 
 
 **Sidecars are hardened less.** They get `no-new-privileges` and their own `resources`, and
 nothing else: a stock database image usually chowns a data directory and drops to an
-unprivileged user on the way up, which dropping every capability would break.
+unprivileged user on the way up, which dropping every capability would break. The one dial
+beyond that is a sidecar's own `privileged: true`, which only a node whose operator allowed it
+will honour — see *A Docker daemon beside the task* above.
 
 ## Artifacts
 
