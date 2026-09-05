@@ -298,8 +298,8 @@ Three things worth knowing:
 - **An artifact is capped at 512 MB**, and the node refuses an oversized one before it
   crosses the wire.
 - **A failed artifact never fails the task.** An upload that is refused — too large, object
-  store down, no object store configured at all — becomes a `retryable` error event in the
-  task's log, which implies no status transition. A task does not need artifacts to run.
+  store down, no object store configured at all — becomes an error event that does not abort
+  the run, which implies no status transition. A task does not need artifacts to run.
 - **A task adopted after a node restart collects nothing.** The auto-collection pass belongs
   to the run that created the container, and an adopted run has no runner event socket
   either, so a mid-run `artifact add` is lost as well. This is the same seam the log

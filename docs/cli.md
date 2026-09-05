@@ -303,7 +303,8 @@ Artifacts and rolled-up logs live in an S3-compatible bucket, configured with th
   `NodeService.UploadArtifact`, so a worker needs neither a route to the object store nor a
   credential for one. That is the same invariant the whole networking design rests on.
 - **The object store being down never stops a task.** `/readyz` reports 503, uploads fail
-  with a retryable error event, and task creation, assignment and execution are untouched.
+  with an error event that does not abort the run, and task creation, assignment and
+  execution are untouched.
 - **No `PODIUM_S3_ENDPOINT` is a supported deployment.** Podium is still a task runner
   without artifacts; uploads answer `FailedPrecondition` and logs simply stay in Postgres
   forever.
@@ -355,7 +356,7 @@ my-tool --report /workspace/.podium/artifacts/report.txt
 ```
 
 An artifact is capped at **512 MB**. Anything larger, and anything the object store refuses,
-becomes a retryable `error` event in the task's log and **does not fail the task**: a task
+becomes an `error` event that does not abort the run, and **does not fail the task**: a task
 does not need artifacts to run, and a screenshot that was too big is not a reason to fail a
 run that did what it was asked.
 
