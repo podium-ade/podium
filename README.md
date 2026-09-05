@@ -200,9 +200,11 @@ Full reference, including the Slack app manifest and the Linear setup:
 
 ## Running across machines
 
-The `dev` transport above is loopback-only, so node and server share a host. For real workers,
-Podium joins your Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial
-out, and there is no login page, no API token and no public ingress.
+The `dev` transport above is loopback-only, so node and server share a host. **The tailnet
+transport is the only supported way to reach a worker on another machine** — in development as
+much as in production, and not merely the recommended one. Podium joins your Tailscale network:
+the server serves HTTPS on its MagicDNS name, workers dial out, and there is no login page, no
+API token and no public ingress.
 
 ```sh
 PODIUM_TRANSPORT=tailnet TS_AUTHKEY=tskey-auth-... PODIUM_DATABASE_URL=... ./bin/podium-server

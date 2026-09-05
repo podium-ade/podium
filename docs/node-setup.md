@@ -13,15 +13,22 @@ There are two ways to run one:
 
 The `dev` transport is loopback-only by design — the server refuses to bind anything else,
 because a shared static token is not an authentication system. Multi-machine means the tailnet
-transport, and that is now built.
+transport, which has now run against a real tailnet: a `tag:podium-node` worker enrolled with no
+bearer token anywhere and ran a linux/amd64 task with live logs and its exit code. What that run
+did **not** prove is the ACL — read [`networking.md`](networking.md#the-acl) before relying on
+the network to refuse server → node.
 
-**The `dev` transport cannot reach a node on another machine at all.** Not "is discouraged":
-the server binds loopback and nothing off the host can route to it, so a remote
-`podium-node` pointed at `http://<host>:8080` never connects. There is no error message worth
-reading, because there is nothing to connect to. Two things do work: the **tailnet** transport,
-which is what a remote worker is for, or a TCP relay in front of the loopback listener
-(`socat TCP-LISTEN:8080,bind=<routable-ip>,fork TCP:127.0.0.1:8080`) — useful for a test, and
-never for anything else, since it publishes the whole API behind one static token.
+**The `dev` transport cannot reach a node on another machine.** Not "is discouraged": the server
+refuses to bind anything but loopback, so a remote `podium-node` pointed at `http://<host>:8080`
+finds nothing to connect to.
+
+Its one waiver, `PODIUM_DEV_ALLOW_UNSAFE_LISTEN`, is for **a container**, where loopback is the
+container's own and the published port is the boundary. Set on a host it publishes the whole API
+behind one static token; a TCP relay in front of the loopback listener is the same exposure by
+another route. **Neither is a sanctioned way to run a remote worker.**
+
+**A worker on another machine means the tailnet transport** — in development as much as in
+production. See [`networking.md`](networking.md#this-is-not-only-the-production-option).
 
 ## Requirements
 

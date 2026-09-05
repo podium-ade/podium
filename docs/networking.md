@@ -7,6 +7,20 @@ on the other end of every connection. Workers dial out and never listen.
 This document covers the two keys you need, the ACL, the two ways to join the tailnet, and what
 to do when it does not work.
 
+## This is not only the production option
+
+**The tailnet transport is the only supported way to reach a worker on another machine — in
+development as much as in production.** There is no "use the dev transport across the LAN while
+I try this out" path. `dev.CheckListen` refuses any listen address that is not unambiguously
+loopback, and its one waiver, `PODIUM_DEV_ALLOW_UNSAFE_LISTEN`, is for **a container**, where
+loopback is the container's own and the published port is the boundary.
+
+Set that waiver on a host and you publish the whole API — task submission, which is code as root
+on every worker, plus secrets and node admin — to anything that can route to the address, behind
+one static token. A TCP relay in front of the loopback listener (`socat`, an SSH forward, a
+proxy) is the same exposure by another route. **Neither is a sanctioned workaround.** If a
+worker is on another machine, put it on the tailnet.
+
 ## The two keys, which are not the same thing
 
 This is the single most common source of confusion, so it comes first.
