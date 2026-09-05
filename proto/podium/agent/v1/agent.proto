@@ -151,6 +151,20 @@ message SetProviderKeyResponse {
   string status = 3;
 }
 
+// ProviderKeyError is the Connect error detail SetProviderKey attaches when it did not save
+// a key, so the operator is told *why* and not only *that*. The status code still carries
+// the classification — permission_denied when the provider refused, unavailable when it
+// could not be asked — and this carries the sentence behind it.
+message ProviderKeyError {
+  // provider_message is the provider's own explanation of the refusal, or the transport
+  // failure that stopped us asking it. It comes from the provider over TLS, NOT from a task
+  // container: it is not the untrusted task output docs/security.md is about, which is why
+  // it is shown rather than withheld. It is still bounded, whitespace-collapsed and scrubbed
+  // of anything key-shaped by the conductor, and the browser renders it as text and never as
+  // markup. Empty when there was nothing to say.
+  string provider_message = 1;
+}
+
 message ClearProviderKeyRequest {
   string provider = 1;
 }

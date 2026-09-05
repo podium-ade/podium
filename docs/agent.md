@@ -293,6 +293,18 @@ sentences on the card:
 | *Couldn't reach Anthropic to validate* | a 429, a 5xx, a timeout or a network failure | no |
 | *podium-agent is not reachable* | the conductor is down; the server's proxy said so | no |
 
+The first two also carry **what the provider itself said**, in a second line under the headline:
+`Anthropic said: …` for a refusal, `Details: …` for a provider that could not be reached. That
+sentence is the actionable half. "Anthropic rejected this key" is true of a key that has been
+revoked and equally true of a key that is fine but needs something Podium did not send — an
+identity-linked key wants an `anthropic-workspace-id` header, and **Podium supports standard
+workspace API keys only**, so it sends none. Only the provider's own words tell those apart.
+
+The text comes from Anthropic over TLS, not out of a task container, so it is not the untrusted
+task output [`security.md`](security.md) is about — but the conductor still bounds it, flattens
+it to one line and scrubs anything key-shaped out of it, and the browser renders it as text and
+never as markup. **The key never appears in it.**
+
 A key with an unfamiliar prefix is **not** refused — Anthropic has changed prefixes before — but
 the card says `key format looks unusual; validated anyway` next to the success line.
 

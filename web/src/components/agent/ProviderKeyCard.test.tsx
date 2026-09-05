@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { create } from "@bufbuild/protobuf";
+import { create, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
+  ProviderKeyErrorSchema,
   ProviderSettingsSchema,
   SetProviderKeyResponseSchema,
   type ProviderSettings,
@@ -18,6 +19,23 @@ const KEY = "sk-ant-not-a-real-key-abcd";
 
 const onSave = vi.fn();
 const onClear = vi.fn();
+
+/**
+ * withProviderMessage builds the error the conductor sends: a code, a sentence of its own,
+ * and the provider's words as a Connect detail in the shape the wire delivers — a type name
+ * and encoded bytes — so the test decodes it the way the browser does.
+ */
+function withProviderMessage(message: string, code: Code, said: string): ConnectError {
+  const err = new ConnectError(message, code);
+  err.details.push({
+    type: ProviderKeyErrorSchema.typeName,
+    value: toBinary(
+      ProviderKeyErrorSchema,
+      create(ProviderKeyErrorSchema, { providerMessage: said }),
+    ),
+  });
+  return err;
+}
 
 function mount(settings?: ProviderSettings, loading = false) {
   return render(
@@ -128,6 +146,86 @@ describe("ProviderKeyCard", () => {
     expect(status.className).toContain("text-err");
     // A typo in one character should not mean typing the whole key again.
     expect(screen.getByTestId("provider-key-input")).toHaveValue(KEY);
+  });
+
+  // The bug this card had: the conductor knew exactly why the key was refused, and the
+  // operator was shown four words that did not say it.
+  it("shows what the provider actually said about a refused key", async () => {
+    const said =
+      "anthropic-workspace-id is required when authenticating with an identity-linked " +
+      "API key; send the id of the workspace this request acts in.";
+    onSave.mockRejectedValue(
+      withProviderMessage("Anthropic rejected this key", Code.PermissionDenied, said),
+    );
+    mount(notSet);
+
+    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save"));
+
+    const status = await screen.findByTestId("provider-key-status");
+    expect(status).toHaveTextContent("Anthropic rejected this key");
+    const detail = screen.getByTestId("provider-key-detail");
+    expect(detail).toHaveTextContent(`Anthropic said: ${said}`);
+    // Still the operator's key, still not on the page.
+    expect(document.body.textContent).not.toContain(KEY);
+  });
+
+  it("explains a provider it could not reach, when there is something to explain", async () => {
+    onSave.mockRejectedValue(
+      withProviderMessage(
+        "could not validate the key with Anthropic; nothing was saved",
+        Code.Unavailable,
+        "http://127.0.0.1:18999/v1/models answered 503 Service Unavailable: overloaded",
+      ),
+    );
+    mount(notSet);
+    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save"));
+
+    expect(await screen.findByTestId("provider-key-status")).toHaveTextContent(
+      "Couldn't reach Anthropic to validate.",
+    );
+    expect(screen.getByTestId("provider-key-detail")).toHaveTextContent(
+      "Details: http://127.0.0.1:18999/v1/models answered 503 Service Unavailable: overloaded",
+    );
+  });
+
+  it("says nothing extra when the error carries no provider detail", async () => {
+    onSave.mockRejectedValue(
+      new ConnectError("Anthropic rejected this key", Code.PermissionDenied),
+    );
+    mount(notSet);
+    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await screen.findByTestId("provider-key-status");
+    expect(screen.queryByTestId("provider-key-detail")).toBeNull();
+  });
+
+  // The text is Anthropic's, not a task's — but it is still another company's string, so it
+  // reaches the page as characters and never as markup.
+  it("renders a hostile provider message as inert text", async () => {
+    const hostile =
+      `<img src=x onerror="alert(1)"><script>alert(2)</script>` +
+      ` **not bold** [link](javascript:alert(3)) ` +
+      "z".repeat(1000);
+    onSave.mockRejectedValue(
+      withProviderMessage("Anthropic rejected this key", Code.PermissionDenied, hostile),
+    );
+    mount(notSet);
+    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save"));
+
+    const detail = await screen.findByTestId("provider-key-detail");
+    // Every character of it is on the page, and all of it is text.
+    expect(detail.textContent).toContain(hostile);
+    expect(detail.querySelector("img")).toBeNull();
+    expect(detail.querySelector("script")).toBeNull();
+    expect(detail.querySelector("a")).toBeNull();
+    expect(detail.querySelector("strong")).toBeNull();
+    expect(document.querySelectorAll("script")).toHaveLength(0);
+    // A 1000-character run wraps inside the card instead of stretching it.
+    expect(detail.className).toContain("break-words");
+    expect(detail.className).toContain("max-w-2xl");
   });
 
   it("distinguishes a provider it could not reach from a conductor that is down", async () => {
