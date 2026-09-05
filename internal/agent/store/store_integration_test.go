@@ -81,9 +81,11 @@ func TestConcurrentMigrationsApplyExactlyOnce(t *testing.T) {
 		require.NoError(t, err, "racer %d", i)
 	}
 
+	names, err := migrationNames()
+	require.NoError(t, err)
 	var versions int
 	require.NoError(t, stores[0].pool.QueryRow(ctx, "select count(*) from schema_migrations").Scan(&versions))
-	assert.Equal(t, 1, versions, "0001_init.sql must be recorded exactly once")
+	assert.Equal(t, len(names), versions, "every migration must be recorded exactly once")
 }
 
 func TestSessionRoundTrip(t *testing.T) {

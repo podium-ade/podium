@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -76,7 +78,8 @@ type SecretStore interface {
 type AgentServiceOptions struct {
 	Store   *store.Store
 	Secrets SecretStore
-	// Model is profile.yaml's model, reported by GetSettings. Informational.
+	// Model is the model reported by GetSettings when no profile is loaded. The profile's
+	// own model wins when there is one, because it is what a turn will actually run.
 	Model string
 	// AnthropicBaseURL is where SetProviderKey validates a key.
 	AnthropicBaseURL string
@@ -85,8 +88,9 @@ type AgentServiceOptions struct {
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
 	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
 	Memory memory.Client
-	// Profile is what ListSkills reports. Nil makes that RPC answer FailedPrecondition.
-	Profile *profiles.Profile
+	// Profiles is the profile in force, swapped whenever a stored skill changes. Nil makes
+	// the skill and profile RPCs answer FailedPrecondition.
+	Profiles *profiles.Live
 	// Chat is the web chat's write path and live fan-out. Nil makes the chat RPCs answer
 	// FailedPrecondition.
 	Chat   ChatSource
@@ -95,15 +99,22 @@ type AgentServiceOptions struct {
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
-	store   *store.Store
-	secrets SecretStore
-	model   string
-	baseURL string
-	http    *http.Client
-	memory  memory.Client
-	profile *profiles.Profile
-	chat    ChatSource
-	logger  *slog.Logger
+	store    *store.Store
+	secrets  SecretStore
+	model    string
+	baseURL  string
+	http     *http.Client
+	memory   memory.Client
+	profiles *profiles.Live
+	chat     ChatSource
+	logger   *slog.Logger
+
+	// writeMu serialises the read-validate-write of a skill or an override, so two
+	// browsers saving at once cannot each validate against a set the other is changing.
+	writeMu sync.Mutex
+	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
+	// a conductor running a profile older than its database has to say so.
+	stale atomic.Pointer[string]
 }
 
 // NewAgentService returns the handlers.
@@ -118,16 +129,25 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		opts.AnthropicBaseURL = config.DefaultAnthropicBaseURL
 	}
 	return &AgentService{
-		store:   opts.Store,
-		secrets: opts.Secrets,
-		model:   opts.Model,
-		baseURL: opts.AnthropicBaseURL,
-		http:    opts.HTTPClient,
-		memory:  opts.Memory,
-		profile: opts.Profile,
-		chat:    opts.Chat,
-		logger:  opts.Logger,
+		store:    opts.Store,
+		secrets:  opts.Secrets,
+		model:    opts.Model,
+		baseURL:  opts.AnthropicBaseURL,
+		http:     opts.HTTPClient,
+		memory:   opts.Memory,
+		profiles: opts.Profiles,
+		chat:     opts.Chat,
+		logger:   opts.Logger,
 	}
+}
+
+// currentModel is the model a turn would run on: the profile's, which an operator can
+// change on the Profile screen, and only then the one this process was configured with.
+func (s *AgentService) currentModel() string {
+	if p := s.profiles.Current(); p != nil && p.Model != "" {
+		return p.Model
+	}
+	return s.model
 }
 
 // ListSessions returns conversations newest first.

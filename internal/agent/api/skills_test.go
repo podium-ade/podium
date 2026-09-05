@@ -13,7 +13,7 @@ import (
 )
 
 func TestListSkillsReportsWhatTheChipNeeds(t *testing.T) {
-	svc := NewAgentService(AgentServiceOptions{Profile: &profiles.Profile{
+	svc := NewAgentService(AgentServiceOptions{Profiles: profiles.NewLive(&profiles.Profile{
 		Name:             "podium",
 		DisplayName:      "Podium",
 		Model:            "claude-opus-5",
@@ -25,7 +25,7 @@ func TestListSkillsReportsWhatTheChipNeeds(t *testing.T) {
 			"analyst": {Name: "analyst", Image: "podium-agent-runtime-data:dev",
 				SystemPrompt: "Answer questions about the data warehouse.\n"},
 		},
-	}})
+	})})
 
 	res, err := svc.ListSkills(loginCtx("alice"), connect.NewRequest(&agentv1.ListSkillsRequest{}))
 	require.NoError(t, err)
@@ -45,11 +45,11 @@ func TestListSkillsReportsWhatTheChipNeeds(t *testing.T) {
 }
 
 func TestTheChatDefaultFallsBackToTheProfileDefault(t *testing.T) {
-	svc := NewAgentService(AgentServiceOptions{Profile: &profiles.Profile{
+	svc := NewAgentService(AgentServiceOptions{Profiles: profiles.NewLive(&profiles.Profile{
 		DisplayName:  "Podium",
 		DefaultSkill: "general",
 		Skills:       map[string]profiles.Skill{"general": {Name: "general", SystemPrompt: "Answer."}},
-	}})
+	})})
 	res, err := svc.ListSkills(loginCtx("alice"), connect.NewRequest(&agentv1.ListSkillsRequest{}))
 	require.NoError(t, err)
 	require.Len(t, res.Msg.GetSkills(), 1)

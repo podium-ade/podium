@@ -124,6 +124,21 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/settings$/);
   await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
 
+  // The Profile tab reads the profile the conductor is actually running, files and stored
+  // skills merged, so the directory it was loaded from is the proof it is the real one.
+  await page.getByRole("link", { name: "Profile" }).click();
+  await expect(page).toHaveURL(/\/agent\/profile$/);
+  await expect(page.getByTestId("profile-card")).toBeVisible();
+
+  // The Skills tab. This harness's profile comes from files, so every skill on it must be
+  // read-only: the files are authoritative for the names they hold.
+  await page.getByRole("link", { name: "Skills" }).click();
+  await expect(page).toHaveURL(/\/agent\/skills$/);
+  await expect(page.getByTestId("skill-row").first()).toBeVisible();
+  await expect(page.getByTestId("skill-image").first()).not.toBeEmpty();
+  await expect(page.getByText("file · read-only").first()).toBeVisible();
+  await expect(page.getByTestId("skill-new")).toBeVisible();
+
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
 
@@ -158,6 +173,8 @@ test("the agent page makes no third-party requests", async ({ page }) => {
   for (const path of [
     "/agent",
     "/agent/settings",
+    "/agent/profile",
+    "/agent/skills",
     "/agent/sessions",
     "/agent/memory",
     "/agent/chat",

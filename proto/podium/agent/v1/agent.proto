@@ -32,6 +32,21 @@ service AgentService {
   // ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
   // a name, an image and which one the chat starts with.
   rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  // GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
+  // merged with what the conductor's database holds — and every skill in full, so a
+  // browser can manage them.
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  // UpdateProfile overrides profile.yaml's display name, model and default skills. An
+  // empty field clears the override and returns that field to the file's value.
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  // CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+  // already defines is refused: the files are authoritative for the names they hold.
+  rpc CreateSkill(CreateSkillRequest) returns (CreateSkillResponse);
+  // UpdateSkill replaces a stored skill. A file-defined skill is refused.
+  rpc UpdateSkill(UpdateSkillRequest) returns (UpdateSkillResponse);
+  // DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
+  // stored skill that is not there is not an error.
+  rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
   // CreateChat opens a new web-chat conversation owned by the calling login.
   rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
   // ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -349,3 +364,140 @@ message StreamChatRequest {
   // starts following. 0 replays the whole conversation.
   uint64 from_seq = 2;
 }
+
+// AgentProfile is the bot's identity as the management screen sees it: what is in force
+// now, and what profile.yaml said, so the UI can show which fields a browser has overridden
+// and offer the file's value back.
+message AgentProfile {
+  // name is profile.yaml's and is never overridable: it labels every session row already
+  // written.
+  string name = 1;
+  string display_name = 2;
+  string model = 3;
+  string default_skill = 4;
+  // chat_default_skill is the skill a web chat starts with. Empty means default_skill.
+  string chat_default_skill = 5;
+  // profile_dir is where the file half was read from, so an operator editing YAML knows
+  // which directory this process actually loaded.
+  string profile_dir = 6;
+  // The file_* fields are profile.yaml verbatim, whatever is overriding them.
+  string file_display_name = 7;
+  string file_model = 8;
+  string file_default_skill = 9;
+  string file_chat_default_skill = 10;
+  // overridden names the fields a stored override is currently supplying, by their
+  // profile.yaml key: display_name, model, default_skill, chat_default_skill.
+  repeated string overridden = 11;
+  // updated_by and updated_at describe the stored override, not the file.
+  string updated_by = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+// SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
+message SkillResources {
+  double cpu = 1;
+  int32 memory_mb = 2;
+  int32 pids = 3;
+}
+
+// SkillSecretRef names a stored secret and says where the turn wants it. It carries the
+// NAME of a value and never a value: a secret's value cannot be read back out of Podium at
+// all, and nothing in this API is an exception.
+message SkillSecretRef {
+  string name = 1;
+  // target is "env" or "file". Empty defaults to "env".
+  string target = 2;
+  // key is the environment variable name, or the absolute path for a file target.
+  string key = 3;
+}
+
+// SkillRepo is a repository a turn of this skill gets cloned into /workspace.
+message SkillRepo {
+  string name = 1;
+  string url = 2;
+  string default_branch = 3;
+}
+
+// SkillDefinition is one skill in full: everything skills/<name>.yaml holds, plus where
+// this copy came from and whether a browser may change it.
+message SkillDefinition {
+  string name = 1;
+  // image is the runtime image a turn of this skill runs. It is free text the operator
+  // supplies; it has to implement the turn-brief protocol, and FROM podium-agent-runtime
+  // is the easy way to get one that does.
+  string image = 2;
+  string system_prompt = 3;
+  repeated string allowed_tools = 4;
+  int32 max_turns = 5;
+  // timeout is a duration string ("30m"). Empty means the default.
+  string timeout = 6;
+  // model is empty for "whatever the profile says".
+  string model = 7;
+  repeated string labels = 8;
+  SkillResources resources = 9;
+  repeated SkillSecretRef secrets = 10;
+  repeated SkillRepo repos = 11;
+  repeated string slack_channels = 12;
+  bool linear = 13;
+  map<string, string> env = 14;
+  // origin is "file" for a skills/<name>.yaml on the conductor's host and "stored" for one
+  // created through this API.
+  string origin = 15;
+  // editable is false for a file skill: the files are authoritative for the names they
+  // hold and the write RPCs refuse one.
+  bool editable = 16;
+  // shadowed is true for a stored skill whose name a file skill also defines. The file
+  // wins, so a shadowed skill never runs; it is reported so it can be deleted.
+  bool shadowed = 17;
+  // updated_by and updated_at are set for a stored skill only.
+  string updated_by = 18;
+  google.protobuf.Timestamp updated_at = 19;
+}
+
+message GetProfileRequest {}
+
+message GetProfileResponse {
+  AgentProfile profile = 1;
+  // skills is every skill that runs, sorted by name, followed by any shadowed stored
+  // skill. Two entries can share a name when one is shadowed; they differ in origin.
+  repeated SkillDefinition skills = 2;
+  // stale_reason is set when what the database holds could not be merged into a valid
+  // profile, so the conductor is still running the last one that could. Empty normally.
+  string stale_reason = 3;
+}
+
+message UpdateProfileRequest {
+  // Every field is an override of profile.yaml. An empty one clears the override, which
+  // returns that field to the file's value.
+  string display_name = 1;
+  string model = 2;
+  string default_skill = 3;
+  string chat_default_skill = 4;
+}
+
+message UpdateProfileResponse {
+  AgentProfile profile = 1;
+}
+
+message CreateSkillRequest {
+  SkillDefinition skill = 1;
+}
+
+message CreateSkillResponse {
+  SkillDefinition skill = 1;
+}
+
+message UpdateSkillRequest {
+  // skill.name names the skill to replace.
+  SkillDefinition skill = 1;
+}
+
+message UpdateSkillResponse {
+  SkillDefinition skill = 1;
+}
+
+message DeleteSkillRequest {
+  string name = 1;
+}
+
+message DeleteSkillResponse {}

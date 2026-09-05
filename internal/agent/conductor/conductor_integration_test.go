@@ -138,11 +138,11 @@ func startWith(
 ) *running {
 	t.Helper()
 	opts := conductor.Options{
-		Store:   st,
-		Podium:  podium.New(fake.URL(), "devtoken"),
-		Profile: testProfile(t),
-		Sources: []conductor.Source{src},
-		Logger:  quietLogger(),
+		Store:    st,
+		Podium:   podium.New(fake.URL(), "devtoken"),
+		Profiles: profiles.NewLive(testProfile(t)),
+		Sources:  []conductor.Source{src},
+		Logger:   quietLogger(),
 	}
 	if tweak != nil {
 		tweak(&opts)

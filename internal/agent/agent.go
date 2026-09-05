@@ -38,13 +38,23 @@ const ShutdownTimeout = 10 * time.Second
 // readyTimeout bounds each dependency probe on /readyz.
 const readyTimeout = 3 * time.Second
 
+// reconcileInterval is how often the stored half of the profile is re-read.
+//
+// A write through the API swaps the profile in the same process immediately, so this is not
+// how a change normally lands. It is the backstop: a second conductor on the same database,
+// a row changed with psql, or a write whose own rebuild failed on a blip. Reading four rows
+// on a timer costs nothing and is the difference between "the UI works" and "the UI works
+// as long as one process is doing the writing".
+const reconcileInterval = 15 * time.Second
+
 // Agent is a configured, not-yet-listening conductor.
 type Agent struct {
 	cfg       config.Config
 	logger    *slog.Logger
 	store     *store.Store
 	podium    *podium.Client
-	profile   *profiles.Profile
+	profiles  *profiles.Live
+	svc       *api.AgentService
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
@@ -66,10 +76,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, fmt.Errorf("agent config: %w", err)
 	}
 
-	profile, err := profiles.Load(cfg.ProfileDir)
+	files, err := profiles.Load(cfg.ProfileDir)
 	if err != nil {
 		return nil, err
 	}
+	live := profiles.NewLive(files)
 
 	st, err := store.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -80,12 +91,22 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
+	// The stored half, before anything reads the profile. A failure here is not fatal: the
+	// files alone are a working bot, and starting on them beats refusing to start because a
+	// skill somebody made in the browser no longer merges.
+	if _, err := api.ReloadProfile(ctx, st, live); err != nil {
+		logger.WarnContext(ctx, "the skills stored in the conductor's database could not be "+
+			"merged into the profile; running the profile directory alone. Fix it on the "+
+			"Agent → Skills screen", "error", err)
+	}
+	profile := live.Current()
+
 	a := &Agent{
-		cfg:     cfg,
-		logger:  logger,
-		store:   st,
-		podium:  podium.New(cfg.Server, cfg.APIToken),
-		profile: profile,
+		cfg:      cfg,
+		logger:   logger,
+		store:    st,
+		podium:   podium.New(cfg.Server, cfg.APIToken),
+		profiles: live,
 	}
 
 	// The registry is built before the sources: the Linear source owns three collectors of
@@ -121,7 +142,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			// A ticket has no channel and no /skill prefix, so the source names the skill
 			// and the profile's routing rules are bypassed. Zero skills claiming Linear is
 			// only a misconfiguration when a key is set, which is exactly here.
-			Skill:   profile.LinearSkill(),
+			Skill:   func() string { return live.Current().LinearSkill() },
 			Logger:  logger,
 			Metrics: agentlinear.NewMetrics(registry),
 			// The web UI as a HUMAN reaches it, which is not always how this process
@@ -172,7 +193,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		UIURL:       cfg.WebURL(),
 		// The web chat is what profile.yaml's chat_default_skill is for, so a message
 		// that names no skill runs it rather than the profile's general default.
-		DefaultSkill: profile.ChatSkill(),
+		DefaultSkill: live.Current().ChatSkill,
 		Logger:       logger,
 	})
 	if err != nil {
@@ -218,7 +239,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
-		Profile:      profile,
+		Profiles:     live,
 		Sources:      sources,
 		Metrics:      conductor.NewMetrics(registry),
 		Logger:       logger,
@@ -230,6 +251,16 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
+	a.svc = api.NewAgentService(api.AgentServiceOptions{
+		Store:            a.store,
+		Secrets:          a.podium,
+		Model:            profile.Model,
+		AnthropicBaseURL: a.cfg.AnthropicBaseURL,
+		Memory:           a.memory,
+		Profiles:         live,
+		Chat:             a.chat,
+		Logger:           a.logger,
+	})
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -262,16 +293,7 @@ func (a *Agent) Close() {
 func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	opts := []connect.HandlerOption{}
 	rpc := http.NewServeMux()
-	rpc.Handle(agentv1connect.NewAgentServiceHandler(api.NewAgentService(api.AgentServiceOptions{
-		Store:            a.store,
-		Secrets:          a.podium,
-		Model:            a.profile.Model,
-		AnthropicBaseURL: a.cfg.AnthropicBaseURL,
-		Memory:           a.memory,
-		Profile:          a.profile,
-		Chat:             a.chat,
-		Logger:           a.logger,
-	}), opts...))
+	rpc.Handle(agentv1connect.NewAgentServiceHandler(a.svc, opts...))
 
 	root := http.NewServeMux()
 	root.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -315,6 +337,29 @@ func (a *Agent) readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writePlain(w, http.StatusOK, "ok, podium as "+who.GetLogin())
+}
+
+// reconcileProfile re-reads the stored half of the profile on a timer. See
+// reconcileInterval: the write path already swaps the profile in this process, so this only
+// catches a change this process did not make.
+//
+// A failure keeps the profile that is running. A conductor that has been serving turns for
+// an hour must not lose its skills because Postgres blinked, and the reason is reported on
+// the Skills screen either way.
+func (a *Agent) reconcileProfile(ctx context.Context) {
+	tick := time.NewTicker(reconcileInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if err := a.svc.ReloadProfile(ctx); err != nil && ctx.Err() == nil {
+				a.logger.WarnContext(ctx, "rebuilding the profile from the database failed; "+
+					"the conductor is still running the last one that loaded", "error", err)
+			}
+		}
+	}
 }
 
 func writePlain(w http.ResponseWriter, code int, body string) {
@@ -378,6 +423,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cancel()
 
 	a.publishMemoryKey(runCtx)
+	go a.reconcileProfile(runCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {

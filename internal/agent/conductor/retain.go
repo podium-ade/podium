@@ -53,7 +53,7 @@ func (r *turnRun) retain(ctx context.Context, status string) {
 	}
 
 	item := memory.Item{
-		Content:    retainContent(r.author, r.instruction, c.profile.DisplayName, answer),
+		Content:    retainContent(r.author, r.instruction, c.profiles.Current().DisplayName, answer),
 		Context:    "podium agent, skill " + r.skill.Name,
 		Tags:       []string{"source:" + r.sess.SourceKind, "skill:" + r.skill.Name},
 		Metadata:   retainMetadata(r),
