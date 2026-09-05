@@ -158,7 +158,10 @@ build Podium itself: Go, the Docker **client** and golangci-lint, for the `podiu
 carries no daemon — the skill sets `docker: true` and the conductor attaches one as a sidecar,
 which is what lets a turn run `make test-integration` against a daemon that dies with the task.
 
-Every other set of tools is an image **you** build.
+It is also the **worked example** of everything below. Podium ships no image for somebody else's
+workflow — every workflow differs — so `agent/runtime/Dockerfile.dev` is what a real one looks
+like: pinned versions, a smoke test that fails when the image drifts, and a deliberate list of
+what it does *not* carry. Read it, then build your own.
 
 An agent image is not just a bag of tools: it has to implement the turn-brief protocol above —
 read `PODIUM_AGENT_TURN`, drive one SDK turn, talk to `podium-runner`, write the two artifacts,

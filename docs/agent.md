@@ -176,7 +176,8 @@ Metrics: `podium_agent_turns_total{source,skill,status}`,
 
 ## The profile directory
 
-One profile per conductor. [`../examples/agent`](../examples/agent) is a working one.
+One profile per conductor. [`../examples/agent`](../examples/agent) is a working one: one skill,
+on the one image Podium ships, holding no credential of its own.
 
 ```
 profile.yaml
@@ -196,13 +197,19 @@ display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
 model: claude-opus-5         # required
 default_skill: general       # required; must name a loaded skill
-chat_default_skill: analyst  # optional; the skill /agent/chat starts with.
+chat_default_skill: dba      # optional; the skill /agent/chat starts with.
                              # Must name a loaded skill; unset means default_skill.
+                             # Only worth setting once you have a second skill:
+                             # examples/agent leaves it unset.
 ```
 
 ### `skills/<name>.yaml`
 
 The file name is the skill name and must match `^[a-z][a-z0-9-]{0,31}$`.
+
+Podium ships the base image `podium-agent-runtime`, and `-dev` beside it for turns that build
+Podium itself. A skill needing any other tools names an image **you** built `FROM` the base —
+see *Extending the runtime image* below.
 
 ```yaml
 image: ghcr.io/alvaroibarguen/podium-agent-runtime:latest   # required
@@ -358,21 +365,23 @@ there is no way to read a value back through any API in Podium.
 
 The **image is free text you supply**. Podium ships no picker and assumes no catalogue: the only
 requirement is that the image implements the turn-brief protocol, and `FROM
-ghcr.io/alvaroibarguen/podium-agent-runtime` is the easy way to get one that does.
+ghcr.io/alvaroibarguen/podium-agent-runtime` is the easy way to get one that does. See
+*Extending the runtime image*.
 
 ### Reserved secret names
 
-Set with `podium secret set`, except the first two: the web UI sets the Anthropic key (see
-*Setting the provider key* below) and the conductor writes the memory key at startup out of
-its own environment.
+Two names the conductor genuinely reserves, and one convention. The Anthropic key is set in
+the web UI (see *Setting the provider key* below), the conductor writes the memory key at
+startup out of its own environment, and the third is set with `podium secret set`.
+
+A skill may name **any** registered secret under any name it likes; nothing below is an
+allow-list. These three are simply the names Podium's own docs and defaults use.
 
 | name | lands as | who needs it |
 |---|---|---|
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
-| `podium.agent.github_token` | `GITHUB_TOKEN` | the `coder` skill — the only one whose file names it. See *The coder skill* |
+| `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` — and only the skills whose files name it. See *Skills that clone repositories* |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
-| `podium.agent.warehouse_url` | `WAREHOUSE_URL` | the `analyst` skill, for a Postgres-compatible warehouse. See *The analyst skill* |
-| `podium.agent.warehouse_credentials` | `/podium/secrets/warehouse.json` | the `analyst` skill, for BigQuery. **Set one of these two and delete the other line from the skill file** |
 
 The Anthropic key must **exist** before any turn can run, even a dry run: the task spec names it
 and the control plane refuses a task that names a secret it does not have. That failure reaches
@@ -525,10 +534,12 @@ already accept, and a webhook would be one.
 2. **Signed in AS THE BOT USER**, go to **Settings → Security & access → Personal API keys → New
    API key**. Copy it into `PODIUM_AGENT_LINEAR_API_KEY`. A key made from *your own* account
    would make the bot read your issues and comment as you.
-3. **Exactly one skill must set `linear: true`.** That is the skill every ticket runs. The
-   example is [`../examples/agent/skills/coder.yaml`](../examples/agent/skills/coder.yaml). Two
-   skills claiming it is a start-up error; zero is fine until a Linear key is set, and then the
-   conductor refuses to start and says so.
+3. **Exactly one skill must set `linear: true`.** That is the skill every ticket runs, and
+   **you have to write it**: [`../examples/agent`](../examples/agent) ships one skill and it
+   takes no tickets, so that profile cannot be used with a Linear key as it stands. Two skills
+   claiming it is a start-up error; zero is fine until a Linear key is set, and then the
+   conductor refuses to start and says so. A ticket skill usually wants `repos:` and the GitHub
+   token — see *Skills that clone repositories*.
 4. **Name a state `In Progress`** on the teams the bot works in, or accept the fallback (below).
 5. Start the conductor. `linear source connected` in the log names the user the key belongs to.
    A key that is set and does not work makes `podium-agent` **exit non-zero at boot**, naming
@@ -613,25 +624,109 @@ Two consequences of using a personal API key, both worth knowing:
 
 ---
 
-## The coder skill
+## Extending the runtime image
 
-The one skill that writes code:
-[`../examples/agent/skills/coder.yaml`](../examples/agent/skills/coder.yaml), with its working
-agreement in [`../examples/agent/prompts/coder.md`](../examples/agent/prompts/coder.md). It is
-what Linear tickets run, and it is reachable from Slack as `/coder write a PR that …`.
+`podium-agent-runtime` is a contract rather than a toolbox, and it is the only general-purpose
+image Podium ships: it reads the turn brief out of `PODIUM_AGENT_TURN`, drives one Agent SDK
+turn, reports through `podium-runner`, keeps the GitHub token out of `.git/config` and out of
+every argument vector, sets `settingSources: []` so a cloned repository cannot steer the agent
+with its own `.claude/`, writes `transcript.jsonl` and `turn.json`, and exits `0`, `2`, `3` or
+`4`. That is about a thousand lines of TypeScript in `agent/runtime/src`, and reimplementing it
+is not the sane route.
 
-A coder turn reads the request, works on a branch, runs the repository's own tests, verifies a UI
-change by taking a screenshot of it, opens a **draft** pull request, and ends with the PR URL on
-the last line of its answer. Screenshots it names are attached to the reply.
+Podium deliberately ships **no** image for somebody else's workflow — no browser image, no
+warehouse image — because every workflow differs and an `apt-get` line guessing at yours is not
+a feature. What it ships instead is one real, maintained example of doing this:
+[`agent/runtime/Dockerfile.dev`](../agent/runtime/Dockerfile.dev), the image that builds Podium
+itself (*The dev image* below). Read it — it is the pattern, pinned versions, smoke tests and
+all. Then inherit the base and add what your own work needs:
+
+```dockerfile
+# agent-warehouse.Dockerfile
+FROM ghcr.io/alvaroibarguen/podium-agent-runtime:latest
+
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends postgresql-client; \
+    rm -rf /var/lib/apt/lists/*; \
+    psql --version
+USER agent
+```
+
+```sh
+docker build -t registry.example.com/agent-warehouse:2026-09-05 -f agent-warehouse.Dockerfile .
+```
+
+Four things the base decides for you:
+
+- **It is Debian 12 bookworm, glibc, Node 22.** Use `apt-get` and bookworm package sources, and
+  glibc binaries and manylinux wheels — not musl ones. `gh` is already installed from GitHub's
+  own apt repository, and so are `git`, `curl`, `jq` and `ripgrep`.
+- **End with `USER agent`** — uid 1000, and the base renames the stock `node` user rather than
+  giving uid 1000 a second name. The runner socket a turn reports through and the tmpfs its
+  file-target secrets land on are set up for that uid; a container left running as root is not
+  the shape the node prepared.
+- **Do not override `ENTRYPOINT`.** It is `node /opt/podium-agent/dist/main.js`, and the Podium
+  spec for an agent task names the image only — there is no command to put a wrapper in.
+- **Add tools, not configuration.** There is no `CLAUDE_*` or `ANTHROPIC_*` variable anywhere in
+  the base and no `--dangerously-skip-permissions`; the key arrives as a secret and the only
+  permission decision is `permissionMode` in `agent/runtime/src/main.ts`. Setting either in your
+  own layer is working around the design rather than extending it.
+
+**Check what `apt-get` drags in before you commit to a package.** Debian's `python3-matplotlib`
+on bookworm hard-depends on `gcc-12`, `g++-12`, `libboost1.74-dev` and `libopenblas-dev` —
+**1.05 GB of C++ toolchain** in a runtime image, to draw a chart. The way round it is pip's own
+manylinux wheels at exact versions, and that is not free either: Debian 12's interpreter is
+marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so it means `pip3 install
+--break-system-packages`, purging pip again in the same layer, and knowing that no `dpkg`
+package in your image owns `numpy` — two of those on one `sys.path` is a real problem. Run
+`apt-cache depends --recurse --no-recommends <pkg>` first, and look at `docker images` after.
+
+### Where the image has to be resolvable from
+
+A skill's `image:` is **any reference the node's own Docker engine can resolve**, exactly like a
+task spec's. There is no catalogue and no validation beyond the reference being well formed: the
+first a missing image is known about is the pull failing on the node, which fails that turn.
+
+- A **locally built tag** (`podium-agent-runtime:dev`) is visible only on the machine that built
+  it. That is why `make agent-runtime` is enough for a dev stack, and why it is not enough for
+  anything else.
+- A **fleet needs a registry** every node can pull from. Build the image once, push it, and name
+  the pushed reference — by digest if you want the turn you debugged to be the turn that runs.
+- **Podium has no registry authentication.** There is nowhere to put a credential for a pull, so
+  a private registry that requires a login is **not supported today**: a node either pulls
+  anonymously or already has the image on its engine.
+
+---
+
+## Skills that clone repositories
+
+A skill with `repos:` gets its repositories cloned into the workspace before the turn starts, and
+it needs a credential to do it. Podium ships no such skill — the shape below is what one looks
+like:
+
+```yaml
+image: registry.example.com/agent-coder:2026-09-05
+system_prompt: file:../prompts/coder.md
+allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+max_turns: 200
+timeout: 2h
+secrets:
+  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+repos:
+  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+```
+
+**This skill has write access to your repositories.** Read
+[`security.md`](security.md#5-the-conductor-and-the-bot) before pointing one at a repository that
+deploys on merge, and have its prompt open a **draft** pull request so a human reads the diff
+before anything happens.
 
 ### The GitHub token
 
-The skill file names one secret, and a skill only ever gets the secrets its own file names:
-
-```yaml
-secrets:
-  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
-```
+A skill only ever gets the secrets its own file names, so the token reaches the turns of the
+skills that name it and no others.
 
 Set it once, as an operator:
 
@@ -645,8 +740,6 @@ nothing else. Not `repo` on a classic token, which is every repository the owner
 `workflow`. Rotate it on a schedule; a token that never expires is a token nobody will notice the
 loss of.
 
-- It reaches `coder` tasks and no others, because no other skill file names it. The `general`
-  skill's turns do not have it.
 - Inside the container it never appears in an argument vector or in `.git/config`: git gets it
   through a credential helper that reads the environment at the moment git asks, and `gh` reads
   `GH_TOKEN`, which the runtime sets from it.
@@ -662,55 +755,21 @@ supported: no SSH, no GitHub App, no GitLab.
 
 There is no working tree carried between turns. Every turn clones again. A follow-up comment that
 says "now also do X" starts from the default branch, and the agent has to find its own earlier
-branch if it wants it — the branch naming convention in the prompt is what makes that possible.
-
-### The `browser` label and Chromium
-
-The coder skill runs the **browser** runtime image and asks for the `browser` label. That label is
-a convention, not a schema: put it on the nodes that have enough free memory to run Chromium.
-**2 GB free is the floor**, and the skill asks for a 4096 MB limit.
-
-`/opt/podium-agent/bin/screenshot URL OUT.png [--width N] [--height N] [--full-page]` is the
-helper the prompt tells the agent to use. It launches Chromium headless with
-`--disable-dev-shm-usage`, waits for `networkidle` with a 15-second timeout, writes the PNG and
-prints its path. A task container's `/dev/shm` is Docker's default 64 MB and a Podium task spec
-has no knob for it, so an agent writing its own Playwright must pass the same flag. Chromium
-refuses a full-page capture of a very long page on its own account — take the viewport instead.
+branch if it wants it — a branch naming convention in the prompt is what makes that possible.
 
 ---
 
-## The analyst skill
+## Skills that read a database
 
-`examples/agent/skills/analyst.yaml` and `examples/agent/prompts/analyst.md`. It is what the web
-chat starts with (`profile.yaml: chat_default_skill: analyst`) and it is reachable from Slack as
-`/analyst …`. It answers a question from the data warehouse, shows the SQL it ran, and attaches a
-CSV or a PNG when the answer does not fit in a bubble.
-
-It runs `podium-agent-runtime-data`, which carries `psql`, `bq`, the `duckdb` CLI, and `python3`
-with `matplotlib` and `pandas` (`MPLBACKEND=Agg`, so a chart needs no display). It deliberately
-does **not** inherit the browser image: a warehouse query has no business carrying Chromium.
-
-### The two credential modes
-
-A deployment sets **one** of these and **deletes the other line from the skill file**. A task
-naming a secret the control plane does not have is refused before it reaches a node, so leaving
-both in place means no turn of this skill ever runs.
-
-```sh
-# Postgres-compatible: one connection string.
-podium secret set podium.agent.warehouse_url        # postgres://podium_analyst:…@host/warehouse
-# BigQuery: a service-account key file.
-podium secret set podium.agent.warehouse_credentials --file sa.json
-```
-
-The first lands as `WAREHOUSE_URL` in the container's environment; the second as
-`/podium/secrets/warehouse.json` on a tmpfs, and the prompt exports
-`GOOGLE_APPLICATION_CREDENTIALS` at it. The prompt checks which one is there rather than assuming.
+A skill you give a database credential **reads everything that credential can read**, for
+anybody who can reach the chat or the channel it answers in. There is no table allowlist, no
+column masking and no row filter anywhere in Podium. Two things make that survivable, and only
+one of them is a control.
 
 ### The read-only role is the control, not the prompt
 
-The prompt says not to modify data. **That is a courtesy.** The thing that actually stops a turn
-writing to your warehouse is the credential it is given, so give it one that cannot write:
+A prompt telling the agent not to modify data is **a courtesy**. The thing that actually stops a
+turn writing to your warehouse is the credential it is given, so give it one that cannot write:
 
 ```sql
 create role podium_analyst login password '…';
@@ -731,10 +790,27 @@ For BigQuery, the equivalent is a service account with `roles/bigquery.dataViewe
 datasets it may read plus `roles/bigquery.jobUser` on the project so it can run a query at all —
 and **not** `dataEditor`, `admin` or `roles/bigquery.user`.
 
-### Why the row limits
+Register it as a secret and name it in the skill, as a connection string in the environment or a
+key file on the secrets tmpfs:
 
-The prompt keeps a result table in the answer to 50 rows and writes anything longer to a CSV
-under `/workspace/.podium/artifacts/`, which Podium attaches to the message. That is not a
+```sh
+podium secret set podium.agent.warehouse_url          # postgres://podium_analyst:…@host/warehouse
+podium secret set podium.agent.warehouse_credentials --file sa.json
+```
+
+```yaml
+secrets:
+  - { name: podium.agent.warehouse_url, target: env, key: WAREHOUSE_URL }
+```
+
+A task naming a secret the control plane does not have is refused before it reaches a node
+([`security.md`](security.md#secrets)), so a skill file must name only the secrets you actually
+registered.
+
+### Keep big results out of the answer
+
+Have the prompt cap a result table — 50 rows is a reasonable line — and write anything longer to
+a CSV under `/workspace/.podium/artifacts/`, which Podium attaches to the message. That is not a
 formatting preference:
 
 - **Everything in an answer is stored.** A chat answer is a row in `chat_messages` and a Slack
@@ -744,20 +820,19 @@ formatting preference:
 - An attachment is a file behind `GET /artifacts/{id}`, which is behind the same identity as
   everything else, and it is not in the transcript.
 
-### What it retains
-
-One memory per answered question: the metric, the definition used, and the shape of the query.
-**Never the numbers** — they go stale and a stale number read back as fact is worse than no
-memory — and **never row-level data**. That rule is in the prompt, and like the "do not modify
-data" rule it is a courtesy rather than a control: see
-[`security.md`](security.md#the-analyst-and-your-warehouse).
+The same reasoning applies to what a turn retains in memory: a metric's definition and the shape
+of a query are worth keeping, **numbers are not** — they go stale, and a stale number read back
+as fact is worse than no memory — and row-level data never is. Like the read-only role's
+counterpart, that rule lives in a prompt and is therefore a courtesy: see
+[`security.md`](security.md#a-skill-with-a-data-credential).
 
 ---
 
 ## The dev image
 
-`podium-agent-runtime-dev` is the fourth image `make agent-runtime` builds, and it exists for
-dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
+`podium-agent-runtime-dev` is the one image `make agent-runtime` builds beside the base, and it
+is also the **worked example** of *Extending the runtime image* above: a real image, built the
+way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
 Node and Docker. `examples/agent/skills/podium.yaml` is that skill — it pairs this image with
 `docker: true`, which is what gives the turn the daemon the toolchain expects to find.
 
@@ -805,7 +880,8 @@ env:
 - **One turn per session at a time.** A busy thread queues rather than parallelises; the web
   chat refuses the second message outright, because a browser can be told before it tries.
 - **32 KiB per chat message** from a human. The whole conversation has to fit the brief.
-- **50 rows** in an analyst's answer, by prompt; longer results become a CSV attachment.
+- **A result table's size is capped by prompt, not by Podium**; longer results have to become
+  an attachment. See *Keep big results out of the answer*.
 - **4000 characters per Slack message.** Longer answers arrive as several messages.
 - **25 MB per attachment** out of Podium, and **50 MB** into Linear's asset store; over either,
   the reply carries a link to the task page instead of the file.
@@ -1000,7 +1076,7 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   the agent simply writes into the artifacts directory is collected with none — so the
   chat decides from the file's extension when the store has nothing to say.
 - **Which skill a message runs**: the skill chip beside the composer, which starts at
-  `profile.yaml: chat_default_skill` (falling back to `default_skill`). Typing `/analyst …` works
+  `profile.yaml: chat_default_skill` (falling back to `default_skill`). Typing `/<skill> …` works
   too — it moves the chip in the browser, and on the wire a typed `/skill` beats the chat
   default even when the chip is left unset, as an API client leaves it. The chip itself still
   wins over a prefix: it is the last thing the human touched. A conversation keeps the skill it
@@ -1014,8 +1090,8 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
 Answers are rendered through a deliberately small markdown subset — paragraphs, fenced code,
 inline code, bold, italic, `- ` lists, and `http(s)` links. **No raw HTML is ever emitted and any
 other link scheme renders as literal text**, because an answer is content a task wrote out of
-material somebody else supplied. Ask for a table and you get a fenced block, which is what the
-analyst prompt asks the model for.
+material somebody else supplied. Ask for a table and you get a fenced block, which is what a
+prompt should ask the model for.
 
 What is deliberately not built: renaming or deleting a chat, sharing one, a model-written title,
 uploading a file into the chat, and streaming the model's tokens. The unit of streaming is the
@@ -1111,9 +1187,9 @@ PODIUM_AGENT_MEMORY_API_KEY=memtoken \
 ```
 
 The Slack, Linear and memory variables are all optional; drop any of them to run without that
-source or without a memory. A `coder` turn also needs `podium secret set
-podium.agent.github_token` and a node labelled `browser` — `PODIUM_NODE_LABELS=browser` on the
-node daemon, or `--label browser` on the enrollment token. Note that
+source or without a memory. `PODIUM_AGENT_LINEAR_API_KEY` needs a skill with `linear: true` in
+the profile directory or the conductor refuses to start, and `examples/agent` has none — see
+*Linear*. Note that
 `PODIUM_AGENT_MEMORY_TASK_URL` keeps its default (`http://host.docker.internal:8888`) even here:
 the conductor reaches the service on loopback, and a turn's container reaches it through the
 bridge gateway. The dev compose publishes it on loopback only, which is fine for the conductor

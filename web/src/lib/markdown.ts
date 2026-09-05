@@ -17,8 +17,8 @@ import { createElement, type ReactNode } from "react";
  *
  * What is supported, and nothing else: paragraphs separated by a blank line, fenced code
  * blocks (the language is ignored), inline code, `**bold**`, `*italic*`, `- ` lists, and
- * `[text](http(s)://…)`. Tables arrive as fenced blocks because the analyst prompt asks for
- * that; there is no table syntax here on purpose.
+ * `[text](http(s)://…)`. Tables arrive as fenced blocks because that is what a skill's prompt
+ * should ask the model for; there is no table syntax here on purpose.
  */
 
 /** FENCE opens and closes a code block. The info string after it is read and ignored. */
