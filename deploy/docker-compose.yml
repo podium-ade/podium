@@ -1,27 +1,28 @@
-# A single-machine Podium: Postgres, MinIO and the control plane, with an optional worker
-# node alongside them.
+# A single-machine Podium: Postgres, an object store and the control plane, with an optional
+# worker node alongside them.
 #
 #   cd deploy
 #   podium-server init            # writes master.key and a .env with fresh credentials
-#   docker compose up -d --wait   # postgres, minio, server
+#   docker compose up -d --wait   # postgres, objectstore, server
 #
 # The worker is behind a profile, because the common case is workers on other machines:
 #
 #   TOKEN=$(podium node enroll-token --label linux/amd64)
 #   PODIUM_NODE_ENROLL_TOKEN=$TOKEN docker compose --profile node up -d
 #
-# Every variable is documented in .env.example. Only postgres and minio can be brought up
-# without the images being published:
+# Every variable is documented in .env.example. Only postgres and objectstore can be brought
+# up without the images being published:
 #
-#   docker compose up -d --wait postgres minio
+#   docker compose up -d --wait postgres objectstore
 #
 # ---------------------------------------------------------------------------------------
-# NOT YET EXERCISED. This file has never been brought up end to end. The build machine's
-# Docker engine hosts unrelated work and no image may be pulled there, so minio/minio was
-# never fetched and the ghcr.io images have never been published. Everything under
-# internal/server/artifacts is tested against an in-process S3 endpoint instead
-# (internal/server/artifacts/fakes3), which speaks the same API and verifies presigned
-# signatures for real. `docker compose config` validates; nothing more has been proved.
+# NOT YET EXERCISED END TO END. The ghcr.io images have never been published, so `server`
+# and `node` here have never started. `postgres` and `objectstore` have: the same RustFS
+# image and settings run in deploy/docker-compose.dev.yml, where a real podium-server has
+# stored and read back artifacts, including a 40 MB one over minio-go's multipart threshold,
+# both proxied and by presigned URL, plus log roll-up. Everything under
+# internal/server/artifacts is additionally tested against an in-process S3 endpoint
+# (internal/server/artifacts/fakes3), which verifies presigned signatures for real.
 # ---------------------------------------------------------------------------------------
 name: podium
 
@@ -113,26 +114,40 @@ services:
     restart: unless-stopped
 
   # The object store artifacts and rolled-up logs live in. Nodes never talk to it: an
-  # artifact travels node -> server -> MinIO over NodeService.UploadArtifact, which is why
-  # there is no published API port here and no credential anywhere near a worker.
-  minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    command: ["server", "/data", "--console-address", ":9001"]
+  # artifact travels node -> server -> object store over NodeService.UploadArtifact, which is
+  # why there is no published port here at all and no credential anywhere near a worker.
+  #
+  # RustFS rather than MinIO: minio/minio was archived in February 2026 and its last
+  # community image (RELEASE.2025-09-07) is the newest that will ever exist — the 2025-10-15
+  # release carrying a security fix was never published as one. A store that can never be
+  # patched has no place in a deployment.
+  #
+  # RustFS is pre-1.0 and has had a run of authorization advisories, nearly all in
+  # multi-identity policy evaluation. This deployment does not use that surface: one bucket,
+  # one credential, no policies, no public access, no port published, and the console — where
+  # the stored-XSS advisories were — disabled outright. Browse the bucket with any S3 client
+  # against the API from inside the compose network; there is deliberately no web console.
+  objectstore:
+    # Pinned to the multi-arch index digest, so amd64 and arm64 both resolve.
+    image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
+    security_opt:
+      - "no-new-privileges:true"
     environment:
-      MINIO_ROOT_USER: ${PODIUM_S3_ACCESS_KEY:-podium}
-      MINIO_ROOT_PASSWORD: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
     volumes:
       # Artifacts and rolled-up logs are the ONLY copy of a finished task's output once its
       # chunks have been pruned out of Postgres. This volume is not a cache. Back it up.
-      - miniodata:/data
-    ports:
-      # The console, on loopback only, so an operator can browse the bucket. The API port
-      # (9000) is deliberately not published: the server reaches it over the compose network,
-      # and a presigned URL is only useful to somebody who can already route to it. Publish
-      # 9000 too if you want `podium artifact get --via-server=false` from your laptop.
-      - "127.0.0.1:${PODIUM_MINIO_CONSOLE_PORT:-9001}:9001"
+      - objectstore-data:/data
+    # No published port on purpose: the server reaches it over the compose network, and a
+    # presigned URL is only useful to somebody who can already route to it. Publish 9000 on
+    # loopback if you want `podium artifact get --via-server=false` from your laptop.
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "sh", "-ec", "wget -q -O- http://127.0.0.1:9000/health >/dev/null || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -146,7 +161,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      objectstore:
         condition: service_healthy
     environment:
       PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
@@ -162,7 +177,7 @@ services:
       PODIUM_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?set PODIUM_DEV_TOKEN}
       PODIUM_MASTER_KEY_FILE: /etc/podium/master.key
       # The object store. The bucket is created on start if it is missing.
-      PODIUM_S3_ENDPOINT: minio:9000
+      PODIUM_S3_ENDPOINT: objectstore:9000
       PODIUM_S3_BUCKET: ${PODIUM_S3_BUCKET:-podium}
       PODIUM_S3_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
       PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?}
@@ -276,6 +291,6 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  objectstore-data:
   server-state:
   node-state:

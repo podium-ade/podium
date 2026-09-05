@@ -39,7 +39,7 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | Postgres, MinIO, the control plane, and an optional worker behind the `node` profile |
+| `docker-compose.yml` | Postgres, the object store, the control plane, and an optional worker behind the `node` profile |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
 | `docker-compose.dev.yml` | Postgres only, for running the binaries by hand |
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
@@ -58,7 +58,7 @@ ssh host
 cd podium
 
 podium-server init             # writes master.key and a .env with fresh credentials
-docker compose up -d --wait    # postgres, minio, server
+docker compose up -d --wait    # postgres, objectstore, server
 ```
 
 `init` generates the AES-256 master key, the Postgres password, the dev token and the
@@ -119,7 +119,7 @@ on the command line.
 nothing a compose healthcheck can exec. `/healthz` and `/readyz` are served for an external
 prober — point your monitoring at `http://127.0.0.1:8080/readyz`, which is 503 while Postgres or
 the object store is unreachable. `docker compose up -d --wait` therefore waits for `postgres` and
-`minio` to be healthy and for the rest to be *running*.
+`objectstore` to be healthy and for the rest to be *running*.
 
 **`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
 a container loopback is the container's own, so nothing — not even this compose network — could
@@ -133,9 +133,10 @@ is why the operator declares it rather than the code guessing. **Never set that 
 host**, and do not publish 8080 on `0.0.0.0`: the boundary is the published port, which is
 `127.0.0.1:${PODIUM_PORT:-8080}`.
 
-**MinIO's API port is deliberately not published.** The server reaches it over the compose
-network. Publish 9000 as well only if you want `podium artifact get --via-server=false` from your
-laptop.
+**The object store publishes no port at all.** The server reaches it over the compose network,
+and its web console is disabled outright — RustFS is pre-1.0 and its console is where the
+stored-XSS advisories were. Publish 9000 on loopback only if you want `podium artifact get
+--via-server=false` from your laptop; browse the bucket with any S3 client against the API.
 
 **The node service mounts the Docker socket, which is root on the host.** A node is a machine you
 are willing to let arbitrary containers run on. Read
@@ -145,7 +146,7 @@ are willing to let arbitrary containers run on. Read
 workers from different releases can disagree about the wire, and `podium version` will tell you
 so after the fact.
 
-**Volumes are not caches.** `miniodata` holds the only copy of a finished task's log once its
+**Volumes are not caches.** `objectstore-data` holds the only copy of a finished task's log once its
 chunks have been pruned out of Postgres. `node-state` holds a node key the server issued once
 and cannot reissue. `server-state` holds the Tailscale device identity. See
 [`../docs/storage.md`](../docs/storage.md).

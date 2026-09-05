@@ -214,12 +214,12 @@ func TestSanitizeName(t *testing.T) {
 }
 
 func TestConfigFromEndpointURL(t *testing.T) {
-	t.Setenv("PODIUM_S3_ENDPOINT", "https://minio.example:9000")
+	t.Setenv("PODIUM_S3_ENDPOINT", "https://objectstore.example:9000")
 	t.Setenv("PODIUM_S3_BUCKET", "b")
 	t.Setenv("PODIUM_S3_ACCESS_KEY", "a")
 	t.Setenv("PODIUM_S3_SECRET_KEY", "s")
 	cfg := artifacts.ConfigFromEnv()
-	require.Equal(t, "minio.example:9000", cfg.Endpoint)
+	require.Equal(t, "objectstore.example:9000", cfg.Endpoint)
 	require.True(t, cfg.UseSSL)
 	require.Equal(t, artifacts.DefaultRegion, cfg.Region)
 	require.NoError(t, cfg.Validate())
