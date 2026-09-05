@@ -392,12 +392,23 @@ Everything here is real, current, and deliberate about being said out loud.
   secrets on tmpfs, artifact collection, log roll-up, cancellation, and a node restart adopting
   the containers it left behind. That run is also what found the artifact-collection bug this
   release fixes: it only reproduces where the daemon and the node share a filesystem, which
-  Docker Desktop does not.
-- **Three things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
-  release for it to download, and it passes `shellcheck` and `bash -n` only. The systemd unit —
-  `systemd-analyze verify` has not been run on it. And **the container images have never been
-  built or published.** The tailnet *transport* is likewise still unproved: the tailnet carried
-  the traffic, but through a TCP relay in front of the dev transport's loopback listener.
+  Docker Desktop does not. That first run relayed its traffic over the tailnet into the dev
+  transport's loopback listener; the tailnet transport itself has since driven the same worker
+  directly.
+- **Two things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
+  release for it to download, and it passes `shellcheck` and `bash -n` only. And the systemd
+  unit — `systemd-analyze verify` has not been run on it.
+- **One image has been built and pushed. The ones you would deploy have not.**
+  `podium-agent-runtime:dev` is built multi-arch — linux/amd64 and linux/arm64 in one OCI index —
+  with `docker buildx`, and pushed to a private plain-HTTP registry on the LAN. That is the whole
+  of it: nothing on GHCR, nothing signed, no release cut, `-browser` and `-data` still
+  host-architecture local tags, and **the four Go service images — `podium-server`,
+  `podium-node`, `podium`, `podium-agent` — never built on any architecture.**
+
+  Two things that cost an afternoon, if you repeat this. A plain-HTTP registry must be in
+  `insecure-registries` on **both** the pushing and the pulling daemon. And buildx's
+  `docker-container` driver does **not** inherit that from its daemon — the builder needs its own
+  `buildkitd.toml` with `[registry."host:port"] http = true`, given at `docker buildx create`.
 
 ### The agent layer has never met the services it exists to talk to
 
@@ -426,12 +437,16 @@ a real Docker engine. What has **not** happened:
   container, pointed at a real pgvector Postgres, authenticated, retained, listed, searched and
   tombstoned memories. The one unproven link is the Agent SDK's own MCP client reaching it from
   inside a task container, which needs a model call.
-- **The conductor has only ever run on one host, under the `dev` transport.** Its tailnet compose
-  entry cannot work as written, because it points at a `server:8080` that does not exist under
-  `PODIUM_TRANSPORT=tailnet`; the file says so in a comment.
-- **The three runtime images have never been published.** Task images are resolved from the
-  node's own engine, so the local `:dev` tags work on a single host. A worker on a second machine
-  cannot pull them until they are pushed to a registry.
+- **The conductor has only ever run on one host, under the `dev` transport.** Its entry in
+  `deploy/docker-compose.tailnet.yml` is a recipe, not a tested service, and the file says so:
+  under `PODIUM_TRANSPORT=tailnet` the server has **no port on the compose network**, so a plain
+  sidecar cannot reach it. That entry works only where the conductor can itself route into the
+  tailnet — the `host` transport, or `podium-agent` run on the host.
+- **Two of the three runtime images have never left one engine.** Task images are resolved by the
+  node's own engine, so a local `:dev` tag works only on the host that built it.
+  `podium-agent-runtime:dev` is now multi-arch on a private registry, so a second worker can pull
+  it. `-browser` and `-data` are not, so a worker on another machine cannot run a skill that
+  needs them.
 
 ### Architectural, and not going to change soon
 

@@ -23,14 +23,15 @@
 
 > ## ⚠️ Nothing in this directory has been run end to end
 >
-> The compose files are reviewed, they pass `docker compose config`, and their images are
-> pinned by digest — but no Podium deployment has ever been brought up from them. The build
-> machine's Docker engine hosts unrelated work and may not pull images, so `minio/minio` was
-> never fetched and the `ghcr.io` images do not exist. `deploy/install-node.sh` passes
-> `shellcheck` and `bash -n` and has never been run on a real machine.
+> The compose files pass `docker compose config` and pin their images by digest, but no
+> deployment has ever been brought up from them. **None of the four service Dockerfiles in
+> `docker/` has ever been built**, so the `ghcr.io` images do not exist. `install-node.sh` passes
+> `shellcheck` and `bash -n` and has never run on a real machine.
 >
-> What *has* been proved is the dev-transport path from source, in
-> [`../docs/quickstart.md`](../docs/quickstart.md). Start there.
+> The *transports* are a different question, and both now work: the dev transport
+> ([`../docs/quickstart.md`](../docs/quickstart.md)) and the tailnet transport, with a real
+> certificate and a Linux worker running tasks over it. It is the packaging in this directory
+> that is untested, not the thing it packages. Build from source and start with the quickstart.
 
 ---
 
@@ -44,7 +45,7 @@
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
 | `install-node.sh` | turns a Linux machine into a worker: checks, downloads, verifies, configures, starts, waits |
 | `systemd/podium-node.service` | the hardened unit `install-node.sh` installs |
-| `docker/*.Dockerfile` | the three published images, base pinned by digest |
+| `docker/*.Dockerfile` | the four service images — `server`, `node`, `agent`, `cli` — base pinned by digest. None has ever been built |
 | `tailscale-acl.example.json` | the ACL policy from the networking design |
 
 ---
