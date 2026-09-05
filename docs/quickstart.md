@@ -3,9 +3,9 @@
 A control plane, a worker and a task you can watch run — in about ten commands.
 
 This uses the **`dev` transport**: server and worker on one machine, over loopback, with one
-shared token. It is the tested path and the right one for a first look. When you want workers on
-other machines, read [`networking.md`](networking.md); the transport is the only thing that
-changes.
+shared token. It is the right thing for a first look, and it is loopback-only — it cannot reach
+a worker on another machine at all. For that you need the tailnet transport, which is the only
+supported way to do it: [`networking.md`](networking.md).
 
 > **There is no released binary yet.** Podium has never been tagged, so there is nothing to
 > `curl` and no image to pull, and `deploy/docker-compose.yml` cannot start `podium-server`.
