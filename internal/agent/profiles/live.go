@@ -16,6 +16,8 @@ import (
 type Overrides struct {
 	DisplayName      string    `json:"display_name,omitempty"`
 	Model            string    `json:"model,omitempty"`
+	Agent            string    `json:"agent,omitempty"`
+	Effort           string    `json:"effort,omitempty"`
 	DefaultSkill     string    `json:"default_skill,omitempty"`
 	ChatDefaultSkill string    `json:"chat_default_skill,omitempty"`
 	UpdatedBy        string    `json:"updated_by,omitempty"`
@@ -26,6 +28,8 @@ type Overrides struct {
 const (
 	FieldDisplayName      = "display_name"
 	FieldModel            = "model"
+	FieldAgent            = "agent"
+	FieldEffort           = "effort"
 	FieldDefaultSkill     = "default_skill"
 	FieldChatDefaultSkill = "chat_default_skill"
 )
@@ -39,7 +43,9 @@ func (o Overrides) Fields() []string {
 		value string
 	}{
 		{FieldDisplayName, o.DisplayName},
+		{FieldAgent, o.Agent},
 		{FieldModel, o.Model},
+		{FieldEffort, o.Effort},
 		{FieldDefaultSkill, o.DefaultSkill},
 		{FieldChatDefaultSkill, o.ChatDefaultSkill},
 	} {
@@ -55,6 +61,8 @@ func (o Overrides) Fields() []string {
 func (o Overrides) Trim() Overrides {
 	o.DisplayName = strings.TrimSpace(o.DisplayName)
 	o.Model = strings.TrimSpace(o.Model)
+	o.Agent = strings.TrimSpace(o.Agent)
+	o.Effort = strings.TrimSpace(o.Effort)
 	o.DefaultSkill = strings.TrimSpace(o.DefaultSkill)
 	o.ChatDefaultSkill = strings.TrimSpace(o.ChatDefaultSkill)
 	return o
@@ -66,6 +74,12 @@ func (o Overrides) apply(p *Profile) {
 	}
 	if o.Model != "" {
 		p.Model = o.Model
+	}
+	if o.Agent != "" {
+		p.Agent = o.Agent
+	}
+	if o.Effort != "" {
+		p.Effort = o.Effort
 	}
 	if o.DefaultSkill != "" {
 		p.DefaultSkill = o.DefaultSkill

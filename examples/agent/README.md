@@ -94,9 +94,10 @@ TASK=$(./bin/podium run --detach --image podium-agent-runtime:dev \
 
 ## For real
 
-The Anthropic key reaches the container as a Podium secret with `target: env`, and that is the only
-path — the runtime reads no file, no mount and nothing in the brief. Its reserved name is
-`podium.agent.anthropic_api_key`.
+The model credential reaches the container as a Podium secret with `target: env`, and that is the
+only path — the runtime reads no file, no mount and nothing in the brief. Which one it is follows
+the brief's `profile.agent`: `podium.agent.anthropic_api_key` for `claude`, and
+`podium.agent.xai_api_key` for `grok`.
 
 ```sh
 printf %s "$ANTHROPIC_API_KEY" | ./bin/podium secret set podium.agent.anthropic_api_key
@@ -109,6 +110,22 @@ printf %s "$ANTHROPIC_API_KEY" | ./bin/podium secret set podium.agent.anthropic_
 Add `--secret podium.agent.github_token:env:GITHUB_TOKEN` when the brief has `repos`, and
 `--secret podium.agent.memory_api_key:env:PODIUM_MEMORY_API_KEY` when it has `memory`. A brief that
 names a memory env var which is not set is refused (exit 2): the conductor promised it.
+
+For a Grok turn — a brief whose `profile.agent` is `grok` and which carries a `provider` block,
+as `testdata/brief.example.json` does — swap the credential for the one that backend spends:
+
+```sh
+printf %s "$XAI_API_KEY" | ./bin/podium secret set podium.agent.xai_api_key
+
+./bin/podium run --image podium-agent-runtime:dev \
+  --secret podium.agent.xai_api_key:env:XAI_API_KEY \
+  --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "Reply with the single word pong")
+```
+
+`brief.sh` writes a `claude` brief, so that command needs a hand-edited brief to be a real Grok
+turn. The runtime reads `provider.base_url` and `provider.api_key_env` out of the brief and sets
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for the SDK from them; `ANTHROPIC_API_KEY` is
+removed from the SDK's environment so a stale one cannot shadow the token.
 
 Nothing is set in the image for either of these — `docker inspect` shows no `CLAUDE_*` or
 `ANTHROPIC_*` variable, and there is no `--dangerously-skip-permissions` anywhere. The only

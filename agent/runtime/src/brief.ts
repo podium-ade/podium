@@ -23,6 +23,19 @@ export const ReservedRepoName = ".podium";
 /** RepoNameRE constrains repos[].name: it becomes a directory under /workspace. */
 export const RepoNameRE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+/**
+ * AgentKinds are the backends a turn can run on. They mirror internal/agent/profiles'
+ * AgentClaude and AgentGrok, and both are THIS runtime driving the Claude Agent SDK — what
+ * differs is the endpoint and the credential, which arrive in `provider`.
+ */
+export const AgentKinds = ["claude", "grok"] as const;
+
+/**
+ * EffortLevels are the SDK's own vocabulary. The conductor has already refused a level the
+ * chosen model does not accept, so anything that arrives here is passed straight through.
+ */
+export const EffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
+
 /** BriefError is every way a brief can be unusable. It always means exit 2. */
 export class BriefError extends Error {
   readonly exitCode = ExitBriefInvalid;
@@ -67,6 +80,11 @@ const briefSchema = z.strictObject({
     display_name: z.string().min(1),
     system_prompt: z.string(),
     model: z.string().min(1),
+    // The backend this turn runs on. The conductor resolves it — skill, then profile, then
+    // its own default — so it is always present and this runtime never has to.
+    agent: z.enum(AgentKinds),
+    // Absent means the model's own default effort, which is the provider's choice.
+    effort: z.enum(EffortLevels).optional(),
   }),
   skill: z.strictObject({
     name: z.string().min(1),
@@ -84,12 +102,22 @@ const briefSchema = z.strictObject({
       api_key_env: z.string().min(1),
     })
     .optional(),
+  // Where to send the agent SDK's requests, and which environment variable holds the
+  // credential for it. Absent means the SDK's own defaults, which is what a Claude turn
+  // gets. It carries the NAME of a secret and never a value, exactly as memory does.
+  provider: z
+    .strictObject({
+      base_url: z.string().min(1),
+      api_key_env: z.string().min(1),
+    })
+    .optional(),
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
 export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 export type RepoRef = z.infer<typeof repoSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
+export type AgentKind = TurnBrief["profile"]["agent"];
 
 /**
  * decodeBrief reads, decodes and validates the brief. Every failure is a BriefError, and

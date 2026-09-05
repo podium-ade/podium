@@ -92,7 +92,7 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 			f["skills/general.yaml"] = goodSkill + `secrets:
   - {name: podium.agent.anthropic_api_key, target: env, key: ANTHROPIC_API_KEY}
 `
-		}, []string{"skills/general.yaml", "added automatically"}},
+		}, []string{"skills/general.yaml", "the conductor decides"}},
 		{"the brief env var", func(f map[string]string) {
 			f["skills/general.yaml"] = goodSkill + "env: {PODIUM_AGENT_TURN: x}\n"
 		}, []string{"skills/general.yaml", "PODIUM_AGENT_TURN"}},

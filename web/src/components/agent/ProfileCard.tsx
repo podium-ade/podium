@@ -1,14 +1,18 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { AgentProfile } from "../../gen/podium/agent/v1/agent_pb";
+import type { AgentBackend, AgentProfile } from "../../gen/podium/agent/v1/agent_pb";
+import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { AgentPicker } from "./AgentPicker";
 import { relative } from "../../lib/format";
 import { Badge } from "../Badge";
 import { Skeleton } from "../Skeleton";
 
-/** The four profile.yaml keys a browser may override, as the API names them. */
+/** The profile.yaml keys a browser may override, as the API names them. */
 export const FIELDS = {
   displayName: "display_name",
   model: "model",
+  agent: "agent",
+  effort: "effort",
   defaultSkill: "default_skill",
   chatDefaultSkill: "chat_default_skill",
 } as const;
@@ -16,6 +20,8 @@ export const FIELDS = {
 export type ProfileFields = {
   displayName: string;
   model: string;
+  agent: string;
+  effort: string;
   defaultSkill: string;
   chatDefaultSkill: string;
 };
@@ -24,6 +30,8 @@ export type ProfileCardProps = {
   profile?: AgentProfile;
   /** The skills that are actually loaded, for the two default pickers. */
   skills: string[];
+  /** The backend catalogue, for the model picker. Empty while it loads. */
+  agents: AgentBackend[];
   loading?: boolean;
   saving?: boolean;
   onSave: (fields: ProfileFields) => void;
@@ -37,14 +45,22 @@ export type ProfileCardProps = {
  * the file says". That is why each row shows the file's value beside the input — an
  * operator has to be able to see what they are overriding, and get back to it in one click.
  */
-export function ProfileCard({ profile, skills, loading, saving, onSave }: ProfileCardProps) {
+export function ProfileCard({ profile, skills, agents, loading, saving, onSave }: ProfileCardProps) {
   const overridden = new Set(profile?.overridden ?? []);
   const held = (key: string, effective: string) => (overridden.has(key) ? effective : "");
 
   const [displayName, setDisplayName] = useState(() =>
     held(FIELDS.displayName, profile?.displayName ?? ""),
   );
-  const [model, setModel] = useState(() => held(FIELDS.model, profile?.model ?? ""));
+  // agent, model and effort are one control and therefore one piece of state. They are also
+  // three independent overrides on the wire, so an operator who overrides only the effort
+  // still gets the file's model — which is why the choice seeds from each field's own
+  // override rather than from the effective profile.
+  const [choice, setChoice] = useState<AgentChoice>(() => ({
+    agent: held(FIELDS.agent, profile?.agent ?? ""),
+    model: held(FIELDS.model, profile?.model ?? ""),
+    effort: held(FIELDS.effort, profile?.effort ?? ""),
+  }));
   const [defaultSkill, setDefaultSkill] = useState(() =>
     held(FIELDS.defaultSkill, profile?.defaultSkill ?? ""),
   );
@@ -68,7 +84,14 @@ export function ProfileCard({ profile, skills, loading, saving, onSave }: Profil
       className="space-y-4 rounded border border-border bg-panel p-4"
       onSubmit={(e) => {
         e.preventDefault();
-        onSave({ displayName, model, defaultSkill, chatDefaultSkill });
+        onSave({
+          displayName,
+          model: choice.model,
+          agent: choice.agent,
+          effort: choice.effort,
+          defaultSkill,
+          chatDefaultSkill,
+        });
       }}
     >
       <header className="flex flex-wrap items-baseline gap-3">
@@ -87,8 +110,8 @@ export function ProfileCard({ profile, skills, loading, saving, onSave }: Profil
       <p className="max-w-2xl text-xs text-muted">
         The profile&apos;s name and system prompt come from{" "}
         <code className="font-mono">profile.yaml</code> and are not editable here — the name
-        labels every session already recorded. The four fields below are overrides: clear one
-        and the file&apos;s value applies again.
+        labels every session already recorded. The fields below are overrides: clear one and
+        the file&apos;s value applies again.
       </p>
 
       <Field
@@ -107,17 +130,25 @@ export function ProfileCard({ profile, skills, loading, saving, onSave }: Profil
       </Field>
 
       <Field
-        label="Model"
-        fileValue={profile?.fileModel ?? ""}
-        overridden={overridden.has(FIELDS.model)}
-        onUseFile={() => setModel("")}
+        label="Agent and model"
+        fileValue={fileTriple(profile)}
+        overridden={
+          overridden.has(FIELDS.model) || overridden.has(FIELDS.agent) || overridden.has(FIELDS.effort)
+        }
+        onUseFile={() => setChoice(INHERIT)}
+        hint="What every skill runs on unless it names its own."
       >
-        <input
-          aria-label="Model"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder={profile?.fileModel || "the file's value"}
-          className="w-full max-w-sm rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+        <AgentPicker
+          label="Profile"
+          value={choice}
+          onChange={setChoice}
+          agents={agents}
+          inherit={{ label: "Use profile.yaml's", hint: "the file's value" }}
+          inherited={{
+            agent: profile?.fileAgent ?? "",
+            model: profile?.fileModel ?? "",
+            effort: profile?.fileEffort ?? "",
+          }}
         />
       </Field>
 
@@ -162,6 +193,12 @@ export function ProfileCard({ profile, skills, loading, saving, onSave }: Profil
       </button>
     </form>
   );
+}
+
+/** fileTriple is what profile.yaml says about the backend, on one line. */
+function fileTriple(profile?: AgentProfile): string {
+  const parts = [profile?.fileAgent, profile?.fileModel, profile?.fileEffort].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function Field({

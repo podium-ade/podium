@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 )
 
 // goldenBrief is step 16's fixture, and agent/runtime/src/brief.ts is the schema it follows.
@@ -22,7 +24,8 @@ func minimalBrief() *Brief {
 		TurnID:    "turn_01",
 		Source:    BriefSource{Kind: SourceSlack, Ref: "C1/1.1/1.1"},
 		Profile: BriefProfile{
-			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium", Model: "claude-opus-5",
+			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
+			Model: "claude-opus-5", Agent: profiles.AgentClaude,
 		},
 		Skill: BriefSkill{
 			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"Read"}, MaxTurns: 20,
@@ -85,7 +88,7 @@ func TestAnOptionalFieldIsOmittedNotNulled(t *testing.T) {
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(raw, &got))
-	for _, key := range []string{"repos", "memory"} {
+	for _, key := range []string{"repos", "memory", "provider"} {
 		_, present := got[key]
 		assert.False(t, present, "%s must be omitted, not null", key)
 	}

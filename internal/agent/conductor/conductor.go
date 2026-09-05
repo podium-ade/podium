@@ -5,6 +5,7 @@
 package conductor
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alvaroibarguen/podium/internal/agent/config"
 	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
@@ -60,6 +62,10 @@ type Options struct {
 	// while leaving the briefs alone, which is what a test that only cares about the brief
 	// wants; in production the two are set together.
 	MemoryClient memory.Client
+	// XAIBaseURL is where a Grok turn's container sends the agent SDK's requests. Empty
+	// means config.DefaultXAIBaseURL, so a hand-built Conductor still produces a usable
+	// brief.
+	XAIBaseURL string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -73,6 +79,8 @@ type Conductor struct {
 	memory   *BriefMemory
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
+	// xaiBaseURL is the endpoint a Grok turn's brief names.
+	xaiBaseURL string
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -109,15 +117,16 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:    opts.Store,
-		podium:   opts.Podium,
-		profiles: opts.Profiles,
-		sources:  opts.Sources,
-		metrics:  metrics,
-		logger:   logger,
-		memory:   opts.Memory,
-		memories: opts.MemoryClient,
-		sessions: map[string]*sessionState{},
+		store:      opts.Store,
+		podium:     opts.Podium,
+		profiles:   opts.Profiles,
+		sources:    opts.Sources,
+		metrics:    metrics,
+		logger:     logger,
+		memory:     opts.Memory,
+		memories:   opts.MemoryClient,
+		xaiBaseURL: cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		sessions:   map[string]*sessionState{},
 	}, nil
 }
 
@@ -342,6 +351,8 @@ func (c *Conductor) brief(
 			DisplayName:  profile.DisplayName,
 			SystemPrompt: profile.SystemPrompt,
 			Model:        profile.ModelFor(skill),
+			Agent:        profile.AgentFor(skill),
+			Effort:       profile.EffortFor(skill),
 		},
 		Skill: BriefSkill{
 			Name:         skill.Name,
@@ -352,6 +363,9 @@ func (c *Conductor) brief(
 		Transcript:  entries,
 		Instruction: ev.Text,
 		Memory:      c.memory,
+	}
+	if p := c.providerFor(b.Profile.Agent); p != nil {
+		b.Provider = p
 	}
 	for _, r := range skill.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
@@ -364,9 +378,18 @@ func (c *Conductor) brief(
 	return b
 }
 
+// providerFor is the endpoint block a backend needs, or nil when the runtime's own defaults
+// are right. Only Grok needs one: it is the same SDK pointed somewhere else.
+func (c *Conductor) providerFor(agent string) *BriefProvider {
+	if agent != profiles.AgentGrok {
+		return nil
+	}
+	return &BriefProvider{BaseURL: c.xaiBaseURL, APIKeyEnv: profiles.XAIKeyEnv}
+}
+
 // taskSpec is the task one turn runs. The secrets are exactly the skill's, plus the
-// reserved Anthropic key the conductor always adds: a skill only ever gets the credentials
-// its own file names.
+// reserved credential the conductor always adds: a skill only ever gets the credentials its
+// own file names, and the one the backend it runs on needs.
 func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief string, ev InboundEvent) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range skill.Env {
@@ -387,12 +410,13 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 	}
 
 	s := &spec.TaskSpec{
-		Image:       skill.Image,
-		Env:         env,
-		Labels:      append([]string(nil), skill.Labels...),
-		Resources:   skill.Resources,
-		Timeout:     skill.Timeout,
-		Secrets:     append(append([]spec.SecretRef(nil), skill.Secrets...), c.reservedSecrets()...),
+		Image:     skill.Image,
+		Env:       env,
+		Labels:    append([]string(nil), skill.Labels...),
+		Resources: skill.Resources,
+		Timeout:   skill.Timeout,
+		Secrets: append(append([]spec.SecretRef(nil), skill.Secrets...),
+			c.reservedSecrets(c.profiles.Current().AgentFor(skill))...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
@@ -443,15 +467,31 @@ func dockerSidecar() spec.Sidecar {
 }
 
 // reservedSecrets are the credentials the conductor attaches itself, whatever the skill
-// file says. The Anthropic key is on every turn; the memory key is on every turn of a host
-// that has memory, because a brief with a memory block whose api_key_env is unset is a
-// failed turn (exit 2) — so the injection is not optional.
-func (c *Conductor) reservedSecrets() []spec.SecretRef {
-	refs := []spec.SecretRef{{
+// file says.
+//
+// Exactly one model credential goes on a turn, and it is the one the turn's backend spends.
+// A Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one:
+// a container gets the credential it needs and no other, which is the same rule the rest of
+// Podium's secret handling follows. The refresh token of a subscription sign-in is on
+// neither — it never leaves the conductor's host at all.
+//
+// The memory key is on every turn of a host that has memory, because a brief with a memory
+// block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
+// optional.
+func (c *Conductor) reservedSecrets(agent string) []spec.SecretRef {
+	model := spec.SecretRef{
 		Name:   profiles.AnthropicKeySecret,
 		Target: spec.SecretTargetEnv,
 		Key:    profiles.AnthropicKeyEnv,
-	}}
+	}
+	if agent == profiles.AgentGrok {
+		model = spec.SecretRef{
+			Name:   profiles.XAIKeySecret,
+			Target: spec.SecretTargetEnv,
+			Key:    profiles.XAIKeyEnv,
+		}
+	}
+	refs := []spec.SecretRef{model}
 	if c.memory != nil {
 		refs = append(refs, spec.SecretRef{
 			Name:   profiles.MemoryKeySecret,

@@ -245,6 +245,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Logger:       logger,
 		Memory:       briefMemory,
 		MemoryClient: a.memory,
+		XAIBaseURL:   a.cfg.XAIBaseURL,
 	})
 	if err != nil {
 		st.Close()
@@ -256,6 +257,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Secrets:          a.podium,
 		Model:            profile.Model,
 		AnthropicBaseURL: a.cfg.AnthropicBaseURL,
+		XAIBaseURL:       a.cfg.XAIBaseURL,
+		XAIOAuthIssuer:   a.cfg.XAIOAuthIssuer,
+		XAIOAuthClientID: a.cfg.XAIOAuthClientID,
+		XAIOAuthScopes:   a.cfg.XAIOAuthScopes,
 		Memory:           a.memory,
 		Profiles:         live,
 		Chat:             a.chat,
@@ -424,6 +429,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	a.publishMemoryKey(runCtx)
 	go a.reconcileProfile(runCtx)
+	// A subscription access token lives about an hour and a turn can run for half of one,
+	// so nothing but this keeps a signed-in provider working past its first hour.
+	go a.svc.RefreshTokens(runCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {

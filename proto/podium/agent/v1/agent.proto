@@ -22,6 +22,18 @@ service AgentService {
   rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
   // ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
   rpc ClearProviderKey(ClearProviderKeyRequest) returns (ClearProviderKeyResponse);
+  // StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
+  // subscription instead of an API key. It stores nothing: it returns the code and the URL
+  // a human has to visit, and PollProviderOAuth is what finishes.
+  rpc StartProviderOAuth(StartProviderOAuthRequest) returns (StartProviderOAuthResponse);
+  // PollProviderOAuth asks the provider whether the human has approved the sign-in yet. It
+  // is the browser that polls, at the interval the start response asked for. Only the call
+  // that comes back authorised stores anything.
+  rpc PollProviderOAuth(PollProviderOAuthRequest) returns (PollProviderOAuthResponse);
+  // ListAgents reports the agent backends this conductor can run a turn on, the models each
+  // offers and the effort levels each model accepts. It is the catalogue behind the UI's
+  // picker, and it is the same list the write RPCs validate against.
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   // ListMemories pages through the shared memory, newest first.
   rpc ListMemories(ListMemoriesRequest) returns (ListMemoriesResponse);
   // SearchMemories is a semantic search of the same memory.
@@ -130,24 +142,42 @@ message ListTurnsResponse {
 
 message GetSettingsRequest {}
 
-// ProviderSettings is everything the UI may know about a stored provider key. key_hint is
-// the last four characters, computed once at save time: that is the only form in which any
-// part of the key is ever read back.
+// ProviderSettings is everything the UI may know about a stored provider credential.
+// key_hint is the last four characters, computed once at save time: that is the only form
+// in which any part of the credential is ever read back.
 message ProviderSettings {
-  // provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+  // provider is "anthropic" or "xai". The field is the BYOK seam.
   string provider = 1;
   bool key_set = 2;
-  // key_hint is the last four characters of the key, or "" when no key is set.
+  // key_hint is the last four characters of the key, or "" when no key is set. It is empty
+  // for an OAuth credential: an access token is not a thing to show four characters of.
   string key_hint = 3;
-  // model is profile.yaml's model. Informational: the UI is not a model picker.
+  // model is profile.yaml's model. Informational: the picker is ListAgents.
   string model = 4;
   // set_by is the X-Podium-Login at the time of SetProviderKey, or "unknown".
   string set_by = 5;
   google.protobuf.Timestamp set_at = 6;
+  // auth_kind is "api_key" or "oauth", and "" when nothing is set. It is what the UI shows
+  // instead of a hint for a subscription sign-in.
+  string auth_kind = 7;
+  // account is who the provider says is signed in — an email or a subject — for an OAuth
+  // credential, and "" otherwise. It comes from the provider's own token response.
+  string account = 8;
+  // expires_at is when the stored access token stops working. Unset for an API key, which
+  // does not expire. The conductor refreshes an OAuth token in the background well before
+  // this, so a UI showing a time in the past means refreshing has been failing.
+  google.protobuf.Timestamp expires_at = 9;
+  // refreshable is true when a refresh token was issued, which is what makes an OAuth
+  // credential survive its first hour without a human.
+  bool refreshable = 10;
 }
 
 message GetSettingsResponse {
+  // provider is the Anthropic row, kept for the clients that only ever knew about one.
   ProviderSettings provider = 1;
+  // providers is every provider this conductor knows, Anthropic included, in a stable
+  // order. New clients read this and ignore the field above.
+  repeated ProviderSettings providers = 2;
 }
 
 message SetProviderKeyRequest {
@@ -185,6 +215,97 @@ message ClearProviderKeyRequest {
 }
 
 message ClearProviderKeyResponse {}
+
+message StartProviderOAuthRequest {
+  // provider is "xai". Anthropic takes an API key on this control plane and answers
+  // invalid_argument here.
+  string provider = 1;
+}
+
+// StartProviderOAuthResponse is a device-authorisation grant (RFC 8628) in flight. It
+// carries no credential: the device code itself stays on the conductor, keyed by flow_id,
+// so a browser that is shown this response cannot complete the sign-in on its own.
+message StartProviderOAuthResponse {
+  // flow_id names this sign-in to PollProviderOAuth. It is opaque and single-use.
+  string flow_id = 1;
+  // user_code is what the human types on the provider's page. It is meant to be read out
+  // loud, so it is shown as the provider formatted it, dashes included.
+  string user_code = 2;
+  // verification_uri is where the human goes.
+  string verification_uri = 3;
+  // verification_uri_complete has the code already in it, for a link or a QR code. Empty
+  // when the provider did not offer one.
+  string verification_uri_complete = 4;
+  // interval is how many seconds to wait between polls. Poll faster and the provider
+  // answers slow_down.
+  int32 interval = 5;
+  // expires_at is when the code stops being accepted and the flow has to be restarted.
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message PollProviderOAuthRequest {
+  string provider = 1;
+  string flow_id = 2;
+}
+
+// PollProviderOAuthResponse says where the sign-in got to. Exactly one poll ends it: the
+// one that comes back authorised is the one that stored the token.
+message PollProviderOAuthResponse {
+  // state is:
+  //   pending    the human has not finished yet; poll again after interval
+  //   slow_down  polling too fast; the interval in this response is the new one
+  //   done       authorised and stored; provider is filled in
+  //   denied     the human said no, or the provider refused this client
+  //   expired    the code timed out; start again
+  string state = 1;
+  // interval is the seconds to wait before the next poll. Only meaningful while pending.
+  int32 interval = 2;
+  // provider is the stored credential, set only when state is done.
+  ProviderSettings provider = 3;
+  // detail is the provider's own sentence about a denied or expired flow, bounded and
+  // scrubbed exactly as ProviderKeyError.provider_message is. Empty when there is nothing
+  // to add.
+  string detail = 4;
+}
+
+// AgentModel is one model a backend offers, as the picker shows it.
+message AgentModel {
+  string id = 1;
+  string display_name = 2;
+  // note is the one line under the name in the picker: what this model is for.
+  string note = 3;
+  // context_tokens is the model's context window, or 0 when it is not known here.
+  int32 context_tokens = 4;
+  // efforts are the reasoning-effort levels this model accepts, weakest first. Empty means
+  // the model takes no effort setting and the control is hidden for it.
+  repeated string efforts = 5;
+}
+
+// AgentBackend is one thing a turn can run on: a harness, the credential it needs, and the
+// models it can be pointed at.
+message AgentBackend {
+  // id is what a skill's `agent` field holds: "claude" or "grok".
+  string id = 1;
+  string display_name = 2;
+  // provider is the credential this backend spends: "anthropic" or "xai".
+  string provider = 3;
+  // note is a sentence about what this backend actually is, for the picker's header.
+  string note = 4;
+  string default_model = 5;
+  repeated AgentModel models = 6;
+  // ready is true when this control plane holds a credential for the backend. A skill may
+  // still be saved against a backend that is not ready — the operator may be setting it up
+  // in either order — and the UI says so rather than refusing.
+  bool ready = 7;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated AgentBackend agents = 1;
+  // default_agent is what a profile that names no agent runs on.
+  string default_agent = 2;
+}
 
 // Memory is one thing the organisation remembers, shared by every agent turn.
 //
@@ -386,11 +507,19 @@ message AgentProfile {
   string file_default_skill = 9;
   string file_chat_default_skill = 10;
   // overridden names the fields a stored override is currently supplying, by their
-  // profile.yaml key: display_name, model, default_skill, chat_default_skill.
+  // profile.yaml key: display_name, model, default_skill, chat_default_skill, agent,
+  // effort.
   repeated string overridden = 11;
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
   google.protobuf.Timestamp updated_at = 13;
+  // agent is the backend every skill runs on unless it names its own: "claude" or "grok".
+  string agent = 14;
+  // effort is the reasoning effort every skill runs at unless it names its own. Empty
+  // means the model's own default.
+  string effort = 15;
+  string file_agent = 16;
+  string file_effort = 17;
 }
 
 // SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
@@ -452,6 +581,12 @@ message SkillDefinition {
   // updated_by and updated_at are set for a stored skill only.
   string updated_by = 18;
   google.protobuf.Timestamp updated_at = 19;
+  // agent is the backend a turn of this skill runs on: "claude", "grok", or empty for
+  // whatever the profile says.
+  string agent = 20;
+  // effort is the reasoning effort a turn of this skill runs at, or empty for the
+  // profile's. The levels a model accepts come from ListAgents.
+  string effort = 21;
 }
 
 message GetProfileRequest {}
@@ -473,6 +608,8 @@ message UpdateProfileRequest {
   string model = 2;
   string default_skill = 3;
   string chat_default_skill = 4;
+  string agent = 5;
+  string effort = 6;
 }
 
 message UpdateProfileResponse {

@@ -11,7 +11,9 @@
     "name": "podium",
     "display_name": "Podium",
     "system_prompt": "You are Podium, the engineering team's agent. You are direct and you never guess.",
-    "model": "claude-opus-5"
+    "model": "grok-4.6",
+    "agent": "grok",
+    "effort": "xhigh"
   },
   "skill": {
     "name": "coder",
@@ -45,5 +47,9 @@
   "memory": {
     "mcp_url": "http://host.docker.internal:8888/mcp/podium/",
     "api_key_env": "PODIUM_MEMORY_API_KEY"
+  },
+  "provider": {
+    "base_url": "https://api.x.ai",
+    "api_key_env": "XAI_API_KEY"
   }
 }

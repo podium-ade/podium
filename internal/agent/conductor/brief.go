@@ -36,17 +36,18 @@ const (
 // The field order is the schema's order and the encoding is compact, because
 // examples/agent/brief.sh renders the same document with `jq -cn` and a test compares bytes.
 type Brief struct {
-	Version             int          `json:"version"`
-	SessionID           string       `json:"session_id"`
-	TurnID              string       `json:"turn_id"`
-	Source              BriefSource  `json:"source"`
-	Profile             BriefProfile `json:"profile"`
-	Skill               BriefSkill   `json:"skill"`
-	Transcript          []BriefEntry `json:"transcript"`
-	TranscriptTruncated bool         `json:"transcript_truncated"`
-	Instruction         string       `json:"instruction"`
-	Repos               []BriefRepo  `json:"repos,omitempty"`
-	Memory              *BriefMemory `json:"memory,omitempty"`
+	Version             int            `json:"version"`
+	SessionID           string         `json:"session_id"`
+	TurnID              string         `json:"turn_id"`
+	Source              BriefSource    `json:"source"`
+	Profile             BriefProfile   `json:"profile"`
+	Skill               BriefSkill     `json:"skill"`
+	Transcript          []BriefEntry   `json:"transcript"`
+	TranscriptTruncated bool           `json:"transcript_truncated"`
+	Instruction         string         `json:"instruction"`
+	Repos               []BriefRepo    `json:"repos,omitempty"`
+	Memory              *BriefMemory   `json:"memory,omitempty"`
+	Provider            *BriefProvider `json:"provider,omitempty"`
 }
 
 // BriefSource is where the turn came from and how a human reaches the conversation.
@@ -56,12 +57,31 @@ type BriefSource struct {
 	URL  string `json:"url,omitempty"`
 }
 
-// BriefProfile is the bot's identity for this turn.
+// BriefProfile is the bot's identity for this turn, and what it runs on.
 type BriefProfile struct {
 	Name         string `json:"name"`
 	DisplayName  string `json:"display_name"`
 	SystemPrompt string `json:"system_prompt"`
 	Model        string `json:"model"`
+	// Agent is the resolved backend: "claude" or "grok". Always emitted — the conductor
+	// resolves skill-then-profile-then-default, so the runtime never has to.
+	Agent string `json:"agent"`
+	// Effort is the resolved reasoning effort, absent for the model's own default.
+	Effort string `json:"effort,omitempty"`
+}
+
+// BriefProvider tells the runtime where to send the agent SDK's requests and which
+// environment variable holds the credential for it.
+//
+// It is present only when the backend is not the SDK's own default — a Grok turn, whose
+// requests go to xAI's Anthropic-compatible endpoint. A Claude turn carries none, and the
+// SDK's own defaults apply. Naming the env var rather than carrying the credential is the
+// whole point: a brief is an environment variable on a task spec and is visible to anything
+// that can read the spec, so it holds the NAME of a secret and never a value, exactly as
+// memory.api_key_env does.
+type BriefProvider struct {
+	BaseURL   string `json:"base_url"`
+	APIKeyEnv string `json:"api_key_env"`
 }
 
 // BriefSkill is the job the turn is doing.

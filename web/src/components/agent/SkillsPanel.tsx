@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SkillDefinition } from "../../gen/podium/agent/v1/agent_pb";
+import { useAgents } from "../../hooks/useAgents";
 import { agent, errorMessage, isAgentUnreachable, secrets } from "../../lib/client";
 import { relative } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
@@ -42,6 +43,7 @@ export function SkillsPanel() {
     queryKey: ["secrets"],
     queryFn: () => secrets.listSecrets({}),
   });
+  const { agents } = useAgents();
 
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
 
@@ -90,6 +92,12 @@ export function SkillsPanel() {
     return (
       <SkillEditor
         skill={target}
+        agents={agents}
+        profileDefault={{
+          agent: profile.data?.profile?.agent ?? "",
+          model: profile.data?.profile?.model ?? "",
+          effort: profile.data?.profile?.effort ?? "",
+        }}
         secretNames={(secretList.data?.secrets ?? []).map((s) => s.name)}
         secretsUnknown={secretList.isError || secretList.isPending}
         saving={saving}

@@ -81,8 +81,16 @@ type AgentServiceOptions struct {
 	// Model is the model reported by GetSettings when no profile is loaded. The profile's
 	// own model wins when there is one, because it is what a turn will actually run.
 	Model string
-	// AnthropicBaseURL is where SetProviderKey validates a key.
+	// AnthropicBaseURL is where SetProviderKey validates an Anthropic key.
 	AnthropicBaseURL string
+	// XAIBaseURL is where it validates an xAI credential, key or token.
+	XAIBaseURL string
+	// XAIOAuthIssuer, XAIOAuthClientID and XAIOAuthScopes configure the subscription
+	// sign-in. An empty client id means this control plane offers API keys only, which is
+	// a supported configuration and not an error.
+	XAIOAuthIssuer   string
+	XAIOAuthClientID string
+	XAIOAuthScopes   string
 	// HTTPClient validates the key. Nil means a client with a timeout of its own.
 	HTTPClient *http.Client
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
@@ -99,15 +107,23 @@ type AgentServiceOptions struct {
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
-	store    *store.Store
-	secrets  SecretStore
-	model    string
-	baseURL  string
+	store      *store.Store
+	secrets    SecretStore
+	model      string
+	baseURL    string
+	xaiBaseURL string
+	// oauth is one client per provider that has one configured, keyed by provider name. A
+	// provider with no entry offers API keys only.
+	oauth    map[string]*oauthClient
 	http     *http.Client
 	memory   memory.Client
 	profiles *profiles.Live
 	chat     ChatSource
 	logger   *slog.Logger
+
+	// flows are the subscription sign-ins this process has started and not finished.
+	flowMu sync.Mutex
+	flows  map[string]*oauthFlow
 
 	// writeMu serialises the read-validate-write of a skill or an override, so two
 	// browsers saving at once cannot each validate against a set the other is changing.
@@ -128,16 +144,34 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if opts.AnthropicBaseURL == "" {
 		opts.AnthropicBaseURL = config.DefaultAnthropicBaseURL
 	}
+	if opts.XAIBaseURL == "" {
+		opts.XAIBaseURL = config.DefaultXAIBaseURL
+	}
+	if opts.XAIOAuthIssuer == "" {
+		opts.XAIOAuthIssuer = config.DefaultXAIOAuthIssuer
+	}
+	if opts.XAIOAuthScopes == "" {
+		opts.XAIOAuthScopes = config.DefaultXAIOAuthScopes
+	}
+	oauth := map[string]*oauthClient{}
+	// newOAuthClient returns nil without a client id, and a nil entry is never stored: the
+	// map having no key for a provider is what "API keys only" means to oauthFor.
+	if c := newOAuthClient(opts.XAIOAuthIssuer, opts.XAIOAuthClientID, opts.XAIOAuthScopes,
+		opts.HTTPClient); c != nil {
+		oauth[ProviderXAI] = c
+	}
 	return &AgentService{
-		store:    opts.Store,
-		secrets:  opts.Secrets,
-		model:    opts.Model,
-		baseURL:  opts.AnthropicBaseURL,
-		http:     opts.HTTPClient,
-		memory:   opts.Memory,
-		profiles: opts.Profiles,
-		chat:     opts.Chat,
-		logger:   opts.Logger,
+		store:      opts.Store,
+		secrets:    opts.Secrets,
+		model:      opts.Model,
+		baseURL:    opts.AnthropicBaseURL,
+		xaiBaseURL: opts.XAIBaseURL,
+		oauth:      oauth,
+		http:       opts.HTTPClient,
+		memory:     opts.Memory,
+		profiles:   opts.Profiles,
+		chat:       opts.Chat,
+		logger:     opts.Logger,
 	}
 }
 
