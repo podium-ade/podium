@@ -151,9 +151,14 @@ services:
     environment:
       PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
       PODIUM_TRANSPORT: dev
-      # Inside a container, loopback is the container's own. The port is published on the
-      # host's loopback below, which is where the boundary actually is.
+      # Inside a container, loopback is the container's own: a server bound to it is
+      # unreachable even from this compose network. So the server binds every interface of
+      # the container and the boundary moves to the published port below, which is
+      # 127.0.0.1 of the host. The dev transport refuses a non-loopback address unless it is
+      # told this is the case — the token is the only credential it has — so the waiver is
+      # set here explicitly. Do NOT set it on a host, and do not publish 8080 on 0.0.0.0.
       PODIUM_DEV_LISTEN: 0.0.0.0:8080
+      PODIUM_DEV_ALLOW_UNSAFE_LISTEN: "true"
       PODIUM_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?set PODIUM_DEV_TOKEN}
       PODIUM_MASTER_KEY_FILE: /etc/podium/master.key
       # The object store. The bucket is created on start if it is missing.

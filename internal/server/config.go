@@ -34,6 +34,12 @@ type Config struct {
 	DevListen string
 	// DevToken is PODIUM_DEV_TOKEN, the shared bearer token of the dev transport.
 	DevToken string
+	// DevAllowUnsafeListen is PODIUM_DEV_ALLOW_UNSAFE_LISTEN: let DevListen bind an address
+	// that is not loopback. A container deployment needs it — loopback inside a container is
+	// the container's own, so nothing could reach the server — and the published port is the
+	// boundary there. On a host it publishes the whole API to anything that can route to the
+	// address, guarded by one static token, so the server warns loudly when it is on.
+	DevAllowUnsafeListen bool
 
 	// MasterKeyFile is PODIUM_MASTER_KEY_FILE: the file holding the 32-byte AES-256 key
 	// every stored secret is encrypted under. The file must not be readable by other
@@ -89,6 +95,7 @@ func ConfigFromEnv() Config {
 		Transport:            envOr("PODIUM_TRANSPORT", TransportDev),
 		DevListen:            envOr("PODIUM_DEV_LISTEN", dev.DefaultListen),
 		DevToken:             os.Getenv("PODIUM_DEV_TOKEN"),
+		DevAllowUnsafeListen: envBool(dev.UnsafeListenVar),
 		MasterKeyFile:        os.Getenv("PODIUM_MASTER_KEY_FILE"),
 		MasterKey:            os.Getenv("PODIUM_MASTER_KEY"),
 		TSHostname:           envOr("PODIUM_TS_HOSTNAME", tailnet.DefaultHostname),
@@ -112,6 +119,9 @@ func (c Config) Validate() error {
 	case TransportDev:
 		if c.DevToken == "" {
 			return errors.New("PODIUM_DEV_TOKEN is required for PODIUM_TRANSPORT=dev")
+		}
+		if err := dev.CheckListen(c.DevListen, c.DevAllowUnsafeListen); err != nil {
+			return err
 		}
 	case TransportTailnet:
 		if c.TSHostname == "" {

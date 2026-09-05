@@ -129,10 +129,16 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 }
 
 // newListener builds the transport named by PODIUM_TRANSPORT. The dev transport keeps its
-// loopback-only guard exactly as it was: the tailnet transports are additions beside it, not a
-// loosening of it.
+// loopback-only guard: the tailnet transports are additions beside it, not a loosening of it,
+// and the one waiver is an environment variable an operator has to set on purpose.
 func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Listener, error) {
 	identity := tailnet.IdentityOptions{NodeTag: cfg.TSRequiredNodeTag}
+	if cfg.Transport == TransportDev && cfg.DevAllowUnsafeListen {
+		logger.Warn(dev.UnsafeListenVar+" is on: the dev transport may bind an address that is "+
+			"not loopback, and one static bearer token is the only thing guarding the whole API "+
+			"on it. This is meant for a container, where the published port is the boundary. "+
+			"Publish that port on 127.0.0.1, never 0.0.0.0.", "listen", cfg.DevListen)
+	}
 	if cfg.TSAllowUntaggedNodes {
 		logger.Warn("PODIUM_TS_ALLOW_UNTAGGED_NODES is on: any untagged tailnet device may " +
 			"enroll as a node with a valid enrollment token. The ACL tag is the network-level " +
@@ -157,7 +163,11 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 			Logger:   logger,
 		})
 	default:
-		return dev.New(dev.Options{Listen: cfg.DevListen, Token: cfg.DevToken})
+		return dev.New(dev.Options{
+			Listen:           cfg.DevListen,
+			Token:            cfg.DevToken,
+			AllowNonLoopback: cfg.DevAllowUnsafeListen,
+		})
 	}
 }
 

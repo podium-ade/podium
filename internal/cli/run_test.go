@@ -84,3 +84,27 @@ func TestPostgresSidecarExampleShape(t *testing.T) {
 	assert.True(t, s.Hardening.ReadOnlyRootfs)
 	assert.Equal(t, 256, s.Resources.MemoryMB)
 }
+
+// TestVerdictDoesNotRepeatAnErrorTheStreamAlreadyShowed.
+//
+// A sidecar that never becomes ready puts a hundred lines of the sidecar's own log inside
+// the error that fails the task, and `podium run` printed that whole blob twice — once as
+// `error:` when the event arrived and again as `failed:` at the end — on top of the live
+// sidecar log stream that had already shown every one of those lines.
+func TestVerdictDoesNotRepeatAnErrorTheStreamAlreadyShowed(t *testing.T) {
+	blob := "sidecar not ready: sidecar db not ready: nothing is listening on port 5432\n" +
+		"[db] FATAL: could not open my data directory\n[db] and another line"
+
+	got := verdict(blob, blob)
+	require.Equal(t,
+		"sidecar not ready: sidecar db not ready: nothing is listening on port 5432 (see the error above)",
+		got)
+	require.NotContains(t, got, "\n", "the verdict is one line")
+
+	// A reason the stream never printed — the server's own failure_reason, say — is printed
+	// whole: there is no copy above to point at.
+	require.Equal(t, blob, verdict(blob, ""))
+
+	// A one-line reason is the same either way.
+	require.Equal(t, "image not found", verdict("image not found", "image not found"))
+}

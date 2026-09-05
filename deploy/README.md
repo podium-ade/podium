@@ -120,10 +120,17 @@ prober — point your monitoring at `http://127.0.0.1:8080/readyz`, which is 503
 the object store is unreachable. `docker compose up -d --wait` therefore waits for `postgres` and
 `minio` to be healthy and for the rest to be *running*.
 
-**`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, not loopback.** Inside a container
-loopback is the container's own, so nothing could reach it. The boundary is the published port,
-which is `127.0.0.1:${PODIUM_PORT:-8080}`. Do not publish it on `0.0.0.0`: the dev transport is
-an unencrypted shared token and loopback is what makes it acceptable.
+**`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
+a container loopback is the container's own, so nothing — not even this compose network — could
+reach a server bound to it. The dev transport refuses a non-loopback address by itself, because
+one static token is the only credential it has, so the compose file also sets
+`PODIUM_DEV_ALLOW_UNSAFE_LISTEN=true` to say that this address is reachable only from inside a
+container. The server logs a warning naming that variable every time it starts.
+
+Nothing in the process can tell a container's `0.0.0.0` from a public interface on a host, which
+is why the operator declares it rather than the code guessing. **Never set that variable on a
+host**, and do not publish 8080 on `0.0.0.0`: the boundary is the published port, which is
+`127.0.0.1:${PODIUM_PORT:-8080}`.
 
 **MinIO's API port is deliberately not published.** The server reaches it over the compose
 network. Publish 9000 as well only if you want `podium artifact get --via-server=false` from your
@@ -170,6 +177,7 @@ and cannot reissue. `server-state` holds the Tailscale device identity. See
 | `PODIUM_MAX_TASKS` | default 4 |
 | `PODIUM_VERSION` | default `latest` |
 | `PODIUM_DATA_DIR` | default `/var/lib/podium-node`. Never touched by a re-run |
+| `PODIUM_METRICS_LISTEN` | default `127.0.0.1:9091`. Written into `node.yaml`, and the address step 7 polls |
 
 Re-running it upgrades the binary and rewrites the config. It never touches the data directory,
 which holds the node's identity. It does **not** drain first — `podium-node upgrade` does that;
@@ -185,10 +193,13 @@ longer name. `SupplementaryGroups=docker` is kept so that changing `User=` works
 `ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges` and the rest protect the host from the
 daemon's *mistakes*. They do not protect the host from the daemon, and they cannot.
 
-`PrivateTmp` is deliberately **not** set, and the unit says why: when `data_dir` is deep enough
-that a task's event socket would exceed the 108-byte `sun_path` limit, the node falls back to
-creating it under `/tmp` and bind-mounting it into the container — and a private `/tmp` is
-invisible to `dockerd`. Keep `data_dir` short and the fallback never fires.
+`PrivateTmp` is deliberately **not** set, and there is no configuration where it may be: when
+`data_dir` is deep enough that a task's event socket would exceed the 108-byte `sun_path` limit,
+the node falls back to creating it under `/tmp` and bind-mounting it into the container — and a
+private `/tmp` is invisible to `dockerd`. It is `/tmp` being the *host's* `/tmp` that the
+fallback depends on. `ReadWritePaths` names `/tmp` for the same reason: `ProtectSystem=strict`
+would otherwise make it read-only and the fallback would fail with `EROFS`. Keep `data_dir` short
+(under 42 characters) and the fallback never fires.
 
 `systemd-analyze verify` has **not** been run on this unit: the build machine is macOS. The
 directives were checked by inspection against systemd's documentation.
