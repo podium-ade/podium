@@ -155,7 +155,7 @@ func TestSendStoresTheMessageAndStartsATurn(t *testing.T) {
 func TestAMessageWithNoSkillRunsTheProfilesChatDefault(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
-	src, err := New(Options{Store: st, DisplayName: "Podium", DefaultSkill: "analyst"})
+	src, err := New(Options{Store: st, DisplayName: "Podium", DefaultSkill: func() string { return "analyst" }})
 	require.NoError(t, err)
 
 	// This is what makes profile.yaml's chat_default_skill a profile decision rather than a

@@ -436,8 +436,10 @@ func TestLinearAssignmentStartsATurn(t *testing.T) {
 }
 
 // TestOnlyTheCoderSkillGetsTheGitHubToken is the acceptance item, read through the API the
-// step file names: `podium task get --json`. A skill file is the only boundary around a
-// credential, so the general skill's turns must not carry one it never asked for.
+// step file names: `podium task get --json`. A skill decides what THIS bot hands a turn, so
+// the general skill's turns must not carry a credential it never asked for. (It is not a
+// boundary around the secret store — see docs/security.md — but it is still the difference
+// between a public channel's turns holding a GitHub token and not.)
 func TestOnlyTheCoderSkillGetsTheGitHubToken(t *testing.T) {
 	requireAgentRuntimeImage(t)
 

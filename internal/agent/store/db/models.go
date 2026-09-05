@@ -50,6 +50,13 @@ type Setting struct {
 	UpdatedAt time.Time
 }
 
+type Skill struct {
+	Name       string
+	Definition []byte
+	UpdatedAt  time.Time
+	UpdatedBy  string
+}
+
 type Turn struct {
 	ID         string
 	SessionID  string

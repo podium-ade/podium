@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiLAoQUHJvdmlkZXJLZXlFcnJvchIYChBwcm92aWRlcl9tZXNzYWdlGAEgASgJIisKF0NsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0EhAKCHByb3ZpZGVyGAEgASgJIhoKGENsZWFyUHJvdmlkZXJLZXlSZXNwb25zZSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlIkgKBVNraWxsEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgiEwoRTGlzdFNraWxsc1JlcXVlc3QiWgoSTGlzdFNraWxsc1Jlc3BvbnNlEiYKBnNraWxscxgBIAMoCzIWLnBvZGl1bS5hZ2VudC52MS5Ta2lsbBIcChRwcm9maWxlX2Rpc3BsYXlfbmFtZRgCIAEoCSKtAQoEQ2hhdBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIuCgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzCg9sYXN0X21lc3NhZ2VfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3ByZXZpZXcYBSABKAkSFAoMdHVybl9ydW5uaW5nGAYgASgIIl0KDkNoYXRBdHRhY2htZW50EhMKC2FydGlmYWN0X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMY29udGVudF90eXBlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMipQEKC0NoYXRNZXNzYWdlEg8KB2NoYXRfaWQYASABKAkSCwoDc2VxGAIgASgEEgwKBHJvbGUYAyABKAkSDAoEdGV4dBgEIAEoCRI0CgthdHRhY2htZW50cxgFIAMoCzIfLnBvZGl1bS5hZ2VudC52MS5DaGF0QXR0YWNobWVudBImCgJ0cxgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiLAoKQ2hhdFN0YXR1cxINCgVzdGF0ZRgBIAEoCRIPCgd0YXNrX2lkGAIgASgJIpoBCglDaGF0RnJhbWUSLwoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZUgAEhIKCHByb2dyZXNzGAIgASgJSAASLQoGc3RhdHVzGAMgASgLMhsucG9kaXVtLmFnZW50LnYxLkNoYXRTdGF0dXNIABIQCgZyZXN5bmMYBCABKAhIAEIHCgVmcmFtZSIiChFDcmVhdGVDaGF0UmVxdWVzdBINCgV0aXRsZRgBIAEoCSI5ChJDcmVhdGVDaGF0UmVzcG9uc2USIwoEY2hhdBgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0IjcKEExpc3RDaGF0c1JlcXVlc3QSIwoEcGFnZRgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5QYWdlIk4KEUxpc3RDaGF0c1Jlc3BvbnNlEiQKBWNoYXRzGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLkNoYXQSEwoLbmV4dF9jdXJzb3IYAiABKAkiRgoWU2VuZENoYXRNZXNzYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc2tpbGwYAyABKAkiSAoXU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USLQoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZSI2ChFTdHJlYW1DaGF0UmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEMpEKCgxBZ2VudFNlcnZpY2USWwoMTGlzdFNlc3Npb25zEiQucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVQoKR2V0U2Vzc2lvbhIiLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVzcG9uc2USUgoJTGlzdFR1cm5zEiEucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVzcG9uc2USWAoLR2V0U2V0dGluZ3MSIy5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVzcG9uc2USYQoOU2V0UHJvdmlkZXJLZXkSJi5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVzcG9uc2USZwoQQ2xlYXJQcm92aWRlcktleRIoLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVzcG9uc2USWwoMTGlzdE1lbW9yaWVzEiQucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVzcG9uc2USYQoOU2VhcmNoTWVtb3JpZXMSJi5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USWwoMRGVsZXRlTWVtb3J5EiQucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVzcG9uc2USVQoKTGlzdFNraWxscxIiLnBvZGl1bS5hZ2VudC52MS5MaXN0U2tpbGxzUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5MaXN0U2tpbGxzUmVzcG9uc2USVQoKQ3JlYXRlQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVzcG9uc2USUgoJTGlzdENoYXRzEiEucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdENoYXRzUmVzcG9uc2USZAoPU2VuZENoYXRNZXNzYWdlEicucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USTgoKU3RyZWFtQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5TdHJlYW1DaGF0UmVxdWVzdBoaLnBvZGl1bS5hZ2VudC52MS5DaGF0RnJhbWUwAULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiLAoQUHJvdmlkZXJLZXlFcnJvchIYChBwcm92aWRlcl9tZXNzYWdlGAEgASgJIisKF0NsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0EhAKCHByb3ZpZGVyGAEgASgJIhoKGENsZWFyUHJvdmlkZXJLZXlSZXNwb25zZSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlIkgKBVNraWxsEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgiEwoRTGlzdFNraWxsc1JlcXVlc3QiWgoSTGlzdFNraWxsc1Jlc3BvbnNlEiYKBnNraWxscxgBIAMoCzIWLnBvZGl1bS5hZ2VudC52MS5Ta2lsbBIcChRwcm9maWxlX2Rpc3BsYXlfbmFtZRgCIAEoCSKtAQoEQ2hhdBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIuCgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzCg9sYXN0X21lc3NhZ2VfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3ByZXZpZXcYBSABKAkSFAoMdHVybl9ydW5uaW5nGAYgASgIIl0KDkNoYXRBdHRhY2htZW50EhMKC2FydGlmYWN0X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMY29udGVudF90eXBlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMipQEKC0NoYXRNZXNzYWdlEg8KB2NoYXRfaWQYASABKAkSCwoDc2VxGAIgASgEEgwKBHJvbGUYAyABKAkSDAoEdGV4dBgEIAEoCRI0CgthdHRhY2htZW50cxgFIAMoCzIfLnBvZGl1bS5hZ2VudC52MS5DaGF0QXR0YWNobWVudBImCgJ0cxgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiLAoKQ2hhdFN0YXR1cxINCgVzdGF0ZRgBIAEoCRIPCgd0YXNrX2lkGAIgASgJIpoBCglDaGF0RnJhbWUSLwoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZUgAEhIKCHByb2dyZXNzGAIgASgJSAASLQoGc3RhdHVzGAMgASgLMhsucG9kaXVtLmFnZW50LnYxLkNoYXRTdGF0dXNIABIQCgZyZXN5bmMYBCABKAhIAEIHCgVmcmFtZSIiChFDcmVhdGVDaGF0UmVxdWVzdBINCgV0aXRsZRgBIAEoCSI5ChJDcmVhdGVDaGF0UmVzcG9uc2USIwoEY2hhdBgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0IjcKEExpc3RDaGF0c1JlcXVlc3QSIwoEcGFnZRgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5QYWdlIk4KEUxpc3RDaGF0c1Jlc3BvbnNlEiQKBWNoYXRzGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLkNoYXQSEwoLbmV4dF9jdXJzb3IYAiABKAkiRgoWU2VuZENoYXRNZXNzYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc2tpbGwYAyABKAkiSAoXU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USLQoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZSI2ChFTdHJlYW1DaGF0UmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEIs0CCgxBZ2VudFByb2ZpbGUSDAoEbmFtZRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNZGVmYXVsdF9za2lsbBgEIAEoCRIaChJjaGF0X2RlZmF1bHRfc2tpbGwYBSABKAkSEwoLcHJvZmlsZV9kaXIYBiABKAkSGQoRZmlsZV9kaXNwbGF5X25hbWUYByABKAkSEgoKZmlsZV9tb2RlbBgIIAEoCRIaChJmaWxlX2RlZmF1bHRfc2tpbGwYCSABKAkSHwoXZmlsZV9jaGF0X2RlZmF1bHRfc2tpbGwYCiABKAkSEgoKb3ZlcnJpZGRlbhgLIAMoCRISCgp1cGRhdGVkX2J5GAwgASgJEi4KCnVwZGF0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIj4KDlNraWxsUmVzb3VyY2VzEgsKA2NwdRgBIAEoARIRCgltZW1vcnlfbWIYAiABKAUSDAoEcGlkcxgDIAEoBSI7Cg5Ta2lsbFNlY3JldFJlZhIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkiPgoJU2tpbGxSZXBvEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJEhYKDmRlZmF1bHRfYnJhbmNoGAMgASgJIrQECg9Ta2lsbERlZmluaXRpb24SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIVCg1zeXN0ZW1fcHJvbXB0GAMgASgJEhUKDWFsbG93ZWRfdG9vbHMYBCADKAkSEQoJbWF4X3R1cm5zGAUgASgFEg8KB3RpbWVvdXQYBiABKAkSDQoFbW9kZWwYByABKAkSDgoGbGFiZWxzGAggAygJEjIKCXJlc291cmNlcxgJIAEoCzIfLnBvZGl1bS5hZ2VudC52MS5Ta2lsbFJlc291cmNlcxIwCgdzZWNyZXRzGAogAygLMh8ucG9kaXVtLmFnZW50LnYxLlNraWxsU2VjcmV0UmVmEikKBXJlcG9zGAsgAygLMhoucG9kaXVtLmFnZW50LnYxLlNraWxsUmVwbxIWCg5zbGFja19jaGFubmVscxgMIAMoCRIOCgZsaW5lYXIYDSABKAgSNgoDZW52GA4gAygLMikucG9kaXVtLmFnZW50LnYxLlNraWxsRGVmaW5pdGlvbi5FbnZFbnRyeRIOCgZvcmlnaW4YDyABKAkSEAoIZWRpdGFibGUYECABKAgSEAoIc2hhZG93ZWQYESABKAgSEgoKdXBkYXRlZF9ieRgSIAEoCRIuCgp1cGRhdGVkX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIhMKEUdldFByb2ZpbGVSZXF1ZXN0IowBChJHZXRQcm9maWxlUmVzcG9uc2USLgoHcHJvZmlsZRgBIAEoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudFByb2ZpbGUSMAoGc2tpbGxzGAIgAygLMiAucG9kaXVtLmFnZW50LnYxLlNraWxsRGVmaW5pdGlvbhIUCgxzdGFsZV9yZWFzb24YAyABKAkibgoUVXBkYXRlUHJvZmlsZVJlcXVlc3QSFAoMZGlzcGxheV9uYW1lGAEgASgJEg0KBW1vZGVsGAIgASgJEhUKDWRlZmF1bHRfc2tpbGwYAyABKAkSGgoSY2hhdF9kZWZhdWx0X3NraWxsGAQgASgJIkcKFVVwZGF0ZVByb2ZpbGVSZXNwb25zZRIuCgdwcm9maWxlGAEgASgLMh0ucG9kaXVtLmFnZW50LnYxLkFnZW50UHJvZmlsZSJFChJDcmVhdGVTa2lsbFJlcXVlc3QSLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkYKE0NyZWF0ZVNraWxsUmVzcG9uc2USLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkUKElVwZGF0ZVNraWxsUmVxdWVzdBIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iRgoTVXBkYXRlU2tpbGxSZXNwb25zZRIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iIgoSRGVsZXRlU2tpbGxSZXF1ZXN0EgwKBG5hbWUYASABKAkiFQoTRGVsZXRlU2tpbGxSZXNwb25zZTLWDQoMQWdlbnRTZXJ2aWNlElsKDExpc3RTZXNzaW9ucxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlElUKCkdldFNlc3Npb24SIi5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlc3BvbnNlElIKCUxpc3RUdXJucxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1Jlc3BvbnNlElgKC0dldFNldHRpbmdzEiMucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1Jlc3BvbnNlEmEKDlNldFByb3ZpZGVyS2V5EiYucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlc3BvbnNlEmcKEENsZWFyUHJvdmlkZXJLZXkSKC5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlElsKDExpc3RNZW1vcmllcxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1Jlc3BvbnNlEmEKDlNlYXJjaE1lbW9yaWVzEiYucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1Jlc3BvbnNlElsKDERlbGV0ZU1lbW9yeRIkLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlc3BvbnNlElUKCkxpc3RTa2lsbHMSIi5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1JlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1Jlc3BvbnNlElUKCkdldFByb2ZpbGUSIi5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlc3BvbnNlEl4KDVVwZGF0ZVByb2ZpbGUSJS5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlc3BvbnNlElgKC0NyZWF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkNyZWF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVTa2lsbFJlc3BvbnNlElgKC1VwZGF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLlVwZGF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVTa2lsbFJlc3BvbnNlElgKC0RlbGV0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5EZWxldGVTa2lsbFJlc3BvbnNlElUKCkNyZWF0ZUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlc3BvbnNlElIKCUxpc3RDaGF0cxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0Q2hhdHNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1Jlc3BvbnNlEmQKD1NlbmRDaGF0TWVzc2FnZRInLnBvZGl1bS5hZ2VudC52MS5TZW5kQ2hhdE1lc3NhZ2VSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlc3BvbnNlEk4KClN0cmVhbUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuU3RyZWFtQ2hhdFJlcXVlc3QaGi5wb2RpdW0uYWdlbnQudjEuQ2hhdEZyYW1lMAFCyAEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCkFnZW50UHJvdG9QAVpHZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -1124,6 +1124,522 @@ export const StreamChatRequestSchema: GenMessage<StreamChatRequest> = /*@__PURE_
   messageDesc(file_podium_agent_v1_agent, 38);
 
 /**
+ * AgentProfile is the bot's identity as the management screen sees it: what is in force
+ * now, and what profile.yaml said, so the UI can show which fields a browser has overridden
+ * and offer the file's value back.
+ *
+ * @generated from message podium.agent.v1.AgentProfile
+ */
+export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
+  /**
+   * name is profile.yaml's and is never overridable: it labels every session row already
+   * written.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string model = 3;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string default_skill = 4;
+   */
+  defaultSkill: string;
+
+  /**
+   * chat_default_skill is the skill a web chat starts with. Empty means default_skill.
+   *
+   * @generated from field: string chat_default_skill = 5;
+   */
+  chatDefaultSkill: string;
+
+  /**
+   * profile_dir is where the file half was read from, so an operator editing YAML knows
+   * which directory this process actually loaded.
+   *
+   * @generated from field: string profile_dir = 6;
+   */
+  profileDir: string;
+
+  /**
+   * The file_* fields are profile.yaml verbatim, whatever is overriding them.
+   *
+   * @generated from field: string file_display_name = 7;
+   */
+  fileDisplayName: string;
+
+  /**
+   * @generated from field: string file_model = 8;
+   */
+  fileModel: string;
+
+  /**
+   * @generated from field: string file_default_skill = 9;
+   */
+  fileDefaultSkill: string;
+
+  /**
+   * @generated from field: string file_chat_default_skill = 10;
+   */
+  fileChatDefaultSkill: string;
+
+  /**
+   * overridden names the fields a stored override is currently supplying, by their
+   * profile.yaml key: display_name, model, default_skill, chat_default_skill.
+   *
+   * @generated from field: repeated string overridden = 11;
+   */
+  overridden: string[];
+
+  /**
+   * updated_by and updated_at describe the stored override, not the file.
+   *
+   * @generated from field: string updated_by = 12;
+   */
+  updatedBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 13;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.AgentProfile.
+ * Use `create(AgentProfileSchema)` to create a new message.
+ */
+export const AgentProfileSchema: GenMessage<AgentProfile> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 39);
+
+/**
+ * SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
+ *
+ * @generated from message podium.agent.v1.SkillResources
+ */
+export type SkillResources = Message<"podium.agent.v1.SkillResources"> & {
+  /**
+   * @generated from field: double cpu = 1;
+   */
+  cpu: number;
+
+  /**
+   * @generated from field: int32 memory_mb = 2;
+   */
+  memoryMb: number;
+
+  /**
+   * @generated from field: int32 pids = 3;
+   */
+  pids: number;
+};
+
+/**
+ * Describes the message podium.agent.v1.SkillResources.
+ * Use `create(SkillResourcesSchema)` to create a new message.
+ */
+export const SkillResourcesSchema: GenMessage<SkillResources> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 40);
+
+/**
+ * SkillSecretRef names a stored secret and says where the turn wants it. It carries the
+ * NAME of a value and never a value: a secret's value cannot be read back out of Podium at
+ * all, and nothing in this API is an exception.
+ *
+ * @generated from message podium.agent.v1.SkillSecretRef
+ */
+export type SkillSecretRef = Message<"podium.agent.v1.SkillSecretRef"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * target is "env" or "file". Empty defaults to "env".
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * key is the environment variable name, or the absolute path for a file target.
+   *
+   * @generated from field: string key = 3;
+   */
+  key: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.SkillSecretRef.
+ * Use `create(SkillSecretRefSchema)` to create a new message.
+ */
+export const SkillSecretRefSchema: GenMessage<SkillSecretRef> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 41);
+
+/**
+ * SkillRepo is a repository a turn of this skill gets cloned into /workspace.
+ *
+ * @generated from message podium.agent.v1.SkillRepo
+ */
+export type SkillRepo = Message<"podium.agent.v1.SkillRepo"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string default_branch = 3;
+   */
+  defaultBranch: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.SkillRepo.
+ * Use `create(SkillRepoSchema)` to create a new message.
+ */
+export const SkillRepoSchema: GenMessage<SkillRepo> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 42);
+
+/**
+ * SkillDefinition is one skill in full: everything skills/<name>.yaml holds, plus where
+ * this copy came from and whether a browser may change it.
+ *
+ * @generated from message podium.agent.v1.SkillDefinition
+ */
+export type SkillDefinition = Message<"podium.agent.v1.SkillDefinition"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * image is the runtime image a turn of this skill runs. It is free text the operator
+   * supplies; it has to implement the turn-brief protocol, and FROM podium-agent-runtime
+   * is the easy way to get one that does.
+   *
+   * @generated from field: string image = 2;
+   */
+  image: string;
+
+  /**
+   * @generated from field: string system_prompt = 3;
+   */
+  systemPrompt: string;
+
+  /**
+   * @generated from field: repeated string allowed_tools = 4;
+   */
+  allowedTools: string[];
+
+  /**
+   * @generated from field: int32 max_turns = 5;
+   */
+  maxTurns: number;
+
+  /**
+   * timeout is a duration string ("30m"). Empty means the default.
+   *
+   * @generated from field: string timeout = 6;
+   */
+  timeout: string;
+
+  /**
+   * model is empty for "whatever the profile says".
+   *
+   * @generated from field: string model = 7;
+   */
+  model: string;
+
+  /**
+   * @generated from field: repeated string labels = 8;
+   */
+  labels: string[];
+
+  /**
+   * @generated from field: podium.agent.v1.SkillResources resources = 9;
+   */
+  resources?: SkillResources | undefined;
+
+  /**
+   * @generated from field: repeated podium.agent.v1.SkillSecretRef secrets = 10;
+   */
+  secrets: SkillSecretRef[];
+
+  /**
+   * @generated from field: repeated podium.agent.v1.SkillRepo repos = 11;
+   */
+  repos: SkillRepo[];
+
+  /**
+   * @generated from field: repeated string slack_channels = 12;
+   */
+  slackChannels: string[];
+
+  /**
+   * @generated from field: bool linear = 13;
+   */
+  linear: boolean;
+
+  /**
+   * @generated from field: map<string, string> env = 14;
+   */
+  env: { [key: string]: string };
+
+  /**
+   * origin is "file" for a skills/<name>.yaml on the conductor's host and "stored" for one
+   * created through this API.
+   *
+   * @generated from field: string origin = 15;
+   */
+  origin: string;
+
+  /**
+   * editable is false for a file skill: the files are authoritative for the names they
+   * hold and the write RPCs refuse one.
+   *
+   * @generated from field: bool editable = 16;
+   */
+  editable: boolean;
+
+  /**
+   * shadowed is true for a stored skill whose name a file skill also defines. The file
+   * wins, so a shadowed skill never runs; it is reported so it can be deleted.
+   *
+   * @generated from field: bool shadowed = 17;
+   */
+  shadowed: boolean;
+
+  /**
+   * updated_by and updated_at are set for a stored skill only.
+   *
+   * @generated from field: string updated_by = 18;
+   */
+  updatedBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 19;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.SkillDefinition.
+ * Use `create(SkillDefinitionSchema)` to create a new message.
+ */
+export const SkillDefinitionSchema: GenMessage<SkillDefinition> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 43);
+
+/**
+ * @generated from message podium.agent.v1.GetProfileRequest
+ */
+export type GetProfileRequest = Message<"podium.agent.v1.GetProfileRequest"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.GetProfileRequest.
+ * Use `create(GetProfileRequestSchema)` to create a new message.
+ */
+export const GetProfileRequestSchema: GenMessage<GetProfileRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 44);
+
+/**
+ * @generated from message podium.agent.v1.GetProfileResponse
+ */
+export type GetProfileResponse = Message<"podium.agent.v1.GetProfileResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.AgentProfile profile = 1;
+   */
+  profile?: AgentProfile | undefined;
+
+  /**
+   * skills is every skill that runs, sorted by name, followed by any shadowed stored
+   * skill. Two entries can share a name when one is shadowed; they differ in origin.
+   *
+   * @generated from field: repeated podium.agent.v1.SkillDefinition skills = 2;
+   */
+  skills: SkillDefinition[];
+
+  /**
+   * stale_reason is set when what the database holds could not be merged into a valid
+   * profile, so the conductor is still running the last one that could. Empty normally.
+   *
+   * @generated from field: string stale_reason = 3;
+   */
+  staleReason: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.GetProfileResponse.
+ * Use `create(GetProfileResponseSchema)` to create a new message.
+ */
+export const GetProfileResponseSchema: GenMessage<GetProfileResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 45);
+
+/**
+ * @generated from message podium.agent.v1.UpdateProfileRequest
+ */
+export type UpdateProfileRequest = Message<"podium.agent.v1.UpdateProfileRequest"> & {
+  /**
+   * Every field is an override of profile.yaml. An empty one clears the override, which
+   * returns that field to the file's value.
+   *
+   * @generated from field: string display_name = 1;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string model = 2;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string default_skill = 3;
+   */
+  defaultSkill: string;
+
+  /**
+   * @generated from field: string chat_default_skill = 4;
+   */
+  chatDefaultSkill: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.UpdateProfileRequest.
+ * Use `create(UpdateProfileRequestSchema)` to create a new message.
+ */
+export const UpdateProfileRequestSchema: GenMessage<UpdateProfileRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 46);
+
+/**
+ * @generated from message podium.agent.v1.UpdateProfileResponse
+ */
+export type UpdateProfileResponse = Message<"podium.agent.v1.UpdateProfileResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.AgentProfile profile = 1;
+   */
+  profile?: AgentProfile | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.UpdateProfileResponse.
+ * Use `create(UpdateProfileResponseSchema)` to create a new message.
+ */
+export const UpdateProfileResponseSchema: GenMessage<UpdateProfileResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 47);
+
+/**
+ * @generated from message podium.agent.v1.CreateSkillRequest
+ */
+export type CreateSkillRequest = Message<"podium.agent.v1.CreateSkillRequest"> & {
+  /**
+   * @generated from field: podium.agent.v1.SkillDefinition skill = 1;
+   */
+  skill?: SkillDefinition | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.CreateSkillRequest.
+ * Use `create(CreateSkillRequestSchema)` to create a new message.
+ */
+export const CreateSkillRequestSchema: GenMessage<CreateSkillRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 48);
+
+/**
+ * @generated from message podium.agent.v1.CreateSkillResponse
+ */
+export type CreateSkillResponse = Message<"podium.agent.v1.CreateSkillResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.SkillDefinition skill = 1;
+   */
+  skill?: SkillDefinition | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.CreateSkillResponse.
+ * Use `create(CreateSkillResponseSchema)` to create a new message.
+ */
+export const CreateSkillResponseSchema: GenMessage<CreateSkillResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 49);
+
+/**
+ * @generated from message podium.agent.v1.UpdateSkillRequest
+ */
+export type UpdateSkillRequest = Message<"podium.agent.v1.UpdateSkillRequest"> & {
+  /**
+   * skill.name names the skill to replace.
+   *
+   * @generated from field: podium.agent.v1.SkillDefinition skill = 1;
+   */
+  skill?: SkillDefinition | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.UpdateSkillRequest.
+ * Use `create(UpdateSkillRequestSchema)` to create a new message.
+ */
+export const UpdateSkillRequestSchema: GenMessage<UpdateSkillRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 50);
+
+/**
+ * @generated from message podium.agent.v1.UpdateSkillResponse
+ */
+export type UpdateSkillResponse = Message<"podium.agent.v1.UpdateSkillResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.SkillDefinition skill = 1;
+   */
+  skill?: SkillDefinition | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.UpdateSkillResponse.
+ * Use `create(UpdateSkillResponseSchema)` to create a new message.
+ */
+export const UpdateSkillResponseSchema: GenMessage<UpdateSkillResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 51);
+
+/**
+ * @generated from message podium.agent.v1.DeleteSkillRequest
+ */
+export type DeleteSkillRequest = Message<"podium.agent.v1.DeleteSkillRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteSkillRequest.
+ * Use `create(DeleteSkillRequestSchema)` to create a new message.
+ */
+export const DeleteSkillRequestSchema: GenMessage<DeleteSkillRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 52);
+
+/**
+ * @generated from message podium.agent.v1.DeleteSkillResponse
+ */
+export type DeleteSkillResponse = Message<"podium.agent.v1.DeleteSkillResponse"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteSkillResponse.
+ * Use `create(DeleteSkillResponseSchema)` to create a new message.
+ */
+export const DeleteSkillResponseSchema: GenMessage<DeleteSkillResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 53);
+
+/**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
  * bearer token and reached from a browser only through podium-server, which proxies
  * /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
@@ -1233,6 +1749,61 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof ListSkillsRequestSchema;
     output: typeof ListSkillsResponseSchema;
+  },
+  /**
+   * GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
+   * merged with what the conductor's database holds — and every skill in full, so a
+   * browser can manage them.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.GetProfile
+   */
+  getProfile: {
+    methodKind: "unary";
+    input: typeof GetProfileRequestSchema;
+    output: typeof GetProfileResponseSchema;
+  },
+  /**
+   * UpdateProfile overrides profile.yaml's display name, model and default skills. An
+   * empty field clears the override and returns that field to the file's value.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.UpdateProfile
+   */
+  updateProfile: {
+    methodKind: "unary";
+    input: typeof UpdateProfileRequestSchema;
+    output: typeof UpdateProfileResponseSchema;
+  },
+  /**
+   * CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+   * already defines is refused: the files are authoritative for the names they hold.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.CreateSkill
+   */
+  createSkill: {
+    methodKind: "unary";
+    input: typeof CreateSkillRequestSchema;
+    output: typeof CreateSkillResponseSchema;
+  },
+  /**
+   * UpdateSkill replaces a stored skill. A file-defined skill is refused.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.UpdateSkill
+   */
+  updateSkill: {
+    methodKind: "unary";
+    input: typeof UpdateSkillRequestSchema;
+    output: typeof UpdateSkillResponseSchema;
+  },
+  /**
+   * DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
+   * stored skill that is not there is not an error.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.DeleteSkill
+   */
+  deleteSkill: {
+    methodKind: "unary";
+    input: typeof DeleteSkillRequestSchema;
+    output: typeof DeleteSkillResponseSchema;
   },
   /**
    * CreateChat opens a new web-chat conversation owned by the calling login.

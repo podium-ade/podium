@@ -108,10 +108,22 @@ delete secrets and delete nodes.
 - **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
   credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
   it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
-  allowlist of users and no roles. The **skill file is the only boundary**: a turn gets exactly
-  the secrets its own `skills/<name>.yaml` names, plus the reserved
-  `podium.agent.anthropic_api_key` the conductor attaches itself. Keep `secrets:` minimal per
-  skill and do not put a credential in a skill a public channel can reach.
+  allowlist of users and no roles. A turn gets exactly the secrets its own skill names, plus the
+  reserved `podium.agent.anthropic_api_key` and `podium.agent.memory_api_key` the conductor
+  attaches itself. Keep `secrets:` minimal per skill and do not put a credential in a skill a
+  public channel can reach.
+- **A skill is not a boundary around secrets, and never was.** It decides what *this bot* hands
+  a turn, and that is worth keeping tight — but it stops nobody. `CreateTask` checks only that a
+  named secret **exists**; there is no authorisation over which secrets a caller may name. So
+  anyone who can reach the control plane can already submit a task that mounts any registered
+  secret into an image and a command of their choosing, and print the value. That is section 4
+  again: **no RBAC**. It is why a skill defined in the web UI may name any registered secret,
+  exactly as a task spec may — restricting one path while the other is wide open would be
+  theatre, not a control. The only names a skill may not use are the two reserved ones above,
+  and that is a routing rule, not a privilege: the conductor supplies both itself.
+  **The control is who can reach the API at all.** Put the control plane on a tailnet, keep the
+  set of people who can reach it small, and treat every registered secret as readable by every
+  one of them.
 - **The `coder` skill has write access to your repositories, and a prompt injection can steer
   it.** It is the one skill that names `podium.agent.github_token`, so it is the one skill whose
   turns can push a branch and open a pull request. Everything a turn reads is untrusted: a
@@ -514,8 +526,11 @@ Everything below is a real hole, not a hypothetical:
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
 - **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
-  conductor has no allowlist and no roles; a skill's `secrets:` list is the only boundary. See
-  *5. The conductor and the bot*.
+  conductor has no allowlist and no roles. See *5. The conductor and the bot*.
+- **Anyone who can reach the control plane can run code with any registered secret**, through a
+  task spec or through a skill: `CreateTask` checks that a named secret exists and never that
+  the caller may have it. A skill's `secrets:` list scopes what one bot hands one turn; it is
+  not a boundary around the secret store.
 - **The `coder` skill can push branches and open pull requests, and a prompt injection in a
   ticket, a comment or a cloned repository's own files can steer it.** Draft PRs, branch
   protection and a fine-grained token reduce this; nothing here removes it.

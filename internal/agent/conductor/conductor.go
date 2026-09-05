@@ -43,12 +43,15 @@ const turnSummaryArtifact = "turn.json"
 // Options is what a Conductor needs. Everything is required except Memory, MemoryClient
 // and Metrics.
 type Options struct {
-	Store   *store.Store
-	Podium  *podium.Client
-	Profile *profiles.Profile
-	Sources []Source
-	Metrics *Metrics
-	Logger  *slog.Logger
+	Store  *store.Store
+	Podium *podium.Client
+	// Profiles is the profile in force. It is a live holder rather than a profile because
+	// a skill created in the web UI has to reach the next turn without a restart: every
+	// read below takes one snapshot and works from it.
+	Profiles *profiles.Live
+	Sources  []Source
+	Metrics  *Metrics
+	Logger   *slog.Logger
 	// Memory is copied into every brief, and its presence is what makes the conductor add
 	// the memory secret to every task spec. Nil means this host has no shared memory:
 	// briefs carry no memory block and nothing is retained.
@@ -61,13 +64,13 @@ type Options struct {
 
 // Conductor owns the turn loop. One instance drains every source.
 type Conductor struct {
-	store   *store.Store
-	podium  *podium.Client
-	profile *profiles.Profile
-	sources []Source
-	metrics *Metrics
-	logger  *slog.Logger
-	memory  *BriefMemory
+	store    *store.Store
+	podium   *podium.Client
+	profiles *profiles.Live
+	sources  []Source
+	metrics  *Metrics
+	logger   *slog.Logger
+	memory   *BriefMemory
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
 
@@ -94,7 +97,7 @@ func New(opts Options) (*Conductor, error) {
 		return nil, errors.New("conductor: a store is required")
 	case opts.Podium == nil:
 		return nil, errors.New("conductor: a Podium API client is required")
-	case opts.Profile == nil:
+	case opts.Profiles == nil || opts.Profiles.Current() == nil:
 		return nil, errors.New("conductor: a profile is required")
 	}
 	logger := opts.Logger
@@ -108,7 +111,7 @@ func New(opts Options) (*Conductor, error) {
 	return &Conductor{
 		store:    opts.Store,
 		podium:   opts.Podium,
-		profile:  opts.Profile,
+		profiles: opts.Profiles,
 		sources:  opts.Sources,
 		metrics:  metrics,
 		logger:   logger,
@@ -157,7 +160,11 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // or create the session, and either start a turn or remember the message for the turn that
 // is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
-	sel := c.profile.Select(profiles.Routing{
+	// One snapshot for the whole of this event. A profile swapped in half way through must
+	// not route the message against one set of skills and then start the turn against
+	// another.
+	profile := c.profiles.Current()
+	sel := profile.Select(profiles.Routing{
 		Skill:        ev.Skill,
 		DefaultSkill: ev.DefaultSkill,
 		Channel:      ev.Channel,
@@ -172,7 +179,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	sess, err := c.store.UpsertSession(ctx, store.Session{
 		SourceKind: src.Kind(),
 		SourceKey:  ev.SourceKey,
-		Profile:    c.profile.Name,
+		Profile:    profile.Name,
 		Skill:      sel.Skill.Name,
 	})
 	if err != nil {
@@ -188,7 +195,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 				"Start a new thread to use `%s`.", sess.Skill, sel.Skill.Name)})
 		return
 	}
-	skill, ok := c.profile.Skills[sess.Skill]
+	skill, ok := profile.Skills[sess.Skill]
 	if !ok {
 		c.logger.ErrorContext(ctx, "the session's skill is no longer loaded",
 			"session_id", sess.ID, "skill", sess.Skill)
@@ -324,16 +331,17 @@ func (c *Conductor) brief(
 	if kind == "" {
 		kind = ev.SourceKind
 	}
+	profile := c.profiles.Current()
 	b := &Brief{
 		Version:   BriefVersion,
 		SessionID: sess.ID,
 		TurnID:    turnID,
 		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL},
 		Profile: BriefProfile{
-			Name:         c.profile.Name,
-			DisplayName:  c.profile.DisplayName,
-			SystemPrompt: c.profile.SystemPrompt,
-			Model:        c.profile.ModelFor(skill),
+			Name:         profile.Name,
+			DisplayName:  profile.DisplayName,
+			SystemPrompt: profile.SystemPrompt,
+			Model:        profile.ModelFor(skill),
 		},
 		Skill: BriefSkill{
 			Name:         skill.Name,
@@ -467,7 +475,7 @@ func (c *Conductor) recover(ctx context.Context) {
 			continue
 		}
 		src := c.sourceOf(sess.SourceKind)
-		skill := c.profile.Skills[sess.Skill]
+		skill := c.profiles.Current().Skills[sess.Skill]
 
 		if turn.TaskID == "" {
 			c.logger.WarnContext(ctx, "a turn was recorded but its task never was; failing it",

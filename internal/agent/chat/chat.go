@@ -63,7 +63,11 @@ type Options struct {
 	// profile here because a source knows nothing about profiles — and it matters: without
 	// it the chat would silently run default_skill, and chat_default_skill would be a UI
 	// hint rather than the profile decision it is meant to be.
-	DefaultSkill string
+	//
+	// It is a function rather than a string because the profile decision can change while
+	// this process runs: an operator setting the chat default in the web UI must reach the
+	// next message, not the next restart.
+	DefaultSkill func() string
 	Logger       *slog.Logger
 }
 
@@ -98,7 +102,7 @@ type Source struct {
 	bcast  *Broadcaster
 	name   string
 	uiURL  string
-	skill  string
+	skill  func() string
 	logger *slog.Logger
 	events chan conductor.InboundEvent
 
@@ -118,12 +122,16 @@ func New(opts Options) (*Source, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	skill := opts.DefaultSkill
+	if skill == nil {
+		skill = func() string { return "" }
+	}
 	return &Source{
 		store:  opts.Store,
 		bcast:  NewBroadcaster(),
 		name:   opts.DisplayName,
 		uiURL:  strings.TrimSuffix(opts.UIURL, "/"),
-		skill:  opts.DefaultSkill,
+		skill:  skill,
 		logger: logger,
 		events: make(chan conductor.InboundEvent, eventBuffer),
 		live:   map[string]*live{},
@@ -203,7 +211,7 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		TS:           msg.TS,
 		URL:          s.URL(req.ChatID),
 		Skill:        req.Skill,
-		DefaultSkill: s.skill,
+		DefaultSkill: s.skill(),
 		BriefKind:    conductor.SourceChat,
 	}
 	select {

@@ -1,7 +1,11 @@
-// Package profiles loads the bot's identity and its skills off disk. The directory
-// (PODIUM_AGENT_PROFILE_DIR) is the only place a skill's image, prompt, tool list and
-// secrets are declared: a skill only ever gets the secrets its own file names, and that
-// file is the only boundary there is.
+// Package profiles is the bot's identity and its skills: what a skill is, how one is
+// validated, and how the directory on disk (PODIUM_AGENT_PROFILE_DIR) merges with the
+// skills an operator created in the web UI.
+//
+// A skill declares which image a turn runs, which prompt it is given, which tools it may
+// use and which stored secrets it names. Naming a secret here is not a privilege: a task
+// spec names secrets the same way and nothing authorises which names a caller may use —
+// see docs/security.md. What a skill file does is decide what THIS bot hands a turn.
 package profiles
 
 import (
@@ -84,29 +88,45 @@ type Repo struct {
 }
 
 // Skill is one job the bot can do: which image, which prompt, which tools, which secrets.
+//
+// The json tags are the on-disk shape of a stored skill in the conductor's database. They
+// match the yaml keys deliberately: a skill read out of Postgres and a skill read out of
+// skills/<name>.yaml are the same document, so there is one schema to reason about.
 type Skill struct {
-	Image         string            `yaml:"image"`
-	SystemPrompt  string            `yaml:"system_prompt"`
-	AllowedTools  []string          `yaml:"allowed_tools"`
-	MaxTurns      int               `yaml:"max_turns"`
-	Timeout       spec.Duration     `yaml:"timeout"`
-	Model         string            `yaml:"model"`
-	Labels        []string          `yaml:"labels"`
-	Resources     spec.Resources    `yaml:"resources"`
-	Secrets       []spec.SecretRef  `yaml:"secrets"`
-	Repos         []Repo            `yaml:"repos"`
-	SlackChannels []string          `yaml:"slack_channels"`
-	Env           map[string]string `yaml:"env"`
+	Image         string            `yaml:"image" json:"image"`
+	SystemPrompt  string            `yaml:"system_prompt" json:"system_prompt"`
+	AllowedTools  []string          `yaml:"allowed_tools" json:"allowed_tools"`
+	MaxTurns      int               `yaml:"max_turns" json:"max_turns"`
+	Timeout       spec.Duration     `yaml:"timeout" json:"timeout"`
+	Model         string            `yaml:"model" json:"model,omitempty"`
+	Labels        []string          `yaml:"labels" json:"labels,omitempty"`
+	Resources     spec.Resources    `yaml:"resources" json:"resources,omitempty"`
+	Secrets       []spec.SecretRef  `yaml:"secrets" json:"secrets,omitempty"`
+	Repos         []Repo            `yaml:"repos" json:"repos,omitempty"`
+	SlackChannels []string          `yaml:"slack_channels" json:"slack_channels,omitempty"`
+	Env           map[string]string `yaml:"env" json:"env,omitempty"`
 	// Linear marks the one skill Linear tickets run. Tickets are not chat, so there is no
 	// /skill prefix to route them and no channel to match: the flag is the routing rule.
 	// At most one skill may set it; zero means this bot does not take tickets, which is
 	// only a misconfiguration when a Linear API key is also set — and the conductor says
 	// so at start-up, where the key is known.
-	Linear bool `yaml:"linear"`
+	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
 	// Name is the file name without the extension.
-	Name string `yaml:"-"`
+	Name string `yaml:"-" json:"-"`
+	// Origin is where this copy of the skill came from: OriginFile or OriginStored. It is
+	// set by the loader and the merge, never by a document.
+	Origin string `yaml:"-" json:"-"`
 }
+
+// Where a skill came from.
+const (
+	// OriginFile is a skills/<name>.yaml in the profile directory.
+	OriginFile = "file"
+	// OriginStored is a skill an operator created through the API, kept in the conductor's
+	// own database.
+	OriginStored = "stored"
+)
 
 // Load reads profile.yaml and every skills/*.yaml under dir. Every decode uses
 // KnownFields(true), as pkg/spec.ParseTaskSpec does: a misspelt key is an error naming the
@@ -196,6 +216,7 @@ func loadSkillFile(path string) (Skill, error) {
 		return Skill{}, fmt.Errorf("%s: %w", path, err)
 	}
 	s.Name = name
+	s.Origin = OriginFile
 	prompt, err := resolvePrompt(path, s.SystemPrompt)
 	if err != nil {
 		return Skill{}, err

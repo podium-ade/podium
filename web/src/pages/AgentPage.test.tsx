@@ -19,6 +19,12 @@ const listTurns = vi.fn();
 const listChats = vi.fn();
 const listSkills = vi.fn();
 const streamChat = vi.fn();
+const getProfile = vi.fn();
+const updateProfile = vi.fn();
+const createSkill = vi.fn();
+const updateSkill = vi.fn();
+const deleteSkill = vi.fn();
+const listSecrets = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -33,9 +39,55 @@ vi.mock("../lib/client", async () => {
       listChats: (...a: unknown[]) => listChats(...a),
       listSkills: (...a: unknown[]) => listSkills(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
+      getProfile: (...a: unknown[]) => getProfile(...a),
+      updateProfile: (...a: unknown[]) => updateProfile(...a),
+      createSkill: (...a: unknown[]) => createSkill(...a),
+      updateSkill: (...a: unknown[]) => updateSkill(...a),
+      deleteSkill: (...a: unknown[]) => deleteSkill(...a),
     },
+    secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
 });
+
+/** The profile the tab tests read: one file skill, one stored, nothing overridden. */
+const profileResponse = {
+  profile: {
+    name: "podium",
+    displayName: "Podium",
+    model: "claude-opus-5",
+    defaultSkill: "general",
+    chatDefaultSkill: "",
+    profileDir: "/etc/podium/agent",
+    fileDisplayName: "Podium",
+    fileModel: "claude-opus-5",
+    fileDefaultSkill: "general",
+    fileChatDefaultSkill: "",
+    overridden: [] as string[],
+    updatedBy: "",
+  },
+  skills: [
+    {
+      name: "general",
+      image: "podium-agent-runtime:dev",
+      systemPrompt: "Answer the question in the thread.",
+      allowedTools: ["Read"],
+      maxTurns: 50,
+      timeout: "30m",
+      model: "",
+      labels: [],
+      secrets: [],
+      repos: [],
+      slackChannels: [],
+      linear: false,
+      env: {},
+      origin: "file",
+      editable: false,
+      shadowed: false,
+      updatedBy: "",
+    },
+  ],
+  staleReason: "",
+};
 
 const viewer: Viewer = {
   login: "dev",
@@ -83,6 +135,11 @@ describe("AgentPage", () => {
     listChats.mockReset();
     listSkills.mockReset();
     streamChat.mockReset();
+    getProfile.mockReset();
+    updateProfile.mockReset();
+    listSecrets.mockReset();
+    getProfile.mockResolvedValue(profileResponse);
+    listSecrets.mockResolvedValue({ secrets: [] });
     getSettings.mockResolvedValue(notSet);
     listSessions.mockResolvedValue({ sessions: [], nextCursor: "" });
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
@@ -114,10 +171,12 @@ describe("AgentPage", () => {
       "aria-current",
       "page",
     );
-    // The four tabs this build ships. This assertion exists so a tab cannot appear
-    // without a test noticing: add the line to the tabs array and this list together.
+    // The tabs this build ships. This assertion exists so a tab cannot appear without a
+    // test noticing: add the line to the tabs array and this list together.
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
       "Settings",
+      "Profile",
+      "Skills",
       "Sessions",
       "Memory",
       "Chat",
@@ -128,6 +187,18 @@ describe("AgentPage", () => {
 
     await userEvent.click(screen.getByRole("link", { name: "Settings" }));
     expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+  });
+
+  it("shows the profile and the skills on their own routes", async () => {
+    mount("/agent/profile");
+    expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
+    expect(screen.getByLabelText("Display name")).toHaveValue("");
+
+    await userEvent.click(screen.getByRole("link", { name: "Skills" }));
+    // The image is the headline of a skill row: it is the unit of capability.
+    expect(await screen.findByTestId("skill-image")).toHaveTextContent(
+      "podium-agent-runtime:dev",
+    );
   });
 
   it("keeps the Chat tab active on a deep link to one chat", async () => {
