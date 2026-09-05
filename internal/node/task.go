@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -190,7 +191,8 @@ func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event)
 	buf.flushState()
 
 	high := buf.high()
-	n.logger.Info("task run finished", "task_id", buf.taskID, "events", high, "error", runErr)
+	n.logger.Info("task run finished", "task_id", buf.taskID, "events", high,
+		"error", runErrorLine(runErr))
 
 	// Hold the slot until the server has committed every event. An ingest that failed is
 	// never acked, so this is also what keeps the replay buffer alive across a reconnect.
@@ -236,6 +238,20 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush, cl
 	}
 	closeRun()
 	n.push(buf, toWire(ev))
+}
+
+// runErrorLine is a finished run's error as ONE log line. A sidecar that never became ready
+// carries up to a hundred lines of the sidecar's own log inside its error, and a hundred
+// embedded newlines in a structured log record is not a log record. The whole text still
+// reaches the control plane as the task's error event, which is where an operator reads it.
+func runErrorLine(err error) any {
+	if err == nil {
+		return nil
+	}
+	if head, _, more := strings.Cut(err.Error(), "\n"); more {
+		return head + " (full text in the task's error event)"
+	}
+	return err.Error()
 }
 
 // push buffers one event and reports a replay-buffer overflow exactly once per task. The
