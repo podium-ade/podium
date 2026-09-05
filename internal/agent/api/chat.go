@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/alvaroibarguen/podium/internal/agent/chat"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
@@ -115,11 +117,20 @@ func (s *AgentService) SendChatMessage(
 			"send chat message: %d bytes is more than the %d-byte limit for one message",
 			len(req.Msg.GetText()), maxChatMessageBytes))
 	}
+	override := profiles.Override{
+		Agent:  strings.TrimSpace(req.Msg.GetAgent()),
+		Model:  strings.TrimSpace(req.Msg.GetModel()),
+		Effort: strings.TrimSpace(req.Msg.GetEffort()),
+	}
+	if err := s.checkOverride(req.Msg.GetSkill(), override); err != nil {
+		return nil, err
+	}
 	msg, err := s.chat.Send(ctx, chat.SendRequest{
-		ChatID: req.Msg.GetChatId(),
-		Login:  login,
-		Text:   req.Msg.GetText(),
-		Skill:  req.Msg.GetSkill(),
+		ChatID:   req.Msg.GetChatId(),
+		Login:    login,
+		Text:     req.Msg.GetText(),
+		Skill:    req.Msg.GetSkill(),
+		Override: override,
 	})
 	switch {
 	case errors.Is(err, chat.ErrTurnRunning):
@@ -130,6 +141,35 @@ func (s *AgentService) SendChatMessage(
 		return nil, storeError(err)
 	}
 	return connect.NewResponse(&agentv1.SendChatMessageResponse{Message: chatMessageToProto(msg)}), nil
+}
+
+// checkOverride refuses a per-turn choice the catalogue does not allow, before the message
+// is stored.
+//
+// It resolves first and validates the RESULT, because the parts are not independent: a
+// caller that names only an effort is asking about the model it will inherit, and a caller
+// that names only a model has also chosen that model's backend. Validating the fields
+// separately would accept combinations that cannot run.
+//
+// A skill this conductor does not have is not this function's problem — the routing rules
+// deal with an unknown name — so an unresolvable skill validates the override against the
+// profile alone rather than refusing.
+func (s *AgentService) checkOverride(skillName string, o profiles.Override) error {
+	if o.Empty() {
+		return nil
+	}
+	if s.profiles == nil {
+		return nil
+	}
+	p := s.profiles.Current()
+	if p == nil {
+		return nil
+	}
+	skill := p.Skills[skillName]
+	if err := profiles.ValidateOverride(p.Resolve(skill, o)); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
 }
 
 // StreamChat replays a chat and then follows it live.

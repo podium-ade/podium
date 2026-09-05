@@ -40,6 +40,13 @@ export type SkillEditorProps = {
   secretsUnknown?: boolean;
   saving?: boolean;
   deleting?: boolean;
+  /**
+   * readOnly renders a file skill: every control disabled, nothing to save and nothing to
+   * delete. The files are authoritative for the names they hold, so this screen shows one
+   * and never writes it — but showing it is the point, because a definition you cannot read
+   * is harder to work with than one you merely cannot change.
+   */
+  readOnly?: boolean;
   /** The server's refusal, shown verbatim: its rules are the only rules. */
   error?: string;
   onSubmit: (draft: SkillDraft) => void;
@@ -80,6 +87,7 @@ export function SkillEditor({
   onSubmit,
   onDelete,
   onCancel,
+  readOnly,
 }: SkillEditorProps) {
   const creating = skill === undefined;
   // A shadowed row is a stored skill a skills/<name>.yaml has since claimed. The conductor
@@ -165,11 +173,27 @@ export function SkillEditor({
     >
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-semibold">
-          {creating ? "New skill" : shadowed ? `${skill.name} · shadowed` : `Edit ${skill.name}`}
+          {creating
+            ? "New skill"
+            : shadowed
+              ? `${skill.name} · shadowed`
+              : readOnly
+                ? skill.name
+                : `Edit ${skill.name}`}
         </h2>
         <span className="text-xs text-muted">
-          Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
-          <code className="font-mono">skills/&lt;name&gt;.yaml</code> is held to.
+          {readOnly ? (
+            <>
+              Defined by <code className="font-mono">skills/{skill?.name}.yaml</code> on the
+              conductor&apos;s host. The files win, so this is read-only here — edit the file
+              and restart the conductor, or make a new skill to change one in the browser.
+            </>
+          ) : (
+            <>
+              Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
+              <code className="font-mono">skills/&lt;name&gt;.yaml</code> is held to.
+            </>
+          )}
         </span>
       </div>
 
@@ -181,9 +205,10 @@ export function SkillEditor({
         </p>
       ) : null}
 
-      {/* One fieldset rather than a disabled prop on every input: a shadowed skill is
-          read-only as a whole, and no field of it could usefully be changed. */}
-      <fieldset disabled={shadowed} className="space-y-4">
+      {/* One fieldset rather than a disabled prop on every input: a shadowed skill and a
+          file skill are both read-only as a whole, and no field of either could usefully be
+          changed. It disables the picker's buttons too, which a per-input prop would miss. */}
+      <fieldset disabled={shadowed || readOnly} className="space-y-4">
         {/* The image is the unit of capability: what a turn of this skill can do at all is
             decided by what is in the image, before any prompt or tool list is read. */}
         <label className="flex flex-col gap-1 text-xs">
@@ -557,7 +582,7 @@ export function SkillEditor({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {shadowed ? null : (
+        {shadowed || readOnly ? null : (
           <button
             type="submit"
             disabled={saving || deleting}
@@ -571,11 +596,11 @@ export function SkillEditor({
           onClick={onCancel}
           className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:text-fg"
         >
-          Cancel
+          {readOnly ? "Back" : "Cancel"}
         </button>
         {/* Delete is here and nowhere else. It is a decision to take with the definition it
             destroys in front of you, not from a row in a list one misclick wide. */}
-        {onDelete && !creating ? (
+        {onDelete && !creating && !readOnly ? (
           <span className="ml-auto">
             <DeleteControl
               name={skill.name}

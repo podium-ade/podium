@@ -233,6 +233,10 @@ describe("ChatPanel", () => {
         chatId: "chat_01abc",
         text: "how many active accounts",
         skill: "analyst",
+        // Empty means "the skill's", which is what the server reads them as.
+        agent: "",
+        model: "",
+        effort: "",
       }),
     );
   });

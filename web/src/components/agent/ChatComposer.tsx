@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
-import type { Skill } from "../../gen/podium/agent/v1/agent_pb";
+import type { AgentBackend, Skill } from "../../gen/podium/agent/v1/agent_pb";
+import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { AgentPicker } from "./AgentPicker";
 
 /** MAX_ROWS is how tall the textarea grows before it scrolls. */
 const MAX_ROWS = 8;
@@ -14,7 +16,15 @@ export interface ChatComposerProps {
   onSkillChange: (name: string) => void;
   /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
   disabled: boolean;
-  onSend: (text: string) => void;
+  /** The backend catalogue, for the model picker. Empty while it loads. */
+  agents: AgentBackend[];
+  /**
+   * choice is what the next message runs on, overriding the skill's own. INHERIT — the
+   * default — means whatever the skill says, which is what the picker shows.
+   */
+  choice: AgentChoice;
+  onChoiceChange: (next: AgentChoice) => void;
+  onSend: (text: string, choice: AgentChoice) => void;
 }
 
 /**
@@ -30,6 +40,9 @@ export function ChatComposer({
   skill,
   onSkillChange,
   disabled,
+  agents,
+  choice,
+  onChoiceChange,
   onSend,
 }: ChatComposerProps) {
   const [text, setText] = useState("");
@@ -47,7 +60,7 @@ export function ChatComposer({
   const send = () => {
     const trimmed = text.trim();
     if (trimmed === "" || disabled) return;
-    onSend(trimmed);
+    onSend(trimmed, choice);
     setText("");
   };
 
@@ -88,12 +101,38 @@ export function ChatComposer({
           Send
         </button>
       </div>
+      {/* The model is chosen per MESSAGE, beside the skill and not inside it. A skill is
+          "which job"; the model is "what runs it". Folding the second into the first is what
+          makes a profile fill up with skills that differ by one field. */}
+      <div className="mt-2">
+        <AgentPicker
+          label="This message"
+          value={choice}
+          onChange={onChoiceChange}
+          agents={agents}
+          disabled={disabled}
+          inherit={{ label: "The skill's model", hint: skillRuns(skills, skill) }}
+          inherited={skillChoice(skills, skill)}
+        />
+      </div>
       <p className="mt-1.5 text-xs text-muted">
         Enter sends · Shift+Enter for a new line. One question at a time: a turn runs to an
         answer and exits.
       </p>
     </div>
   );
+}
+
+/** skillChoice is what the chosen skill runs on with no override, for the inherit row. */
+function skillChoice(skills: Skill[], skill: string): AgentChoice {
+  const s = skills.find((x) => x.name === skill);
+  return s ? { agent: s.agent, model: s.model, effort: s.effort } : INHERIT;
+}
+
+/** skillRuns is the same, as one line of prose for the closed control. */
+function skillRuns(skills: Skill[], skill: string): string {
+  const c = skillChoice(skills, skill);
+  return c.model === "" ? "whatever the skill says" : c.model;
 }
 
 /**

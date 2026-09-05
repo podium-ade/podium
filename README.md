@@ -285,7 +285,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic or xAI credential exists here, so every turn ever run was a dry run |
-| Grok backend: xAI keys, subscription sign-in, per-skill agent/model/effort | ✅ | ⚠️ key validation proved against the **real `api.x.ai`** (a bad key, refused, xAI's own words on the card). No turn has run on a Grok model, and **`auth.x.ai` has never been reached** |
+| Grok backend: xAI credentials, subscription sign-in, per-turn agent/model/effort | ✅ | ⚠️ both credential paths proved against the **real xAI**: a bad key refused by `api.x.ai` in its own words, and a live device code issued by `auth.x.ai`. **Nobody has approved a sign-in, and no turn has run on a Grok model** |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -449,18 +449,23 @@ a real Docker engine. What has **not** happened:
   and it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
   around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
   turn to write a pull request.**
-- **Grok: key validation is proved against the live API; nothing else about xAI is.**
+- **Grok: both credential paths reach xAI for real; no turn has run on a Grok model.**
   `SetProviderKey` was run against the real `api.x.ai` with a bad key, and xAI's own refusal —
   *"Incorrect API key provided. You can obtain an API key from https://console.x.ai."* — came
-  back through the error detail and onto the card. That is the whole of what has been proved.
-  **No turn has run against a Grok model**, so the claim this backend rests on — that
-  `api.x.ai` serves an Anthropic-shaped `/v1/messages` the Claude Agent SDK can be pointed at —
-  is still taken from documentation. And **the subscription sign-in has never run**: xAI
-  publishes no shared OAuth client id for third-party tools, so
-  `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has **no default** and the flow is off until one is
-  registered. xAI has been reported to allow-list its OAuth API surface, so a sign-in can
-  succeed and still yield a token the API refuses; the poll that stores a credential validates
-  it against the API for exactly that reason, and says so on the card.
+  back through the error detail and onto the card. `StartProviderOAuth` was run against the
+  real `auth.x.ai`: OIDC discovery succeeded, the same-site endpoint check passed, xAI issued
+  a device code, and the poll answered `authorization_pending`. **Nobody has approved one**,
+  so the half that stores a credential — and xAI's reported allow-listing of its OAuth API
+  surface, which can yield a token the API then refuses — is still untested. That refusal is
+  why the storing poll validates the token against the API before saving it.
+  What remains wholly unproven is the claim this backend rests on: that `api.x.ai` serves an
+  Anthropic-shaped `/v1/messages` the Claude Agent SDK can be pointed at. No turn has run on
+  a Grok model.
+- **`PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has no default, deliberately.** xAI operates no
+  self-service client registration, and every third-party tool that offers this flow reuses
+  xAI's own Grok CLI client id. Podium documents that and declines to ship it, because the
+  consent screen a human approves names whoever owns the client id — xAI's CLI, not Podium.
+  Setting it is a decision about how your bot introduces itself to your identity provider.
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.

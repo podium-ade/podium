@@ -76,3 +76,32 @@ func TestTheProviderBlockFollowsTheConfiguredEndpoint(t *testing.T) {
 	proxied := &Conductor{xaiBaseURL: "https://xai.proxy.internal"}
 	assert.Equal(t, "https://xai.proxy.internal", proxied.providerFor(profiles.AgentGrok).BaseURL)
 }
+
+// The credential follows the OVERRIDE, not just the skill. A human who switches a Claude
+// skill to Grok for one message must get the xAI credential on that turn — and must not get
+// the Anthropic one.
+func TestAnOverrideChangesWhichCredentialTheTurnGets(t *testing.T) {
+	claudeSkill := profiles.Skill{Name: "general"}
+	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
+
+	assert.Equal(t, profiles.AnthropicKeySecret,
+		(&Conductor{}).reservedSecrets(p.Resolve(claudeSkill, profiles.Override{}).Agent)[0].Name)
+
+	grok := p.Resolve(claudeSkill, profiles.Override{Model: "grok-4.6"})
+	refs := (&Conductor{}).reservedSecrets(grok.Agent)
+	require.Len(t, refs, 1)
+	assert.Equal(t, profiles.XAIKeySecret, refs[0].Name,
+		"the override moved the turn to Grok, so the credential has to move with it")
+}
+
+// And so does the provider block: a Grok turn reached by override still needs the endpoint.
+func TestAnOverrideChangesTheProviderBlock(t *testing.T) {
+	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
+	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
+
+	assert.Nil(t, c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{}).Agent))
+
+	got := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{Model: "grok-4.6"}).Agent)
+	require.NotNil(t, got)
+	assert.Equal(t, profiles.XAIKeyEnv, got.APIKeyEnv)
+}

@@ -126,7 +126,7 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
 | `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` | for the sign-in | — | a public desktop OAuth client id. **Empty turns the subscription tab off** and leaves the API key path. Public metadata, not a secret |
-| `PODIUM_AGENT_XAI_OAUTH_SCOPES` | no | `openid profile email offline_access api:access` | `offline_access` is the one that matters: without it there is no refresh token |
+| `PODIUM_AGENT_XAI_OAUTH_SCOPES` | no | `openid profile email offline_access grok-cli:access api:access` | `offline_access` is what buys a refresh token; `grok-cli:access` is what xAI's own CLI asks for |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
 | `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |

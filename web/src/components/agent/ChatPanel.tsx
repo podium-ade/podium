@@ -3,7 +3,9 @@ import { useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Chat, ChatMessage, Skill } from "../../gen/podium/agent/v1/agent_pb";
+import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
+import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative } from "../../lib/format";
 import { renderMarkdown } from "../../lib/markdown";
@@ -228,8 +230,23 @@ function Conversation({
   const [pinned, setPinned] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
 
+  // The choice is sticky across messages, the way every chat that has a model picker
+  // behaves: you pick once and keep asking. It is still sent per message, so nothing is
+  // remembered server-side and a reload goes back to the skill's own model.
+  const [choice, setChoice] = useState<AgentChoice>(INHERIT);
+  const { agents } = useAgents();
+
   const send = useMutation({
-    mutationFn: (text: string) => agent.sendChatMessage({ chatId, text, skill }),
+    mutationFn: (v: { text: string; choice: AgentChoice }) =>
+      agent.sendChatMessage({
+        chatId,
+        text: v.text,
+        skill,
+        // Empty fields mean "the skill's", which is exactly what the server does with them.
+        agent: v.choice.agent,
+        model: v.choice.model,
+        effort: v.choice.effort,
+      }),
     onSuccess: () => {
       setPinned(true);
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
@@ -311,7 +328,10 @@ function Conversation({
         skill={skill}
         onSkillChange={setChosen}
         disabled={busy}
-        onSend={(text) => send.mutate(text)}
+        agents={agents}
+        choice={choice}
+        onChoiceChange={setChoice}
+        onSend={(text, choice) => send.mutate({ text, choice })}
       />
     </>
   );

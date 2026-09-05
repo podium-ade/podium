@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -566,6 +567,48 @@ func (p *Profile) ModelFor(s Skill) string {
 		return s.Model
 	}
 	return p.Model
+}
+
+// Resolve is what a turn actually runs on: the override, then the skill, then the profile,
+// then the built-in default. It is the ONE place that ordering lives, so the conductor, the
+// brief and the credential the turn is handed can never disagree about it.
+func (p *Profile) Resolve(s Skill, o Override) Choice {
+	c := Choice{Agent: p.AgentFor(s), Model: p.ModelFor(s), Effort: p.EffortFor(s)}
+	if o.Agent != "" {
+		c.Agent = o.Agent
+		// A backend the caller chose without naming a model would otherwise keep the model
+		// of the backend it came from — grok-4.6 on Claude — which is a request no provider
+		// can serve. The new backend's default is the only sane answer.
+		if o.Model == "" {
+			if b, ok := FindBackend(o.Agent); ok {
+				c.Model = b.DefaultModel
+			}
+		}
+	}
+	if o.Model != "" {
+		c.Model = o.Model
+		// The model moved and the backend did not, so follow the model to its own backend.
+		// Picking grok-4.6 means picking Grok; there is no other reading.
+		if o.Agent == "" {
+			if b, ok := backendOf(o.Model); ok {
+				c.Agent = b.ID
+			}
+		}
+	}
+	if o.Effort != "" {
+		c.Effort = o.Effort
+	}
+	// An inherited effort the newly chosen model does not accept is dropped rather than
+	// carried into a request the provider would refuse. Naming one explicitly is checked by
+	// ValidateOverride and refused; inheriting one is not the caller's doing.
+	if o.Effort == "" && c.Effort != "" {
+		if b, ok := FindBackend(c.Agent); ok {
+			if m, known := b.FindModel(c.Model); known && !slices.Contains(m.Efforts, c.Effort) {
+				c.Effort = ""
+			}
+		}
+	}
+	return c
 }
 
 // AgentFor is the backend a skill runs on: its own, then the profile's, then DefaultAgent.
