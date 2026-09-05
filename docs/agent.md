@@ -94,6 +94,13 @@ answer, and running it again would say it twice. A lost node is surfaced to the 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees
 the task go `cancelled` and says so in the thread.
 
+The conductor also cancels a task **itself**, through the same call, when it gives up following
+one: 90 seconds of being unable to hold the event stream. A task nobody is listening to still
+holds a node slot and a privileged dind daemon, still spends money and can still finish by
+opening a pull request nobody was told about — giving up on the stream gives up on the task.
+The 90 seconds are counted from the disconnection, not from the last event, so a task that says
+nothing while its node pulls a large image is not a task anyone gives up on.
+
 ---
 
 ## Configuration

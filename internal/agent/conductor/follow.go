@@ -12,9 +12,13 @@ import (
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
-// followGrace is how long a follow keeps reconnecting after the last event it read. It is
-// generous for the same reason internal/cli/follow.go's is: the point of reconnecting is to
-// survive a control plane restart without losing an event.
+// followGrace is how long a follow keeps reconnecting once it can no longer hold the
+// stream. It is measured from the disconnection, not from the last event: a task says
+// nothing at all while its node pulls a 1.66 GB image, and a turn was once written off
+// mid-provision because those quiet minutes had spent the whole budget before the first
+// blip, leaving zero reconnects for the restart the budget exists for. 90s of *continuous*
+// failure to hold a stream is a control plane that is not coming back, which is what
+// internal/cli/follow.go's identical grace is judging too.
 const followGrace = 90 * time.Second
 
 // followBackoff bounds the reconnect delay while the server is away.
@@ -34,28 +38,43 @@ type follower struct {
 	onEvent func(context.Context, *podiumv1.TaskEvent)
 	// onReconnect counts a broken stream.
 	onReconnect func()
+	// grace overrides followGrace. It is zero everywhere but in the tests that have to
+	// outlast it.
+	grace time.Duration
 }
 
 // follow returns nil when the stream ended by itself, which the server does only once the
 // task is terminal and every event has been delivered.
 func (f *follower) follow(ctx context.Context) error {
-	lastProgress := time.Now()
+	grace := f.grace
+	if grace == 0 {
+		grace = followGrace
+	}
 	backoff := followBackoffMin
+	// lostAt is when the stream was last lost. It is zero until the first failure and
+	// starts again from every stream that was held, so what it measures is one unbroken
+	// run of failures and never the silence of a task that is simply busy.
+	var lostAt time.Time
 
 	for {
-		progressed, err := f.once(ctx)
-		if progressed {
-			lastProgress = time.Now()
-			backoff = followBackoffMin
-		}
+		held, err := f.once(ctx)
 		if err == nil {
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if time.Since(lastProgress) > followGrace {
-			return fmt.Errorf("lost the event stream of %s for more than %s: %w", f.taskID, followGrace, err)
+		switch {
+		case held:
+			// The control plane answered this call, whether or not the task said anything
+			// down it. Both budgets start again.
+			lostAt = time.Now()
+			backoff = followBackoffMin
+		case lostAt.IsZero():
+			lostAt = time.Now()
+		}
+		if time.Since(lostAt) > grace {
+			return fmt.Errorf("lost the event stream of %s for more than %s: %w", f.taskID, grace, err)
 		}
 		if f.onReconnect != nil {
 			f.onReconnect()
@@ -69,7 +88,9 @@ func (f *follower) follow(ctx context.Context) error {
 	}
 }
 
-// once holds one StreamTaskEvents call. A nil error means a clean end of stream.
+// once holds one StreamTaskEvents call. A nil error means a clean end of stream. The bool
+// says whether the call ever held the stream, which a call that read no event still did:
+// the caller is judging the control plane, not the task's talkativeness.
 func (f *follower) once(ctx context.Context) (bool, error) {
 	stream, err := f.tasks.StreamTaskEvents(ctx, connect.NewRequest(&podiumv1.StreamTaskEventsRequest{
 		TaskId:  f.taskID,
@@ -80,20 +101,21 @@ func (f *follower) once(ctx context.Context) (bool, error) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	progressed := false
 	for stream.Receive() {
 		e := stream.Msg()
 		if e.GetSeq() <= f.lastSeq {
 			continue
 		}
 		f.lastSeq = e.GetSeq()
-		progressed = true
 		f.onEvent(ctx, e)
 	}
-	if err := stream.Err(); err != nil {
-		return progressed, err
-	}
-	return progressed, nil
+	// connect-go's call is not a round trip — it returns a stream object before anything
+	// has reached the server — so "no error from the call" proves nothing. The response
+	// header is the proof: connect fills it in only from a valid streaming response, so it
+	// is empty for a refused connection and for a proxy answering while the control plane
+	// is down, and non-empty for a stream the server answered and then dropped. By here it
+	// is settled and costs nothing to read: Receive has already returned false.
+	return len(stream.ResponseHeader()) > 0, stream.Err()
 }
 
 // getTaskWithRetry reads a task back, tolerating a control plane that is still coming up.
