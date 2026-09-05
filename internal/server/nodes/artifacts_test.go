@@ -26,7 +26,7 @@ import (
 )
 
 // withFakeS3 points a harness at an in-process S3 endpoint. Podium's own tests may not pull
-// a MinIO image on this machine, so the fake is what the object-store paths run against;
+// an object store container for the suite, so the fake is what the object-store paths run against;
 // the presigned URLs it hands back are verified for real (see internal/server/artifacts/fakes3).
 func withFakeS3(t *testing.T) (func(*server.Config), *fakes3.Server) {
 	t.Helper()

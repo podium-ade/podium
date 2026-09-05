@@ -1,6 +1,6 @@
 // Package fakes3 is an in-process S3-compatible endpoint for Podium's own tests.
 //
-// It exists because this repository may not pull a MinIO image, and because a fake that
+// It exists so the suite needs no object store container at all, and because a fake that
 // ignores authentication would make every presigned-URL test worthless: a URL that is
 // accepted no matter what it is signed with proves nothing about signing. So the object
 // semantics come from gofakes3, which speaks enough of the S3 API for minio-go — including
@@ -94,7 +94,7 @@ func (s *Server) Config() artifacts.Config {
 // Close stops the endpoint early. The test cleanup does it otherwise.
 func (s *Server) Close() { s.srv.Close() }
 
-// DeadConfig points at a loopback port with nothing listening on it: what "MinIO is down"
+// DeadConfig points at a loopback port with nothing listening on it: what "the store is down"
 // looks like to the control plane.
 func DeadConfig(t *testing.T) artifacts.Config {
 	t.Helper()

@@ -21,7 +21,7 @@ import (
 
 // TestArtifactsAreCollectedAndDownloaded is the step's acceptance path driven the way an
 // operator drives it: a real node, a real container, the real CLI. The object store is an
-// in-process S3 endpoint rather than MinIO — this machine may not pull images — but it is
+// in-process S3 endpoint rather than a real object store container — but it is
 // the same API and the presigned URLs it hands back are verified for real.
 func TestArtifactsAreCollectedAndDownloaded(t *testing.T) {
 	fake := fakes3.Start(t)
