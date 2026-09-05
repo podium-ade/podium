@@ -260,7 +260,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Secrets: encrypted store, env and file injection, shredding, log redaction | ✅ | ✅ |
 | Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
 | Web UI: submit, re-run, live logs, node actions, secrets, artifacts, agent | ✅ | ✅ 221 unit tests, Playwright against a live stack |
-| Artifacts and log roll-up | ✅ | ⚠️ storing and listing proved against a **real MinIO**, including a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. Multipart, TLS, bucket policies and AWS S3 proper are unexercised |
+| Artifacts and log roll-up | ✅ | ⚠️ proved against a **real RustFS**: bucket auto-create, a 40 MB artifact over the multipart threshold, fetched back byte-identical both proxied and by presigned URL, plus log roll-up and read-back. Earlier MinIO runs covered a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. TLS, bucket policies and AWS S3 proper are unexercised |
 | Tailnet transport (tsnet, WhoIs identity, HTTPS) | ✅ | ✅ **run against a real tailnet.** Real Let's Encrypt certificate on the MagicDNS name; `WhoAmI` named a caller with no bearer token sent; a `tag:podium-node` worker enrolled and ran a linux/amd64 task with live logs and its exit code. Two workers now run against it, routed by label |
 | The tailnet ACL's outbound-only guarantee | ✅ | ❌ **never enforced.** A blanket allow-all rule on that tailnet made [the shipped policy](deploy/tailscale-acl.example.json)'s `tests` block fail, and the block was dropped rather than the rule narrowed |
 | Device approval; more than one WhoIs identity | ✅ | ❌ never run. One login has ever authenticated, on a tailnet with approval off |
@@ -387,12 +387,13 @@ Everything here is real, current, and deliberate about being said out loud.
   [`deploy/tailscale-acl.example.json`](deploy/tailscale-acl.example.json) has not been applied
   intact. Also unproved: **device approval**; **more than one identity** — one login has ever
   authenticated, so `users` has never held two rows; and the `host` transport, never run at all.
-- **Artifacts have run against a real MinIO, but not against S3 itself.** Storing and listing
-  are proved end to end against a real MinIO server, including a zero-byte artifact and a real
-  PNG a browser task produced. The automated suite still uses an in-process endpoint that speaks
-  the same API and verifies presigned signatures for real. **Multipart upload, bucket policies,
-  TLS, lifecycle rules and AWS S3 proper remain unexercised**, as does a presign round trip
-  against anything but the in-process endpoint.
+- **Artifacts have run against a real RustFS, but not against S3 itself.** Bucket auto-create,
+  storing, listing and log roll-up are proved end to end against a real RustFS server, including
+  a 40 MB artifact over `minio-go`'s multipart threshold fetched back byte-identical both proxied
+  and by presigned URL. Earlier runs against MinIO covered a zero-byte artifact and a real PNG a
+  browser task produced. The automated suite still uses an in-process endpoint that speaks
+  the same API and verifies presigned signatures for real. **Bucket policies,
+  TLS, lifecycle rules and AWS S3 proper remain unexercised.**
 - **Linux has now run a real worker, and here is exactly how much of it.** A real `podium-node`
   ran on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, 24 cores, driven by a
   darwin/arm64 control plane on another machine over a real tailnet. The **direct-dial readiness

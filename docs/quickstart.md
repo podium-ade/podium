@@ -237,7 +237,7 @@ docker ps -a --filter label=podium.task    # empty
 
 **This needs a published release and there has not been one.** The images
 `ghcr.io/alvaroibarguen/podium-server` and `-node` do not exist yet, so the `server` and `node`
-services below cannot start. `postgres` and `minio` can.
+services below cannot start. `postgres` and `objectstore` can.
 
 Once there is a release, a host is:
 
@@ -246,7 +246,7 @@ scp -r deploy/ host:podium/
 ssh host
 cd podium
 podium-server init             # writes master.key and a .env with fresh credentials
-docker compose up -d --wait    # postgres, minio, server
+docker compose up -d --wait    # postgres, objectstore, server
 ```
 
 `podium-server init` generates the master key, generates the Postgres password, the dev token

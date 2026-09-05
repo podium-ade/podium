@@ -77,15 +77,20 @@ point-in-time story beyond what your Postgres gives you.
 
 ## The object store
 
-Any S3-compatible endpoint. `deploy/docker-compose.yml` runs MinIO; the client is `minio-go`
-against the S3 API, path-style.
+Any S3-compatible endpoint. `deploy/docker-compose.yml` runs RustFS; the client is `minio-go`
+against the S3 API, path-style. (`minio-go` is the S3 SDK and is unrelated to the MinIO server,
+which Podium no longer ships: it was archived in February 2026 and its last community image can
+never be patched.)
 
-> **Proved against a real MinIO. Never against S3 itself.** Storing and listing ran end to end
-> against a real MinIO server, including a zero-byte artifact and a PNG a browser task produced.
+> **Proved against a real RustFS. Never against S3 itself.** Bucket auto-create, storing and
+> listing, and log roll-up ran end to end against a real RustFS server, including a 40 MB
+> artifact — over `minio-go`'s multipart threshold, so multipart upload is exercised — fetched
+> back both proxied through the control plane and from a presigned URL, byte-identical each way.
+> Earlier runs against MinIO additionally covered a zero-byte artifact and a browser task's PNG.
 > The automated suite still uses an in-process endpoint (`internal/server/artifacts/fakes3`) that
-> speaks the same API and verifies presigned signatures for real. **Still unproven:** multipart
-> upload, bucket policies, a pre-existing bucket with the wrong permissions, TLS, lifecycle
-> rules, AWS S3 proper, and a presign round trip against anything but the fake.
+> speaks the same API and verifies presigned signatures for real. **Still unproven:** bucket
+> policies, a pre-existing bucket with the wrong permissions, TLS, lifecycle rules, and AWS S3
+> proper.
 
 ### Layout
 
@@ -120,7 +125,7 @@ mc alias set podium http://127.0.0.1:9000 "$PODIUM_S3_ACCESS_KEY" "$PODIUM_S3_SE
 mc mirror --overwrite podium/podium ./podium-bucket-backup
 ```
 
-The `miniodata` volume is **not a cache**. Once a finished task's chunks have been pruned out of
+The `objectstore-data` volume is **not a cache**. Once a finished task's chunks have been pruned out of
 Postgres, the objects in that bucket are the only copy of its log.
 
 ### Running without one

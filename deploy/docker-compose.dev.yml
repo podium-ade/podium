@@ -1,8 +1,16 @@
-# Development dependencies for podium-server: Postgres, and Hindsight behind a profile.
-# The node daemon talks to the host's Docker, and object storage is not part of MVP-0.
+# Development dependencies for podium-server: Postgres, with Hindsight and an object store
+# behind profiles. The node daemon talks to the host's Docker.
 #
 #   docker compose -f deploy/docker-compose.dev.yml up -d postgres
 #   PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium ./bin/podium-server
+#
+# Artifacts need an object store. Without one the server starts and says "artifacts are off",
+# and every upload fails with failed_precondition — including the agent runtime's
+# transcript.jsonl, which is how a turn's reasoning is kept:
+#
+#   docker compose -f deploy/docker-compose.dev.yml --profile artifacts up -d --wait objectstore
+#   PODIUM_S3_ENDPOINT=127.0.0.1:9000 PODIUM_S3_ACCESS_KEY=podium \
+#   PODIUM_S3_SECRET_KEY=podiumdev PODIUM_S3_BUCKET=podium ./bin/podium-server
 #
 # The agents' shared memory is behind a profile because it is a 5.9 GB image and most work
 # on Podium does not need it:
@@ -76,5 +84,63 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # The object store artifacts and rolled-up logs live in. Behind a profile because most
+  # work on Podium does not touch artifacts, and an object store that is up but unconfigured
+  # is worse than none — see the header for the four variables the server needs.
+  #
+  # RustFS rather than MinIO: minio/minio was archived in February 2026 and its last
+  # community image (RELEASE.2025-09-07) is the newest that will ever exist — the
+  # 2025-10-15 security release was never published as one. A store that can never be
+  # patched is not a store to build a dev stack on.
+  #
+  # RustFS is pre-1.0 (this is a release candidate) and has had a run of authorization
+  # advisories, so it is deliberately scoped to what dev needs and no more: loopback only,
+  # one bucket, one credential, no policies, no TLS, no public access. Podium's own use is
+  # the same shape — the server holds the only credential and hands clients presigned URLs,
+  # and nodes never talk to the store at all. Do not lift this block into a deployment that
+  # exposes the listener.
+  #
+  # Unlike deploy/docker-compose.yml, the API port IS published: there the server sits on
+  # the compose network beside the store, and here it is a binary on the host that has to
+  # reach it over loopback.
+  objectstore:
+    profiles: ["artifacts"]
+    # Pinned to the multi-arch index digest, so amd64 and arm64 both resolve.
+    image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
+    container_name: podium-dev-objectstore
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      # One volume, not the upstream example's four: a dev store has nothing to erasure-code
+      # across, and four directories in one container buys only a slower start.
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      # Dev throwaways, like the Postgres ones above. RustFS's own defaults are
+      # rustfsadmin/rustfsadmin and are documented as public; these are no more secret, but
+      # they keep PODIUM_S3_ACCESS_KEY/SECRET_KEY reading the same as everywhere else.
+      RUSTFS_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:-podiumdev}
+      # The console is where the stored XSS advisories were. Nothing in Podium needs it —
+      # `podium artifacts` and `podium artifact get` are the supported way to look — so it
+      # stays off rather than merely unpublished.
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+    volumes:
+      - podium-objectstore-data:/data
+    ports:
+      # Loopback only. There is no console port on purpose; see above.
+      - "127.0.0.1:${PODIUM_S3_PORT:-9000}:9000"
+    healthcheck:
+      # The S3 root answers before the store is usable, so probe the health endpoint.
+      test: ["CMD", "sh", "-ec", "wget -q -O- http://127.0.0.1:9000/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
 volumes:
   podium-pgdata:
+  # Unlike the dev database, this is not disposable the moment a test ends: it holds the
+  # only copy of a finished task's artifacts once its log chunks are pruned.
+  podium-objectstore-data:
