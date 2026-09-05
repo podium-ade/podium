@@ -75,6 +75,15 @@ curl -sf https://podium.<tailnet>.ts.net/healthz
 The example policy also carries `tests`, which the admin console evaluates before it lets you
 save — so a policy edit that accidentally opens server → node is rejected at the source.
 
+> **This policy has never been applied intact, and its guarantee has never been enforced.** The
+> tailnet Podium ran on already had a blanket allow-all rule, which made the `tests` block fail.
+> The block was **dropped rather than the rule narrowed**, so nothing at the network layer has
+> ever stopped a control plane dialling a worker. Identity and enrollment are proved; this part
+> is still a design statement.
+>
+> Keep the `tests` block and narrow whatever conflicts with it. A `tests` block you had to delete
+> to save has told you something.
+
 ## Identity: WhoIs replaces login
 
 Every connection into the control plane arrives from a WireGuard peer that Tailscale can name.
@@ -105,6 +114,12 @@ Consequences worth spelling out:
 The first time a login is seen it is written to the `users` table (`login`, `display_name`,
 `roles`, `first_seen_at`). There is no password column and never will be: `users` exists to hang
 roles off later, not to authenticate anybody.
+
+**How much of this has been observed.** Proved on a real tailnet: `WhoAmI` over HTTPS with no
+bearer token returns a login and `IDENTITY_KIND_USER`, the UI header fills in with no prompt,
+and a `tag:podium-node` device enrolled and ran work. Not proved: a **second identity** — one
+login has ever authenticated, so `users` has never held two rows and the three refusal rows
+above exist only in tests — and **device approval**, which is off on that tailnet.
 
 ### Knobs
 

@@ -259,13 +259,15 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
 | Web UI: submit, re-run, live logs, node actions, secrets, artifacts, agent | ✅ | ✅ 221 unit tests, Playwright against a live stack |
 | Artifacts and log roll-up | ✅ | ⚠️ storing and listing proved against a **real MinIO**, including a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. Multipart, TLS, bucket policies and AWS S3 proper are unexercised |
-| Tailnet transport (tsnet, WhoIs identity, HTTPS, ACL) | ✅ | ❌ **never run against a real tailnet** |
+| Tailnet transport (tsnet, WhoIs identity, HTTPS) | ✅ | ✅ **run against a real tailnet.** Real Let's Encrypt certificate on the MagicDNS name; `WhoAmI` named a caller with no bearer token sent; a `tag:podium-node` worker enrolled and ran a linux/amd64 task with live logs and its exit code. Two workers now run against it, routed by label |
+| The tailnet ACL's outbound-only guarantee | ✅ | ❌ **never enforced.** A blanket allow-all rule on that tailnet made [the shipped policy](deploy/tailscale-acl.example.json)'s `tests` block fail, and the block was dropped rather than the rule narrowed |
+| Device approval; more than one WhoIs identity | ✅ | ❌ never run. One login has ever authenticated, on a tailnet with approval off |
 | `host` transport | ✅ | ❌ never run |
-| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ❌ never built or published |
+| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ⚠️ one image, one registry. `podium-agent-runtime:dev` built multi-arch with buildx and pushed to a private LAN registry. **Nothing on GHCR, nothing signed, no release.** The four Go service images have never been built at all |
 | Release pipeline (archives, checksums, SBOM) | ✅ | ⚠️ snapshot only — no tag, no signature ever produced |
 | `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine — there is no published release for it to download |
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
-| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, the container images — and the tailnet *transport*, which was relayed over the tailnet rather than used |
+| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
@@ -362,10 +364,19 @@ Everything here is real, current, and deliberate about being said out loud.
 
 ### Where it has and has not actually run
 
-- **The tailnet transport has never touched a real tailnet.** It is implemented, unit-tested and
-  integration-tested, but proving it needs tagged auth keys and HTTPS enabled on a tailnet, and
-  the build machine had neither. The `host` transport is likewise implemented and never run.
-  **The `dev` transport is the tested one.**
+- **The tailnet transport has now run against a real tailnet.** `podium-server` joined as a
+  `tag:podium-server` device, served 443 on its MagicDNS name under a real Let's Encrypt
+  certificate, and answered `WhoAmI` with a login **with no bearer token sent** — the identity
+  came from Tailscale's `WhoIs` and nothing else. A `tag:podium-node` worker enrolled over it and
+  ran a linux/amd64 task with live logs and its exit code preserved. Two workers now run against
+  it, routed by label.
+- **Four things on that path are still unproved, and one is the guarantee itself.** The ACL's
+  outbound-only property was **never enforced**: the tailnet already had a blanket allow-all
+  rule, which made the shipped policy's `tests` block fail, and the block was dropped rather than
+  the rule narrowed. Nothing has ever refused server → node.
+  [`deploy/tailscale-acl.example.json`](deploy/tailscale-acl.example.json) has not been applied
+  intact. Also unproved: **device approval**; **more than one identity** — one login has ever
+  authenticated, so `users` has never held two rows; and the `host` transport, never run at all.
 - **Artifacts have run against a real MinIO, but not against S3 itself.** Storing and listing
   are proved end to end against a real MinIO server, including a zero-byte artifact and a real
   PNG a browser task produced. The automated suite still uses an in-process endpoint that speaks
