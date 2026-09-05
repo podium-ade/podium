@@ -132,17 +132,23 @@ func (s *AgentService) SetProviderKey(
 	validateCtx, cancel := context.WithTimeout(ctx, validateTimeout)
 	defer cancel()
 	models, err := validateAnthropicKey(validateCtx, s.http, s.baseURL, key)
+	// What the provider said, scrubbed once and used twice: the same bounded, key-free
+	// sentence goes to the log and to the operator, so a key a provider echoed back cannot
+	// reach either. "" when there was nothing to say, which includes success.
+	said := operatorDetail(validationDetail(err), key)
 	switch {
 	case errors.Is(err, errKeyRefused):
-		s.logger.WarnContext(ctx, "the provider refused a key", "login", login, "error", err)
+		s.logger.WarnContext(ctx, "the provider refused a key",
+			"login", login, "provider_message", said)
 		// ST1005 wants a lower-case error string; "Anthropic" is a proper noun and this
 		// string is the sentence the web UI renders verbatim.
-		return nil, connect.NewError(connect.CodePermissionDenied,
-			errors.New("Anthropic rejected this key")) //nolint:staticcheck // a proper noun
+		return nil, providerKeyError(connect.CodePermissionDenied,
+			errors.New("Anthropic rejected this key"), said) //nolint:staticcheck // a proper noun
 	case err != nil:
-		s.logger.WarnContext(ctx, "a provider key could not be validated", "login", login, "error", err)
-		return nil, connect.NewError(connect.CodeUnavailable,
-			errors.New("could not validate the key with Anthropic; nothing was saved"))
+		s.logger.WarnContext(ctx, "a provider key could not be validated",
+			"login", login, "provider_message", said)
+		return nil, providerKeyError(connect.CodeUnavailable,
+			errors.New("could not validate the key with Anthropic; nothing was saved"), said)
 	}
 
 	version, err := s.secrets.SetSecret(ctx, profiles.AnthropicKeySecret, key)
@@ -171,6 +177,27 @@ func (s *AgentService) SetProviderKey(
 		Models:   models,
 		Status:   unusualFormat(key),
 	}), nil
+}
+
+// providerKeyError is a SetProviderKey failure with the provider's own explanation attached
+// as a Connect error detail.
+//
+// The code and the message are unchanged by it: the code is still the classification a UI
+// switches on — permission_denied refused, unavailable not asked — and the message is still
+// the conductor's own sentence. The detail is additive, so a client that does not read it
+// sees exactly what it saw before, and a detail that will not marshal is dropped rather than
+// replacing the error the operator actually needs.
+func providerKeyError(code connect.Code, err error, detail string) *connect.Error {
+	cerr := connect.NewError(code, err)
+	if detail == "" {
+		return cerr
+	}
+	d, derr := connect.NewErrorDetail(&agentv1.ProviderKeyError{ProviderMessage: detail})
+	if derr != nil {
+		return cerr
+	}
+	cerr.AddDetail(d)
+	return cerr
 }
 
 // ClearProviderKey removes the secret and the metadata. The goal state is "no key", so a

@@ -134,6 +134,12 @@ func TestAgentSettingsThroughTheServerProxy(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, code, body)
 	assert.Contains(t, body, `"permission_denied"`)
 	assert.Contains(t, body, "Anthropic rejected this key")
+	// And *why*, in the provider's own words, all the way through the proxy: a Connect error
+	// detail, which the proxy copies byte for byte because it copies the whole body. Without
+	// it the operator is told a fixable key is dead.
+	assert.Contains(t, body, "podium.agent.v1.ProviderKeyError")
+	assert.Contains(t, body, "API key is invalid.")
+	assert.NotContains(t, body, badKey, "the refused key must never come back in the error")
 	assert.NotContains(t, h.podiumOK("secret", "ls"), anthropicKeySecret)
 	code, _, body = connectCall(t, h.url(), getSettingsPath, "{}", nil)
 	require.Equal(t, http.StatusOK, code, body)
