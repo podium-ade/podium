@@ -13,8 +13,21 @@ import (
 )
 
 // secretFileMode is the mode of a staged secret file, on the node's disk and inside the
-// container alike: readable by its owner and nobody else, and never executable.
-const secretFileMode fs.FileMode = 0o400
+// container alike: readable, writable by nobody, and never executable.
+//
+// World-readable and not 0400, because a bind mount carries the host's uid into the
+// container unchanged on a native Linux engine. The node stages as its own user; the task
+// runs as whatever user its image chose, and applyTaskHardening drops every capability, so
+// not even a container root has CAP_DAC_OVERRIDE to read past the mode. A 0400 file owned
+// by the node's uid is unreadable by the task it was staged for — the one thing staging it
+// has to achieve. Docker Desktop remaps bind-mount ownership to the container's user and
+// hid this for as long as macOS was the only place it ran.
+//
+// Nothing is given away on the node: secretsDir and every directory above it are 0700, and
+// a file is only reachable through directories the caller may traverse. The bind mount is
+// read-only, so the container cannot write it back. Docker Swarm (0444) and Kubernetes
+// (0644) publish secrets this way for the same reason.
+const secretFileMode fs.FileMode = 0o444
 
 // secretsSubdir is where a task's file-target secrets are staged inside its state
 // directory, which Teardown already removes.
@@ -39,11 +52,10 @@ type staged struct {
 // stageSecrets turns resolved secrets into the two things a container needs.
 //
 // An env target becomes a KEY=value entry. A file target is written to the task's state
-// directory with mode 0400 and bind-mounted read-only at the absolute path the ref asked
-// for — which is normally under /podium/secrets, the noexec/nosuid tmpfs every task
+// directory with secretFileMode and bind-mounted read-only at the absolute path the ref
+// asked for — which is normally under /podium/secrets, the noexec/nosuid tmpfs every task
 // container already gets. A bind mount nested inside that tmpfs is mounted on top of it
-// and keeps its 0400 mode, verified on Docker Desktop and asserted by
-// TestFileSecretsAreMountedReadOnly.
+// and keeps its mode and its host ownership, which is why secretFileMode is what it is.
 //
 // Writing into the tmpfs with CopyToContainer instead — the alternative the design
 // considered, which would never touch node disk — does not work: a tmpfs is materialised
@@ -98,17 +110,28 @@ func (e *Executor) stageSecrets(taskID string, secrets []Secret) (staged, error)
 	return out, nil
 }
 
-// writeSecretFile creates one 0400 file. O_EXCL because a name collision would mean two
-// secrets sharing a file, and silently serving the wrong credential is worse than failing.
+// writeSecretFile creates one secretFileMode file. O_EXCL because a name collision would
+// mean two secrets sharing a file, and silently serving the wrong credential is worse than
+// failing.
+//
+// The mode is set with fchmod rather than left to open(2), whose permission argument the
+// process umask subtracts from. A node started with umask 077 would otherwise stage 0400
+// and be back to a secret its own task cannot read.
 func writeSecretFile(path string, value []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, secretFileMode)
 	if err != nil {
 		return fmt.Errorf("stage secret file: %w", err)
 	}
-	if _, err := f.Write(value); err != nil {
+	fail := func(err error) error {
 		_ = f.Close()
 		_ = os.Remove(path)
 		return fmt.Errorf("stage secret file: %w", err)
+	}
+	if _, err := f.Write(value); err != nil {
+		return fail(err)
+	}
+	if err := f.Chmod(secretFileMode); err != nil {
+		return fail(err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(path)
@@ -162,7 +185,7 @@ func overwrite(path string) error {
 	if err != nil {
 		return err
 	}
-	// The staged file is 0400, so it has to be made writable before it can be scrubbed.
+	// A staged file carries no write bit at all, so it has to be made writable to scrub.
 	if err := os.Chmod(path, 0o600); err != nil {
 		return err
 	}

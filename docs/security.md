@@ -405,7 +405,7 @@ task is dispatched to a node                    │  resolved once per dispatch,
                                                 │
                         ┌───────────────────────┴──────────────────────┐
                         ▼                                              ▼
-        target: env  →  container environment              target: file  →  0400 file on a
+        target: env  →  container environment              target: file  →  0444 file on a
         (after the spec's own env:, so a                    tmpfs at /podium/secrets,
         secret wins over a plaintext entry                  bind-mounted read-only at the
         of the same name)                                   path the ref names
@@ -418,6 +418,14 @@ task is dispatched to a node                    │  resolved once per dispatch,
   short of a locked-memory allocator fixes that.
 - An `env` value has to become a Go `string` to reach the Docker API, which takes `[]string`.
   Every other path keeps it as `[]byte` and zeroes it.
+- File secrets are staged on the node's disk and bind-mounted in, so they keep the node's
+  ownership inside the container — a bind mount does not remap uids on a native Linux engine.
+  The node cannot know which user a task image runs as, and every capability is dropped, so a
+  mode of `0400` would be a secret the task could not read. They are `0444` inside a `0700`
+  directory instead: the directory is what withholds the plaintext from other users on the
+  node, and the read-only mount is what stops the container writing it back. **Anything that
+  can read a file inside the task container can read the secret**, which is the same bargain
+  Docker Swarm (`0444`) and Kubernetes (`0644`) publish secrets under.
 - File secrets are shredded at teardown: chmod writable, overwritten with zeroes, `fsync`ed,
   unlinked, directory removed.
 - `Assign` is re-resolved on every dispatch, so a node that reconnects and is re-assigned gets a
