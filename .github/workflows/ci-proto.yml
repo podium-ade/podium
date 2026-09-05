@@ -1,0 +1,66 @@
+name: ci / proto
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "internal/proto/**"
+      - "web/src/gen/**"
+      - "web/package.json" # protoc-gen-es is pinned here
+      - "web/pnpm-lock.yaml"
+      - ".github/workflows/ci-proto.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  proto:
+    name: buf lint / breaking / generate
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.72.0
+          github_token: ${{ github.token }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install protoc plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0
+      - run: make proto-lint
+      - name: Breaking-change check
+        run: make proto-breaking
+      # protoc-gen-es (Connect-ES v2 has no protoc-gen-connect-es) comes from web/node_modules,
+      # which `make proto` installs; the TS half of the client is committed just like the Go half.
+      - name: Generated code is up to date
+        run: |
+          make proto
+          git diff --exit-code -- internal/proto web/src/gen

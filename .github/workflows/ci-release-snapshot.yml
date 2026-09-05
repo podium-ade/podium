@@ -1,0 +1,73 @@
+name: ci / release snapshot
+
+# The same artifacts release.yml produces, built and thrown away, so a broken
+# .goreleaser.yaml is found before the tag rather than on it. At ~10 billable minutes it is
+# the most expensive job in the repo, so it no longer runs on every pull request: only when
+# a change can actually break it, plus once a week.
+#
+# Images are deliberately not built: that needs qemu, buildx and a registry login, and none
+# of it can be verified without pushing.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".goreleaser.yaml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/ci-release-snapshot.yml"
+      - "go.mod"
+      - "Makefile"
+      - "LICENSE"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: release snapshot (no publish)
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # `make web` is a goreleaser before-hook: the server binary embeds web/dist. This is
+      # also the only place CI links the real UI into the binaries, now that ci-go.yml
+      # builds against the committed web/dist placeholder.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # Podium has no licence yet. This is a warning here and a hard failure in
+      # release.yml, so the state is visible without blocking development.
+      - name: LICENSE placeholder check
+        run: |
+          if grep -qi 'TODO' LICENSE; then
+            echo "::warning file=LICENSE::LICENSE is still a TODO placeholder. \
+          release.yml refuses to publish until a real licence is chosen."
+          fi
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=docker,publish,sign,sbom
+      - name: Artifact listing
+        run: ls -la dist/ && cat dist/checksums.txt
