@@ -3,9 +3,12 @@ import { NavLink, Navigate, Route, Routes } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
+import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProviderKeyCard } from "../components/agent/ProviderKeyCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
+import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
+import { useToast } from "../components/Toast";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 
@@ -22,6 +25,8 @@ type Tab = { path: string; label: string; element: ReactNode; route?: string };
 
 const tabs: Tab[] = [
   { path: "settings", label: "Settings", element: <SettingsTab /> },
+  { path: "profile", label: "Profile", element: <ProfileTab /> },
+  { path: "skills", label: "Skills", element: <SkillsPanel /> },
   { path: "sessions", label: "Sessions", element: <SessionsTable /> },
   { path: "memory", label: "Memory", element: <MemoryPanel /> },
   { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*" },
@@ -118,6 +123,54 @@ function SettingsTab() {
         way to read a stored secret back — the last four characters above were kept at save
         time, and that is all any part of the UI ever sees of it.
       </p>
+    </div>
+  );
+}
+
+/**
+ * ProfileTab owns the profile RPCs. The card is presentational, and it is remounted by key
+ * whenever the stored profile changes so its fields re-seed from what the server actually
+ * holds rather than from what was typed before the last save.
+ */
+function ProfileTab() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const profile = useQuery({
+    queryKey: ["agent", "profile"],
+    queryFn: () => agent.getProfile({}),
+  });
+
+  const save = useMutation({
+    mutationFn: (fields: ProfileFields) => agent.updateProfile(fields),
+    onSuccess: async () => {
+      toast("Profile saved. It applies to the next turn.", "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "profile"] });
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
+  if (profile.isError && !isAgentUnreachable(profile.error)) {
+    return <Empty title="Could not read the agent profile" hint={errorMessage(profile.error)} />;
+  }
+
+  const p = profile.data?.profile;
+  const skills = (profile.data?.skills ?? []).filter((s) => !s.shadowed).map((s) => s.name);
+
+  return (
+    <div className="space-y-4">
+      {isAgentUnreachable(profile.error) ? (
+        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
+        </p>
+      ) : null}
+      <ProfileCard
+        key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
+        profile={p}
+        skills={skills}
+        loading={profile.isPending}
+        saving={save.isPending}
+        onSave={(fields) => save.mutate(fields)}
+      />
     </div>
   );
 }
