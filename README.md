@@ -285,7 +285,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic or xAI credential exists here, so every turn ever run was a dry run |
-| Grok backend: xAI keys, subscription sign-in, per-skill agent/model/effort | ✅ | ⚠️ unit- and integration-tested against fakes. **Nothing has reached `api.x.ai` or `auth.x.ai`** |
+| Grok backend: xAI keys, subscription sign-in, per-skill agent/model/effort | ✅ | ⚠️ key validation proved against the **real `api.x.ai`** (a bad key, refused, xAI's own words on the card). No turn has run on a Grok model, and **`auth.x.ai` has never been reached** |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -449,15 +449,18 @@ a real Docker engine. What has **not** happened:
   and it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
   around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
   turn to write a pull request.**
-- **The Grok backend has never talked to xAI.** Both halves are written against the published
-  behaviour and driven by fakes: that `api.x.ai` serves an Anthropic-compatible `/v1/messages`
-  the Claude Agent SDK can be pointed at, and the device-code sign-in against `auth.x.ai`. Two
-  specific unknowns. xAI publishes no shared OAuth client id for third-party tools, so
-  `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has **no default** and the sign-in is off until one is
-  registered — and xAI has been reported to allow-list its OAuth API surface, so a sign-in can
-  succeed and still produce a token the API refuses. The poll that stores a credential validates
-  it against the API for exactly that reason, and says so on the card. The API key path has the
-  same shape as the Anthropic one and is the one to prefer until this is proved.
+- **Grok: key validation is proved against the live API; nothing else about xAI is.**
+  `SetProviderKey` was run against the real `api.x.ai` with a bad key, and xAI's own refusal —
+  *"Incorrect API key provided. You can obtain an API key from https://console.x.ai."* — came
+  back through the error detail and onto the card. That is the whole of what has been proved.
+  **No turn has run against a Grok model**, so the claim this backend rests on — that
+  `api.x.ai` serves an Anthropic-shaped `/v1/messages` the Claude Agent SDK can be pointed at —
+  is still taken from documentation. And **the subscription sign-in has never run**: xAI
+  publishes no shared OAuth client id for third-party tools, so
+  `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has **no default** and the flow is off until one is
+  registered. xAI has been reported to allow-list its OAuth API surface, so a sign-in can
+  succeed and still yield a token the API refuses; the poll that stores a credential validates
+  it against the API for exactly that reason, and says so on the card.
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.
