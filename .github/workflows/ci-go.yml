@@ -1,0 +1,80 @@
+name: ci / go
+
+# Path-filtered so a docs- or web-only change costs nothing. A merge to main does NOT
+# re-run this: the pull_request run already tested that exact code. The weekly cron is
+# the backstop that catches drift, flakes and skew between two separately-green PRs.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "test/**"
+      - "examples/**" # examples_test.go reads the yaml next to it
+      - "deploy/**" # deploy/env_test.go reads the compose files
+      - "proto/**"
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".golangci.yml"
+      - "sqlc.yaml"
+      - ".github/workflows/ci-go.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first. During heavy iteration this is the
+# single largest saving: three pushes in ten minutes cost one run, not three.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: lint / test / build
+    # Drafts are skipped. Mark the PR ready for review, add the `ci` label, or use
+    # workflow_dispatch to force a run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.13.2
+      - run: make lint
+      - run: make test
+      # Both halves of the embed switch. The default build compiles web/embed.go against the
+      # committed web/dist placeholder, so no Node is needed here; the release-snapshot
+      # workflow is what builds the real UI and links it in.
+      - name: Build (embedded UI placeholder)
+        run: go build ./...
+      - name: Go-only build (no UI)
+        run: go build -tags noui ./...
+
+  integration:
+    name: integration tests
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make test-integration

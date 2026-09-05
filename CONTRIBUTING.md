@@ -166,9 +166,16 @@ These exist because a developer's Docker engine is shared with the rest of their
 - One logical change per commit. Subject in the imperative: `fix(node): release a slot when a
   task reaches a terminal status`.
 - The PR template asks what you ran. Fill it in with the actual output, not a claim.
-- CI runs `proto`, `lint / test / build`, `web`, `integration` and a release snapshot. `make e2e`
-  is **not** in CI (it needs a Docker engine CI does not reliably have), so run it locally and say
-  that you did.
+- CI is path-filtered and runs on pull requests only, never on the push to main that a merge
+  produces. Go changes run `lint / test / build` and `integration`; `web/**` runs the web checks;
+  `proto/**` runs buf lint, breaking and the generated-code check; the release snapshot runs only
+  when `.goreleaser.yaml`, `release.yml`, `go.mod`, `Makefile` or `LICENSE` change. Everything runs
+  once a week on main, and on `workflow_dispatch`.
+- **Draft PRs do not run CI.** Mark the PR ready for review, add the `ci` label, or dispatch the
+  workflow by hand. Pushing again to a branch cancels the run still in flight.
+- `make e2e` is **not** in CI (it needs a Docker engine CI does not reliably have), so run it
+  locally and say that you did. Neither is `make build` with a real UI — the release snapshot is
+  the only job that links `web/dist` into the binaries.
 
 ## Known flake
 
