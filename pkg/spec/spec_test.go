@@ -430,3 +430,42 @@ func TestProtoRoundTripWithSecrets(t *testing.T) {
 	// which is what makes a stored tasks.spec safe to read.
 	assert.Nil(t, in.ToProto().GetSecrets()[0].ProtoReflect().Descriptor().Fields().ByName("value"))
 }
+
+// TestParseSidecarPrivilegedAndSharedWorkspace covers the two dind fields. Validation
+// lets `privileged: true` through on purpose: whether the machine will host such a
+// container is the node operator's answer, made with --allow-privileged-sidecars, and a
+// parser that refused it here would make the field unreachable everywhere.
+func TestParseSidecarPrivilegedAndSharedWorkspace(t *testing.T) {
+	const doc = `
+image: docker:28-dind
+command: ["docker", "-H", "tcp://dind:2375", "info"]
+labels: [privileged]
+sidecars:
+  dind:
+    image: docker:28-dind
+    privileged: true
+    share_workspace: true
+    env:
+      DOCKER_TLS_CERTDIR: ""
+    readiness:
+      tcp_port: 2375
+`
+	got, err := ParseTaskSpec(strings.NewReader(doc))
+	require.NoError(t, err)
+	require.Contains(t, got.Sidecars, "dind")
+	assert.True(t, got.Sidecars["dind"].Privileged)
+	assert.True(t, got.Sidecars["dind"].ShareWorkspace)
+	assert.Equal(t, 2375, got.Sidecars["dind"].Readiness.TCPPort)
+}
+
+// TestParseSidecarDefaultsToUnprivileged: absent means false, and a misspelling is an
+// error rather than a silently ignored key.
+func TestParseSidecarDefaultsToUnprivileged(t *testing.T) {
+	got, err := ParseTaskSpec(strings.NewReader("image: alpine:3\nsidecars:\n  db:\n    image: redis:7-alpine\n"))
+	require.NoError(t, err)
+	assert.False(t, got.Sidecars["db"].Privileged)
+	assert.False(t, got.Sidecars["db"].ShareWorkspace)
+
+	_, err = ParseTaskSpec(strings.NewReader("image: alpine:3\nsidecars:\n  db:\n    image: redis:7-alpine\n    privilged: true\n"))
+	require.ErrorContains(t, err, "privilged")
+}

@@ -48,7 +48,7 @@ A task is somebody else's code. Podium sandboxes it:
 | Privilege escalation | `no-new-privileges:true`, always |
 | Seccomp | the engine's default profile. `unconfined` is deliberately not a spec field |
 | Docker socket | never mounted into a task. Asserted by a test |
-| `--privileged` | never set. Asserted by a test |
+| `--privileged` | never set on a task container. Asserted by a test. A *sidecar* can be, but only where the node's operator allowed it — see below |
 | Root filesystem | read-only on request (`hardening.read_only_rootfs`), with a 1 GB tmpfs on `/tmp` so images still work |
 | Memory | `memory_mb`, with swap pinned to the same number, so exceeding it is an OOM kill and not a swapped-out machine |
 | PIDs | `resources.pids`, default 4096 |
@@ -71,7 +71,8 @@ What that does **not** buy you:
   task, not only an agent one. Sidecars deliberately do not get the entry.
 - **Sidecars are not hardened like the task container.** They keep their capabilities and their
   writable root filesystem, because a stock database image chowns files and drops privileges on
-  the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task.
+  the way up and breaks under `CapDrop: ALL`. A sidecar image is as trusted as the task. One of
+  them can go further still — see *A privileged sidecar* below.
 - **The runner event socket is reachable by every process in the container**, so that a task
   image running as a non-root user can report at all. The node sets the socket to mode 0666 on
   the host, which is what a native Linux engine carries into the container. Docker Desktop does
@@ -93,6 +94,40 @@ What that does **not** buy you:
   somewhere — Slack, Linear, a web chat — must treat the text as untrusted content from an
   untrusted process, exactly as it would treat a log line.** Relay it; never interpret it, never
   execute it, never let it name the channel it is posted to.
+
+### A privileged sidecar — a Docker daemon beside the task
+
+A sidecar with `privileged: true` runs with every capability, an unconfined seccomp and AppArmor
+profile, and the host's devices. **That is root on the node's kernel.** It can load a kernel
+module, read any block device, and reach the node's own Docker socket by opening
+`/var/run/docker.sock` on a device it mounts itself. Nothing in the table above applies to it.
+It exists so a task can run `docker compose`, build images and use testcontainers, which needs a
+real daemon; there is no lesser privilege that starts one.
+
+**The gate is the node's, not the spec's.** A spec can only ask. A node honours the request only
+when its operator started the daemon with `--allow-privileged-sidecars`
+(`PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS`), which is **off by default**; a node that did not fails
+the task at provisioning, with an error that names the sidecar and the flag and is deliberately
+not retryable. That is the whole boundary: whoever configures the machine decides, and a task
+author cannot opt in from a YAML file.
+
+Two things this does not do, and one to keep in mind:
+
+- **It does not harden the task container.** The task stays under `CapDrop: ALL`. It reaches the
+  daemon over TCP on the task's own bridge, so anything it can make the daemon do it does at the
+  daemon's privilege, not its own. **A task with a dind sidecar is effectively root on the node**;
+  the sandbox around the task container buys nothing once it can drive that daemon.
+- **It does not restrict placement.** Podium schedules on labels and knows nothing about which
+  nodes allow privilege. Pair the flag with a label — `--allow-privileged-sidecars --labels
+  privileged`, and a spec that requires `labels: [privileged]` — so a privileged task reaches
+  the machine you meant and no other task ends up sharing it.
+- Run the flag on a node **dedicated to it**. A machine that hosts one privileged sidecar hosts
+  every other task on that machine at the same risk, because a container escape from the
+  privileged one owns the node and everything else running on it.
+
+`no-new-privileges` is kept even on a privileged sidecar. It buys little against a container that
+already holds every capability, and it costs nothing: `docker:28-dind` starts and runs nested
+containers under it, which is asserted by an integration test.
 
 ### 4. Anyone who can reach the API — **fully trusted, because there is no RBAC**
 
@@ -523,6 +558,10 @@ Everything below is a real hole, not a hypothetical:
   host, plus gid 0 as a supplementary group on the container so a non-root image can open it at
   all — so a task can forge `step`, `artifact` and `message` events.
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
+- **A node started with `--allow-privileged-sidecars` runs a spec's chosen image as root on its
+  own kernel**, and every other task on that machine shares the consequences of an escape. The
+  flag is off by default; nothing but an operator's care keeps a privileged node from also
+  taking ordinary work.
 - **`podium node rm` does not revoke anything** — it forgets a node whose daemon keeps dialling.
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
 - **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
