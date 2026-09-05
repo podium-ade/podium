@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/alvaroibarguen/podium/pkg/spec"
@@ -221,7 +222,8 @@ exit 1`, shellQuote(url), probeMissingTool)
 
 // execProbe runs cmd inside the container and reports its exit status. An image with no
 // shell — or no such binary — fails the exec outright, which becomes errProbeUnsupported
-// rather than a probe that is retried until the timeout.
+// rather than a probe that is retried until the timeout. Anything else that goes wrong on
+// the way to the engine stays retryable; see execProbeError.
 func (e *Executor) execProbe(ctx context.Context, cid string, cmd []string) (int, []byte, error) {
 	created, err := e.cli.ContainerExecCreate(ctx, cid, container.ExecOptions{
 		Cmd:          cmd,
@@ -229,12 +231,12 @@ func (e *Executor) execProbe(ctx context.Context, cid string, cmd []string) (int
 		AttachStderr: true,
 	})
 	if err != nil {
-		return 0, nil, fmt.Errorf("%w: %w", errProbeUnsupported, err)
+		return 0, nil, execProbeError(err)
 	}
 
 	attached, err := e.cli.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{})
 	if err != nil {
-		return 0, nil, fmt.Errorf("%w: %w", errProbeUnsupported, err)
+		return 0, nil, execProbeError(err)
 	}
 	defer attached.Close()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -251,6 +253,42 @@ func (e *Executor) execProbe(ctx context.Context, cid string, cmd []string) (int
 		return 0, nil, fmt.Errorf("inspect readiness probe: %w", err)
 	}
 	return insp.ExitCode, []byte(out.String()), nil
+}
+
+// probeUnrunnable is the engine's vocabulary for "this image cannot run that at all".
+// runc and the containerd shim both end up in one of these when the binary an exec names
+// is missing, is not a binary, or was built for another architecture.
+var probeUnrunnable = []string{
+	"executable file not found",
+	"no such file or directory",
+	"exec format error",
+}
+
+// execProbeError classifies a failure of the exec API.
+//
+// Only an image that cannot answer the probe at all is errProbeUnsupported, because
+// waitReady reads that as permanent and abandons the wait the moment it sees one. A slow
+// engine, a socket that dropped, or this attempt's own probeTimeout is a probe that has
+// not answered YET — the readiness budget exists to be spent on exactly that — and
+// reporting it as "not supported by this image" is a wrong diagnosis that also gives up
+// early. Every one of those stays retryable.
+func execProbeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	// Transport trouble is checked first on purpose: a missing Docker socket fails with
+	// "connect: no such file or directory", which is the engine being absent and not the
+	// image being unable to run a shell.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		client.IsErrConnectionFailed(err) {
+		return err
+	}
+	for _, s := range probeUnrunnable {
+		if strings.Contains(err.Error(), s) {
+			return fmt.Errorf("%w: %w", errProbeUnsupported, err)
+		}
+	}
+	return err
 }
 
 func (e *Executor) containerRunning(ctx context.Context, cid string) (bool, error) {
