@@ -87,10 +87,13 @@ podium run --secret DEPLOY_KEY:file:/podium/secrets/key      # a file
 - `target: env` puts the value in an environment variable. `key` must be a shell identifier.
   Secret variables are appended after the spec's own `env` block, so a secret always wins
   over a plaintext `env` entry of the same name.
-- `target: file` writes the value to `key` inside the container, mode `0400`, mounted
+- `target: file` writes the value to `key` inside the container, mode `0444`, mounted
   read-only. `key` must be an absolute, clean path. Put it under `/podium/secrets/`: that is
   a `noexec,nosuid`, 1 MB tmpfs every task container already has, so the value lives in
-  memory and dies with the container.
+  memory and dies with the container. The file is world-readable because the node cannot
+  know which user your image runs as, and a bind mount keeps the node's ownership; on the
+  node itself the enclosing directory is `0700`. Anything that can read a file in your
+  container can read the secret, which is the same rule Docker and Kubernetes secrets follow.
 - The values are resolved by the server immediately before the task is assigned, travel
   inside the `Assign` message, and exist on the node only for as long as the container runs.
   They are never written to `tasks.spec`, never returned by any API, and never logged.

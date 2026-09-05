@@ -185,7 +185,8 @@ Default `/var/lib/podium-node`. **Local disk, never a network share.**
   tasks/<task_id>/
     events.sock                     the runner's event socket
     node-state.json                 the seq/offset bookmark, a fallback for reconciliation
-    secrets/NN-<name>               file-target secrets, 0400, shredded at teardown
+    secrets/NN-<name>               file-target secrets, 0444 inside a 0700 dir,
+                                    shredded at teardown
 ```
 
 It is I/O heavy in the way a socket and a lot of small writes are heavy, not in bytes. What

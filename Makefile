@@ -136,8 +136,12 @@ proto-lint:
 	buf lint
 
 # No-op until main has a committed proto history to compare against.
+# Against origin/main, not main: `actions/checkout` leaves a detached HEAD and no local
+# `main` branch, so `#branch=main` fails there with "couldn't find remote ref main" while
+# working fine on a developer's machine. The remote-tracking ref exists in both places —
+# CI sets fetch-depth: 0 so it is fetched.
 proto-breaking:
-	buf breaking --against '.git#branch=main'
+	buf breaking --against '.git#ref=origin/main'
 
 fmt:
 	golangci-lint fmt
