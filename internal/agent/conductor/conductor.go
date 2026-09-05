@@ -341,6 +341,10 @@ func (c *Conductor) brief(
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
+	// One resolution for the whole brief: the override, then the skill, then the profile.
+	// taskSpec resolves the same way for the credential, so the two cannot disagree about
+	// which backend this turn is running on.
+	choice := profile.Resolve(skill, ev.Override)
 	b := &Brief{
 		Version:   BriefVersion,
 		SessionID: sess.ID,
@@ -350,9 +354,9 @@ func (c *Conductor) brief(
 			Name:         profile.Name,
 			DisplayName:  profile.DisplayName,
 			SystemPrompt: profile.SystemPrompt,
-			Model:        profile.ModelFor(skill),
-			Agent:        profile.AgentFor(skill),
-			Effort:       profile.EffortFor(skill),
+			Model:        choice.Model,
+			Agent:        choice.Agent,
+			Effort:       choice.Effort,
 		},
 		Skill: BriefSkill{
 			Name:         skill.Name,
@@ -364,7 +368,7 @@ func (c *Conductor) brief(
 		Instruction: ev.Text,
 		Memory:      c.memory,
 	}
-	if p := c.providerFor(b.Profile.Agent); p != nil {
+	if p := c.providerFor(choice.Agent); p != nil {
 		b.Provider = p
 	}
 	for _, r := range skill.Repos {
@@ -416,7 +420,7 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 		Resources: skill.Resources,
 		Timeout:   skill.Timeout,
 		Secrets: append(append([]spec.SecretRef(nil), skill.Secrets...),
-			c.reservedSecrets(c.profiles.Current().AgentFor(skill))...),
+			c.reservedSecrets(c.profiles.Current().Resolve(skill, ev.Override).Agent)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.

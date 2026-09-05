@@ -92,6 +92,7 @@ export function SkillsPanel() {
     return (
       <SkillEditor
         skill={target}
+        readOnly={target !== undefined && !target.editable}
         agents={agents}
         profileDefault={{
           agent: profile.data?.profile?.agent ?? "",
@@ -199,19 +200,20 @@ export function SkillsPanel() {
                   <p className="text-xs text-muted">{promptHint(s.systemPrompt)}</p>
                 ) : null}
               </div>
-              {s.editable ? (
-                <button
-                  type="button"
-                  aria-label={`Edit ${s.name}`}
-                  onClick={() => {
-                    setSaveError(undefined);
-                    setEditing({ skill: s });
-                  }}
-                  className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
-                >
-                  Edit
-                </button>
-              ) : null}
+              {/* A file skill opens too, read-only. It cannot be changed here — the files
+                  win — but "you may not edit this" and "you may not look at this" are very
+                  different rules, and only the first one was ever intended. */}
+              <button
+                type="button"
+                aria-label={`${s.editable ? "Edit" : "View"} ${s.name}`}
+                onClick={() => {
+                  setSaveError(undefined);
+                  setEditing({ skill: s });
+                }}
+                className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+              >
+                {s.editable ? "Edit" : "View"}
+              </button>
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-1.5">

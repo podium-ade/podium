@@ -2012,7 +2012,15 @@ type Skill struct {
 	// contract: the prompt is the operator's own file.
 	Hint string `protobuf:"bytes,3,opt,name=hint,proto3" json:"hint,omitempty"`
 	// chat_default is true for the skill a new chat message uses when nothing else picks one.
-	ChatDefault   bool `protobuf:"varint,4,opt,name=chat_default,json=chatDefault,proto3" json:"chat_default,omitempty"`
+	ChatDefault bool `protobuf:"varint,4,opt,name=chat_default,json=chatDefault,proto3" json:"chat_default,omitempty"`
+	// agent, model and effort are what a turn of this skill runs on with no override:
+	// RESOLVED, so the skill's own value or the profile's, never empty for agent and model.
+	// The composer shows them as what "the skill's" means before anything is picked.
+	Agent string `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model string `protobuf:"bytes,6,opt,name=model,proto3" json:"model,omitempty"`
+	// effort is empty when neither the skill nor the profile names one, which means the
+	// model's own default.
+	Effort        string `protobuf:"bytes,7,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2073,6 +2081,27 @@ func (x *Skill) GetChatDefault() bool {
 		return x.ChatDefault
 	}
 	return false
+}
+
+func (x *Skill) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *Skill) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *Skill) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
 }
 
 type ListSkillsRequest struct {
@@ -2783,7 +2812,20 @@ type SendChatMessageRequest struct {
 	// intent. Empty leaves the choice to a leading /skill in the text, then to
 	// profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
 	// not a skill selector: it stays in the text.
-	Skill         string `protobuf:"bytes,3,opt,name=skill,proto3" json:"skill,omitempty"`
+	Skill string `protobuf:"bytes,3,opt,name=skill,proto3" json:"skill,omitempty"`
+	// agent, model and effort override what the skill runs on, for THIS message only.
+	//
+	// They exist so that "which job" and "what runs it" are two choices instead of one. A
+	// skill's own values are a default, not a fixture: without this, the only way to ask the
+	// same skill on a different model is a second skill that differs by one field, and a
+	// profile fills up with near-duplicates.
+	//
+	// Empty means the skill's, then the profile's. The three are validated together against
+	// the same catalogue a skill is, so a level the chosen model does not accept is refused
+	// here rather than failing the turn.
+	Agent         string `protobuf:"bytes,4,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model         string `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`
+	Effort        string `protobuf:"bytes,6,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2835,6 +2877,27 @@ func (x *SendChatMessageRequest) GetText() string {
 func (x *SendChatMessageRequest) GetSkill() string {
 	if x != nil {
 		return x.Skill
+	}
+	return ""
+}
+
+func (x *SendChatMessageRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *SendChatMessageRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *SendChatMessageRequest) GetEffort() string {
+	if x != nil {
+		return x.Effort
 	}
 	return ""
 }
@@ -4174,12 +4237,15 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x17.podium.agent.v1.MemoryR\x05items\"%\n" +
 	"\x13DeleteMemoryRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
-	"\x14DeleteMemoryResponse\"h\n" +
+	"\x14DeleteMemoryResponse\"\xac\x01\n" +
 	"\x05Skill\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x12\n" +
 	"\x04hint\x18\x03 \x01(\tR\x04hint\x12!\n" +
-	"\fchat_default\x18\x04 \x01(\bR\vchatDefault\"\x13\n" +
+	"\fchat_default\x18\x04 \x01(\bR\vchatDefault\x12\x14\n" +
+	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x14\n" +
+	"\x05model\x18\x06 \x01(\tR\x05model\x12\x16\n" +
+	"\x06effort\x18\a \x01(\tR\x06effort\"\x13\n" +
 	"\x11ListSkillsRequest\"v\n" +
 	"\x12ListSkillsResponse\x12.\n" +
 	"\x06skills\x18\x01 \x03(\v2\x16.podium.agent.v1.SkillR\x06skills\x120\n" +
@@ -4225,11 +4291,14 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x11ListChatsResponse\x12+\n" +
 	"\x05chats\x18\x01 \x03(\v2\x15.podium.agent.v1.ChatR\x05chats\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"[\n" +
+	"nextCursor\"\x9f\x01\n" +
 	"\x16SendChatMessageRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
-	"\x05skill\x18\x03 \x01(\tR\x05skill\"Q\n" +
+	"\x05skill\x18\x03 \x01(\tR\x05skill\x12\x14\n" +
+	"\x05agent\x18\x04 \x01(\tR\x05agent\x12\x14\n" +
+	"\x05model\x18\x05 \x01(\tR\x05model\x12\x16\n" +
+	"\x06effort\x18\x06 \x01(\tR\x06effort\"Q\n" +
 	"\x17SendChatMessageResponse\x126\n" +
 	"\amessage\x18\x01 \x01(\v2\x1c.podium.agent.v1.ChatMessageR\amessage\"G\n" +
 	"\x11StreamChatRequest\x12\x17\n" +

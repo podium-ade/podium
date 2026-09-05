@@ -165,6 +165,17 @@ func (b Backend) FindModel(id string) (Model, bool) {
 	return Model{}, false
 }
 
+// backendOf is the backend that offers this model, or false. A model id is unique across
+// the catalogue, which is what makes "picking a model picks its backend" well defined.
+func backendOf(model string) (Backend, bool) {
+	for _, b := range Backends {
+		if _, ok := b.FindModel(model); ok {
+			return b, true
+		}
+	}
+	return Backend{}, false
+}
+
 // AgentNames is every backend id, for an error message.
 func AgentNames() []string {
 	out := make([]string, 0, len(Backends))
@@ -176,6 +187,39 @@ func AgentNames() []string {
 
 // Efforts is every level any model here accepts, weakest first.
 var Efforts = anthropicEfforts
+
+// Choice is what a turn actually runs on. Every field is resolved: Agent and Model are
+// never empty, and Effort is empty only when nothing anywhere named one, which means the
+// model's own default.
+type Choice struct {
+	Agent  string
+	Model  string
+	Effort string
+}
+
+// Override is a per-turn choice of backend, model and effort. Every field is optional and
+// an empty one means "whatever the level below says" — the skill, then the profile.
+//
+// It exists so that "which job" and "what runs it" are two decisions rather than one. A
+// skill's model is a default; without an override the only way to run one skill on another
+// model is a second skill that differs by a single field.
+type Override struct {
+	Agent  string
+	Model  string
+	Effort string
+}
+
+// Empty reports whether this override asks for nothing.
+func (o Override) Empty() bool { return o.Agent == "" && o.Model == "" && o.Effort == "" }
+
+// ValidateOverride holds a per-turn override to the same catalogue a skill is held to. It
+// is the API boundary's check: a level the chosen model does not accept is refused when it
+// is asked for, not when the turn fails.
+//
+// The override is checked on its own terms, so a caller that names only an effort is checked
+// against the model it will inherit — which is why Resolve runs first and this takes the
+// resolved triple.
+func ValidateOverride(c Choice) error { return validateTriple(c.Agent, c.Model, c.Effort) }
 
 // validAgent refuses an agent id that names no backend. An empty id means "the default"
 // everywhere and is always fine.

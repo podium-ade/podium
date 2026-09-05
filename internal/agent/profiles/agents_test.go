@@ -130,3 +130,71 @@ func TestAProfileRefusesAnInheritedEffortItsSkillsModelCannotTake(t *testing.T) 
 	assert.Contains(t, err.Error(), `skill "coder"`)
 	assert.Contains(t, err.Error(), `effort "max" is not one grok-4.6 accepts`)
 }
+
+// Resolve is where "which job" and "what runs it" stop being one decision, so its ordering
+// is worth pinning precisely.
+func TestResolveAppliesTheOverrideOverTheSkillOverTheProfile(t *testing.T) {
+	p := &Profile{Agent: AgentClaude, Model: "claude-opus-5", Effort: EffortHigh}
+	skill := Skill{Model: "claude-sonnet-5"}
+
+	t.Run("no override is the skill then the profile", func(t *testing.T) {
+		got := p.Resolve(skill, Override{})
+		assert.Equal(t, Choice{AgentClaude, "claude-sonnet-5", EffortHigh}, got)
+	})
+
+	t.Run("a model alone brings its own backend", func(t *testing.T) {
+		// Picking grok-4.6 is picking Grok. There is no other reading of it, and leaving
+		// agent=claude would be a request no provider can serve.
+		got := p.Resolve(skill, Override{Model: "grok-4.6"})
+		assert.Equal(t, AgentGrok, got.Agent)
+		assert.Equal(t, "grok-4.6", got.Model)
+	})
+
+	t.Run("a backend alone brings its own default model", func(t *testing.T) {
+		// Otherwise the turn would ask Claude for grok-4.6, or Grok for claude-sonnet-5.
+		got := p.Resolve(skill, Override{Agent: AgentGrok})
+		assert.Equal(t, AgentGrok, got.Agent)
+		assert.Equal(t, "grok-4.6", got.Model)
+	})
+
+	t.Run("an effort alone leaves the model alone", func(t *testing.T) {
+		got := p.Resolve(skill, Override{Effort: EffortLow})
+		assert.Equal(t, Choice{AgentClaude, "claude-sonnet-5", EffortLow}, got)
+	})
+
+	t.Run("all three", func(t *testing.T) {
+		got := p.Resolve(skill, Override{Agent: AgentGrok, Model: "grok-4.5", Effort: EffortMedium})
+		assert.Equal(t, Choice{AgentGrok, "grok-4.5", EffortMedium}, got)
+	})
+}
+
+// An INHERITED effort the newly chosen model cannot take is dropped rather than sent. The
+// human did not ask for it — they changed the model — so refusing the turn would be
+// punishing them for a value they never typed.
+func TestResolveDropsAnInheritedEffortTheNewModelCannotTake(t *testing.T) {
+	p := &Profile{Agent: AgentClaude, Model: "claude-opus-5", Effort: EffortMax}
+	got := p.Resolve(Skill{}, Override{Model: "grok-4.6"})
+	assert.Equal(t, AgentGrok, got.Agent)
+	assert.Empty(t, got.Effort, "max is Anthropic's; grok-4.6 has none, so it falls to the model's default")
+
+	// One both accept survives the move.
+	p.Effort = EffortHigh
+	assert.Equal(t, EffortHigh, p.Resolve(Skill{}, Override{Model: "grok-4.6"}).Effort)
+}
+
+// An effort the caller NAMED is a different matter: they asked for it, so they are told no.
+func TestValidateOverrideRefusesALevelTheChosenModelRejects(t *testing.T) {
+	p := &Profile{Agent: AgentClaude, Model: "claude-opus-5"}
+	bad := p.Resolve(Skill{}, Override{Model: "grok-4.6", Effort: EffortMax})
+	err := ValidateOverride(bad)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `effort "max" is not one grok-4.6 accepts`)
+
+	assert.NoError(t, ValidateOverride(p.Resolve(Skill{}, Override{Model: "grok-4.6", Effort: EffortXHigh})))
+}
+
+func TestAnEmptyOverrideIsEmpty(t *testing.T) {
+	assert.True(t, Override{}.Empty())
+	assert.False(t, Override{Effort: EffortLow}.Empty())
+	assert.False(t, Override{Model: "grok-4.6"}.Empty())
+}

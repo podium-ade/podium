@@ -373,6 +373,14 @@ message Skill {
   string hint = 3;
   // chat_default is true for the skill a new chat message uses when nothing else picks one.
   bool chat_default = 4;
+  // agent, model and effort are what a turn of this skill runs on with no override:
+  // RESOLVED, so the skill's own value or the profile's, never empty for agent and model.
+  // The composer shows them as what "the skill's" means before anything is picked.
+  string agent = 5;
+  string model = 6;
+  // effort is empty when neither the skill nor the profile names one, which means the
+  // model's own default.
+  string effort = 7;
 }
 
 message ListSkillsRequest {}
@@ -472,6 +480,19 @@ message SendChatMessageRequest {
   // profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
   // not a skill selector: it stays in the text.
   string skill = 3;
+  // agent, model and effort override what the skill runs on, for THIS message only.
+  //
+  // They exist so that "which job" and "what runs it" are two choices instead of one. A
+  // skill's own values are a default, not a fixture: without this, the only way to ask the
+  // same skill on a different model is a second skill that differs by one field, and a
+  // profile fills up with near-duplicates.
+  //
+  // Empty means the skill's, then the profile's. The three are validated together against
+  // the same catalogue a skill is, so a level the chosen model does not accept is refused
+  // here rather than failing the turn.
+  string agent = 4;
+  string model = 5;
+  string effort = 6;
 }
 
 message SendChatMessageResponse {

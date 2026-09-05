@@ -38,9 +38,13 @@ const DefaultXAIBaseURL = "https://api.x.ai"
 // {issuer}/.well-known/openid-configuration and are checked back against this host.
 const DefaultXAIOAuthIssuer = "https://auth.x.ai"
 
-// DefaultXAIOAuthScopes is what a sign-in asks for. offline_access is the one that matters:
-// without it the provider issues no refresh token and a human signs in again every hour.
-const DefaultXAIOAuthScopes = "openid profile email offline_access api:access"
+// DefaultXAIOAuthScopes is what a sign-in asks for.
+//
+// Two of these carry weight. offline_access is what makes the provider issue a refresh
+// token; without it a human signs in again every hour. grok-cli:access is what xAI's own
+// CLI asks for, and the reports of the OAuth surface answering 403 to otherwise valid
+// subscribers point at the scope set rather than the subscription — so it is asked for too.
+const DefaultXAIOAuthScopes = "openid profile email offline_access grok-cli:access api:access"
 
 // DefaultMemoryTaskURL is where a TASK CONTAINER reaches Hindsight. It is not where the
 // conductor reaches it: a task runs on a node, on its own bridge network, and gets to the

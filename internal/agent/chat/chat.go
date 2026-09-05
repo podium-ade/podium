@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
@@ -82,6 +83,9 @@ type SendRequest struct {
 	// typing is expressing the later intent. Empty leaves the choice to a leading /skill in
 	// Text, and then to the profile's chat default.
 	Skill string
+	// Override is the composer's model picker: what THIS message runs on, whatever the
+	// skill's own default is. Empty everywhere means the skill decides.
+	Override profiles.Override
 }
 
 // live is what this process knows about a chat that the database does not know yet.
@@ -212,6 +216,7 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		URL:          s.URL(req.ChatID),
 		Skill:        req.Skill,
 		DefaultSkill: s.skill(),
+		Override:     req.Override,
 		BriefKind:    conductor.SourceChat,
 	}
 	select {
