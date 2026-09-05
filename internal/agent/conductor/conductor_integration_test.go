@@ -111,6 +111,11 @@ timeout: 15m
 system_prompt: write the code
 allowed_tools: [Read, Edit, Bash]
 `), 0o600))
+	require.NoError(t, os.WriteFile(dir+"/skills/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
+system_prompt: build podium
+allowed_tools: [Read, Edit, Bash]
+docker: true
+`), 0o600))
 
 	p, err := profiles.Load(dir)
 	require.NoError(t, err)
@@ -532,6 +537,59 @@ func TestTheTaskSpecIsTheSkillPlusTheReservedSecret(t *testing.T) {
 	assert.False(t, brief.TranscriptTruncated)
 	assert.Nil(t, brief.Memory, "step 17 sends no memory block")
 	assert.Empty(t, brief.Repos)
+}
+
+// A skill with `docker: true` gets a whole daemon it never had to describe. The shape is
+// the conductor's, so this asserts every field of it: a half-configured daemon fails in
+// ways that read as the agent's fault.
+func TestADockerSkillGetsADaemonBesideIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "built")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "/dogfood build it")))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	got := fake.Specs()[0]
+	sidecars := got.GetSidecars()
+	require.Len(t, sidecars, 1, "one daemon, attached by the flag alone")
+	dind, ok := sidecars["dind"]
+	require.True(t, ok, "the sidecar is keyed by the name DOCKER_HOST resolves")
+
+	assert.True(t, dind.GetPrivileged(), "dockerd cannot make its own cgroups without it")
+	assert.True(t, dind.GetShareWorkspace(),
+		"a bind source under /workspace must resolve inside the daemon too")
+	assert.Equal(t, "", dind.GetEnv()["DOCKER_TLS_CERTDIR"], "empty is what turns TLS off")
+	assert.Equal(t, int32(2375), dind.GetReadiness().GetTcpPort(),
+		"the turn must not start before the daemon listens")
+	assert.Contains(t, dind.GetImage(), "@sha256:", "the daemon is pinned by digest")
+
+	assert.Equal(t, "tcp://dind:2375", got.GetEnv()["DOCKER_HOST"],
+		"the agent runs plain `docker` and it reaches the sidecar")
+}
+
+// The flag is the whole switch: a skill without it is unchanged, and pays nothing.
+func TestASkillWithoutTheDockerFlagGetsNoSidecar(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "hello")))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	got := fake.Specs()[0]
+	assert.Empty(t, got.GetSidecars())
+	assert.NotContains(t, got.GetEnv(), "DOCKER_HOST")
 }
 
 // A real source may not ask for task environment: the dry-run knobs exist for the dev

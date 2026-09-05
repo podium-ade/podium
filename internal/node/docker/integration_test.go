@@ -48,6 +48,9 @@ func shortTempDir(t *testing.T) string {
 	if parent == "" {
 		parent = "/tmp"
 	}
+	// A relocated parent is a path on a shared volume that nothing has created yet, which
+	// is a confusing way for the whole suite to fail on its first line.
+	require.NoError(t, os.MkdirAll(parent, 0o750))
 	dir, err := os.MkdirTemp(parent, "pdmex")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })

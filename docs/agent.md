@@ -218,6 +218,7 @@ secrets:                                                     # verbatim into the
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # channel IDs this skill is the default for
 linear: false                                                # this is the skill Linear tickets run
+docker: false                                                # attach a Docker daemon beside the turn
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
@@ -231,6 +232,33 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 - **At most one skill may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/skill` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
+- **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
+  it attached. A skill without the flag may set it freely: nothing is attached to collide with.
+
+#### `docker: true`
+
+The turn gets a real Docker daemon of its own. The conductor attaches a `dind` sidecar —
+privileged, sharing the task's `/workspace`, TLS off, pinned by digest — and sets
+`DOCKER_HOST=tcp://dind:2375`. The agent then runs plain `docker`, `docker compose` or a
+testcontainers suite with nothing further to configure. It is what makes a dev stack, and Podium's
+own container tests, possible inside a task.
+
+The daemon is a **sibling, not the node's own**: it is a fresh engine on the task's private
+network, it shares no images with the node, and teardown removes it and its whole image store with
+the task. Nothing the turn builds or runs outlives the turn.
+
+Two things an operator has to know:
+
+- **It only runs on a node started with `--allow-privileged-sidecars`**, which is off by default.
+  A privileged container is root on that node's kernel — see
+  [`security.md`](security.md#a-privileged-sidecar--a-docker-daemon-beside-the-task).
+- **Podium places on labels alone.** It does not know which nodes allow privilege, so a skill with
+  `docker: true` must carry a label the operator also put on those nodes (the example uses
+  `privileged`). A turn that lands on a node without the flag fails at provisioning with a message
+  naming the flag — it does not hang, and it is not retried.
+
+The daemon is not free: it pulls its own images every turn, because its store starts empty. Budget
+memory for it (the example skill asks for 8 GB) and expect a cold pull on the first `docker run`.
 
 ### Which skill runs
 
@@ -730,8 +758,8 @@ data" rule it is a courtesy rather than a control: see
 
 `podium-agent-runtime-dev` is the fourth image `make agent-runtime` builds, and it exists for
 dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
-Node and Docker. No skill in `examples/agent` points at it yet — name it in a skill's `image:`
-when you want one.
+Node and Docker. `examples/agent/skills/podium.yaml` is that skill — it pairs this image with
+`docker: true`, which is what gives the turn the daemon the toolchain expects to find.
 
 On top of the base runtime it carries the toolchain
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks a human for, at the versions this repository is
