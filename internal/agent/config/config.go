@@ -38,6 +38,19 @@ const DefaultXAIBaseURL = "https://api.x.ai"
 // {issuer}/.well-known/openid-configuration and are checked back against this host.
 const DefaultXAIOAuthIssuer = "https://auth.x.ai"
 
+// DefaultXAIOAuthClientID is the OAuth client a subscription sign-in presents.
+//
+// It is xAI's own Grok CLI client, and it is shipped rather than left to the operator
+// because there is nothing for them to do instead: xAI runs no self-service client
+// registration, so every tool that offers this flow presents this same id. A public client
+// cannot hold a secret — that is what PKCE and the device grant are for — so the id is
+// metadata, not a credential.
+//
+// KNOW THIS BEFORE RELYING ON IT: the consent screen a human approves names whoever owns the
+// client id, which is xAI's CLI and not Podium. Setting the variable to the empty string
+// turns the sign-in off and leaves the API key path.
+const DefaultXAIOAuthClientID = "b1a00492-073a-47ea-816f-4c329264a828"
+
 // DefaultXAIOAuthScopes is what a sign-in asks for.
 //
 // Two of these carry weight. offline_access is what makes the provider issue a refresh
@@ -107,10 +120,11 @@ type Config struct {
 	XAIBaseURL string
 	// XAIOAuthIssuer is PODIUM_AGENT_XAI_OAUTH_ISSUER, default https://auth.x.ai.
 	XAIOAuthIssuer string
-	// XAIOAuthClientID is PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: the OAuth client id of a public
-	// desktop client registered with xAI. Empty — the default — turns the subscription
-	// sign-in off and leaves the API key path, which is a supported configuration. It is
-	// public OAuth client metadata and not a secret, so it is logged like any other field.
+	// XAIOAuthClientID is PODIUM_AGENT_XAI_OAUTH_CLIENT_ID, default
+	// DefaultXAIOAuthClientID. Set it to the EMPTY STRING to turn the subscription sign-in
+	// off and leave the API key path, which is a supported configuration; leaving the
+	// variable unset gets the default. It is public OAuth client metadata and not a secret,
+	// so it is logged like any other field.
 	XAIOAuthClientID string
 	// XAIOAuthScopes is PODIUM_AGENT_XAI_OAUTH_SCOPES, default DefaultXAIOAuthScopes.
 	XAIOAuthScopes string
@@ -162,7 +176,7 @@ func FromEnv() Config {
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
 		XAIBaseURL:       envOr("PODIUM_AGENT_XAI_BASE_URL", DefaultXAIBaseURL),
 		XAIOAuthIssuer:   envOr("PODIUM_AGENT_XAI_OAUTH_ISSUER", DefaultXAIOAuthIssuer),
-		XAIOAuthClientID: os.Getenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID"),
+		XAIOAuthClientID: envOrUnset("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", DefaultXAIOAuthClientID),
 		XAIOAuthScopes:   envOr("PODIUM_AGENT_XAI_OAUTH_SCOPES", DefaultXAIOAuthScopes),
 		MemoryURL:        os.Getenv("PODIUM_AGENT_MEMORY_URL"),
 		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
@@ -387,6 +401,16 @@ func absoluteURL(name, raw string) error {
 		return fmt.Errorf("%s=%q must be scheme://host:port with no path", name, raw)
 	}
 	return nil
+}
+
+// envOrUnset is envOr for a variable whose empty value MEANS something. envOr cannot express
+// "off", because it reads an empty value as absent; this one only falls back when the
+// variable is not set at all, so `VAR=` is a deliberate empty rather than a default.
+func envOrUnset(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return fallback
 }
 
 func envOr(key, fallback string) string {

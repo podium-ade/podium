@@ -62,6 +62,9 @@ func (s *AgentService) GetProfile(
 		}
 		def := skillToProto(row.Skill)
 		def.Shadowed = true
+		// A shadowed row never runs and writing to it would write to the wrong half, so it
+		// stays the one thing this screen shows and will not edit. Delete is what it is for.
+		def.Editable = false
 		def.UpdatedBy = row.UpdatedBy
 		def.UpdatedAt = timestamppb.New(row.UpdatedAt)
 		out = append(out, def)
@@ -127,9 +130,14 @@ func (s *AgentService) UpdateProfile(
 	}), nil
 }
 
-// CreateSkill stores a new skill. A name skills/*.yaml already defines is refused: the
-// files are authoritative for the names they hold, so a stored skill of that name would
-// never run and storing one would only be a way to be confused later.
+// CreateSkill stores a new skill in the database. A name a skills/*.yaml already defines is
+// refused, because a name is one skill: the answer to "I want to change that one" is now to
+// edit it, which UpdateSkill does in place whichever half it lives in.
+//
+// A new skill goes to the database rather than to a file. That is the one place the two
+// halves still differ, and it is a choice about which is the surprising default: writing a
+// file into somebody's profile directory the first time they press Create is a bigger
+// assumption than storing a row.
 func (s *AgentService) CreateSkill(
 	ctx context.Context, req *connect.Request[agentv1.CreateSkillRequest],
 ) (*connect.Response[agentv1.CreateSkillResponse], error) {
@@ -140,8 +148,9 @@ func (s *AgentService) CreateSkill(
 	files := s.profiles.Files()
 	if _, ok := files.Skills[skill.Name]; ok {
 		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf(
-			"a skills/%s.yaml on this conductor's host already defines %q, and the files win: "+
-				"edit that file, or pick another name", skill.Name, skill.Name))
+			"%q is already defined by skills/%s.yaml on this conductor's host: edit that "+
+				"skill rather than creating a second one of the same name, or pick another name",
+			skill.Name, skill.Name))
 	}
 
 	s.writeMu.Lock()
@@ -161,8 +170,16 @@ func (s *AgentService) CreateSkill(
 	}), nil
 }
 
-// UpdateSkill replaces a stored skill. A file-defined one is refused, because the file is
-// where it is defined and a browser writing over it would put two answers in two places.
+// UpdateSkill replaces a skill, where it lives.
+//
+// A skill defined by a skills/<name>.yaml is written back to THAT FILE, and one from the
+// database is written to the database. There is deliberately no difference at the UI: a
+// human editing a skill should not have to know which half of the profile it came from, and
+// "this one is read-only because of where it happens to be stored" is not a rule anybody
+// asked for.
+//
+// The cost is real and is documented on profiles.WriteSkillFile: a save from the browser
+// does not preserve the file's comments, and a GitOps deployment will overwrite it.
 func (s *AgentService) UpdateSkill(
 	ctx context.Context, req *connect.Request[agentv1.UpdateSkillRequest],
 ) (*connect.Response[agentv1.UpdateSkillResponse], error) {
@@ -170,13 +187,17 @@ func (s *AgentService) UpdateSkill(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.refuseFileSkill(skill.Name); err != nil {
-		return nil, err
-	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	// The two halves are checked differently because they ARE different: a file skill is
+	// substituted into the directory and the whole thing re-merged, while a stored one is
+	// looked up in the database. checkMerges does the second and would answer NotFound for
+	// the first, which has no row anywhere.
+	if s.isFileSkill(skill.Name) {
+		return s.updateFileSkill(ctx, skill)
+	}
 	if err := s.checkMerges(ctx, skill, true); err != nil {
 		return nil, err
 	}
@@ -186,6 +207,76 @@ func (s *AgentService) UpdateSkill(
 	return connect.NewResponse(&agentv1.UpdateSkillResponse{
 		Skill: s.storedResponse(ctx, skill, "a skill was changed"),
 	}), nil
+}
+
+// updateFileSkill writes the skill back to the profile directory and reloads from disk.
+func (s *AgentService) updateFileSkill(
+	ctx context.Context, skill profiles.Skill,
+) (*connect.Response[agentv1.UpdateSkillResponse], error) {
+	dir := s.profiles.Files().Dir
+	// Held to the same rules the directory is held to at start-up, with the edit in place:
+	// a change that claims another skill's Slack channel, or a second `linear: true`, is
+	// refused before the file is written rather than after it stops the conductor loading.
+	if err := s.checkFileMerges(ctx, skill); err != nil {
+		return nil, err
+	}
+	if err := profiles.WriteSkillFile(dir, skill); err != nil {
+		if errors.Is(err, profiles.ErrProfileDirReadOnly) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := s.ReloadProfile(ctx); err != nil {
+		// The file is written, so reporting a failure would be a lie about what happened.
+		// The next reconcile picks it up.
+		s.logger.ErrorContext(ctx, "a skill file was written but the running profile could "+
+			"not be rebuilt; the conductor is still on the previous one",
+			"skill", skill.Name, "error", err)
+	}
+	s.logger.InfoContext(ctx, "a skill file was changed", "skill", skill.Name,
+		"path", profiles.SkillPath(dir, skill.Name), "login", Login(ctx))
+
+	out := skillToProto(skill)
+	out.Origin = profiles.OriginFile
+	out.Editable = true
+	return connect.NewResponse(&agentv1.UpdateSkillResponse{Skill: out}), nil
+}
+
+// checkFileMerges re-merges the directory with one file skill replaced, so an edit that
+// would stop the profile loading is refused while the file on disk is still the old one.
+func (s *AgentService) checkFileMerges(ctx context.Context, skill profiles.Skill) error {
+	files := s.profiles.Files()
+	next := *files
+	next.Skills = make(map[string]profiles.Skill, len(files.Skills))
+	for n, sk := range files.Skills {
+		next.Skills[n] = sk
+	}
+	edited := skill
+	edited.Origin = profiles.OriginFile
+	next.Skills[skill.Name] = edited
+
+	ov, err := readOverrides(ctx, s.store)
+	if err != nil {
+		return storeError(err)
+	}
+	stored, err := s.store.ListStoredSkills(ctx)
+	if err != nil {
+		return storeError(err)
+	}
+	if _, _, err := profiles.Merge(&next, ov, skillsOf(stored)); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
+}
+
+// isFileSkill reports whether this name is defined by a file in the profile directory.
+func (s *AgentService) isFileSkill(name string) bool {
+	files := s.profiles.Files()
+	if files == nil {
+		return false
+	}
+	_, ok := files.Skills[name]
+	return ok
 }
 
 // DeleteSkill removes a stored skill. Deleting the profile's default is refused by the
@@ -223,12 +314,12 @@ func (s *AgentService) DeleteSkill(
 		kept = append(kept, row.Skill)
 	}
 	if !found {
-		// Nothing stored under that name. A file skill of that name is a different answer
-		// than nothing at all, and the operator needs to be told which.
-		if err := s.refuseFileSkill(name); err != nil {
-			return nil, err
+		// Nothing stored under that name, so this is either a file skill — which is deleted
+		// by removing its file — or nothing at all.
+		if s.isFileSkill(name) {
+			return s.deleteFileSkill(ctx, name)
 		}
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no stored skill named %q", name))
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no skill named %q", name))
 	}
 	ov, err := readOverrides(ctx, s.store)
 	if err != nil {
@@ -270,17 +361,50 @@ func (s *AgentService) prepareSkill(in *agentv1.SkillDefinition) (profiles.Skill
 	return skill, nil
 }
 
-// refuseFileSkill is the read-only rule: a skills/<name>.yaml is the definition of that
-// skill and this API does not write over one. It is also why a stored row of that name is
-// only ever deletable — changing one would be editing something that cannot run.
-func (s *AgentService) refuseFileSkill(name string) error {
-	if _, ok := s.profiles.Files().Skills[name]; ok {
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"%q is defined by a skills/%s.yaml on this conductor's host, and the files win: it is "+
-				"read-only here. Edit that file and restart the conductor. If a stored skill of "+
-				"this name exists it is shadowed and never runs; delete it", name, name))
+// deleteFileSkill removes the skill's file from the profile directory and reloads.
+//
+// The rule that a file skill could not be deleted here went with the rule that it could not
+// be edited here: both amounted to "the UI shows you a definition it will not let you touch",
+// which is not a boundary worth having. The file is the definition, so deleting the skill
+// means deleting the file.
+func (s *AgentService) deleteFileSkill(
+	ctx context.Context, name string,
+) (*connect.Response[agentv1.DeleteSkillResponse], error) {
+	dir := s.profiles.Files().Dir
+	// The same load-time rules a directory is held to: a profile whose default_skill names
+	// the skill being deleted would not load, so it is refused before the file is removed
+	// rather than after.
+	next := *s.profiles.Files()
+	next.Skills = make(map[string]profiles.Skill, len(next.Skills))
+	for n, sk := range s.profiles.Files().Skills {
+		if n != name {
+			next.Skills[n] = sk
+		}
 	}
-	return nil
+	ov, err := readOverrides(ctx, s.store)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	stored, err := s.store.ListStoredSkills(ctx)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if _, _, err := profiles.Merge(&next, ov, skillsOf(stored)); err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+
+	if err := profiles.DeleteSkillFile(dir, name); err != nil {
+		if errors.Is(err, profiles.ErrProfileDirReadOnly) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := s.ReloadProfile(ctx); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.logger.InfoContext(ctx, "a skill file was deleted", "skill", name,
+		"path", profiles.SkillPath(dir, name), "login", Login(ctx))
+	return connect.NewResponse(&agentv1.DeleteSkillResponse{}), nil
 }
 
 // checkMerges refuses a skill that would not survive being loaded alongside the others:
@@ -401,7 +525,9 @@ func skillToProto(s profiles.Skill) *agentv1.SkillDefinition {
 		Linear:        s.Linear,
 		Env:           s.Env,
 		Origin:        s.Origin,
-		Editable:      s.Origin == profiles.OriginStored,
+		// Both halves are editable: a skill from a file is written back to that file. The
+		// field stays on the wire because a shadowed stored skill is still not editable.
+		Editable: true,
 	}
 	if s.Timeout > 0 {
 		out.Timeout = s.Timeout.String()
