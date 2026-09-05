@@ -22,12 +22,14 @@ type Editing = { skill?: SkillDefinition } | undefined;
  * directory is authoritative for its name: it is read-only on this screen, and a stored skill
  * of the same name is shadowed and never runs. Everything else is stored in the conductor's
  * database and is editable here.
+ *
+ * The list never deletes. Deleting a skill is only offered inside the editor, where the
+ * definition being destroyed is on the screen with the button.
  */
 export function SkillsPanel() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Editing>();
-  const [confirming, setConfirming] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
 
   const profile = useQuery({
@@ -69,9 +71,13 @@ export function SkillsPanel() {
     mutationFn: (name: string) => agent.deleteSkill({ name }),
     onSuccess: async (_res, name) => {
       toast(`${name} deleted.`, "ok");
+      setEditing(undefined);
+      setSaveError(undefined);
       await reload();
     },
-    onError: (err) => toast(errorMessage(err)),
+    // A refusal keeps the operator in the editor, beside the skill it is about, rather than
+    // in a toast over a list the skill is still in.
+    onError: (err) => setSaveError(errorMessage(err)),
   });
 
   if (profile.isError && !isAgentUnreachable(profile.error)) {
@@ -80,18 +86,28 @@ export function SkillsPanel() {
 
   if (editing) {
     const saving = create.isPending || update.isPending;
+    const target = editing.skill;
     return (
       <SkillEditor
-        skill={editing.skill}
+        skill={target}
         secretNames={(secretList.data?.secrets ?? []).map((s) => s.name)}
         secretsUnknown={secretList.isError || secretList.isPending}
         saving={saving}
+        deleting={remove.isPending}
         error={saveError}
         onSubmit={(draft) => {
           setSaveError(undefined);
-          if (editing.skill) update.mutate(draft);
+          if (target) update.mutate(draft);
           else create.mutate(draft);
         }}
+        onDelete={
+          target
+            ? () => {
+                setSaveError(undefined);
+                remove.mutate(target.name);
+              }
+            : undefined
+        }
         onCancel={() => {
           setSaveError(undefined);
           setEditing(undefined);
@@ -176,30 +192,17 @@ export function SkillsPanel() {
                 ) : null}
               </div>
               {s.editable ? (
-                <div className="flex items-center gap-2 text-xs">
-                  <button
-                    type="button"
-                    aria-label={`Edit ${s.name}`}
-                    onClick={() => {
-                      setSaveError(undefined);
-                      setEditing({ skill: s });
-                    }}
-                    className="rounded border border-border px-2 py-1 text-muted hover:text-fg"
-                  >
-                    Edit
-                  </button>
-                  <DeleteControl
-                    name={s.name}
-                    confirming={confirming === s.name}
-                    pending={remove.isPending && remove.variables === s.name}
-                    onAsk={() => setConfirming(s.name)}
-                    onCancel={() => setConfirming(undefined)}
-                    onConfirm={() => {
-                      setConfirming(undefined);
-                      remove.mutate(s.name);
-                    }}
-                  />
-                </div>
+                <button
+                  type="button"
+                  aria-label={`Edit ${s.name}`}
+                  onClick={() => {
+                    setSaveError(undefined);
+                    setEditing({ skill: s });
+                  }}
+                  className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+                >
+                  Edit
+                </button>
               ) : null}
             </div>
 
@@ -250,8 +253,8 @@ export function SkillsPanel() {
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-warn">Shadowed</h2>
           <p className="max-w-3xl text-xs text-muted">
-            A file of the same name defines these, and the files win. They never run. Delete
-            them, or rename the file.
+            A file of the same name defines these, and the files win. They never run. Open one
+            to see what it holds and delete it, or rename the file.
           </p>
           <ul className="space-y-2">
             {shadowed.map((s) => (
@@ -269,17 +272,17 @@ export function SkillsPanel() {
                       name and the file wins.
                     </p>
                   </div>
-                  <DeleteControl
-                    name={s.name}
-                    confirming={confirming === s.name}
-                    pending={remove.isPending && remove.variables === s.name}
-                    onAsk={() => setConfirming(s.name)}
-                    onCancel={() => setConfirming(undefined)}
-                    onConfirm={() => {
-                      setConfirming(undefined);
-                      remove.mutate(s.name);
+                  <button
+                    type="button"
+                    aria-label={`Review ${s.name}`}
+                    onClick={() => {
+                      setSaveError(undefined);
+                      setEditing({ skill: s });
                     }}
-                  />
+                    className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+                  >
+                    Review
+                  </button>
                 </div>
               </li>
             ))}
@@ -287,57 +290,6 @@ export function SkillsPanel() {
         </section>
       ) : null}
     </div>
-  );
-}
-
-/** The inline two-step the rest of the UI uses. A modal confirm is not the house style. */
-function DeleteControl({
-  name,
-  confirming,
-  pending,
-  onAsk,
-  onCancel,
-  onConfirm,
-}: {
-  name: string;
-  confirming: boolean;
-  pending: boolean;
-  onAsk: () => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  if (!confirming) {
-    return (
-      <button
-        type="button"
-        aria-label={`Delete ${name}`}
-        onClick={onAsk}
-        className="rounded border border-border px-2 py-1 text-xs text-muted hover:border-err hover:text-err"
-      >
-        Delete
-      </button>
-    );
-  }
-  return (
-    <span className="flex items-center gap-2 text-xs">
-      <span className="text-muted">Delete {name}?</span>
-      <button
-        type="button"
-        aria-label={`Confirm deleting ${name}`}
-        disabled={pending}
-        onClick={onConfirm}
-        className="rounded border border-err/60 px-2 py-1 text-err disabled:opacity-50"
-      >
-        {pending ? "Deleting…" : "Yes, delete"}
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded border border-border px-2 py-1 text-muted hover:text-fg"
-      >
-        Keep
-      </button>
-    </span>
   );
 }
 

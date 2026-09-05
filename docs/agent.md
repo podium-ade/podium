@@ -303,6 +303,11 @@ creates, edits and deletes skills, and **Agent → Profile** sets the display na
 the two default skills, so a skill's image, prompt, tools, limits, environment and the secrets
 it names are defined in a browser instead of by editing YAML over SSH.
 
+**Deleting is only offered inside the editor.** The list has an *Edit* on each stored skill and
+nothing destructive; the delete, behind a confirm, sits at the bottom of the edit form, so the
+definition being thrown away is on the screen with the button. A shadowed row opens the same
+form read-only — it cannot be saved over, and the delete is the only thing it offers.
+
 The three decisions worth knowing before you use it:
 
 **Where it is stored.** A UI-defined skill is a row in the conductor's own database
@@ -317,8 +322,8 @@ compose file and stays that way.
 | | |
 |---|---|
 | a name only the files define | the file's skill runs; the UI shows it **read-only**, because the file is where it is defined |
-| a name only the database holds | the stored skill runs; the UI can edit and delete it |
-| a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is delete it |
+| a name only the database holds | the stored skill runs; the UI edits it, and deletes it from that edit form |
+| a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is open it and delete it |
 
 Creating a skill whose name a file already defines is refused outright, so the shadowed state is
 only ever reached by adding a file for a name the database already had. The rule is deliberately

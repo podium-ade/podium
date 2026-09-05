@@ -114,21 +114,46 @@ describe("SkillsPanel", () => {
     expect(screen.queryByRole("button", { name: "Delete general" })).toBeNull();
   });
 
-  it("offers Edit and Delete for a stored skill", async () => {
+  it("deletes a stored skill from the editor, and offers no delete in the list", async () => {
     getProfile.mockResolvedValue({
       profile: baseProfile,
       skills: [skill({ name: "reporter", origin: "stored", editable: true })],
       staleReason: "",
     });
+    deleteSkill.mockResolvedValue({});
     mount();
+    // The list edits. Deleting is a decision taken with the definition on the screen.
     expect(await screen.findByRole("button", { name: "Edit reporter" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete reporter" })).toBeNull();
 
+    await userEvent.click(screen.getByRole("button", { name: "Edit reporter" }));
     await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
     await waitFor(() => expect(deleteSkill).toHaveBeenCalledWith({ name: "reporter" }));
+    // A delete closes the editor; the list is what comes back.
+    await waitFor(() => expect(screen.queryByTestId("skill-editor")).toBeNull());
   });
 
-  it("says a shadowed skill never runs and only offers to delete it", async () => {
+  it("keeps the operator in the editor and shows why a delete was refused", async () => {
+    const { ConnectError, Code } = await import("@connectrpc/connect");
+    getProfile.mockResolvedValue({
+      profile: baseProfile,
+      skills: [skill({ name: "reporter", origin: "stored", editable: true })],
+      staleReason: "",
+    });
+    deleteSkill.mockRejectedValue(
+      new ConnectError('default_skill "reporter" names no skill', Code.FailedPrecondition),
+    );
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("names no skill");
+    expect(screen.getByTestId("skill-editor")).toBeInTheDocument();
+  });
+
+  it("says a shadowed skill never runs, and deletes it through the editor", async () => {
     getProfile.mockResolvedValue({
       profile: baseProfile,
       skills: [
@@ -137,10 +162,18 @@ describe("SkillsPanel", () => {
       ],
       staleReason: "",
     });
+    deleteSkill.mockResolvedValue({});
     mount();
     const row = await screen.findByTestId("skill-shadowed");
     expect(row).toHaveTextContent("never runs");
     expect(row).toHaveTextContent("the file wins");
+
+    await userEvent.click(screen.getByRole("button", { name: "Review general" }));
+    // A shadowed skill cannot be written over, so the editor offers no save at all.
+    expect(screen.queryByRole("button", { name: "Save skill" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Delete general" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting general" }));
+    await waitFor(() => expect(deleteSkill).toHaveBeenCalledWith({ name: "general" }));
   });
 
   it("creates a skill through the RPC with the secret it names", async () => {
