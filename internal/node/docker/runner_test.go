@@ -3,10 +3,16 @@ package docker
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"os"
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,4 +87,57 @@ func TestDrainTurnsAnUnknownKindIntoAStep(t *testing.T) {
 	require.Len(t, got, 1, "the runner's exit is only logged; ContainerWait is authoritative")
 	require.Equal(t, KindStep, got[0].Kind)
 	require.Equal(t, StepPayload{Name: "plan", Status: "started"}, got[0].Payload)
+}
+
+// newTestLink opens a real event socket in a temporary data dir, with no Docker engine
+// anywhere near it. The dir is not t.TempDir(): on Darwin that path alone is longer than
+// the AF_UNIX sun_path budget.
+func newTestLink(t *testing.T) *runnerLink {
+	t.Helper()
+	dataDir, err := os.MkdirTemp("/tmp", "pdmrun")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dataDir) })
+
+	e := &Executor{dataDir: dataDir, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	link, err := e.listenRunner("task_test")
+	require.NoError(t, err)
+	t.Cleanup(link.close)
+	return link
+}
+
+// TestStopAcceptingKeepsTheSocketFile is the regression guard for silently lost artifacts.
+// The socket file is the bind-mount SOURCE of /podium/events.sock, and artifacts are
+// collected with CopyFromContainer *after* the run stops accepting. net.Listen("unix")
+// unlinks its socket on Close by default, which deleted that source while the container was
+// still there — and the daemon then could not re-materialise the mount point, so the copy
+// failed and every file under /workspace/.podium/artifacts vanished.
+func TestStopAcceptingKeepsTheSocketFile(t *testing.T) {
+	link := newTestLink(t)
+	require.FileExists(t, link.path)
+
+	link.stopAccepting()
+	_, err := os.Lstat(link.path)
+	require.NoError(t, err, "stopAccepting deleted the bind-mount source artifact collection needs")
+
+	// Still refusing new connections, which is the whole point of stopAccepting.
+	_, err = net.Dial("unix", link.path)
+	require.Error(t, err)
+}
+
+// close is what actually retires the socket, and Teardown removes it again for an executor
+// that keeps its sockets outside the task directory.
+func TestCloseRemovesTheSocketFile(t *testing.T) {
+	link := newTestLink(t)
+	link.close()
+	require.NoFileExists(t, link.path)
+}
+
+// TestIsMissingPathOnlyIgnoresAnAbsentPath: the collector may swallow a directory that is
+// not there, and nothing else. The second case is the daemon's real complaint from the run
+// that lost two artifacts — an engine-side failure, not an absent directory.
+func TestIsMissingPathOnlyIgnoresAnAbsentPath(t *testing.T) {
+	require.True(t, isMissingPath(fmt.Errorf("copy out: %w", cerrdefs.ErrNotFound)))
+	require.False(t, isMissingPath(errors.New(
+		"Error response from daemon: mkdirat podium/events.sock: file exists")))
+	require.False(t, isMissingPath(context.DeadlineExceeded))
 }

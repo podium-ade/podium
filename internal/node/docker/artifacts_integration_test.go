@@ -215,3 +215,57 @@ func TestATaskWithNoArtifactUploaderStillRuns(t *testing.T) {
 	require.NotContains(t, kindsOf(events), KindArtifact)
 	require.NotContains(t, kindsOf(events), KindError)
 }
+
+// TestAMissingArtifactDirectoryIsNotAnError: most tasks never write one, so a task that
+// leaves /workspace/.podium/artifacts absent must produce no artifacts and no complaint.
+func TestAMissingArtifactDirectoryIsNotAnError(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	up := newFakeUploader()
+	c := newCollector()
+	res, err := e.Run(context.Background(), Request{
+		TaskID:    taskID,
+		LeaseID:   ids.NewLease(),
+		Artifacts: up,
+		Spec: spec.TaskSpec{
+			Image:   testImage,
+			Command: []string{"sh", "-c", "echo nothing to keep"},
+		},
+	}, c.ch)
+	require.NoError(t, err)
+	require.Equal(t, 0, res.ExitCode)
+
+	events := c.finish()
+	assertSeq(t, events)
+	require.Empty(t, up.names())
+	require.NotContains(t, kindsOf(events), KindError)
+	require.NotContains(t, kindsOf(events), KindArtifact)
+}
+
+// TestCollectingArtifactsReportsAFailureThatIsNotAMissingDirectory is the other half of the
+// silent-artifact-loss bug: every CopyFromContainer error used to be read as "there was no
+// directory" and logged at Debug, so a run whose event socket had been unlinked lost two of
+// its three artifacts and still reported success. Only an absent path may be swallowed.
+func TestCollectingArtifactsReportsAFailureThatIsNotAMissingDirectory(t *testing.T) {
+	e := newTestExecutor(t)
+	up := newFakeUploader()
+	c := newCollector()
+
+	// No container ID at all: the engine client refuses that with an invalid-argument
+	// error, which is emphatically not a missing directory.
+	col := e.newArtifactCollector(
+		Request{TaskID: ids.NewTask(), LeaseID: ids.NewLease(), Artifacts: up},
+		newEmitter(context.Background(), c.ch), "")
+	col.collectDir(context.Background(), AutoArtifactDir)
+
+	events := c.finish()
+	require.Len(t, events, 1)
+	require.Equal(t, KindError, events[0].Kind)
+	payload, ok := events[0].Payload.(ErrorPayload)
+	require.True(t, ok)
+	require.True(t, payload.Retryable, "a lost artifact must not fail the task")
+	require.Contains(t, payload.Message, AutoArtifactDir)
+	require.Empty(t, up.names())
+}

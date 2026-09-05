@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	cerrdefs "github.com/containerd/errdefs"
 )
 
 // AutoArtifactDir is collected from the task container when it exits: every regular file
@@ -152,7 +154,8 @@ func (c *artifactCollector) copyOne(ctx context.Context, name, containerPath, co
 // nothing else is competing for the container at that point.
 //
 // A missing directory is the ordinary case — most tasks never write one — and is not an
-// error.
+// error. Nothing else is ordinary: everything the task asked to keep is in that directory,
+// and a copy that fails for any other reason loses all of it.
 func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 	if !c.enabled() {
 		return
@@ -162,7 +165,11 @@ func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 
 	rc, _, err := c.e.cli.CopyFromContainer(ctx, c.cid, dir)
 	if err != nil {
-		c.e.log.Debug("no artifact directory to collect", "task", c.req.TaskID, "dir", dir, "error", err)
+		if isMissingPath(err) {
+			c.e.log.Debug("no artifact directory to collect", "task", c.req.TaskID, "dir", dir)
+			return
+		}
+		c.fail(dir, fmt.Errorf("copy %s out of the container: %w", dir, err))
 		return
 	}
 	defer func() { _ = rc.Close() }()
@@ -197,6 +204,13 @@ func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 		}
 	}
 }
+
+// isMissingPath reports whether err is the engine's answer for a path that is not in the
+// container, which is the only CopyFromContainer failure the collector may pass over in
+// silence. Every other one — a broken bind mount, an engine that lost the container, a
+// timeout — has to be said out loud, because it means artifacts the task produced were
+// not stored.
+func isMissingPath(err error) bool { return cerrdefs.IsNotFound(err) }
 
 // upload hands one file's bytes to the control plane and emits the artifact event.
 func (c *artifactCollector) upload(ctx context.Context, name, contentType string, size int64, body io.Reader) error {
