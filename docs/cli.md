@@ -508,7 +508,7 @@ file.
 
 Draining needs a credential this machine holds: under the dev transport that is the shared
 token from the node's own config. A tailnet node with its own embedded Tailscale device has
-none to lend, so drain from the control plane instead and pass `--no-drain`:
+none to lend, so drain from the control plane instead and pass `--drain=false`:
 
 ```sh
 podium node drain worker-3        # on the control plane
