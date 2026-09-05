@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,15 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 			closeAll()
 			return nil, err
 		}
+	} else if cfg.EnrollToken != "" {
+		// The stored identity wins, and saying nothing about it is expensive: an
+		// identity.json left behind by a DIFFERENT control plane makes the node reconnect
+		// forever with "unauthenticated: stream: unknown node key" and never print
+		// `node enrolled`, while the operator watches the enrollment token they supplied
+		// have no effect at all.
+		logger.InfoContext(ctx, "ignoring the supplied enrollment token: this data dir already "+
+			"holds an identity. Delete the file and start again to enrol afresh.",
+			"node_id", id.NodeID, "identity", filepath.Join(cfg.DataDir, identityFile))
 	}
 
 	return &Node{
