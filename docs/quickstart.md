@@ -90,12 +90,15 @@ plane.
 
 ## 4. Start the control plane
 
+Four variables, one per line:
+
 ```sh
-PODIUM_TRANSPORT=dev \
-PODIUM_DEV_TOKEN=devtoken \
-PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium \
-PODIUM_MASTER_KEY_FILE=/tmp/podium-master.key \
-  ./bin/podium-server &
+export PODIUM_TRANSPORT=dev                    # loopback, one shared token
+export PODIUM_DEV_TOKEN=devtoken               # YOURS: pick anything. The only credential there is
+export PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium
+export PODIUM_MASTER_KEY_FILE=/tmp/podium-master.key   # from step 3. Omit to run without secrets
+
+./bin/podium-server &
 ```
 
 It migrates the schema on start. `PODIUM_DEV_LISTEN` defaults to `127.0.0.1:8080` and **must**
@@ -130,13 +133,14 @@ only its SHA-256. The token goes on stdout and nothing else does, so `$(...)` wo
 ## 7. Start a worker
 
 ```sh
-PODIUM_NODE_SERVER=http://127.0.0.1:8080 \
-PODIUM_NODE_TRANSPORT=dev \
-PODIUM_NODE_DEV_TOKEN=devtoken \
-PODIUM_NODE_ENROLL_TOKEN=$TOKEN \
-PODIUM_NODE_DATA_DIR=/tmp/podium-node \
-PODIUM_NODE_LABELS=demo \
-  ./bin/podium-node &
+export PODIUM_NODE_SERVER=http://127.0.0.1:8080  # the control plane from step 4
+export PODIUM_NODE_TRANSPORT=dev
+export PODIUM_NODE_DEV_TOKEN=devtoken            # must equal the server's PODIUM_DEV_TOKEN
+export PODIUM_NODE_ENROLL_TOKEN=$TOKEN           # from step 6. First run only
+export PODIUM_NODE_DATA_DIR=/tmp/podium-node     # holds the node's identity
+export PODIUM_NODE_LABELS=demo                   # what task specs match on
+
+./bin/podium-node &
 ```
 
 The enrollment token is needed on the **first run only**. After that
