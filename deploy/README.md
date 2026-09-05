@@ -177,6 +177,7 @@ and cannot reissue. `server-state` holds the Tailscale device identity. See
 | `PODIUM_MAX_TASKS` | default 4 |
 | `PODIUM_VERSION` | default `latest` |
 | `PODIUM_DATA_DIR` | default `/var/lib/podium-node`. Never touched by a re-run |
+| `PODIUM_METRICS_LISTEN` | default `127.0.0.1:9091`. Written into `node.yaml`, and the address step 7 polls |
 
 Re-running it upgrades the binary and rewrites the config. It never touches the data directory,
 which holds the node's identity. It does **not** drain first — `podium-node upgrade` does that;
@@ -192,10 +193,13 @@ longer name. `SupplementaryGroups=docker` is kept so that changing `User=` works
 `ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges` and the rest protect the host from the
 daemon's *mistakes*. They do not protect the host from the daemon, and they cannot.
 
-`PrivateTmp` is deliberately **not** set, and the unit says why: when `data_dir` is deep enough
-that a task's event socket would exceed the 108-byte `sun_path` limit, the node falls back to
-creating it under `/tmp` and bind-mounting it into the container — and a private `/tmp` is
-invisible to `dockerd`. Keep `data_dir` short and the fallback never fires.
+`PrivateTmp` is deliberately **not** set, and there is no configuration where it may be: when
+`data_dir` is deep enough that a task's event socket would exceed the 108-byte `sun_path` limit,
+the node falls back to creating it under `/tmp` and bind-mounting it into the container — and a
+private `/tmp` is invisible to `dockerd`. It is `/tmp` being the *host's* `/tmp` that the
+fallback depends on. `ReadWritePaths` names `/tmp` for the same reason: `ProtectSystem=strict`
+would otherwise make it read-only and the fallback would fail with `EROFS`. Keep `data_dir` short
+(under 42 characters) and the fallback never fires.
 
 `systemd-analyze verify` has **not** been run on this unit: the build machine is macOS. The
 directives were checked by inspection against systemd's documentation.

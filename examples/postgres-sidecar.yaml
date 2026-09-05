@@ -18,10 +18,19 @@ sidecars:
     env:
       POSTGRES_PASSWORD: podium
     readiness:
-      # `command` rather than `tcp_port`, because the tcp_port probe runs `nc` INSIDE the
-      # sidecar and this image (Debian-based, like the official postgres one) has none. A
-      # database's own health command is the better probe anyway: `nc` answers as soon as
-      # the port is bound, which for Postgres is before it will accept a connection.
+      # `command` rather than `tcp_port` for two separate reasons, and only one of them is
+      # about platforms.
+      #
+      # The portable reason: a database's own health command is the better probe. `nc`
+      # answers as soon as the port is bound, which for Postgres is before it will accept a
+      # connection, so `tcp_port` can start the task too early.
+      #
+      # The macOS/Windows reason: there, the node cannot route into the task network, so
+      # `tcp_port` is tested from INSIDE the sidecar with `nc` — and this image
+      # (Debian-based, like the official postgres one) has none, which fails the probe
+      # outright. On a LINUX node whose Docker daemon is on the same host, the node dials
+      # the sidecar directly and `tcp_port: 5432` works with no `nc` anywhere. See
+      # docs/task-spec.md#readiness.
       command: ["pg_isready", "-U", "postgres"]
       timeout: 60s
     resources:

@@ -378,6 +378,11 @@ which is faster and needs a route to it. A presigned URL is good for 15 minutes 
 its own credential — the CLI sends no bearer token with it, because that would hand your API
 token to a third party.
 
+**Without `-o` the file lands in the current working directory**, named after the artifact —
+`shots/note.txt` becomes `./note.txt`, because only the base name is used. The `→ wrote …` line
+on stderr names the file but not the directory, so if you are not sure where you were, pass `-o`.
+An existing file of that name is overwritten.
+
 A rolled-up log downloads as the zstd-compressed object it is; `zstd -d` it, or use
 `podium logs`, which decompresses for you.
 
