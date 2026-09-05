@@ -124,7 +124,7 @@ appears in the UI.
 
 ```sh
 docker exec podium-dev-postgres createdb -U podium podium_agent   # once
-make build agent-runtime                                          # + the three runtime images
+make build agent-runtime                                          # + the agent runtime images
 
 # the server needs these two, or /agent stays hidden
 PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken \
@@ -265,7 +265,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | The tailnet ACL's outbound-only guarantee | ✅ | ❌ **never enforced.** A blanket allow-all rule on that tailnet made [the shipped policy](deploy/tailscale-acl.example.json)'s `tests` block fail, and the block was dropped rather than the rule narrowed |
 | Device approval; more than one WhoIs identity | ✅ | ❌ never run. One login has ever authenticated, on a tailnet with approval off |
 | `host` transport | ✅ | ❌ never run |
-| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ⚠️ one image, one registry. `podium-agent-runtime:dev` built multi-arch with buildx and pushed to a private LAN registry. **Nothing on GHCR, nothing signed, no release.** The four Go service images have never been built at all |
+| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ⚠️ one image, one registry. `podium-agent-runtime:dev` — the base, and the only image Podium ships for general use — built multi-arch with buildx and pushed to a **private** LAN registry, which Podium can pull from only because it needs no login. **Nothing on GHCR, nothing signed, no release.** `-dev` is a host-architecture local tag; the four Go service images have never been built at all |
 | Release pipeline (archives, checksums, SBOM) | ✅ | ⚠️ snapshot only — no tag, no signature ever produced |
 | `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine — there is no published release for it to download |
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
@@ -274,15 +274,15 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
-| Linear source and the `coder` skill | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server. The browser image did produce a real screenshot as a task |
+| Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
 | Shared memory (Hindsight, pgvector) | ✅ | ✅ against a **real Hindsight container**: auth, retain, list, search, tombstone. The SDK's own MCP client is unproven (needs a model) |
-| Web chat and the `analyst` skill | ✅ | ⚠️ chat turns round-trip for real as dry runs. The read-only warehouse role is proved against a real Postgres; **BigQuery is unproven beyond `bq version`** |
+| Web chat | ✅ | ⚠️ chat turns round-trip for real as dry runs, through podium-server's proxy |
 
 Milestones, for anyone reading the history: M0 scaffold and wire contract, M1 the first
 end-to-end task, M2 sidecars / secrets / artifacts, M3 the tailnet transport, M4 the scheduler,
 M5 the web UI, M6 packaging and documentation, M7 the `message` event and the agent runtime
-image, M8 the conductor and Slack, M9 the settings UI / memory / Linear, M10 the web chat and
-the analyst skill — this commit.
+image, M8 the conductor and Slack, M9 the settings UI / memory / Linear, M10 the web chat — this
+commit.
 
 ---
 
@@ -408,12 +408,14 @@ Everything here is real, current, and deliberate about being said out loud.
 - **Two things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
   release for it to download, and it passes `shellcheck` and `bash -n` only. And the systemd
   unit — `systemd-analyze verify` has not been run on it.
-- **One image has been built and pushed. The ones you would deploy have not.**
+- **The base agent image has been built and pushed. The ones you would deploy have not.**
   `podium-agent-runtime:dev` is built multi-arch — linux/amd64 and linux/arm64 in one OCI index —
-  with `docker buildx`, and pushed to a private plain-HTTP registry on the LAN. That is the whole
-  of it: nothing on GHCR, nothing signed, no release cut, `-browser` and `-data` still
-  host-architecture local tags, and **the four Go service images — `podium-server`,
-  `podium-node`, `podium`, `podium-agent` — never built on any architecture.**
+  with `docker buildx`, and pushed to a private plain-HTTP registry on the LAN. That registry
+  needs no login, which is the only reason a node can pull from it: Podium has no registry
+  authentication. That is the whole of it: nothing on GHCR, nothing signed, no release cut,
+  `podium-agent-runtime-dev` still a host-architecture local tag, and **the four Go service
+  images — `podium-server`, `podium-node`, `podium`, `podium-agent` — never built on any
+  architecture.**
 
   Two things that cost an afternoon, if you repeat this. A plain-HTTP registry must be in
   `insecure-registries` on **both** the pushing and the pulling daemon. And buildx's
@@ -430,19 +432,19 @@ a real Docker engine. What has **not** happened:
   so every turn ever executed — in tests, in the acceptance script, by hand — ran with
   `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven, and
   it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
-  around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting the
-  `coder` skill to write a pull request.**
+  around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
+  turn to write a pull request.**
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.
 - **No Linear workspace.** The poller, the issue and comment reads, the state transition and
   `commentCreate` are driven against a fake GraphQL server through `PODIUM_AGENT_LINEAR_URL`.
   `fileUpload` in particular is implemented from documentation alone and has never run.
-- **No data warehouse.** `psql`, `bq` and `duckdb` are installed and report their versions, and
-  the read-only story is proved for real against a throwaway Postgres: an `UPDATE` under the
-  `podium_analyst` role fails with `cannot execute UPDATE in a read-only transaction`, and the
-  agent produced a real CSV and a real matplotlib PNG. **BigQuery is unproven beyond `bq
-  version`.**
+- **No data warehouse, and no warehouse image any more.** The read-only role recipe in
+  `docs/agent.md` was proved once against a throwaway Postgres — an `UPDATE` under
+  `podium_analyst` failed with `cannot execute UPDATE in a read-only transaction` — from an
+  image that no longer ships. BigQuery was never proved beyond `bq version`. Anyone wanting
+  `psql`, `bq` or `duckdb` in a turn now builds that image themselves.
 - **Memory is the exception: Hindsight ran for real.** A real `ghcr.io/vectorize-io/hindsight`
   container, pointed at a real pgvector Postgres, authenticated, retained, listed, searched and
   tombstoned memories. The one unproven link is the Agent SDK's own MCP client reaching it from
@@ -452,11 +454,12 @@ a real Docker engine. What has **not** happened:
   under `PODIUM_TRANSPORT=tailnet` the server has **no port on the compose network**, so a plain
   sidecar cannot reach it. That entry works only where the conductor can itself route into the
   tailnet — the `host` transport, or `podium-agent` run on the host.
-- **Two of the three runtime images have never left one engine.** Task images are resolved by the
-  node's own engine, so a local `:dev` tag works only on the host that built it.
-  `podium-agent-runtime:dev` is now multi-arch on a private registry, so a second worker can pull
-  it. `-browser` and `-data` are not, so a worker on another machine cannot run a skill that
-  needs them.
+- **An image your fleet cannot pull is a skill your fleet cannot run.** Task images are resolved
+  by the node's own engine, so a local `:dev` tag works only on the host that built it.
+  `podium-agent-runtime:dev` is multi-arch on a private registry, so a second worker can pull it.
+  `podium-agent-runtime-dev:dev` is not, and neither is an image you build `FROM` the base until
+  you push it — to a registry every node can pull from **anonymously**, because Podium has
+  nowhere to put a pull credential.
 
 ### Architectural, and not going to change soon
 
