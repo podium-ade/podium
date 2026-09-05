@@ -83,19 +83,22 @@ func toWire(ev docker.Event) *podiumv1.TaskEvent {
 		out.Payload = &podiumv1.TaskEvent_Error{Error: &podiumv1.Error{
 			Message:   p.Message,
 			Retryable: p.Retryable,
+			AbortsRun: p.AbortsRun,
 		}}
 	}
 	return out
 }
 
 // errorEvent is a node-originated error marker: a failure the executor never saw, such as
-// the replay buffer overflowing or an assignment arriving at a full node.
-func errorEvent(message string, retryable bool) *podiumv1.TaskEvent {
+// the replay buffer overflowing or an assignment arriving at a full node. abortsRun says
+// whether the node has stopped working on the task because of it.
+func errorEvent(message string, retryable, abortsRun bool) *podiumv1.TaskEvent {
 	return &podiumv1.TaskEvent{
 		Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
 		Payload: &podiumv1.TaskEvent_Error{Error: &podiumv1.Error{
 			Message:   message,
 			Retryable: retryable,
+			AbortsRun: abortsRun,
 		}},
 	}
 }

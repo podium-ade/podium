@@ -31,11 +31,22 @@ type Slots interface {
 	Release(taskID string)
 }
 
+// Retries hands a task back to whatever owns placement, after an error that ended the
+// node's work on it without ending the task. The scheduler implements it: it owns the
+// attempt budget, the lease and the queue, so the decision between another attempt and a
+// terminal failure is not this package's to make.
+type Retries interface {
+	// Retry takes the task off the node it was on: queued again if max_attempts allows,
+	// terminal with reason if it does not. Either way the task stops being the node's.
+	Retry(ctx context.Context, taskID, reason string)
+}
+
 // Service ingests node event batches and serves StreamTaskEvents.
 type Service struct {
-	store  *store.Store
-	logger *slog.Logger
-	slots  Slots
+	store   *store.Store
+	logger  *slog.Logger
+	slots   Slots
+	retries Retries
 	// archive is the object store rolled-up logs live in, nil when none is configured.
 	archive *artifacts.Service
 	rollup  RollupConfig
@@ -63,6 +74,10 @@ func New(st *store.Store, logger *slog.Logger) *Service {
 // argument because the registry is built around this service: nodes.NewService takes the
 // Ingestor, so neither can be constructed before the other.
 func (s *Service) SetSlots(sl Slots) { s.slots = sl }
+
+// SetRetries wires in the scheduler, for the same reason SetSlots is a setter: the
+// scheduler is built on the node registry, which is built on this service.
+func (s *Service) SetRetries(r Retries) { s.retries = r }
 
 // Run follows the task-event notification channel until ctx is cancelled, waking the
 // subscribers of every task that gains rows. One subscription serves the whole process.
@@ -177,11 +192,24 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 			}
 		}
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
-		if e.GetError().GetRetryable() {
+		fail := e.GetError()
+		if !fail.GetAbortsRun() {
+			// The run survived it — an artifact that could not be stored, a log buffer
+			// that overflowed. The task still owes an exit code, so its status is not
+			// this event's to change.
 			return
 		}
+		msg := fail.GetMessage()
+		if fail.GetRetryable() && s.retries != nil {
+			// The node has stopped, but another one might not. Whether that is worth
+			// doing is the scheduler's call, and it answers with either a new attempt
+			// or a terminal status — never with nothing.
+			s.retries.Retry(ctx, taskID, msg)
+			return
+		}
+		// Not retryable, or nobody to retry with. Either way the task ends here rather
+		// than sitting in a status no node is working on.
 		to = store.StatusFailed
-		msg := e.GetError().GetMessage()
 		patch.FailureReason = &msg
 		patch.FinishedAt = &ts
 	default:

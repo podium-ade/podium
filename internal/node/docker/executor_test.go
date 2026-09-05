@@ -263,3 +263,43 @@ func TestTrimProbeOutput(t *testing.T) {
 	assert.Equal(t, "boom", trimProbeOutput([]byte("boom\n")))
 	assert.Len(t, trimProbeOutput(bytes.Repeat([]byte("x"), 500)), 200+len("…"))
 }
+
+// The registry's answer decides whether a pull is worth trying again. Every message here is
+// one this engine really produced: a denial or a missing reference is the same answer every
+// node would get and the same answer in an hour, while a registry that cannot be reached is
+// exactly what a retry is for.
+func TestPullFailuresAreClassifiedByWhatTheRegistrySaid(t *testing.T) {
+	permanent := map[string]string{
+		"the repository does not exist": "Error response from daemon: pull access denied for " +
+			"does-not-exist, repository does not exist or may require 'docker login'",
+		"the tag does not exist": `Error response from daemon: failed to resolve reference ` +
+			`"docker.io/library/alpine:0.0.0-nope": docker.io/library/alpine:0.0.0-nope: not found`,
+		"the manifest is unknown":     "manifest unknown: manifest unknown",
+		"the registry wants a login":  "unauthorized: authentication required",
+		"the reference is not a name": "invalid reference format",
+	}
+	for name, msg := range permanent {
+		t.Run(name, func(t *testing.T) {
+			err := pullFailed("img:tag", msg)
+			require.ErrorIs(t, err, errImageUnavailable)
+			require.Contains(t, err.Error(), msg, "the registry's own words are what an operator acts on")
+		})
+	}
+
+	transient := map[string]string{
+		"the registry refused the connection": `Error response from daemon: failed to resolve ` +
+			`reference "127.0.0.1:1/nope:latest": failed to do request: Head ` +
+			`"https://127.0.0.1:1/v2/nope/manifests/latest": dial tcp 127.0.0.1:1: connect: connection refused`,
+		"the registry is overloaded": "toomanyrequests: You have reached your pull rate limit",
+		"the registry is unwell":     "received unexpected HTTP status: 503 Service Unavailable",
+		"the pull timed out":         "context deadline exceeded",
+	}
+	for name, msg := range transient {
+		t.Run(name, func(t *testing.T) {
+			err := pullFailed("img:tag", msg)
+			require.NotErrorIs(t, err, errImageUnavailable,
+				"failing a task for a registry blip is worse than spending one attempt on it")
+			require.Contains(t, err.Error(), msg)
+		})
+	}
+}

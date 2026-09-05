@@ -166,15 +166,15 @@ correlated but not redundant: `provisioning`, `pulling` and `started` have no pa
 | `TASK_EVENT_KIND_ARTIFACT` | `ArtifactRef{artifact_id, name, object_key, size_bytes, content_type}` | yes — after the upload, see below |
 | `TASK_EVENT_KIND_EXITED` | `Exited{exit_code, oom_killed}` | yes |
 | `TASK_EVENT_KIND_FINISHED` | `Finished{exit_code, usage}` | yes |
-| `TASK_EVENT_KIND_ERROR` | `Error{message, retryable}` | yes |
+| `TASK_EVENT_KIND_ERROR` | `Error{message, retryable, aborts_run}` | yes |
 | `TASK_EVENT_KIND_MESSAGE` | `Message{type, text, attachments}` | yes — `podium-runner message`, see below |
 
 An **`artifact` event is only ever emitted after `UploadArtifact` has returned**, so it
 always names bytes that are already durable — never an upload in flight. Artifact events
 come before `exited`: the run waits for its uploads, and for the sweep of
 `/workspace/.podium/artifacts/`, before it emits the exit. An upload that fails becomes an
-`error` event with `retryable: true`, which implies no status transition, so a task that did
-its job still succeeds.
+`error` event with `aborts_run: false`, which implies no status transition, so a task that
+did its job still succeeds.
 
 `Step` is also what the runner's event socket forwards for any kind a node does not
 otherwise understand (see [runner-events.md](runner-events.md)).
@@ -213,7 +213,14 @@ The server derives `tasks.status` from event kinds:
 | `started` | `provisioning → running`, sets `started_at` |
 | `exited` with `oom_killed` | no transition; the following terminal transition sets `failure_reason = "oom"` |
 | `finished` | `running → succeeded` (exit 0) or `failed`, sets `finished_at`, `exit_code`, `usage` |
-| `error` with `retryable = false` | `→ failed` |
+| `error` with `aborts_run = false` | no transition — the run survived it and still owes an exit code |
+| `error` with `aborts_run`, `retryable = false` | `→ failed`, sets `failure_reason` and `finished_at` |
+| `error` with `aborts_run`, `retryable` | `→ queued` when `attempts < max_attempts`, else `→ failed` with the message as `failure_reason` |
+
+`aborts_run` is the node saying it has stopped working on the task: no `exited` or
+`finished` follows. **An error that aborts a run always resolves the task** — another
+attempt, or a terminal status. It is never left in a status no node is working on, which is
+what the control plane guarantees and what a `retryable` error used to break.
 
 `log`, `pulling`, `exited`, `step`, `artifact` and `message` are stored and imply no
 transition.

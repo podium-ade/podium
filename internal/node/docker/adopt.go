@@ -43,14 +43,14 @@ func (e *Executor) Adopt(ctx context.Context, req AdoptRequest, events chan<- Ev
 
 	rs, err := e.register(req.TaskID)
 	if err != nil {
-		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: false})
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: false, AbortsRun: true})
 		return Result{}, err
 	}
 	defer e.unregister(req.TaskID, rs)
 
 	res, err := e.adopt(ctx, req, em, rs)
 	if err != nil {
-		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: true})
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: true, AbortsRun: true})
 		return Result{}, err
 	}
 	return res, nil

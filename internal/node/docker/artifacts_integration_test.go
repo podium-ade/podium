@@ -182,7 +182,7 @@ func TestAFailedArtifactUploadDoesNotFailTheTask(t *testing.T) {
 	var sawRetryable bool
 	for _, ev := range events {
 		if p, ok := ev.Payload.(ErrorPayload); ok {
-			require.True(t, p.Retryable, "an artifact failure must never fail the task")
+			require.False(t, p.AbortsRun, "an artifact failure must never end the run")
 			require.Contains(t, p.Message, "r.txt")
 			sawRetryable = true
 		}
@@ -265,7 +265,7 @@ func TestCollectingArtifactsReportsAFailureThatIsNotAMissingDirectory(t *testing
 	require.Equal(t, KindError, events[0].Kind)
 	payload, ok := events[0].Payload.(ErrorPayload)
 	require.True(t, ok)
-	require.True(t, payload.Retryable, "a lost artifact must not fail the task")
+	require.False(t, payload.AbortsRun, "a lost artifact must not end the run")
 	require.Contains(t, payload.Message, AutoArtifactDir)
 	require.Empty(t, up.names())
 }

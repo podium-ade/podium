@@ -98,11 +98,15 @@ type FinishedPayload struct {
 	Usage    Usage
 }
 
-// ErrorPayload reports a failure that aborts the run. Retryable is true for
-// pull and engine errors and false for spec errors.
+// ErrorPayload reports something that went wrong. Retryable is true for transient pull and
+// engine errors and false for a spec, or an image, no retry can fix. AbortsRun is true when
+// the error ended the run, which is what tells the control plane the task is nobody's until
+// it decides otherwise; a failure the run survived — an artifact that could not be stored —
+// leaves it false.
 type ErrorPayload struct {
 	Message   string
 	Retryable bool
+	AbortsRun bool
 }
 
 // emitter assigns sequence numbers and delivers events. The mutex is held
