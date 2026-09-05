@@ -726,6 +726,48 @@ data" rule it is a courtesy rather than a control: see
 
 ---
 
+## The dev image
+
+`podium-agent-runtime-dev` is the fourth image `make agent-runtime` builds, and it exists for
+dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
+Node and Docker. No skill in `examples/agent` points at it yet — name it in a skill's `image:`
+when you want one.
+
+On top of the base runtime it carries the toolchain
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) asks a human for, at the versions this repository is
+built with: **Go** at whatever `go.mod`'s `go` directive names, **golangci-lint** at the version
+`.github/workflows/ci.yml` installs, **make**, **pnpm**, and the **Docker client** with its
+`compose` and `buildx` plugins. `agent/runtime/images/dev.test.ts` reads the first two back out
+of `go.mod` and `ci.yml` and fails if the image has drifted from them — a turn that
+lints with a different golangci-lint than CI reports clean on findings the pull request will
+fail on.
+
+It does not carry `buf` or `sqlc`. Both are marked "only if you change a `.proto` / a query" in
+CONTRIBUTING.md, and `make build`, `make test` and `make lint` need neither. A turn that has to
+regenerate has to install them.
+
+### The engine is a sidecar, and its address is task spec
+
+The image is the **client** half of Docker only. There is no daemon in it and no dind: `docker`,
+`docker compose` and `docker buildx`, and `dockerd` is deliberately absent — the smoke test
+asserts that. An image that shipped an engine would have to run privileged, and a privileged
+container is not where a model's output belongs. The engine goes in a sidecar container that has
+no model attached to it.
+
+For the same reason there is **no baked `DOCKER_HOST`**. Where the engine lives is a property of
+the task, not of the image: a hard-coded `tcp://dind:2375` would turn every other shape — a
+mounted socket, a sidecar under another name, no engine at all — into a DNS failure instead of
+docker's own "cannot connect to the Docker daemon" message, and would make an unauthenticated
+plaintext port this image's default. The task that wants the sidecar says so:
+
+```yaml
+image: podium-agent-runtime-dev:dev
+env:
+  DOCKER_HOST: tcp://dind:2375
+```
+
+---
+
 ## The limits that bite
 
 - **The brief is capped at 256 KiB encoded.** The conductor drops the oldest transcript entries

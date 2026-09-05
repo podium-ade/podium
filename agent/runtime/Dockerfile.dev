@@ -1,0 +1,173 @@
+# podium-agent-runtime-dev — the base runtime plus the toolchain that builds Podium itself.
+#
+# Purpose: dogfooding. A turn whose job is to change this repository has to run `make build`,
+# `make test` and `make lint` and believe the result, which means Go, Node, pnpm, make,
+# golangci-lint and a Docker client — the same set CONTRIBUTING.md asks a human for.
+#
+# It is the CLIENT half of Docker only: `docker`, `docker compose` and `docker buildx`, with
+# no daemon and no dind. A turn that needs an engine gets one as a sidecar container and
+# talks to it over the task network; putting a daemon in here would mean a privileged agent
+# image, and the privilege belongs to the sidecar that has no model attached to it.
+#
+# This image deliberately does NOT inherit -browser or -data. A `make test` has no business
+# carrying Chromium, and a build toolchain has no business carrying warehouse credentials'
+# client set. Like those two it is layered on the base by ARG, so dist/ and node_modules
+# can never drift from podium-agent-runtime.
+#
+# Versions are pinned to what this repository actually builds with. Each one below names the
+# file that decides it, because a toolchain that disagrees with CI produces a turn that
+# reports green on work CI will reject.
+ARG RUNTIME_IMAGE=podium-agent-runtime:dev
+
+FROM ${RUNTIME_IMAGE}
+
+ARG VERSION=dev
+ARG REVISION=none
+LABEL org.opencontainers.image.title="podium-agent-runtime-dev" \
+      org.opencontainers.image.source="https://github.com/alvaroibarguen/podium" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
+USER root
+
+# make, because every entry point in CONTRIBUTING.md is a make target. A C compiler is
+# deliberately NOT here: nothing in go.mod uses cgo (the Docker SDK, pgx, tsnet and gopsutil
+# are all pure Go) and cmd/go turns cgo off by itself when it finds no C compiler. The 188 MB
+# that `gcc libc6-dev` costs would buy `go test -race` and nothing else; add them the day a
+# race run is wanted.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends make; \
+    rm -rf /var/lib/apt/lists/*; \
+    make --version
+
+# Go, from the official tarball, at the exact version go.mod's `go` directive names.
+#
+# The sha256 is checked because this is the one artifact here that compiles everything else:
+# a swapped Go tarball is a compiler that can rewrite whatever it builds, and go.dev/dl
+# publishes the hash for exactly this reason. Both are the upstream values for 1.26.6; they
+# move with GO_VERSION and there is one per architecture because the download is per
+# architecture.
+#
+# GOTOOLCHAIN is left at its default (auto), so a go.mod that later asks for a newer patch
+# release downloads it rather than failing — the pin below is the floor a turn starts from,
+# not a ceiling. /usr/local/go/test and /usr/local/go/api are the toolchain's own test corpus
+# and API history — nothing a build of this repository reads — so they are dropped.
+ARG GO_VERSION=1.26.6
+ARG GO_SHA256_AMD64=708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
+ARG GO_SHA256_ARM64=d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) sha="${GO_SHA256_AMD64}" ;; \
+        arm64) sha="${GO_SHA256_ARM64}" ;; \
+        *) echo "podium-agent-runtime-dev: unsupported architecture $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz"; \
+    echo "${sha}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    rm -rf /usr/local/go/test /usr/local/go/api; \
+    /usr/local/go/bin/go version
+
+# The Docker client, its Compose plugin and its Buildx plugin — three static binaries, no
+# apt repository and no daemon.
+#
+# The CLI comes out of the static bundle, which also carries dockerd, containerd and runc;
+# only `docker` is extracted, so the image cannot start an engine even by accident. 28.5.2
+# is the version go.mod pins for github.com/docker/docker, so the client a turn types at is
+# the same generation as the API podium-node speaks, and it is the generation the docker:28
+# dind sidecar runs. A client talks to an older or newer daemon by negotiating the API
+# version down, so this pin is about matching the repository, not about compatibility.
+#
+# Compose v2.40.3 is the last of the Compose v2 line, which is what shipped alongside Docker
+# CE 28.x and what deploy/docker-compose*.yml is written for. Buildx is a self-contained
+# BuildKit client rather than part of the engine's release train, so it tracks its own
+# latest stable instead. Both go in /usr/local/lib/docker/cli-plugins, the documented
+# system-wide plugin directory, which keeps them working for any user in the image.
+ARG DOCKER_CLI_VERSION=28.5.2
+ARG COMPOSE_VERSION=v2.40.3
+ARG BUILDX_VERSION=v0.36.1
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) static_arch=x86_64 ;; \
+        arm64) static_arch=aarch64 ;; \
+        *) echo "podium-agent-runtime-dev: unsupported architecture $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${static_arch}/docker-${DOCKER_CLI_VERSION}.tgz" \
+        | tar -xzf - -C /usr/local/bin --strip-components=1 docker/docker; \
+    install -d -m 0755 /usr/local/lib/docker/cli-plugins; \
+    curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+        "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${static_arch}"; \
+    curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
+        "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${arch}"; \
+    chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-buildx; \
+    test ! -e /usr/local/bin/dockerd; \
+    docker --version; docker compose version; docker buildx version
+
+# golangci-lint, at the version .github/workflows/ci.yml installs. CONTRIBUTING.md is blunt
+# about why the number matters: .golangci.yml is v2-shaped and a v1 binary will not read it.
+# A turn that lints with a different v2 than CI is worse than one that does not lint at all,
+# because it reports clean on findings the pull request will fail on — images/dev.test.ts
+# reads the version back out of ci.yml and fails if these two drift.
+ARG GOLANGCI_LINT_VERSION=2.13.2
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    dir="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-${arch}"; \
+    curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/${dir}.tar.gz" \
+        | tar -xzf - -C /tmp "${dir}/golangci-lint"; \
+    install -m 0755 "/tmp/${dir}/golangci-lint" /usr/local/bin/golangci-lint; \
+    rm -rf "/tmp/${dir}"; \
+    golangci-lint --version
+
+# pnpm, the same 11.25.0 the base image's build stage uses, installed the same way. The base
+# carries corepack, but corepack with no packageManager field in web/package.json resolves
+# whatever is latest at run time, which is a different pnpm on different days.
+ARG PNPM_VERSION=11.25.0
+RUN set -eux; \
+    npm install --global "pnpm@${PNPM_VERSION}"; \
+    npm cache clean --force; \
+    pnpm --version
+
+# NODE_ENV is inherited as `production` from the base, and pnpm reads it: `pnpm install
+# --frozen-lockfile` under it silently omits devDependencies, so `make web` would then fail
+# on a missing vite. This is a development image; it says so.
+#
+# GOPATH is named rather than left to default so PATH can carry its bin directory: `make
+# proto` shells out to protoc-gen-go and protoc-gen-connect-go, which land there via `go
+# install`. /workspace is on GOFLAGS' side of nothing — the caches sit under the agent's
+# home, which is the one directory this image knows is writable by uid 1000.
+#
+# There is deliberately no DOCKER_HOST. The engine a turn uses is a sidecar on the task's
+# network, and its address is a property of that task, not of this image: a baked
+# tcp://dind:2375 would turn every other shape — a mounted socket, a differently named
+# sidecar, no engine at all — into a DNS failure instead of docker's own clear "cannot
+# connect to the Docker daemon" message, and would bless an unauthenticated plaintext port
+# as this image's default. A task spec that wants the sidecar sets it:
+#     env: { DOCKER_HOST: "tcp://dind:2375" }
+ENV NODE_ENV=development \
+    GOPATH=/home/agent/go \
+    PATH=/usr/local/go/bin:/home/agent/go/bin:${PATH}
+
+# The caches Go, pnpm and golangci-lint write on first use, created for uid 1000 up front so
+# a turn does not discover half way through a build that $HOME was root's doing.
+RUN set -eux; \
+    install -d -o 1000 -g 1000 -m 0755 \
+        /home/agent/go /home/agent/.cache /home/agent/.cache/go-build
+
+# Build-time assertion, like the SDK check in the base image: the toolchain must compile and
+# link something that imports net/http — the package that decides whether this image needed
+# a C compiler — as the unprivileged user, out of the caches created above.
+RUN set -eux; \
+    mkdir -p /tmp/gocheck; \
+    printf 'package main\nimport ("fmt"; "net/http")\nfunc main() { fmt.Println(http.MethodGet) }\n' \
+        > /tmp/gocheck/main.go; \
+    printf 'module gocheck\n\ngo 1.26\n' > /tmp/gocheck/go.mod; \
+    chown -R 1000:1000 /tmp/gocheck; \
+    su agent -s /bin/sh -c 'go build -C /tmp/gocheck -o /dev/null ./...'; \
+    rm -rf /tmp/gocheck
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["node", "/opt/podium-agent/dist/main.js"]
