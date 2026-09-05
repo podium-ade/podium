@@ -21,9 +21,13 @@ import (
 	"github.com/alvaroibarguen/podium/internal/agent/linear"
 )
 
-// githubTokenSecret is the reserved secret the coder skill — and only the coder skill —
-// names. It has to exist before a coder turn can be admitted.
+// githubTokenSecret is the conventional name for a repository credential, and the only
+// secret linearSkill names. It has to exist before one of its turns can be admitted.
 const githubTokenSecret = "podium.agent.github_token"
+
+// linearSkill is the skill this test defines and gives to the Linear source. It is not a
+// shipped example: Podium ships one skill and it takes no tickets.
+const linearSkill = "coder"
 
 // fakeLinearAPIKey is an obvious fixture. Nothing in Podium validates the shape of a Linear
 // key, so a stub is happy with this.
@@ -257,33 +261,38 @@ func firstIndexOf(ops []string, want string) int {
 }
 
 // ---------------------------------------------------------------------------
-// a profile whose coder skill runs a dry run on the plain runtime image
+// a profile with a ticket skill, defined here, that dry-runs on the plain image
 // ---------------------------------------------------------------------------
 
-// linearProfileDir copies examples/agent and rewrites the coder skill so a turn runs the
-// plain runtime image in dry run: no browser needed to prove the machinery, and no model
-// key spent. The rewrite is the skill schema's own `env:` map (step 17) plus the image, and
-// nothing else about the skill changes — the GitHub token secret in particular stays, which
-// is what the secret assertions below read.
+// linearProfileDir copies examples/agent and adds the skill Linear tickets run. Podium
+// ships no such skill — the example profile has one skill and it takes no tickets — so a
+// test about Linear defines its own, which is what anybody wiring Linear up has to do too.
+//
+// It runs the plain runtime image in dry run: no model key spent, and the machinery is the
+// point. What it does carry for real is `linear: true`, the repos list and the GitHub token
+// secret, which is what the secret assertions below read.
 func linearProfileDir(t *testing.T, extra map[string]string) string {
 	t.Helper()
 	dst := copyExampleProfile(t)
 
-	coder := filepath.Join(dst, "skills", "coder.yaml")
-	raw, err := os.ReadFile(coder) //nolint:gosec // this test's own copy
-	require.NoError(t, err)
-	body := strings.Replace(string(raw),
-		"image: podium-agent-runtime-browser:dev",
-		"image: "+agentRuntimeImage, 1)
-	require.NotEqual(t, string(raw), body, "examples/agent/skills/coder.yaml no longer names the browser image")
-	// The label goes too: this node is not labelled `browser`, and the point of the test is
-	// the Linear machinery rather than Chromium.
-	body = strings.Replace(body, "labels: [browser]\n", "", 1)
-	body += "env:\n  PODIUM_AGENT_DRY_RUN: \"1\"\n"
+	body := "image: " + agentRuntimeImage + `
+system_prompt: Work on a branch, verify it, and open a draft pull request.
+allowed_tools: [Read, Edit, Write, Bash, Grep, Glob]
+max_turns: 200
+timeout: 2h
+linear: true
+secrets:
+  - { name: ` + githubTokenSecret + `, target: env, key: GITHUB_TOKEN }
+repos:
+  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+env:
+  PODIUM_AGENT_DRY_RUN: "1"
+`
 	for k, v := range extra {
 		body += fmt.Sprintf("  %s: %q\n", k, v)
 	}
-	require.NoError(t, os.WriteFile(coder, []byte(body), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dst, "skills", linearSkill+".yaml"),
+		[]byte(body), 0o600))
 	return dst
 }
 

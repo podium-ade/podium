@@ -19,7 +19,11 @@ func TestAgentProfileLoads(t *testing.T) {
 
 	require.Equal(t, "podium", p.Name)
 	require.Equal(t, "general", p.DefaultSkill)
-	require.Equal(t, []string{"analyst", "coder", "general", "podium"}, p.SkillNames())
+	// Two skills: `general` on the base image, and `podium`, the dogfood, on the one image
+	// Podium ships beside it. Any OTHER set of tools is an image a reader builds `FROM
+	// podium-agent-runtime` and names in a skill of their own; the example does not guess at
+	// which tools that would be.
+	require.Equal(t, []string{"general", "podium"}, p.SkillNames())
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
 
 	general := p.Skills["general"]
@@ -29,47 +33,20 @@ func TestAgentProfileLoads(t *testing.T) {
 	// image. Nothing here may reference a tag that has to be pulled.
 	require.Equal(t, "podium-agent-runtime:dev", general.Image)
 	require.Empty(t, general.Secrets, "the example skill holds no credentials of its own")
+	require.Empty(t, general.Labels, "the example runs on any node")
+	require.Empty(t, general.Repos, "the example clones nothing, so it needs no GitHub token")
 
-	// The coder skill is the one Linear tickets run, the only skill that names the GitHub
-	// token, and the only one on the browser image. All three are load-bearing: a second
-	// skill claiming Linear is a load error, and a token on any other skill would hand
-	// repository write access to a turn nobody scoped it for.
-	coder := p.Skills["coder"]
-	require.True(t, coder.Linear, "exactly one skill must set linear: true")
-	require.Equal(t, "coder", p.LinearSkill())
-	require.Equal(t, "podium-agent-runtime-browser:dev", coder.Image)
-	require.Equal(t, []string{"browser"}, coder.Labels)
-	require.NotEmpty(t, coder.SystemPrompt, "the skill prompt must be read from prompts/coder.md")
-	require.NotEmpty(t, coder.Repos, "the coder skill has to name a repository to clone")
-	require.Len(t, coder.Secrets, 1)
-	require.Equal(t, "podium.agent.github_token", coder.Secrets[0].Name)
-	require.Equal(t, "GITHUB_TOKEN", coder.Secrets[0].Key)
-	require.False(t, general.Linear, "only one skill takes tickets")
+	// No skill takes Linear tickets, so this profile cannot be used with a Linear key — the
+	// conductor refuses to start when a key is set and no skill claims it. Whoever wants
+	// tickets adds a skill with `linear: true`; docs/agent.md#linear says so.
+	require.Empty(t, p.LinearSkill())
+	for _, name := range p.SkillNames() {
+		require.False(t, p.Skills[name].Linear, "%s must not claim Linear", name)
+	}
 
-	// The analyst skill is what the web chat starts with, and its two warehouse secrets are
-	// the whole of its access: the read-only role behind one of them is the real control.
-	// The example ships both because docs/agent.md tells a deployment to delete the line it
-	// does not use, and a test that pinned one would make the other look wrong.
-	analyst := p.Skills["analyst"]
-	require.Equal(t, "analyst", p.ChatSkill(), "profile.yaml: chat_default_skill")
-	require.Equal(t, "podium-agent-runtime-data:dev", analyst.Image)
-	require.NotEmpty(t, analyst.SystemPrompt, "the skill prompt must be read from prompts/analyst.md")
-	require.False(t, analyst.Linear, "only one skill takes tickets")
-	require.Empty(t, analyst.Labels, "a warehouse query needs no special node")
-	require.Len(t, analyst.Secrets, 2)
-	require.Equal(t, "podium.agent.warehouse_url", analyst.Secrets[0].Name)
-	require.Equal(t, "WAREHOUSE_URL", analyst.Secrets[0].Key)
-	require.Equal(t, "podium.agent.warehouse_credentials", analyst.Secrets[1].Name)
-	require.Equal(t, "/podium/secrets/warehouse.json", analyst.Secrets[1].Key)
-	// Nothing but the coder skill gets the GitHub token, and nothing but the analyst gets a
-	// warehouse credential. A skill only ever gets the secrets its own file names.
-	for _, ref := range coder.Secrets {
-		require.NotContains(t, ref.Name, "warehouse", "the coder skill has no warehouse access")
-	}
-	for _, ref := range analyst.Secrets {
-		require.NotEqual(t, "podium.agent.github_token", ref.Name,
-			"the analyst skill has no repository access")
-	}
+	// profile.yaml leaves chat_default_skill unset, so the chat falls back to default_skill
+	// rather than to nothing. That fallback is what the web chat's skill chip reads.
+	require.Equal(t, "general", p.ChatSkill(), "an unset chat_default_skill falls back to default_skill")
 
 	// The dogfood skill is the only one that asks for a Docker daemon, and the only one
 	// that has to land on a node whose operator turned --allow-privileged-sidecars on.
@@ -84,29 +61,26 @@ func TestAgentProfileLoads(t *testing.T) {
 	require.Equal(t, "/workspace/tmp", dogfood.Env["PODIUM_TEST_TMPDIR"],
 		"the executor suite's scratch dir must sit on the volume the daemon also sees")
 	require.NotContains(t, dogfood.Env, "DOCKER_HOST", "the conductor writes it, not the file")
-	for _, s := range []string{"analyst", "coder", "general"} {
-		require.False(t, p.Skills[s].Docker, "%s must not ask for a privileged node", s)
-	}
+	require.False(t, general.Docker, "general must not ask for a privileged node")
 
-	// The chat's three ways of choosing, on the profile a human actually deploys: the chip
-	// wins outright, a typed /skill beats the chat's default, and a message with neither
-	// runs chat_default_skill rather than default_skill.
-	require.Equal(t, "analyst", p.ChatSkill())
+	// Routing, on the profile a human actually deploys: the chip wins outright, a typed
+	// /skill is stripped from what the model is told, an unknown /word is left alone, and a
+	// message naming nothing runs the default.
 	chip := p.Select(profiles.Routing{
-		Skill: "general", DefaultSkill: p.ChatSkill(), Text: "/analyst how many accounts",
+		Skill: "general", DefaultSkill: p.ChatSkill(), Text: "/podium run the tests",
 	})
 	require.Equal(t, "general", chip.Skill.Name)
 	require.True(t, chip.Explicit)
 	typed := p.Select(profiles.Routing{DefaultSkill: p.ChatSkill(), Text: "/general reply with pong"})
 	require.Equal(t, "general", typed.Skill.Name)
+	require.True(t, typed.Explicit)
 	require.Equal(t, "reply with pong", typed.Instruction)
-	plain := p.Select(profiles.Routing{DefaultSkill: p.ChatSkill(), Text: "how many active accounts"})
-	require.Equal(t, "analyst", plain.Skill.Name)
 
-	// Story four's entry point: `/coder …` in Slack. The prefix rule is step 17's and the
-	// skill is this step's, and the two only meet in this directory.
-	sel := p.Select(profiles.Routing{Channel: "C1", Text: "/coder write a PR that adds a copy button"})
-	require.Equal(t, "coder", sel.Skill.Name)
-	require.True(t, sel.Explicit)
-	require.Equal(t, "write a PR that adds a copy button", sel.Instruction)
+	unknown := p.Select(profiles.Routing{DefaultSkill: p.ChatSkill(), Text: "/shrug reply with pong"})
+	require.Equal(t, "general", unknown.Skill.Name)
+	require.False(t, unknown.Explicit)
+	require.Equal(t, "/shrug reply with pong", unknown.Instruction, "an unknown prefix is left in the text")
+
+	plain := p.Select(profiles.Routing{Channel: "C1", Text: "how many active accounts"})
+	require.Equal(t, "general", plain.Skill.Name)
 }
