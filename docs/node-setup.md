@@ -15,6 +15,14 @@ The `dev` transport is loopback-only by design — the server refuses to bind an
 because a shared static token is not an authentication system. Multi-machine means the tailnet
 transport, and that is now built.
 
+**The `dev` transport cannot reach a node on another machine at all.** Not "is discouraged":
+the server binds loopback and nothing off the host can route to it, so a remote
+`podium-node` pointed at `http://<host>:8080` never connects. There is no error message worth
+reading, because there is nothing to connect to. Two things do work: the **tailnet** transport,
+which is what a remote worker is for, or a TCP relay in front of the loopback listener
+(`socat TCP-LISTEN:8080,bind=<routable-ip>,fork TCP:127.0.0.1:8080`) — useful for a test, and
+never for anything else, since it publishes the whole API behind one static token.
+
 ## Requirements
 
 | | |
@@ -291,10 +299,12 @@ is not enforced yet — don't do it.
 via their labels, resumes their log streams where the server last acked, and finishes them. A brief
 network loss is also safe: events are buffered (8 MB per task) and replayed, so logs have no gap.
 
-**Cancelling is slow right now.** Without the runner as PID 1, the task command *is* PID 1, and the
-kernel discards a default-disposition `SIGTERM` sent to a namespace's init. So a plain
-`sleep 60` survives the cancel and dies at the 30s `SIGKILL` (exit 137). A command that traps TERM
-exits promptly (143). This is a known consequence of the current build, not a bug.
+**Cancelling is prompt.** `/podium/runner` is PID 1 in a task container — `/proc/1/cmdline` reads
+`/podium/runner -- sh -c …` — and it forwards `SIGTERM` to the task command as an ordinary
+process, so the kernel does not discard it the way it discards a default-disposition signal sent
+to a namespace's init. An untrapped `sleep 300` is cancelled in **about a second**, exits **143**
+and the task's status is `cancelled`. The 30s grace before `SIGKILL` is there for a command that
+traps `TERM` and needs the time.
 
 **Task isolation.** Each task gets its own bridge network `podium-<task_id>` and a workspace volume
 mounted at `/workspace`, both removed at teardown. Task containers have internet egress but no
@@ -318,6 +328,7 @@ The daemon tries to fail with an actionable message. The common ones:
 | `max_tasks is 0` | Set it to 1 or more, or the scheduler will never pick this node |
 | `no identity ... and no enrollment token` | Mint a token and pass `PODIUM_NODE_ENROLL_TOKEN` |
 | `token already used` | Enrollment tokens are single-use — mint a fresh one |
+| `unauthenticated: stream: unknown node key` | The `data_dir` holds an `identity.json` from a **different control plane**, and a stored identity always wins over a supplied `PODIUM_NODE_ENROLL_TOKEN`. Delete `<data_dir>/identity.json` and start again. The node says `ignoring the supplied enrollment token` at info level when this happens; without that line the only symptom is a reconnect loop with no `node enrolled` in it |
 | cgroup v1 / old API error at startup | Upgrade the Docker engine |
 
 Node shows `online` but never gets tasks: check `max_tasks` is not 0, and that the task's

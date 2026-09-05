@@ -247,13 +247,13 @@ path.
 ## Status
 
 Everything below is built and its tests pass. The **Proved** column is the honest one: it says
-what has actually been observed running, on macOS/arm64 with Docker Desktop, which is the only
-environment this has ever run in.
+what has actually been observed running. Most of it is macOS/arm64 with Docker Desktop; a real
+`podium-node` has now also run on Linux/amd64, and the rows say which is which.
 
 | | Built | Proved |
 |---|---|---|
 | Task lifecycle, live logs, cancel, exit codes | ✅ | ✅ end-to-end suite |
-| Sidecars, readiness probes, teardown | ✅ | ✅ — but readiness probes exec *inside* the container, because a macOS engine's bridges are unreachable from the host. The direct-dial path Linux uses has only ever been unit-tested |
+| Sidecars, readiness probes, teardown | ✅ | ✅ both probe paths for real: `exec` inside the container on macOS, where the engine's bridges are unreachable from the host, and the **direct dial** on a Linux node, for `tcp_port` and `http_path`, passing and failing |
 | Resource limits, OOM reporting, hardening | ✅ | ✅ |
 | Secrets: encrypted store, env and file injection, shredding, log redaction | ✅ | ✅ |
 | Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
@@ -263,9 +263,9 @@ environment this has ever run in.
 | `host` transport | ✅ | ❌ never run |
 | Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ❌ never built or published |
 | Release pipeline (archives, checksums, SBOM) | ✅ | ⚠️ snapshot only — no tag, no signature ever produced |
-| `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine |
+| `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine — there is no published release for it to download |
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
-| Linux | ✅ cross-compiles | ❌ nothing has ever been run on Linux |
+| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, the container images — and the tailnet *transport*, which was relayed over the tailnet rather than used |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
@@ -360,7 +360,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Everything here is real, current, and deliberate about being said out loud.
 
-### Never run in the environment it is designed for
+### Where it has and has not actually run
 
 - **The tailnet transport has never touched a real tailnet.** It is implemented, unit-tested and
   integration-tested, but proving it needs tagged auth keys and HTTPS enabled on a tailnet, and
@@ -372,14 +372,21 @@ Everything here is real, current, and deliberate about being said out loud.
   the same API and verifies presigned signatures for real. **Multipart upload, bucket policies,
   TLS, lifecycle rules and AWS S3 proper remain unexercised**, as does a presign round trip
   against anything but the in-process endpoint.
-- **Nothing has ever run on Linux.** Everything works on macOS/arm64 with Docker Desktop 29.4.3.
-  The node and CLI cross-compile and CI runs the test suites on Ubuntu, but no Podium daemon has
-  been observed running on a Linux host. One consequence is concrete: sidecar readiness probes
-  take a different code path on Linux (dialling the container directly rather than `exec`ing
-  inside it), and that path has only ever been unit-tested.
-- **The container images have never been built or published**, and `deploy/install-node.sh` has
-  never been run on a machine — it passes `shellcheck` and `bash -n`. `systemd-analyze verify`
-  has not been run on the unit either; the build machine is macOS.
+- **Linux has now run a real worker, and here is exactly how much of it.** A real `podium-node`
+  ran on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, 24 cores, driven by a
+  darwin/arm64 control plane on another machine over a real tailnet. The **direct-dial readiness
+  path** — the one Linux takes instead of `exec`ing inside the container, and the one that had
+  only ever been unit-tested — is proved for `tcp_port` and `http_path`, both passing and
+  failing. So are cgroup v2 resource limits, OOM reporting with exit 137, container hardening,
+  secrets on tmpfs, artifact collection, log roll-up, cancellation, and a node restart adopting
+  the containers it left behind. That run is also what found the artifact-collection bug this
+  release fixes: it only reproduces where the daemon and the node share a filesystem, which
+  Docker Desktop does not.
+- **Three things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
+  release for it to download, and it passes `shellcheck` and `bash -n` only. The systemd unit —
+  `systemd-analyze verify` has not been run on it. And **the container images have never been
+  built or published.** The tailnet *transport* is likewise still unproved: the tailnet carried
+  the traffic, but through a TCP relay in front of the dev transport's loopback listener.
 
 ### The agent layer has never met the services it exists to talk to
 
