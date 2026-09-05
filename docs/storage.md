@@ -80,11 +80,12 @@ point-in-time story beyond what your Postgres gives you.
 Any S3-compatible endpoint. `deploy/docker-compose.yml` runs MinIO; the client is `minio-go`
 against the S3 API, path-style.
 
-> **Never exercised against a real MinIO or a real S3.** Every object-store path in this
-> repository is tested against an in-process endpoint (`internal/server/artifacts/fakes3`) that
-> speaks the same API and verifies presigned signatures for real. Multipart upload, bucket
-> policies, a pre-existing bucket with the wrong permissions, TLS, and a real presign round trip
-> are all unproven. This is the first thing to try by hand.
+> **Proved against a real MinIO. Never against S3 itself.** Storing and listing ran end to end
+> against a real MinIO server, including a zero-byte artifact and a PNG a browser task produced.
+> The automated suite still uses an in-process endpoint (`internal/server/artifacts/fakes3`) that
+> speaks the same API and verifies presigned signatures for real. **Still unproven:** multipart
+> upload, bucket policies, a pre-existing bucket with the wrong permissions, TLS, lifecycle
+> rules, AWS S3 proper, and a presign round trip against anything but the fake.
 
 ### Layout
 

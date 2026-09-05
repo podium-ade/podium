@@ -101,9 +101,12 @@ replace it.
 - **The text is not redacted.** See Trust above.
 
 ```
-podium-runner message [--type progress|final] [--attach NAME]... TEXT
+podium-runner message [--type TYPE] [--attach NAME]... TEXT
 podium-runner message --type progress -            # TEXT of "-" reads stdin
 ```
+
+`--type` takes any non-empty string and defaults to `final`. `progress` and `final` are the
+canonical two; the agent runtime also emits `accounting`.
 
 Like `artifact add` it is a second process in the container writing one line to the same
 socket, so a task says what it has to say from any shell with no library and no credentials.

@@ -284,7 +284,7 @@ device has no credential to lend — drain from the control plane instead and sk
 ```sh
 podium node drain worker-3
 # wait for `podium nodes` to show 0 running
-sudo podium-node upgrade v0.4.0 --no-drain
+sudo podium-node upgrade v0.4.0 --drain=false
 podium node undrain worker-3
 ```
 
@@ -423,8 +423,14 @@ off.
 
 ### Two nodes on one engine
 
-Don't. `podium-node` claims every container labelled `podium.task` on its engine, so two daemons
-adopt each other's work. Nothing enforces this.
+Don't. At startup `podium-node` claims every container on its engine labelled `podium.task`,
+whichever daemon created it, and tears down the ones its own control plane does not recognise.
+Two daemons on one engine destroy each other's work, not merely confuse it. Nothing enforces
+this.
+
+The same trap catches developers: `make test-integration` and `make e2e` start real
+`podium-node` processes against the host's engine. Run either beside a live node and both sides
+lose their containers.
 
 ### The Agent tab is missing from the web UI
 

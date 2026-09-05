@@ -13,15 +13,22 @@ There are two ways to run one:
 
 The `dev` transport is loopback-only by design — the server refuses to bind anything else,
 because a shared static token is not an authentication system. Multi-machine means the tailnet
-transport, and that is now built.
+transport, which has now run against a real tailnet: a `tag:podium-node` worker enrolled with no
+bearer token anywhere and ran a linux/amd64 task with live logs and its exit code. What that run
+did **not** prove is the ACL — read [`networking.md`](networking.md#the-acl) before relying on
+the network to refuse server → node.
 
-**The `dev` transport cannot reach a node on another machine at all.** Not "is discouraged":
-the server binds loopback and nothing off the host can route to it, so a remote
-`podium-node` pointed at `http://<host>:8080` never connects. There is no error message worth
-reading, because there is nothing to connect to. Two things do work: the **tailnet** transport,
-which is what a remote worker is for, or a TCP relay in front of the loopback listener
-(`socat TCP-LISTEN:8080,bind=<routable-ip>,fork TCP:127.0.0.1:8080`) — useful for a test, and
-never for anything else, since it publishes the whole API behind one static token.
+**The `dev` transport cannot reach a node on another machine.** Not "is discouraged": the server
+refuses to bind anything but loopback, so a remote `podium-node` pointed at `http://<host>:8080`
+finds nothing to connect to.
+
+Its one waiver, `PODIUM_DEV_ALLOW_UNSAFE_LISTEN`, is for **a container**, where loopback is the
+container's own and the published port is the boundary. Set on a host it publishes the whole API
+behind one static token; a TCP relay in front of the loopback listener is the same exposure by
+another route. **Neither is a sanctioned way to run a remote worker.**
+
+**A worker on another machine means the tailnet transport** — in development as much as in
+production. See [`networking.md`](networking.md#this-is-not-only-the-production-option).
 
 ## Requirements
 
@@ -99,14 +106,17 @@ TOKEN=$(podium --server https://podium.<tailnet>.ts.net \
 
 ### 3. Start the node on the worker
 
+Six variables, one per line — the four you have to supply yourself are marked:
+
 ```sh
-PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net \
-PODIUM_NODE_TRANSPORT=tailnet \
-PODIUM_NODE_TS_AUTHKEY="$TS_AUTHKEY" \
-PODIUM_NODE_ENROLL_TOKEN="$TOKEN" \
-PODIUM_NODE_DATA_DIR=/var/lib/podium-node \
-PODIUM_NODE_LABELS=linux/amd64 \
-  podium-node
+export PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net  # YOURS: the control plane's MagicDNS name
+export PODIUM_NODE_TS_AUTHKEY=tskey-auth-...               # YOURS: Tailscale auth key, tag:podium-node
+export PODIUM_NODE_ENROLL_TOKEN=...                        # YOURS: from step 2. First run only
+export PODIUM_NODE_LABELS=linux/amd64                      # YOURS: what tasks match on. Comma-separated
+export PODIUM_NODE_TRANSPORT=tailnet                       # fixed for this setup
+export PODIUM_NODE_DATA_DIR=/var/lib/podium-node           # default; must be local disk and must persist
+
+podium-node
 ```
 
 The daemon joins the tailnet as `podium-node-<hostname>`, dials the server's MagicDNS name over
@@ -153,12 +163,13 @@ command with the token filled in.
 Environment-only is a supported deployment — no config file needed:
 
 ```sh
-PODIUM_NODE_SERVER=http://127.0.0.1:8080 \
-PODIUM_NODE_TRANSPORT=dev \
-PODIUM_NODE_DEV_TOKEN="$PODIUM_DEV_TOKEN" \
-PODIUM_NODE_ENROLL_TOKEN="$TOKEN" \
-PODIUM_NODE_DATA_DIR=/var/lib/podium-node \
-  podium-node
+export PODIUM_NODE_SERVER=http://127.0.0.1:8080   # the control plane, on this same machine
+export PODIUM_NODE_DEV_TOKEN=devtoken             # YOURS: must equal the server's PODIUM_DEV_TOKEN
+export PODIUM_NODE_ENROLL_TOKEN=...               # YOURS: from step 1. First run only
+export PODIUM_NODE_TRANSPORT=dev                  # fixed for this setup
+export PODIUM_NODE_DATA_DIR=/var/lib/podium-node  # default; must persist
+
+podium-node
 ```
 
 On first run the node exchanges the enrollment token for a permanent identity and writes it to
@@ -291,9 +302,15 @@ enroll_token: ""     # first run only
 
 ## Operating notes
 
-**One node per Docker engine.** The daemon claims containers by the `podium.task` label across the
-whole engine, so two `podium-node` processes on one host will adopt each other's containers. This
-is not enforced yet — don't do it.
+**One node per Docker engine.** At startup the daemon claims containers by the `podium.task`
+label across the whole engine, whichever daemon created them, and tears down the ones its own
+control plane does not recognise. Two `podium-node` processes on one host therefore destroy each
+other's work. Nothing enforces this — don't do it.
+
+**That includes a test run.** `make test-integration` and `make e2e` start real `podium-node`
+processes against the host's engine, wired to their own throwaway control plane. Run either
+beside a live node and both sides lose their containers — which looks like flakiness or memory
+pressure, and is not. Stop the node first.
 
 **Restarts are safe.** SIGTERM leaves running containers alone; on restart the node re-adopts them
 via their labels, resumes their log streams where the server last acked, and finishes them. A brief

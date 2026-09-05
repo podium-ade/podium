@@ -200,9 +200,11 @@ Full reference, including the Slack app manifest and the Linear setup:
 
 ## Running across machines
 
-The `dev` transport above is loopback-only, so node and server share a host. For real workers,
-Podium joins your Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial
-out, and there is no login page, no API token and no public ingress.
+The `dev` transport above is loopback-only, so node and server share a host. **The tailnet
+transport is the only supported way to reach a worker on another machine** — in development as
+much as in production, and not merely the recommended one. Podium joins your Tailscale network:
+the server serves HTTPS on its MagicDNS name, workers dial out, and there is no login page, no
+API token and no public ingress.
 
 ```sh
 PODIUM_TRANSPORT=tailnet TS_AUTHKEY=tskey-auth-... PODIUM_DATABASE_URL=... ./bin/podium-server
@@ -259,13 +261,15 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
 | Web UI: submit, re-run, live logs, node actions, secrets, artifacts, agent | ✅ | ✅ 221 unit tests, Playwright against a live stack |
 | Artifacts and log roll-up | ✅ | ⚠️ storing and listing proved against a **real MinIO**, including a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. Multipart, TLS, bucket policies and AWS S3 proper are unexercised |
-| Tailnet transport (tsnet, WhoIs identity, HTTPS, ACL) | ✅ | ❌ **never run against a real tailnet** |
+| Tailnet transport (tsnet, WhoIs identity, HTTPS) | ✅ | ✅ **run against a real tailnet.** Real Let's Encrypt certificate on the MagicDNS name; `WhoAmI` named a caller with no bearer token sent; a `tag:podium-node` worker enrolled and ran a linux/amd64 task with live logs and its exit code. Two workers now run against it, routed by label |
+| The tailnet ACL's outbound-only guarantee | ✅ | ❌ **never enforced.** A blanket allow-all rule on that tailnet made [the shipped policy](deploy/tailscale-acl.example.json)'s `tests` block fail, and the block was dropped rather than the rule narrowed |
+| Device approval; more than one WhoIs identity | ✅ | ❌ never run. One login has ever authenticated, on a tailnet with approval off |
 | `host` transport | ✅ | ❌ never run |
-| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ❌ never built or published |
+| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ⚠️ one image, one registry. `podium-agent-runtime:dev` built multi-arch with buildx and pushed to a private LAN registry. **Nothing on GHCR, nothing signed, no release.** The four Go service images have never been built at all |
 | Release pipeline (archives, checksums, SBOM) | ✅ | ⚠️ snapshot only — no tag, no signature ever produced |
 | `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine — there is no published release for it to download |
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
-| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, the container images — and the tailnet *transport*, which was relayed over the tailnet rather than used |
+| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
@@ -345,6 +349,14 @@ make lint proto fmt
 go build -tags noui ./...   # skip the embedded UI, no Node required
 ```
 
+> **Stop any running `podium-node` before `make test-integration` or `make e2e`.** Both suites
+> start real nodes against the host's Docker engine, and a node claims containers by the
+> `podium.task` label alone — no node scoping. Each side reports the other's containers to its
+> own control plane, which has never heard of them, and tears them down. You lose the test run
+> *and* whatever the live node was running, and it looks like flakiness or memory pressure. It is
+> not. (`DOCKER_HOST` or `PODIUM_NODE_DOCKER_HOST` pointed at a second engine separates them too,
+> if you have one.)
+
 `podium-runner` is the one binary that is never host-native: it is PID 1 inside a Linux task
 container, so `make build` cross-compiles it for `linux/amd64` and `linux/arm64` into
 `internal/node/docker/runnerbin/` (embedded into `podium-node`, gitignored, never committed) and
@@ -362,10 +374,19 @@ Everything here is real, current, and deliberate about being said out loud.
 
 ### Where it has and has not actually run
 
-- **The tailnet transport has never touched a real tailnet.** It is implemented, unit-tested and
-  integration-tested, but proving it needs tagged auth keys and HTTPS enabled on a tailnet, and
-  the build machine had neither. The `host` transport is likewise implemented and never run.
-  **The `dev` transport is the tested one.**
+- **The tailnet transport has now run against a real tailnet.** `podium-server` joined as a
+  `tag:podium-server` device, served 443 on its MagicDNS name under a real Let's Encrypt
+  certificate, and answered `WhoAmI` with a login **with no bearer token sent** — the identity
+  came from Tailscale's `WhoIs` and nothing else. A `tag:podium-node` worker enrolled over it and
+  ran a linux/amd64 task with live logs and its exit code preserved. Two workers now run against
+  it, routed by label.
+- **Four things on that path are still unproved, and one is the guarantee itself.** The ACL's
+  outbound-only property was **never enforced**: the tailnet already had a blanket allow-all
+  rule, which made the shipped policy's `tests` block fail, and the block was dropped rather than
+  the rule narrowed. Nothing has ever refused server → node.
+  [`deploy/tailscale-acl.example.json`](deploy/tailscale-acl.example.json) has not been applied
+  intact. Also unproved: **device approval**; **more than one identity** — one login has ever
+  authenticated, so `users` has never held two rows; and the `host` transport, never run at all.
 - **Artifacts have run against a real MinIO, but not against S3 itself.** Storing and listing
   are proved end to end against a real MinIO server, including a zero-byte artifact and a real
   PNG a browser task produced. The automated suite still uses an in-process endpoint that speaks
@@ -381,12 +402,23 @@ Everything here is real, current, and deliberate about being said out loud.
   secrets on tmpfs, artifact collection, log roll-up, cancellation, and a node restart adopting
   the containers it left behind. That run is also what found the artifact-collection bug this
   release fixes: it only reproduces where the daemon and the node share a filesystem, which
-  Docker Desktop does not.
-- **Three things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
-  release for it to download, and it passes `shellcheck` and `bash -n` only. The systemd unit —
-  `systemd-analyze verify` has not been run on it. And **the container images have never been
-  built or published.** The tailnet *transport* is likewise still unproved: the tailnet carried
-  the traffic, but through a TCP relay in front of the dev transport's loopback listener.
+  Docker Desktop does not. That first run relayed its traffic over the tailnet into the dev
+  transport's loopback listener; the tailnet transport itself has since driven the same worker
+  directly.
+- **Two things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
+  release for it to download, and it passes `shellcheck` and `bash -n` only. And the systemd
+  unit — `systemd-analyze verify` has not been run on it.
+- **One image has been built and pushed. The ones you would deploy have not.**
+  `podium-agent-runtime:dev` is built multi-arch — linux/amd64 and linux/arm64 in one OCI index —
+  with `docker buildx`, and pushed to a private plain-HTTP registry on the LAN. That is the whole
+  of it: nothing on GHCR, nothing signed, no release cut, `-browser` and `-data` still
+  host-architecture local tags, and **the four Go service images — `podium-server`,
+  `podium-node`, `podium`, `podium-agent` — never built on any architecture.**
+
+  Two things that cost an afternoon, if you repeat this. A plain-HTTP registry must be in
+  `insecure-registries` on **both** the pushing and the pulling daemon. And buildx's
+  `docker-container` driver does **not** inherit that from its daemon — the builder needs its own
+  `buildkitd.toml` with `[registry."host:port"] http = true`, given at `docker buildx create`.
 
 ### The agent layer has never met the services it exists to talk to
 
@@ -415,12 +447,16 @@ a real Docker engine. What has **not** happened:
   container, pointed at a real pgvector Postgres, authenticated, retained, listed, searched and
   tombstoned memories. The one unproven link is the Agent SDK's own MCP client reaching it from
   inside a task container, which needs a model call.
-- **The conductor has only ever run on one host, under the `dev` transport.** Its tailnet compose
-  entry cannot work as written, because it points at a `server:8080` that does not exist under
-  `PODIUM_TRANSPORT=tailnet`; the file says so in a comment.
-- **The three runtime images have never been published.** Task images are resolved from the
-  node's own engine, so the local `:dev` tags work on a single host. A worker on a second machine
-  cannot pull them until they are pushed to a registry.
+- **The conductor has only ever run on one host, under the `dev` transport.** Its entry in
+  `deploy/docker-compose.tailnet.yml` is a recipe, not a tested service, and the file says so:
+  under `PODIUM_TRANSPORT=tailnet` the server has **no port on the compose network**, so a plain
+  sidecar cannot reach it. That entry works only where the conductor can itself route into the
+  tailnet — the `host` transport, or `podium-agent` run on the host.
+- **Two of the three runtime images have never left one engine.** Task images are resolved by the
+  node's own engine, so a local `:dev` tag works only on the host that built it.
+  `podium-agent-runtime:dev` is now multi-arch on a private registry, so a second worker can pull
+  it. `-browser` and `-data` are not, so a worker on another machine cannot run a skill that
+  needs them.
 
 ### Architectural, and not going to change soon
 
@@ -428,8 +464,10 @@ a real Docker engine. What has **not** happened:
   node's stream can assign to it, cancel on it or drain it — and a second replica's health
   watchdog would see every node as sessionless and start expiring leases. A leader lock is
   needed before a second replica is ever started.
-- **One `podium-node` per Docker engine.** The daemon claims every container labelled
-  `podium.task` on the engine, so two of them adopt each other's work. Nothing enforces it.
+- **One `podium-node` per Docker engine.** At startup the daemon claims every container on the
+  engine labelled `podium.task`, whichever daemon created it, and tears down the ones its own
+  control plane does not recognise. So two daemons on one engine destroy each other's work.
+  Nothing enforces it. **It bites hardest in development** — see [Development](#development).
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table and lets every
   one of them do everything: submit tasks (and therefore run code as root on every worker),
   drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
