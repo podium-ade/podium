@@ -434,8 +434,11 @@ a real Docker engine. What has **not** happened:
   one of them do everything: submit tasks (and therefore run code as root on every worker),
   drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
   anyone who can mention it in a Slack channel it has joined, or assign it a Linear issue, can
-  make it run code on a worker with that skill's credentials. The skill file's `secrets:` list is
-  the only boundary, so keep it minimal per skill. Nothing in the agent track fixes this.
+  make it run code on a worker with that skill's credentials. A skill's `secrets:` list scopes
+  what one bot hands one turn — keep it minimal — but it is not a boundary around the secret
+  store: `CreateTask` checks only that a named secret exists, so anyone who can reach the API
+  can already mount any registered secret into an image of their own. Nothing in the agent track
+  fixes this.
 - **No egress policy.** A task reaches its sidecars and the internet. Whether it can also reach
   its worker's other networks depends on the host's routing, and Docker's default forwards it —
   **assume it can**, and firewall the host if that matters.

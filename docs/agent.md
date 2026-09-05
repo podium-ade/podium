@@ -149,7 +149,9 @@ docker compose exec -T postgres createdb -U podium podium_agent
 docker exec podium-dev-postgres createdb -U podium podium_agent
 ```
 
-Losing this database costs turn records, not conversations: the conversations are in Slack.
+Losing this database costs turn records, not conversations: the conversations are in Slack — and
+now also every skill made in the web UI, which lives in its `skills` table. Skills that came out
+of the profile directory are unaffected. Back it up if the UI is where your skills are defined.
 
 The shared memory has a third database, `podium_memory`, on the same Postgres — see *Memory*
 below. Losing **that** one does lose something: it is the only copy.
@@ -256,7 +258,79 @@ one. Slack says neither and starts at rule 2.
 same thread is refused politely: start a new thread. A default is not somebody naming a skill,
 so it never triggers that refusal.
 
-Changing a skill file needs a restart. There is no SIGHUP reload.
+Changing a skill **file** needs a restart. There is no SIGHUP reload. A skill made in the web
+UI does not — see *Skills in the web UI* below.
+
+### Skills in the web UI
+
+A profile does not have to live only on the conductor's host. **Agent → Skills** in the web UI
+creates, edits and deletes skills, and **Agent → Profile** sets the display name, the model and
+the two default skills, so a skill's image, prompt, tools, limits, environment and the secrets
+it names are defined in a browser instead of by editing YAML over SSH.
+
+The three decisions worth knowing before you use it:
+
+**Where it is stored.** A UI-defined skill is a row in the conductor's own database
+(`podium_agent`), table `skills`, one row per skill. The `definition` column holds the same
+document a `skills/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
+profile overrides are one row in `settings`, under the key `profile.overrides`. Nothing is
+written to the profile directory: `PODIUM_AGENT_PROFILE_DIR` is mounted read-only in the shipped
+compose file and stays that way.
+
+**The files win.** A `skills/<name>.yaml` is authoritative for the name it holds:
+
+| | |
+|---|---|
+| a name only the files define | the file's skill runs; the UI shows it **read-only**, because the file is where it is defined |
+| a name only the database holds | the stored skill runs; the UI can edit and delete it |
+| a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is delete it |
+
+Creating a skill whose name a file already defines is refused outright, so the shadowed state is
+only ever reached by adding a file for a name the database already had. The rule is deliberately
+not "the most recent write wins": which of two definitions runs must never depend on which was
+saved last, and a GitOps deployment must stay the authority over the names it ships. Editing a
+file-defined skill means editing the file and restarting the conductor, exactly as before.
+
+Profile *settings* work the other way round, because they are not definitions with a name but
+single values with one writer: `profile.yaml` supplies the default and a field set in the UI
+overrides it. The screen shows the file's value beside each field, marks which are overridden,
+and clearing a field returns it to the file's.
+
+**How a change reaches a running conductor.** Immediately, with no restart and no signal. The
+conductor holds its profile in a live holder (`profiles.Live`) that every reader takes a snapshot
+from per use; a write through the API validates the change, stores it, rebuilds the whole profile
+and swaps the new one in atomically. The next turn is routed against the new profile. A turn
+already in flight is untouched — it took its skill by value when it started, so nothing about it
+can change under it. Every conductor also re-reads the stored half every 15 seconds, which is
+what makes a second conductor on the same database, or a row changed with `psql`, land as well.
+
+The profile directory itself is still read **once, at start**. That half is a deploy artefact and
+re-reading a file somebody is half way through saving is not an improvement.
+
+**What is refused.** A skill made in a browser is validated by exactly the code that validates a
+skill file — same rules, same messages — so nothing is accepted here that a file could not say,
+and nothing is stored that would fail to load at the next restart:
+
+- everything in the table above (`image`, `allowed_tools`, `max_turns`, `timeout`, `resources`,
+  `env`, `labels` and `secrets` are checked by the task-spec validator, because that is where
+  they end up);
+- the two reserved secret names and the three reserved env vars, below;
+- `system_prompt` must be the prompt itself. `file:` works only in a `skills/<name>.yaml`, which
+  has a file beside it to resolve the path against;
+- anything that would make the merged profile ambiguous: two skills claiming one Slack channel,
+  two setting `linear: true`, a default naming a skill that is not loaded. Deleting the skill
+  `default_skill` names is refused for the same reason.
+
+**What is not restricted.** A skill may name **any registered secret**, exactly as a task spec
+may. There is no allow-list and there will not be one: `CreateTask` checks only that a named
+secret exists, so anyone who can reach the control plane can already mount any secret into an
+image of their choosing — restricting the skill path alone would be theatre. See
+[`security.md`](security.md#5-the-conductor-and-the-bot). The UI shows secret **names** only;
+there is no way to read a value back through any API in Podium.
+
+The **image is free text you supply**. Podium ships no picker and assumes no catalogue: the only
+requirement is that the image implements the turn-brief protocol, and `FROM
+ghcr.io/alvaroibarguen/podium-agent-runtime` is the easy way to get one that does.
 
 ### Reserved secret names
 
@@ -675,9 +749,12 @@ data" rule it is a courtesy rather than a control: see
 ## No RBAC
 
 **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
-credentials.** There is no allowlist of users, no roles, and no read-only mode. The skill file is the only boundary: keep
-`secrets:` minimal per skill, and do not put a credential in a skill that anybody in a public
-channel can reach.
+credentials.** There is no allowlist of users, no roles, and no read-only mode. Keep `secrets:`
+minimal per skill, and do not put a credential in a skill that anybody in a public channel can
+reach — but do not mistake that for a boundary around the secret store. `CreateTask` checks only
+that a named secret **exists**, so anyone who can reach the control plane can already mount any
+registered secret into an image and a command of their own. See
+[`security.md`](security.md#5-the-conductor-and-the-bot).
 
 The two Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`. So are the Linear API key (full
 read/write of everything that user can see) and the GitHub token (write access to the listed
