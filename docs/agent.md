@@ -125,7 +125,7 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
-| `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` | no | xAI's Grok CLI client | the OAuth client a sign-in presents. Public metadata, not a secret. Set it to the **empty string** to turn the subscription tab off and leave the API key path |
+| `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` | for the sign-in | — | a public desktop OAuth client id. **Empty turns the subscription tab off** and leaves the API key path. Public metadata, not a secret |
 | `PODIUM_AGENT_XAI_OAUTH_SCOPES` | no | `openid profile email offline_access grok-cli:access api:access` | `offline_access` is what buys a refresh token; `grok-cli:access` is what xAI's own CLI asks for |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
@@ -321,48 +321,33 @@ creates, edits and deletes skills, and **Agent → Profile** sets the display na
 the two default skills, so a skill's image, prompt, tools, limits, environment and the secrets
 it names are defined in a browser instead of by editing YAML over SSH.
 
-**Deleting is only offered inside the editor.** The list has an *Edit* on each skill and
+**Deleting is only offered inside the editor.** The list has an *Edit* on each stored skill and
 nothing destructive; the delete, behind a confirm, sits at the bottom of the edit form, so the
 definition being thrown away is on the screen with the button. A shadowed row opens the same
 form read-only — it cannot be saved over, and the delete is the only thing it offers.
 
 The three decisions worth knowing before you use it:
 
-**Where a skill is edited is where it already lives.** There is no difference at the UI between
-a skill from a file and one from the database — the same list, the same editor, the same Save.
-What differs is where the write lands:
+**Where it is stored.** A UI-defined skill is a row in the conductor's own database
+(`podium_agent`), table `skills`, one row per skill. The `definition` column holds the same
+document a `skills/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
+profile overrides are one row in `settings`, under the key `profile.overrides`. Nothing is
+written to the profile directory: `PODIUM_AGENT_PROFILE_DIR` is mounted read-only in the shipped
+compose file and stays that way.
+
+**The files win.** A `skills/<name>.yaml` is authoritative for the name it holds:
 
 | | |
 |---|---|
-| a name the files define | Save rewrites `skills/<name>.yaml` in `PODIUM_AGENT_PROFILE_DIR`, and Delete removes that file |
-| a name only the database holds | Save writes the row in `podium_agent.skills`, and Delete removes it |
+| a name only the files define | the file's skill runs; the UI shows it **read-only**, because the file is where it is defined |
+| a name only the database holds | the stored skill runs; the UI edits it, and deletes it from that edit form |
 | a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is open it and delete it |
 
-A **new** skill goes to the database rather than to a file. That is the one place the halves
-still differ, and it is a choice about which default is more surprising: writing a file into
-somebody's profile directory the first time they press Create is a bigger assumption than
-storing a row. Creating one whose name a file already defines is refused — edit that skill
-instead — so the shadowed state is only ever reached by adding a file for a name the database
-already had.
-
-**Two things editing a file from the browser costs.** Both are real and neither is hidden:
-
-- **The file's comments do not survive.** A save marshals the skill from the struct, so the
-  prose in a hand-written YAML is gone the first time somebody presses Save. The editor says so
-  before the button, and the written file carries a header saying what happened to it.
-- **A GitOps deployment overwrites what the UI wrote.** If the directory is a checkout that CI
-  redeploys, the browser is editing a working copy that the next deploy replaces. Podium cannot
-  tell that apart from an ordinary directory and does not try. **If the files are meant to be
-  the only authority, mount `PODIUM_AGENT_PROFILE_DIR` read-only** — the shipped compose files
-  mount it `:rw` for this feature, and changing it back to `:ro` makes the UI report that the
-  directory is not writable instead of silently failing.
-
-A `file:` prompt is **not** flattened by a save. A skill whose `system_prompt` names
-`prompts/x.md` keeps naming it, and the new prompt is written to that file — the alternative is
-that one Save in a browser collapses a profile's prompt layout into its YAML and orphans the
-`.md`.
-
-The profile overrides are still one row in `settings`, under the key `profile.overrides`.
+Creating a skill whose name a file already defines is refused outright, so the shadowed state is
+only ever reached by adding a file for a name the database already had. The rule is deliberately
+not "the most recent write wins": which of two definitions runs must never depend on which was
+saved last, and a GitOps deployment must stay the authority over the names it ships. Editing a
+file-defined skill means editing the file and restarting the conductor, exactly as before.
 
 Profile *settings* work the other way round, because they are not definitions with a name but
 single values with one writer: `profile.yaml` supplies the default and a field set in the UI
@@ -610,12 +595,11 @@ happens.
 
 ### Configuring it
 
-Nothing, normally. Three variables, all public and none a secret, all defaulted:
+Two environment variables, both public and neither a secret:
 
 ```sh
-PODIUM_AGENT_XAI_OAUTH_ISSUER=https://auth.x.ai
-PODIUM_AGENT_XAI_OAUTH_CLIENT_ID=b1a00492-073a-47ea-816f-4c329264a828
-PODIUM_AGENT_XAI_OAUTH_SCOPES="openid profile email offline_access grok-cli:access api:access"
+PODIUM_AGENT_XAI_OAUTH_ISSUER=https://auth.x.ai      # the default
+PODIUM_AGENT_XAI_OAUTH_CLIENT_ID=                    # empty by default → the tab is off
 ```
 
 The endpoints are **discovered**, never hard-coded: the conductor reads
@@ -624,27 +608,10 @@ issuer's own host before sending anything to it. A discovery answer that points 
 endpoint at another host is the one way a MITM turns a sign-in into a credential handover, and
 it is refused.
 
-**The client id is xAI's own Grok CLI client**, and it ships because there is nothing to
-register instead: xAI runs no self-service client registration, so every tool that offers this
-flow presents this same id. A public client cannot hold a secret — that is what PKCE and the
-device grant are for — so the id is metadata rather than a credential, which is why it sits in
-`.env.example` and in the log line.
-
-The consequence to know: **the consent screen a human approves names whoever owns the client
-id**, which is xAI's CLI and not Podium. If that is not acceptable, set the variable to the
-**empty string** and the subscription tab turns itself off, leaving the API key path:
-
-```sh
-PODIUM_AGENT_XAI_OAUTH_CLIENT_ID=      # explicit empty: the sign-in is off
-```
-
-Unset and empty mean different things here, which is unusual in this file and deliberate:
-unset gets the default, empty is the off switch. The compose files use `${VAR-default}` rather
-than `${VAR:-default}` for the same reason.
-
-`grok-cli:access` is in the default scopes because it is what xAI's own CLI asks for. Reports
-of the OAuth surface answering 403 to otherwise valid subscribers point at the scope set rather
-than at the subscription, so it is asked for.
+`PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` is **empty by default, which turns the subscription tab off**
+and leaves the API key path — a supported configuration, and what the card says when you press
+the button. xAI does not publish a shared OAuth client id for third-party tools, so there is
+nothing honest to default it to: register a public desktop client and put its id here.
 
 ### Staying signed in
 

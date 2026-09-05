@@ -648,12 +648,9 @@ func (s *AgentService) oauthFor(p providerSpec) (*oauthClient, error) {
 	}
 	c := s.oauth[p.name]
 	if c == nil {
-		// There is a client id by default, so reaching this means somebody set the variable
-		// to empty on purpose. The message says so rather than telling them to set a thing
-		// they have already decided not to set.
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"%w: PODIUM_AGENT_XAI_OAUTH_CLIENT_ID is set to the empty string, which turns "+
-				"the %s sign-in off. Unset it to use the default client, or paste an API key",
+			"%w: set PODIUM_AGENT_XAI_OAUTH_CLIENT_ID to the OAuth client id of a public "+
+				"desktop client registered with %s, or paste an API key instead",
 			errOAuthUnconfigured, p.label))
 	}
 	return c, nil

@@ -4,8 +4,6 @@ package api
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -122,7 +120,7 @@ func TestGetProfileReportsTheFileValuesBesideTheOverrides(t *testing.T) {
 	}
 	require.Len(t, byName, 2)
 	assert.Equal(t, profiles.OriginFile, byName["general"].GetOrigin())
-	assert.True(t, byName["general"].GetEditable(), "both halves are editable; a file skill writes its file")
+	assert.False(t, byName["general"].GetEditable(), "a file skill is read-only through this API")
 	assert.Equal(t, profiles.OriginStored, byName["reporter"].GetOrigin())
 	assert.True(t, byName["reporter"].GetEditable())
 	assert.Equal(t, "10m0s", byName["reporter"].GetTimeout())
@@ -145,88 +143,26 @@ func TestChangingTheModelIsWhatGetSettingsReports(t *testing.T) {
 	assert.Equal(t, "claude-haiku-5", after.Msg.GetProvider().GetModel())
 }
 
-// A file skill is edited in its file. This is the whole of "there is no difference between
-// file-defined and not": the same RPC, the same editor, and the change lands where the skill
-// actually lives instead of in a shadow copy that would never run.
-func TestAFileSkillIsEditedInItsFile(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "profile.yaml"), []byte(
-		"name: podium\ndisplay_name: Podium\nsystem_prompt: be direct\n"+
-			"model: claude-opus-5\ndefault_skill: general\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "general.yaml"), []byte(
-		"image: podium-agent-runtime:dev\nsystem_prompt: Answer the question.\n"+
-			"allowed_tools: [Read]\nmax_turns: 50\n"), 0o600))
-
-	files, err := profiles.Load(dir)
-	require.NoError(t, err)
-	live := profiles.NewLive(files)
-	svc := NewAgentService(AgentServiceOptions{
-		Store: newStore(t), Secrets: newFakeSecrets(), Profiles: live,
-	})
+func TestAFileSkillIsReadOnly(t *testing.T) {
+	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
-	require.NoError(t, svc.ReloadProfile(ctx))
 
-	// Move it to Grok, which is the case the whole picker exists for.
-	edited := newSkill("general")
-	edited.Agent = profiles.AgentGrok
-	edited.Model = "grok-4.6"
-	edited.Effort = profiles.EffortXHigh
-	res, err := svc.UpdateSkill(ctx, connect.NewRequest(&agentv1.UpdateSkillRequest{Skill: edited}))
-	require.NoError(t, err)
-	assert.Equal(t, profiles.OriginFile, res.Msg.GetSkill().GetOrigin(),
-		"it is still a file skill; it was not quietly moved into the database")
+	_, err := f.svc.CreateSkill(ctx, connect.NewRequest(&agentv1.CreateSkillRequest{Skill: newSkill("general")}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeAlreadyExists, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "skills/general.yaml")
 
-	// The file on disk is what changed.
-	raw, err := os.ReadFile(profiles.SkillPath(dir, "general"))
-	require.NoError(t, err)
-	assert.Contains(t, string(raw), "agent: grok")
-	assert.Contains(t, string(raw), "model: grok-4.6")
-
-	// And the running profile followed, with no restart.
-	running := live.Current().Skills["general"]
-	assert.Equal(t, profiles.AgentGrok, running.Agent)
-	assert.Equal(t, "grok-4.6", running.Model)
-	assert.Equal(t, profiles.EffortXHigh, running.Effort)
-
-	// Nothing was written to the database half: one skill, one place.
-	stored, err := svc.store.ListStoredSkills(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, stored)
-}
-
-// Deleting a file skill deletes its file. It is refused when the profile could not load
-// without it — the same rule a directory is held to at start-up — and the file survives.
-func TestDeletingAFileSkillRemovesTheFile(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "profile.yaml"), []byte(
-		"name: podium\ndisplay_name: Podium\nsystem_prompt: be direct\n"+
-			"model: claude-opus-5\ndefault_skill: general\n"), 0o600))
-	for _, n := range []string{"general", "reporter"} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", n+".yaml"), []byte(
-			"image: podium-agent-runtime:dev\nsystem_prompt: x\n"+
-				"allowed_tools: [Read]\nmax_turns: 50\n"), 0o600))
-	}
-	files, err := profiles.Load(dir)
-	require.NoError(t, err)
-	live := profiles.NewLive(files)
-	svc := NewAgentService(AgentServiceOptions{
-		Store: newStore(t), Secrets: newFakeSecrets(), Profiles: live,
-	})
-	ctx := loginCtx("alice")
-	require.NoError(t, svc.ReloadProfile(ctx))
-
-	_, err = svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "reporter"}))
-	require.NoError(t, err)
-	assert.NoFileExists(t, profiles.SkillPath(dir, "reporter"))
-	assert.NotContains(t, live.Current().Skills, "reporter")
-
-	// general is default_skill, so a directory without it would not load at all.
-	_, err = svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "general"}))
+	_, err = f.svc.UpdateSkill(ctx, connect.NewRequest(&agentv1.UpdateSkillRequest{Skill: newSkill("general")}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.FileExists(t, profiles.SkillPath(dir, "general"), "refused before anything was removed")
+	assert.Contains(t, err.Error(), "read-only here")
+	assert.Contains(t, err.Error(), "the files win")
+
+	_, err = f.svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "general"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+
+	assert.Equal(t, "podium-agent-runtime:dev", f.live.Current().Skills["general"].Image)
 }
 
 // A stored skill a file skill later shadows still exists in the database. It is reported so

@@ -200,6 +200,9 @@ export function SkillsPanel() {
                   <p className="text-xs text-muted">{promptHint(s.systemPrompt)}</p>
                 ) : null}
               </div>
+              {/* A file skill opens too, read-only. It cannot be changed here — the files
+                  win — but "you may not edit this" and "you may not look at this" are very
+                  different rules, and only the first one was ever intended. */}
               <button
                 type="button"
                 aria-label={`${s.editable ? "Edit" : "View"} ${s.name}`}
@@ -214,9 +217,7 @@ export function SkillsPanel() {
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {s.shadowed ? null : (
-                <Chip>{s.origin === "file" ? `skills/${s.name}.yaml` : "stored"}</Chip>
-              )}
+              {s.editable ? null : <Badge tone="idle">file · read-only</Badge>}
               {s.name === p?.defaultSkill ? <Badge tone="ok">default skill</Badge> : null}
               {s.name === chatDefault ? <Chip>chat default</Chip> : null}
               {s.linear ? <Chip>Linear tickets</Chip> : null}
