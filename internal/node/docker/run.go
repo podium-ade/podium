@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -90,15 +91,17 @@ func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (R
 
 	rs, err := e.register(req.TaskID)
 	if err != nil {
-		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: false})
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: false, AbortsRun: true})
 		return Result{}, err
 	}
 	defer e.unregister(req.TaskID, rs)
 
 	res, err := e.run(ctx, req, em, rs)
 	if err != nil {
-		retryable := !errors.Is(err, errSpec) && !errors.Is(err, errSidecarNotReady)
-		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable})
+		retryable := !errors.Is(err, errSpec) &&
+			!errors.Is(err, errSidecarNotReady) &&
+			!errors.Is(err, errImageUnavailable)
+		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable, AbortsRun: true})
 		// Never leak: drop anything this call created, on a context that
 		// survives the caller cancelling.
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
@@ -114,6 +117,47 @@ func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (R
 // errSpec marks failures caused by the task spec rather than by the engine or
 // the network; they are not worth retrying.
 var errSpec = errors.New("invalid task spec")
+
+// errImageUnavailable marks a pull the registry answered definitively: the reference does
+// not exist, or this engine may not have it. Unlike a registry that is down, that answer
+// does not change by asking again, and it is the same answer every other node would get —
+// so a task whose image is unavailable is failed rather than retried.
+var errImageUnavailable = errors.New("image unavailable")
+
+// permanentPullMessages are the registry answers that mean "not now and not later". A pull
+// failure matching none of them — a refused connection, a 5xx, a rate limit, a timeout —
+// stays retryable, because the cost of that guess being wrong is one wasted attempt while
+// the cost of the opposite is a task failed for a blip.
+var permanentPullMessages = []string{
+	"pull access denied",
+	"repository does not exist",
+	"manifest unknown",
+	": not found",
+	"unauthorized",
+	"requested access to the resource is denied",
+	"invalid reference format",
+	"no such image",
+}
+
+// permanentPull reports whether a pull failure is one no retry can fix.
+func permanentPull(msg string) bool {
+	msg = strings.ToLower(msg)
+	for _, m := range permanentPullMessages {
+		if strings.Contains(msg, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// pullFailed is the error a failed pull reports, classified. The registry's own words are
+// kept verbatim: they are what an operator acts on.
+func pullFailed(ref, msg string) error {
+	if permanentPull(msg) {
+		return fmt.Errorf("pull image %s: %w: %s", ref, errImageUnavailable, msg)
+	}
+	return fmt.Errorf("pull image %s: %s", ref, msg)
+}
 
 func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runState) (Result, error) {
 	if req.Spec.Image == "" {
@@ -449,7 +493,7 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 
 	rc, err := e.cli.ImagePull(ctx, ref, image.PullOptions{})
 	if err != nil {
-		return fmt.Errorf("pull image %s: %w", ref, err)
+		return pullFailed(ref, err.Error())
 	}
 	defer func() { _ = rc.Close() }()
 
@@ -475,7 +519,7 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 			return fmt.Errorf("pull image %s: read progress: %w", ref, err)
 		}
 		if msg.Error != "" {
-			return fmt.Errorf("pull image %s: %s", ref, msg.Error)
+			return pullFailed(ref, msg.Error)
 		}
 		if now := time.Now(); last.IsZero() || now.Sub(last) >= pullProgressInterval {
 			last = now

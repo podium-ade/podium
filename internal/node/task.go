@@ -255,20 +255,22 @@ func runErrorLine(err error) any {
 }
 
 // push buffers one event and reports a replay-buffer overflow exactly once per task. The
-// marker is not retryable, which is what tells the server the task's record is
-// incomplete.
+// marker is not retryable, which is what tells the server the task's record is incomplete,
+// and it does not abort the run: the container is still going and still owes an exit code.
 func (n *Node) push(buf *buffer, e *podiumv1.TaskEvent) {
 	_, dropped := buf.append(e)
 	if dropped > 0 && buf.claimOverflow() {
 		n.logger.Warn("replay buffer overflowed; oldest log chunks dropped",
 			"task_id", buf.taskID, "cap_bytes", ReplayBufferBytes)
-		buf.append(errorEvent("log buffer overflow", false))
+		buf.append(errorEvent("log buffer overflow", false, false))
 	}
 	n.signal()
 }
 
-// rejectAssign tells the server a task it just handed over is not going to run here. It
-// is retryable: another node, or this one later, can take it.
+// rejectAssign tells the server a task it just handed over is not going to run here. It is
+// retryable — another node, or this one later, can take it — and it aborts the run, because
+// there is no run: the control plane must put the task somewhere else rather than wait for
+// output that will never come.
 func (n *Node) rejectAssign(
 	ctx context.Context,
 	stream *connect.BidiStreamForClient[podiumv1.NodeMessage, podiumv1.ServerMessage],
@@ -276,7 +278,7 @@ func (n *Node) rejectAssign(
 	reason string,
 ) error {
 	n.logger.WarnContext(ctx, "refusing assignment", "task_id", a.GetTaskId(), "reason", reason)
-	e := errorEvent(reason, true)
+	e := errorEvent(reason, true, true)
 	e.TaskId = a.GetTaskId()
 	e.LeaseId = a.GetLeaseId()
 	e.Seq = 1
