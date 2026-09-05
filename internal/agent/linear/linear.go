@@ -64,10 +64,11 @@ type Options struct {
 	Endpoint string
 	// PollInterval is how often assigned issues are asked for. Required.
 	PollInterval time.Duration
-	// Skill is the name of the skill Linear tickets run — the one with linear: true.
-	// Required: a ticket has no channel and no /skill prefix, so the source names it and
-	// the profile's routing rules are bypassed.
-	Skill string
+	// Skill names the skill Linear tickets run — the one with linear: true. Required: a
+	// ticket has no channel and no /skill prefix, so the source names it and the profile's
+	// routing rules are bypassed. It is a function because that skill can change while the
+	// process runs, and it must return non-empty at New.
+	Skill func() string
 	// TaskURL renders a link to a Podium task page for a human. It is the fallback when an
 	// attachment cannot be uploaded into the conversation.
 	TaskURL func(taskID string) string
@@ -92,7 +93,7 @@ type Source struct {
 	metrics  *Metrics
 	events   chan conductor.InboundEvent
 	interval time.Duration
-	skill    string
+	skill    func() string
 	taskURL  func(string) string
 	session  SessionLookup
 	cursor   CursorStore
@@ -141,9 +142,10 @@ var _ conductor.Source = (*Source)(nil)
 // New builds the source. Nothing is dialled until Run.
 func New(opts Options) (*Source, error) {
 	switch {
-	case opts.Skill == "":
+	case opts.Skill == nil || opts.Skill() == "":
 		return nil, errors.New("linear: no skill sets `linear: true`, so there is nothing to run a " +
-			"ticket with. Add it to exactly one skills/*.yaml, or unset PODIUM_AGENT_LINEAR_API_KEY")
+			"ticket with. Set it on exactly one skill — a skills/*.yaml, or one made in the web " +
+			"UI — or unset PODIUM_AGENT_LINEAR_API_KEY")
 	case opts.PollInterval <= 0:
 		return nil, errors.New("linear: a poll interval is required")
 	case opts.Session == nil:
@@ -419,7 +421,7 @@ func (s *Source) emit(ctx context.Context, ev conductor.InboundEvent) {
 	ev.SourceKind = Kind
 	ev.BriefKind = conductor.SourceLinear
 	// The skill is named here rather than routed: Select honours a non-empty Skill first.
-	ev.Skill = s.skill
+	ev.Skill = s.skill()
 	select {
 	case s.events <- ev:
 	case <-ctx.Done():

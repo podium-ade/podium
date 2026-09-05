@@ -66,7 +66,7 @@ func newHarness(t *testing.T) *harness {
 		APIKey:       fakeAPIKey,
 		Endpoint:     h.stub.endpoint(),
 		PollInterval: 30 * time.Second,
-		Skill:        "coder",
+		Skill:        func() string { return "coder" },
 		TaskURL:      func(id string) string { return "https://podium.example/tasks/" + id },
 		Clock:        h.clock.Now,
 		Session: func(_ context.Context, key string) (time.Time, bool) {

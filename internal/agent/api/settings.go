@@ -56,7 +56,7 @@ func (s *AgentService) GetSettings(
 		return nil, err
 	}
 
-	out := &agentv1.ProviderSettings{Provider: ProviderAnthropic, Model: s.model}
+	out := &agentv1.ProviderSettings{Provider: ProviderAnthropic, Model: s.currentModel()}
 	version, err := s.secretVersion(ctx)
 	switch {
 	case err != nil:
@@ -173,7 +173,7 @@ func (s *AgentService) SetProviderKey(
 		"secret_version", version, "models", len(models))
 
 	return connect.NewResponse(&agentv1.SetProviderKeyResponse{
-		Provider: providerSettings(row, s.model),
+		Provider: providerSettings(row, s.currentModel()),
 		Models:   models,
 		Status:   unusualFormat(key),
 	}), nil
