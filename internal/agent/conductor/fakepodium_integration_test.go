@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 )
@@ -274,6 +275,16 @@ func messageEvent(taskID string, seq uint64, kind, text string, attachments ...s
 			Type: kind, Text: text, Attachments: attachments,
 		}},
 	}
+}
+
+// accountingEvent is the message the runtime emits after its final, carrying turn.json's
+// document through the runner socket instead of the object store.
+func accountingEvent(taskID string, seq uint64, numTurns int, cost float64) *podiumv1.TaskEvent {
+	return messageEvent(taskID, seq, conductor.MsgAccounting, fmt.Sprintf(
+		`{"session_id":"sess_x","turn_id":"turn_x","sdk_session_id":"sdk_x",`+
+			`"num_turns":%d,"total_cost_usd":%v,"exit_code":0,`+
+			`"started_at":"2026-09-05T10:00:00.000Z","finished_at":"2026-09-05T10:00:09.000Z"}`,
+		numTurns, cost))
 }
 
 func logEvent(taskID string, seq uint64, text string) *podiumv1.TaskEvent {

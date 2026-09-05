@@ -10,7 +10,12 @@ export const RunnerPath = "/podium/runner";
 /** MaxMessageBytes is internal/runner.MaxMessageBytes: the runner refuses more. */
 export const MaxMessageBytes = 32 * 1024;
 
-export type MessageType = "progress" | "final";
+/**
+ * MessageType is what goes in `--type`. The wire's set is open (docs/runner-events.md):
+ * `progress` and `final` are read by a human, `accounting` is turn.json for the conductor
+ * and is never posted anywhere.
+ */
+export type MessageType = "progress" | "final" | "accounting";
 
 /** RunnerInvoke runs one `podium-runner message` with the text on its stdin. */
 export type RunnerInvoke = (argv: string[], text: string) => Promise<void>;

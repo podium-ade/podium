@@ -56,6 +56,18 @@ is terminal, because an artifact named in a message may still have been uploadin
 message arrived. A name that matches nothing gets one line in the thread; anything over
 **25 MB** is not relayed and the thread says where to find it instead.
 
+**Accounting.** `turns.num_turns` and `turns.cost_usd` come from the runtime's own summary, which
+leaves the container by **two** routes carrying the same document: an `accounting` message, emitted
+after the final, and the `turn.json` artifact. The message is what the conductor reads; the
+artifact is the fallback, and only fetched when no message arrived. Two routes because the object
+store is optional (`PODIUM_S3_*` unset disables artifacts) while the accounting is not — with only
+the artifact, a host with no store recorded a successful turn with both columns null and said
+nothing about it. The message is emitted *after* the final so that a conductor resuming a turn
+across a restart, which follows from the last seq it relayed, is sent it again; its seq is
+deliberately not claimed in the `relayed` ledger, because accounting is never said out loud. A turn
+that succeeds having reported neither is logged at `Warn` with the task id and counted in
+`podium_agent_turns_without_accounting_total`.
+
 ### What is said when a turn does not succeed
 
 The raw `failure_reason` is **never** posted. It goes to the conductor's log at `Warn` with the
@@ -155,6 +167,7 @@ through it. That is deliberate: a bot with no memory is a worse bot, not a broke
 Metrics: `podium_agent_turns_total{source,skill,status}`,
 `podium_agent_turn_duration_seconds{skill}`, `podium_agent_relayed_messages_total{type}`,
 `podium_agent_source_events_total{source}`, `podium_agent_follow_reconnects_total`,
+`podium_agent_turns_without_accounting_total`,
 `podium_agent_memory_retain_total{result}` (`ok`, `error`, `redacted`).
 
 ---
