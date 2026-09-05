@@ -2126,8 +2126,11 @@ type SendChatMessageRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
 	Text   string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// skill names the skill this message runs, bypassing the profile's routing rules. Empty
-	// means the profile decides (a leading /skill in the text still works).
+	// skill names the skill this message runs and wins over everything else, a leading
+	// /skill in the text included: a human picking the chip after typing is the later
+	// intent. Empty leaves the choice to a leading /skill in the text, then to
+	// profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
+	// not a skill selector: it stays in the text.
 	Skill         string `protobuf:"bytes,3,opt,name=skill,proto3" json:"skill,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

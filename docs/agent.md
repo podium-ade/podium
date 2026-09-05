@@ -27,7 +27,7 @@ sees the master key, and never touches Docker.
 ```
 somebody says something
   ↓  source (Slack)                          normalises it into an InboundEvent
-  ↓  Select                                  which skill? /skill, then the channel, then the default
+  ↓  Select                                  which skill? the chip, /skill, the channel, the defaults
   ↓  UpsertSession                            by source key — one thread, one session, one skill
   ↓  React 👀  +  post "👀 working…"          before any work starts
   ↓  FetchTranscript                          the thread so far
@@ -221,19 +221,27 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 
 In order:
 
-1. The message starts with `/<skill>` followed by whitespace or the end — that skill, prefix
+1. **A skill the source knows** is right, which no rule below may second-guess: the web chat's
+   skill chip (`SendChatMessage.skill`) and the `linear: true` skill a ticket runs. A ticket's
+   text is not a command line, so a `/word` in its description is left alone — and a chip
+   chosen after typing `/other` is the later intent, so it wins.
+2. The message starts with `/<skill>` followed by whitespace or the end — that skill, prefix
    stripped. An **unknown** `/name` is not an error: it is left in the text and falls through, so
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a skill selector either.
-2. The channel is in a skill's `slack_channels`. Two skills claiming one channel is a startup
+3. The channel is in a skill's `slack_channels`. Two skills claiming one channel is a startup
    error.
-3. `profile.default_skill`.
+4. **The source's own default**: the web chat's `profile.yaml: chat_default_skill`. Every chat
+   message carries it, which is exactly why it is only a default — a `/skill` a human typed is
+   more specific than a per-source preference, and wins.
+5. `profile.default_skill`.
 
-A **Linear ticket skips all three**: the Linear source names the `linear: true` skill itself, and
-an explicit skill from a source wins over every routing rule. A ticket's text is not a command
-line, so a `/word` in its description is left alone.
+Rule 1 is knowledge and rules 4 and 5 are fallbacks, and keeping them apart is the whole of the
+order: Linear names the skill because it genuinely knows it, while the web chat merely *prefers*
+one. Slack says neither and starts at rule 2.
 
 **One session, one skill**, fixed when the thread's session is created. A later `/other` in the
-same thread is refused politely: start a new thread.
+same thread is refused politely: start a new thread. A default is not somebody naming a skill,
+so it never triggers that refusal.
 
 Changing a skill file needs a restart. There is no SIGHUP reload.
 
@@ -821,9 +829,11 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   chat decides from the file's extension when the store has nothing to say.
 - **Which skill a message runs**: the skill chip beside the composer, which starts at
   `profile.yaml: chat_default_skill` (falling back to `default_skill`). Typing `/analyst …` works
-  too and moves the chip. A conversation keeps the skill it started with — the same
-  one-session-one-skill rule as a Slack thread — so switching the chip in an existing chat is
-  refused with a sentence saying to start a new one.
+  too — it moves the chip in the browser, and on the wire a typed `/skill` beats the chat
+  default even when the chip is left unset, as an API client leaves it. The chip itself still
+  wins over a prefix: it is the last thing the human touched. A conversation keeps the skill it
+  started with — the same one-session-one-skill rule as a Slack thread — so switching the chip
+  in an existing chat is refused with a sentence saying to start a new one.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
   is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one

@@ -61,10 +61,14 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Skill is a skill the source chose itself (Linear's linear: true skill, the chat
-	// skill chip). Empty means "let the profile's rules decide". Slack always leaves it
-	// empty.
+	// Skill is a skill the source KNOWS is right (Linear's linear: true skill, the chat's
+	// skill chip). It bypasses every routing rule, a typed /skill included. Empty means
+	// "let the profile's rules decide". Slack always leaves it empty.
 	Skill string
+	// DefaultSkill is what this source falls back to when nothing more specific picks one
+	// (the chat's chat_default_skill). Unlike Skill it is only a preference: a human typing
+	// /skill overrides it, and it beats profile.default_skill.
+	DefaultSkill string
 	// BriefKind is the source.kind the runtime's schema must see, which is not always
 	// SourceKind: the schema allows only slack, linear and chat, and the test-only dev
 	// source presents itself as chat.

@@ -155,7 +155,7 @@ func TestAProfileWithNoSkillsIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "holds no skills")
 }
 
-// The three routing rules, in order, plus the one that must NOT be a rule.
+// The routing rules, in order, plus the one that must NOT be a rule.
 func TestSelect(t *testing.T) {
 	files := base()
 	files["skills/coder.yaml"] = goodSkill + "slack_channels: [C-CODE]\n"
@@ -163,55 +163,93 @@ func TestSelect(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("a /skill prefix picks the skill and is stripped", func(t *testing.T) {
-		sel := p.Select("", "C1", "/coder fix it")
+		sel := p.Select(Routing{Channel: "C1", Text: "/coder fix it"})
 		assert.Equal(t, "coder", sel.Skill.Name)
 		assert.Equal(t, "fix it", sel.Instruction)
 		assert.True(t, sel.Explicit)
 	})
 
 	t.Run("a bare /skill with no words still picks it", func(t *testing.T) {
-		sel := p.Select("", "C1", "/coder")
+		sel := p.Select(Routing{Channel: "C1", Text: "/coder"})
 		assert.Equal(t, "coder", sel.Skill.Name)
 		assert.Empty(t, sel.Instruction)
 	})
 
 	// Somebody typing /shrug must not break the bot, and must not have their text eaten.
 	t.Run("an unknown /name falls through with the text intact", func(t *testing.T) {
-		sel := p.Select("", "C1", "/shrug hi")
+		sel := p.Select(Routing{Channel: "C1", Text: "/shrug hi"})
 		assert.Equal(t, "general", sel.Skill.Name)
 		assert.Equal(t, "/shrug hi", sel.Instruction)
 		assert.False(t, sel.Explicit)
 	})
 
 	t.Run("a path is not a skill selector", func(t *testing.T) {
-		sel := p.Select("", "C1", "/etc/hosts is wrong")
+		sel := p.Select(Routing{Channel: "C1", Text: "/etc/hosts is wrong"})
 		assert.Equal(t, "general", sel.Skill.Name)
 		assert.Equal(t, "/etc/hosts is wrong", sel.Instruction)
 	})
 
 	t.Run("a claimed channel beats the default", func(t *testing.T) {
-		sel := p.Select("", "C-CODE", "please look")
+		sel := p.Select(Routing{Channel: "C-CODE", Text: "please look"})
 		assert.Equal(t, "coder", sel.Skill.Name)
 		assert.False(t, sel.Explicit, "a channel claim is routing, not somebody naming a skill")
 	})
 
 	t.Run("a /skill prefix beats a claimed channel", func(t *testing.T) {
-		sel := p.Select("", "C-CODE", "/general what is this")
+		sel := p.Select(Routing{Channel: "C-CODE", Text: "/general what is this"})
 		assert.Equal(t, "general", sel.Skill.Name)
 		assert.Equal(t, "what is this", sel.Instruction)
 	})
 
-	t.Run("a skill the source chose beats everything", func(t *testing.T) {
-		sel := p.Select("coder", "C1", "/general hi")
+	t.Run("a skill the source knows beats everything", func(t *testing.T) {
+		sel := p.Select(Routing{Skill: "coder", Channel: "C1", Text: "/general hi"})
 		assert.Equal(t, "coder", sel.Skill.Name)
 		assert.True(t, sel.Explicit)
 		assert.Equal(t, "/general hi", sel.Instruction, "the source's choice leaves the text alone")
 	})
 
 	t.Run("nothing matches, so the default runs", func(t *testing.T) {
-		sel := p.Select("", "C-OTHER", "  hello  ")
+		sel := p.Select(Routing{Channel: "C-OTHER", Text: "  hello  "})
 		assert.Equal(t, "general", sel.Skill.Name)
 		assert.Equal(t, "hello", sel.Instruction)
+	})
+}
+
+// TestASourcesDefaultLosesToATypedSkillAndBeatsTheProfiles is the web chat's precedence:
+// the chip is knowledge and wins outright, a typed /skill is the most specific thing a
+// human can say next, and chat_default_skill is only where a message with neither lands.
+func TestASourcesDefaultLosesToATypedSkillAndBeatsTheProfiles(t *testing.T) {
+	files := base()
+	files["skills/coder.yaml"] = goodSkill
+	files["skills/analyst.yaml"] = goodSkill
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	t.Run("the source's default beats profile.default_skill", func(t *testing.T) {
+		sel := p.Select(Routing{DefaultSkill: "analyst", Text: "how many accounts"})
+		assert.Equal(t, "analyst", sel.Skill.Name)
+		assert.False(t, sel.Explicit, "a default is not somebody naming a skill")
+	})
+
+	t.Run("a typed /skill beats the source's default", func(t *testing.T) {
+		sel := p.Select(Routing{DefaultSkill: "analyst", Text: "/general reply with pong"})
+		assert.Equal(t, "general", sel.Skill.Name)
+		assert.Equal(t, "reply with pong", sel.Instruction, "a matched prefix is stripped")
+		assert.True(t, sel.Explicit)
+	})
+
+	t.Run("the chip beats a typed /skill", func(t *testing.T) {
+		sel := p.Select(Routing{Skill: "coder", DefaultSkill: "analyst", Text: "/general hi"})
+		assert.Equal(t, "coder", sel.Skill.Name)
+		assert.Equal(t, "/general hi", sel.Instruction)
+		assert.True(t, sel.Explicit)
+	})
+
+	t.Run("an unknown /name still falls through to the source's default", func(t *testing.T) {
+		sel := p.Select(Routing{DefaultSkill: "analyst", Text: "/shrug hi"})
+		assert.Equal(t, "analyst", sel.Skill.Name)
+		assert.Equal(t, "/shrug hi", sel.Instruction)
+		assert.False(t, sel.Explicit)
 	})
 }
 
@@ -263,7 +301,7 @@ func TestASourceChosenSkillWinsOverEveryRoutingRule(t *testing.T) {
 	p, err := Load(write(t, files))
 	require.NoError(t, err)
 
-	sel := p.Select("coder", "C999", "/general please just answer")
+	sel := p.Select(Routing{Skill: "coder", Channel: "C999", Text: "/general please just answer"})
 	assert.Equal(t, "coder", sel.Skill.Name)
 	assert.True(t, sel.Explicit)
 	assert.Equal(t, "/general please just answer", sel.Instruction,
