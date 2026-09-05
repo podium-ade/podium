@@ -50,10 +50,11 @@ type fakeNode struct {
 	path string
 	ln   net.Listener
 
-	mu    sync.Mutex
-	conn  net.Conn
-	lines []map[string]any
-	done  chan struct{}
+	mu       sync.Mutex
+	conn     net.Conn
+	lines    []map[string]any
+	done     chan struct{}
+	accepted chan struct{}
 }
 
 func newFakeNode(t *testing.T, dir string) *fakeNode {
@@ -63,7 +64,12 @@ func newFakeNode(t *testing.T, dir string) *fakeNode {
 	if err != nil {
 		t.Fatalf("listen on %s: %v", path, err)
 	}
-	n := &fakeNode{path: path, ln: ln, done: make(chan struct{})}
+	n := &fakeNode{
+		path:     path,
+		ln:       ln,
+		done:     make(chan struct{}),
+		accepted: make(chan struct{}),
+	}
 	t.Cleanup(func() { _ = ln.Close() })
 
 	go func() {
@@ -76,6 +82,7 @@ func newFakeNode(t *testing.T, dir string) *fakeNode {
 		n.mu.Lock()
 		n.conn = conn
 		n.mu.Unlock()
+		close(n.accepted)
 
 		sc := bufio.NewScanner(conn)
 		for sc.Scan() {
@@ -92,26 +99,32 @@ func newFakeNode(t *testing.T, dir string) *fakeNode {
 }
 
 // vanish drops the node's end of the socket the way a killed process would.
+//
+// It waits for the accept before it closes the listener, and the order is the whole point.
+// connect(2) on a Unix socket returns as soon as the kernel queues the connection on the
+// listener's backlog, so the runner is connected and writing well before Accept has run.
+// Closing the listener first discards that backlog on Linux: Accept then returns "use of
+// closed network connection", n.conn is never set, and the poll below used to spend five
+// seconds waiting for a connection that had already been thrown away. That lost the race
+// on roughly a third of runs on an idle Linux box, and macOS only hid it by scheduling the
+// accept goroutine sooner.
 func (n *fakeNode) vanish(t *testing.T) {
 	t.Helper()
-	require := func(err error) {
-		if err != nil {
-			t.Fatalf("vanish: %v", err)
-		}
+	select {
+	case <-n.accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fake node never accepted a connection")
 	}
-	require(n.ln.Close())
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		n.mu.Lock()
-		conn := n.conn
-		n.mu.Unlock()
-		if conn != nil {
-			require(conn.Close())
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+
+	n.mu.Lock()
+	conn := n.conn
+	n.mu.Unlock()
+	if err := n.ln.Close(); err != nil {
+		t.Fatalf("vanish: close listener: %v", err)
 	}
-	t.Fatal("the fake node never accepted a connection")
+	if err := conn.Close(); err != nil {
+		t.Fatalf("vanish: close connection: %v", err)
+	}
 }
 
 func (n *fakeNode) events(t *testing.T) []map[string]any {
