@@ -64,6 +64,21 @@ Auth keys expire (90 days by default). They are only read on a device's *first* 
 expired key does not disconnect anything that is already running — it only stops you adding new
 workers. Mint a fresh one when that happens.
 
+### Device key expiry is a different clock, and it is the one that takes a node offline
+
+Each **device** also has its own key expiry, shown per device in the admin console and separate
+from the auth key's. Unlike an auth key, this one *does* drop a running device off the tailnet.
+There is no Podium error for it: the control plane just becomes unreachable, or a worker goes
+`unreachable` and then `offline`, with nothing in either log saying why.
+
+**A long-lived control plane and its workers want *Disable key expiry* on each device.** Do it
+when you add them, not after.
+
+The server warns about its own device only: `/readyz` turns 503 once its key is within 30 days
+(`internal/transport/tailnet/server.go`). A worker's `/readyz` tracks only the control-plane
+stream (`internal/node/health.go`), so a worker's key lapsing looks exactly like a network
+outage. Watch the dates in the admin console.
+
 ## The ACL
 
 [`deploy/tailscale-acl.example.json`](../deploy/tailscale-acl.example.json) is the policy from
@@ -363,15 +378,42 @@ separates "cannot reach it" from "not allowed".
 | `is bound to another Tailscale device` | A different machine is presenting this node's key. If deliberate: `podium node rekey NODE_ID` |
 | `more than 5 attempts in 1m0s from this address` | The enrollment rate limit. Wait a minute |
 | The name drifts to `podium-1`, `podium-2`, … | The tsnet state directory is not persisting |
-| `/readyz` says `node key expires in Nd` | An untagged device's key is expiring. Tag the device — tagged devices do not expire |
+| `/readyz` says `node key expires in Nd` | The **control plane's own device** key is inside 30 days. Tag the device, or give it *Disable key expiry* — the message names both. This is the server's device only; nothing warns you about a worker's |
 | The node connects but no task ever runs | Not a networking problem: check `max_tasks` and that the spec's labels are a subset of the node's. `podium task get` prints `queued_reason` |
 | `podium` asks for a token against an `https://` server | The CLI decides on the URL scheme. An `https://` server needs none; if one is configured it is sent anyway, which keeps a mixed setup working |
 | A user gets 403 where you expected 401 | Their device carries an ACL tag. A tagged device is never treated as a person, because Tailscale reports the *tag owner's* profile for one |
-| Certificate errors from a browser or `curl` | HTTPS Certificates were enabled after the server started. Restart it; the certificate is fetched at listen time |
+| The **first** HTTPS request after a start hangs or times out, and the server logs `TLS handshake error … i/o timeout` | Not a failure. The certificate is issued **during that first handshake** — retry, and the second request answers in a fraction of a second. See below |
+| Certificate errors from a browser or `curl` | HTTPS Certificates were enabled after the server started. Restart it: whether the tailnet permits certificates at all is checked once, at listen time, and a server that started before you turned them on will never look again |
 | `cannot get a certificate for podium.<tailnet>.ts.net` | The device's name is not what you think. Check `PODIUM_TS_HOSTNAME`, and that no other device already owns that name |
-| Everything works, then stops after ~90 days | An untagged device's node key expired. Tag it — tagged devices do not expire — or re-authenticate it |
+| Everything worked for months, then a device silently left the tailnet | Its **device key** expired — a different clock from the auth key's, one per device, shown in the admin console. Disable key expiry on it, tag it, or re-authenticate it. A worker's `/readyz` will not have warned you; see [Device key expiry](#device-key-expiry-is-a-different-clock-and-it-is-the-one-that-takes-a-node-offline) |
 | An ACL change takes effect for new connections only | Tailscale evaluates the policy at connection time. Restart the node to pick up a widened ACL |
 | The ACL denies the node and you cannot tell why | `tailscale ping podium` from the worker, and use the admin console's ACL preview. Podium sees only "the connection did not arrive" |
+
+### The first HTTPS request after a start is slow, and its log line looks like a failure
+
+Two things happen at two different times:
+
+- **At listen time** the server checks whether the tailnet permits certificates at all. That is
+  the check a restart re-runs, and why turning HTTPS Certificates on *after* the server started
+  needs a restart.
+- **The certificate itself** is fetched lazily, inside the first TLS handshake. That handshake
+  waits for the certificate to be issued, which can outrun a client's default timeout.
+
+So the first request may hang and `curl` may give up, while the server logs:
+
+```
+http: TLS handshake error from 100.x.y.z:NNNNN: read tcp …: i/o timeout
+```
+
+That is Go's `net/http` saying *the client* left mid-handshake — not a rejection. **Retry.** The
+certificate is cached, and the second request answers in a fraction of a second. Worry only if it
+persists; then check what the server is actually serving:
+
+```sh
+openssl s_client -connect podium.<tailnet>.ts.net:443 \
+  -servername podium.<tailnet>.ts.net </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -issuer -dates
+```
 
 ## What is not built
 
