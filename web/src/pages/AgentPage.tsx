@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
-import { ProviderKeyCard } from "../components/agent/ProviderKeyCard";
+import { ProviderCard } from "../components/agent/ProviderCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { useToast } from "../components/Toast";
+import { useAgents } from "../hooks/useAgents";
+import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 
@@ -76,28 +78,37 @@ export function AgentPage() {
   );
 }
 
-/** SettingsTab owns the RPCs and hands the card two functions. */
+/**
+ * SettingsTab owns the RPCs and hands each card the functions it needs.
+ *
+ * Every provider gets a card whether or not it is configured, because the card is also
+ * where an operator finds out that it is not: a Grok skill that cannot run is easier to
+ * understand next to a card that says "Not set" than as a failure on the next turn.
+ */
 function SettingsTab() {
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
     queryFn: () => agent.getSettings({}),
   });
+  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "settings"] });
 
   const save = useMutation({
-    mutationFn: (key: string) => agent.setProviderKey({ provider: "anthropic", key }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent", "settings"] }),
+    mutationFn: (v: { provider: string; key: string }) => agent.setProviderKey(v),
+    onSuccess: reload,
   });
   const clear = useMutation({
-    mutationFn: () => agent.clearProviderKey({ provider: "anthropic" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent", "settings"] }),
+    mutationFn: (provider: string) => agent.clearProviderKey({ provider }),
+    onSuccess: reload,
   });
 
-  // A conductor that is down is not a broken page: the card still renders, and its status
-  // strip is where the operator is told. Any other failure to read the settings is.
+  // A conductor that is down is not a broken page: the cards still render, and their status
+  // strips are where the operator is told. Any other failure to read the settings is.
   if (settings.isError && !isAgentUnreachable(settings.error)) {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
+
+  const stored = settings.data?.providers ?? [];
 
   return (
     <div className="space-y-4">
@@ -106,22 +117,40 @@ function SettingsTab() {
           podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
         </p>
       ) : null}
-      <ProviderKeyCard
-        settings={settings.data?.provider}
-        loading={settings.isPending}
-        onSave={async (key) => {
-          const res = await save.mutateAsync(key);
-          return res;
-        }}
-        onClear={async () => {
-          await clear.mutateAsync();
-        }}
-      />
-      <p className="text-xs text-muted">
-        The key is stored as the Podium secret{" "}
-        <code className="font-mono text-fg">podium.agent.anthropic_api_key</code>. There is no
-        way to read a stored secret back — the last four characters above were kept at save
-        time, and that is all any part of the UI ever sees of it.
+
+      {PROVIDERS.map((p) => (
+        <ProviderCard
+          key={p.id}
+          provider={p}
+          settings={stored.find((s) => s.provider === p.id)}
+          loading={settings.isPending}
+          onSave={(key) => save.mutateAsync({ provider: p.id, key })}
+          onClear={async () => {
+            await clear.mutateAsync(p.id);
+          }}
+          onStartOAuth={
+            p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+          }
+          onPollOAuth={
+            p.subscription
+              ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+              : undefined
+          }
+          onSignedIn={() => void reload()}
+        />
+      ))}
+
+      <p className="max-w-3xl text-xs text-muted">
+        Each credential is stored as a Podium secret —{" "}
+        {PROVIDERS.map((p, i) => (
+          <span key={p.id}>
+            {i > 0 ? ", " : ""}
+            <code className="font-mono text-fg">{p.secretName}</code>
+          </span>
+        ))}{" "}
+        — and a turn is handed only the one its backend spends. There is no way to read a
+        stored secret back: the last four characters above were kept at save time, and that is
+        all any part of the UI ever sees of a key.
       </p>
     </div>
   );
@@ -139,6 +168,7 @@ function ProfileTab() {
     queryKey: ["agent", "profile"],
     queryFn: () => agent.getProfile({}),
   });
+  const { agents } = useAgents();
 
   const save = useMutation({
     mutationFn: (fields: ProfileFields) => agent.updateProfile(fields),
@@ -167,6 +197,7 @@ function ProfileTab() {
         key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
         profile={p}
         skills={skills}
+        agents={agents}
         loading={profile.isPending}
         saving={save.isPending}
         onSave={(fields) => save.mutate(fields)}

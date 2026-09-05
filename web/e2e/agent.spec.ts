@@ -24,6 +24,14 @@ const KEY_SECRET = "podium.agent.anthropic_api_key";
  */
 const DRY_RUN = process.env.PODIUM_AGENT_DRY_RUN === "1";
 
+/**
+ * anthropicCard scopes a query to one provider's card. The settings tab shows a card per
+ * provider now, so "Not set" and "Connected" appear more than once on it.
+ */
+function anthropicCard(page: Page) {
+  return page.getByTestId("provider-card-anthropic");
+}
+
 function podium(...args: string[]): string {
   return execFileSync(CLI, ["--server", SERVER, "--token", TOKEN, ...args], {
     encoding: "utf8",
@@ -68,31 +76,31 @@ test("the agent settings page validates and stores a provider key", async ({ pag
 
   // The Agent tab exists at all only because WhoAmI said the server proxies a conductor.
   await expect(page.getByRole("link", { name: "Agent" })).toBeVisible();
-  await expect(page.getByText("Not set")).toBeVisible();
+  await expect(anthropicCard(page).getByText("Not set")).toBeVisible();
   await expect(page.getByText(/encrypted at rest by podium-server/i)).toBeVisible();
-  await expect(page.getByTestId("provider-key-save")).toBeDisabled();
+  await expect(page.getByTestId("provider-key-save-anthropic")).toBeDisabled();
 
   // A key the provider refuses is refused here, and nothing is stored.
-  await page.getByTestId("provider-key-input").fill(BAD_KEY);
-  await page.getByTestId("provider-key-save").click();
-  await expect(page.getByTestId("provider-key-status")).toContainText(
+  await page.getByTestId("provider-key-input-anthropic").fill(BAD_KEY);
+  await page.getByTestId("provider-key-save-anthropic").click();
+  await expect(page.getByTestId("provider-key-status-anthropic")).toContainText(
     "Anthropic rejected this key",
   );
   // And why, in the provider's own words, all the way through podium-server's proxy.
-  await expect(page.getByTestId("provider-key-detail")).toContainText(
+  await expect(page.getByTestId("provider-key-detail-anthropic")).toContainText(
     "Anthropic said: API key is invalid.",
   );
-  await expect(page.getByText("Not set")).toBeVisible();
+  await expect(anthropicCard(page).getByText("Not set")).toBeVisible();
   expect(podium("secret", "ls")).not.toContain(KEY_SECRET);
 
   // A key it accepts is validated against the real endpoint shape, then stored.
-  await page.getByTestId("provider-key-input").fill(GOOD_KEY);
-  await page.getByTestId("provider-key-save").click();
-  await expect(page.getByTestId("provider-key-status")).toContainText("Saved.");
-  await expect(page.getByTestId("provider-key-status")).toContainText("••••good");
+  await page.getByTestId("provider-key-input-anthropic").fill(GOOD_KEY);
+  await page.getByTestId("provider-key-save-anthropic").click();
+  await expect(page.getByTestId("provider-key-status-anthropic")).toContainText("Saved.");
+  await expect(page.getByTestId("provider-key-status-anthropic")).toContainText("••••good");
   await expect(page.getByText("claude-opus-5")).toBeVisible();
-  await expect(page.getByText("Connected")).toBeVisible();
-  await expect(page.getByTestId("provider-key-meta")).toContainText("••••good");
+  await expect(anthropicCard(page).getByText("Connected")).toBeVisible();
+  await expect(page.getByTestId("provider-key-meta-anthropic")).toContainText("••••good");
 
   // It is a Podium secret now, and only its metadata is visible anywhere.
   const listed = podium("secret", "ls");
@@ -101,18 +109,18 @@ test("the agent settings page validates and stores a provider key", async ({ pag
 
   // A reload reads it back out of the settings row, not out of the browser.
   await page.reload();
-  await expect(page.getByText("Connected")).toBeVisible();
-  await expect(page.getByTestId("provider-key-meta")).toContainText("••••good");
-  await expect(page.getByTestId("provider-key-input")).toHaveAttribute(
+  await expect(anthropicCard(page).getByText("Connected")).toBeVisible();
+  await expect(page.getByTestId("provider-key-meta-anthropic")).toContainText("••••good");
+  await expect(page.getByTestId("provider-key-input-anthropic")).toHaveAttribute(
     "placeholder",
     "Paste a new key to replace ••••good",
   );
 
   // Removing it takes both the secret and the metadata.
-  await page.getByTestId("provider-key-remove").click();
+  await page.getByTestId("provider-key-remove-anthropic").click();
   await expect(page.getByText(/Agents will fail until a key is set again/)).toBeVisible();
   await page.getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByText("Not set")).toBeVisible();
+  await expect(anthropicCard(page).getByText("Not set")).toBeVisible();
   await expect.poll(() => podium("secret", "ls")).not.toContain(KEY_SECRET);
 });
 
@@ -187,9 +195,9 @@ test("the agent page makes no third-party requests", async ({ page }) => {
   // the browser asks podium-server, podium-server asks the conductor, the conductor asks
   // Anthropic. The page itself never leaves this origin.
   await page.goto("/agent/settings");
-  await page.getByTestId("provider-key-input").fill(GOOD_KEY);
-  await page.getByTestId("provider-key-save").click();
-  await expect(page.getByTestId("provider-key-status")).toContainText("Saved.");
+  await page.getByTestId("provider-key-input-anthropic").fill(GOOD_KEY);
+  await page.getByTestId("provider-key-save-anthropic").click();
+  await expect(page.getByTestId("provider-key-status-anthropic")).toContainText("Saved.");
 
   expect(foreign, `third-party requests: ${foreign.join(", ")}`).toEqual([]);
 });

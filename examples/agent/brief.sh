@@ -6,8 +6,9 @@
 #     --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "hello")
 #
 # The brief is the smallest one that validates: a chat source, the podium profile, the
-# general skill, an empty transcript, no repos and no memory. agent/runtime/src/brief.ts is
-# the schema; agent/runtime/testdata/brief.example.json is the full one.
+# general skill on the Claude backend, an empty transcript, no repos and no memory.
+# agent/runtime/src/brief.ts is the schema; agent/runtime/testdata/brief.example.json is the
+# full one, which is a Grok turn so that every field has a value somewhere.
 #
 # The JSON is compact and its keys are in the schema's order, because a Go test asserts
 # this script and its own encoder produce the same bytes for the same instruction.
@@ -29,7 +30,8 @@ json=$(jq -cn --arg instruction "$instruction" '{
 		name: "podium",
 		display_name: "Podium",
 		system_prompt: "You are Podium, an agent that runs on Podium.",
-		model: "claude-opus-5"
+		model: "claude-opus-5",
+		agent: "claude"
 	},
 	skill: {
 		name: "general",

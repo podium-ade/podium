@@ -320,7 +320,7 @@ func TestGetSettingsFallsBackToTheRowWhenTheControlPlaneIsUnreachable(t *testing
 	require.NoError(t, err)
 	assert.True(t, got.Msg.GetProvider().GetKeySet())
 	assert.Equal(t, "abcd", got.Msg.GetProvider().GetKeyHint())
-	assert.Contains(t, f.log.String(), "could not confirm the provider key")
+	assert.Contains(t, f.log.String(), "could not confirm a provider credential")
 }
 
 // A control plane with no master key cannot hold a secret at all. That is "not set", not a

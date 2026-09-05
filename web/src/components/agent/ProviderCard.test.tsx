@@ -11,7 +11,8 @@ import {
   type ProviderSettings,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { AGENT_UNREACHABLE } from "../../lib/client";
-import { ProviderKeyCard } from "./ProviderKeyCard";
+import { ANTHROPIC } from "../../lib/agents";
+import { ProviderCard } from "./ProviderCard";
 import { ToastHost } from "../Toast";
 
 // An obvious fake. There is no real provider key anywhere in this repository.
@@ -40,7 +41,8 @@ function withProviderMessage(message: string, code: Code, said: string): Connect
 function mount(settings?: ProviderSettings, loading = false) {
   return render(
     <ToastHost>
-      <ProviderKeyCard
+      <ProviderCard
+        provider={ANTHROPIC}
         settings={settings}
         loading={loading}
         onSave={onSave}
@@ -70,7 +72,7 @@ const saved = create(SetProviderKeyResponseSchema, {
   models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
 });
 
-describe("ProviderKeyCard", () => {
+describe("ProviderCard", () => {
   beforeEach(() => {
     onSave.mockReset();
     onClear.mockReset();
@@ -81,15 +83,15 @@ describe("ProviderKeyCard", () => {
     expect(screen.getByText("Not set")).toBeInTheDocument();
     expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
     expect(screen.getByText(/leaves this host only to reach Anthropic/i)).toBeInTheDocument();
-    expect(screen.getByTestId("provider-key-save")).toBeDisabled();
+    expect(screen.getByTestId("provider-key-save-anthropic")).toBeDisabled();
     // Nothing to remove yet, so no danger zone at all.
-    expect(screen.queryByTestId("provider-key-remove")).toBeNull();
+    expect(screen.queryByTestId("provider-key-remove-anthropic")).toBeNull();
   });
 
   it("enables the button once there is something to save", async () => {
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    expect(screen.getByTestId("provider-key-save")).toBeEnabled();
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    expect(screen.getByTestId("provider-key-save-anthropic")).toBeEnabled();
   });
 
   it("shows a skeleton and no badge while the settings load", () => {
@@ -103,17 +105,17 @@ describe("ProviderKeyCard", () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
 
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(KEY));
-    const status = await screen.findByTestId("provider-key-status");
+    const status = await screen.findByTestId("provider-key-status-anthropic");
     expect(status).toHaveTextContent("Saved. ••••abcd works — 3 models visible.");
     expect(status.className).toContain("text-ok");
     expect(screen.getByText("claude-opus-5")).toBeInTheDocument();
     expect(screen.getByText("claude-haiku-4-5")).toBeInTheDocument();
     // The key is out of the field the moment it is stored.
-    expect(screen.getByTestId("provider-key-input")).toHaveValue("");
+    expect(screen.getByTestId("provider-key-input-anthropic")).toHaveValue("");
     expect(document.body.textContent).not.toContain(KEY);
   });
 
@@ -126,8 +128,8 @@ describe("ProviderKeyCard", () => {
       }),
     );
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), "ant-api03-whatever");
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), "ant-api03-whatever");
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     expect(await screen.findByText(/looks unusual; validated anyway/)).toBeInTheDocument();
     expect(await screen.findByText(/1 model visible/)).toBeInTheDocument();
   });
@@ -138,14 +140,14 @@ describe("ProviderKeyCard", () => {
     );
     mount(notSet);
 
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
-    const status = await screen.findByTestId("provider-key-status");
+    const status = await screen.findByTestId("provider-key-status-anthropic");
     expect(status).toHaveTextContent("Anthropic rejected this key");
     expect(status.className).toContain("text-err");
     // A typo in one character should not mean typing the whole key again.
-    expect(screen.getByTestId("provider-key-input")).toHaveValue(KEY);
+    expect(screen.getByTestId("provider-key-input-anthropic")).toHaveValue(KEY);
   });
 
   // The bug this card had: the conductor knew exactly why the key was refused, and the
@@ -159,12 +161,12 @@ describe("ProviderKeyCard", () => {
     );
     mount(notSet);
 
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
-    const status = await screen.findByTestId("provider-key-status");
+    const status = await screen.findByTestId("provider-key-status-anthropic");
     expect(status).toHaveTextContent("Anthropic rejected this key");
-    const detail = screen.getByTestId("provider-key-detail");
+    const detail = screen.getByTestId("provider-key-detail-anthropic");
     expect(detail).toHaveTextContent(`Anthropic said: ${said}`);
     // Still the operator's key, still not on the page.
     expect(document.body.textContent).not.toContain(KEY);
@@ -179,13 +181,13 @@ describe("ProviderKeyCard", () => {
       ),
     );
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
-    expect(await screen.findByTestId("provider-key-status")).toHaveTextContent(
+    expect(await screen.findByTestId("provider-key-status-anthropic")).toHaveTextContent(
       "Couldn't reach Anthropic to validate.",
     );
-    expect(screen.getByTestId("provider-key-detail")).toHaveTextContent(
+    expect(screen.getByTestId("provider-key-detail-anthropic")).toHaveTextContent(
       "Details: http://127.0.0.1:18999/v1/models answered 503 Service Unavailable: overloaded",
     );
   });
@@ -195,10 +197,10 @@ describe("ProviderKeyCard", () => {
       new ConnectError("Anthropic rejected this key", Code.PermissionDenied),
     );
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
-    await screen.findByTestId("provider-key-status");
-    expect(screen.queryByTestId("provider-key-detail")).toBeNull();
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
+    await screen.findByTestId("provider-key-status-anthropic");
+    expect(screen.queryByTestId("provider-key-detail-anthropic")).toBeNull();
   });
 
   // The text is Anthropic's, not a task's — but it is still another company's string, so it
@@ -212,10 +214,10 @@ describe("ProviderKeyCard", () => {
       withProviderMessage("Anthropic rejected this key", Code.PermissionDenied, hostile),
     );
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
-    const detail = await screen.findByTestId("provider-key-detail");
+    const detail = await screen.findByTestId("provider-key-detail-anthropic");
     // Every character of it is on the page, and all of it is text.
     expect(detail.textContent).toContain(hostile);
     expect(detail.querySelector("img")).toBeNull();
@@ -233,18 +235,18 @@ describe("ProviderKeyCard", () => {
       new ConnectError("could not validate the key with Anthropic; nothing was saved", Code.Unavailable),
     );
     const view = mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
-    let status = await screen.findByTestId("provider-key-status");
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
+    let status = await screen.findByTestId("provider-key-status-anthropic");
     expect(status).toHaveTextContent("Couldn't reach Anthropic to validate. Nothing was saved.");
     expect(status.className).toContain("text-warn");
     view.unmount();
 
     onSave.mockRejectedValue(new ConnectError(AGENT_UNREACHABLE, Code.Unavailable));
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
-    status = await screen.findByTestId("provider-key-status");
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
+    status = await screen.findByTestId("provider-key-status-anthropic");
     expect(status).toHaveTextContent("podium-agent is not reachable.");
     expect(status.className).toContain("text-warn");
   });
@@ -252,24 +254,24 @@ describe("ProviderKeyCard", () => {
   it("trims the whitespace and quotes a paste out of a .env file brings with it", async () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
-    const input = screen.getByTestId("provider-key-input");
+    const input = screen.getByTestId("provider-key-input-anthropic");
     await userEvent.click(input);
     await userEvent.paste(`  "${KEY}"  `);
     expect(input).toHaveValue(KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(KEY));
   });
 
   it("submits on Enter", async () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
-    await userEvent.type(screen.getByTestId("provider-key-input"), `${KEY}{Enter}`);
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), `${KEY}{Enter}`);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
   });
 
   it("hides the key by default and reveals it on request", async () => {
     mount(notSet);
-    const input = screen.getByTestId("provider-key-input");
+    const input = screen.getByTestId("provider-key-input-anthropic");
     expect(input).toHaveAttribute("type", "password");
     const toggle = screen.getByRole("button", { name: "Show the key" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -284,11 +286,11 @@ describe("ProviderKeyCard", () => {
   it("shows who set the key and when, and offers to replace it", () => {
     mount(connected);
     expect(screen.getByText("Connected")).toBeInTheDocument();
-    const meta = screen.getByTestId("provider-key-meta");
+    const meta = screen.getByTestId("provider-key-meta-anthropic");
     expect(meta).toHaveTextContent("••••abcd");
     expect(meta).toHaveTextContent("set by alice@example.com");
     expect(meta).toHaveTextContent("2m ago");
-    expect(screen.getByTestId("provider-key-input")).toHaveAttribute(
+    expect(screen.getByTestId("provider-key-input-anthropic")).toHaveAttribute(
       "placeholder",
       "Paste a new key to replace ••••abcd",
     );
@@ -307,9 +309,9 @@ describe("ProviderKeyCard", () => {
       }),
     );
     expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByTestId("provider-key-meta")).toHaveTextContent("set outside this UI");
-    expect(screen.getByTestId("provider-key-meta")).not.toHaveTextContent("••••");
-    expect(screen.getByTestId("provider-key-input")).toHaveAttribute(
+    expect(screen.getByTestId("provider-key-meta-anthropic")).toHaveTextContent("set outside this UI");
+    expect(screen.getByTestId("provider-key-meta-anthropic")).not.toHaveTextContent("••••");
+    expect(screen.getByTestId("provider-key-input-anthropic")).toHaveAttribute(
       "placeholder",
       "Paste a key to replace the one that is set",
     );
@@ -317,31 +319,31 @@ describe("ProviderKeyCard", () => {
 
   it("confirms a removal before sending it, and Cancel sends nothing", async () => {
     mount(connected);
-    await userEvent.click(screen.getByTestId("provider-key-remove"));
+    await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
     expect(onClear).not.toHaveBeenCalled();
-    expect(screen.getByText(/Agents will fail until a key is set again/)).toBeInTheDocument();
+    expect(screen.getByText(/Claude turns will fail until a credential is set again/)).toBeInTheDocument();
     // The safe option has the keyboard.
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClear).not.toHaveBeenCalled();
-    expect(screen.getByTestId("provider-key-remove")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-key-remove-anthropic")).toBeInTheDocument();
   });
 
   it("removes the key exactly once on Confirm", async () => {
     onClear.mockResolvedValue(undefined);
     mount(connected);
-    await userEvent.click(screen.getByTestId("provider-key-remove"));
+    await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(onClear).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/The Anthropic key was removed/)).toBeInTheDocument();
+    expect(await screen.findByText(/The Anthropic credential was removed/)).toBeInTheDocument();
   });
 
   it("cancels the removal on Escape", async () => {
     mount(connected);
-    await userEvent.click(screen.getByTestId("provider-key-remove"));
+    await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
     await userEvent.keyboard("{Escape}");
-    expect(screen.getByTestId("provider-key-remove")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-key-remove-anthropic")).toBeInTheDocument();
     expect(onClear).not.toHaveBeenCalled();
   });
 });

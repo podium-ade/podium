@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IpIBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiSgoTR2V0U2V0dGluZ3NSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzIjYKFVNldFByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRILCgNrZXkYAiABKAkibQoWU2V0UHJvdmlkZXJLZXlSZXNwb25zZRIzCghwcm92aWRlchgBIAEoCzIhLnBvZGl1bS5hZ2VudC52MS5Qcm92aWRlclNldHRpbmdzEg4KBm1vZGVscxgCIAMoCRIOCgZzdGF0dXMYAyABKAkiLAoQUHJvdmlkZXJLZXlFcnJvchIYChBwcm92aWRlcl9tZXNzYWdlGAEgASgJIisKF0NsZWFyUHJvdmlkZXJLZXlSZXF1ZXN0EhAKCHByb3ZpZGVyGAEgASgJIhoKGENsZWFyUHJvdmlkZXJLZXlSZXNwb25zZSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlIkgKBVNraWxsEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgiEwoRTGlzdFNraWxsc1JlcXVlc3QiWgoSTGlzdFNraWxsc1Jlc3BvbnNlEiYKBnNraWxscxgBIAMoCzIWLnBvZGl1bS5hZ2VudC52MS5Ta2lsbBIcChRwcm9maWxlX2Rpc3BsYXlfbmFtZRgCIAEoCSKtAQoEQ2hhdBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIuCgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzCg9sYXN0X21lc3NhZ2VfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3ByZXZpZXcYBSABKAkSFAoMdHVybl9ydW5uaW5nGAYgASgIIl0KDkNoYXRBdHRhY2htZW50EhMKC2FydGlmYWN0X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMY29udGVudF90eXBlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMipQEKC0NoYXRNZXNzYWdlEg8KB2NoYXRfaWQYASABKAkSCwoDc2VxGAIgASgEEgwKBHJvbGUYAyABKAkSDAoEdGV4dBgEIAEoCRI0CgthdHRhY2htZW50cxgFIAMoCzIfLnBvZGl1bS5hZ2VudC52MS5DaGF0QXR0YWNobWVudBImCgJ0cxgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiLAoKQ2hhdFN0YXR1cxINCgVzdGF0ZRgBIAEoCRIPCgd0YXNrX2lkGAIgASgJIpoBCglDaGF0RnJhbWUSLwoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZUgAEhIKCHByb2dyZXNzGAIgASgJSAASLQoGc3RhdHVzGAMgASgLMhsucG9kaXVtLmFnZW50LnYxLkNoYXRTdGF0dXNIABIQCgZyZXN5bmMYBCABKAhIAEIHCgVmcmFtZSIiChFDcmVhdGVDaGF0UmVxdWVzdBINCgV0aXRsZRgBIAEoCSI5ChJDcmVhdGVDaGF0UmVzcG9uc2USIwoEY2hhdBgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0IjcKEExpc3RDaGF0c1JlcXVlc3QSIwoEcGFnZRgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5QYWdlIk4KEUxpc3RDaGF0c1Jlc3BvbnNlEiQKBWNoYXRzGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLkNoYXQSEwoLbmV4dF9jdXJzb3IYAiABKAkiRgoWU2VuZENoYXRNZXNzYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc2tpbGwYAyABKAkiSAoXU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USLQoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZSI2ChFTdHJlYW1DaGF0UmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEIs0CCgxBZ2VudFByb2ZpbGUSDAoEbmFtZRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNZGVmYXVsdF9za2lsbBgEIAEoCRIaChJjaGF0X2RlZmF1bHRfc2tpbGwYBSABKAkSEwoLcHJvZmlsZV9kaXIYBiABKAkSGQoRZmlsZV9kaXNwbGF5X25hbWUYByABKAkSEgoKZmlsZV9tb2RlbBgIIAEoCRIaChJmaWxlX2RlZmF1bHRfc2tpbGwYCSABKAkSHwoXZmlsZV9jaGF0X2RlZmF1bHRfc2tpbGwYCiABKAkSEgoKb3ZlcnJpZGRlbhgLIAMoCRISCgp1cGRhdGVkX2J5GAwgASgJEi4KCnVwZGF0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIj4KDlNraWxsUmVzb3VyY2VzEgsKA2NwdRgBIAEoARIRCgltZW1vcnlfbWIYAiABKAUSDAoEcGlkcxgDIAEoBSI7Cg5Ta2lsbFNlY3JldFJlZhIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkiPgoJU2tpbGxSZXBvEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJEhYKDmRlZmF1bHRfYnJhbmNoGAMgASgJIrQECg9Ta2lsbERlZmluaXRpb24SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIVCg1zeXN0ZW1fcHJvbXB0GAMgASgJEhUKDWFsbG93ZWRfdG9vbHMYBCADKAkSEQoJbWF4X3R1cm5zGAUgASgFEg8KB3RpbWVvdXQYBiABKAkSDQoFbW9kZWwYByABKAkSDgoGbGFiZWxzGAggAygJEjIKCXJlc291cmNlcxgJIAEoCzIfLnBvZGl1bS5hZ2VudC52MS5Ta2lsbFJlc291cmNlcxIwCgdzZWNyZXRzGAogAygLMh8ucG9kaXVtLmFnZW50LnYxLlNraWxsU2VjcmV0UmVmEikKBXJlcG9zGAsgAygLMhoucG9kaXVtLmFnZW50LnYxLlNraWxsUmVwbxIWCg5zbGFja19jaGFubmVscxgMIAMoCRIOCgZsaW5lYXIYDSABKAgSNgoDZW52GA4gAygLMikucG9kaXVtLmFnZW50LnYxLlNraWxsRGVmaW5pdGlvbi5FbnZFbnRyeRIOCgZvcmlnaW4YDyABKAkSEAoIZWRpdGFibGUYECABKAgSEAoIc2hhZG93ZWQYESABKAgSEgoKdXBkYXRlZF9ieRgSIAEoCRIuCgp1cGRhdGVkX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIhMKEUdldFByb2ZpbGVSZXF1ZXN0IowBChJHZXRQcm9maWxlUmVzcG9uc2USLgoHcHJvZmlsZRgBIAEoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudFByb2ZpbGUSMAoGc2tpbGxzGAIgAygLMiAucG9kaXVtLmFnZW50LnYxLlNraWxsRGVmaW5pdGlvbhIUCgxzdGFsZV9yZWFzb24YAyABKAkibgoUVXBkYXRlUHJvZmlsZVJlcXVlc3QSFAoMZGlzcGxheV9uYW1lGAEgASgJEg0KBW1vZGVsGAIgASgJEhUKDWRlZmF1bHRfc2tpbGwYAyABKAkSGgoSY2hhdF9kZWZhdWx0X3NraWxsGAQgASgJIkcKFVVwZGF0ZVByb2ZpbGVSZXNwb25zZRIuCgdwcm9maWxlGAEgASgLMh0ucG9kaXVtLmFnZW50LnYxLkFnZW50UHJvZmlsZSJFChJDcmVhdGVTa2lsbFJlcXVlc3QSLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkYKE0NyZWF0ZVNraWxsUmVzcG9uc2USLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkUKElVwZGF0ZVNraWxsUmVxdWVzdBIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iRgoTVXBkYXRlU2tpbGxSZXNwb25zZRIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iIgoSRGVsZXRlU2tpbGxSZXF1ZXN0EgwKBG5hbWUYASABKAkiFQoTRGVsZXRlU2tpbGxSZXNwb25zZTLWDQoMQWdlbnRTZXJ2aWNlElsKDExpc3RTZXNzaW9ucxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlElUKCkdldFNlc3Npb24SIi5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlc3BvbnNlElIKCUxpc3RUdXJucxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1Jlc3BvbnNlElgKC0dldFNldHRpbmdzEiMucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1Jlc3BvbnNlEmEKDlNldFByb3ZpZGVyS2V5EiYucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlc3BvbnNlEmcKEENsZWFyUHJvdmlkZXJLZXkSKC5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlElsKDExpc3RNZW1vcmllcxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1Jlc3BvbnNlEmEKDlNlYXJjaE1lbW9yaWVzEiYucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1Jlc3BvbnNlElsKDERlbGV0ZU1lbW9yeRIkLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlc3BvbnNlElUKCkxpc3RTa2lsbHMSIi5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1JlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1Jlc3BvbnNlElUKCkdldFByb2ZpbGUSIi5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlc3BvbnNlEl4KDVVwZGF0ZVByb2ZpbGUSJS5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlc3BvbnNlElgKC0NyZWF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkNyZWF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVTa2lsbFJlc3BvbnNlElgKC1VwZGF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLlVwZGF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVTa2lsbFJlc3BvbnNlElgKC0RlbGV0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5EZWxldGVTa2lsbFJlc3BvbnNlElUKCkNyZWF0ZUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlc3BvbnNlElIKCUxpc3RDaGF0cxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0Q2hhdHNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1Jlc3BvbnNlEmQKD1NlbmRDaGF0TWVzc2FnZRInLnBvZGl1bS5hZ2VudC52MS5TZW5kQ2hhdE1lc3NhZ2VSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlc3BvbnNlEk4KClN0cmVhbUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuU3RyZWFtQ2hhdFJlcXVlc3QaGi5wb2RpdW0uYWdlbnQudjEuQ2hhdEZyYW1lMAFCyAEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCkFnZW50UHJvdG9QAVpHZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLAAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSDQoFc2tpbGwYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IvsBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJYXV0aF9raW5kGAcgASgJEg8KB2FjY291bnQYCCABKAkSLgoKZXhwaXJlc19hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcmVmcmVzaGFibGUYCiABKAgigAEKE0dldFNldHRpbmdzUmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxI0Cglwcm92aWRlcnMYAiADKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncyI2ChVTZXRQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkSCwoDa2V5GAIgASgJIm0KFlNldFByb3ZpZGVyS2V5UmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxIOCgZtb2RlbHMYAiADKAkSDgoGc3RhdHVzGAMgASgJIiwKEFByb3ZpZGVyS2V5RXJyb3ISGAoQcHJvdmlkZXJfbWVzc2FnZRgBIAEoCSIrChdDbGVhclByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSIaChhDbGVhclByb3ZpZGVyS2V5UmVzcG9uc2UiLQoZU3RhcnRQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSK/AQoaU3RhcnRQcm92aWRlck9BdXRoUmVzcG9uc2USDwoHZmxvd19pZBgBIAEoCRIRCgl1c2VyX2NvZGUYAiABKAkSGAoQdmVyaWZpY2F0aW9uX3VyaRgDIAEoCRIhChl2ZXJpZmljYXRpb25fdXJpX2NvbXBsZXRlGAQgASgJEhAKCGludGVydmFsGAUgASgFEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIj0KGFBvbGxQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRIPCgdmbG93X2lkGAIgASgJIoEBChlQb2xsUHJvdmlkZXJPQXV0aFJlc3BvbnNlEg0KBXN0YXRlGAEgASgJEhAKCGludGVydmFsGAIgASgFEjMKCHByb3ZpZGVyGAMgASgLMiEucG9kaXVtLmFnZW50LnYxLlByb3ZpZGVyU2V0dGluZ3MSDgoGZGV0YWlsGAQgASgJImUKCkFnZW50TW9kZWwSCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEgwKBG5vdGUYAyABKAkSFgoOY29udGV4dF90b2tlbnMYBCABKAUSDwoHZWZmb3J0cxgFIAMoCSKjAQoMQWdlbnRCYWNrZW5kEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRub3RlGAQgASgJEhUKDWRlZmF1bHRfbW9kZWwYBSABKAkSKwoGbW9kZWxzGAYgAygLMhsucG9kaXVtLmFnZW50LnYxLkFnZW50TW9kZWwSDQoFcmVhZHkYByABKAgiEwoRTGlzdEFnZW50c1JlcXVlc3QiWgoSTGlzdEFnZW50c1Jlc3BvbnNlEi0KBmFnZW50cxgBIAMoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudEJhY2tlbmQSFQoNZGVmYXVsdF9hZ2VudBgCIAEoCSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlIkgKBVNraWxsEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgiEwoRTGlzdFNraWxsc1JlcXVlc3QiWgoSTGlzdFNraWxsc1Jlc3BvbnNlEiYKBnNraWxscxgBIAMoCzIWLnBvZGl1bS5hZ2VudC52MS5Ta2lsbBIcChRwcm9maWxlX2Rpc3BsYXlfbmFtZRgCIAEoCSKtAQoEQ2hhdBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIuCgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzCg9sYXN0X21lc3NhZ2VfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3ByZXZpZXcYBSABKAkSFAoMdHVybl9ydW5uaW5nGAYgASgIIl0KDkNoYXRBdHRhY2htZW50EhMKC2FydGlmYWN0X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMY29udGVudF90eXBlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMipQEKC0NoYXRNZXNzYWdlEg8KB2NoYXRfaWQYASABKAkSCwoDc2VxGAIgASgEEgwKBHJvbGUYAyABKAkSDAoEdGV4dBgEIAEoCRI0CgthdHRhY2htZW50cxgFIAMoCzIfLnBvZGl1bS5hZ2VudC52MS5DaGF0QXR0YWNobWVudBImCgJ0cxgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiLAoKQ2hhdFN0YXR1cxINCgVzdGF0ZRgBIAEoCRIPCgd0YXNrX2lkGAIgASgJIpoBCglDaGF0RnJhbWUSLwoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZUgAEhIKCHByb2dyZXNzGAIgASgJSAASLQoGc3RhdHVzGAMgASgLMhsucG9kaXVtLmFnZW50LnYxLkNoYXRTdGF0dXNIABIQCgZyZXN5bmMYBCABKAhIAEIHCgVmcmFtZSIiChFDcmVhdGVDaGF0UmVxdWVzdBINCgV0aXRsZRgBIAEoCSI5ChJDcmVhdGVDaGF0UmVzcG9uc2USIwoEY2hhdBgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0IjcKEExpc3RDaGF0c1JlcXVlc3QSIwoEcGFnZRgBIAEoCzIVLnBvZGl1bS5hZ2VudC52MS5QYWdlIk4KEUxpc3RDaGF0c1Jlc3BvbnNlEiQKBWNoYXRzGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLkNoYXQSEwoLbmV4dF9jdXJzb3IYAiABKAkiRgoWU2VuZENoYXRNZXNzYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc2tpbGwYAyABKAkiSAoXU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USLQoHbWVzc2FnZRgBIAEoCzIcLnBvZGl1bS5hZ2VudC52MS5DaGF0TWVzc2FnZSI2ChFTdHJlYW1DaGF0UmVxdWVzdBIPCgdjaGF0X2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEIpUDCgxBZ2VudFByb2ZpbGUSDAoEbmFtZRgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSDQoFbW9kZWwYAyABKAkSFQoNZGVmYXVsdF9za2lsbBgEIAEoCRIaChJjaGF0X2RlZmF1bHRfc2tpbGwYBSABKAkSEwoLcHJvZmlsZV9kaXIYBiABKAkSGQoRZmlsZV9kaXNwbGF5X25hbWUYByABKAkSEgoKZmlsZV9tb2RlbBgIIAEoCRIaChJmaWxlX2RlZmF1bHRfc2tpbGwYCSABKAkSHwoXZmlsZV9jaGF0X2RlZmF1bHRfc2tpbGwYCiABKAkSEgoKb3ZlcnJpZGRlbhgLIAMoCRISCgp1cGRhdGVkX2J5GAwgASgJEi4KCnVwZGF0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWFnZW50GA4gASgJEg4KBmVmZm9ydBgPIAEoCRISCgpmaWxlX2FnZW50GBAgASgJEhMKC2ZpbGVfZWZmb3J0GBEgASgJIj4KDlNraWxsUmVzb3VyY2VzEgsKA2NwdRgBIAEoARIRCgltZW1vcnlfbWIYAiABKAUSDAoEcGlkcxgDIAEoBSI7Cg5Ta2lsbFNlY3JldFJlZhIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkiPgoJU2tpbGxSZXBvEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJEhYKDmRlZmF1bHRfYnJhbmNoGAMgASgJItMECg9Ta2lsbERlZmluaXRpb24SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIVCg1zeXN0ZW1fcHJvbXB0GAMgASgJEhUKDWFsbG93ZWRfdG9vbHMYBCADKAkSEQoJbWF4X3R1cm5zGAUgASgFEg8KB3RpbWVvdXQYBiABKAkSDQoFbW9kZWwYByABKAkSDgoGbGFiZWxzGAggAygJEjIKCXJlc291cmNlcxgJIAEoCzIfLnBvZGl1bS5hZ2VudC52MS5Ta2lsbFJlc291cmNlcxIwCgdzZWNyZXRzGAogAygLMh8ucG9kaXVtLmFnZW50LnYxLlNraWxsU2VjcmV0UmVmEikKBXJlcG9zGAsgAygLMhoucG9kaXVtLmFnZW50LnYxLlNraWxsUmVwbxIWCg5zbGFja19jaGFubmVscxgMIAMoCRIOCgZsaW5lYXIYDSABKAgSNgoDZW52GA4gAygLMikucG9kaXVtLmFnZW50LnYxLlNraWxsRGVmaW5pdGlvbi5FbnZFbnRyeRIOCgZvcmlnaW4YDyABKAkSEAoIZWRpdGFibGUYECABKAgSEAoIc2hhZG93ZWQYESABKAgSEgoKdXBkYXRlZF9ieRgSIAEoCRIuCgp1cGRhdGVkX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhZ2VudBgUIAEoCRIOCgZlZmZvcnQYFSABKAkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASITChFHZXRQcm9maWxlUmVxdWVzdCKMAQoSR2V0UHJvZmlsZVJlc3BvbnNlEi4KB3Byb2ZpbGUYASABKAsyHS5wb2RpdW0uYWdlbnQudjEuQWdlbnRQcm9maWxlEjAKBnNraWxscxgCIAMoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24SFAoMc3RhbGVfcmVhc29uGAMgASgJIo0BChRVcGRhdGVQcm9maWxlUmVxdWVzdBIUCgxkaXNwbGF5X25hbWUYASABKAkSDQoFbW9kZWwYAiABKAkSFQoNZGVmYXVsdF9za2lsbBgDIAEoCRIaChJjaGF0X2RlZmF1bHRfc2tpbGwYBCABKAkSDQoFYWdlbnQYBSABKAkSDgoGZWZmb3J0GAYgASgJIkcKFVVwZGF0ZVByb2ZpbGVSZXNwb25zZRIuCgdwcm9maWxlGAEgASgLMh0ucG9kaXVtLmFnZW50LnYxLkFnZW50UHJvZmlsZSJFChJDcmVhdGVTa2lsbFJlcXVlc3QSLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkYKE0NyZWF0ZVNraWxsUmVzcG9uc2USLwoFc2tpbGwYASABKAsyIC5wb2RpdW0uYWdlbnQudjEuU2tpbGxEZWZpbml0aW9uIkUKElVwZGF0ZVNraWxsUmVxdWVzdBIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iRgoTVXBkYXRlU2tpbGxSZXNwb25zZRIvCgVza2lsbBgBIAEoCzIgLnBvZGl1bS5hZ2VudC52MS5Ta2lsbERlZmluaXRpb24iIgoSRGVsZXRlU2tpbGxSZXF1ZXN0EgwKBG5hbWUYASABKAkiFQoTRGVsZXRlU2tpbGxSZXNwb25zZTKIEAoMQWdlbnRTZXJ2aWNlElsKDExpc3RTZXNzaW9ucxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlElUKCkdldFNlc3Npb24SIi5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0U2Vzc2lvblJlc3BvbnNlElIKCUxpc3RUdXJucxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0VHVybnNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1Jlc3BvbnNlElgKC0dldFNldHRpbmdzEiMucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5HZXRTZXR0aW5nc1Jlc3BvbnNlEmEKDlNldFByb3ZpZGVyS2V5EiYucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZXRQcm92aWRlcktleVJlc3BvbnNlEmcKEENsZWFyUHJvdmlkZXJLZXkSKC5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2xlYXJQcm92aWRlcktleVJlc3BvbnNlEm0KElN0YXJ0UHJvdmlkZXJPQXV0aBIqLnBvZGl1bS5hZ2VudC52MS5TdGFydFByb3ZpZGVyT0F1dGhSZXF1ZXN0GisucG9kaXVtLmFnZW50LnYxLlN0YXJ0UHJvdmlkZXJPQXV0aFJlc3BvbnNlEmoKEVBvbGxQcm92aWRlck9BdXRoEikucG9kaXVtLmFnZW50LnYxLlBvbGxQcm92aWRlck9BdXRoUmVxdWVzdBoqLnBvZGl1bS5hZ2VudC52MS5Qb2xsUHJvdmlkZXJPQXV0aFJlc3BvbnNlElUKCkxpc3RBZ2VudHMSIi5wb2RpdW0uYWdlbnQudjEuTGlzdEFnZW50c1JlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuTGlzdEFnZW50c1Jlc3BvbnNlElsKDExpc3RNZW1vcmllcxIkLnBvZGl1bS5hZ2VudC52MS5MaXN0TWVtb3JpZXNSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1Jlc3BvbnNlEmEKDlNlYXJjaE1lbW9yaWVzEiYucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVxdWVzdBonLnBvZGl1bS5hZ2VudC52MS5TZWFyY2hNZW1vcmllc1Jlc3BvbnNlElsKDERlbGV0ZU1lbW9yeRIkLnBvZGl1bS5hZ2VudC52MS5EZWxldGVNZW1vcnlSZXF1ZXN0GiUucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlc3BvbnNlElUKCkxpc3RTa2lsbHMSIi5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1JlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuTGlzdFNraWxsc1Jlc3BvbnNlElUKCkdldFByb2ZpbGUSIi5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuR2V0UHJvZmlsZVJlc3BvbnNlEl4KDVVwZGF0ZVByb2ZpbGUSJS5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUHJvZmlsZVJlc3BvbnNlElgKC0NyZWF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkNyZWF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVTa2lsbFJlc3BvbnNlElgKC1VwZGF0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLlVwZGF0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVTa2lsbFJlc3BvbnNlElgKC0RlbGV0ZVNraWxsEiMucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVNraWxsUmVxdWVzdBokLnBvZGl1bS5hZ2VudC52MS5EZWxldGVTa2lsbFJlc3BvbnNlElUKCkNyZWF0ZUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlcXVlc3QaIy5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlQ2hhdFJlc3BvbnNlElIKCUxpc3RDaGF0cxIhLnBvZGl1bS5hZ2VudC52MS5MaXN0Q2hhdHNSZXF1ZXN0GiIucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1Jlc3BvbnNlEmQKD1NlbmRDaGF0TWVzc2FnZRInLnBvZGl1bS5hZ2VudC52MS5TZW5kQ2hhdE1lc3NhZ2VSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlc3BvbnNlEk4KClN0cmVhbUNoYXQSIi5wb2RpdW0uYWdlbnQudjEuU3RyZWFtQ2hhdFJlcXVlc3QaGi5wb2RpdW0uYWdlbnQudjEuQ2hhdEZyYW1lMAFCyAEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCkFnZW50UHJvdG9QAVpHZ2l0aHViLmNvbS9hbHZhcm9pYmFyZ3Vlbi9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -295,15 +295,15 @@ export const GetSettingsRequestSchema: GenMessage<GetSettingsRequest> = /*@__PUR
   messageDesc(file_podium_agent_v1_agent, 9);
 
 /**
- * ProviderSettings is everything the UI may know about a stored provider key. key_hint is
- * the last four characters, computed once at save time: that is the only form in which any
- * part of the key is ever read back.
+ * ProviderSettings is everything the UI may know about a stored provider credential.
+ * key_hint is the last four characters, computed once at save time: that is the only form
+ * in which any part of the credential is ever read back.
  *
  * @generated from message podium.agent.v1.ProviderSettings
  */
 export type ProviderSettings = Message<"podium.agent.v1.ProviderSettings"> & {
   /**
-   * provider is "anthropic" — the only value this track knows. The field is the BYOK seam.
+   * provider is "anthropic" or "xai". The field is the BYOK seam.
    *
    * @generated from field: string provider = 1;
    */
@@ -315,14 +315,15 @@ export type ProviderSettings = Message<"podium.agent.v1.ProviderSettings"> & {
   keySet: boolean;
 
   /**
-   * key_hint is the last four characters of the key, or "" when no key is set.
+   * key_hint is the last four characters of the key, or "" when no key is set. It is empty
+   * for an OAuth credential: an access token is not a thing to show four characters of.
    *
    * @generated from field: string key_hint = 3;
    */
   keyHint: string;
 
   /**
-   * model is profile.yaml's model. Informational: the UI is not a model picker.
+   * model is profile.yaml's model. Informational: the picker is ListAgents.
    *
    * @generated from field: string model = 4;
    */
@@ -339,6 +340,39 @@ export type ProviderSettings = Message<"podium.agent.v1.ProviderSettings"> & {
    * @generated from field: google.protobuf.Timestamp set_at = 6;
    */
   setAt?: Timestamp | undefined;
+
+  /**
+   * auth_kind is "api_key" or "oauth", and "" when nothing is set. It is what the UI shows
+   * instead of a hint for a subscription sign-in.
+   *
+   * @generated from field: string auth_kind = 7;
+   */
+  authKind: string;
+
+  /**
+   * account is who the provider says is signed in — an email or a subject — for an OAuth
+   * credential, and "" otherwise. It comes from the provider's own token response.
+   *
+   * @generated from field: string account = 8;
+   */
+  account: string;
+
+  /**
+   * expires_at is when the stored access token stops working. Unset for an API key, which
+   * does not expire. The conductor refreshes an OAuth token in the background well before
+   * this, so a UI showing a time in the past means refreshing has been failing.
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 9;
+   */
+  expiresAt?: Timestamp | undefined;
+
+  /**
+   * refreshable is true when a refresh token was issued, which is what makes an OAuth
+   * credential survive its first hour without a human.
+   *
+   * @generated from field: bool refreshable = 10;
+   */
+  refreshable: boolean;
 };
 
 /**
@@ -353,9 +387,19 @@ export const ProviderSettingsSchema: GenMessage<ProviderSettings> = /*@__PURE__*
  */
 export type GetSettingsResponse = Message<"podium.agent.v1.GetSettingsResponse"> & {
   /**
+   * provider is the Anthropic row, kept for the clients that only ever knew about one.
+   *
    * @generated from field: podium.agent.v1.ProviderSettings provider = 1;
    */
   provider?: ProviderSettings | undefined;
+
+  /**
+   * providers is every provider this conductor knows, Anthropic included, in a stable
+   * order. New clients read this and ignore the field above.
+   *
+   * @generated from field: repeated podium.agent.v1.ProviderSettings providers = 2;
+   */
+  providers: ProviderSettings[];
 };
 
 /**
@@ -482,6 +526,302 @@ export const ClearProviderKeyResponseSchema: GenMessage<ClearProviderKeyResponse
   messageDesc(file_podium_agent_v1_agent, 16);
 
 /**
+ * @generated from message podium.agent.v1.StartProviderOAuthRequest
+ */
+export type StartProviderOAuthRequest = Message<"podium.agent.v1.StartProviderOAuthRequest"> & {
+  /**
+   * provider is "xai". Anthropic takes an API key on this control plane and answers
+   * invalid_argument here.
+   *
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartProviderOAuthRequest.
+ * Use `create(StartProviderOAuthRequestSchema)` to create a new message.
+ */
+export const StartProviderOAuthRequestSchema: GenMessage<StartProviderOAuthRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 17);
+
+/**
+ * StartProviderOAuthResponse is a device-authorisation grant (RFC 8628) in flight. It
+ * carries no credential: the device code itself stays on the conductor, keyed by flow_id,
+ * so a browser that is shown this response cannot complete the sign-in on its own.
+ *
+ * @generated from message podium.agent.v1.StartProviderOAuthResponse
+ */
+export type StartProviderOAuthResponse = Message<"podium.agent.v1.StartProviderOAuthResponse"> & {
+  /**
+   * flow_id names this sign-in to PollProviderOAuth. It is opaque and single-use.
+   *
+   * @generated from field: string flow_id = 1;
+   */
+  flowId: string;
+
+  /**
+   * user_code is what the human types on the provider's page. It is meant to be read out
+   * loud, so it is shown as the provider formatted it, dashes included.
+   *
+   * @generated from field: string user_code = 2;
+   */
+  userCode: string;
+
+  /**
+   * verification_uri is where the human goes.
+   *
+   * @generated from field: string verification_uri = 3;
+   */
+  verificationUri: string;
+
+  /**
+   * verification_uri_complete has the code already in it, for a link or a QR code. Empty
+   * when the provider did not offer one.
+   *
+   * @generated from field: string verification_uri_complete = 4;
+   */
+  verificationUriComplete: string;
+
+  /**
+   * interval is how many seconds to wait between polls. Poll faster and the provider
+   * answers slow_down.
+   *
+   * @generated from field: int32 interval = 5;
+   */
+  interval: number;
+
+  /**
+   * expires_at is when the code stops being accepted and the flow has to be restarted.
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 6;
+   */
+  expiresAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.StartProviderOAuthResponse.
+ * Use `create(StartProviderOAuthResponseSchema)` to create a new message.
+ */
+export const StartProviderOAuthResponseSchema: GenMessage<StartProviderOAuthResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 18);
+
+/**
+ * @generated from message podium.agent.v1.PollProviderOAuthRequest
+ */
+export type PollProviderOAuthRequest = Message<"podium.agent.v1.PollProviderOAuthRequest"> & {
+  /**
+   * @generated from field: string provider = 1;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string flow_id = 2;
+   */
+  flowId: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.PollProviderOAuthRequest.
+ * Use `create(PollProviderOAuthRequestSchema)` to create a new message.
+ */
+export const PollProviderOAuthRequestSchema: GenMessage<PollProviderOAuthRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 19);
+
+/**
+ * PollProviderOAuthResponse says where the sign-in got to. Exactly one poll ends it: the
+ * one that comes back authorised is the one that stored the token.
+ *
+ * @generated from message podium.agent.v1.PollProviderOAuthResponse
+ */
+export type PollProviderOAuthResponse = Message<"podium.agent.v1.PollProviderOAuthResponse"> & {
+  /**
+   * state is:
+   *   pending    the human has not finished yet; poll again after interval
+   *   slow_down  polling too fast; the interval in this response is the new one
+   *   done       authorised and stored; provider is filled in
+   *   denied     the human said no, or the provider refused this client
+   *   expired    the code timed out; start again
+   *
+   * @generated from field: string state = 1;
+   */
+  state: string;
+
+  /**
+   * interval is the seconds to wait before the next poll. Only meaningful while pending.
+   *
+   * @generated from field: int32 interval = 2;
+   */
+  interval: number;
+
+  /**
+   * provider is the stored credential, set only when state is done.
+   *
+   * @generated from field: podium.agent.v1.ProviderSettings provider = 3;
+   */
+  provider?: ProviderSettings | undefined;
+
+  /**
+   * detail is the provider's own sentence about a denied or expired flow, bounded and
+   * scrubbed exactly as ProviderKeyError.provider_message is. Empty when there is nothing
+   * to add.
+   *
+   * @generated from field: string detail = 4;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.PollProviderOAuthResponse.
+ * Use `create(PollProviderOAuthResponseSchema)` to create a new message.
+ */
+export const PollProviderOAuthResponseSchema: GenMessage<PollProviderOAuthResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 20);
+
+/**
+ * AgentModel is one model a backend offers, as the picker shows it.
+ *
+ * @generated from message podium.agent.v1.AgentModel
+ */
+export type AgentModel = Message<"podium.agent.v1.AgentModel"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * note is the one line under the name in the picker: what this model is for.
+   *
+   * @generated from field: string note = 3;
+   */
+  note: string;
+
+  /**
+   * context_tokens is the model's context window, or 0 when it is not known here.
+   *
+   * @generated from field: int32 context_tokens = 4;
+   */
+  contextTokens: number;
+
+  /**
+   * efforts are the reasoning-effort levels this model accepts, weakest first. Empty means
+   * the model takes no effort setting and the control is hidden for it.
+   *
+   * @generated from field: repeated string efforts = 5;
+   */
+  efforts: string[];
+};
+
+/**
+ * Describes the message podium.agent.v1.AgentModel.
+ * Use `create(AgentModelSchema)` to create a new message.
+ */
+export const AgentModelSchema: GenMessage<AgentModel> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 21);
+
+/**
+ * AgentBackend is one thing a turn can run on: a harness, the credential it needs, and the
+ * models it can be pointed at.
+ *
+ * @generated from message podium.agent.v1.AgentBackend
+ */
+export type AgentBackend = Message<"podium.agent.v1.AgentBackend"> & {
+  /**
+   * id is what a skill's `agent` field holds: "claude" or "grok".
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * provider is the credential this backend spends: "anthropic" or "xai".
+   *
+   * @generated from field: string provider = 3;
+   */
+  provider: string;
+
+  /**
+   * note is a sentence about what this backend actually is, for the picker's header.
+   *
+   * @generated from field: string note = 4;
+   */
+  note: string;
+
+  /**
+   * @generated from field: string default_model = 5;
+   */
+  defaultModel: string;
+
+  /**
+   * @generated from field: repeated podium.agent.v1.AgentModel models = 6;
+   */
+  models: AgentModel[];
+
+  /**
+   * ready is true when this control plane holds a credential for the backend. A skill may
+   * still be saved against a backend that is not ready — the operator may be setting it up
+   * in either order — and the UI says so rather than refusing.
+   *
+   * @generated from field: bool ready = 7;
+   */
+  ready: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.AgentBackend.
+ * Use `create(AgentBackendSchema)` to create a new message.
+ */
+export const AgentBackendSchema: GenMessage<AgentBackend> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 22);
+
+/**
+ * @generated from message podium.agent.v1.ListAgentsRequest
+ */
+export type ListAgentsRequest = Message<"podium.agent.v1.ListAgentsRequest"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.ListAgentsRequest.
+ * Use `create(ListAgentsRequestSchema)` to create a new message.
+ */
+export const ListAgentsRequestSchema: GenMessage<ListAgentsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 23);
+
+/**
+ * @generated from message podium.agent.v1.ListAgentsResponse
+ */
+export type ListAgentsResponse = Message<"podium.agent.v1.ListAgentsResponse"> & {
+  /**
+   * @generated from field: repeated podium.agent.v1.AgentBackend agents = 1;
+   */
+  agents: AgentBackend[];
+
+  /**
+   * default_agent is what a profile that names no agent runs on.
+   *
+   * @generated from field: string default_agent = 2;
+   */
+  defaultAgent: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListAgentsResponse.
+ * Use `create(ListAgentsResponseSchema)` to create a new message.
+ */
+export const ListAgentsResponseSchema: GenMessage<ListAgentsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 24);
+
+/**
  * Memory is one thing the organisation remembers, shared by every agent turn.
  *
  * EVERY FIELD IS CONTENT. A memory was written by a task, out of material a human, a
@@ -560,7 +900,7 @@ export type Memory = Message<"podium.agent.v1.Memory"> & {
  * Use `create(MemorySchema)` to create a new message.
  */
 export const MemorySchema: GenMessage<Memory> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 17);
+  messageDesc(file_podium_agent_v1_agent, 25);
 
 /**
  * @generated from message podium.agent.v1.ListMemoriesRequest
@@ -584,7 +924,7 @@ export type ListMemoriesRequest = Message<"podium.agent.v1.ListMemoriesRequest">
  * Use `create(ListMemoriesRequestSchema)` to create a new message.
  */
 export const ListMemoriesRequestSchema: GenMessage<ListMemoriesRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 18);
+  messageDesc(file_podium_agent_v1_agent, 26);
 
 /**
  * @generated from message podium.agent.v1.ListMemoriesResponse
@@ -608,7 +948,7 @@ export type ListMemoriesResponse = Message<"podium.agent.v1.ListMemoriesResponse
  * Use `create(ListMemoriesResponseSchema)` to create a new message.
  */
 export const ListMemoriesResponseSchema: GenMessage<ListMemoriesResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 19);
+  messageDesc(file_podium_agent_v1_agent, 27);
 
 /**
  * @generated from message podium.agent.v1.SearchMemoriesRequest
@@ -630,7 +970,7 @@ export type SearchMemoriesRequest = Message<"podium.agent.v1.SearchMemoriesReque
  * Use `create(SearchMemoriesRequestSchema)` to create a new message.
  */
 export const SearchMemoriesRequestSchema: GenMessage<SearchMemoriesRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 20);
+  messageDesc(file_podium_agent_v1_agent, 28);
 
 /**
  * @generated from message podium.agent.v1.SearchMemoriesResponse
@@ -647,7 +987,7 @@ export type SearchMemoriesResponse = Message<"podium.agent.v1.SearchMemoriesResp
  * Use `create(SearchMemoriesResponseSchema)` to create a new message.
  */
 export const SearchMemoriesResponseSchema: GenMessage<SearchMemoriesResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 21);
+  messageDesc(file_podium_agent_v1_agent, 29);
 
 /**
  * @generated from message podium.agent.v1.DeleteMemoryRequest
@@ -664,7 +1004,7 @@ export type DeleteMemoryRequest = Message<"podium.agent.v1.DeleteMemoryRequest">
  * Use `create(DeleteMemoryRequestSchema)` to create a new message.
  */
 export const DeleteMemoryRequestSchema: GenMessage<DeleteMemoryRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 22);
+  messageDesc(file_podium_agent_v1_agent, 30);
 
 /**
  * @generated from message podium.agent.v1.DeleteMemoryResponse
@@ -677,7 +1017,7 @@ export type DeleteMemoryResponse = Message<"podium.agent.v1.DeleteMemoryResponse
  * Use `create(DeleteMemoryResponseSchema)` to create a new message.
  */
 export const DeleteMemoryResponseSchema: GenMessage<DeleteMemoryResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 23);
+  messageDesc(file_podium_agent_v1_agent, 31);
 
 /**
  * Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
@@ -719,7 +1059,7 @@ export type Skill = Message<"podium.agent.v1.Skill"> & {
  * Use `create(SkillSchema)` to create a new message.
  */
 export const SkillSchema: GenMessage<Skill> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 24);
+  messageDesc(file_podium_agent_v1_agent, 32);
 
 /**
  * @generated from message podium.agent.v1.ListSkillsRequest
@@ -732,7 +1072,7 @@ export type ListSkillsRequest = Message<"podium.agent.v1.ListSkillsRequest"> & {
  * Use `create(ListSkillsRequestSchema)` to create a new message.
  */
 export const ListSkillsRequestSchema: GenMessage<ListSkillsRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 25);
+  messageDesc(file_podium_agent_v1_agent, 33);
 
 /**
  * @generated from message podium.agent.v1.ListSkillsResponse
@@ -756,7 +1096,7 @@ export type ListSkillsResponse = Message<"podium.agent.v1.ListSkillsResponse"> &
  * Use `create(ListSkillsResponseSchema)` to create a new message.
  */
 export const ListSkillsResponseSchema: GenMessage<ListSkillsResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 26);
+  messageDesc(file_podium_agent_v1_agent, 34);
 
 /**
  * Chat is one web-chat conversation. EVERY message in it is content: a human wrote the user
@@ -808,7 +1148,7 @@ export type Chat = Message<"podium.agent.v1.Chat"> & {
  * Use `create(ChatSchema)` to create a new message.
  */
 export const ChatSchema: GenMessage<Chat> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 27);
+  messageDesc(file_podium_agent_v1_agent, 35);
 
 /**
  * ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -844,7 +1184,7 @@ export type ChatAttachment = Message<"podium.agent.v1.ChatAttachment"> & {
  * Use `create(ChatAttachmentSchema)` to create a new message.
  */
 export const ChatAttachmentSchema: GenMessage<ChatAttachment> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 28);
+  messageDesc(file_podium_agent_v1_agent, 36);
 
 /**
  * ChatMessage is one stored turn of a conversation. seq is per chat and monotonic, which is
@@ -891,7 +1231,7 @@ export type ChatMessage = Message<"podium.agent.v1.ChatMessage"> & {
  * Use `create(ChatMessageSchema)` to create a new message.
  */
 export const ChatMessageSchema: GenMessage<ChatMessage> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 29);
+  messageDesc(file_podium_agent_v1_agent, 37);
 
 /**
  * ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
@@ -918,7 +1258,7 @@ export type ChatStatus = Message<"podium.agent.v1.ChatStatus"> & {
  * Use `create(ChatStatusSchema)` to create a new message.
  */
 export const ChatStatusSchema: GenMessage<ChatStatus> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 30);
+  messageDesc(file_podium_agent_v1_agent, 38);
 
 /**
  * ChatFrame is one thing that happened in a chat.
@@ -967,7 +1307,7 @@ export type ChatFrame = Message<"podium.agent.v1.ChatFrame"> & {
  * Use `create(ChatFrameSchema)` to create a new message.
  */
 export const ChatFrameSchema: GenMessage<ChatFrame> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 31);
+  messageDesc(file_podium_agent_v1_agent, 39);
 
 /**
  * @generated from message podium.agent.v1.CreateChatRequest
@@ -986,7 +1326,7 @@ export type CreateChatRequest = Message<"podium.agent.v1.CreateChatRequest"> & {
  * Use `create(CreateChatRequestSchema)` to create a new message.
  */
 export const CreateChatRequestSchema: GenMessage<CreateChatRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 32);
+  messageDesc(file_podium_agent_v1_agent, 40);
 
 /**
  * @generated from message podium.agent.v1.CreateChatResponse
@@ -1003,7 +1343,7 @@ export type CreateChatResponse = Message<"podium.agent.v1.CreateChatResponse"> &
  * Use `create(CreateChatResponseSchema)` to create a new message.
  */
 export const CreateChatResponseSchema: GenMessage<CreateChatResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 33);
+  messageDesc(file_podium_agent_v1_agent, 41);
 
 /**
  * @generated from message podium.agent.v1.ListChatsRequest
@@ -1020,7 +1360,7 @@ export type ListChatsRequest = Message<"podium.agent.v1.ListChatsRequest"> & {
  * Use `create(ListChatsRequestSchema)` to create a new message.
  */
 export const ListChatsRequestSchema: GenMessage<ListChatsRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 34);
+  messageDesc(file_podium_agent_v1_agent, 42);
 
 /**
  * @generated from message podium.agent.v1.ListChatsResponse
@@ -1044,7 +1384,7 @@ export type ListChatsResponse = Message<"podium.agent.v1.ListChatsResponse"> & {
  * Use `create(ListChatsResponseSchema)` to create a new message.
  */
 export const ListChatsResponseSchema: GenMessage<ListChatsResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 35);
+  messageDesc(file_podium_agent_v1_agent, 43);
 
 /**
  * @generated from message podium.agent.v1.SendChatMessageRequest
@@ -1077,7 +1417,7 @@ export type SendChatMessageRequest = Message<"podium.agent.v1.SendChatMessageReq
  * Use `create(SendChatMessageRequestSchema)` to create a new message.
  */
 export const SendChatMessageRequestSchema: GenMessage<SendChatMessageRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 36);
+  messageDesc(file_podium_agent_v1_agent, 44);
 
 /**
  * @generated from message podium.agent.v1.SendChatMessageResponse
@@ -1096,7 +1436,7 @@ export type SendChatMessageResponse = Message<"podium.agent.v1.SendChatMessageRe
  * Use `create(SendChatMessageResponseSchema)` to create a new message.
  */
 export const SendChatMessageResponseSchema: GenMessage<SendChatMessageResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 37);
+  messageDesc(file_podium_agent_v1_agent, 45);
 
 /**
  * @generated from message podium.agent.v1.StreamChatRequest
@@ -1121,7 +1461,7 @@ export type StreamChatRequest = Message<"podium.agent.v1.StreamChatRequest"> & {
  * Use `create(StreamChatRequestSchema)` to create a new message.
  */
 export const StreamChatRequestSchema: GenMessage<StreamChatRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 38);
+  messageDesc(file_podium_agent_v1_agent, 46);
 
 /**
  * AgentProfile is the bot's identity as the management screen sees it: what is in force
@@ -1193,7 +1533,8 @@ export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
 
   /**
    * overridden names the fields a stored override is currently supplying, by their
-   * profile.yaml key: display_name, model, default_skill, chat_default_skill.
+   * profile.yaml key: display_name, model, default_skill, chat_default_skill, agent,
+   * effort.
    *
    * @generated from field: repeated string overridden = 11;
    */
@@ -1210,6 +1551,31 @@ export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 13;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * agent is the backend every skill runs on unless it names its own: "claude" or "grok".
+   *
+   * @generated from field: string agent = 14;
+   */
+  agent: string;
+
+  /**
+   * effort is the reasoning effort every skill runs at unless it names its own. Empty
+   * means the model's own default.
+   *
+   * @generated from field: string effort = 15;
+   */
+  effort: string;
+
+  /**
+   * @generated from field: string file_agent = 16;
+   */
+  fileAgent: string;
+
+  /**
+   * @generated from field: string file_effort = 17;
+   */
+  fileEffort: string;
 };
 
 /**
@@ -1217,7 +1583,7 @@ export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
  * Use `create(AgentProfileSchema)` to create a new message.
  */
 export const AgentProfileSchema: GenMessage<AgentProfile> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 39);
+  messageDesc(file_podium_agent_v1_agent, 47);
 
 /**
  * SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
@@ -1246,7 +1612,7 @@ export type SkillResources = Message<"podium.agent.v1.SkillResources"> & {
  * Use `create(SkillResourcesSchema)` to create a new message.
  */
 export const SkillResourcesSchema: GenMessage<SkillResources> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 40);
+  messageDesc(file_podium_agent_v1_agent, 48);
 
 /**
  * SkillSecretRef names a stored secret and says where the turn wants it. It carries the
@@ -1281,7 +1647,7 @@ export type SkillSecretRef = Message<"podium.agent.v1.SkillSecretRef"> & {
  * Use `create(SkillSecretRefSchema)` to create a new message.
  */
 export const SkillSecretRefSchema: GenMessage<SkillSecretRef> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 41);
+  messageDesc(file_podium_agent_v1_agent, 49);
 
 /**
  * SkillRepo is a repository a turn of this skill gets cloned into /workspace.
@@ -1310,7 +1676,7 @@ export type SkillRepo = Message<"podium.agent.v1.SkillRepo"> & {
  * Use `create(SkillRepoSchema)` to create a new message.
  */
 export const SkillRepoSchema: GenMessage<SkillRepo> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 42);
+  messageDesc(file_podium_agent_v1_agent, 50);
 
 /**
  * SkillDefinition is one skill in full: everything skills/<name>.yaml holds, plus where
@@ -1432,6 +1798,22 @@ export type SkillDefinition = Message<"podium.agent.v1.SkillDefinition"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 19;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * agent is the backend a turn of this skill runs on: "claude", "grok", or empty for
+   * whatever the profile says.
+   *
+   * @generated from field: string agent = 20;
+   */
+  agent: string;
+
+  /**
+   * effort is the reasoning effort a turn of this skill runs at, or empty for the
+   * profile's. The levels a model accepts come from ListAgents.
+   *
+   * @generated from field: string effort = 21;
+   */
+  effort: string;
 };
 
 /**
@@ -1439,7 +1821,7 @@ export type SkillDefinition = Message<"podium.agent.v1.SkillDefinition"> & {
  * Use `create(SkillDefinitionSchema)` to create a new message.
  */
 export const SkillDefinitionSchema: GenMessage<SkillDefinition> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 43);
+  messageDesc(file_podium_agent_v1_agent, 51);
 
 /**
  * @generated from message podium.agent.v1.GetProfileRequest
@@ -1452,7 +1834,7 @@ export type GetProfileRequest = Message<"podium.agent.v1.GetProfileRequest"> & {
  * Use `create(GetProfileRequestSchema)` to create a new message.
  */
 export const GetProfileRequestSchema: GenMessage<GetProfileRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 44);
+  messageDesc(file_podium_agent_v1_agent, 52);
 
 /**
  * @generated from message podium.agent.v1.GetProfileResponse
@@ -1485,7 +1867,7 @@ export type GetProfileResponse = Message<"podium.agent.v1.GetProfileResponse"> &
  * Use `create(GetProfileResponseSchema)` to create a new message.
  */
 export const GetProfileResponseSchema: GenMessage<GetProfileResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 45);
+  messageDesc(file_podium_agent_v1_agent, 53);
 
 /**
  * @generated from message podium.agent.v1.UpdateProfileRequest
@@ -1513,6 +1895,16 @@ export type UpdateProfileRequest = Message<"podium.agent.v1.UpdateProfileRequest
    * @generated from field: string chat_default_skill = 4;
    */
   chatDefaultSkill: string;
+
+  /**
+   * @generated from field: string agent = 5;
+   */
+  agent: string;
+
+  /**
+   * @generated from field: string effort = 6;
+   */
+  effort: string;
 };
 
 /**
@@ -1520,7 +1912,7 @@ export type UpdateProfileRequest = Message<"podium.agent.v1.UpdateProfileRequest
  * Use `create(UpdateProfileRequestSchema)` to create a new message.
  */
 export const UpdateProfileRequestSchema: GenMessage<UpdateProfileRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 46);
+  messageDesc(file_podium_agent_v1_agent, 54);
 
 /**
  * @generated from message podium.agent.v1.UpdateProfileResponse
@@ -1537,7 +1929,7 @@ export type UpdateProfileResponse = Message<"podium.agent.v1.UpdateProfileRespon
  * Use `create(UpdateProfileResponseSchema)` to create a new message.
  */
 export const UpdateProfileResponseSchema: GenMessage<UpdateProfileResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 47);
+  messageDesc(file_podium_agent_v1_agent, 55);
 
 /**
  * @generated from message podium.agent.v1.CreateSkillRequest
@@ -1554,7 +1946,7 @@ export type CreateSkillRequest = Message<"podium.agent.v1.CreateSkillRequest"> &
  * Use `create(CreateSkillRequestSchema)` to create a new message.
  */
 export const CreateSkillRequestSchema: GenMessage<CreateSkillRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 48);
+  messageDesc(file_podium_agent_v1_agent, 56);
 
 /**
  * @generated from message podium.agent.v1.CreateSkillResponse
@@ -1571,7 +1963,7 @@ export type CreateSkillResponse = Message<"podium.agent.v1.CreateSkillResponse">
  * Use `create(CreateSkillResponseSchema)` to create a new message.
  */
 export const CreateSkillResponseSchema: GenMessage<CreateSkillResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 49);
+  messageDesc(file_podium_agent_v1_agent, 57);
 
 /**
  * @generated from message podium.agent.v1.UpdateSkillRequest
@@ -1590,7 +1982,7 @@ export type UpdateSkillRequest = Message<"podium.agent.v1.UpdateSkillRequest"> &
  * Use `create(UpdateSkillRequestSchema)` to create a new message.
  */
 export const UpdateSkillRequestSchema: GenMessage<UpdateSkillRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 50);
+  messageDesc(file_podium_agent_v1_agent, 58);
 
 /**
  * @generated from message podium.agent.v1.UpdateSkillResponse
@@ -1607,7 +1999,7 @@ export type UpdateSkillResponse = Message<"podium.agent.v1.UpdateSkillResponse">
  * Use `create(UpdateSkillResponseSchema)` to create a new message.
  */
 export const UpdateSkillResponseSchema: GenMessage<UpdateSkillResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 51);
+  messageDesc(file_podium_agent_v1_agent, 59);
 
 /**
  * @generated from message podium.agent.v1.DeleteSkillRequest
@@ -1624,7 +2016,7 @@ export type DeleteSkillRequest = Message<"podium.agent.v1.DeleteSkillRequest"> &
  * Use `create(DeleteSkillRequestSchema)` to create a new message.
  */
 export const DeleteSkillRequestSchema: GenMessage<DeleteSkillRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 52);
+  messageDesc(file_podium_agent_v1_agent, 60);
 
 /**
  * @generated from message podium.agent.v1.DeleteSkillResponse
@@ -1637,7 +2029,7 @@ export type DeleteSkillResponse = Message<"podium.agent.v1.DeleteSkillResponse">
  * Use `create(DeleteSkillResponseSchema)` to create a new message.
  */
 export const DeleteSkillResponseSchema: GenMessage<DeleteSkillResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_agent, 53);
+  messageDesc(file_podium_agent_v1_agent, 61);
 
 /**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
@@ -1707,6 +2099,42 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof ClearProviderKeyRequestSchema;
     output: typeof ClearProviderKeyResponseSchema;
+  },
+  /**
+   * StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
+   * subscription instead of an API key. It stores nothing: it returns the code and the URL
+   * a human has to visit, and PollProviderOAuth is what finishes.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.StartProviderOAuth
+   */
+  startProviderOAuth: {
+    methodKind: "unary";
+    input: typeof StartProviderOAuthRequestSchema;
+    output: typeof StartProviderOAuthResponseSchema;
+  },
+  /**
+   * PollProviderOAuth asks the provider whether the human has approved the sign-in yet. It
+   * is the browser that polls, at the interval the start response asked for. Only the call
+   * that comes back authorised stores anything.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.PollProviderOAuth
+   */
+  pollProviderOAuth: {
+    methodKind: "unary";
+    input: typeof PollProviderOAuthRequestSchema;
+    output: typeof PollProviderOAuthResponseSchema;
+  },
+  /**
+   * ListAgents reports the agent backends this conductor can run a turn on, the models each
+   * offers and the effort levels each model accepts. It is the catalogue behind the UI's
+   * picker, and it is the same list the write RPCs validate against.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ListAgents
+   */
+  listAgents: {
+    methodKind: "unary";
+    input: typeof ListAgentsRequestSchema;
+    output: typeof ListAgentsResponseSchema;
   },
   /**
    * ListMemories pages through the shared memory, newest first.

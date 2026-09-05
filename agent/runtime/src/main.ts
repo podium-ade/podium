@@ -35,8 +35,23 @@ const DryRunEnv = "PODIUM_AGENT_DRY_RUN";
 const DryRunSleepEnv = "PODIUM_AGENT_DRY_RUN_SLEEP_MS";
 const DryRunExitEnv = "PODIUM_AGENT_DRY_RUN_EXIT";
 
-/** KeyEnv is the only auth path: a Podium secret with target: env. */
+/**
+ * KeyEnv is where a Claude turn's credential lands: a Podium secret with target: env. A
+ * turn on another backend names its own variable in brief.provider.api_key_env, and either
+ * way a credential reaches this container only as a Podium secret.
+ */
 const KeyEnv = "ANTHROPIC_API_KEY";
+
+/**
+ * BaseURLEnv and AuthTokenEnv are how the agent SDK is pointed at a non-Anthropic endpoint.
+ *
+ * The SDK speaks the Anthropic Messages API, and xAI serves one at api.x.ai — so a Grok
+ * turn is this same harness with two environment variables changed. AuthTokenEnv rather
+ * than KeyEnv because the two produce different headers: an API key becomes `x-api-key`
+ * and an auth token becomes `Authorization: Bearer`, and xAI takes the bearer.
+ */
+const BaseURLEnv = "ANTHROPIC_BASE_URL";
+const AuthTokenEnv = "ANTHROPIC_AUTH_TOKEN";
 
 /** ProgressWindowMs coalesces progress messages: never two inside this window. */
 const ProgressWindowMs = 5_000;
@@ -109,10 +124,12 @@ async function main(): Promise<number> {
     return ExitBriefInvalid;
   }
 
-  if (!secretFromEnv(KeyEnv)) {
+  const keyEnv = brief.provider?.api_key_env ?? KeyEnv;
+  if (!secretFromEnv(keyEnv)) {
     const why =
-      `${KeyEnv} is not set. It reaches this container only as a Podium secret with ` +
-      `target: env, named on the skill that submitted this task.`;
+      `${keyEnv} is not set, and this turn runs on the ${brief.profile.agent} backend, which ` +
+      `needs it. It reaches this container only as a Podium secret with target: env, which ` +
+      `the conductor attaches from the backend the skill runs on.`;
     warn(why);
     summary.code = ExitSDKError;
     await reportTurn(invoke, summary, `I could not start: ${why}`);
@@ -222,6 +239,19 @@ function options(brief: TurnBrief, controller: AbortController): Options {
   // The brief can be a quarter of a megabyte and the SDK has no business with it.
   delete env[BriefEnv];
 
+  // A backend that is not Anthropic is two environment variables. The SDK's own defaults
+  // are left alone when there is no provider block, which is what a Claude turn is.
+  //
+  // ANTHROPIC_API_KEY is deleted rather than left in place: the SDK prefers a key over a
+  // token, so a stale one in the image's environment would silently send an Anthropic key
+  // to another company's endpoint. Nothing in the image sets it — the conductor attaches
+  // one credential per turn — and deleting it is what makes that guarantee local.
+  if (brief.provider) {
+    env[BaseURLEnv] = brief.provider.base_url;
+    env[AuthTokenEnv] = secretFromEnv(brief.provider.api_key_env) ?? "";
+    delete env[KeyEnv];
+  }
+
   const allowedTools = [...brief.skill.allowed_tools];
   const mcpServers: NonNullable<Options["mcpServers"]> = {};
   if (brief.memory) {
@@ -245,6 +275,9 @@ function options(brief: TurnBrief, controller: AbortController): Options {
     systemPrompt: buildSystemPrompt(brief),
     cwd: WorkspaceDir,
     model: brief.profile.model,
+    // Absent means the model's own default. The conductor has already refused a level the
+    // chosen model does not accept, so nothing here second-guesses one.
+    ...(brief.profile.effort ? { effort: brief.profile.effort } : {}),
     maxTurns: brief.skill.max_turns,
     allowedTools,
     disallowedTools: [],

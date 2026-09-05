@@ -49,6 +49,14 @@ const (
 	// AgentServiceClearProviderKeyProcedure is the fully-qualified name of the AgentService's
 	// ClearProviderKey RPC.
 	AgentServiceClearProviderKeyProcedure = "/podium.agent.v1.AgentService/ClearProviderKey"
+	// AgentServiceStartProviderOAuthProcedure is the fully-qualified name of the AgentService's
+	// StartProviderOAuth RPC.
+	AgentServiceStartProviderOAuthProcedure = "/podium.agent.v1.AgentService/StartProviderOAuth"
+	// AgentServicePollProviderOAuthProcedure is the fully-qualified name of the AgentService's
+	// PollProviderOAuth RPC.
+	AgentServicePollProviderOAuthProcedure = "/podium.agent.v1.AgentService/PollProviderOAuth"
+	// AgentServiceListAgentsProcedure is the fully-qualified name of the AgentService's ListAgents RPC.
+	AgentServiceListAgentsProcedure = "/podium.agent.v1.AgentService/ListAgents"
 	// AgentServiceListMemoriesProcedure is the fully-qualified name of the AgentService's ListMemories
 	// RPC.
 	AgentServiceListMemoriesProcedure = "/podium.agent.v1.AgentService/ListMemories"
@@ -100,6 +108,18 @@ type AgentServiceClient interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
+	// subscription instead of an API key. It stores nothing: it returns the code and the URL
+	// a human has to visit, and PollProviderOAuth is what finishes.
+	StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error)
+	// PollProviderOAuth asks the provider whether the human has approved the sign-in yet. It
+	// is the browser that polls, at the interval the start response asked for. Only the call
+	// that comes back authorised stores anything.
+	PollProviderOAuth(context.Context, *connect.Request[v1.PollProviderOAuthRequest]) (*connect.Response[v1.PollProviderOAuthResponse], error)
+	// ListAgents reports the agent backends this conductor can run a turn on, the models each
+	// offers and the effort levels each model accepts. It is the catalogue behind the UI's
+	// picker, and it is the same list the write RPCs validate against.
+	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// ListMemories pages through the shared memory, newest first.
 	ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error)
 	// SearchMemories is a semantic search of the same memory.
@@ -186,6 +206,24 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
 			connect.WithClientOptions(opts...),
 		),
+		startProviderOAuth: connect.NewClient[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceStartProviderOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StartProviderOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		pollProviderOAuth: connect.NewClient[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse](
+			httpClient,
+			baseURL+AgentServicePollProviderOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("PollProviderOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		listAgents: connect.NewClient[v1.ListAgentsRequest, v1.ListAgentsResponse](
+			httpClient,
+			baseURL+AgentServiceListAgentsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListAgents")),
+			connect.WithClientOptions(opts...),
+		),
 		listMemories: connect.NewClient[v1.ListMemoriesRequest, v1.ListMemoriesResponse](
 			httpClient,
 			baseURL+AgentServiceListMemoriesProcedure,
@@ -269,25 +307,28 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	listSessions     *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession       *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	listTurns        *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
-	getSettings      *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
-	setProviderKey   *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
-	clearProviderKey *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
-	listMemories     *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
-	searchMemories   *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
-	deleteMemory     *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
-	listSkills       *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
-	getProfile       *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
-	updateProfile    *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	createSkill      *connect.Client[v1.CreateSkillRequest, v1.CreateSkillResponse]
-	updateSkill      *connect.Client[v1.UpdateSkillRequest, v1.UpdateSkillResponse]
-	deleteSkill      *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
-	createChat       *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
-	listChats        *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
-	sendChatMessage  *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
-	streamChat       *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	listSessions       *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession         *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	listTurns          *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	getSettings        *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
+	setProviderKey     *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
+	clearProviderKey   *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
+	startProviderOAuth *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
+	pollProviderOAuth  *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
+	listAgents         *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	listMemories       *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
+	searchMemories     *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
+	deleteMemory       *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	listSkills         *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	getProfile         *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
+	updateProfile      *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	createSkill        *connect.Client[v1.CreateSkillRequest, v1.CreateSkillResponse]
+	updateSkill        *connect.Client[v1.UpdateSkillRequest, v1.UpdateSkillResponse]
+	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
+	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
+	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	streamChat         *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -318,6 +359,21 @@ func (c *agentServiceClient) SetProviderKey(ctx context.Context, req *connect.Re
 // ClearProviderKey calls podium.agent.v1.AgentService.ClearProviderKey.
 func (c *agentServiceClient) ClearProviderKey(ctx context.Context, req *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
 	return c.clearProviderKey.CallUnary(ctx, req)
+}
+
+// StartProviderOAuth calls podium.agent.v1.AgentService.StartProviderOAuth.
+func (c *agentServiceClient) StartProviderOAuth(ctx context.Context, req *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error) {
+	return c.startProviderOAuth.CallUnary(ctx, req)
+}
+
+// PollProviderOAuth calls podium.agent.v1.AgentService.PollProviderOAuth.
+func (c *agentServiceClient) PollProviderOAuth(ctx context.Context, req *connect.Request[v1.PollProviderOAuthRequest]) (*connect.Response[v1.PollProviderOAuthResponse], error) {
+	return c.pollProviderOAuth.CallUnary(ctx, req)
+}
+
+// ListAgents calls podium.agent.v1.AgentService.ListAgents.
+func (c *agentServiceClient) ListAgents(ctx context.Context, req *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
+	return c.listAgents.CallUnary(ctx, req)
 }
 
 // ListMemories calls podium.agent.v1.AgentService.ListMemories.
@@ -400,6 +456,18 @@ type AgentServiceHandler interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
+	// subscription instead of an API key. It stores nothing: it returns the code and the URL
+	// a human has to visit, and PollProviderOAuth is what finishes.
+	StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error)
+	// PollProviderOAuth asks the provider whether the human has approved the sign-in yet. It
+	// is the browser that polls, at the interval the start response asked for. Only the call
+	// that comes back authorised stores anything.
+	PollProviderOAuth(context.Context, *connect.Request[v1.PollProviderOAuthRequest]) (*connect.Response[v1.PollProviderOAuthResponse], error)
+	// ListAgents reports the agent backends this conductor can run a turn on, the models each
+	// offers and the effort levels each model accepts. It is the catalogue behind the UI's
+	// picker, and it is the same list the write RPCs validate against.
+	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	// ListMemories pages through the shared memory, newest first.
 	ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error)
 	// SearchMemories is a semantic search of the same memory.
@@ -480,6 +548,24 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceClearProviderKeyProcedure,
 		svc.ClearProviderKey,
 		connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStartProviderOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceStartProviderOAuthProcedure,
+		svc.StartProviderOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("StartProviderOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServicePollProviderOAuthHandler := connect.NewUnaryHandler(
+		AgentServicePollProviderOAuthProcedure,
+		svc.PollProviderOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("PollProviderOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceListAgentsHandler := connect.NewUnaryHandler(
+		AgentServiceListAgentsProcedure,
+		svc.ListAgents,
+		connect.WithSchema(agentServiceMethods.ByName("ListAgents")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceListMemoriesHandler := connect.NewUnaryHandler(
@@ -574,6 +660,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
 		case AgentServiceClearProviderKeyProcedure:
 			agentServiceClearProviderKeyHandler.ServeHTTP(w, r)
+		case AgentServiceStartProviderOAuthProcedure:
+			agentServiceStartProviderOAuthHandler.ServeHTTP(w, r)
+		case AgentServicePollProviderOAuthProcedure:
+			agentServicePollProviderOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceListAgentsProcedure:
+			agentServiceListAgentsHandler.ServeHTTP(w, r)
 		case AgentServiceListMemoriesProcedure:
 			agentServiceListMemoriesHandler.ServeHTTP(w, r)
 		case AgentServiceSearchMemoriesProcedure:
@@ -631,6 +723,18 @@ func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearProviderKey is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StartProviderOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) PollProviderOAuth(context.Context, *connect.Request[v1.PollProviderOAuthRequest]) (*connect.Response[v1.PollProviderOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.PollProviderOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListAgents is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListMemories(context.Context, *connect.Request[v1.ListMemoriesRequest]) (*connect.Response[v1.ListMemoriesResponse], error) {

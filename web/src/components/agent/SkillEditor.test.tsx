@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SkillDefinitionSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { catalogue } from "../../test/agents";
 import { SkillEditor } from "./SkillEditor";
 
 const onSubmit = vi.fn();
@@ -17,6 +18,8 @@ function mount(props: Partial<Parameters<typeof SkillEditor>[0]> = {}) {
   return render(
     <MemoryRouter>
       <SkillEditor
+        agents={catalogue()}
+        profileDefault={{ agent: "claude", model: "claude-opus-5", effort: "" }}
         secretNames={REGISTERED}
         onSubmit={onSubmit}
         onCancel={onCancel}

@@ -153,10 +153,23 @@ an error naming the other), `PODIUM_AGENT_LINEAR_API_KEY`, and the `PODIUM_AGENT
 `PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090` — keep it on loopback, because the server
 proxies it and nothing else should reach it.
 
-**To get a real answer rather than a dry run** you also need an Anthropic key, set in **Agent →
-Settings**, which validates it against `GET /v1/models` and stores it as the Podium secret
-`podium.agent.anthropic_api_key`; and at least one enrolled node whose engine has the runtime
-images. Without a key the machinery runs end to end and returns a canned answer.
+**To get a real answer rather than a dry run** you also need a model credential, set in **Agent →
+Settings**, and at least one enrolled node whose engine has the runtime images. Without one the
+machinery runs end to end and returns a canned answer.
+
+Two backends, one runtime image:
+
+- **Claude** — paste an Anthropic key. It is validated against `GET /v1/models` and stored as the
+  Podium secret `podium.agent.anthropic_api_key`.
+- **Grok** — paste an xAI key, or sign in with a SuperGrok / X Premium+ subscription. xAI serves
+  an Anthropic-compatible `/v1/messages`, so a Grok turn is the *same* image and the *same*
+  Claude Agent SDK with its base URL and bearer swapped. The subscription sign-in is an OAuth
+  device code and needs `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` set; without it the key box is the
+  only way in.
+
+A profile picks the default backend, model and reasoning effort, and any skill can override all
+three. The picker on **Agent → Skills** is one control for the three, because they are one
+decision — a model only runs on one backend, and which effort levels exist depends on the model.
 
 Full reference, including the Slack app manifest and the Linear setup:
 **[docs/agent.md](docs/agent.md)**.
@@ -271,7 +284,8 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
-| Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
+| Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic or xAI credential exists here, so every turn ever run was a dry run |
+| Grok backend: xAI keys, subscription sign-in, per-skill agent/model/effort | ✅ | ⚠️ unit- and integration-tested against fakes. **Nothing has reached `api.x.ai` or `auth.x.ai`** |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -429,12 +443,21 @@ The conductor, the runtime image and all three skills are implemented, unit-test
 integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
 a real Docker engine. What has **not** happened:
 
-- **No agent turn has ever called a model.** There is no Anthropic API key on the build machine,
-  so every turn ever executed — in tests, in the acceptance script, by hand — ran with
-  `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven, and
-  it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
+- **No agent turn has ever called a model.** There is no Anthropic or xAI credential on the
+  build machine, so every turn ever executed — in tests, in the acceptance script, by hand — ran
+  with `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven,
+  and it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
   around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
   turn to write a pull request.**
+- **The Grok backend has never talked to xAI.** Both halves are written against the published
+  behaviour and driven by fakes: that `api.x.ai` serves an Anthropic-compatible `/v1/messages`
+  the Claude Agent SDK can be pointed at, and the device-code sign-in against `auth.x.ai`. Two
+  specific unknowns. xAI publishes no shared OAuth client id for third-party tools, so
+  `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has **no default** and the sign-in is off until one is
+  registered — and xAI has been reported to allow-list its OAuth API surface, so a sign-in can
+  succeed and still produce a token the API refuses. The poll that stores a credential validates
+  it against the API for exactly that reason, and says so on the card. The API key path has the
+  same shape as the Anthropic one and is the one to prefer until this is proved.
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.
