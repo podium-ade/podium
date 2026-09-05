@@ -413,7 +413,10 @@ func TestCancelForUnknownTaskIsANoop(t *testing.T) {
 	e.Cancel(ids.NewTask())
 }
 
-func TestNonexistentImageFailsRetryablyAndLeaksNothing(t *testing.T) {
+// An image the registry will not serve is not a transient failure: every node would be told
+// the same thing, and so would this one an hour later. It has to be reported as such, or the
+// control plane spends the task's whole attempt budget re-asking a question with one answer.
+func TestNonexistentImageFailsWithoutRetryAndLeaksNothing(t *testing.T) {
 	e := newTestExecutor(t)
 	taskID := ids.NewTask()
 	teardownAfter(t, e, taskID)
@@ -438,8 +441,40 @@ func TestNonexistentImageFailsRetryablyAndLeaksNothing(t *testing.T) {
 	require.Equal(t, KindError, last.Kind)
 	payload, ok := last.Payload.(ErrorPayload)
 	require.True(t, ok)
-	require.True(t, payload.Retryable, "a pull failure is retryable")
+	require.False(t, payload.Retryable, "no node will ever be served an image that does not exist")
+	require.True(t, payload.AbortsRun, "the run is over; the control plane must not wait for it")
 	require.NotEmpty(t, payload.Message)
+
+	requireNoLeaks(t, e, taskID)
+}
+
+// A registry that cannot be reached is the case retrying exists for, and it must survive the
+// classification that fails a missing image fast.
+func TestAnUnreachableRegistryStaysRetryable(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	teardownAfter(t, e, taskID)
+
+	c := newCollector()
+	_, err := e.Run(context.Background(), Request{
+		TaskID:  taskID,
+		LeaseID: ids.NewLease(),
+		Spec: spec.TaskSpec{
+			// Port 1 answers nothing, so the pull fails on the transport rather than
+			// on anything the registry said.
+			Image:   "127.0.0.1:1/podium-does-not-exist:dev",
+			Command: []string{"true"},
+		},
+	}, c.ch)
+	require.Error(t, err)
+	t.Logf("run error: %v", err)
+
+	events := c.finish()
+	assertSeq(t, events)
+	payload, ok := events[len(events)-1].Payload.(ErrorPayload)
+	require.True(t, ok)
+	require.True(t, payload.Retryable, "a registry that is down is exactly what a retry is for")
+	require.True(t, payload.AbortsRun)
 
 	requireNoLeaks(t, e, taskID)
 }
@@ -457,6 +492,7 @@ func TestEmptyImageFailsWithoutRetry(t *testing.T) {
 	assertSeq(t, events)
 	payload := events[len(events)-1].Payload.(ErrorPayload)
 	require.False(t, payload.Retryable, "a spec error is not retryable")
+	require.True(t, payload.AbortsRun)
 
 	requireNoLeaks(t, e, taskID)
 }

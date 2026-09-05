@@ -274,7 +274,17 @@ message Finished {
 
 message Error {
   string message = 1;
+  // retryable says another attempt could succeed: the registry was down, the engine
+  // stuttered. A spec the task can never satisfy, or an image the registry refuses to
+  // serve, is not retryable.
   bool retryable = 2;
+  // aborts_run says this error ended the attempt: the node has stopped working on the
+  // task and will send no exited or finished for it. Without it a reader cannot tell a
+  // failure that killed the run from one the run survived — an artifact that was too big
+  // to store, say — and the control plane needs that distinction to know whether the task
+  // still belongs to anybody. An error that aborts the run always resolves the task:
+  // another attempt if retryable and the budget allows, a terminal status otherwise.
+  bool aborts_run = 3;
 }
 
 // TaskEvent is ordered per task by seq, starting at 1. The server deduplicates on
