@@ -185,6 +185,14 @@ func (e *Executor) listenRunner(taskID string) (*runnerLink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on runner event socket %s: %w", path, err)
 	}
+	// net.Listen("unix") unlinks the socket file when the listener is closed, and this file
+	// is the bind-mount SOURCE of /podium/events.sock. Deleting it while the container still
+	// exists leaves the daemon unable to re-materialise that mount point, and the next
+	// CopyFromContainer — which is how artifacts are collected — fails. The file's lifetime
+	// therefore belongs to close and to Teardown, both of which already remove it by hand.
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
+	}
 	// The container may run as a user other than the one the node runs as.
 	if err := os.Chmod(path, 0o666); err != nil { //nolint:gosec // a socket, not a secret
 		e.log.Warn("chmod runner event socket", "task", taskID, "error", err)
@@ -345,6 +353,8 @@ func (l *runnerLink) close() {
 
 // stopAccepting closes the listener without touching the connections that are already
 // open, so the run can wait for the events still in flight and then see the channel close.
+// It leaves the socket file on disk: the container is still there to be copied out of, and
+// the file is the bind-mount source that copy depends on. See listenRunner.
 func (l *runnerLink) stopAccepting() {
 	if l == nil {
 		return
