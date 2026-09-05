@@ -89,7 +89,8 @@ replace it.
 - **`type` is an open string.** `progress` and `final` are the canonical values —
   `progress` is a note that may be superseded by the next one, `final` is the answer — and a
   later producer may emit `plan`, `review` or `question` without a wire change. Nothing in
-  Podium enforces what a type means.
+  Podium enforces what a type means. The agent runtime uses one more, `accounting`, whose
+  text is a JSON document for its reader and not for a human; see docs/agent.md.
 - **`text` is capped at 32 KiB** and the runner **refuses** a longer one with exit 2 rather
   than truncating: half a message posted somewhere is worse than one that failed loudly, and
   the producer is what knows how to split it. Trailing whitespace is trimmed and an empty
