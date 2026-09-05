@@ -179,3 +179,39 @@ describe("SkillEditor", () => {
     );
   });
 });
+
+describe("SkillEditor: a file skill", () => {
+  const fileSkill = create(SkillDefinitionSchema, {
+    name: "general",
+    image: "podium-agent-runtime:dev",
+    systemPrompt: "Answer the question.",
+    allowedTools: ["Read"],
+    maxTurns: 50,
+    agent: "claude",
+    model: "claude-opus-5",
+    origin: "file",
+    editable: true,
+  });
+
+  // The rule that a file skill was read-only here went away: a save rewrites its YAML, so
+  // there is no half of the profile the UI shows and refuses to touch.
+  it("is editable, and says where saving will write", () => {
+    mount({ skill: fileSkill });
+    expect(screen.getByLabelText("Image")).toBeEnabled();
+    expect(screen.getByTestId("agent-picker-trigger")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save skill" })).toBeInTheDocument();
+    expect(screen.getByText(/skills\/general\.yaml/)).toBeInTheDocument();
+  });
+
+  // Saving a file skill costs its comments, and an operator finds that out before they
+  // press the button rather than after.
+  it("warns that a save does not keep the file's comments", () => {
+    mount({ skill: fileSkill });
+    expect(screen.getByText(/comments are not preserved/i)).toBeInTheDocument();
+  });
+
+  it("keeps the name fixed, as it does for any existing skill", () => {
+    mount({ skill: fileSkill });
+    expect(screen.getByLabelText("Skill name")).toBeDisabled();
+  });
+});

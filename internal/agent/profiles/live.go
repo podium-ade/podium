@@ -166,25 +166,38 @@ func Merge(files *Profile, ov Overrides, stored []Skill) (merged *Profile, shado
 // the skill it started with even if that skill is edited while it is in flight: Skill is a
 // value, and swapping the profile behind it changes nothing about the copy already taken.
 type Live struct {
-	files *Profile
+	// files is the directory as it was last read. It is a pointer under the same atomic
+	// discipline as cur because the web UI can now write a skill file, so "what the files
+	// say" changes while the process runs rather than only at boot.
+	files atomic.Pointer[Profile]
 	cur   atomic.Pointer[Profile]
 }
 
 // NewLive holds files as both the file half and, until the first Set, the current profile.
 // A conductor that cannot reach its database still runs the directory it was given.
 func NewLive(files *Profile) *Live {
-	l := &Live{files: files}
+	l := &Live{}
+	l.files.Store(files)
 	l.cur.Store(files)
 	return l
 }
 
-// Files is profile.yaml and skills/*.yaml as they were read at start, with nothing merged
-// in. It is what the UI shows beside an override.
+// Files is profile.yaml and skills/*.yaml as they were last read from disk, with nothing
+// merged in. It is what the UI shows beside an override.
 func (l *Live) Files() *Profile {
 	if l == nil {
 		return nil
 	}
-	return l.files
+	return l.files.Load()
+}
+
+// SetFiles replaces the file half after the directory on disk has changed — which, since
+// the web UI writes skill files, is not only at boot.
+func (l *Live) SetFiles(p *Profile) {
+	if l == nil || p == nil {
+		return
+	}
+	l.files.Store(p)
 }
 
 // Current is the profile in force. Nil only when there is no profile at all.

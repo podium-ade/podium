@@ -26,6 +26,21 @@ func ReloadProfile(ctx context.Context, st *store.Store, live *profiles.Live) (*
 	if files == nil {
 		return nil, errors.New("this conductor has no profile directory loaded")
 	}
+	// Re-read the directory. The web UI writes skill files now, so the file half is not
+	// fixed at boot any more — and a reload that used the cached copy would swap in a
+	// profile that disagrees with what is on disk until the next restart.
+	//
+	// A directory that cannot be re-read KEEPS THE COPY WE HAVE rather than failing the
+	// reload. Two reasons: a conductor running the last good profile beats one running
+	// none, and this same function is what commits a stored-skill edit — so a hand-editing
+	// mistake in a YAML file must not also block the database half of the profile. The
+	// operator finds out on the next write to the directory, which reports it directly.
+	if files.Dir != "" {
+		if reread, err := profiles.Load(files.Dir); err == nil {
+			live.SetFiles(reread)
+			files = reread
+		}
+	}
 	ov, err := readOverrides(ctx, st)
 	if err != nil {
 		return nil, err
