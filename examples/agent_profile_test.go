@@ -71,19 +71,24 @@ func TestAgentProfileLoads(t *testing.T) {
 			"the analyst skill has no repository access")
 	}
 
-	// The chat's skill chip: an explicit skill from the source wins over every routing rule,
-	// which is how a human overrides the chat default for one message.
-	chip := p.Select("general", "", "how many active accounts last month")
+	// The chat's three ways of choosing, on the profile a human actually deploys: the chip
+	// wins outright, a typed /skill beats the chat's default, and a message with neither
+	// runs chat_default_skill rather than default_skill.
+	require.Equal(t, "analyst", p.ChatSkill())
+	chip := p.Select(profiles.Routing{
+		Skill: "general", DefaultSkill: p.ChatSkill(), Text: "/analyst how many accounts",
+	})
 	require.Equal(t, "general", chip.Skill.Name)
 	require.True(t, chip.Explicit)
-	// And typing it still works.
-	typed := p.Select("", "", "/analyst how many active accounts last month")
-	require.Equal(t, "analyst", typed.Skill.Name)
-	require.Equal(t, "how many active accounts last month", typed.Instruction)
+	typed := p.Select(profiles.Routing{DefaultSkill: p.ChatSkill(), Text: "/general reply with pong"})
+	require.Equal(t, "general", typed.Skill.Name)
+	require.Equal(t, "reply with pong", typed.Instruction)
+	plain := p.Select(profiles.Routing{DefaultSkill: p.ChatSkill(), Text: "how many active accounts"})
+	require.Equal(t, "analyst", plain.Skill.Name)
 
 	// Story four's entry point: `/coder …` in Slack. The prefix rule is step 17's and the
 	// skill is this step's, and the two only meet in this directory.
-	sel := p.Select("", "C1", "/coder write a PR that adds a copy button")
+	sel := p.Select(profiles.Routing{Channel: "C1", Text: "/coder write a PR that adds a copy button"})
 	require.Equal(t, "coder", sel.Skill.Name)
 	require.True(t, sel.Explicit)
 	require.Equal(t, "write a PR that adds a copy button", sel.Instruction)
