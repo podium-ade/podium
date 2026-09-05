@@ -16,9 +16,11 @@ import (
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
-// followGrace is how long the CLI keeps reconnecting to StreamTaskEvents after the last
-// event it managed to read. It is generous because the point of the reconnect is to
-// survive a control plane restart without a gap in the output.
+// followGrace is how long the CLI keeps reconnecting to StreamTaskEvents once it can no
+// longer hold the stream. It is measured from the disconnection, not from the last event:
+// a task that says nothing for minutes — provisioning, pulling an image, compiling — has a
+// perfectly healthy stream, and counting its silence against the budget left `podium run`
+// with no reconnects at all for the control plane restart the budget exists for.
 const followGrace = 90 * time.Second
 
 // followBackoff bounds the reconnect delay while the server is away.
@@ -36,28 +38,43 @@ type follower struct {
 	lastSeq uint64
 	// onEvent is called for every event, in strictly ascending seq order.
 	onEvent func(*podiumv1.TaskEvent)
+	// grace overrides followGrace. It is zero everywhere but in the tests that have to
+	// outlast it.
+	grace time.Duration
 }
 
 // follow returns nil when the stream ended by itself, which the server does only once the
 // task is terminal and every event has been delivered.
 func (f *follower) follow(ctx context.Context) error {
-	lastProgress := time.Now()
+	grace := f.grace
+	if grace == 0 {
+		grace = followGrace
+	}
 	backoff := followBackoffMin
+	// lostAt is when the stream was last lost. It is zero until the first failure and starts
+	// again from every stream that was held, so what it measures is one unbroken run of
+	// failures and never the silence of a task that is simply busy.
+	var lostAt time.Time
 
 	for {
-		progressed, err := f.once(ctx)
-		if progressed {
-			lastProgress = time.Now()
-			backoff = followBackoffMin
-		}
+		held, err := f.once(ctx)
 		if err == nil {
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if time.Since(lastProgress) > followGrace {
-			return fmt.Errorf("lost the event stream of %s for more than %s: %w", f.taskID, followGrace, err)
+		switch {
+		case held:
+			// The control plane answered this call, whether or not the task said anything
+			// down it. Both budgets start again.
+			lostAt = time.Now()
+			backoff = followBackoffMin
+		case lostAt.IsZero():
+			lostAt = time.Now()
+		}
+		if time.Since(lostAt) > grace {
+			return fmt.Errorf("lost the event stream of %s for more than %s: %w", f.taskID, grace, err)
 		}
 		select {
 		case <-time.After(backoff):
@@ -68,7 +85,9 @@ func (f *follower) follow(ctx context.Context) error {
 	}
 }
 
-// once holds one StreamTaskEvents call. A nil error means a clean end of stream.
+// once holds one StreamTaskEvents call. A nil error means a clean end of stream. The bool
+// says whether the call ever held the stream, which a call that read no event still did:
+// the caller is judging the control plane, not the task's talkativeness.
 func (f *follower) once(ctx context.Context) (bool, error) {
 	stream, err := f.tasks.StreamTaskEvents(ctx, connect.NewRequest(&podiumv1.StreamTaskEventsRequest{
 		TaskId:  f.taskID,
@@ -79,20 +98,21 @@ func (f *follower) once(ctx context.Context) (bool, error) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	progressed := false
 	for stream.Receive() {
 		e := stream.Msg()
 		if e.GetSeq() <= f.lastSeq {
 			continue
 		}
 		f.lastSeq = e.GetSeq()
-		progressed = true
 		f.onEvent(e)
 	}
-	if err := stream.Err(); err != nil {
-		return progressed, err
-	}
-	return progressed, nil
+	// connect-go's call is not a round trip — it returns a stream object before anything has
+	// reached the server — so "no error from the call" proves nothing. The response header is
+	// the proof: connect fills it in only from a valid streaming response, so it is empty for
+	// a refused connection and for a proxy answering while the control plane is down, and
+	// non-empty for a stream the server answered and then dropped. By here it is settled and
+	// costs nothing to read: Receive has already returned false.
+	return len(stream.ResponseHeader()) > 0, stream.Err()
 }
 
 // logPrinter routes a task's log chunks to the right stream. The task's own output goes

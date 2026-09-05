@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
@@ -94,6 +96,11 @@ func (r *turnRun) run(ctx context.Context) {
 	if followErr != nil {
 		r.c.logger.WarnContext(ctx, "following the turn's task ended early",
 			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "error", followErr)
+		// Giving up on the stream is giving up on the task. One that keeps running past
+		// here is a task nobody is listening to: it holds a node slot and a privileged dind
+		// daemon, spends money for minutes more, and can finish by opening a pull request
+		// that was never announced to the person who asked for it.
+		r.cancelAbandoned(ctx, followErr)
 	}
 
 	task, err := getTaskWithRetry(ctx, r.c.podium.Tasks, r.turn.TaskID, terminalStatusBudget)
@@ -118,6 +125,24 @@ func (r *turnRun) run(ctx context.Context) {
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: result.Post})
 	}
 	r.finish(ctx, result.Status)
+}
+
+// cancelAbandoned stops a task the conductor can no longer follow. It is the same
+// CancelTask `podium task cancel` calls, so the node gets the same SIGTERM and the same 30s
+// grace; nothing here waits for it.
+func (r *turnRun) cancelAbandoned(ctx context.Context, cause error) {
+	_, err := r.c.podium.Tasks.CancelTask(ctx, connect.NewRequest(&podiumv1.CancelTaskRequest{
+		TaskId: r.turn.TaskID,
+		Reason: fmt.Sprintf("the conductor stopped following this task: %v", cause),
+	}))
+	// FailedPrecondition is the control plane saying the task is already terminal, which is
+	// what a stream that broke as its task ended looks like: there is nothing to cancel and
+	// nothing to report. Anything else left a task running with nobody listening, and it
+	// only ever costs a log line — the turn has already failed, for its own reason.
+	if err != nil && connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		r.c.logger.ErrorContext(ctx, "cancelling the task the conductor stopped following failed",
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "error", err)
+	}
 }
 
 // finish records the turn, shows the outcome and counts it.
