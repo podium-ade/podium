@@ -48,9 +48,18 @@ export function appendTranscript(message: unknown, dir = ArtifactsDir): void {
   appendFileSync(join(dir, TranscriptName), `${line}\n`, "utf8");
 }
 
+/**
+ * turnSummaryJSON renders the summary. The same document leaves the container twice — as
+ * turn.json here, and as the accounting message in report.ts — because artifacts are an
+ * optional subsystem and a turn's accounting is not.
+ */
+export function turnSummaryJSON(summary: TurnSummary): string {
+  return `${JSON.stringify(summary, null, 2)}\n`;
+}
+
 /** writeTurn writes turn.json. */
 export function writeTurn(summary: TurnSummary, dir = ArtifactsDir): void {
-  writeFileSync(join(dir, TurnName), `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  writeFileSync(join(dir, TurnName), turnSummaryJSON(summary), "utf8");
 }
 
 /**

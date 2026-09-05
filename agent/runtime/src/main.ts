@@ -17,17 +17,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 // tidily. A dry run never loads it at all.
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import {
-  ArtifactsDir,
-  appendTranscript,
-  ensureArtifacts,
-  matchAttachments,
-  writeTurn,
-  type TurnSummary,
-} from "./artifacts.js";
+import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, type TurnBrief } from "./brief.js";
-import { emitMessage, runnerInvoke, type MessageType, type RunnerInvoke } from "./emit.js";
+import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import { MemoryTools, buildSystemPrompt } from "./prompt.js";
+import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { CloneError, TokenEnv, WorkspaceDir, cloneRepos, redact } from "./repos.js";
 
 const ExitOK = 0;
@@ -48,24 +42,6 @@ const KeyEnv = "ANTHROPIC_API_KEY";
 const ProgressWindowMs = 5_000;
 
 const CancelledText = "cancelled before finishing";
-
-function warn(message: string): void {
-  process.stderr.write(`podium-agent: ${message}\n`);
-}
-
-/** say never fails the turn: a message that cannot be delivered is reported and dropped. */
-async function say(
-  invoke: RunnerInvoke,
-  type: MessageType,
-  text: string,
-  attachments: string[] = [],
-): Promise<void> {
-  try {
-    await emitMessage(type, text, attachments, invoke);
-  } catch (err) {
-    warn(`could not emit a ${type} message: ${messageOf(err)}`);
-  }
-}
 
 async function main(): Promise<number> {
   const startedAt = new Date().toISOString();
@@ -97,8 +73,11 @@ async function main(): Promise<number> {
   } catch (err) {
     const why = err instanceof BriefError ? err.message : messageOf(err);
     warn(why);
-    flush({ sessionID: "", turnID: "", sdkSessionID: "", turns: 0, cost: 0, code: ExitBriefInvalid, startedAt });
-    await say(invoke, "final", `turn brief is invalid: ${why}`);
+    await reportTurn(
+      invoke,
+      { sessionID: "", turnID: "", sdkSessionID: "", turns: 0, cost: 0, code: ExitBriefInvalid, startedAt },
+      `turn brief is invalid: ${why}`,
+    );
     return ExitBriefInvalid;
   }
 
@@ -126,8 +105,7 @@ async function main(): Promise<number> {
     const why = `turn brief names memory env ${brief.memory.api_key_env} but it is not set`;
     warn(why);
     summary.code = ExitBriefInvalid;
-    flush(summary);
-    await say(invoke, "final", `turn brief is invalid: ${why}`);
+    await reportTurn(invoke, summary, `turn brief is invalid: ${why}`);
     return ExitBriefInvalid;
   }
 
@@ -137,8 +115,7 @@ async function main(): Promise<number> {
       `target: env, named on the skill that submitted this task.`;
     warn(why);
     summary.code = ExitSDKError;
-    flush(summary);
-    await say(invoke, "final", `I could not start: ${why}`);
+    await reportTurn(invoke, summary, `I could not start: ${why}`);
     return ExitSDKError;
   }
 
@@ -156,8 +133,7 @@ async function main(): Promise<number> {
       const why = err instanceof CloneError ? err.message : redact(messageOf(err), token);
       warn(why);
       summary.code = ExitSDKError;
-      flush(summary);
-      await say(invoke, "final", `I could not check the repositories out: ${why}`);
+      await reportTurn(invoke, summary, `I could not check the repositories out: ${why}`);
       return ExitSDKError;
     }
   }
@@ -237,8 +213,7 @@ async function main(): Promise<number> {
     finalText = "The turn ended without an answer.";
   }
 
-  flush(summary);
-  await say(invoke, "final", finalText, matchAttachments(finalText));
+  await reportTurn(invoke, summary, finalText, matchAttachments(finalText));
   return summary.code;
 }
 
@@ -312,44 +287,13 @@ async function dryRun(
   }
 
   if (cancelled()) {
-    flush(summary);
-    await say(invoke, "final", CancelledText);
+    await reportTurn(invoke, summary, CancelledText);
     return ExitOK;
   }
 
   summary.code = positiveInt(process.env[DryRunExitEnv]);
-  flush(summary);
-  await say(invoke, "final", `dry run: ${brief.instruction}`);
+  await reportTurn(invoke, summary, `dry run: ${brief.instruction}`);
   return summary.code;
-}
-
-interface Summary {
-  sessionID: string;
-  turnID: string;
-  sdkSessionID: string;
-  turns: number;
-  cost: number;
-  code: number;
-  startedAt: string;
-}
-
-/** flush writes turn.json. It never fails the turn: the answer matters more than the file. */
-function flush(s: Summary): void {
-  const summary: TurnSummary = {
-    session_id: s.sessionID,
-    turn_id: s.turnID,
-    sdk_session_id: s.sdkSessionID,
-    num_turns: s.turns,
-    total_cost_usd: s.cost,
-    exit_code: s.code,
-    started_at: s.startedAt,
-    finished_at: new Date().toISOString(),
-  };
-  try {
-    writeTurn(summary);
-  } catch (err) {
-    warn(`could not write the turn summary: ${messageOf(err)}`);
-  }
 }
 
 function appendTranscriptSafely(message: SDKMessage): void {
@@ -403,10 +347,6 @@ function positiveInt(raw: string | undefined): number {
   }
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 const code = await main();

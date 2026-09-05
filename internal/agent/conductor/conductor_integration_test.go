@@ -3,6 +3,7 @@
 package conductor_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,11 +13,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -326,6 +329,165 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, relayed, "only message events are relayed")
+}
+
+// TestATurnWithNoObjectStoreStillRecordsItsAccounting is the failing configuration: a host
+// with PODIUM_S3_* unset, where the runtime's turn.json is written inside the container and
+// then thrown away because artifacts are disabled. Nothing is registered as an artifact
+// here, and the turn's accounting has to arrive anyway.
+func TestATurnWithNoObjectStoreStillRecordsItsAccounting(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutProgress, "thinking"),
+			messageEvent(taskID, 2, conductor.OutFinal, "pong"),
+			accountingEvent(taskID, 3, 4, 0.0123),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	reg := prometheus.NewRegistry()
+	ctx := context.Background()
+	ev := inbound("C1/1.1", "ping")
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Metrics = conductor.NewMetrics(reg) })
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	turn := turnOf(t, st, ev.SourceKey)
+	require.NotNil(t, turn.NumTurns, "the accounting message is the route no configuration disables")
+	assert.Equal(t, 4, *turn.NumTurns)
+	require.NotNil(t, turn.CostUSD)
+	assert.InDelta(t, 0.0123, *turn.CostUSD, 1e-9)
+	assert.Equal(t, "pong", turn.FinalText)
+	assert.Zero(t, counterValue(t, reg, turnsWithoutAccounting))
+
+	// It is accounting, not conversation: nothing was said for it.
+	records := src.Records()
+	finals := posts(records, conductor.OutFinal)
+	require.Len(t, finals, 1)
+	assert.Equal(t, "pong", finals[0].Text)
+	for _, rec := range records {
+		assert.NotContains(t, rec.Text, "total_cost_usd", "the accounting is never said out loud")
+	}
+
+	// Its seq is deliberately left unclaimed, which is what lets a conductor resuming from
+	// the last seq it relayed be sent the accounting again.
+	relayed, err := st.CountRelayed(ctx, fake.TaskIDs()[0])
+	require.NoError(t, err)
+	assert.Equal(t, 2, relayed, "the accounting message claims no seq")
+}
+
+// TestATurnThatReportsNoAccountingSaysSo covers the remaining hole: neither route delivered.
+// The columns are still null — there is nothing to put in them — but it is counted and named
+// rather than passed over in silence.
+func TestATurnThatReportsNoAccountingSaysSo(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "pong")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	reg := prometheus.NewRegistry()
+	logs := &syncBuffer{}
+	ev := inbound("C1/1.1", "ping")
+	startWith(t, st, fake, src, func(o *conductor.Options) {
+		o.Metrics = conductor.NewMetrics(reg)
+		o.Logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Nil(t, turn.NumTurns)
+	assert.Nil(t, turn.CostUSD)
+	assert.Equal(t, "pong", turn.FinalText, "the answer is recorded either way")
+
+	assert.Equal(t, float64(1), counterValue(t, reg, turnsWithoutAccounting))
+	assert.Contains(t, logs.String(), "a turn succeeded but reported no accounting")
+	assert.Contains(t, logs.String(), turn.ID)
+}
+
+// TestTheAccountingMessageWinsOverTheArtifact pins the precedence: turn.json is the fallback,
+// read only when the message did not arrive, so a host that does have an object store reads
+// the same numbers over the cheaper route.
+func TestTheAccountingMessageWinsOverTheArtifact(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutFinal, "pong"),
+			accountingEvent(taskID, 2, 4, 0.0123),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ev := inbound("C1/1.1", "ping")
+	release := fake.HoldTasks()
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+	fake.AddArtifact(fake.TaskIDs()[0], "turn.json", "application/json",
+		`{"session_id":"sess_x","num_turns":99,"total_cost_usd":9.99,"exit_code":0}`)
+	release()
+
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	turn := turnOf(t, st, ev.SourceKey)
+	require.NotNil(t, turn.NumTurns)
+	assert.Equal(t, 4, *turn.NumTurns, "the message is what was read, not the artifact")
+	require.NotNil(t, turn.CostUSD)
+	assert.InDelta(t, 0.0123, *turn.CostUSD, 1e-9)
+}
+
+const turnsWithoutAccounting = "podium_agent_turns_without_accounting_total"
+
+// counterValue reads one counter off a registry. Gather's return type is inferred rather
+// than named, which is what keeps prometheus/client_model out of go.mod for one assertion.
+func counterValue(t *testing.T, reg *prometheus.Registry, name string) float64 {
+	t.Helper()
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, mf := range families {
+		if mf.GetName() != name {
+			continue
+		}
+		require.Len(t, mf.GetMetric(), 1)
+		return mf.GetMetric()[0].GetCounter().GetValue()
+	}
+	t.Fatalf("%s is not registered", name)
+	return 0
+}
+
+// syncBuffer is a log sink a test can read while the conductor is still writing to it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // The spec a turn runs is the skill's, plus exactly one secret the skill did not name.

@@ -20,6 +20,18 @@ import (
 // requested task environment for this kind and no other.
 const KindDev = "dev"
 
+// MsgAccounting is the message type the runtime reports turn.json's contents with. `type`
+// is an open string on the wire (docs/runner-events.md) so this needs no proto change. It
+// is not a thing to say: the conductor reads it and posts nothing.
+const MsgAccounting = "accounting"
+
+// Where a turn's accounting came from. It goes in the log, because "the store was off and
+// the message did not arrive either" is a different problem from "the runtime said nothing".
+const (
+	acctFromMessage  = "message"
+	acctFromArtifact = "artifact"
+)
+
 // turnRun is one turn being followed. Everything in it is touched from exactly one
 // goroutine — the one running run — so none of it is locked.
 type turnRun struct {
@@ -48,6 +60,10 @@ type turnRun struct {
 	finals []string
 	// attachments are artifact names the finals asked for, in order, deduplicated.
 	attachments []string
+	// acct is what the runtime said this turn cost, nil until it says so. acctFrom names
+	// the route it arrived by.
+	acct     *accounting
+	acctFrom string
 	// heldProgress is a progress text waiting for the throttle to let it through.
 	heldProgress string
 	haveHeld     bool
@@ -86,11 +102,11 @@ func (r *turnRun) run(ctx context.Context) {
 			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "error", err)
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
 			"I lost track of this one. Task `%s`.", r.turn.TaskID)})
-		r.finish(ctx, store.TurnFailed, nil, nil)
+		r.finish(ctx, store.TurnFailed)
 		return
 	}
 
-	summary := r.settle(ctx, task)
+	r.settle(ctx, task)
 	result := classify(task, r.skill.Timeout.Std())
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
@@ -101,11 +117,26 @@ func (r *turnRun) run(ctx context.Context) {
 			"error_event", r.errText)
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: result.Post})
 	}
-	r.finish(ctx, result.Status, summary.numTurns(), summary.cost())
+	r.finish(ctx, result.Status)
 }
 
 // finish records the turn, shows the outcome and counts it.
-func (r *turnRun) finish(ctx context.Context, status string, numTurns *int, cost *float64) {
+func (r *turnRun) finish(ctx context.Context, status string) {
+	var numTurns *int
+	var cost *float64
+	if r.acct != nil {
+		numTurns, cost = r.acct.NumTurns, r.acct.TotalCostUSD
+		r.c.logger.DebugContext(ctx, "the turn's accounting arrived",
+			"turn_id", r.turn.ID, "from", r.acctFrom)
+	} else if status == store.TurnSucceeded {
+		// The one case that used to be silent. A turn that ran and cost money but recorded
+		// neither is a hole in the accounting, and an operator gets to see it.
+		r.c.logger.WarnContext(ctx, "a turn succeeded but reported no accounting, so its "+
+			"num_turns and cost_usd are unrecorded: neither the runtime's accounting message "+
+			"nor its turn.json artifact arrived",
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "skill", r.skill.Name)
+		r.c.metrics.TurnsWithoutAccounting.Inc()
+	}
 	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, strings.Join(r.finals, "\n\n")); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how the turn ended failed",
 			"turn_id", r.turn.ID, "status", status, "error", err)
@@ -129,6 +160,14 @@ func (r *turnRun) finish(ctx context.Context, status string, numTurns *int, cost
 func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	switch e.GetKind() {
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:
+		if msg := e.GetMessage(); msg.GetType() == MsgAccounting {
+			// Deliberately not through the relayed ledger: accounting is never said out
+			// loud, so exactly-once does not apply to it, and leaving its seq unclaimed is
+			// what lets a resumed turn — which follows from the last seq it *relayed* —
+			// receive it again.
+			r.readAccounting(ctx, acctFromMessage, []byte(msg.GetText()))
+			return
+		}
 		r.relay(ctx, e)
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
 		if err := e.GetError(); err != nil && !err.GetRetryable() {
@@ -215,48 +254,48 @@ func (r *turnRun) flushProgress(ctx context.Context) {
 	}
 }
 
-// turnSummary is the runtime's turn.json, as much of it as the turns table keeps.
-type turnSummary struct {
+// accounting is the runtime's turn.json, as much of it as the turns table keeps. It reaches
+// the conductor either as a message or as the artifact, and both carry the same document.
+type accounting struct {
 	NumTurns     *int     `json:"num_turns"`
 	TotalCostUSD *float64 `json:"total_cost_usd"`
-	found        bool
 }
 
-func (s turnSummary) numTurns() *int {
-	if !s.found {
-		return nil
+// readAccounting records what the runtime said the turn cost. A document that does not
+// parse is a bug in the runtime, not a failed turn, so it is logged and dropped.
+func (r *turnRun) readAccounting(ctx context.Context, from string, raw []byte) {
+	var a accounting
+	if err := json.Unmarshal(raw, &a); err != nil {
+		r.c.logger.WarnContext(ctx, "the turn's accounting does not parse",
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "from", from, "error", err)
+		return
 	}
-	return s.NumTurns
-}
-
-func (s turnSummary) cost() *float64 {
-	if !s.found {
-		return nil
-	}
-	return s.TotalCostUSD
+	r.acct = &a
+	r.acctFrom = from
 }
 
 // settle resolves the final's attachments against what the task actually stored, uploads
-// them, and reads the runtime's own accounting. It runs once the task is terminal, because
-// an artifact named in a message may still have been uploading when the message arrived.
-func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) turnSummary {
-	var summary turnSummary
-	if len(r.attachments) == 0 && task.GetStatus() != podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED {
-		// Nothing to attach and nothing worth accounting for.
-		return summary
+// them, and falls back to turn.json for the accounting when the message did not arrive. It
+// runs once the task is terminal, because an artifact named in a message may still have
+// been uploading when the message arrived.
+func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) {
+	// The artifact is only worth fetching when it is the last route left.
+	wantSummary := r.acct == nil && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED
+	if len(r.attachments) == 0 && !wantSummary {
+		return
 	}
 	list, err := r.c.podium.ListArtifacts(ctx, r.turn.TaskID)
 	if err != nil {
 		r.c.logger.WarnContext(ctx, "listing the turn's artifacts failed",
 			"task_id", r.turn.TaskID, "error", err)
-		return summary
+		return
 	}
 	byName := make(map[string]*podiumv1.Artifact, len(list))
 	for _, a := range list {
 		byName[a.GetName()] = a
 	}
-	if art, ok := byName[turnSummaryArtifact]; ok {
-		summary = r.readSummary(ctx, art)
+	if art, ok := byName[turnSummaryArtifact]; wantSummary && ok {
+		r.readSummary(ctx, art)
 	}
 	for _, name := range r.attachments {
 		art, ok := byName[name]
@@ -269,7 +308,6 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) turnSummary {
 		}
 		r.attach(ctx, art)
 	}
-	return summary
 }
 
 // attach streams one artifact into the conversation. Nothing is buffered: an artifact may
@@ -308,28 +346,21 @@ func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 	}
 }
 
-// readSummary pulls num_turns and total_cost_usd out of turn.json. It is small by
-// construction, so a bounded read is honest rather than defensive.
-func (r *turnRun) readSummary(ctx context.Context, art *podiumv1.Artifact) turnSummary {
+// readSummary pulls num_turns and total_cost_usd out of the turn.json artifact. It is small
+// by construction, so a bounded read is honest rather than defensive.
+func (r *turnRun) readSummary(ctx context.Context, art *podiumv1.Artifact) {
 	body, _, err := r.c.podium.Artifact(ctx, art.GetId())
 	if err != nil {
 		r.c.logger.WarnContext(ctx, "reading the turn summary failed",
 			"artifact_id", art.GetId(), "error", err)
-		return turnSummary{}
+		return
 	}
 	defer func() { _ = body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(body, 64<<10))
 	if err != nil {
 		r.c.logger.WarnContext(ctx, "reading the turn summary failed", "artifact_id", art.GetId(), "error", err)
-		return turnSummary{}
+		return
 	}
-	var summary turnSummary
-	if err := json.Unmarshal(raw, &summary); err != nil {
-		r.c.logger.WarnContext(ctx, "the turn summary does not parse",
-			"artifact_id", art.GetId(), "error", err)
-		return turnSummary{}
-	}
-	summary.found = true
-	return summary
+	r.readAccounting(ctx, acctFromArtifact, raw)
 }

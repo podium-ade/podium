@@ -36,7 +36,8 @@ const progressThrottle = 2 * time.Second
 const terminalStatusBudget = 60 * time.Second
 
 // turnSummaryArtifact is the runtime's own accounting file. It is read for num_turns and
-// total_cost_usd only.
+// total_cost_usd only, and only when the accounting message did not arrive: the object
+// store is optional and this file is not kept without one.
 const turnSummaryArtifact = "turn.json"
 
 // Options is what a Conductor needs. Everything is required except Memory, MemoryClient
