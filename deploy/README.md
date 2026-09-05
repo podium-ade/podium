@@ -120,10 +120,17 @@ prober — point your monitoring at `http://127.0.0.1:8080/readyz`, which is 503
 the object store is unreachable. `docker compose up -d --wait` therefore waits for `postgres` and
 `minio` to be healthy and for the rest to be *running*.
 
-**`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, not loopback.** Inside a container
-loopback is the container's own, so nothing could reach it. The boundary is the published port,
-which is `127.0.0.1:${PODIUM_PORT:-8080}`. Do not publish it on `0.0.0.0`: the dev transport is
-an unencrypted shared token and loopback is what makes it acceptable.
+**`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
+a container loopback is the container's own, so nothing — not even this compose network — could
+reach a server bound to it. The dev transport refuses a non-loopback address by itself, because
+one static token is the only credential it has, so the compose file also sets
+`PODIUM_DEV_ALLOW_UNSAFE_LISTEN=true` to say that this address is reachable only from inside a
+container. The server logs a warning naming that variable every time it starts.
+
+Nothing in the process can tell a container's `0.0.0.0` from a public interface on a host, which
+is why the operator declares it rather than the code guessing. **Never set that variable on a
+host**, and do not publish 8080 on `0.0.0.0`: the boundary is the published port, which is
+`127.0.0.1:${PODIUM_PORT:-8080}`.
 
 **MinIO's API port is deliberately not published.** The server reaches it over the compose
 network. Publish 9000 as well only if you want `podium artifact get --via-server=false` from your
