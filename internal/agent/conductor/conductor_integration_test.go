@@ -630,6 +630,88 @@ func TestASecondSkillInOneThreadIsRefused(t *testing.T) {
 	assert.Equal(t, "general", sess.Skill, "the session keeps the skill it started with")
 }
 
+// TestATypedSkillBeatsTheSourcesDefault is the precedence the web chat depends on. The chat
+// source carries chat_default_skill on every event, so unless a default is kept apart from
+// a skill the source actually knows, a /skill somebody typed could never take effect there.
+func TestATypedSkillBeatsTheSourcesDefault(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	start(t, st, fake, src)
+
+	// Nothing named a skill, so the source's default runs rather than profile.default_skill.
+	plain := inbound("C1/1.1", "hello")
+	plain.DefaultSkill = "coder"
+	require.NoError(t, src.Send(ctx, plain))
+	waitFor(t, 30*time.Second, "the first task", func() bool { return len(fake.Specs()) == 1 })
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[0]).Skill.Name)
+
+	// A typed /skill overrides that default, and is stripped from what the model is told.
+	typed := inbound("C1/2.2", "/general reply with pong")
+	typed.DefaultSkill = "coder"
+	require.NoError(t, src.Send(ctx, typed))
+	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
+	brief := decodeBrief(t, fake.Specs()[1])
+	assert.Equal(t, "general", brief.Skill.Name)
+	assert.Equal(t, "reply with pong", brief.Instruction)
+	sess, err := st.GetSessionByKey(ctx, typed.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "general", sess.Skill, "the session records the skill that ran")
+
+	// And a skill the source knows — the chat's chip — beats the prefix, because a human
+	// picking from the chip after typing is expressing the later intent.
+	chip := inbound("C1/3.3", "/general hi")
+	chip.Skill = "coder"
+	chip.DefaultSkill = "general"
+	require.NoError(t, src.Send(ctx, chip))
+	waitFor(t, 30*time.Second, "the third task", func() bool { return len(fake.Specs()) == 3 })
+	brief = decodeBrief(t, fake.Specs()[2])
+	assert.Equal(t, "coder", brief.Skill.Name)
+	assert.Equal(t, "/general hi", brief.Instruction, "an overridden prefix is left in the text")
+}
+
+// A default is not somebody naming a skill, so it must not trip the one-session-one-skill
+// refusal: a chat whose first message chose a skill goes on working when the next message
+// arrives carrying nothing but the profile's chat default.
+func TestTheSourcesDefaultDoesNotFightTheSessionsSkill(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	start(t, st, fake, src)
+
+	first := inbound("C1/1.1", "/coder fix it")
+	first.DefaultSkill = "general"
+	require.NoError(t, src.Send(ctx, first))
+	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
+		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
+	})
+	before := len(src.Records())
+
+	second := inbound("C1/1.1", "and again")
+	second.DefaultSkill = "general"
+	require.NoError(t, src.Send(ctx, second))
+	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
+
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Skill.Name)
+	assert.Empty(t, posts(src.RecordsSince(int64(before)), conductor.OutFailure),
+		"the session's own skill is not a skill change to refuse")
+	sess, err := st.GetSessionByKey(ctx, second.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "coder", sess.Skill)
+}
+
 // An attachment name that matches nothing is normal — the runtime names files it mentioned —
 // and the thread says so rather than staying silent.
 func TestAnAttachmentThatMatchesNothingSaysSo(t *testing.T) {

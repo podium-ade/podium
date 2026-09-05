@@ -415,37 +415,61 @@ type Selection struct {
 	Instruction string
 	// Explicit is true when the caller named the skill — a /skill prefix, or a source that
 	// chose one itself. An explicit skill that disagrees with an existing session's skill is
-	// refused rather than honoured: one session, one skill.
+	// refused rather than honoured: one session, one skill. A default is never explicit.
 	Explicit bool
 }
 
-// Select applies the three routing rules in order: an explicit skill from the source, then
-// a leading /skill on the text, then the channel's claim, then the default. An unknown
-// /name is deliberately not an error — somebody typing /shrug must not break the bot — it
-// is left in the text and falls through.
-func (p *Profile) Select(sourceSkill, channel, text string) Selection {
-	if sourceSkill != "" {
-		if s, ok := p.Skills[sourceSkill]; ok {
-			return Selection{Skill: s, Instruction: strings.TrimSpace(text), Explicit: true}
+// Routing is what Select decides from. Skill and DefaultSkill are the two different things
+// a source can say about skills, and keeping them apart is the whole of the ordering below:
+// one is knowledge and the other is a fallback.
+type Routing struct {
+	// Skill is a skill the source KNOWS is right, and which no routing rule may
+	// second-guess: Linear's linear: true skill, and the web chat's skill chip. Empty means
+	// the rules decide. Slack always leaves it empty.
+	Skill string
+	// DefaultSkill is what the source falls back to when nothing more specific picks one:
+	// the web chat's chat_default_skill. It is a preference, not knowledge, so a human
+	// typing /skill overrides it — and it still beats the profile's own default_skill.
+	DefaultSkill string
+	// Channel is the routing key matched against a skill's slack_channels.
+	Channel string
+	// Text is what the human said, a /skill prefix included.
+	Text string
+}
+
+// Select applies the routing rules in order: a skill the source knows, then a leading
+// /skill the human typed, then the channel's claim, then the source's own default, then
+// profile.default_skill. An unknown /name is deliberately not an error — somebody typing
+// /shrug must not break the bot — it is left in the text and falls through, and so does a
+// default naming a skill that is not loaded.
+func (p *Profile) Select(r Routing) Selection {
+	if r.Skill != "" {
+		if s, ok := p.Skills[r.Skill]; ok {
+			return Selection{Skill: s, Instruction: strings.TrimSpace(r.Text), Explicit: true}
 		}
 	}
-	if m := SkillPrefixRE.FindStringSubmatch(text); m != nil {
+	if m := SkillPrefixRE.FindStringSubmatch(r.Text); m != nil {
 		if s, ok := p.Skills[m[1]]; ok {
 			return Selection{
 				Skill:       s,
-				Instruction: strings.TrimSpace(text[len(m[0]):]),
+				Instruction: strings.TrimSpace(r.Text[len(m[0]):]),
 				Explicit:    true,
 			}
 		}
 	}
-	instruction := strings.TrimSpace(text)
-	if channel != "" {
+	instruction := strings.TrimSpace(r.Text)
+	if r.Channel != "" {
 		for _, name := range p.SkillNames() {
 			for _, ch := range p.Skills[name].SlackChannels {
-				if ch == channel {
+				if ch == r.Channel {
 					return Selection{Skill: p.Skills[name], Instruction: instruction}
 				}
 			}
+		}
+	}
+	if r.DefaultSkill != "" {
+		if s, ok := p.Skills[r.DefaultSkill]; ok {
+			return Selection{Skill: s, Instruction: instruction}
 		}
 	}
 	return Selection{Skill: p.Skills[p.DefaultSkill], Instruction: instruction}

@@ -59,10 +59,10 @@ type Options struct {
 	// nowhere.
 	UIURL string
 	// DefaultSkill is the profile's chat_default_skill (falling back to default_skill),
-	// applied to a message that names none. It is injected rather than read from a profile
-	// here because a source knows nothing about profiles — and it matters: without it the
-	// chat would silently run default_skill, and chat_default_skill would be a UI hint
-	// rather than the profile decision it is meant to be.
+	// carried on every event as the source's default. It is injected rather than read from a
+	// profile here because a source knows nothing about profiles — and it matters: without
+	// it the chat would silently run default_skill, and chat_default_skill would be a UI
+	// hint rather than the profile decision it is meant to be.
 	DefaultSkill string
 	Logger       *slog.Logger
 }
@@ -74,8 +74,9 @@ type SendRequest struct {
 	// message.
 	Login string
 	Text  string
-	// Skill is the skill chip's choice. Empty means the profile's chat default, and a
-	// leading /skill in Text still overrides both.
+	// Skill is the skill chip's choice, which wins outright: a human picking a chip after
+	// typing is expressing the later intent. Empty leaves the choice to a leading /skill in
+	// Text, and then to the profile's chat default.
 	Skill string
 }
 
@@ -190,20 +191,20 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	}
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
 
-	skill := req.Skill
-	if skill == "" {
-		skill = s.skill
-	}
+	// The chip is knowledge and the profile's chat default is only a fallback, so they
+	// travel as different fields: a /skill the human typed loses to the chip and beats the
+	// default.
 	ev := conductor.InboundEvent{
-		SourceKind: conductor.SourceChat,
-		SourceKey:  store.ChatSourceKey(req.ChatID),
-		Ref:        req.ChatID,
-		Author:     req.Login,
-		Text:       req.Text,
-		TS:         msg.TS,
-		URL:        s.URL(req.ChatID),
-		Skill:      skill,
-		BriefKind:  conductor.SourceChat,
+		SourceKind:   conductor.SourceChat,
+		SourceKey:    store.ChatSourceKey(req.ChatID),
+		Ref:          req.ChatID,
+		Author:       req.Login,
+		Text:         req.Text,
+		TS:           msg.TS,
+		URL:          s.URL(req.ChatID),
+		Skill:        req.Skill,
+		DefaultSkill: s.skill,
+		BriefKind:    conductor.SourceChat,
 	}
 	select {
 	case s.events <- ev:

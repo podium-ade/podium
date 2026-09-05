@@ -1032,8 +1032,11 @@ export type SendChatMessageRequest = Message<"podium.agent.v1.SendChatMessageReq
   text: string;
 
   /**
-   * skill names the skill this message runs, bypassing the profile's routing rules. Empty
-   * means the profile decides (a leading /skill in the text still works).
+   * skill names the skill this message runs and wins over everything else, a leading
+   * /skill in the text included: a human picking the chip after typing is the later
+   * intent. Empty leaves the choice to a leading /skill in the text, then to
+   * profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
+   * not a skill selector: it stays in the text.
    *
    * @generated from field: string skill = 3;
    */

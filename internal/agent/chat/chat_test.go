@@ -146,6 +146,7 @@ func TestSendStoresTheMessageAndStartsATurn(t *testing.T) {
 	assert.Equal(t, "chat_1", ev.Ref)
 	assert.Equal(t, "alice", ev.Author)
 	assert.Equal(t, "analyst", ev.Skill, "the skill chip bypasses the profile's routing rules")
+	assert.Empty(t, ev.DefaultSkill, "this source was built with no chat default")
 	assert.Equal(t, "https://podium.example/agent/chat/chat_1", ev.URL,
 		"the deep link becomes a memory's provenance chip")
 	assert.Empty(t, ev.Env, "only the dev source asks for task environment")
@@ -158,10 +159,14 @@ func TestAMessageWithNoSkillRunsTheProfilesChatDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	// This is what makes profile.yaml's chat_default_skill a profile decision rather than a
-	// UI hint: a message that names no skill runs it, not the profile's general default.
+	// UI hint: a message that names no skill runs it, not the profile's general default. It
+	// travels as the event's DEFAULT, not as its skill, so a typed /skill still overrides
+	// it — Select is what applies the precedence.
 	_, err = src.Send(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
 	require.NoError(t, err)
-	assert.Equal(t, "analyst", drainEvent(t, src).Skill)
+	ev := drainEvent(t, src)
+	assert.Equal(t, "analyst", ev.DefaultSkill)
+	assert.Empty(t, ev.Skill, "nobody named a skill, so nothing may bypass the routing rules")
 
 	require.NoError(t, src.React(context.Background(), "chat_1", conductor.ReactionDone))
 	// And the chip still wins when it names one.
@@ -169,7 +174,9 @@ func TestAMessageWithNoSkillRunsTheProfilesChatDefault(t *testing.T) {
 		ChatID: "chat_1", Login: "alice", Text: "hello", Skill: "general",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "general", drainEvent(t, src).Skill)
+	ev = drainEvent(t, src)
+	assert.Equal(t, "general", ev.Skill)
+	assert.Equal(t, "analyst", ev.DefaultSkill, "the default rides along and loses to the chip")
 }
 
 func TestSeqIsMonotonicPerChat(t *testing.T) {
