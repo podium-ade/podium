@@ -129,6 +129,46 @@ describe("SkillEditor", () => {
     expect(screen.getByRole("button", { name: "Save skill" })).toBeInTheDocument();
   });
 
+  it("offers no delete while creating: there is nothing to delete yet", () => {
+    mount();
+    expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
+  });
+
+  it("deletes only after a confirm, and only from here", async () => {
+    const onDelete = vi.fn();
+    mount({
+      skill: create(SkillDefinitionSchema, {
+        name: "reporter",
+        image: "ghcr.io/example/reporter:v1",
+        origin: "stored",
+        editable: true,
+      }),
+      onDelete,
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
+    expect(onDelete).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a shadowed skill read-only, with the delete as the only thing to do to it", () => {
+    mount({
+      skill: create(SkillDefinitionSchema, {
+        name: "general",
+        image: "ghcr.io/example/general:v1",
+        origin: "stored",
+        editable: true,
+        shadowed: true,
+      }),
+      onDelete: vi.fn(),
+    });
+    expect(screen.queryByRole("button", { name: "Save skill" })).toBeNull();
+    expect(screen.getByLabelText("Image")).toBeDisabled();
+    expect(screen.getByText(/never runs and cannot be written over/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete general" })).toBeInTheDocument();
+  });
+
   it("shows the server's refusal verbatim", () => {
     mount({ error: 'skill "reporter": allowed_tools is required' });
     expect(screen.getByRole("alert")).toHaveTextContent(
