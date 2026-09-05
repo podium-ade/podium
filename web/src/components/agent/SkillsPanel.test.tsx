@@ -43,9 +43,7 @@ function skill(over: Record<string, unknown> = {}) {
     linear: false,
     env: {},
     origin: "file",
-    // Both halves are editable: saving a file skill rewrites its YAML. Only a shadowed
-    // stored skill is not, and that test sets it explicitly.
-    editable: true,
+    editable: false,
     shadowed: false,
     updatedBy: "",
     ...over,
@@ -107,14 +105,12 @@ describe("SkillsPanel", () => {
     expect(screen.getByText("Answer the question in the thread.")).toBeInTheDocument();
   });
 
-  // A file skill is editable now: saving one rewrites its YAML. The row says where it
-  // lives rather than that it is locked, because it no longer is.
-  it("says where a file-defined skill lives, and opens it for editing", async () => {
+  it("renders a file-defined skill read-only and says where it lives", async () => {
     mount();
     await screen.findByTestId("skill-row");
-    expect(screen.getByText("skills/general.yaml")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit general" })).toBeInTheDocument();
-    // Delete is still only inside the editor, next to the definition it destroys.
+    expect(screen.getByText("file · read-only")).toBeInTheDocument();
+    expect(screen.getByText(/skills\/general\.yaml/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit general" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete general" })).toBeNull();
   });
 

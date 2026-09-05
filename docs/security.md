@@ -595,13 +595,6 @@ Everything below is a real hole, not a hypothetical:
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
 - **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
   conductor has no allowlist and no roles. See *5. The conductor and the bot*.
-- **Anyone who can reach the web UI can rewrite a skill file on the conductor's host.**
-  Saving a skill on the Skills screen writes `skills/<name>.yaml` in
-  `PODIUM_AGENT_PROFILE_DIR`, and deleting one removes the file — so the UI has write access
-  to a directory that decides which image every turn runs and which secrets it names. That is
-  the same authority the UI already had over stored skills; what is new is that it now reaches
-  the files too, and that the shipped compose mounts the directory `:rw` for it. Mount it
-  `:ro` if the files are meant to be the only authority.
 - **Anyone who can reach the control plane can run code with any registered secret**, through a
   task spec or through a skill: `CreateTask` checks that a named secret exists and never that
   the caller may have it. A skill's `secrets:` list scopes what one bot hands one turn; it is

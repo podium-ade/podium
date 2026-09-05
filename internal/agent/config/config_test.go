@@ -215,26 +215,3 @@ func TestLoggingAConfigLeaksNoMemoryKey(t *testing.T) {
 	assert.Contains(t, out, "memory_api_key_set=true")
 	assert.Contains(t, out, "http://hindsight:8888")
 }
-
-// Unset and empty mean different things for the OAuth client id, which is unusual enough in
-// this file to be worth pinning: unset gets xAI's client, empty is the off switch.
-func TestXAIOAuthClientIDUnsetIsTheDefaultAndEmptyIsOff(t *testing.T) {
-	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
-	os.Unsetenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID")
-	require.Equal(t, DefaultXAIOAuthClientID, FromEnv().XAIOAuthClientID,
-		"unset means the shipped client, so the sign-in works out of the box")
-
-	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
-	require.Empty(t, FromEnv().XAIOAuthClientID,
-		"an explicit empty is how an operator turns the sign-in off; it must not fall back")
-
-	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "own-client")
-	require.Equal(t, "own-client", FromEnv().XAIOAuthClientID)
-}
-
-// The scopes ask for what xAI's own CLI asks for. grok-cli:access is load-bearing: the
-// reports of that surface refusing valid subscribers point at the scope set.
-func TestXAIOAuthScopesAskForGrokCLIAccess(t *testing.T) {
-	require.Contains(t, DefaultXAIOAuthScopes, "grok-cli:access")
-	require.Contains(t, DefaultXAIOAuthScopes, "offline_access")
-}

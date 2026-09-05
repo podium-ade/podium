@@ -41,9 +41,10 @@ export type SkillEditorProps = {
   saving?: boolean;
   deleting?: boolean;
   /**
-   * readOnly disables every control. The only thing that reaches it is a SHADOWED stored
-   * skill: it never runs, and writing to it would write to the half that is not in force.
-   * A file skill is not read-only — saving one rewrites its skills/<name>.yaml.
+   * readOnly renders a file skill: every control disabled, nothing to save and nothing to
+   * delete. The files are authoritative for the names they hold, so this screen shows one
+   * and never writes it — but showing it is the point, because a definition you cannot read
+   * is harder to work with than one you merely cannot change.
    */
   readOnly?: boolean;
   /** The server's refusal, shown verbatim: its rules are the only rules. */
@@ -181,17 +182,11 @@ export function SkillEditor({
                 : `Edit ${skill.name}`}
         </h2>
         <span className="text-xs text-muted">
-          {shadowed ? (
+          {readOnly ? (
             <>
-              A stored skill a file of the same name overrides. It never runs, so there is
-              nothing here to change — deleting it is what this screen is for.
-            </>
-          ) : skill?.origin === "file" ? (
-            <>
-              Saving writes{" "}
-              <code className="font-mono">skills/{skill.name}.yaml</code> on the
-              conductor&apos;s host. The file&apos;s comments are not preserved, and a
-              deployment that redeploys that directory will overwrite what you save.
+              Defined by <code className="font-mono">skills/{skill?.name}.yaml</code> on the
+              conductor&apos;s host. The files win, so this is read-only here — edit the file
+              and restart the conductor, or make a new skill to change one in the browser.
             </>
           ) : (
             <>

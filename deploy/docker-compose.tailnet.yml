@@ -136,20 +136,14 @@ services:
       PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
-      # Grok. The credential itself is set in the web UI, not here. The client id is xAI's
-      # own Grok CLI client, shipped because there is nothing to register instead — set it
-      # to the empty string (the `-` form below honours that) to turn the sign-in off and
-      # leave the API key path.
+      # Grok. The credential is set in the web UI, not here; these three are the endpoint,
+      # the OIDC issuer a subscription sign-in discovers from, and the OAuth client id.
+      # An empty client id leaves the API key path, which is a supported configuration.
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
-      PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID-b1a00492-073a-47ea-816f-4c329264a828}
-      PODIUM_AGENT_XAI_OAUTH_SCOPES: ${PODIUM_AGENT_XAI_OAUTH_SCOPES:-openid profile email offline_access grok-cli:access api:access}
+      PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
     volumes:
-      # Writable, because the web UI edits skill files in place — a save on the Skills
-      # screen rewrites skills/<name>.yaml here. Make it :ro again if you deploy this
-      # directory from source control and want the files to be the only authority; the
-      # UI then reports that the directory is read-only instead of silently failing.
-      - ./agent:/etc/podium/agent:rw
+      - ./agent:/etc/podium/agent:ro
     restart: unless-stopped
 
   # A worker. In practice this runs on a *different machine* — that is the whole point of the
