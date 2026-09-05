@@ -18,10 +18,12 @@ COPY podium-server /usr/local/bin/podium-server
 USER 65532:65532
 
 # The dev transport's default listen address is loopback, which inside a container means
-# nothing outside it can connect. A container deployment must set
-# PODIUM_DEV_LISTEN=0.0.0.0:8080 and publish the port on loopback of the host instead — the
-# compose file does exactly that. Under the tailnet transport there is no host port at all:
-# the server listens on 443 of its own Tailscale device.
+# nothing outside it can connect. A container deployment therefore needs BOTH
+# PODIUM_DEV_LISTEN=0.0.0.0:8080 and PODIUM_DEV_ALLOW_UNSAFE_LISTEN=true — the transport
+# trusts one static token and refuses a non-loopback address until an operator says the
+# address is only reachable from inside a container — and it publishes the port on loopback
+# of the host instead. The compose file does exactly that. Under the tailnet transport there
+# is no host port at all: the server listens on 443 of its own Tailscale device.
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/podium-server"]

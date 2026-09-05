@@ -73,3 +73,36 @@ func TestIdentify(t *testing.T) {
 		})
 	}
 }
+
+// TestNewAcceptsANonLoopbackAddressOnlyWithTheWaiver is the shipped container deployment:
+// inside a container loopback is the container's own, so a server bound to it is unreachable
+// even from the compose network. The waiver is an environment variable an operator sets on
+// purpose, and the boundary moves to the published port.
+func TestNewAcceptsANonLoopbackAddressOnlyWithTheWaiver(t *testing.T) {
+	for _, addr := range []string{"0.0.0.0:8080", ":8080", "[::]:8080"} {
+		t.Run(addr, func(t *testing.T) {
+			_, err := New(Options{Listen: addr, Token: "t"})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), UnsafeListenVar, "the error has to name the way out")
+
+			l, err := New(Options{Listen: addr, Token: "t", AllowNonLoopback: true})
+			require.NoError(t, err)
+			require.Equal(t, addr, l.Addr())
+		})
+	}
+}
+
+// The waiver waives the loopback rule and nothing else: an address that is not a host:port
+// at all is still a configuration error.
+func TestTheWaiverStillRequiresAHostPort(t *testing.T) {
+	for _, addr := range []string{"0.0.0.0", "", "8080"} {
+		t.Run(addr, func(t *testing.T) {
+			_, err := New(Options{Listen: addr, Token: "t", AllowNonLoopback: true})
+			if addr == "" {
+				require.NoError(t, err, "empty means the default, which is loopback")
+				return
+			}
+			require.ErrorContains(t, err, "dev transport")
+		})
+	}
+}

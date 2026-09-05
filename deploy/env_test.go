@@ -4,6 +4,7 @@
 package deploy
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/alvaroibarguen/podium/internal/transport/dev"
 )
 
 // notConfiguration is every PODIUM_* name that appears in the source and is deliberately
@@ -188,4 +193,115 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// composeEnvRef matches one ${VAR}, ${VAR:-default}, ${VAR-default} or ${VAR:?message}
+// reference, which is the whole of compose's interpolation syntax that these files use.
+var composeEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?[-?]([^}]*))?\}`)
+
+// composeServiceEnv reads one service's environment block out of a compose file and
+// interpolates it the way `docker compose` would, with supplied standing in for the
+// variables an operator provides. It is deliberately not a general compose parser: it
+// understands exactly what these files contain.
+func composeServiceEnv(t *testing.T, file, service string, supplied map[string]string) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(file)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Services map[string]struct {
+			Environment map[string]any `yaml:"environment"`
+		} `yaml:"services"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &parsed))
+	svc, ok := parsed.Services[service]
+	require.True(t, ok, "%s has no %s service", file, service)
+	require.NotEmpty(t, svc.Environment, "%s's %s service sets no environment", file, service)
+
+	out := make(map[string]string, len(svc.Environment))
+	for name, value := range svc.Environment {
+		out[name] = composeEnvRef.ReplaceAllStringFunc(fmt.Sprint(value), func(ref string) string {
+			m := composeEnvRef.FindStringSubmatch(ref)
+			if v, ok := supplied[m[1]]; ok {
+				return v
+			}
+			// `:?` has no default — it is compose refusing to start without a value — so a
+			// variable the caller did not supply and that has no default becomes empty,
+			// which is what a real deployment would then be told off for.
+			if strings.Contains(ref, "-") {
+				return m[2]
+			}
+			return ""
+		})
+	}
+	return out
+}
+
+// TestTheComposeServerConfigurationStarts is the guard the rest of this file was missing.
+// Every name in .env.example was documented and every value in docker-compose.yml was
+// unchecked, so the shipped deployment sat there for a release with PODIUM_DEV_LISTEN set to
+// an address the dev transport refuses — `podium-server: dev transport: refusing to listen on
+// "0.0.0.0:8080"`, exit 1, on the very first `docker compose up`.
+func TestTheComposeServerConfigurationStarts(t *testing.T) {
+	for _, tc := range []struct {
+		file      string
+		transport string
+	}{
+		{file: "docker-compose.yml", transport: server.TransportDev},
+		{file: "docker-compose.tailnet.yml", transport: server.TransportTailnet},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			env := composeServiceEnv(t, tc.file, "server", map[string]string{
+				"PODIUM_PG_PASSWORD":   "pgpassword",
+				"PODIUM_DEV_TOKEN":     "devtoken",
+				"PODIUM_S3_SECRET_KEY": "s3secretkey",
+				"PODIUM_AGENT_TOKEN":   "agenttoken",
+				"TS_AUTHKEY":           "tskey-auth-notreal",
+				"PODIUM_TAILNET":       "taila79bf6",
+			})
+			// The server reads its whole configuration from the environment, so the compose
+			// block IS the configuration: set it and ask the binary's own loader.
+			clearPodiumEnv(t)
+			for name, value := range env {
+				t.Setenv(name, value)
+			}
+
+			cfg := server.ConfigFromEnv()
+			require.Equal(t, tc.transport, cfg.Transport)
+			require.NoError(t, cfg.Validate(),
+				"%s cannot start: the shipped deployment must be a valid configuration", tc.file)
+		})
+	}
+}
+
+// TestTheComposeServerBindsEveryInterfaceOnPurpose: the fix for that boot failure is a
+// waiver, not a weaker check, and the two halves have to travel together. A compose file
+// that binds 0.0.0.0 without saying why would be refused all over again.
+func TestTheComposeServerBindsEveryInterfaceOnPurpose(t *testing.T) {
+	env := composeServiceEnv(t, "docker-compose.yml", "server", map[string]string{
+		"PODIUM_PG_PASSWORD":   "pgpassword",
+		"PODIUM_DEV_TOKEN":     "devtoken",
+		"PODIUM_S3_SECRET_KEY": "s3secretkey",
+		"PODIUM_AGENT_TOKEN":   "agenttoken",
+	})
+	require.Equal(t, "0.0.0.0:8080", env["PODIUM_DEV_LISTEN"],
+		"inside a container loopback is the container's own and nothing could reach it")
+	require.Equal(t, "true", env[dev.UnsafeListenVar],
+		"binding every interface needs the waiver, and the waiver is what says the operator meant it")
+
+	require.Error(t, dev.CheckListen(env["PODIUM_DEV_LISTEN"], false),
+		"the loopback rule still stands for everyone who has not asked for the waiver")
+	require.NoError(t, dev.CheckListen(env["PODIUM_DEV_LISTEN"], true))
+}
+
+// clearPodiumEnv unsets every PODIUM_* and TS_AUTHKEY variable in the ambient environment, so
+// a test measures the compose file and not the machine it runs on.
+func clearPodiumEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "PODIUM_") || name == "TS_AUTHKEY" {
+			t.Setenv(name, "")
+		}
+	}
 }

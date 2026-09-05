@@ -1,6 +1,7 @@
 // Package dev is the loopback transport: no Tailscale, no mTLS, one shared bearer token. It
 // refuses to bind anything but a loopback address, because the token is the only thing between
-// a caller and the whole API.
+// a caller and the whole API. PODIUM_DEV_ALLOW_UNSAFE_LISTEN waives that for a container,
+// where loopback is the container's own and the published port is the boundary.
 package dev
 
 import (
@@ -20,10 +21,18 @@ const DefaultListen = "127.0.0.1:8080"
 
 // Options configures the dev transport.
 type Options struct {
-	// Listen is a host:port that must resolve to a loopback address.
+	// Listen is a host:port that must resolve to a loopback address unless
+	// AllowNonLoopback says otherwise.
 	Listen string
 	// Token is the shared secret callers present as `Authorization: Bearer <token>`.
 	Token string
+	// AllowNonLoopback lets Listen bind an address that is not loopback. It exists for a
+	// container, where loopback is the container's own and the published port is the real
+	// boundary; nothing in this process can tell that case from a routable interface on a
+	// host, so the operator has to say which it is. It is PODIUM_DEV_ALLOW_UNSAFE_LISTEN
+	// and it publishes the whole API to whoever can reach the address and holds one static
+	// token.
+	AllowNonLoopback bool
 }
 
 // Listener is the dev transport's transport.Listener.
@@ -40,7 +49,7 @@ func New(opts Options) (*Listener, error) {
 	if addr == "" {
 		addr = DefaultListen
 	}
-	if err := checkLoopback(addr); err != nil {
+	if err := CheckListen(addr, opts.AllowNonLoopback); err != nil {
 		return nil, err
 	}
 	if opts.Token == "" {
@@ -49,8 +58,22 @@ func New(opts Options) (*Listener, error) {
 	return &Listener{addr: addr, token: opts.Token}, nil
 }
 
-// checkLoopback reports whether addr is a host:port whose host is unambiguously loopback.
-func checkLoopback(addr string) error {
+// UnsafeListenVar is the environment variable that waives the loopback rule. It is named
+// here so the server's own configuration and its error messages spell it the same way.
+const UnsafeListenVar = "PODIUM_DEV_ALLOW_UNSAFE_LISTEN"
+
+// CheckListen reports whether addr can be served. The host must be unambiguously loopback,
+// because the dev token is the only credential there is and a routable address publishes
+// the whole API to whoever holds it.
+//
+// allowNonLoopback waives that. A container is the case it exists for: loopback there is
+// the container's own, so a server bound to it is unreachable even from the compose network,
+// and the boundary is the published port. Nothing this process can observe distinguishes
+// that from a public interface on a host, so the operator declares it.
+func CheckListen(addr string, allowNonLoopback bool) error {
+	if addr == "" {
+		addr = DefaultListen
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("dev transport: %q is not a host:port address: %w", addr, err)
@@ -58,9 +81,13 @@ func checkLoopback(addr string) error {
 	if port == "" {
 		return fmt.Errorf("dev transport: %q has no port", addr)
 	}
+	if allowNonLoopback {
+		return nil
+	}
 	if host == "" {
 		return fmt.Errorf("dev transport: refusing to listen on %q: it binds every interface, "+
-			"and the dev transport must be loopback-only (use %s)", addr, DefaultListen)
+			"and the dev transport must be loopback-only (use %s, or set %s=1 if this address is "+
+			"reachable only from inside a container)", addr, DefaultListen, UnsafeListenVar)
 	}
 	if strings.EqualFold(host, "localhost") {
 		return nil
@@ -72,7 +99,8 @@ func checkLoopback(addr string) error {
 	}
 	if !ip.IsLoopback() {
 		return fmt.Errorf("dev transport: refusing to listen on %q: %s is not a loopback address, "+
-			"and the dev transport trusts a static token (use %s)", addr, ip, DefaultListen)
+			"and the dev transport trusts a static token (use %s, or set %s=1 if this address is "+
+			"reachable only from inside a container)", addr, ip, DefaultListen, UnsafeListenVar)
 	}
 	return nil
 }
