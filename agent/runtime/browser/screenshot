@@ -1,5 +1,0 @@
-#!/bin/sh
-# The documented entry point: /opt/podium-agent/bin/screenshot. A wrapper rather than a
-# shebang on the .mjs itself so the script keeps its extension and node keeps treating it
-# as a module.
-exec node /opt/podium-agent/browser/screenshot.mjs "$@"
