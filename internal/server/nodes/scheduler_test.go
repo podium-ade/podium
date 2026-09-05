@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -101,6 +102,22 @@ func (n *fakeNode) finish(a *podiumv1.Assign, exitCode int32) {
 		n.stamp(a, &podiumv1.TaskEvent{
 			Kind:    podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED,
 			Payload: &podiumv1.TaskEvent_Finished{Finished: &podiumv1.Finished{ExitCode: exitCode}},
+		}),
+	)
+}
+
+// runAborted is the error event a node sends when something ended the run before the
+// container could report an exit code: a pull that failed, an engine that would not answer.
+// retryable is the node's judgement on whether anybody else could do better.
+func (n *fakeNode) runAborted(a *podiumv1.Assign, message string, retryable bool) {
+	n.t.Helper()
+	n.send(
+		n.stamp(a, &podiumv1.TaskEvent{Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_PROVISIONING}),
+		n.stamp(a, &podiumv1.TaskEvent{
+			Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
+			Payload: &podiumv1.TaskEvent_Error{Error: &podiumv1.Error{
+				Message: message, Retryable: retryable, AbortsRun: true,
+			}},
 		}),
 	)
 }
@@ -636,4 +653,129 @@ func TestASubmittedTaskIsAssignedWithoutWaitingForATick(t *testing.T) {
 	node.awaitAssign(assignTimeout)
 	assert.Less(t, time.Since(started), 3*time.Second,
 		"a notify-driven scheduler must not make a submission wait out a poll")
+}
+
+// ---------------------------------------------------------------------------
+// a task is never parked
+//
+// The invariant these three cover: an error that ended a run either leads to another
+// attempt or to a terminal status. It never leaves the task in a status no node is working
+// on — which is what a retryable error used to do, because the ingest returned early on the
+// assumption that something else would requeue it and nothing ever did.
+// ---------------------------------------------------------------------------
+
+// The default budget is one attempt, so the first retryable error is also the last. The task
+// fails fast, carrying the node's own words, instead of sitting in provisioning forever.
+func TestARetryableErrorWithNoAttemptsLeftFailsTheTask(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-pull", nil)
+	node.open(ctx)
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	task := h.createSpec(&podiumv1.TaskSpec{Image: "podium-agent-runtime:dev", Command: []string{"true"}})
+	assign := node.awaitAssign(assignTimeout)
+
+	const boom = "pull image podium-agent-runtime:dev: Error response from daemon: registry is down"
+	node.runAborted(assign, boom, true)
+
+	failed := h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_FAILED, 20*time.Second)
+	assert.Equal(t, boom, failed.GetFailureReason(), "an operator has to be told what the node said")
+	assert.EqualValues(t, 1, failed.GetAttempts())
+	assert.Nil(t, failed.ExitCode, "a task whose container never started has no exit code")
+}
+
+// With a budget to spend, the same error buys another attempt — and when that one ends the
+// same way the task still stops, rather than being handed round forever.
+func TestARetryableErrorSpendsTheAttemptBudgetAndThenStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-flaky", nil)
+	node.open(ctx)
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	task := h.createSpec(&podiumv1.TaskSpec{
+		Image: "alpine:3", Command: []string{"true"}, MaxAttempts: 2,
+	})
+
+	const boom = "pull image alpine:3: Error response from daemon: registry is down"
+	first := node.awaitAssign(assignTimeout)
+	node.runAborted(first, boom, true)
+
+	// The requeue is not asserted by waiting for `queued`: the scheduler is woken by the
+	// same commit and places the task again within milliseconds, so that status is real but
+	// not reliably observable. A second assignment under a second lease is the proof.
+	second := node.awaitAssign(assignTimeout)
+	assert.Equal(t, task.GetId(), second.GetTaskId())
+	assert.NotEqual(t, first.GetLeaseId(), second.GetLeaseId(), "a new attempt gets a new lease")
+	node.runAborted(second, boom, true)
+
+	failed := h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_FAILED, 20*time.Second)
+	assert.Equal(t, boom, failed.GetFailureReason())
+	assert.EqualValues(t, 2, failed.GetAttempts(), "the budget is spent, not exceeded")
+}
+
+// An error the run survived is the other half of the rule, and the half a fix for the first
+// half can easily break: the task keeps its node and still reports its own exit code.
+func TestAnErrorTheRunSurvivedLeavesTheTaskWithItsNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-noisy", nil)
+	node.open(ctx)
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	task := h.createSpec(&podiumv1.TaskSpec{Image: "alpine:3", Command: []string{"true"}})
+	assign := node.awaitAssign(assignTimeout)
+	node.running(assign)
+	h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_RUNNING, 20*time.Second)
+
+	node.send(node.stamp(assign, &podiumv1.TaskEvent{
+		Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
+		Payload: &podiumv1.TaskEvent_Error{Error: &podiumv1.Error{
+			Message:   `artifact "huge.bin" was not stored: over the limit`,
+			Retryable: true,
+			AbortsRun: false,
+		}},
+	}))
+	node.finish(assign, 0)
+
+	done := h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 20*time.Second)
+	assert.EqualValues(t, 1, done.GetAttempts(), "nothing about the run was retried")
+}
+
+// The backstop, stated as the invariant it enforces: a task in an active status with no
+// lease is nobody's. No node is working on it, no lease can expire under it and no node
+// health check will ever name it, so the sweep has to end it rather than look at it forever.
+func TestAnActiveTaskWithNoLeaseIsNeverLeftParked(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := fastHarness(t)
+	node := enrollNode(t, h, "node-leaseless", nil)
+	node.open(ctx)
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	task := h.createSpec(&podiumv1.TaskSpec{Image: "alpine:3", Command: []string{"sleep", "300"}})
+	assign := node.awaitAssign(assignTimeout)
+	node.running(assign)
+	h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_RUNNING, 20*time.Second)
+
+	// However it happened, the row now points at no node and holds no lease while claiming
+	// to be running.
+	conn, err := pgx.Connect(ctx, h.databaseURL)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close(ctx) }()
+	_, err = conn.Exec(ctx,
+		"update tasks set node_id = null, lease_id = null, lease_expires_at = null where id = $1",
+		task.GetId())
+	require.NoError(t, err)
+
+	failed := h.awaitTaskStatus(task.GetId(), podiumv1.TaskStatus_TASK_STATUS_FAILED, 30*time.Second)
+	assert.Equal(t, scheduler.ReasonNoLease, failed.GetFailureReason())
 }
