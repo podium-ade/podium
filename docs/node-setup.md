@@ -291,9 +291,15 @@ enroll_token: ""     # first run only
 
 ## Operating notes
 
-**One node per Docker engine.** The daemon claims containers by the `podium.task` label across the
-whole engine, so two `podium-node` processes on one host will adopt each other's containers. This
-is not enforced yet — don't do it.
+**One node per Docker engine.** At startup the daemon claims containers by the `podium.task`
+label across the whole engine, whichever daemon created them, and tears down the ones its own
+control plane does not recognise. Two `podium-node` processes on one host therefore destroy each
+other's work. Nothing enforces this — don't do it.
+
+**That includes a test run.** `make test-integration` and `make e2e` start real `podium-node`
+processes against the host's engine, wired to their own throwaway control plane. Run either
+beside a live node and both sides lose their containers — which looks like flakiness or memory
+pressure, and is not. Stop the node first.
 
 **Restarts are safe.** SIGTERM leaves running containers alone; on restart the node re-adopts them
 via their labels, resumes their log streams where the server last acked, and finishes them. A brief
