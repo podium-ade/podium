@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,11 @@ import (
 
 // fakeKey is an obvious fake. There is no real Anthropic key anywhere in this repository.
 const fakeKey = "sk-ant-not-a-real-key-0000abcd"
+
+// fakeRefusal is the sentence the fake Anthropic sends with its 400. Tests assert this exact
+// string reaches the operator: the point of the detail is that it is the provider's own
+// words, not a paraphrase of them.
+const fakeRefusal = "API key is invalid."
 
 // fakeAnthropic answers GET /v1/models the way the live API does, which is the part of this
 // step that had to be checked against the real thing: a key it does not know gets **400**,
@@ -34,7 +41,7 @@ func fakeAnthropic(t *testing.T, good string) *httptest.Server {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"type":"error","error":` +
-				`{"type":"authentication_error","message":"API key is invalid."}}`))
+				`{"type":"authentication_error","message":` + strconv.Quote(fakeRefusal) + `}}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -108,7 +115,7 @@ func TestValidateAnthropicKeyTreatsA400AuthenticationErrorAsRefusal(t *testing.T
 	srv := fakeAnthropic(t, fakeKey)
 	_, err := validateAnthropicKey(context.Background(), srv.Client(), srv.URL, []byte("sk-ant-wrong"))
 	require.ErrorIs(t, err, errKeyRefused)
-	assert.Contains(t, err.Error(), "API key is invalid.", "the provider's own words must survive")
+	assert.Contains(t, err.Error(), fakeRefusal, "the provider's own words must survive")
 }
 
 func TestValidateAnthropicKeyMapsEveryStatus(t *testing.T) {
@@ -210,8 +217,144 @@ func TestSetProviderKeyRefusedWritesNothingAndLogsNoKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	assert.Equal(t, "Anthropic rejected this key", errMessage(err))
+	// The provider's own words ride along as a detail, so the operator is told why and not
+	// only that. The code and the message are untouched by it.
+	assert.Equal(t, fakeRefusal, providerKeyDetail(t, err))
 	assert.Empty(t, secrets.set, "a refused key must not reach the secret store")
 	assert.NotContains(t, buf.String(), "sk-ant-a-key-nobody-knows")
+}
+
+// The bug this fixes. A key that only needs a header Podium does not send is not a dead key,
+// and "Anthropic rejected this key" on its own sent an operator looking for a new one for an
+// hour. The provider says exactly what is wrong; the operator has to be able to read it.
+func TestSetProviderKeyPassesTheProvidersOwnExplanationOn(t *testing.T) {
+	const said = "anthropic-workspace-id is required when authenticating with an " +
+		"identity-linked API key; send the id of the workspace this request acts in."
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error",` +
+			`"message":` + strconv.Quote(said) + `}}`))
+	}))
+	defer srv.Close()
+	secrets := newFakeSecrets()
+	var buf bytes.Buffer
+	svc := NewAgentService(AgentServiceOptions{
+		Secrets:          secrets,
+		AnthropicBaseURL: srv.URL,
+		HTTPClient:       srv.Client(),
+		Logger:           slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	})
+
+	_, err := svc.SetProviderKey(context.Background(),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	assert.Equal(t, said, providerKeyDetail(t, err))
+	assert.Empty(t, secrets.set)
+	assert.NotContains(t, buf.String(), fakeKey)
+}
+
+// The unreachable path carries a detail too: "could not validate" says nothing about whether
+// the operator has a proxy in the way or a provider having a bad day.
+func TestSetProviderKeyExplainsAProviderItCouldNotReach(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"overloaded_error",` +
+			`"message":"Anthropic is temporarily overloaded."}}`))
+	}))
+	defer srv.Close()
+	svc := NewAgentService(AgentServiceOptions{
+		Secrets:          newFakeSecrets(),
+		AnthropicBaseURL: srv.URL,
+		HTTPClient:       srv.Client(),
+		Logger:           quietLogger(),
+	})
+
+	_, err := svc.SetProviderKey(context.Background(),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+	assert.Equal(t, "could not validate the key with Anthropic; nothing was saved", errMessage(err))
+	detail := providerKeyDetail(t, err)
+	assert.Contains(t, detail, "503 Service Unavailable")
+	assert.Contains(t, detail, "Anthropic is temporarily overloaded.")
+	assert.NotContains(t, detail, fakeKey)
+}
+
+// A provider that cannot be dialled at all still explains itself, and still says nothing
+// about the key.
+func TestSetProviderKeyExplainsADialFailure(t *testing.T) {
+	srv := fakeAnthropic(t, fakeKey)
+	srv.Close()
+	svc := NewAgentService(AgentServiceOptions{
+		Secrets:          newFakeSecrets(),
+		AnthropicBaseURL: srv.URL,
+		HTTPClient:       srv.Client(),
+		Logger:           quietLogger(),
+	})
+
+	_, err := svc.SetProviderKey(context.Background(),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: fakeKey}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+	detail := providerKeyDetail(t, err)
+	assert.Contains(t, detail, "connection refused")
+	assert.NotContains(t, detail, fakeKey)
+}
+
+// The same, through the whole handler: a provider that echoes the key back into its own
+// error message puts it neither in the response nor in the log.
+func TestSetProviderKeyScrubsAKeyTheProviderEchoedBack(t *testing.T) {
+	const echoed = "sk-ant-not-a-real-key-echoed"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":` +
+			strconv.Quote("the key "+r.Header.Get("x-api-key")+" is not valid") + `}}`))
+	}))
+	defer srv.Close()
+	var buf bytes.Buffer
+	svc := NewAgentService(AgentServiceOptions{
+		Secrets:          newFakeSecrets(),
+		AnthropicBaseURL: srv.URL,
+		HTTPClient:       srv.Client(),
+		Logger:           slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	})
+
+	_, err := svc.SetProviderKey(context.Background(),
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Key: echoed}))
+	require.Error(t, err)
+	assert.Equal(t, "the key [redacted] is not valid", providerKeyDetail(t, err))
+	assert.NotContains(t, buf.String(), echoed, "nor may it reach the log")
+}
+
+// A provider that echoes the key back does not get to put it on a page. Anthropic does not
+// do this; the point is that it would not matter if one did.
+func TestOperatorDetailScrubsAnythingKeyShaped(t *testing.T) {
+	assert.Equal(t, "[redacted] is not valid",
+		operatorDetail(fakeKey+" is not valid", []byte(fakeKey)))
+	// Truncated by the provider's own formatting, so the exact-key match cannot fire.
+	assert.Equal(t, "the key [redacted]… is not valid",
+		operatorDetail("the key sk-ant-not-a-re… is not valid", []byte(fakeKey)))
+	// A key with an unfamiliar prefix is still the key, and is still matched exactly.
+	assert.Equal(t, "[redacted] is not valid",
+		operatorDetail("xyz-123 is not valid", []byte("xyz-123")))
+}
+
+func TestOperatorDetailBoundsAndFlattensWhatTheProviderSaid(t *testing.T) {
+	assert.Equal(t, "one line now", operatorDetail("one\nline\tnow", nil))
+	assert.Equal(t, "no bells here", operatorDetail("no \x07bells\x00 here", nil))
+	assert.Empty(t, operatorDetail("", nil))
+
+	long := operatorDetail(strings.Repeat("a", 10_000), nil)
+	assert.Equal(t, providerDetailLimit+1, len([]rune(long)), "bounded, plus the ellipsis")
+	assert.True(t, strings.HasSuffix(long, "…"))
+
+	// Bounding is by rune, so a multi-byte sentence is not cut in half.
+	runes := operatorDetail(strings.Repeat("é", 10_000), nil)
+	assert.True(t, utf8.ValidString(runes))
 }
 
 func TestSetProviderKeyRejectsAnotherProviderAndAnEmptyKey(t *testing.T) {
@@ -243,6 +386,24 @@ func TestSetProviderKeyWithNoPodiumClientSaysSo(t *testing.T) {
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+}
+
+// providerKeyDetail is the ProviderKeyError a failed SetProviderKey carries, or "" when it
+// carries none.
+func providerKeyDetail(t *testing.T, err error) string {
+	t.Helper()
+	var cerr *connect.Error
+	if !errors.As(err, &cerr) {
+		return ""
+	}
+	for _, d := range cerr.Details() {
+		msg, verr := d.Value()
+		require.NoError(t, verr)
+		if pk, ok := msg.(*agentv1.ProviderKeyError); ok {
+			return pk.GetProviderMessage()
+		}
+	}
+	return ""
 }
 
 // errMessage is the message without Connect's "code: " prefix.
