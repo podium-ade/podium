@@ -39,7 +39,7 @@ func newUpgradeCommand() *cobra.Command {
 			"what it is already running to finish. It needs a credential this machine has:\n" +
 			"under the dev transport that is the shared token from the node's own config.\n" +
 			"If it cannot, drain from the control plane instead —\n" +
-			"`podium node drain <name>` — and re-run with --no-drain.\n\n" +
+			"`podium node drain <name>` — and re-run with --drain=false.\n\n" +
 			"There is no auto_upgrade. A worker that replaces its own binary without an\n" +
 			"operator asking is a worker that can take a whole fleet down at 3am.",
 		Args: cobra.ExactArgs(1),
@@ -84,7 +84,7 @@ func newUpgradeCommand() *cobra.Command {
 			if drain {
 				if !enrolled {
 					return errors.New("upgrade: this node has never enrolled, so there is " +
-						"nothing to drain; re-run with --no-drain")
+						"nothing to drain; re-run with --drain=false")
 				}
 				admin = adminClient(cfg)
 				if err := drainAndWait(cmd.Context(), out, admin, identity.NodeID, drainTimeout); err != nil {
@@ -163,7 +163,7 @@ func drainAndWait(
 	if _, err := admin.DrainNode(ctx, connect.NewRequest(&podiumv1.DrainNodeRequest{NodeId: nodeID})); err != nil {
 		return fmt.Errorf("upgrade: drain %s: %w\n"+
 			"Drain from the control plane instead (`podium node drain %s`), wait for its "+
-			"tasks to finish, then re-run with --no-drain", nodeID, err, nodeID)
+			"tasks to finish, then re-run with --drain=false", nodeID, err, nodeID)
 	}
 	fmt.Fprintf(out, "draining %s, waiting for running tasks...\n", nodeID)
 
