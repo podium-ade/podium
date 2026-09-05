@@ -240,14 +240,15 @@ func (c *artifactCollector) upload(ctx context.Context, name, contentType string
 
 // fail reports an artifact that could not be stored.
 //
-// It is always retryable, which here means "this did not break the task". A task does not
-// need artifacts to run, and a non-retryable error event would move the task to failed —
-// so a screenshot that was too big, or an object store that was down, would fail a run
-// that otherwise did exactly what it was asked to. That trade is never worth making.
+// It does not abort the run, which is the whole point: a task does not need artifacts to
+// run, so a screenshot that was too big, or an object store that was down, must not end a
+// run that otherwise did exactly what it was asked to. The event says what happened and
+// the task carries on to its own exit code.
 func (c *artifactCollector) fail(name string, err error) {
 	c.e.log.Warn("storing an artifact failed", "task", c.req.TaskID, "name", name, "error", err)
 	c.em.emit(KindError, ErrorPayload{
 		Message:   fmt.Sprintf("artifact %q was not stored: %v", name, err),
 		Retryable: true,
+		AbortsRun: false,
 	})
 }

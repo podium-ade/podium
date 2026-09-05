@@ -181,3 +181,18 @@ func TestLeaseDeadlineCoversTheWholeTimeoutPlusAGrace(t *testing.T) {
 	assert.Equal(t, started.Add(35*time.Minute), s.leaseDeadline(running, now),
 		"a lease must outlast the task's own timeout, or it expires under a healthy run")
 }
+
+// handBack is the only thing standing between a task whose attempt ended and a task parked
+// forever, and it works by trying queued first and failed second. That is only a guarantee
+// if both edges exist from every status it is ever handed — so assert the state graph says
+// they do, rather than discovering otherwise from a task nobody can explain.
+func TestEveryStatusHandBackIsGivenCanReachBothQueuedAndFailed(t *testing.T) {
+	froms := append([]store.Status{}, store.ActiveStatuses...)
+	froms = append(froms, store.StatusScheduled)
+	for _, from := range froms {
+		assert.True(t, store.CanTransition(from, store.StatusQueued),
+			"%s must be able to take another attempt", from)
+		assert.True(t, store.CanTransition(from, store.StatusFailed),
+			"%s must be able to fail, or a task with no attempts left has nowhere to go", from)
+	}
+}

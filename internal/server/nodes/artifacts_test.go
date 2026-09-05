@@ -215,12 +215,13 @@ func TestAnOversizedArtifactIsRejectedAndTheTaskStillSucceeds(t *testing.T) {
 
 	require.Empty(t, h.listArtifacts(assign.GetTaskId()))
 
-	// The refusal is a retryable error event, which implies no status transition: the task
-	// itself is unaffected and still succeeds.
+	// The refusal is an error the run survived, which implies no status transition: the
+	// task itself is unaffected and still succeeds.
 	node.send(node.stamp(assign, &podiumv1.TaskEvent{
 		Kind: podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
 		Payload: &podiumv1.TaskEvent_Error{Error: &podiumv1.Error{
-			Message: `artifact "huge.bin" was not stored: over the limit`, Retryable: true,
+			Message:   `artifact "huge.bin" was not stored: over the limit`,
+			Retryable: true, AbortsRun: false,
 		}},
 	}))
 	node.send(node.lifecycle(assign, 0, "hi\n")...)

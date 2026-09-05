@@ -108,6 +108,10 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		logger.Warn("scheduler timers are shrunk for testing; this is not a production configuration",
 			"env", scheduler.FastTimersEnv, "tick", timing.Tick, "offline_after", timing.OfflineAfter)
 	}
+	sched := scheduler.New(st, nodeSvc, secretSvc, timing, logger)
+	// The scheduler owns the attempt budget, so it is what decides between another attempt
+	// and a terminal status when a node reports an error that ended a run.
+	logSvc.SetRetries(sched)
 	s := &Server{
 		cfg:       cfg,
 		logger:    logger,
@@ -117,7 +121,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		logs:      logSvc,
 		secrets:   secretSvc,
 		artifacts: artifactSvc,
-		scheduler: scheduler.New(st, nodeSvc, secretSvc, timing, logger),
+		scheduler: sched,
 		serveErr:  make(chan error, 1),
 	}
 	s.http = &http.Server{

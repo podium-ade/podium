@@ -1842,9 +1842,19 @@ func (x *Finished) GetUsage() *Usage {
 }
 
 type Error struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	Retryable     bool                   `protobuf:"varint,2,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Message string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	// retryable says another attempt could succeed: the registry was down, the engine
+	// stuttered. A spec the task can never satisfy, or an image the registry refuses to
+	// serve, is not retryable.
+	Retryable bool `protobuf:"varint,2,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	// aborts_run says this error ended the attempt: the node has stopped working on the
+	// task and will send no exited or finished for it. Without it a reader cannot tell a
+	// failure that killed the run from one the run survived — an artifact that was too big
+	// to store, say — and the control plane needs that distinction to know whether the task
+	// still belongs to anybody. An error that aborts the run always resolves the task:
+	// another attempt if retryable and the budget allows, a terminal status otherwise.
+	AbortsRun     bool `protobuf:"varint,3,opt,name=aborts_run,json=abortsRun,proto3" json:"aborts_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1889,6 +1899,13 @@ func (x *Error) GetMessage() string {
 func (x *Error) GetRetryable() bool {
 	if x != nil {
 		return x.Retryable
+	}
+	return false
+}
+
+func (x *Error) GetAbortsRun() bool {
+	if x != nil {
+		return x.AbortsRun
 	}
 	return false
 }
@@ -2226,10 +2243,12 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"oom_killed\x18\x02 \x01(\bR\toomKilled\"O\n" +
 	"\bFinished\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12&\n" +
-	"\x05usage\x18\x02 \x01(\v2\x10.podium.v1.UsageR\x05usage\"?\n" +
+	"\x05usage\x18\x02 \x01(\v2\x10.podium.v1.UsageR\x05usage\"^\n" +
 	"\x05Error\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1c\n" +
-	"\tretryable\x18\x02 \x01(\bR\tretryable\"\xf6\x03\n" +
+	"\tretryable\x18\x02 \x01(\bR\tretryable\x12\x1d\n" +
+	"\n" +
+	"aborts_run\x18\x03 \x01(\bR\tabortsRun\"\xf6\x03\n" +
 	"\tTaskEvent\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12\x10\n" +
