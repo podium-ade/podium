@@ -156,7 +156,12 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // or create the session, and either start a turn or remember the message for the turn that
 // is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
-	sel := c.profile.Select(ev.Skill, ev.Channel, ev.Text)
+	sel := c.profile.Select(profiles.Routing{
+		Skill:        ev.Skill,
+		DefaultSkill: ev.DefaultSkill,
+		Channel:      ev.Channel,
+		Text:         ev.Text,
+	})
 	if sel.Skill.Name == "" {
 		c.logger.ErrorContext(ctx, "no skill could be selected; the profile has no default",
 			"source", src.Kind(), "source_key", ev.SourceKey)
