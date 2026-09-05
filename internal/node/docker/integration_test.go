@@ -28,13 +28,30 @@ import (
 
 const testImage = "alpine:3"
 
+// testTmpdirEnv relocates the parent of shortTempDir. It exists for running this suite
+// *inside* a task container against a docker-in-docker sidecar: everything below binds
+// host paths into containers, and that daemon resolves a bind source in its own
+// filesystem, where the test container's /tmp does not exist. Point this at a directory
+// both of them share — a short one, and typically under /workspace.
+//
+// TMPDIR is deliberately not honoured: on macOS it is a ~90-character path, which is the
+// very thing shortTempDir exists to stay clear of.
+const testTmpdirEnv = "PODIUM_TEST_TMPDIR"
+
 // shortTempDir is a data dir short enough that a task's event socket fits the AF_UNIX
 // path budget, so the executor keeps its sockets in the task's own state directory. Plain
 // t.TempDir() on macOS is already ~90 characters and forces the /tmp fallback instead;
 // TestEventSocketFallsBackWhenTheDataDirIsDeep covers that path deliberately.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "pdmex")
+	parent := os.Getenv(testTmpdirEnv)
+	if parent == "" {
+		parent = "/tmp"
+	}
+	// A relocated parent is a path on a shared volume that nothing has created yet, which
+	// is a confusing way for the whole suite to fail on its first line.
+	require.NoError(t, os.MkdirAll(parent, 0o750))
+	dir, err := os.MkdirTemp(parent, "pdmex")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir

@@ -45,6 +45,10 @@ type Options struct {
 	// DockerHost overrides the daemon endpoint. Empty means use the
 	// environment (DOCKER_HOST, DOCKER_CONTEXT, then the default socket).
 	DockerHost string
+	// AllowPrivilegedSidecars honours a spec's privileged sidecar on this engine. Off by
+	// default: it hands that container root on the node's kernel, which is a decision
+	// about the machine and never a spec author's to make. See internal/node.Config.
+	AllowPrivilegedSidecars bool
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -69,7 +73,11 @@ type Executor struct {
 	// images is the record of what this node pulled: the LRU bookkeeping, and the
 	// allow-list that makes it impossible to remove an image Podium did not fetch.
 	images *ImageCache
-	log    *slog.Logger
+	// allowPrivilegedSidecars is the operator's answer to Options.AllowPrivilegedSidecars.
+	// A spec that asks for a privileged sidecar on a node where this is false fails at
+	// provisioning rather than quietly running unprivileged.
+	allowPrivilegedSidecars bool
+	log                     *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -139,6 +147,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 
 	logger.Info("docker executor ready",
 		"readiness_probe", probeStyle(canDialTaskNetworks(runtime.GOOS, info.OSType)),
+		"allow_privileged_sidecars", opts.AllowPrivilegedSidecars,
 		"api_version", cli.ClientVersion(),
 		"server_version", info.ServerVersion,
 		"cgroup_version", info.CgroupVersion,
@@ -149,15 +158,16 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 	)
 
 	return &Executor{
-		cli:           cli,
-		dataDir:       opts.DataDir,
-		serverVersion: info.ServerVersion,
-		runnerPath:    runnerPath,
-		sockDir:       sockDir,
-		directDial:    canDialTaskNetworks(runtime.GOOS, info.OSType),
-		images:        NewImageCache(opts.DataDir),
-		log:           logger,
-		runs:          make(map[string]*runState),
+		cli:                     cli,
+		dataDir:                 opts.DataDir,
+		serverVersion:           info.ServerVersion,
+		runnerPath:              runnerPath,
+		sockDir:                 sockDir,
+		directDial:              canDialTaskNetworks(runtime.GOOS, info.OSType),
+		images:                  NewImageCache(opts.DataDir),
+		allowPrivilegedSidecars: opts.AllowPrivilegedSidecars,
+		log:                     logger,
+		runs:                    make(map[string]*runState),
 	}, nil
 }
 

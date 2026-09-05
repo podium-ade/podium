@@ -86,9 +86,9 @@ web-deps:
 web-test: web-deps
 	cd web && pnpm lint && pnpm typecheck && pnpm test
 
-# The three agent runtime images, host arch, tagged :dev. `build` deliberately does NOT
-# depend on this: Docker is not a prerequisite for compiling the Go binaries. -browser and
-# -data copy the runtime layer out of the base image, so the order below matters.
+# The four agent runtime images, host arch, tagged :dev. `build` deliberately does NOT
+# depend on this: Docker is not a prerequisite for compiling the Go binaries. -browser,
+# -data and -dev copy the runtime layer out of the base image, so the order below matters.
 agent-runtime:
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		-t $(AGENT_RUNTIME):dev -f agent/runtime/Dockerfile agent/runtime
@@ -98,6 +98,9 @@ agent-runtime:
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
 		-t $(AGENT_RUNTIME)-data:dev -f agent/runtime/Dockerfile.data agent/runtime
+	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
+		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
+		-t $(AGENT_RUNTIME)-dev:dev -f agent/runtime/Dockerfile.dev agent/runtime
 
 # The runtime's unit tests, then the image tests. The image tests need Docker and the
 # `make agent-runtime` tags; they SKIP with a message naming that target when either is

@@ -229,6 +229,7 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_IMAGE_CACHE_PRUNE` | `image_cache_prune` | `false` | Turns the image cache prune on. **Off by default — read the section below before turning it on.** |
 | `PODIUM_NODE_IMAGE_CACHE_HIGH_WATERMARK` | `image_cache_high_watermark` | `0.80` | Disk-usage fraction above which the node stops accepting work, and prunes if pruning is enabled |
 | `PODIUM_NODE_EXIT_ON_DRAIN` | `exit_on_drain` | `false` | Exit 0 once drained and the last task has finished. `--exit-on-drain` is the flag form |
+| `PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS` | `allow_privileged_sidecars` | `false` | Honour a spec's `privileged: true` on a sidecar, which is **root on this machine's kernel**. `--allow-privileged-sidecars` is the flag form. Pair it with a label and dedicate the node — see [security.md](security.md) |
 
 ### Draining a node
 

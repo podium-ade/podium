@@ -382,6 +382,10 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 	}
 	env[BriefEnv] = encodedBrief
 
+	if skill.Docker {
+		env[profiles.DockerHostEnv] = dockerSidecarHost
+	}
+
 	s := &spec.TaskSpec{
 		Image:       skill.Image,
 		Env:         env,
@@ -394,8 +398,48 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
 		RetryOnNodeLoss: false,
 	}
+	if skill.Docker {
+		s.Sidecars = map[string]spec.Sidecar{dockerSidecarName: dockerSidecar()}
+	}
 	s.ApplyDefaults()
 	return s
+}
+
+// The Docker daemon a `docker: true` skill gets. It is the conductor's to build rather
+// than the skill file's: a half-configured daemon — TLS still on, no workspace, no probe —
+// fails in ways that read as the agent's fault, and there is exactly one shape that works.
+const (
+	// dockerSidecarName is also the DNS alias the daemon answers to on the task's own
+	// private network, which is why the host below can be a constant.
+	dockerSidecarName = "dind"
+
+	// dockerSidecarHost is plaintext on purpose. The task network is per-task and carries
+	// only this task and its sidecars, so TLS would protect the daemon from the one
+	// container that is already entitled to drive it.
+	dockerSidecarHost = "tcp://" + dockerSidecarName + ":2375"
+
+	// Pinned by digest like every other base image Podium runs, and to the same 28.x the
+	// -dev runtime image's CLI is built against. The digest is the multi-arch index, so it
+	// resolves on amd64 and arm64 alike.
+	dockerSidecarImage = "docker:28-dind@sha256:" +
+		"2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac"
+
+	// dockerSidecarReady is generous because dockerd is slow to listen: ~17s on an
+	// unloaded arm64 laptop, and a loaded node is slower than that by more than the
+	// margin. A turn that waits two minutes for its daemon is still a turn; one that
+	// starts without it fails on the agent's first docker command.
+	dockerSidecarReady = 2 * time.Minute
+)
+
+func dockerSidecar() spec.Sidecar {
+	return spec.Sidecar{
+		Image: dockerSidecarImage,
+		// Empty turns TLS off, which is what makes the daemon answer on plain 2375.
+		Env:            map[string]string{"DOCKER_TLS_CERTDIR": ""},
+		Privileged:     true,
+		ShareWorkspace: true,
+		Readiness:      spec.Readiness{TCPPort: 2375, Timeout: spec.Duration(dockerSidecarReady)},
+	}
 }
 
 // reservedSecrets are the credentials the conductor attaches itself, whatever the skill

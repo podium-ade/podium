@@ -147,7 +147,7 @@ Exit codes, and never any others:
 | `3` | the skill's `max_turns` was reached |
 | `4` | an SDK or API error, a missing key, a failed clone, a network failure |
 
-## The other two images
+## The other three images
 
 `podium-agent-runtime-browser:dev` adds Playwright and Chromium (the `coder` skill).
 `podium-agent-runtime-data:dev` adds `psql`, `bq`, `duckdb`, and `python3` with `matplotlib` and
@@ -155,6 +155,11 @@ Exit codes, and never any others:
 does **not** inherit the browser image: a warehouse query has no business carrying Chromium. All
 three run the same `dist/` and the same `node_modules` as the base image — the layer is copied out of it
 rather than rebuilt — so they cannot drift, and both take exactly the same brief.
+
+`podium-agent-runtime-dev:dev` adds Go, the Docker **client**, and golangci-lint (the `podium`
+skill — the dogfood). It carries no daemon: the skill sets `docker: true` and the conductor
+attaches one as a sidecar, which is what lets a turn run `make test-integration` — a suite that
+boots real containers — against a daemon that dies with the task.
 
 Check the data image the way its acceptance item does — note the `--entrypoint`, without which
 `sh -c …` is passed to the agent runtime as arguments and the probe silently runs the agent:

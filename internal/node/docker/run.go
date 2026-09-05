@@ -100,7 +100,8 @@ func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (R
 	if err != nil {
 		retryable := !errors.Is(err, errSpec) &&
 			!errors.Is(err, errSidecarNotReady) &&
-			!errors.Is(err, errImageUnavailable)
+			!errors.Is(err, errImageUnavailable) &&
+			!errors.Is(err, errPrivilegedNotAllowed)
 		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable, AbortsRun: true})
 		// Never leak: drop anything this call created, on a context that
 		// survives the caller cancelling.
