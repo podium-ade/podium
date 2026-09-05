@@ -45,7 +45,7 @@ func NewS3(cfg Config) (*S3, error) {
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
-		// Path style: MinIO in a compose network has no wildcard DNS, and a bucket name
+		// Path style: an object store in a compose network has no wildcard DNS, and a bucket name
 		// with a dot in it breaks virtual-host style against TLS anyway.
 		BucketLookup: minio.BucketLookupPath,
 	})

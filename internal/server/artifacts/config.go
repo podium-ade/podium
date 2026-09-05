@@ -27,7 +27,8 @@ type Config struct {
 	AccessKey string
 	// SecretKey is PODIUM_S3_SECRET_KEY. SENSITIVE: never log it.
 	SecretKey string
-	// Region is PODIUM_S3_REGION, default us-east-1. MinIO ignores it; a real S3 does not.
+	// Region is PODIUM_S3_REGION, default us-east-1. The bundled object store ignores it; a
+// real S3 does not.
 	Region string
 	// UseSSL is derived from the endpoint's scheme, or PODIUM_S3_USE_SSL when the endpoint
 	// carries none.
@@ -57,7 +58,7 @@ func ConfigFromEnv() Config {
 	}
 }
 
-// splitEndpoint accepts both "minio:9000" and "https://minio:9000" and reports the host
+// splitEndpoint accepts both "objectstore:9000" and "https://objectstore:9000" and reports the host
 // form minio-go wants plus whether TLS was asked for.
 func splitEndpoint(raw string) (host string, ssl bool) {
 	raw = strings.TrimSpace(raw)
