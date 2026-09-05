@@ -60,9 +60,9 @@ func newChatFixture(t *testing.T) chatFixture {
 	svc := NewAgentService(AgentServiceOptions{
 		Store: st,
 		Chat:  src,
-		Profile: &profiles.Profile{DisplayName: "Podium", DefaultSkill: "general", Skills: map[string]profiles.Skill{
+		Profiles: profiles.NewLive(&profiles.Profile{DisplayName: "Podium", DefaultSkill: "general", Skills: map[string]profiles.Skill{
 			"general": {Name: "general", Image: "podium-agent-runtime:dev", SystemPrompt: "Answer."},
-		}},
+		}}),
 	})
 	path, handler := agentv1connect.NewAgentServiceHandler(svc)
 	mux := http.NewServeMux()
