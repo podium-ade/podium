@@ -239,8 +239,9 @@ services:
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
     volumes:
-      # Read-only, and it is the only boundary around what a turn may do: a skill file names
-      # the image, the tools and the secrets its turns get.
+      # Read-only. A skill file names the image, the tools and the secrets its turns get, and
+      # is what THIS bot hands a turn — not a boundary around the secret store, which has no
+      # per-caller authorisation at all. See docs/security.md.
       - ./agent:/etc/podium/agent:ro
     restart: unless-stopped
     # No healthcheck: the image is distroless, so there is nothing a compose healthcheck can
