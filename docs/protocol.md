@@ -183,7 +183,9 @@ otherwise understand (see [runner-events.md](runner-events.md)).
 else on this wire is something Podium observed; a message is something a task said. It is
 emitted by `podium-runner message`, it moves no status and the server stores it and nothing
 else. `type` is an open string, canonically `progress` (a note that the next one may
-supersede) or `final` (the answer); `attachments` are artifact **names**, not paths, and
+supersede) or `final` (the answer); the agent runtime adds a third, `accounting`, whose text is
+JSON the conductor reads for a turn's cost and turn count and never relays. `attachments` are
+artifact **names**, not paths, and
 nobody checks that they exist — when the message arrives the artifact may still be uploading.
 `text` is capped at 32 KiB by the runner, which refuses a longer one rather than truncating.
 

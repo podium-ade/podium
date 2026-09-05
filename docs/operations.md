@@ -284,7 +284,7 @@ device has no credential to lend — drain from the control plane instead and sk
 ```sh
 podium node drain worker-3
 # wait for `podium nodes` to show 0 running
-sudo podium-node upgrade v0.4.0 --no-drain
+sudo podium-node upgrade v0.4.0 --drain=false
 podium node undrain worker-3
 ```
 
