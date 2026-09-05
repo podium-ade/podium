@@ -159,15 +159,17 @@ delete secrets and delete nodes.
   **The control is who can reach the API at all.** Put the control plane on a tailnet, keep the
   set of people who can reach it small, and treat every registered secret as readable by every
   one of them.
-- **The `coder` skill has write access to your repositories, and a prompt injection can steer
-  it.** It is the one skill that names `podium.agent.github_token`, so it is the one skill whose
-  turns can push a branch and open a pull request. Everything a turn reads is untrusted: a
+- **A skill with `repos:` and a GitHub token has write access to your repositories, and a
+  prompt injection can steer it.** Podium ships no such skill — see
+  [`agent.md`](agent.md#skills-that-clone-repositories) — but it is the obvious one to write,
+  and the turns of a skill whose file names `podium.agent.github_token` are the turns that can
+  push a branch and open a pull request. Everything a turn reads is untrusted: a
   ticket's description, a comment on it, a Slack message, and **a README, a `CONTRIBUTING.md` or
   a comment in the repository it just cloned**. Any of them can carry instructions, and the agent
   has no way to tell them from the request. The mitigations reduce this and do not remove it:
-  - the pull request is opened as a **draft**, so no reviewer is paged and no automation merges
-    it, and a human reads the diff before anything happens;
-  - the prompt forbids committing to, pushing to, rebasing onto or force-pushing the default
+  - have the prompt open the pull request as a **draft**, so no reviewer is paged and no
+    automation merges it, and a human reads the diff before anything happens;
+  - have it forbid committing to, pushing to, rebasing onto or force-pushing the default
     branch — but a prompt is guidance, not a control, so put **branch protection** on the default
     branch of every repository in `repos:` and require a review;
   - the token should be a **fine-grained** PAT scoped to exactly those repositories, with
@@ -280,21 +282,22 @@ delete secrets and delete nodes.
   at that point the header has to become a signed assertion, and this document is the record
   that it is not one yet.
 
-### The analyst and your warehouse
+### A skill with a data credential
 
-The `analyst` skill (see [`agent.md`](agent.md#the-analyst-skill)) is the third widening in this
-track, and it is the one that touches data nobody wrote for a bot.
+A skill you give a database or warehouse credential (see
+[`agent.md`](agent.md#skills-that-read-a-database)) is the third widening in this track, and it
+is the one that touches data nobody wrote for a bot. Podium ships no such skill; this is what to
+know before you write one.
 
 - **It reads everything its credential can read.** There is no table allowlist, no column
-  masking and no row filter anywhere in Podium. Whatever `podium.agent.warehouse_url` or
-  `podium.agent.warehouse_credentials` can select, a turn can select — and any question from
-  anybody who can reach the chat, or the channel, can be the one that selects it. **Use a
-  read-only role with a statement timeout**, and scope it to the schemas an analyst may see. The
-  recipe is in [`agent.md`](agent.md#the-read-only-role-is-the-control-not-the-prompt).
-- **The read-only role is the control. The prompt is not.** `prompts/analyst.md` tells the agent
-  never to modify data, and says in as many words that the credential is the real control and
-  the instruction is a courtesy. A prompt injection in a question, in a Slack thread, or in a
-  memory a previous turn retained can talk past a prompt; it cannot talk past
+  masking and no row filter anywhere in Podium. Whatever the credential can select, a turn can
+  select — and any question from anybody who can reach the chat, or the channel, can be the one
+  that selects it. **Use a read-only role with a statement timeout**, and scope it to the schemas
+  the skill may see. The recipe is in
+  [`agent.md`](agent.md#the-read-only-role-is-the-control-not-the-prompt).
+- **The read-only role is the control. The prompt is not.** A prompt telling the agent never to
+  modify data is a courtesy. A prompt injection in a question, in a Slack thread, or in a memory
+  a previous turn retained can talk past a prompt; it cannot talk past
   `default_transaction_read_only`.
 - **Row-level data can end up in a chat transcript, in Hindsight memory, and (for the same skill
   via Slack) in a Slack channel.** Those are the words, and they mean exactly what they say. An
@@ -307,7 +310,7 @@ track, and it is the one that touches data nobody wrote for a bot.
   RBAC, no retention and no per-user scoping. If your warehouse holds personal data, that is the
   sentence to take to whoever owns your data-protection obligations before you point this skill
   at it.
-- The prompt's "keep result tables to 50 rows, and never retain row-level data" rules exist for
+- A prompt's "keep result tables short, and never retain row-level data" rules exist for
   exactly that reason, and they are **a courtesy, not a control** — the same distinction as
   above. Nothing in Podium inspects an answer for personal data, and a `message` event is never
   redacted (see *Redaction* below). The only real controls are the credential's own grants and
@@ -570,15 +573,15 @@ Everything below is a real hole, not a hypothetical:
   task spec or through a skill: `CreateTask` checks that a named secret exists and never that
   the caller may have it. A skill's `secrets:` list scopes what one bot hands one turn; it is
   not a boundary around the secret store.
-- **The `coder` skill can push branches and open pull requests, and a prompt injection in a
-  ticket, a comment or a cloned repository's own files can steer it.** Draft PRs, branch
-  protection and a fine-grained token reduce this; nothing here removes it.
+- **A skill you give `repos:` and a GitHub token can push branches and open pull requests, and
+  a prompt injection in a ticket, a comment or a cloned repository's own files can steer it.**
+  Draft PRs, branch protection and a fine-grained token reduce this; nothing here removes it.
 - **A task's `message` events are never redacted**, so an agent's answer can carry a secret into
   a Slack thread, a web-chat transcript and the shared memory.
-- **The `analyst` skill reads everything its warehouse credential can read**, and row-level data
-  in an answer lands in a chat transcript, in Hindsight memory and (over Slack) in a channel. A
-  read-only role with a statement timeout is the only real control; the prompt's rules are a
-  courtesy. See *The analyst and your warehouse*.
+- **A skill you give a warehouse credential reads everything that credential can read**, and
+  row-level data in an answer lands in a chat transcript, in Hindsight memory and (over Slack) in
+  a channel. A read-only role with a statement timeout is the only real control; the prompt's
+  rules are a courtesy. See *A skill with a data credential*.
 - **A web chat is partitioned by login, not protected by it.** Another login's chat answers
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the

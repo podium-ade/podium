@@ -22,7 +22,9 @@ func TestListSkillsReportsWhatTheChipNeeds(t *testing.T) {
 		Skills: map[string]profiles.Skill{
 			"general": {Name: "general", Image: "podium-agent-runtime:dev",
 				SystemPrompt: "# The general skill\n\nAnswer the question in the thread.\n"},
-			"analyst": {Name: "analyst", Image: "podium-agent-runtime-data:dev",
+			// An image built FROM podium-agent-runtime: Podium ships one image and a
+			// skill needing more tools names one of your own.
+			"analyst": {Name: "analyst", Image: "local/agent-warehouse:dev",
 				SystemPrompt: "Answer questions about the data warehouse.\n"},
 		},
 	})})
@@ -34,7 +36,7 @@ func TestListSkillsReportsWhatTheChipNeeds(t *testing.T) {
 
 	// Sorted by name, so the chip cycles in a stable order.
 	assert.Equal(t, "analyst", res.Msg.GetSkills()[0].GetName())
-	assert.Equal(t, "podium-agent-runtime-data:dev", res.Msg.GetSkills()[0].GetImage())
+	assert.Equal(t, "local/agent-warehouse:dev", res.Msg.GetSkills()[0].GetImage())
 	assert.True(t, res.Msg.GetSkills()[0].GetChatDefault())
 	assert.Equal(t, "Answer questions about the data warehouse.", res.Msg.GetSkills()[0].GetHint())
 

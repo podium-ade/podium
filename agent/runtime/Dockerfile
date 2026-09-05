@@ -1,8 +1,9 @@
 # podium-agent-runtime — one turn of the Claude Agent SDK inside a Podium task container.
 #
 # Debian, not distroless, on purpose: the agent needs a shell, git and gh. Keep it slim. Do
-# not add language toolchains "in case" — the -browser and -data images exist so this one
-# stays small.
+# not add language toolchains "in case": this is the general-purpose image Podium ships, and
+# a workflow that needs more builds its own `FROM podium-agent-runtime` (docs/agent.md).
+# Dockerfile.dev beside it is the one exception, and it exists to build Podium itself.
 #
 # The base is pinned by digest. A tag is a moving target and a base image is the part of a
 # supply chain nobody looks at.

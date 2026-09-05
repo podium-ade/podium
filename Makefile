@@ -14,7 +14,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
-# The agent runtime images. Local, tagged :dev, and never pushed by this Makefile: the e2e
+# The agent runtime image. Local, tagged :dev, and never pushed by this Makefile: the e2e
 # node runs on the host's Docker engine, so a locally built tag is visible to a task
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
@@ -86,18 +86,14 @@ web-deps:
 web-test: web-deps
 	cd web && pnpm lint && pnpm typecheck && pnpm test
 
-# The four agent runtime images, host arch, tagged :dev. `build` deliberately does NOT
-# depend on this: Docker is not a prerequisite for compiling the Go binaries. -browser,
-# -data and -dev copy the runtime layer out of the base image, so the order below matters.
+# The agent runtime images, host arch, tagged :dev. Podium ships the base plus -dev, which
+# is a dogfood image for turns that build Podium itself; -dev copies the runtime layer out
+# of the base, so the order below matters. Any OTHER set of tools is an image of your own,
+# built `FROM podium-agent-runtime` and yours to publish. `build` deliberately does NOT
+# depend on this: Docker is not a prerequisite for compiling the Go binaries.
 agent-runtime:
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		-t $(AGENT_RUNTIME):dev -f agent/runtime/Dockerfile agent/runtime
-	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
-		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
-		-t $(AGENT_RUNTIME)-browser:dev -f agent/runtime/Dockerfile.browser agent/runtime
-	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
-		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
-		-t $(AGENT_RUNTIME)-data:dev -f agent/runtime/Dockerfile.data agent/runtime
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
 		-t $(AGENT_RUNTIME)-dev:dev -f agent/runtime/Dockerfile.dev agent/runtime

@@ -8,11 +8,11 @@ import { ChatComposer } from "./ChatComposer";
 const skills = [
   create(SkillSchema, {
     name: "analyst",
-    image: "podium-agent-runtime-data:dev",
+    image: "local/agent-warehouse:dev",
     hint: "Answer questions about the data warehouse.",
     chatDefault: true,
   }),
-  create(SkillSchema, { name: "coder", image: "podium-agent-runtime-browser:dev", hint: "Write the change." }),
+  create(SkillSchema, { name: "coder", image: "local/agent-browser:dev", hint: "Write the change." }),
   create(SkillSchema, { name: "general", image: "podium-agent-runtime:dev", hint: "Answer the question." }),
 ];
 

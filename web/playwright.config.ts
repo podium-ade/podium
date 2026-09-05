@@ -20,12 +20,12 @@ import { defineConfig } from "@playwright/test";
  * both processes must agree on it.
  *
  * agent.spec.ts's chat ROUND TRIP needs one thing more, and skips itself without it: a real
- * turn. Copy examples/agent, give the chat skill the dry-run seam and the plain runtime
- * image, and point the conductor at the copy:
+ * turn. Copy examples/agent, give its one skill the dry-run seam, and point the conductor at
+ * the copy:
  *
  *   cp -r examples/agent /tmp/agent-profile
- *   # in /tmp/agent-profile/skills/analyst.yaml: image: podium-agent-runtime:dev,
- *   # delete the two warehouse secrets, and add:  env: { PODIUM_AGENT_DRY_RUN: "1" }
+ *   # append to /tmp/agent-profile/skills/general.yaml:
+ *   #   env: { PODIUM_AGENT_DRY_RUN: "1" }
  *   PODIUM_AGENT_PROFILE_DIR=/tmp/agent-profile ./bin/podium-agent &
  *   podium secret set podium.agent.anthropic_api_key   # any value; a dry run never reads it
  *
