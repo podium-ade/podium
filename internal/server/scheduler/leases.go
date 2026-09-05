@@ -148,6 +148,11 @@ func (s *Service) checkTimeout(ctx context.Context, task store.Task, now time.Ti
 // taken away from it.
 func (s *Service) checkLease(ctx context.Context, task store.Task, connected bool, now time.Time, cache map[string]store.Node) {
 	if task.LeaseID == "" || task.NodeID == "" {
+		// An active task with no lease and no node is nobody's: there is nothing to
+		// extend, nothing to expire, and no node whose health could ever resolve it. It
+		// is exactly the parked state this sweep exists to make impossible, so hand it
+		// back rather than look at it again every five seconds forever.
+		s.handBack(ctx, task.ID, store.ActiveStatuses, ReasonNoLease)
 		return
 	}
 	want := s.leaseDeadline(task, now)

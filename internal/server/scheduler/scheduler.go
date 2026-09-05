@@ -35,6 +35,7 @@ const (
 	ReasonFull           = "every node that could run this task is full"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
+	ReasonNoLease        = "the task is on no node and holds no lease"
 	assignFailedTemplate = "assigning to node %s failed: %v"
 )
 
@@ -279,25 +280,45 @@ func resolvedToProto(in []secrets.Resolved) []*podiumv1.ResolvedSecret {
 	return out
 }
 
-// revoke takes back an assignment the node never accepted: back on the queue if the attempt
-// budget allows, failed if it does not. The task is put back exactly as it was claimed, so
-// nothing about the attempt survives except the count.
+// revoke takes back an assignment the node never accepted. The task is put back exactly as
+// it was claimed, so nothing about the attempt survives except the count.
 func (s *Service) revoke(ctx context.Context, taskID, reason string) {
-	if _, err := s.store.TransitionTask(ctx, taskID, []store.Status{store.StatusScheduled}, store.StatusQueued, store.Patch{}); err == nil {
+	s.handBack(ctx, taskID, []store.Status{store.StatusScheduled}, reason)
+}
+
+// Retry is what the log ingest calls when a node reports an error that ended the run but
+// could succeed elsewhere — an image the registry was too busy to serve, an engine that
+// stuttered. The node is finished with the task either way, so the only question is
+// whether anybody else should try, and that is the attempt budget's to answer.
+func (s *Service) Retry(ctx context.Context, taskID, reason string) {
+	s.handBack(ctx, taskID, store.ActiveStatuses, reason)
+}
+
+// handBack is the whole attempt budget, in one place: a task whose attempt ended without a
+// container goes back on the queue when max_attempts allows another, and fails carrying
+// reason when it does not.
+//
+// It is total over the statuses it is given — every one of them has both a queued and a
+// failed edge — which is the property the whole fix rests on. A task that reaches here
+// leaves the state it was in; it is never left parked in one nobody is working on.
+func (s *Service) handBack(ctx context.Context, taskID string, from []store.Status, reason string) {
+	if _, err := s.store.TransitionTask(ctx, taskID, from, store.StatusQueued, store.Patch{}); err == nil {
 		s.nodes.Release(taskID)
-		s.logger.InfoContext(ctx, "assignment revoked; task requeued", "task_id", taskID, "reason", reason)
+		s.logger.InfoContext(ctx, "task taken back from its node; another attempt queued",
+			"task_id", taskID, "reason", reason)
 		return
 	}
 	now := time.Now().UTC()
-	if _, err := s.store.TransitionTask(ctx, taskID, []store.Status{store.StatusScheduled}, store.StatusFailed,
+	if _, err := s.store.TransitionTask(ctx, taskID, from, store.StatusFailed,
 		store.Patch{FailureReason: &reason, FinishedAt: &now}); err != nil {
 		if !errors.Is(err, store.ErrInvalidTransition) {
-			s.logger.ErrorContext(ctx, "revoking an assignment failed", "task_id", taskID, "error", err)
+			s.logger.ErrorContext(ctx, "failing a task whose attempt ended failed",
+				"task_id", taskID, "error", err)
 		}
 		return
 	}
 	s.nodes.Release(taskID)
-	s.logger.InfoContext(ctx, "assignment revoked; attempts exhausted", "task_id", taskID, "reason", reason)
+	s.logger.InfoContext(ctx, "task failed; no attempts left", "task_id", taskID, "reason", reason)
 }
 
 // pick returns the index of the best node for a task, or -1 when none fits.
