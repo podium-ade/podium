@@ -221,12 +221,22 @@ func TestApplyTaskHardeningReadOnlyRootfs(t *testing.T) {
 
 func TestApplySidecarHardeningOnlyDeniesNewPrivileges(t *testing.T) {
 	var hc container.HostConfig
-	applySidecarHardening(&hc)
+	applySidecarHardening(&hc, false)
 
 	assert.Equal(t, []string{noNewPrivileges}, hc.SecurityOpt)
 	assert.Empty(t, hc.CapDrop, "a stock database image usually needs its default capabilities")
 	assert.False(t, hc.ReadonlyRootfs)
 	assert.Empty(t, hc.Tmpfs)
+	assert.False(t, hc.Privileged, "privilege is never the default")
+}
+
+func TestApplySidecarHardeningKeepsNoNewPrivilegesWhenPrivileged(t *testing.T) {
+	var hc container.HostConfig
+	applySidecarHardening(&hc, true)
+
+	assert.True(t, hc.Privileged)
+	assert.Equal(t, []string{noNewPrivileges}, hc.SecurityOpt,
+		"a privileged sidecar still gets the bit; docker:28-dind runs under it")
 }
 
 func TestCanDialTaskNetworks(t *testing.T) {

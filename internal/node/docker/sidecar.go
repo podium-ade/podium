@@ -11,6 +11,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/pkg/stdcopy"
 
@@ -44,6 +45,19 @@ const (
 // not come up. Retrying it elsewhere would fail the same way, so it is not retryable.
 var errSidecarNotReady = errors.New("sidecar not ready")
 
+// errPrivilegedNotAllowed marks a spec that asks for a privileged sidecar on a node whose
+// operator did not allow one.
+//
+// It is not retryable, and that is a judgement call rather than a certainty: another node
+// with the flag on would run it happily. But Podium places tasks on labels alone and knows
+// nothing about which nodes allow privilege, so a requeue draws from the same pool and
+// almost certainly lands somewhere configured identically — burning the task's attempts to
+// print the same sentence three times. Failing once, in words that name the sidecar and
+// the flag, is what actually reaches the operator. The pairing that makes placement work
+// is a label: start the node with `--allow-privileged-sidecars --labels privileged` and
+// have the spec require `labels: [privileged]`.
+var errPrivilegedNotAllowed = errors.New("privileged sidecar not allowed on this node")
+
 // sidecarSet is the handle on a task's running sidecars: enough to stop their log streams
 // in the right place in the event order. Removing the containers is Teardown's job.
 type sidecarSet struct {
@@ -69,6 +83,18 @@ func (e *Executor) startSidecars(ctx context.Context, req Request, netID string,
 	set := &sidecarSet{cancelLogs: cancelLogs}
 	if len(names) == 0 {
 		return set, nil
+	}
+
+	// Before the first pull, because refusing the task costs nothing and fetching a dind
+	// image this node will never start costs a gigabyte.
+	for _, name := range names {
+		if req.Spec.Sidecars[name].Privileged && !e.allowPrivilegedSidecars {
+			return set, fmt.Errorf("%w: sidecar %s asks for privileged: true, and this node was started "+
+				"without --allow-privileged-sidecars (PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS). "+
+				"That container would be root on this machine's kernel; turn the flag on only on a node "+
+				"dedicated to it, label that node, and make the spec require the label",
+				errPrivilegedNotAllowed, name)
+		}
 	}
 
 	// Pull first and in order: two sidecars from the same image would otherwise race for
@@ -147,8 +173,19 @@ func (e *Executor) startSidecar(ctx context.Context, req Request, netID, name st
 		AutoRemove:    false,
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 	}
+	if sc.ShareWorkspace {
+		// The same named volume the task has, at the same path. A nested Docker daemon
+		// resolves a bind-mount source against its OWN filesystem, so `docker run -v
+		// /workspace/x:/x` or a `docker compose` build context under /workspace reaches
+		// it only if it sees /workspace at that literal path too.
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+			Type:   mount.TypeVolume,
+			Source: volumeName(req.TaskID),
+			Target: workspacePath,
+		})
+	}
 	applyResources(hostCfg, sc.Resources)
-	applySidecarHardening(hostCfg)
+	applySidecarHardening(hostCfg, sc.Privileged)
 
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 		networkName(req.TaskID): {NetworkID: netID, Aliases: []string{name}},

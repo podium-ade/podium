@@ -88,6 +88,15 @@ type Config struct {
 	// drained node stays connected and idle, which is what an operator taking a machine
 	// out of service for maintenance wants.
 	ExitOnDrain bool `yaml:"exit_on_drain"`
+	// AllowPrivilegedSidecars honours a spec's `privileged: true` on a sidecar,
+	// PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS or --allow-privileged-sidecars. It is off by
+	// default because such a container is root on this machine's kernel: none of the
+	// sandbox every other task runs under applies to it, and a spec author must not be
+	// able to opt into that from a YAML file. It is what a docker-in-docker sidecar
+	// needs. Turn it on only on a machine dedicated to that, and pair it with a label
+	// (--labels privileged) so the specs that need it are the only ones that land here.
+	// See docs/security.md.
+	AllowPrivilegedSidecars bool `yaml:"allow_privileged_sidecars"`
 }
 
 // DefaultConfig is the configuration a node with no file and no environment runs with.
@@ -159,6 +168,7 @@ func applyEnv(cfg *Config) {
 	}
 	envBool("PODIUM_NODE_IMAGE_CACHE_PRUNE", &cfg.ImageCachePrune)
 	envBool("PODIUM_NODE_EXIT_ON_DRAIN", &cfg.ExitOnDrain)
+	envBool("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", &cfg.AllowPrivilegedSidecars)
 }
 
 func envBool(key string, dst *bool) {

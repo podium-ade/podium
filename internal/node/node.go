@@ -85,9 +85,10 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 	}
 
 	exec, err := docker.New(ctx, docker.Options{
-		DataDir:    cfg.DataDir,
-		DockerHost: cfg.DockerHost,
-		Logger:     logger,
+		DataDir:                 cfg.DataDir,
+		DockerHost:              cfg.DockerHost,
+		AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
+		Logger:                  logger,
 	})
 	if err != nil {
 		return nil, err

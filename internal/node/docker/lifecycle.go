@@ -139,7 +139,14 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bo
 	ordered = append(ordered, sidecars...)
 	ordered = append(ordered, rest...)
 	for _, s := range ordered {
-		if err := e.cli.ContainerRemove(ctx, s.ID, container.RemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+		// RemoveVolumes is `docker rm -v`: it removes the container's ANONYMOUS volumes
+		// and never a named one, so the workspace volume below is still removed
+		// deliberately and only when keepWorkspace says so. Without it every image that
+		// declares a VOLUME leaves one behind for good — docker:dind declares
+		// /var/lib/docker, which is every layer that daemon pulled, gigabytes per task.
+		if err := e.cli.ContainerRemove(ctx, s.ID, container.RemoveOptions{
+			Force: true, RemoveVolumes: true,
+		}); err != nil && !cerrdefs.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("remove container %s: %w", s.ID, err))
 		}
 	}

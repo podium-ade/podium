@@ -99,6 +99,14 @@ message Sidecar {
   map<string, string> env = 3;
   Readiness readiness = 4;
   Resources resources = 5;
+  // Run the sidecar with every capability and no device restriction — root on the node's
+  // kernel. It is for a Docker daemon beside the task and nothing else, and it is only a
+  // request: a node started without --allow-privileged-sidecars refuses the task.
+  bool privileged = 6;
+  // Mount the task's workspace volume in the sidecar at the task's own working path. A
+  // nested daemon resolves bind-mount sources in its own filesystem, so a build context
+  // under /workspace reaches it no other way.
+  bool share_workspace = 7;
 }
 
 // Hardening relaxes or tightens the task container's sandbox.

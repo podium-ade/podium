@@ -216,3 +216,28 @@ func TestIdentityRoundTrip(t *testing.T) {
 	_, _, err = LoadIdentity(dir)
 	require.ErrorContains(t, err, "incomplete")
 }
+
+// TestAllowPrivilegedSidecarsIsOffUnlessAskedFor. The default matters more than the
+// override: a node that had it on by accident would run a spec's docker-in-docker sidecar
+// as root on its own kernel.
+func TestAllowPrivilegedSidecarsIsOffUnlessAskedFor(t *testing.T) {
+	require.False(t, DefaultConfig().AllowPrivilegedSidecars)
+
+	path := filepath.Join(t.TempDir(), "node.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("server: http://127.0.0.1:8080\n"), 0o600))
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.False(t, cfg.AllowPrivilegedSidecars, "a file that says nothing means no")
+
+	t.Setenv("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", "true")
+	cfg, err = LoadConfig(path)
+	require.NoError(t, err)
+	require.True(t, cfg.AllowPrivilegedSidecars)
+
+	require.NoError(t, os.WriteFile(path, []byte(
+		"server: http://127.0.0.1:8080\nallow_privileged_sidecars: true\n"), 0o600))
+	t.Setenv("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", "false")
+	cfg, err = LoadConfig(path)
+	require.NoError(t, err)
+	require.False(t, cfg.AllowPrivilegedSidecars, "the environment overlays the file both ways")
+}

@@ -49,6 +49,10 @@ var notConfiguration = map[string]string{
 	// Divides every scheduler timer by ten so the integration and e2e suites do not have
 	// to sleep. The server logs a loud warning when it is on. Never set in production.
 	"PODIUM_TEST_FAST_TIMERS": "test-only; the server warns loudly when it is set",
+	// Moves the docker integration suite's scratch dir off /tmp, which is only needed when
+	// that suite itself runs inside a task container against a docker-in-docker sidecar:
+	// the bind sources it makes have to be paths that nested daemon can resolve too.
+	"PODIUM_TEST_TMPDIR": "test-only; relocates the docker suite's scratch dir when it runs nested",
 	// Build-time, not run-time: the Makefile passes it to `pnpm build` so the UI header can
 	// show the version of the binary serving it.
 	"PODIUM_VERSION": "build-time, consumed by vite",
