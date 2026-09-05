@@ -106,14 +106,17 @@ TOKEN=$(podium --server https://podium.<tailnet>.ts.net \
 
 ### 3. Start the node on the worker
 
+Six variables, one per line — the four you have to supply yourself are marked:
+
 ```sh
-PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net \
-PODIUM_NODE_TRANSPORT=tailnet \
-PODIUM_NODE_TS_AUTHKEY="$TS_AUTHKEY" \
-PODIUM_NODE_ENROLL_TOKEN="$TOKEN" \
-PODIUM_NODE_DATA_DIR=/var/lib/podium-node \
-PODIUM_NODE_LABELS=linux/amd64 \
-  podium-node
+export PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net  # YOURS: the control plane's MagicDNS name
+export PODIUM_NODE_TS_AUTHKEY=tskey-auth-...               # YOURS: Tailscale auth key, tag:podium-node
+export PODIUM_NODE_ENROLL_TOKEN=...                        # YOURS: from step 2. First run only
+export PODIUM_NODE_LABELS=linux/amd64                      # YOURS: what tasks match on. Comma-separated
+export PODIUM_NODE_TRANSPORT=tailnet                       # fixed for this setup
+export PODIUM_NODE_DATA_DIR=/var/lib/podium-node           # default; must be local disk and must persist
+
+podium-node
 ```
 
 The daemon joins the tailnet as `podium-node-<hostname>`, dials the server's MagicDNS name over
@@ -160,12 +163,13 @@ command with the token filled in.
 Environment-only is a supported deployment — no config file needed:
 
 ```sh
-PODIUM_NODE_SERVER=http://127.0.0.1:8080 \
-PODIUM_NODE_TRANSPORT=dev \
-PODIUM_NODE_DEV_TOKEN="$PODIUM_DEV_TOKEN" \
-PODIUM_NODE_ENROLL_TOKEN="$TOKEN" \
-PODIUM_NODE_DATA_DIR=/var/lib/podium-node \
-  podium-node
+export PODIUM_NODE_SERVER=http://127.0.0.1:8080   # the control plane, on this same machine
+export PODIUM_NODE_DEV_TOKEN=devtoken             # YOURS: must equal the server's PODIUM_DEV_TOKEN
+export PODIUM_NODE_ENROLL_TOKEN=...               # YOURS: from step 1. First run only
+export PODIUM_NODE_TRANSPORT=dev                  # fixed for this setup
+export PODIUM_NODE_DATA_DIR=/var/lib/podium-node  # default; must persist
+
+podium-node
 ```
 
 On first run the node exchanges the enrollment token for a permanent identity and writes it to
