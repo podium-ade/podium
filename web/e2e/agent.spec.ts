@@ -78,6 +78,10 @@ test("the agent settings page validates and stores a provider key", async ({ pag
   await expect(page.getByTestId("provider-key-status")).toContainText(
     "Anthropic rejected this key",
   );
+  // And why, in the provider's own words, all the way through podium-server's proxy.
+  await expect(page.getByTestId("provider-key-detail")).toContainText(
+    "Anthropic said: API key is invalid.",
+  );
   await expect(page.getByText("Not set")).toBeVisible();
   expect(podium("secret", "ls")).not.toContain(KEY_SECRET);
 

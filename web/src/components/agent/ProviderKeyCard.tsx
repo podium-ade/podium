@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type {
-  ProviderSettings,
-  SetProviderKeyResponse,
+import {
+  ProviderKeyErrorSchema,
+  type ProviderSettings,
+  type SetProviderKeyResponse,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
@@ -15,7 +16,7 @@ const MODEL_CHIPS = 6;
 
 type Result =
   | { tone: "ok"; text: string; models: string[]; note?: string }
-  | { tone: "err" | "warn"; text: string };
+  | { tone: "err" | "warn"; text: string; detail?: { label: string; text: string } };
 
 export type ProviderKeyCardProps = {
   settings?: ProviderSettings;
@@ -207,6 +208,15 @@ export function ProviderKeyCard({ settings, loading, onSave, onClear }: Provider
                 }`}
               >
                 <p>{result.text}</p>
+                {result.tone !== "ok" && result.detail ? (
+                  <p
+                    data-testid="provider-key-detail"
+                    className="mt-1.5 max-w-2xl break-words rounded border border-border bg-raised px-2 py-1.5 text-xs text-muted"
+                  >
+                    <span className="font-semibold">{result.detail.label}:</span>{" "}
+                    {result.detail.text}
+                  </p>
+                ) : null}
                 {result.tone === "ok" && result.note ? (
                   <p className="mt-1 text-warn">{result.note}</p>
                 ) : null}
@@ -281,19 +291,47 @@ export function ProviderKeyCard({ settings, loading, onSave, onClear }: Provider
  */
 function failure(err: unknown): Result {
   if (isAgentUnreachable(err)) {
+    // The proxy wrote this one; Anthropic was never asked, so there is nothing to add.
     return { tone: "warn", text: "podium-agent is not reachable." };
   }
+  const said = providerMessage(err);
   if (err instanceof ConnectError && err.code === Code.Unavailable) {
     return {
       tone: "warn",
       text: "Couldn't reach Anthropic to validate. Nothing was saved. Try again.",
+      detail: said ? { label: "Details", text: said } : undefined,
     };
   }
   if (err instanceof ConnectError && err.code === Code.PermissionDenied) {
     // The server's words, verbatim: it is the one that talked to Anthropic.
-    return { tone: "err", text: err.rawMessage };
+    return {
+      tone: "err",
+      text: err.rawMessage,
+      detail: said ? { label: "Anthropic said", text: said } : undefined,
+    };
   }
   return { tone: "err", text: errorMessage(err) };
+}
+
+/**
+ * providerMessage is what the provider itself said about the failure, out of the Connect
+ * error's ProviderKeyError detail.
+ *
+ * This string comes from **Anthropic**, not out of a task container: it is not the untrusted
+ * task output docs/security.md is about, and it is shown to the operator rather than
+ * withheld. "Anthropic rejected this key" on its own once sent someone hunting for a new key
+ * for an hour when the provider had already said the key needed a header Podium does not
+ * send. Do not harden this away.
+ *
+ * It is still another company's text, so it is rendered as a React text node and never as
+ * markup — markup in it is characters on a page, exactly as in lib/markdown.ts. The
+ * conductor has already bounded it and scrubbed anything key-shaped out of it, and the
+ * paragraph it lands in wraps rather than overflowing the card.
+ */
+function providerMessage(err: unknown): string | undefined {
+  if (!(err instanceof ConnectError)) return undefined;
+  const [detail] = err.findDetails(ProviderKeyErrorSchema);
+  return detail?.providerMessage.trim() || undefined;
 }
 
 /** trimPasted strips the whitespace and the matched quotes a paste brings with it. */
