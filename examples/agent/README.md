@@ -130,6 +130,7 @@ output is not deterministic.
 |---|---|
 | `message{type: progress}` | each assistant text block that precedes further tool use, coalesced to at most one per 5 s |
 | `message{type: final}` | the turn's answer, always exactly once, even on failure; split into several messages above 32 KiB, with `attachments` on the last |
+| `message{type: accounting}` | the same document as `turn.json`, emitted after the final. It is for the reader, never for a human; the conductor reads `num_turns` and `total_cost_usd` from it and posts nothing |
 | `.podium/artifacts/transcript.jsonl` | one JSON line per SDK message |
 | `.podium/artifacts/turn.json` | `{session_id, turn_id, sdk_session_id, num_turns, total_cost_usd, exit_code, started_at, finished_at}` |
 
