@@ -60,6 +60,20 @@ const (
 	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
 	// AgentServiceListSkillsProcedure is the fully-qualified name of the AgentService's ListSkills RPC.
 	AgentServiceListSkillsProcedure = "/podium.agent.v1.AgentService/ListSkills"
+	// AgentServiceGetProfileProcedure is the fully-qualified name of the AgentService's GetProfile RPC.
+	AgentServiceGetProfileProcedure = "/podium.agent.v1.AgentService/GetProfile"
+	// AgentServiceUpdateProfileProcedure is the fully-qualified name of the AgentService's
+	// UpdateProfile RPC.
+	AgentServiceUpdateProfileProcedure = "/podium.agent.v1.AgentService/UpdateProfile"
+	// AgentServiceCreateSkillProcedure is the fully-qualified name of the AgentService's CreateSkill
+	// RPC.
+	AgentServiceCreateSkillProcedure = "/podium.agent.v1.AgentService/CreateSkill"
+	// AgentServiceUpdateSkillProcedure is the fully-qualified name of the AgentService's UpdateSkill
+	// RPC.
+	AgentServiceUpdateSkillProcedure = "/podium.agent.v1.AgentService/UpdateSkill"
+	// AgentServiceDeleteSkillProcedure is the fully-qualified name of the AgentService's DeleteSkill
+	// RPC.
+	AgentServiceDeleteSkillProcedure = "/podium.agent.v1.AgentService/DeleteSkill"
 	// AgentServiceCreateChatProcedure is the fully-qualified name of the AgentService's CreateChat RPC.
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
@@ -96,6 +110,21 @@ type AgentServiceClient interface {
 	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
+	// merged with what the conductor's database holds — and every skill in full, so a
+	// browser can manage them.
+	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
+	// UpdateProfile overrides profile.yaml's display name, model and default skills. An
+	// empty field clears the override and returns that field to the file's value.
+	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	// CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+	// already defines is refused: the files are authoritative for the names they hold.
+	CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error)
+	// UpdateSkill replaces a stored skill. A file-defined skill is refused.
+	UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error)
+	// DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
+	// stored skill that is not there is not an error.
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -181,6 +210,36 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
 			connect.WithClientOptions(opts...),
 		),
+		getProfile: connect.NewClient[v1.GetProfileRequest, v1.GetProfileResponse](
+			httpClient,
+			baseURL+AgentServiceGetProfileProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetProfile")),
+			connect.WithClientOptions(opts...),
+		),
+		updateProfile: connect.NewClient[v1.UpdateProfileRequest, v1.UpdateProfileResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateProfileProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
+			connect.WithClientOptions(opts...),
+		),
+		createSkill: connect.NewClient[v1.CreateSkillRequest, v1.CreateSkillResponse](
+			httpClient,
+			baseURL+AgentServiceCreateSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreateSkill")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSkill: connect.NewClient[v1.UpdateSkillRequest, v1.UpdateSkillResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateSkill")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSkill: connect.NewClient[v1.DeleteSkillRequest, v1.DeleteSkillResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+			connect.WithClientOptions(opts...),
+		),
 		createChat: connect.NewClient[v1.CreateChatRequest, v1.CreateChatResponse](
 			httpClient,
 			baseURL+AgentServiceCreateChatProcedure,
@@ -220,6 +279,11 @@ type agentServiceClient struct {
 	searchMemories   *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
 	deleteMemory     *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
 	listSkills       *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	getProfile       *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
+	updateProfile    *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	createSkill      *connect.Client[v1.CreateSkillRequest, v1.CreateSkillResponse]
+	updateSkill      *connect.Client[v1.UpdateSkillRequest, v1.UpdateSkillResponse]
+	deleteSkill      *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	createChat       *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats        *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
 	sendChatMessage  *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
@@ -276,6 +340,31 @@ func (c *agentServiceClient) ListSkills(ctx context.Context, req *connect.Reques
 	return c.listSkills.CallUnary(ctx, req)
 }
 
+// GetProfile calls podium.agent.v1.AgentService.GetProfile.
+func (c *agentServiceClient) GetProfile(ctx context.Context, req *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error) {
+	return c.getProfile.CallUnary(ctx, req)
+}
+
+// UpdateProfile calls podium.agent.v1.AgentService.UpdateProfile.
+func (c *agentServiceClient) UpdateProfile(ctx context.Context, req *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
+	return c.updateProfile.CallUnary(ctx, req)
+}
+
+// CreateSkill calls podium.agent.v1.AgentService.CreateSkill.
+func (c *agentServiceClient) CreateSkill(ctx context.Context, req *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error) {
+	return c.createSkill.CallUnary(ctx, req)
+}
+
+// UpdateSkill calls podium.agent.v1.AgentService.UpdateSkill.
+func (c *agentServiceClient) UpdateSkill(ctx context.Context, req *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error) {
+	return c.updateSkill.CallUnary(ctx, req)
+}
+
+// DeleteSkill calls podium.agent.v1.AgentService.DeleteSkill.
+func (c *agentServiceClient) DeleteSkill(ctx context.Context, req *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return c.deleteSkill.CallUnary(ctx, req)
+}
+
 // CreateChat calls podium.agent.v1.AgentService.CreateChat.
 func (c *agentServiceClient) CreateChat(ctx context.Context, req *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
 	return c.createChat.CallUnary(ctx, req)
@@ -321,6 +410,21 @@ type AgentServiceHandler interface {
 	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
+	// merged with what the conductor's database holds — and every skill in full, so a
+	// browser can manage them.
+	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
+	// UpdateProfile overrides profile.yaml's display name, model and default skills. An
+	// empty field clears the override and returns that field to the file's value.
+	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	// CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+	// already defines is refused: the files are authoritative for the names they hold.
+	CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error)
+	// UpdateSkill replaces a stored skill. A file-defined skill is refused.
+	UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error)
+	// DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
+	// stored skill that is not there is not an error.
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -402,6 +506,36 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetProfileHandler := connect.NewUnaryHandler(
+		AgentServiceGetProfileProcedure,
+		svc.GetProfile,
+		connect.WithSchema(agentServiceMethods.ByName("GetProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateProfileHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateProfileProcedure,
+		svc.UpdateProfile,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreateSkillHandler := connect.NewUnaryHandler(
+		AgentServiceCreateSkillProcedure,
+		svc.CreateSkill,
+		connect.WithSchema(agentServiceMethods.ByName("CreateSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateSkillHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateSkillProcedure,
+		svc.UpdateSkill,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteSkillHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteSkillProcedure,
+		svc.DeleteSkill,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceCreateChatHandler := connect.NewUnaryHandler(
 		AgentServiceCreateChatProcedure,
 		svc.CreateChat,
@@ -448,6 +582,16 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
 		case AgentServiceListSkillsProcedure:
 			agentServiceListSkillsHandler.ServeHTTP(w, r)
+		case AgentServiceGetProfileProcedure:
+			agentServiceGetProfileHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateProfileProcedure:
+			agentServiceUpdateProfileHandler.ServeHTTP(w, r)
+		case AgentServiceCreateSkillProcedure:
+			agentServiceCreateSkillHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateSkillProcedure:
+			agentServiceUpdateSkillHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteSkillProcedure:
+			agentServiceDeleteSkillHandler.ServeHTTP(w, r)
 		case AgentServiceCreateChatProcedure:
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
@@ -503,6 +647,26 @@ func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.R
 
 func (UnimplementedAgentServiceHandler) ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSkills is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetProfile is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateProfile is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateSkill is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateSkill is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteSkill is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
