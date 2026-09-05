@@ -87,16 +87,20 @@ func TestSecretEnvFollowsTheSpecsOwnSortedBlock(t *testing.T) {
 	assert.Equal(t, []string{"ALPHA", "ZULU", "S"}, got)
 }
 
-// The acceptance item: a file target lands 0400 under the /podium/secrets tmpfs, is
-// readable, and is not writable even by root inside the container.
-func TestFileSecretsAreMountedReadOnlyAt0400(t *testing.T) {
+// The acceptance item: a file target lands under the /podium/secrets tmpfs, is readable by
+// the task whatever user its image runs as, and is not writable even by root inside the
+// container.
+func TestFileSecretsAreMountedReadOnly(t *testing.T) {
 	e := newTestExecutor(t)
 	taskID := ids.NewTask()
 	teardownAfter(t, e, taskID)
 
+	// The last cat is the real proof that the write was refused: an error string is the
+	// kernel's wording, but unchanged content is the property being claimed.
 	const script = `cat /podium/secrets/greeting; echo; ` +
 		`ls -l /podium/secrets/greeting; ` +
-		`(echo tampered > /podium/secrets/greeting) 2>&1 | head -1`
+		`(echo tampered > /podium/secrets/greeting) 2>&1 | head -1; ` +
+		`cat /podium/secrets/greeting; echo`
 
 	c := newCollector()
 	res, err := e.Run(context.Background(), Request{
@@ -117,8 +121,20 @@ func TestFileSecretsAreMountedReadOnlyAt0400(t *testing.T) {
 	out := taskOutput(c.finish())
 	t.Logf("task output:\n%s", out)
 	assert.Contains(t, out, "hello from a mounted file")
-	assert.Contains(t, out, "-r--------", "the file must be mode 0400 inside the container")
-	assert.Contains(t, strings.ToLower(out), "read-only file system")
+	assert.Contains(t, out, "-r--r--r--", "the file must be mode 0444 inside the container")
+
+	// The write has to be refused, but the kernel's reason for refusing it is not the same
+	// on both engines and neither wording is more correct than the other. Nested inside the
+	// /podium/secrets tmpfs a native Linux engine answers EACCES, from the mode itself,
+	// which carries no write bit for any user; Docker Desktop answers EROFS from the mount.
+	// Asserting only the Desktop wording is what made this test Linux-red.
+	lower := strings.ToLower(out)
+	assert.True(t,
+		strings.Contains(lower, "read-only file system") || strings.Contains(lower, "permission denied"),
+		"the write should have been refused, got:\n%s", out)
+	assert.NotContains(t, out, "tampered", "the secret was overwritten from inside the container")
+	assert.Equal(t, 2, strings.Count(out, "hello from a mounted file"),
+		"the secret must read back unchanged after the write attempt")
 
 	// The engine agrees the mount is read-only, and it is nested inside the tmpfs.
 	insp := inspectTask(t, e, taskID)
@@ -177,11 +193,11 @@ func TestStagedSecretsAreShreddedByTeardown(t *testing.T) {
 	require.Equal(t, 0, res.ExitCode)
 	c.finish()
 
-	// While the task is alive the staged file exists on the node's disk, 0400.
+	// While the task is alive the staged file exists on the node's disk.
 	staged := filepath.Join(e.secretsDir(taskID), "00-PHRASE")
 	info, err := os.Stat(staged)
 	require.NoError(t, err, "the staged file should exist until teardown")
-	assert.Equal(t, os.FileMode(0o400), info.Mode().Perm())
+	assert.Equal(t, os.FileMode(0o444), info.Mode().Perm())
 	onDisk, err := os.ReadFile(staged) //nolint:gosec // the test wrote it
 	require.NoError(t, err)
 	assert.Equal(t, value, string(onDisk))
@@ -252,6 +268,31 @@ func TestShredSecretsOverwritesBeforeUnlinking(t *testing.T) {
 	// Idempotent: teardown paths call it whether or not anything was staged.
 	e.shredSecrets(taskID)
 	e.shredSecrets(ids.NewTask())
+}
+
+// The mode a staged secret lands with is the whole reason a task can read it: a bind mount
+// carries the node's uid into the container on a native Linux engine, the task is not that
+// user, and every capability is dropped. Both halves of the bargain are pinned here — the
+// file readable by any uid, the directory closed to every user but the node's — because
+// the end-to-end tests above cannot see a regression on Docker Desktop, which remaps
+// bind-mount ownership and would let a 0400 file keep working on macOS alone.
+func TestStagedSecretFilesAreReadableByAnyContainerUser(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	t.Cleanup(func() { e.shredSecrets(taskID) })
+
+	_, err := e.stageSecrets(taskID, []Secret{fileSecret("A", "/podium/secrets/a", "a value")})
+	require.NoError(t, err)
+
+	info, err := os.Stat(filepath.Join(e.secretsDir(taskID), "00-A"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o444), info.Mode().Perm(),
+		"a task container runs as a uid the node cannot predict and must still read this")
+
+	dir, err := os.Stat(e.secretsDir(taskID))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), dir.Mode().Perm(),
+		"the directory is what keeps the plaintext from other users on the node")
 }
 
 func TestStageSecretsRejectsAnUnknownTarget(t *testing.T) {
