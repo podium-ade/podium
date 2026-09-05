@@ -347,6 +347,14 @@ make lint proto fmt
 go build -tags noui ./...   # skip the embedded UI, no Node required
 ```
 
+> **Stop any running `podium-node` before `make test-integration` or `make e2e`.** Both suites
+> start real nodes against the host's Docker engine, and a node claims containers by the
+> `podium.task` label alone — no node scoping. Each side reports the other's containers to its
+> own control plane, which has never heard of them, and tears them down. You lose the test run
+> *and* whatever the live node was running, and it looks like flakiness or memory pressure. It is
+> not. (`DOCKER_HOST` or `PODIUM_NODE_DOCKER_HOST` pointed at a second engine separates them too,
+> if you have one.)
+
 `podium-runner` is the one binary that is never host-native: it is PID 1 inside a Linux task
 container, so `make build` cross-compiles it for `linux/amd64` and `linux/arm64` into
 `internal/node/docker/runnerbin/` (embedded into `podium-node`, gitignored, never committed) and
@@ -454,8 +462,10 @@ a real Docker engine. What has **not** happened:
   node's stream can assign to it, cancel on it or drain it — and a second replica's health
   watchdog would see every node as sessionless and start expiring leases. A leader lock is
   needed before a second replica is ever started.
-- **One `podium-node` per Docker engine.** The daemon claims every container labelled
-  `podium.task` on the engine, so two of them adopt each other's work. Nothing enforces it.
+- **One `podium-node` per Docker engine.** At startup the daemon claims every container on the
+  engine labelled `podium.task`, whichever daemon created it, and tears down the ones its own
+  control plane does not recognise. So two daemons on one engine destroy each other's work.
+  Nothing enforces it. **It bites hardest in development** — see [Development](#development).
 - **No RBAC.** The tailnet transport records who is visiting in a `users` table and lets every
   one of them do everything: submit tasks (and therefore run code as root on every worker),
   drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
