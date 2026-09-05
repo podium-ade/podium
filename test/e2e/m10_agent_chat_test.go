@@ -25,10 +25,11 @@ import (
 	"github.com/alvaroibarguen/podium/internal/server/artifacts/fakes3"
 )
 
-// copyExampleProfile copies examples/agent into a temporary directory so a test can rewrite
-// a skill without touching the repository's own example. The example is what docs/agent.md
-// points at and what the plain round trip runs; the copies exist to swap an image or add
-// the dry-run knobs, which are the two things no shipped example should carry.
+// copyExampleProfile copies examples/agent into a temporary directory so a test can add or
+// rewrite a skill without touching the repository's own example. The example is what
+// docs/agent.md points at and what the plain round trip runs; the copies exist to add the
+// dry-run knobs and the extra skills a test needs, neither of which a shipped example
+// should carry.
 func copyExampleProfile(t *testing.T) string {
 	t.Helper()
 	root, err := repoRoot()
@@ -57,29 +58,37 @@ func copyExampleProfile(t *testing.T) string {
 	return dst
 }
 
-// chatProfileDir is the example profile with the analyst skill rewritten to run the plain
-// runtime image in dry run.
+// chatDefaultSkill is the skill the copied profile makes the web chat's default. Podium
+// ships one skill, so a test about the chat's default has to define a second one itself —
+// which is the honest shape anyway: chat_default_skill only means something when there is
+// more than one skill to choose between.
+const chatDefaultSkill = "analyst"
+
+// chatProfileDir is the example profile plus a second skill, defined here, that the chat
+// starts on: chat_default_skill names it, and it runs the plain runtime image in dry run.
 //
-// The example's analyst names the data image (1.91 GB) and two warehouse secrets, and this
-// test is about the chat machinery rather than about psql — so the copy runs the same image
-// every other agent e2e runs, with no secrets of its own. Both substitutions are asserted,
-// so a rename in the example breaks this loudly rather than silently testing something else.
+// The skill is written by this test rather than shipped, because a shipped one would be a
+// guess at somebody's workflow. What it exercises is the machinery: ListSkills reports a
+// chat default, and a message naming no skill runs it.
 func chatProfileDir(t *testing.T) string {
 	t.Helper()
 	dst := copyExampleProfile(t)
-	path := filepath.Join(dst, "skills", "analyst.yaml")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dst, "skills", chatDefaultSkill+".yaml"),
+		[]byte("image: "+agentRuntimeImage+`
+system_prompt: Answer questions about the data warehouse.
+allowed_tools: [Bash, Read, Write]
+env:
+  PODIUM_AGENT_DRY_RUN: "1"
+`), 0o600))
+
+	path := filepath.Join(dst, "profile.yaml")
 	raw, err := os.ReadFile(path) //nolint:gosec // this test's own copy
 	require.NoError(t, err)
-
-	body := strings.Replace(string(raw), "image: podium-agent-runtime-data:dev",
-		"image: "+agentRuntimeImage, 1)
-	require.NotEqual(t, string(raw), body,
-		"examples/agent/skills/analyst.yaml no longer names the data image")
-
-	at := strings.Index(body, "secrets:")
-	require.Positive(t, at, "examples/agent/skills/analyst.yaml no longer names any secret")
-	body = body[:at] + "env:\n  PODIUM_AGENT_DRY_RUN: \"1\"\n"
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	require.NotContains(t, string(raw), "chat_default_skill:",
+		"examples/agent/profile.yaml sets a chat default again; this copy would fight it")
+	require.NoError(t, os.WriteFile(path,
+		append(raw, []byte("chat_default_skill: "+chatDefaultSkill+"\n")...), 0o600))
 	return dst
 }
 
@@ -221,7 +230,8 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	client := agentClientThrough(h, "somebody-else")
 	ctx := context.Background()
 
-	// The skill chip's source. The example's chat default is the analyst skill.
+	// The skill chip's source. chatProfileDir is what makes this profile's chat default the
+	// second skill rather than default_skill.
 	skills, err := client.ListSkills(ctx, connect.NewRequest(&agentv1.ListSkillsRequest{}))
 	require.NoError(t, err)
 	require.NotEmpty(t, skills.Msg.GetSkills())
@@ -232,7 +242,7 @@ func TestChatTurnRoundTrip(t *testing.T) {
 			chatDefault = s.GetName()
 		}
 	}
-	assert.Equal(t, "analyst", chatDefault, "profile.yaml: chat_default_skill")
+	assert.Equal(t, chatDefaultSkill, chatDefault, "profile.yaml: chat_default_skill")
 
 	created, err := client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{
 		Title: "August numbers",
@@ -512,7 +522,7 @@ func TestTheChatIsBehindTheProxysIdentity(t *testing.T) {
 	// never sees it.
 	code, _, body = connectCall(t, h.url(), listSkillsPath, `{}`, nil)
 	assert.Equal(t, http.StatusOK, code, body)
-	assert.Contains(t, body, "analyst")
+	assert.Contains(t, body, chatDefaultSkill)
 }
 
 // postAs is a POST against the conductor carrying both the server's bearer and the login

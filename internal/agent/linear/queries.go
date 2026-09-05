@@ -157,8 +157,8 @@ func (i Issue) closed() bool {
 	return i.State.Type == StateTypeCompleted || i.State.Type == StateTypeCanceled
 }
 
-// brief is the ticket as one block of text: the identifier first, because the coder skill
-// is told to branch from it and the runtime's prompt renders the transcript and the
+// brief is the ticket as one block of text: the identifier first, because a ticket skill's
+// prompt usually branches from it and the runtime's prompt renders the transcript and the
 // instruction but not source.ref.
 func (i Issue) brief() string {
 	head := i.Title

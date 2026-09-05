@@ -6,16 +6,21 @@ through `podium-runner message`, leaves a transcript and a summary as artifacts,
 code that says how the turn ended. It knows nothing about Slack, Linear or sessions — the conductor
 (`podium-agent`, step 17) is what writes the briefs; this directory is how you drive it yourself.
 
-## Build the images
+## Build the image
 
 ```sh
-make agent-runtime        # podium-agent-runtime:dev, -browser:dev, -data:dev, host arch
+make agent-runtime        # podium-agent-runtime:dev and -dev:dev, host arch
 make agent-runtime-test   # typecheck + vitest in agent/runtime
 ```
 
+`podium-agent-runtime` is the **base**, and it is the turn-brief contract and nothing else — no
+browser, no database clients, no Python. Podium ships one image beside it, `-dev`, which builds
+Podium itself. A workflow that needs any other tools builds its own image `FROM
+podium-agent-runtime`; see *The -dev image, and extending the base yourself* below.
+
 The tag is `:dev` and local on purpose. A node runs tasks on its own Docker engine, so an image
 built on the same machine is visible to a task without a registry in between. Nothing here pushes to
-GHCR; publishing the three images is still a TODO in `.goreleaser.yaml`.
+GHCR; publishing the images is still a TODO in `.goreleaser.yaml`.
 
 ## The brief
 
@@ -106,9 +111,8 @@ Add `--secret podium.agent.github_token:env:GITHUB_TOKEN` when the brief has `re
 names a memory env var which is not set is refused (exit 2): the conductor promised it.
 
 Nothing is set in the image for either of these — `docker inspect` shows no `CLAUDE_*` or
-`ANTHROPIC_*` variable in any of the three images, and there is no
-`--dangerously-skip-permissions` anywhere. The only permission decision is `permissionMode` in
-`agent/runtime/src/main.ts`.
+`ANTHROPIC_*` variable, and there is no `--dangerously-skip-permissions` anywhere. The only
+permission decision is `permissionMode` in `agent/runtime/src/main.ts`.
 
 ### The manual smoke test, and why it is not automated
 
@@ -147,51 +151,61 @@ Exit codes, and never any others:
 | `3` | the skill's `max_turns` was reached |
 | `4` | an SDK or API error, a missing key, a failed clone, a network failure |
 
-## The other three images
+## The -dev image, and extending the base yourself
 
-`podium-agent-runtime-browser:dev` adds Playwright and Chromium (the `coder` skill).
-`podium-agent-runtime-data:dev` adds `psql`, `bq`, `duckdb`, and `python3` with `matplotlib` and
-`pandas` (the `analyst` skill — see [`docs/agent.md`](../../docs/agent.md#the-analyst-skill)). It
-does **not** inherit the browser image: a warehouse query has no business carrying Chromium. All
-three run the same `dist/` and the same `node_modules` as the base image — the layer is copied out of it
-rather than rebuilt — so they cannot drift, and both take exactly the same brief.
+`podium-agent-runtime-dev:dev` is the one image Podium ships beside the base, and it exists to
+build Podium itself: Go, the Docker **client** and golangci-lint, for the `podium` skill. It
+carries no daemon — the skill sets `docker: true` and the conductor attaches one as a sidecar,
+which is what lets a turn run `make test-integration` against a daemon that dies with the task.
 
-`podium-agent-runtime-dev:dev` adds Go, the Docker **client**, and golangci-lint (the `podium`
-skill — the dogfood). It carries no daemon: the skill sets `docker: true` and the conductor
-attaches one as a sidecar, which is what lets a turn run `make test-integration` — a suite that
-boots real containers — against a daemon that dies with the task.
+It is also the **worked example** of everything below. Podium ships no image for somebody else's
+workflow — every workflow differs — so `agent/runtime/Dockerfile.dev` is what a real one looks
+like: pinned versions, a smoke test that fails when the image drifts, and a deliberate list of
+what it does *not* carry. Read it, then build your own.
 
-Check the data image the way its acceptance item does — note the `--entrypoint`, without which
-`sh -c …` is passed to the agent runtime as arguments and the probe silently runs the agent:
+An agent image is not just a bag of tools: it has to implement the turn-brief protocol above —
+read `PODIUM_AGENT_TURN`, drive one SDK turn, talk to `podium-runner`, write the two artifacts,
+exit 0/2/3/4. That is roughly a thousand lines of TypeScript in `agent/runtime/src`, so the sane
+route is not to reimplement it:
 
-```sh
-docker run --rm --user agent --entrypoint sh podium-agent-runtime-data:dev \
-  -c 'psql --version && bq version && duckdb --version && python3 -c "import matplotlib, pandas"'
+```dockerfile
+FROM podium-agent-runtime:dev        # or a pinned ghcr.io/... tag
+
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends postgresql-client; \
+    rm -rf /var/lib/apt/lists/*; \
+    psql --version
+USER agent
 ```
 
-### The screenshot helper
+Three things to know:
 
-The browser image carries one extra thing an agent calls directly:
+- The base is **Debian 12 bookworm, glibc, Node 22**. Use `apt-get` and bookworm package sources,
+  and glibc wheels or binaries — not musl ones.
+- **End with `USER agent`** (uid 1000). The runner socket and the secrets tmpfs are set up for
+  that uid; a container that stays root does not get them the same way. The base image renames
+  the stock `node` user rather than adding a second name for uid 1000.
+- Do not override `ENTRYPOINT`. It is `node /opt/podium-agent/dist/main.js`, and the Podium spec
+  for an agent task names the image only.
 
+**Watch what `apt-get` drags in.** Debian's `python3-matplotlib` on bookworm hard-depends on
+`gcc-12`, `g++-12`, `libboost1.74-dev` and `libopenblas-dev` — **1.05 GB of C++ toolchain** in a
+runtime image, for a chart. The alternative is pip's own manylinux wheels at exact versions, and
+Debian 12's interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pip, so that means
+`pip3 install --break-system-packages`, pip removed again in the same layer, and knowing that
+nothing else in your image installs a Python package. `apt-cache depends --recurse` before you
+commit to a package, and check the image size after.
+
+Then point a skill at it:
+
+```yaml
+# skills/dba.yaml
+image: registry.example.com/agent-warehouse:2026-09-05
 ```
-/opt/podium-agent/bin/screenshot URL OUT.png [--width N] [--height N] [--full-page]
-```
 
-Chromium headless, one navigation with a 15-second `networkidle` timeout, one PNG, exit 0 and the
-absolute path on stdout. Anything Playwright complains about goes to stderr and exits 1. It exists
-so a turn can verify a UI change without writing Playwright code every time.
-
-```sh
-./bin/podium run --image podium-agent-runtime-browser:dev --label browser -- \
-  sh -c 'python3 -m http.server 8000 >/dev/null 2>&1 & sleep 1;
-         /opt/podium-agent/bin/screenshot http://127.0.0.1:8000/ /workspace/.podium/artifacts/shot.png'
-./bin/podium artifacts <task_id>          # shot.png
-```
-
-The driver is `playwright-core`, pinned to the same version as the base image's browsers and
-installed in `/opt/podium-agent/browser/node_modules` — not in the runtime's, so the other two
-images do not carry it. `agent/runtime/src/screenshot.ts` is the argument parsing (typechecked and
-unit-tested); `agent/runtime/browser/screenshot.mjs` is the part that drives the browser.
-
-`pnpm test:images` in `agent/runtime` drives the helper inside a real container and skips with a
-message when Docker or the image is missing.
+A skill's `image:` is **any reference the node's own Docker engine can resolve**. A tag you built
+locally works only on the machine that built it, so a fleet needs a registry every node can pull
+from. Podium has **no registry authentication**: a private registry that requires a login is not
+supported today, and a node either pulls anonymously or already has the image.
