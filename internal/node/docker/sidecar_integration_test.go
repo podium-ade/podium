@@ -196,7 +196,16 @@ func TestSidecarThatNeverListensFailsProvisioning(t *testing.T) {
 	require.True(t, ok)
 	assert.False(t, payload.Retryable, "another node would fail the same way")
 	assert.Contains(t, payload.Message, "sidecar db not ready")
-	assert.Contains(t, payload.Message, "nothing is listening on port 9999")
+	// probeTCP has two branches and the verdict is worded by whichever one ran. A node
+	// that shares the engine's network namespace dials the sidecar itself and reports the
+	// dialer's refusal; one talking to an engine in a VM cannot route there and asks
+	// busybox nc from inside the container instead. Assert the branch this host takes —
+	// asserting the exec wording everywhere is what made this test Linux-red.
+	if e.directDial {
+		assert.Contains(t, payload.Message, ":9999: connect: connection refused")
+	} else {
+		assert.Contains(t, payload.Message, "nothing is listening on port 9999")
+	}
 	assert.Contains(t, payload.Message, "[db] FATAL: could not open my data directory",
 		"the adopter must see their database's real error")
 
