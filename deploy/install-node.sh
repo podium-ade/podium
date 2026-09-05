@@ -28,6 +28,10 @@ TS_AUTHKEY="${TS_AUTHKEY:-${PODIUM_NODE_TS_AUTHKEY:-}}"
 LABELS="${PODIUM_LABELS:-${PODIUM_NODE_LABELS:-}}"
 MAX_TASKS="${PODIUM_MAX_TASKS:-${PODIUM_NODE_MAX_TASKS:-4}}"
 DATA_DIR="${PODIUM_DATA_DIR:-${PODIUM_NODE_DATA_DIR:-/var/lib/podium-node}}"
+# The node's own /healthz, /readyz and /metrics. wait_online below polls it, so the installer
+# and the daemon have to agree on it: it is written into node.yaml rather than left to the
+# daemon's default.
+METRICS_LISTEN="${PODIUM_METRICS_LISTEN:-${PODIUM_NODE_METRICS_LISTEN:-127.0.0.1:9091}}"
 REPO="${PODIUM_REPO:-alvaroibarguen/podium}"
 BASE_URL="${PODIUM_RELEASE_BASE_URL:-https://github.com/${REPO}/releases}"
 RAW_URL="${PODIUM_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/main}"
@@ -205,6 +209,7 @@ write_config() {
     echo "transport: ${TRANSPORT}"
     echo "data_dir: ${DATA_DIR}"
     echo "max_tasks: ${MAX_TASKS}"
+    echo "metrics_listen: ${METRICS_LISTEN}"
     if [ -n "$LABELS" ]; then
       echo "labels:"
       echo "$LABELS" | tr ',' '\n' | while IFS= read -r label; do
@@ -258,14 +263,11 @@ install_unit() {
 # wait_online polls the node's own /readyz, which is 200 only while its stream to the control
 # plane is up. That is the node's own answer to "am I online", and it needs no credential.
 wait_online() {
-  local metrics deadline
-  metrics="$(awk -F': *' '/^metrics_listen:/ {print $2}' "${CONFIG_DIR}/node.yaml" 2>/dev/null || true)"
-  metrics="${metrics:-127.0.0.1:9091}"
-
+  local deadline
   deadline=$(( $(date +%s) + WAIT_SECONDS ))
   log "waiting for the node to come online (up to ${WAIT_SECONDS}s)"
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -fsS -o /dev/null "http://${metrics}/readyz" 2>/dev/null; then
+    if curl -fsS -o /dev/null "http://${METRICS_LISTEN}/readyz" 2>/dev/null; then
       log "node is online"
       printf '\n'
       printf 'Done. Check it from the control plane:\n\n'
@@ -282,7 +284,8 @@ wait_online() {
   done
 
   journalctl -u podium-node --no-pager -n 40 >&2 || true
-  die "podium-node did not come online within ${WAIT_SECONDS}s. The last 40 log lines are above."
+  die "podium-node did not come online within ${WAIT_SECONDS}s (polling \
+http://${METRICS_LISTEN}/readyz). The last 40 log lines are above."
 }
 
 main() {

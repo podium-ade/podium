@@ -169,6 +169,9 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 	scheduled := false
 	var wallMS int64
 	var failure string
+	// printed is the non-retryable error message the event stream has already shown in
+	// full. See verdict.
+	var printed string
 
 	out := newLogPrinter(e.stdout, e.stderr)
 	defer out.flush()
@@ -201,6 +204,7 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
 				if !ev.GetError().GetRetryable() {
 					failure = ev.GetError().GetMessage()
+					printed = failure
 				}
 				e.note("error: %s", ev.GetError().GetMessage())
 			}
@@ -233,7 +237,7 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 			if failure == "" {
 				failure = "task failed without an exit code"
 			}
-			e.note("failed: %s", failure)
+			e.note("failed: %s", verdict(failure, printed))
 			return &ExitError{Code: ExitInfra}
 		}
 		code := int(task.GetExitCode())
@@ -252,9 +256,26 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 		if failure == "" {
 			failure = "task ended " + taskStatusName(task.GetStatus()) + " without an exit code"
 		}
-		e.note("failed: %s", failure)
+		e.note("failed: %s", verdict(failure, printed))
 		return &ExitError{Code: ExitInfra}
 	}
+}
+
+// verdict is the one-line "failed: …" a run ends on. printed is the non-retryable error
+// message the stream already showed in full; when the reason is that same text, only its
+// first line is repeated and the reader is pointed at the copy above.
+//
+// A sidecar that never became ready carries up to a hundred lines of the sidecar's own log
+// inside its error. That blob used to be printed twice — once as `error:` and again as
+// `failed:` — on top of the live sidecar log stream that had already shown every line of it.
+func verdict(reason, printed string) string {
+	if reason != printed {
+		return reason
+	}
+	if head, _, more := strings.Cut(reason, "\n"); more {
+		return head + " (see the error above)"
+	}
+	return reason
 }
 
 // nodeOf reads back which node the task landed on, for the "scheduled on …" line. It is

@@ -49,7 +49,9 @@ SupplementaryGroups=docker
 # secret staged for a running task.
 StateDirectory=podium-node
 StateDirectoryMode=0700
-ReadWritePaths=/var/lib/podium-node
+# /tmp is here because ProtectSystem=strict below mounts everything else read-only, and the
+# event-socket fallback described at the bottom of this file writes there. See that comment.
+ReadWritePaths=/var/lib/podium-node /tmp
 
 ProtectSystem=strict
 ProtectHome=true
@@ -61,12 +63,16 @@ RestrictRealtime=true
 NoNewPrivileges=true
 LockPersonality=true
 
-# PrivateTmp is deliberately NOT set. When data_dir is deep enough that
-# <data_dir>/tasks/<id>/events.sock would exceed the 108-byte sun_path limit, the node falls
-# back to creating that socket under /tmp and bind-mounting it into the task container — and
-# a private /tmp is invisible to dockerd, so the mount would fail with an error that says
-# nothing useful. With the default /var/lib/podium-node the fallback never triggers; turn
-# PrivateTmp on only if you have also kept data_dir short.
+# PrivateTmp is deliberately NOT set, and there is no version of this unit where it may be.
+# When data_dir is deep enough that <data_dir>/tasks/<id>/events.sock would exceed the
+# 108-byte sun_path limit, the node falls back to creating that socket under /tmp and
+# bind-mounting it into the task container. A private /tmp is invisible to dockerd, so the
+# mount would fail with an error that says nothing useful — and ProtectSystem=strict above
+# makes /tmp read-only unless it is named in ReadWritePaths, which is why it is.
+#
+# With the default data_dir of /var/lib/podium-node the fallback never triggers at all (it
+# needs a data_dir longer than 41 characters). It is /tmp being the HOST's /tmp, not /tmp
+# being writable, that the fallback actually depends on.
 
 [Install]
 WantedBy=multi-user.target
