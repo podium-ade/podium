@@ -88,6 +88,28 @@ type Memory struct {
 	LearnedAt time.Time
 }
 
+// Operation is one unit of work Hindsight took on. It matters because Retain is
+// asynchronous: it returns once the work is ACCEPTED, and whether any fact came out of it
+// is decided later, by a worker this process never hears from. An operation is the only
+// place that outcome is recorded.
+type Operation struct {
+	ID string
+	// Type is Hindsight's task_type: retain, batch_retain, consolidation, and so on.
+	Type string
+	// Status is pending, processing, completed, failed or cancelled.
+	Status string
+	// DocumentID is what the retainer grouped the work under — the conductor's turn id, for
+	// a retain it started. Empty on the maintenance tasks Hindsight schedules itself.
+	DocumentID string
+	// ErrorMessage is Hindsight's own words about why it gave up, after its retries.
+	ErrorMessage string
+	RetryCount   int
+	UpdatedAt    time.Time
+}
+
+// OperationFailed is the terminal status that means no fact was written and none will be.
+const OperationFailed = "failed"
+
 // Item is one thing to remember. Hindsight extracts facts from Content with an LLM, so
 // Content is prose rather than a structured record.
 type Item struct {
@@ -120,6 +142,10 @@ type Client interface {
 	// single-memory delete: this is its curation tombstone, which keeps the row for audit
 	// and is reversible from Hindsight's own API.
 	Forget(ctx context.Context, id string) error
+	// FailedOperations is the work Hindsight accepted and then could not finish. Retain
+	// reports only that the work was taken, so without this a total extraction outage —
+	// a rejected model key, a model that no longer exists — is invisible to Podium.
+	FailedOperations(ctx context.Context, limit int) ([]Operation, error)
 	// Ready reports whether Hindsight and its database are reachable.
 	Ready(ctx context.Context) error
 }
@@ -259,6 +285,28 @@ func (c *HTTP) Forget(ctx context.Context, id string) error {
 	}
 	body := updateRequest{State: "invalidated", Reason: "forgotten from the Podium UI"}
 	return c.do(ctx, http.MethodPatch, c.path("memories", id), nil, body, nil)
+}
+
+// FailedOperations is the newest page of work Hindsight gave up on.
+//
+// exclude_parents is what keeps the count honest: a retain is recorded twice, once as the
+// batch that wraps it and once as the chunk inside, and both go to failed together. The
+// parent carries no error the child does not.
+func (c *HTTP) FailedOperations(ctx context.Context, limit int) ([]Operation, error) {
+	query := url.Values{
+		"status":          {OperationFailed},
+		"limit":           {strconv.Itoa(clampLimit(limit))},
+		"exclude_parents": {"true"},
+	}
+	var out operationsResponse
+	if err := c.do(ctx, http.MethodGet, c.path("operations"), query, nil, &out); err != nil {
+		return nil, err
+	}
+	items := make([]Operation, 0, len(out.Operations))
+	for _, o := range out.Operations {
+		items = append(items, o.operation())
+	}
+	return items, nil
 }
 
 // Ready is the /readyz probe. It is Hindsight's own /health, which reports its database
@@ -443,6 +491,33 @@ func (u memoryUnit) memory() Memory {
 type updateRequest struct {
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
+}
+
+type operationsResponse struct {
+	Operations []operation `json:"operations"`
+	Total      int         `json:"total"`
+}
+
+type operation struct {
+	ID           string `json:"id"`
+	TaskType     string `json:"task_type"`
+	Status       string `json:"status"`
+	DocumentID   string `json:"document_id"`
+	ErrorMessage string `json:"error_message"`
+	RetryCount   int    `json:"retry_count"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+func (o operation) operation() Operation {
+	return Operation{
+		ID:           o.ID,
+		Type:         o.TaskType,
+		Status:       o.Status,
+		DocumentID:   o.DocumentID,
+		ErrorMessage: o.ErrorMessage,
+		RetryCount:   o.RetryCount,
+		UpdatedAt:    parseTime(o.UpdatedAt),
+	}
 }
 
 // ---------------------------------------------------------------------------
