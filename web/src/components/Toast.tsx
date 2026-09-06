@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 interface Toast {
   id: number;
@@ -34,11 +35,12 @@ export function ToastHost({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto rounded border px-3 py-2 text-sm shadow-lg ${
+            className={cn(
+              "pointer-events-auto rounded-lg border px-3 py-2 text-sm shadow-sm",
               t.tone === "err"
                 ? "border-err/50 bg-panel text-err"
-                : "border-ok/50 bg-panel text-ok"
-            }`}
+                : "border-ok/50 bg-panel text-ok",
+            )}
           >
             {t.text}
           </div>

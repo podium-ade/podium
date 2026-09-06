@@ -93,14 +93,14 @@ export function ChatPanel() {
   const list = chats.data?.chats ?? [];
 
   return (
-    <div className="space-y-2">
+    <div className="flex h-full min-h-0 flex-col">
       {isAgentUnreachable(chats.error) ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+        <p className="mx-3 mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
           podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
         </p>
       ) : null}
 
-      <div className="flex min-h-140 flex-col gap-3 sm:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <ChatRail
           chats={list}
           active={active}
@@ -109,7 +109,7 @@ export function ChatPanel() {
           creating={create.isPending}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
         />
-        <div className="flex min-w-0 flex-1 flex-col rounded border border-border bg-panel">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
           {active === "" ? (
             <div className="p-4">
               <Empty
@@ -152,13 +152,13 @@ function ChatRail({
   onOpen: (id: string) => void;
 }) {
   return (
-    <div className="flex w-full shrink-0 flex-col gap-2 rounded border border-border bg-panel p-2 sm:w-70 sm:rounded-none sm:border-0 sm:border-r sm:pr-3">
+    <div className="flex w-full shrink-0 flex-col gap-2 border-b border-border bg-panel p-3 sm:w-64 sm:border-r sm:border-b-0">
       <button
         type="button"
         data-testid="chat-new"
         disabled={creating}
         onClick={onNew}
-        className="rounded border border-accent/40 bg-accent/15 px-3 py-1.5 text-sm text-fg disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-accent"
+        className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         {creating ? "Opening…" : "New chat"}
       </button>
@@ -362,8 +362,8 @@ function Bubble({
         data-testid="chat-message"
         data-role={message.role}
         title={absolute(message.ts)}
-        className={`max-w-full min-w-0 rounded border px-3 py-2 text-sm ${
-          mine ? "border-accent/30 bg-accent/15" : "border-border bg-panel"
+        className={`max-w-full min-w-0 rounded-lg border px-3 py-2 text-sm ${
+          mine ? "border-accent/30 bg-accent/15" : "border-border bg-background"
         }`}
       >
         <div className="min-w-0">{renderMarkdown(message.text, `m${message.seq}-`)}</div>

@@ -7,6 +7,8 @@ import { LogViewer } from "../components/LogViewer";
 import { Skeleton } from "../components/Skeleton";
 import { TaskMessage } from "../components/TaskMessage";
 import { useToast } from "../components/Toast";
+import { Alert } from "../components/ui/alert";
+import { buttonVariants } from "../components/ui/button";
 import { TaskStatus } from "../gen/podium/v1/common_pb";
 import type { Task } from "../gen/podium/v1/task_pb";
 import { useTaskEvents } from "../hooks/useTaskEvents";
@@ -97,7 +99,7 @@ function TaskDetail({ id }: { id: string }) {
   const outcome = taskOutcome(task);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Link to="/" className="text-xs text-muted hover:text-fg">
           ← Tasks
@@ -111,7 +113,7 @@ function TaskDetail({ id }: { id: string }) {
             // "requeue" on the wire: re-run creates a new task from this one's spec.
             <Link
               to={`/submit?rerun=${task.id}`}
-              className="rounded border border-border px-2 py-1 text-xs hover:border-accent hover:text-accent"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               Re-run
             </Link>
@@ -151,7 +153,7 @@ function TaskDetail({ id }: { id: string }) {
 
       <Explain task={task} queued={queued} outcome={outcome} />
 
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-1 rounded border border-border bg-panel p-3 text-xs sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-xl border border-border bg-card p-4 text-xs shadow-xs sm:grid-cols-4">
         <Field label="Image" value={task.spec?.image ?? "—"} mono />
         <Field label="Requester" value={task.requestedBy || "—"} />
         <Field label="Node" value={task.nodeId || "—"} mono />
@@ -181,7 +183,7 @@ function TaskDetail({ id }: { id: string }) {
         />
       </dl>
 
-      <details className="rounded border border-border bg-panel">
+      <details className="rounded-xl border border-border bg-card shadow-xs">
         <summary className="cursor-pointer px-3 py-2 text-xs font-medium">Spec</summary>
         <pre className="overflow-x-auto border-t border-border px-3 py-2 font-mono text-xs">
           {specToYaml(task.spec)}
@@ -190,7 +192,7 @@ function TaskDetail({ id }: { id: string }) {
 
       <ArtifactsPanel taskId={task.id} refetch={!terminal || task.status === TaskStatus.SUCCEEDED} />
 
-      <section className="rounded border border-border bg-panel">
+      <section className="rounded-xl border border-border bg-card shadow-xs">
         <h2 className="border-b border-border px-3 py-2 text-xs font-medium">Timeline</h2>
         {timeline.length === 0 ? (
           <p className="px-3 py-2 text-xs text-muted">no events yet</p>
@@ -233,21 +235,18 @@ function Explain({
 }) {
   if (queued) {
     return (
-      <p
-        data-testid="queued-reason"
-        className="rounded border border-idle/40 bg-idle/10 px-3 py-2 text-xs"
-      >
+      <Alert data-testid="queued-reason" variant="info">
         <b>Not scheduled yet.</b> {queued}
-      </p>
+      </Alert>
     );
   }
   if (outcome === "") return null;
-  const tone =
+  const variant =
     task.status === TaskStatus.LOST
-      ? "border-lost/50 bg-lost/10 text-lost"
+      ? "lost"
       : task.status === TaskStatus.FAILED
-        ? "border-err/50 bg-err/10 text-err"
-        : "border-warn/50 bg-warn/10 text-warn";
+        ? "destructive"
+        : "warn";
   const heading =
     task.status === TaskStatus.LOST
       ? "Lost, not failed."
@@ -257,10 +256,10 @@ function Explain({
           ? "Cancelled."
           : "";
   return (
-    <p data-testid="task-outcome" className={`rounded border px-3 py-2 text-xs ${tone}`}>
+    <Alert data-testid="task-outcome" variant={variant}>
       {heading ? <b>{heading} </b> : null}
       {outcome}
-    </p>
+    </Alert>
   );
 }
 

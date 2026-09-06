@@ -4,6 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { errorMessage, identity, isUnauthenticated } from "../lib/client";
 import { getToken, onRejected, setToken } from "../lib/auth";
 import { ViewerContext, viewerFrom } from "../lib/identity";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 /**
  * TokenGate decides whether this deployment needs a credential from the browser at all.
@@ -47,48 +51,55 @@ export function TokenGate({ children }: { children: ReactNode }) {
     probe.error && !isUnauthenticated(probe.error) ? errorMessage(probe.error) : undefined;
 
   return (
-    <div className="grid h-full place-items-center p-6">
-      <form
-        className="w-full max-w-md rounded border border-border bg-panel p-6"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setToken(value);
-          setForced(false);
-          setAttempt((n) => n + 1);
-        }}
-      >
-        <h1 className="text-lg font-semibold">podium</h1>
-        <p className="mt-2 text-sm text-muted">
-          This server is on the <code className="font-mono text-fg">dev</code> transport, which
-          authenticates every API call with a shared bearer token. Paste{" "}
-          <code className="font-mono text-fg">PODIUM_DEV_TOKEN</code> to continue. It is kept in
-          this browser&apos;s local storage and sent as an{" "}
-          <code className="font-mono">Authorization</code> header.
-        </p>
-        <p className="mt-2 text-xs text-muted">
-          A server on a tailnet never shows this: Tailscale identifies you and there is no token.
-        </p>
-        {rejected ? <p className="mt-3 text-sm text-err">Token rejected — re-enter it.</p> : null}
-        {failure ? <p className="mt-3 text-sm text-err">{failure}</p> : null}
-        <label className="mt-4 block text-xs text-muted" htmlFor="dev-token">
-          Dev token
-        </label>
-        <input
-          id="dev-token"
-          type="password"
-          autoFocus
-          autoComplete="off"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          className="mt-1 w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-sm outline-none focus:border-accent"
-        />
-        <button
-          type="submit"
-          className="mt-4 w-full rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg hover:opacity-90"
-        >
-          Connect
-        </button>
-      </form>
+    <div className="grid h-full place-items-center bg-background p-6">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="font-mono text-base">
+            podium<span className="text-accent">.</span>
+          </CardTitle>
+          <CardDescription>
+            This server is on the <code className="font-mono text-fg">dev</code> transport, which
+            authenticates every API call with a shared bearer token. Paste{" "}
+            <code className="font-mono text-fg">PODIUM_DEV_TOKEN</code> to continue. It is kept in
+            this browser&apos;s local storage and sent as an{" "}
+            <code className="font-mono">Authorization</code> header.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setToken(value);
+              setForced(false);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            <p className="text-xs text-muted">
+              A server on a tailnet never shows this: Tailscale identifies you and there is no
+              token.
+            </p>
+            {rejected ? (
+              <p className="mt-3 text-sm text-err">Token rejected — re-enter it.</p>
+            ) : null}
+            {failure ? <p className="mt-3 text-sm text-err">{failure}</p> : null}
+            <Label className="mt-4 block" htmlFor="dev-token">
+              Dev token
+            </Label>
+            <Input
+              id="dev-token"
+              type="password"
+              autoFocus
+              autoComplete="off"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="mt-1 font-mono"
+            />
+            <Button type="submit" className="mt-4 w-full">
+              Connect
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

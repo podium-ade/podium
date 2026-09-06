@@ -174,13 +174,10 @@ describe("AgentPage", () => {
     expect(getSettings).not.toHaveBeenCalled();
   });
 
-  it("redirects /agent to the settings tab", async () => {
+  it("redirects /agent to the chat tab", async () => {
     mount("/agent");
-    expect(await screen.findByText("Anthropic")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
   });
 
   it("has one tab per screen and each is a real route", async () => {
@@ -193,12 +190,12 @@ describe("AgentPage", () => {
     // The tabs this build ships. This assertion exists so a tab cannot appear without a
     // test noticing: add the line to the tabs array and this list together.
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Settings",
-      "Profile",
-      "Skills",
+      "Chat",
       "Sessions",
       "Memory",
-      "Chat",
+      "Profile",
+      "Skills",
+      "Settings",
     ]);
 
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));

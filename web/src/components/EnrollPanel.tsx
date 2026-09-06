@@ -4,6 +4,9 @@ import { admin, errorMessage } from "../lib/client";
 import { enrollCommand, isTailnetServer } from "../lib/enroll";
 import { absolute } from "../lib/format";
 import { useToast } from "./Toast";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Input } from "./ui/input";
 
 const UNITS: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
 
@@ -34,10 +37,13 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
   const command = create.data ? enrollCommand(server, create.data.token) : "";
 
   return (
-    <section className="rounded border border-border bg-panel p-3">
-      <h2 className="text-sm font-medium">Add a node</h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>Add a node</CardTitle>
+      </CardHeader>
+      <CardContent>
       <form
-        className="mt-3 flex flex-wrap items-end gap-3 text-xs"
+        className="flex flex-wrap items-end gap-3 text-xs"
         onSubmit={(e) => {
           e.preventDefault();
           setCopied(false);
@@ -46,23 +52,23 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
       >
         <label className="flex flex-col gap-1">
           <span className="text-muted">Labels (comma separated)</span>
-          <input
+          <Input
             aria-label="Labels"
             value={labels}
             onChange={(e) => setLabels(e.target.value)}
             placeholder="linux/arm64, browser"
-            className="w-64 rounded border border-border bg-bg px-2 py-1 font-mono outline-none focus:border-accent"
+            className="w-64 font-mono"
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted">TTL</span>
-          <input
+          <Input
             aria-label="TTL"
             type="number"
             min={1}
             value={ttl}
             onChange={(e) => setTtl(Number(e.target.value))}
-            className="w-20 rounded border border-border bg-bg px-2 py-1 outline-none focus:border-accent"
+            className="w-20"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -80,13 +86,9 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          disabled={create.isPending}
-          className="rounded bg-accent px-3 py-1.5 font-medium text-bg disabled:opacity-50"
-        >
+        <Button type="submit" size="sm" disabled={create.isPending}>
           {create.isPending ? "Creating…" : "Create enrollment token"}
-        </button>
+        </Button>
       </form>
 
       {create.data ? (
@@ -128,6 +130,7 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
           )}
         </div>
       ) : null}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

@@ -2,8 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
+import { PageHeader } from "../components/PageHeader";
 import { TableSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
+import { Alert } from "../components/ui/alert";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 import { Code, connectCode, errorMessage, secrets } from "../lib/client";
 import { absolute, relative } from "../lib/format";
 
@@ -61,101 +75,100 @@ export function SecretsPage() {
   const noMasterKey = connectCode(query.error) === Code.FailedPrecondition;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-base font-semibold">Secrets</h1>
-
-      <p className="text-xs text-muted">
-        A secret&apos;s value cannot be viewed after it is saved. There is no read API and this
-        screen has no way to show one: a value leaves the server only inside an assignment, on
-        its way to the node that is about to run a task that named it. To change one, set it
-        again — the version increases and tasks scheduled after that get the new value.
-      </p>
+    <div className="space-y-5">
+      <PageHeader
+        title="Secrets"
+        description="A secret's value cannot be viewed after it is saved. There is no read API and this screen has no way to show one: a value leaves the server only inside an assignment, on its way to the node that is about to run a task that named it. To change one, set it again — the version increases and tasks scheduled after that get the new value."
+      />
 
       {noMasterKey ? (
-        <p className="rounded border border-warn/50 bg-warn/10 px-3 py-2 text-xs text-warn">
+        <Alert variant="warn">
           This server has no master key configured, so it cannot store secrets. Set{" "}
           <code className="font-mono">PODIUM_MASTER_KEY_FILE</code> and restart it.
-        </p>
+        </Alert>
       ) : null}
 
-      <section className="rounded border border-border bg-panel p-3">
-        <h2 className="text-sm font-medium">Set a secret</h2>
-        <form
-          className="mt-3 space-y-3 text-xs"
-          onSubmit={(e) => {
-            e.preventDefault();
-            set.mutate();
-          }}
-        >
-          <label className="flex flex-col gap-1">
-            <span className="text-muted">Name</span>
-            <input
-              aria-label="Secret name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="DB_PASSWORD"
-              className="w-full max-w-sm rounded border border-border bg-bg px-2 py-1 font-mono outline-none focus:border-accent"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-muted">Value</span>
-            <textarea
-              aria-label="Secret value"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              rows={4}
-              spellCheck={false}
-              autoComplete="off"
-              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono outline-none focus:border-accent"
-            />
-          </label>
-          <p className="text-muted">
-            The value is sent verbatim as bytes. A trailing newline is part of the secret — the
-            CLI strips one from stdin, the API strips nothing.
-          </p>
-          <button
-            type="submit"
-            disabled={set.isPending || name.trim() === "" || value === ""}
-            className="rounded bg-accent px-3 py-1.5 font-medium text-bg disabled:opacity-50"
+      <Card>
+        <CardHeader>
+          <CardTitle>Set a secret</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="space-y-3 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              set.mutate();
+            }}
           >
-            {set.isPending ? "Saving…" : "Save secret"}
-          </button>
-        </form>
-      </section>
+            <label className="flex flex-col gap-1">
+              <span className="text-muted">Name</span>
+              <Input
+                aria-label="Secret name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="DB_PASSWORD"
+                className="max-w-sm font-mono"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-muted">Value</span>
+              <Textarea
+                aria-label="Secret value"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                rows={4}
+                spellCheck={false}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </label>
+            <p className="text-muted">
+              The value is sent verbatim as bytes. A trailing newline is part of the secret — the
+              CLI strips one from stdin, the API strips nothing.
+            </p>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={set.isPending || name.trim() === "" || value === ""}
+            >
+              {set.isPending ? "Saving…" : "Save secret"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {query.isPending ? (
         <TableSkeleton cols={5} />
       ) : rows.length === 0 ? (
         <Empty title="No secrets" hint="Nothing is stored yet. Set one above." />
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-panel text-xs text-muted">
-              <tr>
-                <th className="px-3 py-2 font-medium">Name</th>
-                <th className="px-3 py-2 font-medium">Version</th>
-                <th className="px-3 py-2 font-medium">Updated</th>
-                <th className="px-3 py-2 font-medium">Updated by</th>
-                <th className="px-3 py-2 font-medium">Key</th>
-                <th className="px-3 py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Name</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead>Updated by</TableHead>
+              <TableHead>Key</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
               {rows.map((s) => (
-                <tr key={s.name} className="border-t border-border">
-                  <td className="px-3 py-1.5 font-mono text-xs">{s.name}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs">{s.version}</td>
-                  <td
-                    className="px-3 py-1.5 text-xs whitespace-nowrap"
+                <TableRow key={s.name}>
+                  <TableCell className="font-mono text-xs">{s.name}</TableCell>
+                  <TableCell className="font-mono text-xs">{s.version}</TableCell>
+                  <TableCell
+                    className="text-xs whitespace-nowrap"
                     title={absolute(s.updatedAt)}
                   >
                     {relative(s.updatedAt)}
-                  </td>
-                  <td className="px-3 py-1.5 text-xs">{s.createdBy || "—"}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs">
+                  </TableCell>
+                  <TableCell className="text-xs">{s.createdBy || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs">
                     <Chip>{s.keyId || "—"}</Chip>
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-xs">
+                  </TableCell>
+                  <TableCell className="text-right text-xs">
                     {confirming === s.name ? (
                       <span className="flex items-center justify-end gap-2">
                         <span className="text-muted">Delete {s.name}?</span>
@@ -187,12 +200,11 @@ export function SecretsPage() {
                         Delete
                       </button>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+          </TableBody>
+        </Table>
       )}
 
       {mixedKeys ? (
