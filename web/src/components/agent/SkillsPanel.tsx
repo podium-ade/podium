@@ -155,7 +155,7 @@ export function SkillsPanel() {
             setSaveError(undefined);
             setEditing({});
           }}
-          className="ml-auto rounded bg-accent px-3 py-1.5 text-xs font-medium text-bg"
+          className="ml-auto rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
         >
           New skill
         </button>

@@ -3,8 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Badge } from "../components/Badge";
 import { Empty } from "../components/Empty";
+import { PageHeader } from "../components/PageHeader";
 import { TableSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
+import { buttonVariants } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 import { TaskStatus } from "../gen/podium/v1/common_pb";
 import { errorMessage, tasks } from "../lib/client";
 import {
@@ -17,6 +28,7 @@ import {
   taskStatusLabel,
   taskStatusTone,
 } from "../lib/format";
+import { cn } from "../lib/utils";
 
 const PAGE_SIZE = 50;
 const POLL_MS = 5000;
@@ -64,38 +76,42 @@ export function TasksPage() {
   const rows = query.data?.tasks ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <PageHeader
+        title="Tasks"
+        description="Work that ran, is running, or is waiting for a node."
+        actions={
+          <Link to="/submit" className={buttonVariants({ size: "sm" })}>
+            New task
+          </Link>
+        }
+      />
+
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="mr-2 text-base font-semibold">Tasks</h1>
         {TASK_STATUS_FILTERS.map((s) => (
           <button
             key={s}
             type="button"
             aria-pressed={statuses.includes(s)}
             onClick={() => toggle(s)}
-            className={`rounded border px-2 py-0.5 text-xs ${
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-xs transition-colors",
               statuses.includes(s)
-                ? "border-accent text-accent"
-                : "border-border text-muted hover:text-fg"
-            }`}
+                ? "border-accent text-accent bg-accent/10"
+                : "border-border text-muted hover:text-fg",
+            )}
           >
             {taskStatusLabel(s)}
           </button>
         ))}
-        <input
+        <Input
           type="search"
           aria-label="Search tasks"
           placeholder="id prefix or image"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="w-52 rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs outline-none focus:border-accent"
+          className="h-8 w-52 font-mono text-xs"
         />
-        <Link
-          to="/submit"
-          className="ml-auto rounded bg-accent px-3 py-1 text-xs font-medium text-bg hover:opacity-90"
-        >
-          New task
-        </Link>
       </div>
 
       {query.isPending ? (
@@ -110,68 +126,63 @@ export function TasksPage() {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-panel text-xs text-muted">
-              <tr>
-                <th className="px-3 py-2 font-medium">Task</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Image</th>
-                <th className="px-3 py-2 font-medium">Requester</th>
-                <th className="px-3 py-2 font-medium">Node</th>
-                <th className="px-3 py-2 font-medium">Created</th>
-                <th className="px-3 py-2 font-medium">Duration</th>
-                <th className="px-3 py-2 font-medium">Exit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => {
-                const queued = queuedExplanation(t);
-                const outcome = t.status === TaskStatus.LOST ? "the node running it went away" : "";
-                return (
-                  <tr key={t.id} className="border-t border-border hover:bg-panel">
-                    <td className="px-3 py-1.5 font-mono text-xs">
-                      <Link to={`/tasks/${t.id}`} className="text-accent hover:underline">
-                        {t.id}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <Badge tone={taskStatusTone(t.status)}>{taskStatusLabel(t.status)}</Badge>
-                      {/* Why a queued task is still queued is the only thing worth knowing
-                          about it, so it goes in the list and not just the detail page. */}
-                      {queued ? (
-                        <div
-                          data-testid="queued-reason"
-                          className="mt-0.5 max-w-xs text-xs text-muted"
-                        >
-                          {queued}
-                        </div>
-                      ) : null}
-                      {outcome ? (
-                        <div className="mt-0.5 text-xs text-lost">{outcome}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{t.spec?.image ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-xs">{t.requestedBy || "—"}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{t.nodeId || "—"}</td>
-                    <td
-                      className="px-3 py-1.5 text-xs whitespace-nowrap"
-                      title={absolute(t.createdAt)}
-                    >
-                      {relative(t.createdAt)}
-                    </td>
-                    <td className="px-3 py-1.5 text-xs whitespace-nowrap">
-                      {taskDuration(t.startedAt, t.finishedAt)}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-xs" title={taskOutcome(t)}>
-                      {t.exitCode ?? "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Task</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Image</TableHead>
+              <TableHead>Requester</TableHead>
+              <TableHead>Node</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Duration</TableHead>
+              <TableHead>Exit</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((t) => {
+              const queued = queuedExplanation(t);
+              const outcome = t.status === TaskStatus.LOST ? "the node running it went away" : "";
+              return (
+                <TableRow key={t.id}>
+                  <TableCell className="font-mono text-xs">
+                    <Link to={`/tasks/${t.id}`} className="text-accent hover:underline">
+                      {t.id}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge tone={taskStatusTone(t.status)}>{taskStatusLabel(t.status)}</Badge>
+                    {/* Why a queued task is still queued is the only thing worth knowing
+                        about it, so it goes in the list and not just the detail page. */}
+                    {queued ? (
+                      <div
+                        data-testid="queued-reason"
+                        className="mt-0.5 max-w-xs text-xs text-muted"
+                      >
+                        {queued}
+                      </div>
+                    ) : null}
+                    {outcome ? (
+                      <div className="mt-0.5 text-xs text-lost">{outcome}</div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{t.spec?.image ?? "—"}</TableCell>
+                  <TableCell className="text-xs">{t.requestedBy || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs">{t.nodeId || "—"}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap" title={absolute(t.createdAt)}>
+                    {relative(t.createdAt)}
+                  </TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    {taskDuration(t.startedAt, t.finishedAt)}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs" title={taskOutcome(t)}>
+                    {t.exitCode ?? "—"}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
 
       <div className="flex items-center gap-2 text-xs">
@@ -179,7 +190,7 @@ export function TasksPage() {
           type="button"
           disabled={cursors.length === 1}
           onClick={() => setCursors((prev) => prev.slice(0, -1))}
-          className="rounded border border-border px-2 py-1 disabled:opacity-40"
+          className="rounded-md border border-border px-2 py-1 disabled:opacity-40"
         >
           Previous
         </button>
@@ -187,7 +198,7 @@ export function TasksPage() {
           type="button"
           disabled={!query.data?.nextCursor}
           onClick={() => setCursors((prev) => [...prev, query.data?.nextCursor ?? ""])}
-          className="rounded border border-border px-2 py-1 disabled:opacity-40"
+          className="rounded-md border border-border px-2 py-1 disabled:opacity-40"
         >
           Next
         </button>

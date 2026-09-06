@@ -70,7 +70,7 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
 
   if (loading) {
     return (
-      <section className="space-y-3 rounded border border-border bg-panel p-4" aria-busy="true">
+      <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs" aria-busy="true">
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />
@@ -81,7 +81,7 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
   return (
     <form
       data-testid="profile-card"
-      className="space-y-4 rounded border border-border bg-panel p-4"
+      className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs"
       onSubmit={(e) => {
         e.preventDefault();
         onSave({

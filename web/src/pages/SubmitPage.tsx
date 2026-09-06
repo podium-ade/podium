@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
+import { PageHeader } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { SpecForm } from "../components/SpecForm";
 import type { TaskSpec } from "../gen/podium/v1/common_pb";
@@ -41,13 +42,20 @@ export function SubmitPage() {
   const spec = source.data?.task?.spec;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-base font-semibold">{rerun ? "Re-run task" : "New task"}</h1>
-        <Link to="/" className="text-xs text-muted hover:text-fg">
-          ← Tasks
-        </Link>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title={rerun ? "Re-run task" : "New task"}
+        description={
+          rerun
+            ? "A new task from this spec — a terminal task has no outgoing edges, so this is not a restart."
+            : "Queue work. The scheduler places it on the next eligible node."
+        }
+        actions={
+          <Link to="/" className="text-xs text-muted hover:text-fg">
+            ← Tasks
+          </Link>
+        }
+      />
 
       {rerun !== "" && source.error ? (
         <p className="text-xs text-err">
