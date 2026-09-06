@@ -179,6 +179,35 @@ export function start(opts: {
   instruction: string;
   env: NodeJS.ProcessEnv;
 }): Run {
+  const { argv, cwd, env } = invocation(opts);
+  const child = spawn(Binary, argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  return { child, argv };
+}
+
+/**
+ * invocation is how the harness is called: the arguments, the directory it runs in, and the
+ * environment it runs with. Separated from the spawn so it can be asserted without one.
+ *
+ * OPENCODE_CONFIG is what makes the config above reach the harness at all. `--dir` names the
+ * workspace as the project, and the project — not this process's working directory — is
+ * where the harness looks for an opencode.json. Without the variable it finds no config, and
+ * `--agent podium` resolves to nothing:
+ *
+ *     ! agent "podium" not found. Falling back to default agent
+ *
+ * which is a warning on stderr and a turn that runs anyway, on the harness's own default
+ * agent: no system prompt of ours, and no tool allow-list — the skill's `allowed_tools`
+ * silently stops being a restriction.
+ */
+export function invocation(opts: {
+  configDir: string;
+  workdir: string;
+  providerID: string;
+  model: string;
+  effort?: string;
+  instruction: string;
+  env: NodeJS.ProcessEnv;
+}): { argv: string[]; cwd: string; env: NodeJS.ProcessEnv } {
   const argv = [
     "run",
     "--format",
@@ -196,12 +225,11 @@ export function start(opts: {
   }
   argv.push(opts.instruction);
 
-  const child = spawn(Binary, argv, {
+  return {
+    argv,
     cwd: opts.configDir,
-    env: opts.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return { child, argv };
+    env: { ...opts.env, OPENCODE_CONFIG: join(opts.configDir, ConfigName) },
+  };
 }
 
 /**

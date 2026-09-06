@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AgentName, KnownTools, MemoryServer, writeConfig } from "./opencode.js";
+import { AgentName, invocation, KnownTools, MemoryServer, writeConfig } from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "octest-"));
@@ -84,5 +84,48 @@ describe("writeConfig", () => {
     const { config } = write();
     expect(config.mcp).toBeUndefined();
     expect(config.agent[AgentName].tools[`${MemoryServer}*`]).toBeUndefined();
+  });
+});
+
+describe("invocation", () => {
+  const base = {
+    configDir: "/tmp/podium-turn-abc",
+    workdir: "/workspace",
+    providerID: "xai",
+    model: "grok-4.6",
+    instruction: "do the thing",
+    env: { PATH: "/usr/bin" },
+  };
+
+  it("points the harness at the config it just wrote", () => {
+    // Without this the harness looks for a config in the project --dir names, finds none,
+    // and runs `--agent podium` as its own default agent: no system prompt, no allow-list.
+    const { env } = invocation(base);
+    expect(env["OPENCODE_CONFIG"]).toBe("/tmp/podium-turn-abc/opencode.json");
+    expect(env["PATH"]).toBe("/usr/bin");
+  });
+
+  it("runs the turn's agent against the workspace", () => {
+    const { argv, cwd } = invocation(base);
+    expect(argv).toEqual([
+      "run",
+      "--format",
+      "json",
+      "--agent",
+      AgentName,
+      "--auto",
+      "--model",
+      "xai/grok-4.6",
+      "--dir",
+      "/workspace",
+      "do the thing",
+    ]);
+    expect(cwd).toBe("/tmp/podium-turn-abc");
+  });
+
+  it("passes an effort through as the variant, and omits it when the profile names none", () => {
+    expect(invocation({ ...base, effort: "high" }).argv).toContain("--variant");
+    expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
+    expect(invocation(base).argv).not.toContain("--variant");
   });
 });
