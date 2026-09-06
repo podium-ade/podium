@@ -5,13 +5,14 @@ import "github.com/prometheus/client_golang/prometheus"
 // Metrics is what the conductor reports on /metrics. It is a struct rather than package
 // globals so two conductors in one test process do not fight over a default registry.
 type Metrics struct {
-	Turns                  *prometheus.CounterVec
-	TurnDuration           *prometheus.HistogramVec
-	TurnsWithoutAccounting prometheus.Counter
-	RelayedMessages        *prometheus.CounterVec
-	SourceEvents           *prometheus.CounterVec
-	FollowReconnects       prometheus.Counter
-	MemoryRetains          *prometheus.CounterVec
+	Turns                   *prometheus.CounterVec
+	TurnDuration            *prometheus.HistogramVec
+	TurnsWithoutAccounting  prometheus.Counter
+	RelayedMessages         *prometheus.CounterVec
+	SourceEvents            *prometheus.CounterVec
+	FollowReconnects        prometheus.Counter
+	MemoryRetains           *prometheus.CounterVec
+	MemoryExtractionsFailed prometheus.Gauge
 }
 
 // NewMetrics registers the conductor's collectors on reg.
@@ -45,13 +46,22 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}),
 		MemoryRetains: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_memory_retain_total",
-			Help: "End-of-turn writes to the shared memory, by result: ok, error or redacted. " +
-				"A rising error count is a memory outage and never a failed turn.",
+			Help: "End-of-turn hand-offs to the shared memory, by result: accepted, error or " +
+				"redacted. `accepted` means Hindsight took the work, NOT that a fact was " +
+				"written — extraction happens afterwards and is counted by " +
+				"podium_agent_memory_extraction_failed. A rising error count is a memory " +
+				"outage and never a failed turn.",
 		}, []string{"result"}),
+		MemoryExtractionsFailed: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "podium_agent_memory_extraction_failed",
+			Help: "Retains Hindsight accepted and then failed to extract any fact from, as of " +
+				"the last check. Anything above zero means memories are being lost silently: " +
+				"the turns looked fine and the retains were counted as accepted.",
+		}),
 	}
 	if reg != nil {
 		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.RelayedMessages,
-			m.SourceEvents, m.FollowReconnects, m.MemoryRetains)
+			m.SourceEvents, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m
 }

@@ -126,6 +126,12 @@ func New(opts Options) (*Conductor, error) {
 func (c *Conductor) Run(ctx context.Context) error {
 	c.recover(ctx)
 
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.watchExtractions(ctx)
+	}()
+
 	for _, src := range c.sources {
 		c.wg.Add(1)
 		go func(src Source) {
