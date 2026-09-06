@@ -3,6 +3,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentProfileSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { catalogue } from "../../test/agents";
 import { ProfileCard } from "./ProfileCard";
 
 const onSave = vi.fn();
@@ -24,7 +25,12 @@ function profile(fields: MessageInitShape<typeof AgentProfileSchema> = {}) {
 function mount(p = profile()) {
   onSave.mockReset();
   return render(
-    <ProfileCard profile={p} skills={["analyst", "general"]} onSave={onSave} />,
+    <ProfileCard
+      profile={p}
+      skills={["analyst", "general"]}
+      agents={catalogue()}
+      onSave={onSave}
+    />,
   );
 }
 
@@ -32,8 +38,9 @@ describe("ProfileCard", () => {
   it("shows the file's value beside every field and leaves the inputs empty when nothing overrides it", () => {
     mount();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
-    expect(screen.getByLabelText("Model")).toHaveValue("");
     expect(screen.getByLabelText("Default skill")).toHaveValue("");
+    // The model is a picker now, and with nothing overriding it it offers the file's value.
+    expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("Use profile.yaml's");
     // The file is what is in force, so it has to be on the screen.
     expect(screen.getAllByText("Podium").length).toBeGreaterThan(0);
     expect(screen.getByText("/etc/podium/agent")).toBeInTheDocument();
@@ -53,6 +60,8 @@ describe("ProfileCard", () => {
     expect(onSave).toHaveBeenCalledWith({
       displayName: "",
       model: "",
+      agent: "",
+      effort: "",
       defaultSkill: "",
       chatDefaultSkill: "",
     });

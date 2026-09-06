@@ -251,7 +251,7 @@ func turnBrief(instruction string) agentBrief {
 		Skill: agentSkill{
 			Name:         "general",
 			SystemPrompt: "Answer the question. Use the tools you have to check before you answer.",
-			AllowedTools: []string{"Read", "Grep", "Glob", "Bash"},
+			AllowedTools: []string{"read", "grep", "glob", "bash"},
 			MaxTurns:     20,
 		},
 		Transcript:          []agentUtterance{},

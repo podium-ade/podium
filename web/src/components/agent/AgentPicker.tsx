@@ -1,0 +1,554 @@
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { AgentBackend, AgentModel } from "../../gen/podium/agent/v1/agent_pb";
+import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { BackendMark } from "./BackendMark";
+
+export type AgentPickerProps = {
+  value: AgentChoice;
+  onChange: (next: AgentChoice) => void;
+  /** The catalogue from ListAgents. Empty while it loads. */
+  agents: AgentBackend[];
+  /**
+   * What an empty choice means here, and what to call it. A skill inherits the profile's;
+   * the profile falls back to profile.yaml's. Undefined removes the option entirely.
+   */
+  inherit?: { label: string; hint?: string };
+  /** The effective triple when this one is empty, shown on the inherit row. */
+  inherited?: AgentChoice;
+  disabled?: boolean;
+  loading?: boolean;
+  /** Prefix for the aria-labels, so two pickers on one screen are distinguishable. */
+  label: string;
+};
+
+/**
+ * AgentPicker is one control for the three things that decide what a turn actually runs:
+ * which backend, which model, and how hard it thinks.
+ *
+ * They are one control because they are one decision. Picking a model picks its backend —
+ * grok-4.6 only runs on Grok — so a separate agent dropdown would only ever be a way to put
+ * the two into a state that cannot run. The effort strip sits below and re-renders per
+ * model, because the levels are a property of the model: Grok has no `max`, and Grok 4.5
+ * treats `xhigh` as `high`, so it is not offered one.
+ *
+ * A model id that is not in the catalogue is a first-class value, not an error. Providers
+ * ship models faster than this binary is rebuilt, and "Use another model id" is what stops
+ * Podium being the reason a new one cannot be used.
+ */
+export function AgentPicker({
+  value,
+  onChange,
+  agents,
+  inherit,
+  inherited,
+  disabled,
+  loading,
+  label,
+}: AgentPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const [custom, setCustom] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listID = useId();
+
+  const rows = useMemo(() => buildRows(agents, inherit !== undefined, query), [agents, inherit, query]);
+  const chosen = useMemo(() => findModel(agents, value.model), [agents, value.model]);
+  const backend = useMemo(
+    () => agents.find((a) => a.id === (value.agent || chosen?.backend.id)),
+    [agents, value.agent, chosen],
+  );
+  // A model the catalogue knows brings its own levels. One typed by hand has none to bring,
+  // so the backend's own set stands in — otherwise choosing a model released since this
+  // build would silently cost you the effort control, and the server does not check a level
+  // against a model it has never heard of anyway.
+  const efforts = chosen?.model.efforts ?? backendEfforts(backend);
+
+  // The popover closes on a click anywhere else and on Escape. Both are the behaviours a
+  // person already expects from every other menu they use today.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  // The search box takes focus when the popover opens, so typing filters immediately
+  // rather than needing a click first. Focus is the only thing this effect does: resetting
+  // the query and the cursor happens in the handler that opened it.
+  useEffect(() => {
+    if (open) searchRef.current?.focus();
+  }, [open]);
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      setQuery("");
+      setActive(0);
+    }
+  }
+
+  function choose(row: Row) {
+    if (row.kind === "inherit") {
+      onChange(INHERIT);
+    } else if (row.kind === "model") {
+      // Picking a model picks its backend, and an effort the new model does not accept is
+      // dropped rather than carried into a combination the server would refuse.
+      const keep = row.model.efforts.includes(value.effort) ? value.effort : "";
+      onChange({ agent: row.backend.id, model: row.model.id, effort: keep });
+    } else {
+      setCustom(true);
+      setOpen(false);
+      return;
+    }
+    setCustom(false);
+    setOpen(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActive((i) => {
+        const n = rows.length;
+        if (n === 0) return 0;
+        return (i + step + n) % n;
+      });
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const row = rows[active];
+      if (row) choose(row);
+    }
+  }
+
+  const summary = describe(value, chosen, backend, inherit, inherited);
+
+  return (
+    <div className="space-y-2" ref={rootRef}>
+      <div className="relative">
+        <button
+          type="button"
+          disabled={disabled || loading}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label={`${label}: agent and model`}
+          data-testid="agent-picker-trigger"
+          onClick={toggle}
+          className="flex w-full max-w-md items-center gap-2 rounded border border-border bg-bg px-2 py-1.5 text-left text-xs outline-none hover:border-accent focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-50"
+        >
+          <BackendMark id={summary.markID} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-mono text-fg">{summary.title}</span>
+            <span className="block truncate text-muted">{summary.sub}</span>
+          </span>
+          {value.effort ? (
+            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted">
+              {value.effort}
+            </span>
+          ) : null}
+          <Caret />
+        </button>
+
+        {open ? (
+          <div
+            className="absolute z-20 mt-1 w-full max-w-md overflow-hidden rounded border border-border bg-panel shadow-lg"
+            onKeyDown={onKeyDown}
+          >
+            <input
+              ref={searchRef}
+              value={query}
+              aria-label={`${label}: search models`}
+              placeholder="Search models…"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(0);
+              }}
+              className="w-full border-b border-border bg-panel px-3 py-2 text-xs outline-none placeholder:text-muted"
+            />
+            <ul
+              id={listID}
+              role="listbox"
+              aria-label={`${label}: models`}
+              className="max-h-80 overflow-y-auto py-1"
+            >
+              {rows.length === 0 ? (
+                <li className="px-3 py-2 text-xs text-muted">
+                  Nothing matches. Pick “Use another model id” to type one.
+                </li>
+              ) : null}
+              {rows.map((row, i) => (
+                <RowItem
+                  key={rowKey(row)}
+                  row={row}
+                  active={i === active}
+                  selected={isSelected(row, value)}
+                  inherited={inherited}
+                  onHover={() => setActive(i)}
+                  onPick={() => choose(row)}
+                />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      {custom || (value.model !== "" && !chosen) ? (
+        <CustomModel
+          label={label}
+          agents={agents}
+          value={value}
+          onChange={onChange}
+          onDone={() => setCustom(false)}
+        />
+      ) : null}
+
+      {efforts.length > 0 ? (
+        <EffortStrip
+          label={label}
+          efforts={efforts}
+          value={value.effort}
+          onChange={(effort) => onChange({ ...value, effort })}
+          disabled={disabled}
+        />
+      ) : null}
+
+      {backend && !backend.ready ? (
+        <p className="text-xs text-warn" data-testid="agent-picker-unready">
+          No {backend.provider === "xai" ? "xAI" : "Anthropic"} credential is stored, so a turn
+          on {backend.displayName} will fail. Set one on the Settings tab — this choice is
+          saved either way.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Row is one line of the popover. */
+type Row =
+  | { kind: "inherit" }
+  | { kind: "model"; backend: AgentBackend; model: AgentModel; first: boolean }
+  | { kind: "custom" };
+
+function rowKey(row: Row): string {
+  switch (row.kind) {
+    case "inherit":
+      return "inherit";
+    case "custom":
+      return "custom";
+    default:
+      return `${row.backend.id}/${row.model.id}`;
+  }
+}
+
+/**
+ * buildRows flattens the catalogue into the list the popover renders, filtered by the
+ * search. `first` marks the row that carries its backend's header, so the grouping survives
+ * filtering: a search that matches one Grok model still shows it under GROK.
+ */
+function buildRows(agents: AgentBackend[], withInherit: boolean, query: string): Row[] {
+  const q = query.trim().toLowerCase();
+  const match = (b: AgentBackend, m: AgentModel) =>
+    q === "" ||
+    m.id.toLowerCase().includes(q) ||
+    m.displayName.toLowerCase().includes(q) ||
+    b.displayName.toLowerCase().includes(q);
+
+  const rows: Row[] = [];
+  if (withInherit && q === "") rows.push({ kind: "inherit" });
+  for (const b of agents) {
+    let first = true;
+    for (const m of b.models) {
+      if (!match(b, m)) continue;
+      rows.push({ kind: "model", backend: b, model: m, first });
+      first = false;
+    }
+  }
+  rows.push({ kind: "custom" });
+  return rows;
+}
+
+function findModel(
+  agents: AgentBackend[],
+  id: string,
+): { backend: AgentBackend; model: AgentModel } | undefined {
+  if (id === "") return undefined;
+  for (const b of agents) {
+    const m = b.models.find((x) => x.id === id);
+    if (m) return { backend: b, model: m };
+  }
+  return undefined;
+}
+
+/** backendEfforts is every level any of a backend's models accepts, weakest first. */
+function backendEfforts(backend?: AgentBackend): string[] {
+  if (!backend) return [];
+  const out: string[] = [];
+  for (const m of backend.models) {
+    for (const e of m.efforts) {
+      if (!out.includes(e)) out.push(e);
+    }
+  }
+  return out;
+}
+
+function isSelected(row: Row, value: AgentChoice): boolean {
+  if (row.kind === "inherit") return value.model === "" && value.agent === "";
+  if (row.kind === "model") return value.model === row.model.id;
+  return false;
+}
+
+/** describe is the two lines on the closed trigger. */
+function describe(
+  value: AgentChoice,
+  chosen: { backend: AgentBackend; model: AgentModel } | undefined,
+  backend: AgentBackend | undefined,
+  inherit: { label: string; hint?: string } | undefined,
+  inherited: AgentChoice | undefined,
+): { title: string; sub: string; markID: string } {
+  if (value.model === "" && value.agent === "") {
+    const eff = inherited?.effort ? ` · ${inherited.effort}` : "";
+    return {
+      title: inherit?.label ?? "—",
+      sub: inherited?.model ? `${inherited.model}${eff}` : (inherit?.hint ?? ""),
+      markID: inherited?.agent ?? "",
+    };
+  }
+  if (chosen) {
+    return {
+      title: chosen.model.id,
+      sub: `${chosen.backend.displayName} · ${chosen.model.displayName}`,
+      markID: chosen.backend.id,
+    };
+  }
+  return {
+    title: value.model || "(no model)",
+    sub: backend ? `${backend.displayName} · not in the catalogue` : "a model id typed by hand",
+    markID: value.agent,
+  };
+}
+
+function RowItem({
+  row,
+  active,
+  selected,
+  inherited,
+  onHover,
+  onPick,
+}: {
+  row: Row;
+  active: boolean;
+  selected: boolean;
+  inherited?: AgentChoice;
+  onHover: () => void;
+  onPick: () => void;
+}) {
+  const base = `flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs ${
+    active ? "bg-raised" : ""
+  }`;
+
+  if (row.kind === "inherit") {
+    return (
+      <li role="option" aria-selected={selected}>
+        <button type="button" className={base} onMouseEnter={onHover} onClick={onPick}>
+          <Tick shown={selected} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-fg">Inherit</span>
+            <span className="block truncate text-muted">
+              {inherited?.model ? `currently ${inherited.model}` : "whatever the level above says"}
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+
+  if (row.kind === "custom") {
+    return (
+      <li role="option" aria-selected={false}>
+        <button
+          type="button"
+          data-testid="agent-picker-custom"
+          className={`${base} border-t border-border`}
+          onMouseEnter={onHover}
+          onClick={onPick}
+        >
+          <Tick shown={false} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-fg">Use another model id…</span>
+            <span className="block text-muted">
+              For a model released since this build. It is not checked here.
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <>
+      {row.first ? (
+        <li
+          aria-hidden="true"
+          className="flex items-center gap-2 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted"
+        >
+          <BackendMark id={row.backend.id} />
+          {row.backend.displayName}
+          {row.backend.ready ? (
+            <span className="ml-auto font-normal normal-case text-ok">credential set</span>
+          ) : (
+            <span className="ml-auto font-normal normal-case text-warn">no credential</span>
+          )}
+        </li>
+      ) : null}
+      <li role="option" aria-selected={selected}>
+        <button type="button" className={base} onMouseEnter={onHover} onClick={onPick}>
+          <Tick shown={selected} />
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-mono text-fg">{row.model.id}</span>
+              {row.model.contextTokens > 0 ? (
+                <span className="text-muted">{tokens(row.model.contextTokens)}</span>
+              ) : null}
+            </span>
+            <span className="block text-muted">{row.model.note}</span>
+          </span>
+        </button>
+      </li>
+    </>
+  );
+}
+
+/**
+ * EffortStrip is the segmented control. "Auto" is first and is not a level: it is the
+ * absence of one, which leaves the choice to the provider's own default.
+ */
+function EffortStrip({
+  label,
+  efforts,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  efforts: string[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const options = ["", ...efforts];
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-muted">Effort</span>
+      <div
+        role="radiogroup"
+        aria-label={`${label}: reasoning effort`}
+        data-testid="effort-strip"
+        className="inline-flex overflow-hidden rounded border border-border"
+      >
+        {options.map((e) => (
+          <button
+            key={e || "auto"}
+            type="button"
+            role="radio"
+            aria-checked={value === e}
+            aria-label={e || "auto"}
+            disabled={disabled}
+            onClick={() => onChange(e)}
+            className={`px-2 py-1 text-xs capitalize ${
+              value === e ? "bg-accent text-bg" : "text-muted hover:text-fg"
+            } disabled:opacity-50`}
+          >
+            {e || "auto"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** CustomModel is the escape hatch: a model id typed by hand, on a backend chosen by hand. */
+function CustomModel({
+  label,
+  agents,
+  value,
+  onChange,
+  onDone,
+}: {
+  label: string;
+  agents: AgentBackend[];
+  value: AgentChoice;
+  onChange: (v: AgentChoice) => void;
+  onDone: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded border border-border bg-raised px-2 py-2">
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-muted">Backend</span>
+        <select
+          aria-label={`${label}: backend`}
+          value={value.agent || agents[0]?.id || ""}
+          onChange={(e) => onChange({ ...value, agent: e.target.value })}
+          className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+        >
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs">
+        <span className="text-muted">Model id</span>
+        <input
+          aria-label={`${label}: model id`}
+          value={value.model}
+          autoFocus
+          placeholder="grok-5"
+          onChange={(e) =>
+            onChange({ agent: value.agent || agents[0]?.id || "", model: e.target.value, effort: value.effort })
+          }
+          className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onDone}
+        className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+      >
+        Done
+      </button>
+    </div>
+  );
+}
+
+function Tick({ shown }: { shown: boolean }) {
+  return (
+    <span aria-hidden="true" className={`mt-0.5 w-3 shrink-0 text-accent ${shown ? "" : "opacity-0"}`}>
+      ✓
+    </span>
+  );
+}
+
+function Caret() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3 shrink-0 text-muted" fill="currentColor">
+      <path d="M4 6l4 4 4-4z" />
+    </svg>
+  );
+}
+
+/** tokens renders a context window the way the provider's own docs do. */
+function tokens(n: number): string {
+  if (n >= 1_000_000) return `${n / 1_000_000}M ctx`;
+  return `${Math.round(n / 1000)}K ctx`;
+}

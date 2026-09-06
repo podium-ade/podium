@@ -6,27 +6,24 @@
 //   0  the turn finished (including a cancelled turn)
 //   2  the brief was invalid
 //   3  max turns reached
-//   4  SDK or API error, a missing key, a failed clone, a network failure
+//   4  harness or API error, a missing key, a failed clone, a network failure
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-
-// Type-only, so the SDK is not loaded when the module is evaluated. `query` arrives through
-// a dynamic import in runTurn: importing the SDK costs ~100ms of the runtime's ~160ms
-// start-up, and every millisecond before the SIGTERM handler below is installed is a
-// millisecond in which a cancel kills the process outright instead of ending the turn
-// tidily. A dry run never loads it at all.
-import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, type TurnBrief } from "./brief.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
-import { MemoryTools, buildSystemPrompt } from "./prompt.js";
+import * as oc from "./opencode.js";
+import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { CloneError, TokenEnv, WorkspaceDir, cloneRepos, redact } from "./repos.js";
 
 const ExitOK = 0;
 const ExitMaxTurns = 3;
-const ExitSDKError = 4;
+const ExitHarnessError = 4;
 
 /** DryRunEnv is the test seam every later step's e2e uses. */
 const DryRunEnv = "PODIUM_AGENT_DRY_RUN";
@@ -34,9 +31,6 @@ const DryRunEnv = "PODIUM_AGENT_DRY_RUN";
 /** DryRunSleepEnv and DryRunExitEnv are TEST-ONLY and honoured only in dry run. */
 const DryRunSleepEnv = "PODIUM_AGENT_DRY_RUN_SLEEP_MS";
 const DryRunExitEnv = "PODIUM_AGENT_DRY_RUN_EXIT";
-
-/** KeyEnv is the only auth path: a Podium secret with target: env. */
-const KeyEnv = "ANTHROPIC_API_KEY";
 
 /** ProgressWindowMs coalesces progress messages: never two inside this window. */
 const ProgressWindowMs = 5_000;
@@ -109,20 +103,22 @@ async function main(): Promise<number> {
     return ExitBriefInvalid;
   }
 
-  if (!secretFromEnv(KeyEnv)) {
+  const keyEnv = brief.provider.api_key_env;
+  if (!secretFromEnv(keyEnv)) {
     const why =
-      `${KeyEnv} is not set. It reaches this container only as a Podium secret with ` +
-      `target: env, named on the skill that submitted this task.`;
+      `${keyEnv} is not set, and this turn runs on ${brief.provider.id}, which needs it. It ` +
+      `reaches this container only as a Podium secret with target: env, which the conductor ` +
+      `attaches from the backend the skill runs on.`;
     warn(why);
-    summary.code = ExitSDKError;
+    summary.code = ExitHarnessError;
     await reportTurn(invoke, summary, `I could not start: ${why}`);
-    return ExitSDKError;
+    return ExitHarnessError;
   }
 
   const token = secretFromEnv(TokenEnv);
   if (token !== undefined) {
     // gh reads GH_TOKEN; git reads GITHUB_TOKEN through the credential helper repos.ts
-    // installs. Both end up in the SDK's environment, so the agent's Bash calls work.
+    // installs. Both end up in the harness's environment, so the agent's shell calls work.
     process.env.GH_TOKEN ??= token;
   }
 
@@ -132,9 +128,9 @@ async function main(): Promise<number> {
     } catch (err) {
       const why = err instanceof CloneError ? err.message : redact(messageOf(err), token);
       warn(why);
-      summary.code = ExitSDKError;
+      summary.code = ExitHarnessError;
       await reportTurn(invoke, summary, `I could not check the repositories out: ${why}`);
-      return ExitSDKError;
+      return ExitHarnessError;
     }
   }
 
@@ -157,50 +153,117 @@ async function main(): Promise<number> {
     await say(invoke, "progress", text);
   };
 
+  // The config for this turn: the operating contract, the tool allow-list, the provider and
+  // the memory server. It lives in a temporary directory rather than the workspace, because
+  // the workspace is a repository the agent may commit and nobody wants a turn's config in
+  // a pull request.
+  const configDir = mkdtempSync(join(tmpdir(), "podium-turn-"));
   try {
-    const { query } = await import("@anthropic-ai/claude-agent-sdk");
-    for await (const message of query({ prompt: brief.instruction, options: options(brief, controller) })) {
-      appendTranscriptSafely(message);
+    oc.writeConfig({
+      dir: configDir,
+      systemPrompt: buildSystemPrompt(brief),
+      tools: brief.skill.allowed_tools,
+      providerID: brief.provider.id,
+      baseURL: brief.provider.base_url,
+      memory: brief.memory
+        ? { url: brief.memory.mcp_url, apiKeyEnv: brief.memory.api_key_env }
+        : undefined,
+    });
+  } catch (err) {
+    const why = messageOf(err);
+    warn(why);
+    summary.code = ExitHarnessError;
+    await reportTurn(invoke, summary, `I could not start: ${why}`);
+    return ExitHarnessError;
+  }
 
-      if (message.type === "assistant") {
-        const text = assistantText(message);
-        if (text !== "") {
+  const env = { ...process.env };
+  // The brief can be a quarter of a megabyte and the harness has no business with it.
+  delete env[BriefEnv];
+
+  let steps = 0;
+  try {
+    const run = oc.start({
+      configDir,
+      workdir: WorkspaceDir,
+      providerID: brief.provider.id,
+      model: brief.profile.model,
+      effort: brief.profile.effort,
+      instruction: brief.instruction,
+      env,
+    });
+    // A cancel forwards to the harness rather than killing this process, so the turn still
+    // reports what it managed and leaves its artifacts.
+    const stop = () => run.child.kill("SIGTERM");
+    controller.signal.addEventListener("abort", stop, { once: true });
+
+    // stderr is the harness's own diagnostics. It goes to the task log — which is where an
+    // operator looks — and never into the answer.
+    run.child.stderr.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
+
+    for await (const { event, raw } of oc.events(run.child)) {
+      appendTranscriptSafely(raw);
+
+      switch (event.type) {
+        case "step_start":
+          steps += 1;
+          if (steps > brief.skill.max_turns) {
+            // The harness has no turn cap of its own, so this is the cap: stop it, and say
+            // plainly that the answer is incomplete rather than relaying a half-finished one.
+            summary.code = ExitMaxTurns;
+            finalText =
+              `I ran out of turns. This skill allows ${brief.skill.max_turns} and the work ` +
+              `was not finished, so nothing here is a complete answer.`;
+            run.child.kill("SIGTERM");
+          }
+          break;
+
+        case "text": {
+          const text = (event.part?.text ?? "").trim();
+          if (text !== "") {
+            await tryProgress();
+            // The last text of the turn is the answer; the ones before it are progress.
+            // Which is which is only known when the stream ends, so every one is held.
+            held = text;
+            finalText = text;
+          }
+          break;
+        }
+
+        case "tool_use":
+          // A tool call is a sign of life rather than something to say, so it only releases
+          // whatever text is already held.
           await tryProgress();
-          held = text;
-        }
-        if (assistantUsesATool(message)) {
-          await tryProgress();
-        }
-        continue;
-      }
+          break;
 
-      if (message.type !== "result") {
-        continue;
-      }
-
-      summary.sdkSessionID = message.session_id;
-      summary.turns = message.num_turns;
-      summary.cost = message.total_cost_usd;
-      if (message.subtype === "success") {
-        finalText = message.result;
-        if (message.is_error) {
-          // subtype success with is_error means the turn ended on an API error and `result`
-          // is the error text. It is still the thing to relay.
-          summary.code = ExitSDKError;
+        case "step_finish": {
+          const part = event.part;
+          summary.turns = steps;
+          summary.cost += part?.cost ?? 0;
+          if (event.sessionID) {
+            summary.sdkSessionID = event.sessionID;
+          }
+          break;
         }
-      } else if (message.subtype === "error_max_turns") {
-        summary.code = ExitMaxTurns;
-        finalText =
-          `I ran out of turns. This skill allows ${brief.skill.max_turns} and the work was ` +
-          `not finished, so nothing here is a complete answer.`;
-      } else {
-        summary.code = ExitSDKError;
-        finalText = `The turn failed before I could answer (${message.subtype}).${errorDetail(message.errors)}`;
+
+        default:
+          break;
+      }
+    }
+
+    const code = await exitOf(run.child);
+    // A non-zero exit with an answer already in hand is a harness that failed after saying
+    // something useful; the answer is still the thing to relay, and the code says it ended
+    // badly. With no answer at all there is nothing to relay but the failure.
+    if (code !== 0 && summary.code === ExitOK && !cancelled) {
+      summary.code = ExitHarnessError;
+      if (finalText.trim() === "") {
+        finalText = `The turn failed before I could answer: the harness exited ${code}.`;
       }
     }
   } catch (err) {
     if (!cancelled) {
-      summary.code = ExitSDKError;
+      summary.code = ExitHarnessError;
       finalText = `The turn failed before I could answer: ${redact(messageOf(err), token)}`;
     }
   }
@@ -215,57 +278,6 @@ async function main(): Promise<number> {
 
   await reportTurn(invoke, summary, finalText, matchAttachments(finalText));
   return summary.code;
-}
-
-function options(brief: TurnBrief, controller: AbortController): Options {
-  const env = { ...process.env };
-  // The brief can be a quarter of a megabyte and the SDK has no business with it.
-  delete env[BriefEnv];
-
-  const allowedTools = [...brief.skill.allowed_tools];
-  const mcpServers: NonNullable<Options["mcpServers"]> = {};
-  if (brief.memory) {
-    mcpServers.memory = {
-      type: "http",
-      url: brief.memory.mcp_url,
-      // Hindsight takes the same header for MCP and REST, and accepts a bare token as well
-      // as a Bearer one. Verified against hindsight 0.9.2 on 2026-09-03.
-      headers: { Authorization: `Bearer ${secretFromEnv(brief.memory.api_key_env) ?? ""}` },
-    };
-    for (const tool of MemoryTools) {
-      if (!allowedTools.includes(tool)) {
-        allowedTools.push(tool);
-      }
-    }
-  }
-
-  return {
-    // A plain string, never the claude_code preset: the runtime's own block is the whole
-    // operating contract for a turn and the preset's interactive assumptions do not hold.
-    systemPrompt: buildSystemPrompt(brief),
-    cwd: WorkspaceDir,
-    model: brief.profile.model,
-    maxTurns: brief.skill.max_turns,
-    allowedTools,
-    disallowedTools: [],
-    // The one permission decision in this runtime, and the only place it is made.
-    //
-    // The run is headless: there is no human to answer a prompt, so any mode that could
-    // block on one would hang the task until its timeout. The sandbox is the task
-    // container itself — every capability dropped, no-new-privileges, a private network, a
-    // fresh workspace (docs/security.md#3-a-task-container--untrusted) — and the policy
-    // knob is the skill's tool allow-list above, which is what decides what the agent can
-    // reach at all. This is the same trust decision Podium already makes for every task's
-    // command. A half-measure like acceptEdits would still block on a Bash call.
-    permissionMode: "bypassPermissions",
-    mcpServers,
-    // Nothing is read from the image's filesystem: no ~/.claude, no .claude/settings.json,
-    // no CLAUDE.md out of a cloned repo. A repository could plant one.
-    settingSources: [],
-    env,
-    abortController: controller,
-    includePartialMessages: false,
-  };
 }
 
 async function dryRun(
@@ -296,43 +308,24 @@ async function dryRun(
   return summary.code;
 }
 
-function appendTranscriptSafely(message: SDKMessage): void {
-  try {
-    appendTranscript(message);
-  } catch (err) {
-    warn(`could not record an SDK message: ${messageOf(err)}`);
-  }
-}
-
 /**
- * assistantText joins the text blocks of one assistant message. The SDK message union has
- * dozens of members and grows with every release, so nothing here switches over it: the
- * progress heuristic keys on `assistant` and ignores everything else.
+ * appendTranscriptSafely writes one harness event to the transcript, raw. The line is kept
+ * exactly as it arrived rather than re-serialised: the transcript is evidence of what the
+ * harness said, and a re-serialisation is evidence of what this runtime understood of it.
  */
-function assistantText(message: { message: { content: unknown } }): string {
-  const parts: string[] = [];
-  for (const block of contentBlocks(message)) {
-    if (block.type === "text" && typeof block.text === "string") {
-      parts.push(block.text);
-    }
+function appendTranscriptSafely(raw: string): void {
+  try {
+    appendTranscript(raw);
+  } catch (err) {
+    warn(`could not record a harness event: ${messageOf(err)}`);
   }
-  return parts.join("\n").trim();
 }
 
-function assistantUsesATool(message: { message: { content: unknown } }): boolean {
-  return contentBlocks(message).some((b) => b.type === "tool_use");
-}
-
-function contentBlocks(message: { message: { content: unknown } }): { type?: string; text?: unknown }[] {
-  const content = message.message.content;
-  return Array.isArray(content) ? (content as { type?: string; text?: unknown }[]) : [];
-}
-
-function errorDetail(errors: string[] | undefined): string {
-  if (errors === undefined || errors.length === 0) {
-    return "";
-  }
-  return ` ${errors.join("; ")}`;
+/** exitOf resolves with the process's exit code, treating a signalled death as an exit. */
+function exitOf(child: { on: (e: string, cb: (code: number | null) => void) => void }): Promise<number> {
+  return new Promise((resolve) => {
+    child.on("close", (code) => resolve(code ?? 0));
+  });
 }
 
 /** secretFromEnv treats an empty variable as absent: the node injects one or it does not. */

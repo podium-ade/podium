@@ -24,10 +24,27 @@ const DefaultProfileDir = "/etc/podium/agent"
 // ProfileFile is the one file a profile directory must contain.
 const ProfileFile = "profile.yaml"
 
-// DefaultAnthropicBaseURL is where a provider key is validated. It is overridable so a test
-// can point validation at an httptest server, and so an install behind an egress proxy can
-// name it. It is not a BYOK knob: the provider is still Anthropic.
+// DefaultAnthropicBaseURL is where an Anthropic key is validated. It is overridable so a
+// test can point validation at an httptest server, and so an install behind an egress proxy
+// can name it. It is not a BYOK knob: the provider is still Anthropic.
 const DefaultAnthropicBaseURL = "https://api.anthropic.com"
+
+// DefaultXAIBaseURL is the same for xAI. It is also what a Grok turn's container is told to
+// point the agent SDK at, because xAI serves an Anthropic-shaped /v1/messages there.
+const DefaultXAIBaseURL = "https://api.x.ai"
+
+// DefaultXAIOAuthIssuer is the OIDC issuer a subscription sign-in discovers its endpoints
+// from. The endpoints themselves are never hard-coded: they come from
+// {issuer}/.well-known/openid-configuration and are checked back against this host.
+const DefaultXAIOAuthIssuer = "https://auth.x.ai"
+
+// DefaultXAIOAuthScopes is what a sign-in asks for.
+//
+// Two of these carry weight. offline_access is what makes the provider issue a refresh
+// token; without it a human signs in again every hour. grok-cli:access is what xAI's own
+// CLI asks for, and the reports of the OAuth surface answering 403 to otherwise valid
+// subscribers point at the scope set rather than the subscription — so it is asked for too.
+const DefaultXAIOAuthScopes = "openid profile email offline_access grok-cli:access api:access"
 
 // DefaultMemoryTaskURL is where a TASK CONTAINER reaches Hindsight. It is not where the
 // conductor reaches it: a task runs on a node, on its own bridge network, and gets to the
@@ -84,6 +101,19 @@ type Config struct {
 	// https://api.anthropic.com. Only SetProviderKey reads it: the model itself is called
 	// from inside a task container, never from this process.
 	AnthropicBaseURL string
+	// XAIBaseURL is PODIUM_AGENT_XAI_BASE_URL, default https://api.x.ai. Unlike the
+	// Anthropic one this is read twice: SetProviderKey validates against it, and a Grok
+	// turn's brief carries it so the container knows where to send the SDK's requests.
+	XAIBaseURL string
+	// XAIOAuthIssuer is PODIUM_AGENT_XAI_OAUTH_ISSUER, default https://auth.x.ai.
+	XAIOAuthIssuer string
+	// XAIOAuthClientID is PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: the OAuth client id of a public
+	// desktop client registered with xAI. Empty — the default — turns the subscription
+	// sign-in off and leaves the API key path, which is a supported configuration. It is
+	// public OAuth client metadata and not a secret, so it is logged like any other field.
+	XAIOAuthClientID string
+	// XAIOAuthScopes is PODIUM_AGENT_XAI_OAUTH_SCOPES, default DefaultXAIOAuthScopes.
+	XAIOAuthScopes string
 	// MemoryURL is PODIUM_AGENT_MEMORY_URL: Hindsight's base URL as seen from THIS
 	// process. Empty turns memory off entirely — briefs carry no memory block, nothing is
 	// retained, readyz does not probe it and the memory RPCs answer FailedPrecondition.
@@ -130,6 +160,10 @@ func FromEnv() Config {
 		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
 		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
+		XAIBaseURL:       envOr("PODIUM_AGENT_XAI_BASE_URL", DefaultXAIBaseURL),
+		XAIOAuthIssuer:   envOr("PODIUM_AGENT_XAI_OAUTH_ISSUER", DefaultXAIOAuthIssuer),
+		XAIOAuthClientID: os.Getenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID"),
+		XAIOAuthScopes:   envOr("PODIUM_AGENT_XAI_OAUTH_SCOPES", DefaultXAIOAuthScopes),
 		MemoryURL:        os.Getenv("PODIUM_AGENT_MEMORY_URL"),
 		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
 		MemoryBank:       envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
@@ -211,14 +245,16 @@ func (c Config) Validate() error {
 	}
 	// Empty means the default: FromEnv already applied it, so an empty value here can only
 	// come from a hand-built Config, and the handler defaults it again.
-	if c.AnthropicBaseURL != "" {
-		u, err := url.Parse(c.AnthropicBaseURL)
-		if err != nil {
-			return fmt.Errorf("PODIUM_AGENT_ANTHROPIC_BASE_URL=%q is not a URL: %w", c.AnthropicBaseURL, err)
+	for _, u := range []struct{ name, value string }{
+		{"PODIUM_AGENT_ANTHROPIC_BASE_URL", c.AnthropicBaseURL},
+		{"PODIUM_AGENT_XAI_BASE_URL", c.XAIBaseURL},
+		{"PODIUM_AGENT_XAI_OAUTH_ISSUER", c.XAIOAuthIssuer},
+	} {
+		if u.value == "" {
+			continue
 		}
-		if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("PODIUM_AGENT_ANTHROPIC_BASE_URL=%q must be an absolute http:// or https:// URL",
-				c.AnthropicBaseURL)
+		if err := absoluteURL(u.name, u.value); err != nil {
+			return err
 		}
 	}
 	if err := c.validateMemory(); err != nil {
@@ -252,6 +288,11 @@ func (c Config) LogValue() slog.Value {
 		slog.String("listen", c.Listen),
 		slog.String("profile_dir", c.ProfileDir),
 		slog.String("anthropic_base_url", c.AnthropicBaseURL),
+		slog.String("xai_base_url", c.XAIBaseURL),
+		slog.String("xai_oauth_issuer", c.XAIOAuthIssuer),
+		// Public OAuth client metadata, not a secret: it is the one thing an operator needs
+		// to see to know why the sign-in button is disabled.
+		slog.String("xai_oauth_client_id", c.XAIOAuthClientID),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),

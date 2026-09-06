@@ -122,7 +122,11 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
-| `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted provider key is validated; a test seam and an egress hook, **not** a BYOK knob |
+| `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
+| `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
+| `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
+| `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` | for the sign-in | — | a public desktop OAuth client id. **Empty turns the subscription tab off** and leaves the API key path. Public metadata, not a secret |
+| `PODIUM_AGENT_XAI_OAUTH_SCOPES` | no | `openid profile email offline_access grok-cli:access api:access` | `offline_access` is what buys a refresh token; `grok-cli:access` is what xAI's own CLI asks for |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
 | `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |
@@ -139,7 +143,7 @@ conductor at all:
 
 Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
 and no Linear key, no source is started and the conductor listens to nothing — it says so at
-startup, which is a fine shape to run it in while you set the provider key in the UI.
+startup, which is a fine shape to run it in while you set a provider credential in the UI.
 
 ### Its own database
 
@@ -203,6 +207,9 @@ name: podium                 # required; ^[a-z][a-z0-9-]{0,31}$
 display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
 model: claude-opus-5         # required
+agent: claude                # optional; claude | grok. Unset means claude
+effort: ""                   # optional; low | medium | high | xhigh | max.
+                             # Unset means the model's own default
 default_skill: general       # required; must name a loaded skill
 chat_default_skill: dba      # optional; the skill /agent/chat starts with.
                              # Must name a loaded skill; unset means default_skill.
@@ -221,10 +228,12 @@ see *Extending the runtime image* below.
 ```yaml
 image: ghcr.io/alvaroibarguen/podium-agent-runtime:latest   # required
 system_prompt: file:../prompts/general.md                    # required
-allowed_tools: [Read, Grep, Glob, WebFetch, Bash]            # required, non-empty
+allowed_tools: [read, grep, glob, webfetch, bash]            # required, non-empty
 max_turns: 50                                                # default 50
 timeout: 30m                                                 # default 30m
 model: ""                                                    # default: the profile's
+agent: ""                                                    # default: the profile's
+effort: ""                                                   # default: the profile's
 labels: []                                                   # node labels, verbatim into the spec
 resources: {cpu: 2, memory_mb: 4096}                         # verbatim into the spec
 secrets:                                                     # verbatim into the spec
@@ -236,13 +245,24 @@ docker: false                                                # attach a Docker d
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
+**`allowed_tools` are the harness's own tool names**, lower case: `read`, `write`, `edit`,
+`bash`, `grep`, `glob`, `list`, `patch`, `webfetch`, `task`, `todoread`, `todowrite`. A name
+that is not one of those is refused when the skill is loaded or saved, with the list in the
+message. That is deliberate rather than forgiving: these used to be the Claude Agent SDK's names
+(`Read`, `Grep`, `Bash`), and case-folding them would have worked for the ones that happen to
+match while silently dropping the ones that do not — a skill running without a tool it asked
+for, discovered from its behaviour. **A profile carrying the old names will not load until they
+are lower-cased.**
+
 `secrets`, `resources`, `env` and `labels` are validated by exactly the code that validates a
 task spec, because that is where they end up. Two rules of the conductor's own:
 
-- **`podium.agent.anthropic_api_key` may not appear in `secrets:`.** The conductor attaches it to
-  every turn itself. A skill listing it is an error.
-- **`env:` may not set `PODIUM_AGENT_TURN` or `ANTHROPIC_API_KEY`.** The first is the brief; the
-  second comes from the secret.
+- **No model credential may appear in `secrets:`.** `podium.agent.anthropic_api_key`,
+  `podium.agent.xai_api_key` and `podium.agent.xai_refresh_token` are all refused. The conductor
+  decides what credential a turn gets, from the agent the skill runs on — see *Which agent,
+  which model, how hard it thinks*.
+- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY` or `XAI_API_KEY`.** The first is
+  the brief; the other two come from the secrets.
 - **At most one skill may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/skill` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
@@ -391,43 +411,120 @@ allow-list. These three are simply the names Podium's own docs and defaults use.
 
 | name | lands as | who needs it |
 |---|---|---|
-| `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn; the conductor attaches it. Set it in the web UI, or with the CLI |
+| `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn on the `claude` backend; the conductor attaches it. Set it in the web UI, or with the CLI |
+| `podium.agent.xai_api_key` | `XAI_API_KEY` | every turn on the `grok` backend; likewise. It holds an xAI API key **or** the access token of a subscription sign-in — both are bearers for the same endpoint |
+| `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A skill may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` — and only the skills whose files name it. See *Skills that clone repositories* |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 
-The Anthropic key must **exist** before any turn can run, even a dry run: the task spec names it
-and the control plane refuses a task that names a secret it does not have. That failure reaches
-the thread as "This bot is missing a credential".
+The model credential must **exist** before a turn on that backend can run, even a dry run: the
+task spec names it and the control plane refuses a task that names a secret it does not have.
+That failure reaches the thread as "This bot is missing a credential". A control plane that only
+ever runs Claude skills needs no xAI credential at all, and the reverse.
 
-A skill file may not name either of the first two. They are added by the conductor to every
-turn: no skill decides whether the bot can talk to the model, and no skill can opt out of
+**Exactly one model credential goes on a turn**, and it is the one the turn's backend spends. A
+Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one: a
+container gets the credential it needs and no other.
+
+A skill file may not name any of the model credentials, or the memory one. They are added by the
+conductor: no skill decides whether the bot can talk to a model, and no skill can opt out of
 memory — only the operator can, by leaving `PODIUM_AGENT_MEMORY_URL` empty.
 
 ---
 
-## Setting the provider key
+## Which agent, which model, how hard it thinks
 
-`podium.agent.anthropic_api_key` is the one credential every turn needs, dry run included, and
-the web UI is where an operator sets it.
+A turn runs on an **agent backend**, on a **model**, at an **effort**. All three are resolved by
+the conductor before the task is created — the skill's own value, then the profile's, then the
+built-in default — and the resolved triple travels in the brief, so the runtime never has to.
+
+| backend | provider | credential |
+|---|---|---|
+| `claude` (default) | Anthropic | `podium.agent.anthropic_api_key` |
+| `grok` | xAI | `podium.agent.xai_api_key` |
+
+**One runtime image, and no vendor in the code path.** The harness is
+[opencode](https://opencode.ai), which takes `--model provider/model` — so a backend is a flag
+rather than a dialect, and adding a third provider is a catalogue entry.
+
+It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
+Messages API and only that; pointed at xAI's Anthropic-compatible endpoint it failed on the
+first request, because it sends a `system`-role entry inside `messages[]` that xAI rejects
+(`400 invalid-argument: Invalid message role`). That was not a bug to fix — it was a harness
+that could only ever talk to one vendor.
+
+Every brief carries a `provider` block, because the harness cannot be run without knowing where
+to send the request:
+
+```json
+"provider": { "id": "xai", "api_key_env": "XAI_API_KEY", "base_url": "https://api.x.ai" }
+```
+
+`id` is whatever the harness calls that provider; with `profile.model` it becomes
+`--model xai/grok-4.6`. `base_url` is optional and overrides where that provider is reached — an
+egress proxy, or a test seam — and empty means the harness's own default. `api_key_env` names a
+secret and never holds one: a brief is an environment variable on a task spec, readable by
+anything that can read the spec, exactly like `memory.api_key_env`.
+
+### Effort
+
+`effort` is `low | medium | high | xhigh | max` — it reaches the harness as `--variant` — and xAI's
+`reasoning_effort` shares the first four. Unset means the model's own default, which is the
+provider's choice and is usually the right one.
+
+The levels a model accepts are a property of that model, and the conductor holds a profile to
+them at load time:
+
+- `max` is Anthropic-only. A Grok model naming it fails to load rather than failing on the first
+  turn.
+- `grok-4.5` and older document `xhigh` as a synonym for `high`, so it is not offered for them:
+  a level that silently means a different level is worse than no level.
+- A **skill that switches backend and inherits the profile's effort** is checked with the model
+  it will actually run on, not with the profile's — that combination is the one that would
+  otherwise slip through.
+
+A model id this build has never heard of is **not** an error anywhere. Providers ship models
+faster than this binary is rebuilt, so an unknown id is passed straight through and its effort is
+left unchecked — the provider gets to be the one that refuses it.
+
+### The picker
+
+`ListAgents` is the catalogue: the backends, their models, the levels each model takes, and
+whether a credential for it is stored. The web UI's picker is built from it, and so is the
+validation a save is held to — one list, so the two cannot drift.
+
+<!-- screenshot: the agent/model picker open on the Skills tab, Claude and Grok grouped -->
+
+Picking a model picks its backend, because a model only runs on one. The effort strip re-renders
+per model. A backend with no credential is still selectable — an operator may be setting the two
+up in either order — and the picker says so rather than refusing.
+
+---
+
+## Setting a provider credential
+
+A turn needs the credential its backend spends, dry run included, and the web UI is where an
+operator sets it. **Agent → Settings** has one card per provider.
 
 Open the UI, click **Agent** in the header (it is only there when `PODIUM_AGENT_URL` is set on
 the server) and you land on **Agent → Settings**.
 
-<!-- screenshot: the Agent → Settings tab with the Anthropic card, key not set -->
+<!-- screenshot: the Agent → Settings tab, an Anthropic card and an xAI card, neither set -->
 
 Paste the key and press **Validate & save**. What happens, in order:
 
 1. The browser calls `SetProviderKey` on `podium-server`, which proxies it to the conductor.
-2. The conductor calls **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`** with the pasted key
-   in an `x-api-key` header and `anthropic-version: 2023-06-01`. There is no token cost.
-3. **Only if that succeeds** is the key stored, as the Podium secret
-   `podium.agent.anthropic_api_key`, through the ordinary `SecretService` — so it is encrypted
-   at rest under the control plane's master key like every other secret.
+2. The conductor calls the provider's model list — **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`**
+   with the key in an `x-api-key` header and `anthropic-version: 2023-06-01`, or
+   **`GET {PODIUM_AGENT_XAI_BASE_URL}/v1/models`** with it as a bearer. There is no token cost.
+3. **Only if that succeeds** is the key stored, as that provider's Podium secret, through the
+   ordinary `SecretService` — so it is encrypted at rest under the control plane's master key
+   like every other secret.
 4. The conductor then writes a metadata row of its own: the **last four characters**, the login
    that set it, and the time. That row is what the card shows afterwards, and it is the only
    part of the key that is ever read back.
 
-So **"Saved" means "Anthropic agreed this key works"**, which is the point: an operator who sees
+So **"Saved" means "the provider agreed this key works"**, which is the point: an operator who sees
 it has to be able to trust that turns will run. The three failures are three different
 sentences on the card:
 
@@ -453,12 +550,14 @@ A key with an unfamiliar prefix is **not** refused — Anthropic has changed pre
 the card says `key format looks unusual; validated anyway` next to the success line.
 
 **Remove key** deletes the secret and the metadata row. It asks for an inline confirmation
-first, because every turn fails until a key is set again. Doing it twice is not an error.
+first, because every turn on that backend fails until a credential is set again. Doing it twice
+is not an error.
 
 The CLI equivalents, for a host with no browser:
 
 ```sh
 podium secret set podium.agent.anthropic_api_key      # value on stdin; NO validation
+podium secret set podium.agent.xai_api_key            # likewise, for Grok
 podium secret ls                                       # names, versions and who set them
 podium secret rm podium.agent.anthropic_api_key
 ```
@@ -477,6 +576,81 @@ believing its own row. Which means:
 | `podium secret set …` over a key the UI had saved | **Connected**, and *set outside this UI*: there is a key, and the stored hint is about the one it replaced, so it is withheld rather than shown beside a key it is not about |
 | `podium secret set …` on a conductor that never saw the UI | **Connected**, *set outside this UI* |
 | the control plane is unreachable | the last known state, and the conductor logs that its answer may be stale |
+
+---
+
+## Signing in with a subscription
+
+xAI sells Grok on a subscription as well as on API credit, and the **Subscription** tab of the
+xAI card signs in with one — SuperGrok, or an X account with Premium+. There is no equivalent
+for Anthropic on this control plane: its card offers the key box only.
+
+It is an **OAuth 2.0 device authorisation grant** (RFC 8628), and the flow is the one every
+television app uses:
+
+1. The conductor asks xAI for a code. Nothing is stored.
+2. The card shows a URL and a short code. You open the URL on any device — your laptop, your
+   phone — sign in to xAI there and type the code.
+3. The browser polls the conductor, which polls xAI, at the interval xAI asked for.
+4. The poll that comes back authorised **validates the access token against the API** and only
+   then stores it, as `podium.agent.xai_api_key`. From that point a Grok turn cannot tell a
+   subscription from a key: both are one bearer token in one secret.
+
+<!-- screenshot: the xAI card mid-sign-in, showing the code and the verification URL -->
+
+**Why a device code and not a redirect.** podium-server is reached at whatever address your
+install happens to use — a tailnet name, a reverse proxy, `localhost` — and an
+authorisation-code flow would need every one of those registered against the OAuth client before
+it worked. A device code needs no redirect URI at all, and it works on a host with no browser,
+which is the normal case here.
+
+**Step 4 is not ceremony.** xAI's OAuth surface has its own allow-list, and a sign-in can
+succeed while producing a token that the API refuses. Finding that out now, with xAI's own
+sentence on the card, beats finding it out on the first turn — and nothing is stored when it
+happens.
+
+### Configuring it
+
+Two environment variables, both public and neither a secret:
+
+```sh
+PODIUM_AGENT_XAI_OAUTH_ISSUER=https://auth.x.ai      # the default
+PODIUM_AGENT_XAI_OAUTH_CLIENT_ID=                    # empty by default → the tab is off
+```
+
+The endpoints are **discovered**, never hard-coded: the conductor reads
+`{issuer}/.well-known/openid-configuration` and checks every endpoint it names back against the
+issuer's own host before sending anything to it. A discovery answer that points the token
+endpoint at another host is the one way a MITM turns a sign-in into a credential handover, and
+it is refused.
+
+`PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` is **empty by default, which turns the subscription tab off**
+and leaves the API key path — a supported configuration, and what the card says when you press
+the button. xAI does not publish a shared OAuth client id for third-party tools, so there is
+nothing honest to default it to: register a public desktop client and put its id here.
+
+### Staying signed in
+
+An xAI access token lives about an hour, and a turn can run for half of one. So the conductor
+refreshes in the background: every five minutes it looks for a stored token with less than
+**45 minutes** left and trades the refresh token in for a new one, writing the new access token
+over the secret. A refresh that fails is logged and retried on the next pass — the stored token
+is left alone, because a token with thirty minutes on it is more use than none.
+
+That needs a refresh token, which needs the `offline_access` scope
+(`PODIUM_AGENT_XAI_OAUTH_SCOPES`, on by default). The card says **auto-renewing** when it has
+one and **not renewable** when it does not.
+
+**Where the refresh token lives, and why it is the exception.** It is in the conductor's own
+Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
+secret store has no read endpoint, by design, so a value put there cannot be read back to
+refresh with. It never leaves the host: no turn is handed it, it is in no brief and no log, and
+it is never copied into an API response. **Treat `podium_agent`'s database as holding a
+credential, because it does** — see [`security.md`](security.md#secrets).
+
+**Sign out** deletes the secret *and* the row, which is what actually signs you out: leaving the
+row would let the background pass mint a new access token for a provider you just disconnected.
+Pasting an API key over a sign-in does the same to the refresh token, for the same reason.
 
 ---
 
@@ -721,7 +895,7 @@ like:
 ```yaml
 image: registry.example.com/agent-coder:2026-09-05
 system_prompt: file:../prompts/coder.md
-allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
 max_turns: 200
 timeout: 2h
 secrets:
@@ -1140,7 +1314,9 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: the provider key |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: one card per provider |
+| `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
+| `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
 | `ListSkills` | the chat's skill chip: name, image, prompt hint, which is the chat default |
 | `CreateChat`, `ListChats`, `SendChatMessage` | the Chat tab: the caller's own conversations |

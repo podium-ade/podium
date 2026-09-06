@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import type { SkillDefinition } from "../../gen/podium/agent/v1/agent_pb";
+import type { AgentBackend, SkillDefinition } from "../../gen/podium/agent/v1/agent_pb";
+import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { AgentPicker } from "./AgentPicker";
 
 /** The same expression the conductor holds a skill name to. A name is also typed after a slash in Slack. */
 export const SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -14,6 +16,8 @@ export type SkillDraft = {
   maxTurns: number;
   timeout: string;
   model: string;
+  agent: string;
+  effort: string;
   labels: string[];
   resources: { cpu: number; memoryMb: number; pids: number };
   secrets: { name: string; target: string; key: string }[];
@@ -26,12 +30,23 @@ export type SkillDraft = {
 export type SkillEditorProps = {
   /** Undefined creates; a definition edits it. Only a stored skill is ever passed. */
   skill?: SkillDefinition;
+  /** The backend catalogue, for the model picker. Empty while it loads. */
+  agents: AgentBackend[];
+  /** What this skill runs on when it names nothing: the profile's own triple. */
+  profileDefault: AgentChoice;
   /** The names SecretService already holds, for the picker. Never a value: there is no read API. */
   secretNames: string[];
   /** True when the secret list could not be read, so "not registered" cannot be claimed. */
   secretsUnknown?: boolean;
   saving?: boolean;
   deleting?: boolean;
+  /**
+   * readOnly renders a file skill: every control disabled, nothing to save and nothing to
+   * delete. The files are authoritative for the names they hold, so this screen shows one
+   * and never writes it — but showing it is the point, because a definition you cannot read
+   * is harder to work with than one you merely cannot change.
+   */
+  readOnly?: boolean;
   /** The server's refusal, shown verbatim: its rules are the only rules. */
   error?: string;
   onSubmit: (draft: SkillDraft) => void;
@@ -62,6 +77,8 @@ const FIELD =
  */
 export function SkillEditor({
   skill,
+  agents,
+  profileDefault,
   secretNames,
   secretsUnknown,
   saving,
@@ -70,6 +87,7 @@ export function SkillEditor({
   onSubmit,
   onDelete,
   onCancel,
+  readOnly,
 }: SkillEditorProps) {
   const creating = skill === undefined;
   // A shadowed row is a stored skill a skills/<name>.yaml has since claimed. The conductor
@@ -82,7 +100,11 @@ export function SkillEditor({
   const [tools, setTools] = useState((skill?.allowedTools ?? []).join("\n"));
   const [maxTurns, setMaxTurns] = useState(String(skill?.maxTurns || 50));
   const [timeoutText, setTimeoutText] = useState(skill?.timeout || "30m");
-  const [model, setModel] = useState(skill?.model ?? "");
+  const [choice, setChoice] = useState<AgentChoice>(() =>
+    skill
+      ? { agent: skill.agent, model: skill.model, effort: skill.effort }
+      : INHERIT,
+  );
   const [labels, setLabels] = useState((skill?.labels ?? []).join(", "));
   const [channels, setChannels] = useState((skill?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(skill?.linear ?? false);
@@ -121,7 +143,9 @@ export function SkillEditor({
       allowedTools: toolList,
       maxTurns: Number(maxTurns) || 0,
       timeout: timeoutText.trim(),
-      model: model.trim(),
+      model: choice.model.trim(),
+      agent: choice.agent,
+      effort: choice.effort,
       labels: splitList(labels),
       resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
       secrets: secretRows
@@ -149,11 +173,27 @@ export function SkillEditor({
     >
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-semibold">
-          {creating ? "New skill" : shadowed ? `${skill.name} · shadowed` : `Edit ${skill.name}`}
+          {creating
+            ? "New skill"
+            : shadowed
+              ? `${skill.name} · shadowed`
+              : readOnly
+                ? skill.name
+                : `Edit ${skill.name}`}
         </h2>
         <span className="text-xs text-muted">
-          Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
-          <code className="font-mono">skills/&lt;name&gt;.yaml</code> is held to.
+          {readOnly ? (
+            <>
+              Defined by <code className="font-mono">skills/{skill?.name}.yaml</code> on the
+              conductor&apos;s host. The files win, so this is read-only here — edit the file
+              and restart the conductor, or make a new skill to change one in the browser.
+            </>
+          ) : (
+            <>
+              Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
+              <code className="font-mono">skills/&lt;name&gt;.yaml</code> is held to.
+            </>
+          )}
         </span>
       </div>
 
@@ -165,9 +205,10 @@ export function SkillEditor({
         </p>
       ) : null}
 
-      {/* One fieldset rather than a disabled prop on every input: a shadowed skill is
-          read-only as a whole, and no field of it could usefully be changed. */}
-      <fieldset disabled={shadowed} className="space-y-4">
+      {/* One fieldset rather than a disabled prop on every input: a shadowed skill and a
+          file skill are both read-only as a whole, and no field of either could usefully be
+          changed. It disables the picker's buttons too, which a per-input prop would miss. */}
+      <fieldset disabled={shadowed || readOnly} className="space-y-4">
         {/* The image is the unit of capability: what a turn of this skill can do at all is
             decided by what is in the image, before any prompt or tool list is read. */}
         <label className="flex flex-col gap-1 text-xs">
@@ -210,17 +251,17 @@ export function SkillEditor({
             ) : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="text-fg">Model</span>
-            <input
-              aria-label="Model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="leave blank for the profile's model"
-              className={`${FIELD} max-w-sm`}
+          <div className="flex flex-col gap-1 text-xs">
+            <span className="text-fg">Agent and model</span>
+            <AgentPicker
+              label="Skill"
+              value={choice}
+              onChange={setChoice}
+              agents={agents}
+              inherit={{ label: "Inherit from the profile", hint: "whatever the profile is set to" }}
+              inherited={profileDefault}
             />
-            <span className="text-muted">Blank means whatever the profile is set to.</span>
-          </label>
+          </div>
         </div>
 
         <label className="flex flex-col gap-1 text-xs">
@@ -252,10 +293,17 @@ export function SkillEditor({
               onChange={(e) => setTools(e.target.value)}
               rows={5}
               spellCheck={false}
-              placeholder={"Read\nGrep\nGlob\nBash"}
+              placeholder={"read\ngrep\nglob\nbash"}
               className={FIELD}
             />
-            <span className="text-muted">One per line. At least one is required.</span>
+            <span className="text-muted">
+            One per line, in the harness&apos;s own names — <code className="font-mono">read</code>,{" "}
+            <code className="font-mono">grep</code>, <code className="font-mono">glob</code>,{" "}
+            <code className="font-mono">bash</code>, <code className="font-mono">edit</code>,{" "}
+            <code className="font-mono">write</code>, <code className="font-mono">webfetch</code>,{" "}
+            <code className="font-mono">list</code>, <code className="font-mono">patch</code>,{" "}
+            <code className="font-mono">task</code>. At least one is required.
+          </span>
             {tried && toolList.length === 0 ? (
               <span className="text-err">Name at least one tool.</span>
             ) : null}
@@ -541,7 +589,7 @@ export function SkillEditor({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {shadowed ? null : (
+        {shadowed || readOnly ? null : (
           <button
             type="submit"
             disabled={saving || deleting}
@@ -555,11 +603,11 @@ export function SkillEditor({
           onClick={onCancel}
           className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:text-fg"
         >
-          Cancel
+          {readOnly ? "Back" : "Cancel"}
         </button>
         {/* Delete is here and nowhere else. It is a decision to take with the definition it
             destroys in front of you, not from a row in a list one misclick wide. */}
-        {onDelete && !creating ? (
+        {onDelete && !creating && !readOnly ? (
           <span className="ml-auto">
             <DeleteControl
               name={skill.name}

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
+import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
 import { ToastHost } from "../components/Toast";
 
@@ -20,6 +21,9 @@ const listChats = vi.fn();
 const listSkills = vi.fn();
 const streamChat = vi.fn();
 const getProfile = vi.fn();
+const listAgents = vi.fn();
+const startProviderOAuth = vi.fn();
+const pollProviderOAuth = vi.fn();
 const updateProfile = vi.fn();
 const createSkill = vi.fn();
 const updateSkill = vi.fn();
@@ -40,6 +44,9 @@ vi.mock("../lib/client", async () => {
       listSkills: (...a: unknown[]) => listSkills(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
       getProfile: (...a: unknown[]) => getProfile(...a),
+      listAgents: (...a: unknown[]) => listAgents(...a),
+      startProviderOAuth: (...a: unknown[]) => startProviderOAuth(...a),
+      pollProviderOAuth: (...a: unknown[]) => pollProviderOAuth(...a),
       updateProfile: (...a: unknown[]) => updateProfile(...a),
       createSkill: (...a: unknown[]) => createSkill(...a),
       updateSkill: (...a: unknown[]) => updateSkill(...a),
@@ -70,7 +77,7 @@ const profileResponse = {
       name: "general",
       image: "podium-agent-runtime:dev",
       systemPrompt: "Answer the question in the thread.",
-      allowedTools: ["Read"],
+      allowedTools: ["read"],
       maxTurns: 50,
       timeout: "30m",
       model: "",
@@ -114,15 +121,23 @@ function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
   );
 }
 
-const notSet = { provider: { provider: "anthropic", keySet: false, model: "claude-opus-5" } };
+const anthropicNotSet = { provider: "anthropic", keySet: false, model: "claude-opus-5" };
+const xaiNotSet = { provider: "xai", keySet: false, model: "claude-opus-5" };
+const anthropicConnected = {
+  provider: "anthropic",
+  keySet: true,
+  keyHint: "abcd",
+  model: "claude-opus-5",
+  setBy: "dev",
+  authKind: "api_key",
+};
+
+// The settings screen reads `providers`; `provider` stays the Anthropic row for the clients
+// that only ever knew about one.
+const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet] };
 const connected = {
-  provider: {
-    provider: "anthropic",
-    keySet: true,
-    keyHint: "abcd",
-    model: "claude-opus-5",
-    setBy: "dev",
-  },
+  provider: anthropicConnected,
+  providers: [anthropicConnected, xaiNotSet],
 };
 
 describe("AgentPage", () => {
@@ -136,11 +151,15 @@ describe("AgentPage", () => {
     listSkills.mockReset();
     streamChat.mockReset();
     getProfile.mockReset();
+    listAgents.mockReset();
+    startProviderOAuth.mockReset();
+    pollProviderOAuth.mockReset();
     updateProfile.mockReset();
     listSecrets.mockReset();
     getProfile.mockResolvedValue(profileResponse);
     listSecrets.mockResolvedValue({ secrets: [] });
     getSettings.mockResolvedValue(notSet);
+    listAgents.mockResolvedValue({ agents: catalogue(), defaultAgent: "claude" });
     listSessions.mockResolvedValue({ sessions: [], nextCursor: "" });
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     listSkills.mockResolvedValue({ skills: [], profileDisplayName: "Podium" });
@@ -211,39 +230,43 @@ describe("AgentPage", () => {
 
   it("saves a key through the RPC and shows it as set afterwards", async () => {
     setProviderKey.mockResolvedValue({
-      provider: connected.provider,
+      provider: anthropicConnected,
       models: ["claude-opus-5"],
       status: "",
     });
     mount();
-    await screen.findByText("Not set");
+    await within(await screen.findByTestId("provider-card-anthropic")).findByText("Not set");
     getSettings.mockResolvedValue(connected);
 
-    await userEvent.type(screen.getByTestId("provider-key-input"), KEY);
-    await userEvent.click(screen.getByTestId("provider-key-save"));
+    await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
+    await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
     await waitFor(() =>
       expect(setProviderKey).toHaveBeenCalledWith({ provider: "anthropic", key: KEY }),
     );
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(
+      await within(screen.getByTestId("provider-card-anthropic")).findByText("Connected"),
+    ).toBeInTheDocument();
   });
 
   it("removes a key and returns to the empty state", async () => {
     getSettings.mockResolvedValue(connected);
     clearProviderKey.mockResolvedValue({});
     mount();
-    await screen.findByText("Connected");
+    await within(await screen.findByTestId("provider-card-anthropic")).findByText("Connected");
     getSettings.mockResolvedValue(notSet);
 
-    await userEvent.click(screen.getByTestId("provider-key-remove"));
+    await userEvent.click(screen.getByTestId("provider-key-remove-anthropic"));
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() =>
       expect(clearProviderKey).toHaveBeenCalledWith({ provider: "anthropic" }),
     );
     expect(clearProviderKey).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Not set")).toBeInTheDocument();
-    expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
+    expect(
+      await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/encrypted at rest by podium-server/i).length).toBe(2);
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {
@@ -253,13 +276,13 @@ describe("AgentPage", () => {
     mount();
     expect(await screen.findByText(/podium-agent is not reachable/)).toBeInTheDocument();
     // Not a blank card: the input is still there to try again with.
-    expect(screen.getByTestId("provider-key-input")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-key-input-anthropic")).toBeInTheDocument();
   });
 
   it("reports any other failure to read the settings as a failure", async () => {
     getSettings.mockRejectedValue(new ConnectError("boom", Code.Internal));
     mount();
     expect(await screen.findByText("Could not read the agent settings")).toBeInTheDocument();
-    expect(screen.queryByTestId("provider-key-input")).toBeNull();
+    expect(screen.queryByTestId("provider-key-input-anthropic")).toBeNull();
   });
 });

@@ -16,7 +16,7 @@ func stored(name string) Skill {
 		Name:         name,
 		Image:        "example.invalid/agent:dev",
 		SystemPrompt: "answer the question",
-		AllowedTools: []string{"Read"},
+		AllowedTools: []string{"read"},
 	}
 }
 
@@ -32,7 +32,7 @@ func TestAStoredSkillIsValidatedByTheRulesAFileIsHeldTo(t *testing.T) {
 		skill Skill
 		want  string
 	}{
-		{"no name", Skill{Image: "i", SystemPrompt: "p", AllowedTools: []string{"Read"}},
+		{"no name", Skill{Image: "i", SystemPrompt: "p", AllowedTools: []string{"read"}},
 			`skill name "" must match`},
 		{"a name Slack cannot type", func() Skill { s := stored("Reporter"); return s }(),
 			`must match`},

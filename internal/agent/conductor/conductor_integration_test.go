@@ -104,16 +104,16 @@ default_skill: general
 	require.NoError(t, os.MkdirAll(dir+"/skills", 0o750))
 	require.NoError(t, os.WriteFile(dir+"/skills/general.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: answer the question
-allowed_tools: [Read, Grep]
+allowed_tools: [read, grep]
 timeout: 15m
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/skills/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
-allowed_tools: [Read, Edit, Bash]
+allowed_tools: [read, edit, bash]
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/skills/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: build podium
-allowed_tools: [Read, Edit, Bash]
+allowed_tools: [read, edit, bash]
 docker: true
 `), 0o600))
 
@@ -531,7 +531,7 @@ func TestTheTaskSpecIsTheSkillPlusTheReservedSecret(t *testing.T) {
 	assert.Equal(t, "podium", brief.Profile.Name)
 	assert.Equal(t, "claude-opus-5", brief.Profile.Model)
 	assert.Equal(t, "general", brief.Skill.Name)
-	assert.Equal(t, []string{"Read", "Grep"}, brief.Skill.AllowedTools)
+	assert.Equal(t, []string{"read", "grep"}, brief.Skill.AllowedTools)
 	assert.Equal(t, profiles.DefaultMaxTurns, brief.Skill.MaxTurns)
 	assert.Equal(t, "hello", brief.Instruction)
 	assert.False(t, brief.TranscriptTruncated)

@@ -4,6 +4,12 @@ name: podium
 display_name: Podium
 system_prompt: file:./prompts/profile.md
 model: claude-opus-5
+# The backend every skill runs on unless it names its own. Unset means claude. `grok` is the
+# same runtime image pointed at xAI, and it needs an xAI credential on the Settings tab.
+agent: claude
+# How hard the model thinks, when it is unset the model's own default applies. A skill may
+# name its own; the levels a model accepts come from the picker.
+# effort: high
 default_skill: general
 # `chat_default_skill` is deliberately unset, so the web chat falls back to default_skill.
 # The only other skill here is `podium`, which develops Podium itself and is a poor thing to
