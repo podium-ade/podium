@@ -3,13 +3,7 @@ import { Bot, KeyRound, ListTodo, Server } from "lucide-react";
 import { NavLink } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer, viewerLabel } from "../lib/identity";
-
-function navClass({ isActive }: { isActive: boolean }) {
-  return cn(
-    "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-    isActive ? "bg-raised text-fg" : "text-muted hover:bg-raised/70 hover:text-fg",
-  );
-}
+import { Tooltip } from "./ui/tooltip";
 
 function Item({
   to,
@@ -23,10 +17,37 @@ function Item({
   children: string;
 }) {
   return (
-    <NavLink to={to} end={end} className={navClass}>
-      <Icon className="size-4 shrink-0" />
-      {children}
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        cn(
+          "group relative flex h-8 items-center gap-2.5 rounded-md pr-2.5 pl-3 text-sm transition-colors duration-150",
+          // The active rail is the only chrome that moves, so the eye can find the current
+          // screen without reading the labels.
+          "before:absolute before:top-1.5 before:bottom-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-accent",
+          "before:origin-center before:scale-y-0 before:transition-transform before:duration-200",
+          isActive
+            ? "bg-raised font-medium text-fg before:scale-y-100"
+            : "text-muted hover:bg-raised/55 hover:text-fg",
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <Icon className={cn("size-4 shrink-0 transition-colors", isActive && "text-accent")} />
+          {children}
+        </>
+      )}
     </NavLink>
+  );
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <p className="px-3 pt-1 pb-1.5 text-2xs font-medium tracking-[0.08em] text-faint uppercase">
+      {children}
+    </p>
   );
 }
 
@@ -35,15 +56,22 @@ export function Header() {
   const viewer = viewerLabel(who);
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-      <div className="flex h-14 items-center gap-2 px-4">
+      <div className="flex h-14 items-center gap-2.5 px-4">
+        <span
+          aria-hidden
+          className="grid size-6 place-items-center rounded-md bg-accent/15 text-accent ring-1 ring-accent/25"
+        >
+          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+            <path d="M3 12.5V9m5 3.5V4m5 8.5V6.5" />
+          </svg>
+        </span>
         <span className="font-mono text-sm font-semibold tracking-tight">
           podium<span className="text-accent">.</span>
         </span>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 px-2">
-        <p className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium tracking-wider text-muted uppercase">
-          Workspace
-        </p>
+
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-2">
+        <SectionLabel>Workspace</SectionLabel>
         <Item to="/" end icon={ListTodo}>
           Tasks
         </Item>
@@ -57,22 +85,32 @@ export function Header() {
             without one shows no dead end. */}
         {who?.agentEnabled ? (
           <>
-            <p className="px-2.5 pt-4 pb-1.5 text-[11px] font-medium tracking-wider text-muted uppercase">
-              Agent
-            </p>
+            <div className="pt-4" />
+            <SectionLabel>Agent</SectionLabel>
             <Item to="/agent" icon={Bot}>
               Agent
             </Item>
           </>
         ) : null}
       </nav>
-      <div className="mt-auto space-y-1 border-t border-sidebar-border px-3 py-3 text-xs text-muted">
+
+      <div className="mt-auto border-t border-sidebar-border px-4 py-3">
         {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
             transport, which has no per-user identity at all. */}
-        <div className="truncate" title={viewer.title}>
-          {viewer.text}
-        </div>
-        <div className="font-mono text-[11px] opacity-80">{__PODIUM_VERSION__}</div>
+        <Tooltip label={viewer.title} side="right">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden
+              className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
+            >
+              {viewer.text.slice(0, 1)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs text-fg">{viewer.text}</div>
+              <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
+            </div>
+          </div>
+        </Tooltip>
       </div>
     </aside>
   );

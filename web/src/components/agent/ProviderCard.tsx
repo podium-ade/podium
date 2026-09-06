@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  RotateCw,
+  ShieldCheck,
+} from "lucide-react";
 import {
   ProviderKeyErrorSchema,
   type PollProviderOAuthResponse,
@@ -11,9 +21,22 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
+import { Button } from "../ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { BackendMark } from "./BackendMark";
 
 /** How many model ids the confirmation card shows before it stops. */
@@ -55,6 +78,10 @@ export type ProviderCardProps = {
  * what happened to the credential, because "saved" has to mean "agents will run". A refusal,
  * a provider that could not be reached and a conductor that is down are three different
  * sentences and three different colours.
+ *
+ * A configured provider shows no input. An empty password field on a card that already says
+ * "Connected" reads as a credential that has gone missing, so replacing one is a deliberate
+ * act behind "Rotate key".
  */
 export function ProviderCard({
   provider,
@@ -74,18 +101,15 @@ export function ProviderCard({
   const [result, setResult] = useState<Result>();
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [signing, setSigning] = useState<Signing>();
   const [starting, setStarting] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  // The confirm takes focus when it opens, so the destructive path is where the keyboard is.
-  useEffect(() => {
-    if (confirming) cancelRef.current?.focus();
-  }, [confirming]);
 
   const keySet = settings?.keySet ?? false;
   const hint = settings?.keyHint ?? "";
   const oauth = provider.subscription !== undefined && onStartOAuth !== undefined;
+  const stored = keySet && !loading;
+  const editing = !loading && (!keySet || rotating);
   const tid = (name: string) => `${name}-${provider.id}`;
 
   // The polling loop. It lives in an effect so that leaving the tab, cancelling, or the
@@ -104,6 +128,7 @@ export function ProviderCard({
         switch (res.state) {
           case "done":
             setSigning(undefined);
+            setRotating(false);
             setResult({
               tone: "ok",
               text: res.provider?.account
@@ -156,6 +181,7 @@ export function ProviderCard({
       const saved = res.provider?.keyHint ?? "";
       setValue("");
       setReveal(false);
+      setRotating(false);
       setResult({
         tone: "ok",
         text: `Saved. ••••${saved} works — ${res.models.length} ${
@@ -197,6 +223,7 @@ export function ProviderCard({
     try {
       await onClear();
       setConfirming(false);
+      setRotating(false);
       setResult(undefined);
       setValue("");
       toast(`The ${provider.name} credential was removed.`, "ok");
@@ -207,58 +234,87 @@ export function ProviderCard({
     }
   }
 
-  return (
-    <section data-testid={tid("provider-card")} className="rounded-xl border border-border bg-card shadow-xs">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-        <BackendMark id={provider.backendID} />
-        <h2 className="text-sm font-semibold">{provider.name}</h2>
-        <span className="text-xs text-muted">runs {provider.models}</span>
-        {loading ? (
-          <Skeleton className="h-5 w-20" />
-        ) : (
-          <Badge tone={keySet ? "ok" : "idle"}>{keySet ? "Connected" : "Not set"}</Badge>
-        )}
-        {keySet ? (
-          <p className="ml-auto font-mono text-xs text-muted" data-testid={tid("provider-key-meta")}>
-            <Connected settings={settings} />
-          </p>
-        ) : null}
-      </header>
+  const subscriptionStored = settings?.authKind === "oauth";
 
-      <div className="space-y-3 px-4 py-4">
+  return (
+    <Card
+      data-testid={tid("provider-card")}
+      // A provider with no credential is an empty slot, and it should look like one before a
+      // word of it is read.
+      className={cn("flex flex-col", !stored && !loading && "border-dashed bg-card/40")}
+    >
+      {/* space-y-0: CardHeader spaces the children of its first block, and this one is a row. */}
+      <CardHeader className="[&>div:first-child]:space-y-0">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-lg border",
+              stored ? "border-transparent bg-accent/12" : "border-border bg-raised/50",
+            )}
+          >
+            <BackendMark id={provider.backendID} />
+          </span>
+          <div className="min-w-0">
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              {provider.name}
+              {loading ? (
+                <Skeleton className="h-4 w-16" />
+              ) : (
+                <Badge tone={keySet ? "ok" : "idle"}>{keySet ? "Connected" : "Not set"}</Badge>
+              )}
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted">runs {provider.models}</p>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex-1 space-y-3">
         {loading ? (
           <div className="space-y-3" aria-busy="true" aria-label="Loading">
             <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-9 w-full" />
             <Skeleton className="h-8 w-36" />
           </div>
         ) : (
           <>
+            {stored ? (
+              <div className="flex items-start gap-2.5 rounded-lg border border-hairline bg-raised/40 px-3 py-2.5">
+                {subscriptionStored ? (
+                  <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
+                ) : (
+                  <KeyRound className="mt-px size-3.5 shrink-0 text-muted" />
+                )}
+                <p
+                  data-testid={tid("provider-key-meta")}
+                  className="min-w-0 font-mono text-xs break-words text-muted"
+                >
+                  <Connected settings={settings} />
+                </p>
+              </div>
+            ) : null}
+
             {keySet ? null : (
-              <p className="max-w-2xl text-xs text-muted">
+              <p className="text-xs leading-relaxed text-muted">
                 Agents use this credential to talk to {provider.models}. It is encrypted at rest
                 by podium-server and handed only to the containers that run {provider.models}{" "}
                 turns. It leaves this host only to reach {provider.name}.
               </p>
             )}
 
-            {oauth ? (
-              <div
-                role="tablist"
-                aria-label={`${provider.name}: how to connect`}
-                className="inline-flex overflow-hidden rounded border border-border"
-              >
+            {editing && oauth ? (
+              <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
                 {(["key", "subscription"] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
-                    role="tab"
-                    aria-selected={mode === m}
+                    aria-pressed={mode === m}
                     data-testid={tid(`provider-mode-${m}`)}
                     onClick={() => setMode(m)}
-                    className={`px-3 py-1 text-xs ${
-                      mode === m ? "bg-accent text-bg" : "text-muted hover:text-fg"
-                    }`}
+                    className={cn(
+                      "inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium",
+                      "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                      mode === m ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
+                    )}
                   >
                     {m === "key" ? "API key" : "Subscription"}
                   </button>
@@ -266,7 +322,7 @@ export function ProviderCard({
               </div>
             ) : null}
 
-            {oauth && mode === "subscription" ? (
+            {editing && oauth && mode === "subscription" ? (
               <SubscriptionPanel
                 provider={provider}
                 signing={signing}
@@ -275,91 +331,109 @@ export function ProviderCard({
                 onCancel={() => setSigning(undefined)}
                 tid={tid}
               />
-            ) : (
+            ) : null}
+
+            {editing && !(oauth && mode === "subscription") ? (
               <form
-                className="flex flex-wrap items-end gap-2"
+                className="space-y-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void save();
                 }}
               >
-                <div className="min-w-64 flex-1">
-                  <label className="block text-xs text-muted" htmlFor={tid("provider-key")}>
-                    API key
-                  </label>
-                  <div className="mt-1 flex items-center gap-1">
-                    <input
-                      id={tid("provider-key")}
-                      data-testid={tid("provider-key-input")}
-                      type={reveal ? "text" : "password"}
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={
-                        keySet
-                          ? hint
-                            ? `Paste a new key to replace ••••${hint}`
-                            : "Paste a key to replace the one that is set"
-                          : provider.keyPlaceholder
-                      }
-                      value={value}
-                      // People copy out of a .env file, so the quotes and the whitespace
-                      // come with it. Trimming on the way in is kinder than an error.
-                      onChange={(e) => setValue(trimPasted(e.target.value))}
-                      className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-sm outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent"
-                    />
-                    <button
-                      type="button"
-                      aria-pressed={reveal}
-                      aria-label={reveal ? "Hide the key" : "Show the key"}
-                      onClick={() => setReveal((v) => !v)}
-                      className="rounded border border-border px-2 py-1.5 text-xs text-muted hover:text-fg focus-visible:ring-1 focus-visible:ring-accent"
-                    >
-                      {reveal ? "Hide" : "Show"}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-xs text-muted">
-                    From{" "}
-                    <a
-                      href={provider.consoleURL}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="text-accent hover:underline"
-                    >
-                      {new URL(provider.consoleURL).host}
-                    </a>
-                    .
-                  </p>
+                <Label htmlFor={tid("provider-key")}>
+                  {keySet ? "Replacement API key" : "API key"}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id={tid("provider-key")}
+                    data-testid={tid("provider-key-input")}
+                    type={reveal ? "text" : "password"}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={
+                      keySet
+                        ? hint
+                          ? `Paste a new key to replace ••••${hint}`
+                          : "Paste a key to replace the one that is set"
+                        : provider.keyPlaceholder
+                    }
+                    value={value}
+                    // People copy out of a .env file, so the quotes and the whitespace
+                    // come with it. Trimming on the way in is kinder than an error.
+                    onChange={(e) => setValue(trimPasted(e.target.value))}
+                    className="pr-10 font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-pressed={reveal}
+                    aria-label={reveal ? "Hide the key" : "Show the key"}
+                    onClick={() => setReveal((v) => !v)}
+                    className="absolute top-1/2 right-0.5 -translate-y-1/2"
+                  >
+                    {reveal ? <EyeOff /> : <Eye />}
+                  </Button>
                 </div>
-                <button
-                  type="submit"
-                  data-testid={tid("provider-key-save")}
-                  disabled={value.trim() === "" || saving}
-                  className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-accent"
-                >
-                  {saving ? <Spinner /> : null}
-                  {saving ? `Checking with ${provider.name}…` : "Validate & save"}
-                </button>
+                <p className="text-xs text-muted">
+                  From{" "}
+                  <a
+                    href={provider.consoleURL}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-accent hover:underline"
+                  >
+                    {new URL(provider.consoleURL).host}
+                  </a>
+                  .
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="submit"
+                    size="sm"
+                    data-testid={tid("provider-key-save")}
+                    disabled={value.trim() === "" || saving}
+                  >
+                    {saving ? <Spinner /> : null}
+                    {saving ? `Checking with ${provider.name}…` : "Validate & save"}
+                  </Button>
+                  {rotating ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setRotating(false);
+                        setValue("");
+                      }}
+                    >
+                      Keep the current key
+                    </Button>
+                  ) : null}
+                </div>
               </form>
-            )}
+            ) : null}
 
             {result ? (
               <div
                 data-testid={tid("provider-key-status")}
                 role="status"
                 aria-live="polite"
-                className={`text-xs ${
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-xs",
                   result.tone === "ok"
-                    ? "text-ok"
+                    ? "border-ok/30 bg-ok/8 text-ok"
                     : result.tone === "err"
-                      ? "text-err"
-                      : "text-warn"
-                }`}
+                      ? "border-err/30 bg-err/8 text-err"
+                      : "border-warn/30 bg-warn/8 text-warn",
+                )}
               >
                 <p>{result.text}</p>
                 {result.tone !== "ok" && result.detail ? (
                   <p
                     data-testid={tid("provider-key-detail")}
-                    className="mt-1.5 max-w-2xl break-words rounded border border-border bg-raised px-2 py-1.5 text-xs text-muted"
+                    className="mt-1.5 max-w-2xl rounded-md border border-border bg-raised px-2 py-1.5 text-xs break-words text-muted"
                   >
                     <span className="font-semibold">{result.detail.label}:</span>{" "}
                     {result.detail.text}
@@ -382,53 +456,58 @@ export function ProviderCard({
             ) : null}
           </>
         )}
-      </div>
+      </CardContent>
 
-      {keySet && !loading ? (
-        <div className="m-4 mt-0 rounded border border-err/40 px-3 py-2">
-          {confirming ? (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-warn">
-                {provider.models} turns will fail until a credential is set again. Remove?
-              </span>
-              <button
-                type="button"
-                ref={cancelRef}
-                onClick={() => setConfirming(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setConfirming(false);
-                }}
-                className="rounded border border-border px-2 py-1 text-muted hover:text-fg focus-visible:ring-1 focus-visible:ring-accent"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={clearing}
-                onClick={() => void clear()}
-                className="rounded bg-err px-2 py-1 font-medium text-bg hover:opacity-90 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-accent"
-              >
-                Confirm
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-muted">
-                Removing it stops every {provider.models} turn until a new one is set.
-              </span>
-              <button
-                type="button"
-                data-testid={tid("provider-key-remove")}
-                onClick={() => setConfirming(true)}
-                className="ml-auto rounded border border-err/50 px-2 py-1 text-err hover:bg-err/10 focus-visible:ring-1 focus-visible:ring-accent"
-              >
-                {settings?.authKind === "oauth" ? "Sign out" : "Remove key"}
-              </button>
-            </div>
+      {stored ? (
+        <CardFooter>
+          {rotating ? null : (
+            <Button variant="outline" size="sm" onClick={() => setRotating(true)}>
+              <RotateCw />
+              {subscriptionStored ? "Sign in again" : "Rotate key"}
+            </Button>
           )}
-        </div>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid={tid("provider-key-remove")}
+            className="ml-auto"
+            onClick={() => setConfirming(true)}
+          >
+            {subscriptionStored ? "Sign out" : "Remove key"}
+          </Button>
+        </CardFooter>
       ) : null}
-    </section>
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent className="max-w-md" showClose={false}>
+          <DialogHeader>
+            <DialogTitle>
+              {subscriptionStored
+                ? `Sign out of ${provider.name}?`
+                : `Remove the ${provider.name} key?`}
+            </DialogTitle>
+            <DialogDescription>
+              {provider.models} turns will fail until a credential is set again. Podium deletes
+              the secret; nothing already running is stopped, and every session that has already
+              answered keeps its history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={clearing}
+              onClick={() => void clear()}
+            >
+              {clearing ? "Removing…" : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
 
@@ -460,17 +539,11 @@ function SubscriptionPanel({
   if (!signing) {
     return (
       <div className="space-y-2">
-        <button
-          type="button"
-          data-testid={tid("provider-oauth-start")}
-          disabled={starting}
-          onClick={onStart}
-          className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-40 focus-visible:ring-1 focus-visible:ring-accent"
-        >
-          {starting ? <Spinner /> : null}
+        <Button size="sm" data-testid={tid("provider-oauth-start")} disabled={starting} onClick={onStart}>
+          {starting ? <Spinner /> : <ShieldCheck />}
           {starting ? "Asking for a code…" : provider.subscription?.label}
-        </button>
-        <p className="max-w-2xl text-xs text-muted">
+        </Button>
+        <p className="text-xs leading-relaxed text-muted">
           {provider.subscription?.hint} You approve it on {provider.name}&apos;s own site; this
           host never sees your password. The access token it issues is refreshed here in the
           background, so you sign in once.
@@ -482,9 +555,9 @@ function SubscriptionPanel({
   return (
     <div
       data-testid={tid("provider-oauth-panel")}
-      className="max-w-2xl space-y-3 rounded border border-accent/40 bg-raised px-4 py-3"
+      className="space-y-4 rounded-xl border border-accent/35 bg-accent/6 p-4 animate-in fade-in-0 duration-200"
     >
-      <ol className="space-y-3 text-xs">
+      <ol className="space-y-3.5 text-xs">
         <li className="flex flex-wrap items-center gap-2">
           <Step n={1} />
           <span className="text-fg">Open</span>
@@ -496,41 +569,42 @@ function SubscriptionPanel({
           >
             {signing.url}
           </a>
+          <ExternalLink aria-hidden className="size-3 text-faint" />
         </li>
         <li className="flex flex-wrap items-center gap-2">
           <Step n={2} />
           <span className="text-fg">Enter this code</span>
-          <code
-            data-testid={tid("provider-oauth-code")}
-            className="rounded border border-border bg-bg px-3 py-1.5 font-mono text-lg tracking-[0.2em] text-fg"
-          >
-            {signing.userCode}
-          </code>
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard?.writeText(signing.userCode).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              );
-            }}
-            className="rounded border border-border px-2 py-1 text-muted hover:text-fg"
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
+          <div className="flex w-full items-center gap-2 pl-7">
+            <code
+              data-testid={tid("provider-oauth-code")}
+              className="rounded-lg border border-border bg-bg px-4 py-2 font-mono text-2xl font-semibold tracking-[0.22em] text-fg select-all"
+            >
+              {signing.userCode}
+            </code>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard?.writeText(signing.userCode).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                );
+              }}
+            >
+              {copied ? <Check /> : <Copy />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
         </li>
       </ol>
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-3 text-xs">
         <Spinner />
         <span className="text-muted">Waiting for you to approve it…</span>
-        {left ? <span className="text-muted">expires in {left}</span> : null}
-        <button
-          type="button"
-          onClick={onCancel}
-          className="ml-auto rounded border border-border px-2 py-1 text-muted hover:text-fg"
-        >
+        {left ? <span className="tabular text-faint">expires in {left}</span> : null}
+        <Button type="button" variant="ghost" size="xs" className="ml-auto" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -657,7 +731,7 @@ function Step({ n }: { n: number }): ReactNode {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-[10px] text-muted"
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-panel text-[10px] text-muted"
     >
       {n}
     </span>

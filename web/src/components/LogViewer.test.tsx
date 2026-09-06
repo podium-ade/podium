@@ -100,17 +100,17 @@ describe("LogViewer", () => {
     );
     render(<LogViewer lines={many} phase="streaming" taskId="task_1" />);
     const scroller = screen.getByTestId("log-scroll");
-    const follow = screen.getByLabelText("follow") as HTMLInputElement;
+    const follow = screen.getByRole("switch", { name: "Follow" });
     withGeometry(scroller, 180, 500 * 18);
 
-    expect(follow.checked).toBe(true);
+    expect(follow).toBeChecked();
 
     fireEvent.scroll(scroller, { target: { scrollTop: 0 } });
-    expect(follow.checked).toBe(false);
+    expect(follow).not.toBeChecked();
     expect(screen.getAllByTestId("log-line")[0]).toHaveTextContent("line 0");
 
     fireEvent.scroll(scroller, { target: { scrollTop: 500 * 18 - 180 } });
-    expect(follow.checked).toBe(true);
+    expect(follow).toBeChecked();
   });
 
   it("follow scrolls a newly appended line into view", () => {
@@ -189,6 +189,38 @@ describe("LogViewer", () => {
       expect(screen.getByLabelText("sidecar queue")).toBeInTheDocument();
       expect(texts()).toContain("[queue] queue up");
     });
+  });
+
+  it("numbers every line by its place in the whole log, not in the filtered view", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<LogViewer lines={mixed} phase="streaming" taskId="task_1" />);
+    const gutter = () =>
+      Array.from(container.querySelectorAll("[data-testid='log-line']")).map(
+        (el) => el.previousElementSibling?.textContent,
+      );
+
+    expect(gutter()).toEqual(["1", "2", "3", "4"]);
+    await user.click(screen.getByLabelText("stdout"));
+    expect(gutter()).toEqual(["2"]);
+  });
+
+  it("jumps to the first stderr line, and offers nothing to jump to without one", () => {
+    const noise = build(
+      Array.from({ length: 200 }, (_, i): Chunk => [i + 1, stdout, `line ${i}\n`]),
+    );
+    const withError = [...noise, ...build([[201, stderr, "boom\n"]])];
+    const { rerender } = render(
+      <LogViewer lines={noise} phase="streaming" taskId="task_1" />,
+    );
+    expect(screen.queryByRole("button", { name: /first error/i })).toBeNull();
+
+    rerender(<LogViewer lines={withError} phase="streaming" taskId="task_1" />);
+    const scroller = screen.getByTestId("log-scroll");
+    withGeometry(scroller, 180, withError.length * 18);
+
+    fireEvent.click(screen.getByRole("button", { name: /first error/i }));
+    // Three rows of context above the error, so the lines that led to it are on screen too.
+    expect(scroller.scrollTop).toBe((noise.length - 3) * 18);
   });
 
   it("says so when there is no output at all", () => {

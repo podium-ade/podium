@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download, FileText, Loader2 } from "lucide-react";
 import type { ChatAttachment } from "../../gen/podium/agent/v1/agent_pb";
 import { downloadURL } from "../../lib/artifacts";
 import { getToken, notifyRejected } from "../../lib/auth";
@@ -73,7 +74,7 @@ function imageMIME(a: ChatAttachment): string {
 export function ChatAttachments({ attachments }: { attachments: ChatAttachment[] }) {
   if (attachments.length === 0) return null;
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-2.5 flex flex-wrap items-start gap-2">
       {attachments.map((a) =>
         inlineImage(a) ? (
           <InlineImage key={a.artifactId} attachment={a} />
@@ -133,7 +134,7 @@ function InlineImage({ attachment }: { attachment: ChatAttachment }) {
     return (
       <div
         data-testid="chat-attachment"
-        className="h-24 w-full max-w-120 animate-pulse rounded border border-border bg-raised"
+        className="h-24 w-full max-w-120 animate-shimmer rounded-lg border border-border bg-raised"
       />
     );
   }
@@ -144,13 +145,13 @@ function InlineImage({ attachment }: { attachment: ChatAttachment }) {
       target="_blank"
       rel="noreferrer noopener"
       title={`${attachment.name} · ${humanBytes(attachment.sizeBytes)}`}
-      className="block"
+      className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       <img
         src={url}
         alt={attachment.name}
         style={{ maxWidth: MAX_IMAGE_PX }}
-        className="rounded border border-border"
+        className="rounded-lg border border-border"
       />
     </a>
   );
@@ -165,6 +166,7 @@ function FileChip({ attachment }: { attachment: ChatAttachment }) {
       type="button"
       data-testid="chat-attachment"
       disabled={busy}
+      aria-label={`Download ${attachment.name}`}
       onClick={() => {
         setBusy(true);
         void (async () => {
@@ -187,12 +189,22 @@ function FileChip({ attachment }: { attachment: ChatAttachment }) {
           }
         })();
       }}
-      className="flex items-center gap-2 rounded border border-border bg-raised px-2 py-1 text-xs text-muted hover:text-fg disabled:opacity-60 focus-visible:ring-1 focus-visible:ring-accent"
+      className="flex max-w-full items-center gap-2.5 rounded-lg border border-border bg-panel py-1.5 pr-2.5 pl-2 text-left shadow-xs transition-colors duration-150 outline-none hover:border-muted/45 hover:bg-raised/60 disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <span className="font-mono text-fg">{attachment.name}</span>
-      <span>·</span>
-      <span>{humanBytes(attachment.sizeBytes)}</span>
-      <span>{busy ? "downloading…" : "download"}</span>
+      <span className="grid size-7 shrink-0 place-items-center rounded-md border border-hairline bg-raised text-muted">
+        {busy ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <FileText className="size-3.5" />
+        )}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-mono text-xs text-fg">{attachment.name}</span>
+        <span className="tabular block text-2xs text-faint">
+          {busy ? "downloading…" : `${humanBytes(attachment.sizeBytes)} · download`}
+        </span>
+      </span>
+      <Download aria-hidden className="size-3.5 shrink-0 text-faint" />
     </button>
   );
 }

@@ -51,6 +51,8 @@ export interface SidecarDoc {
   env?: Record<string, string>;
   readiness?: ReadinessDoc;
   resources?: ResourcesDoc;
+  privileged?: boolean;
+  share_workspace?: boolean;
 }
 export interface ReadinessDoc {
   tcp_port?: number;
@@ -83,7 +85,17 @@ const TASK_KEYS = [
   "max_attempts",
   "retry_on_node_loss",
 ];
-const SIDECAR_KEYS = ["image", "command", "env", "readiness", "resources"];
+// Both dind fields are here because pkg/spec.Sidecar accepts them: leaving them out made the
+// browser reject a spec the server would have taken.
+const SIDECAR_KEYS = [
+  "image",
+  "command",
+  "env",
+  "readiness",
+  "resources",
+  "privileged",
+  "share_workspace",
+];
 const READINESS_KEYS = ["tcp_port", "http_path", "http_port", "command", "timeout"];
 const RESOURCE_KEYS = ["cpu", "memory_mb", "pids"];
 const HARDENING_KEYS = ["read_only_rootfs", "capabilities"];
@@ -327,6 +339,10 @@ export function parseSpecValue(doc: unknown): ParsedSpec {
       };
       const scResources = r.resources(`${path}.resources`, o.resources);
       if (scResources) sc.resources = scResources;
+      const privileged = r.bool(`${path}.privileged`, o.privileged);
+      if (privileged) sc.privileged = true;
+      const shareWorkspace = r.bool(`${path}.share_workspace`, o.share_workspace);
+      if (shareWorkspace) sc.shareWorkspace = true;
       const readiness = r.object(`${path}.readiness`, o.readiness, READINESS_KEYS);
       if (readiness) {
         sc.readiness = {
@@ -386,6 +402,8 @@ export function specToDoc(spec?: TaskSpec): SpecDoc {
       }
       const res = resourcesDoc(sc.resources);
       if (res) out.resources = res;
+      if (sc.privileged) out.privileged = true;
+      if (sc.shareWorkspace) out.share_workspace = true;
       doc.sidecars[name] = out;
     }
   }

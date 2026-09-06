@@ -1,11 +1,17 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { ChevronDown, FileCode2, Undo2 } from "lucide-react";
 import type { AgentBackend, AgentProfile } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { AgentPicker } from "./AgentPicker";
 import { relative } from "../../lib/format";
-import { Badge } from "../Badge";
+import { cn } from "../../lib/utils";
+import { Badge, Chip } from "../Badge";
 import { Skeleton } from "../Skeleton";
+import { Button } from "../ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 
 /** The profile.yaml keys a browser may override, as the API names them. */
 export const FIELDS = {
@@ -70,18 +76,31 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
 
   if (loading) {
     return (
-      <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs" aria-busy="true">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
-      </section>
+      <Card className="max-w-4xl" aria-busy="true">
+        <CardHeader>
+          <div>
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="mt-2 h-3 w-56" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-9 w-full max-w-sm" />
+              <Skeleton className="h-2.5 w-44" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     );
   }
+
+  const overrideCount = overridden.size;
 
   return (
     <form
       data-testid="profile-card"
-      className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs"
       onSubmit={(e) => {
         e.preventDefault();
         onSave({
@@ -94,103 +113,121 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
         });
       }}
     >
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-sm font-semibold">{profile?.name || "—"}</h2>
-        <span className="text-xs text-muted">
-          Loaded from <code className="font-mono text-fg">{profile?.profileDir || "—"}</code>
-        </span>
-        {profile?.updatedBy ? (
-          <span className="ml-auto text-xs text-muted">
-            changed by {profile.updatedBy}
-            {profile.updatedAt ? ` · ${relative(profile.updatedAt)}` : ""}
-          </span>
-        ) : null}
-      </header>
+      <Card className="max-w-4xl">
+        <CardHeader>
+          <div>
+            <CardTitle>{profile?.name || "—"}</CardTitle>
+            <p className="text-xs text-muted">
+              Loaded from <code className="font-mono text-fg">{profile?.profileDir || "—"}</code>
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={overrideCount > 0 ? "warn" : "idle"}>
+              {overrideCount === 0
+                ? "no overrides"
+                : `${overrideCount} ${overrideCount === 1 ? "override" : "overrides"}`}
+            </Badge>
+            {profile?.updatedBy ? (
+              <Chip>
+                changed by {profile.updatedBy}
+                {profile.updatedAt ? ` · ${relative(profile.updatedAt)}` : ""}
+              </Chip>
+            ) : null}
+          </div>
+        </CardHeader>
 
-      <p className="max-w-2xl text-xs text-muted">
-        The profile&apos;s name and system prompt come from{" "}
-        <code className="font-mono">profile.yaml</code> and are not editable here — the name
-        labels every session already recorded. The fields below are overrides: clear one and
-        the file&apos;s value applies again.
-      </p>
+        <CardContent className="pb-0">
+          <p className="max-w-2xl pb-1 text-xs leading-relaxed text-muted">
+            The profile&apos;s name and system prompt come from{" "}
+            <code className="font-mono">profile.yaml</code> and are not editable here — the name
+            labels every session already recorded. The fields below are overrides: clear one and
+            the file&apos;s value applies again.
+          </p>
 
-      <Field
-        label="Display name"
-        fileValue={profile?.fileDisplayName ?? ""}
-        overridden={overridden.has(FIELDS.displayName)}
-        onUseFile={() => setDisplayName("")}
-      >
-        <input
-          aria-label="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder={profile?.fileDisplayName || "the file's value"}
-          className="w-full max-w-sm rounded border border-border bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
-        />
-      </Field>
+          <Field
+            id="profile-display-name"
+            label="Display name"
+            fileValue={profile?.fileDisplayName ?? ""}
+            overridden={overridden.has(FIELDS.displayName)}
+            onUseFile={() => setDisplayName("")}
+            hint="What the bot calls itself in Slack and in a chat header."
+          >
+            <Input
+              id="profile-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={profile?.fileDisplayName || "the file's value"}
+              className="h-8 max-w-sm text-xs"
+            />
+          </Field>
 
-      <Field
-        label="Agent and model"
-        fileValue={fileTriple(profile)}
-        overridden={
-          overridden.has(FIELDS.model) || overridden.has(FIELDS.agent) || overridden.has(FIELDS.effort)
-        }
-        onUseFile={() => setChoice(INHERIT)}
-        hint="What every skill runs on unless it names its own."
-      >
-        <AgentPicker
-          label="Profile"
-          value={choice}
-          onChange={setChoice}
-          agents={agents}
-          inherit={{ label: "Use profile.yaml's", hint: "the file's value" }}
-          inherited={{
-            agent: profile?.fileAgent ?? "",
-            model: profile?.fileModel ?? "",
-            effort: profile?.fileEffort ?? "",
-          }}
-        />
-      </Field>
+          <Field
+            label="Agent and model"
+            fileValue={fileTriple(profile)}
+            overridden={
+              overridden.has(FIELDS.model) ||
+              overridden.has(FIELDS.agent) ||
+              overridden.has(FIELDS.effort)
+            }
+            onUseFile={() => setChoice(INHERIT)}
+            hint="What every skill runs on unless it names its own."
+          >
+            <AgentPicker
+              label="Profile"
+              value={choice}
+              onChange={setChoice}
+              agents={agents}
+              inherit={{ label: "Use profile.yaml's", hint: "the file's value" }}
+              inherited={{
+                agent: profile?.fileAgent ?? "",
+                model: profile?.fileModel ?? "",
+                effort: profile?.fileEffort ?? "",
+              }}
+            />
+          </Field>
 
-      <Field
-        label="Default skill"
-        fileValue={profile?.fileDefaultSkill ?? ""}
-        overridden={overridden.has(FIELDS.defaultSkill)}
-        onUseFile={() => setDefaultSkill("")}
-        hint="What runs when no chip, no slash prefix and no channel picks a skill."
-      >
-        <SkillSelect
-          label="Default skill"
-          value={defaultSkill}
-          skills={skills}
-          fileValue={profile?.fileDefaultSkill ?? ""}
-          onChange={setDefaultSkill}
-        />
-      </Field>
+          <Field
+            id="profile-default-skill"
+            label="Default skill"
+            fileValue={profile?.fileDefaultSkill ?? ""}
+            overridden={overridden.has(FIELDS.defaultSkill)}
+            onUseFile={() => setDefaultSkill("")}
+            hint="What runs when no chip, no slash prefix and no channel picks a skill."
+          >
+            <SkillSelect
+              id="profile-default-skill"
+              value={defaultSkill}
+              skills={skills}
+              fileValue={profile?.fileDefaultSkill ?? ""}
+              onChange={setDefaultSkill}
+            />
+          </Field>
 
-      <Field
-        label="Chat default skill"
-        fileValue={profile?.fileChatDefaultSkill ?? ""}
-        overridden={overridden.has(FIELDS.chatDefaultSkill)}
-        onUseFile={() => setChatDefaultSkill("")}
-        hint="What a web chat starts with. It is a preference: a slash prefix a human types still wins."
-      >
-        <SkillSelect
-          label="Chat default skill"
-          value={chatDefaultSkill}
-          skills={skills}
-          fileValue={profile?.fileChatDefaultSkill ?? ""}
-          onChange={setChatDefaultSkill}
-        />
-      </Field>
+          <Field
+            id="profile-chat-default-skill"
+            label="Chat default skill"
+            fileValue={profile?.fileChatDefaultSkill ?? ""}
+            overridden={overridden.has(FIELDS.chatDefaultSkill)}
+            onUseFile={() => setChatDefaultSkill("")}
+            hint="What a web chat starts with. It is a preference: a slash prefix a human types still wins."
+          >
+            <SkillSelect
+              id="profile-chat-default-skill"
+              value={chatDefaultSkill}
+              skills={skills}
+              fileValue={profile?.fileChatDefaultSkill ?? ""}
+              onChange={setChatDefaultSkill}
+            />
+          </Field>
+        </CardContent>
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-bg disabled:opacity-50"
-      >
-        {saving ? "Saving…" : "Save profile"}
-      </button>
+        <CardFooter>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving ? "Saving…" : "Save profile"}
+          </Button>
+          <span className="text-xs text-muted">It applies to the next turn.</span>
+        </CardFooter>
+      </Card>
     </form>
   );
 }
@@ -201,7 +238,15 @@ function fileTriple(profile?: AgentProfile): string {
   return parts.join(" · ");
 }
 
+/**
+ * Field is the file-versus-override distinction, made structural: the control holds the
+ * override, and the line under it always says where the value in force actually comes from.
+ *
+ * An overridden row is tinted and carries the revert; an inherited one says "from
+ * profile.yaml" and nothing else, because there is nothing to undo.
+ */
 function Field({
+  id,
   label,
   fileValue,
   overridden,
@@ -209,6 +254,8 @@ function Field({
   onUseFile,
   children,
 }: {
+  /** The control's id, when it has one — the label points at it. */
+  id?: string;
   label: string;
   fileValue: string;
   overridden: boolean;
@@ -217,40 +264,58 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-1 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-fg">{label}</span>
-        {overridden ? <Badge tone="warn">overriding the file</Badge> : null}
+    <div
+      className={cn(
+        "-mx-5 grid gap-x-6 gap-y-2 border-t border-hairline px-5 py-4 sm:grid-cols-[15rem_1fr]",
+        overridden && "bg-warn/4",
+      )}
+    >
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {id ? (
+            <Label htmlFor={id}>{label}</Label>
+          ) : (
+            <span className="text-xs font-medium text-muted">{label}</span>
+          )}
+          {overridden ? <Badge tone="warn">overriding the file</Badge> : null}
+        </div>
+        {hint ? <p className="text-2xs leading-relaxed text-faint">{hint}</p> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {children}
-        {overridden ? (
-          <button
-            type="button"
-            onClick={onUseFile}
-            className="rounded border border-border px-2 py-1 text-muted hover:text-fg"
-          >
-            Use the file value
-          </button>
-        ) : null}
+      <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">{children}</div>
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-faint">
+          <FileCode2 aria-hidden className="size-3.5 shrink-0" />
+          {overridden ? (
+            <>
+              <span>
+                <code className="font-mono">profile.yaml</code> says{" "}
+                {fileValue ? <span className="text-muted">{fileValue}</span> : <span>nothing</span>}
+              </span>
+              <Button type="button" variant="ghost" size="xs" onClick={onUseFile}>
+                <Undo2 />
+                Use the file value
+              </Button>
+            </>
+          ) : (
+            <span>
+              in force: {fileValue ? <span className="text-muted">{fileValue}</span> : "unset"}, from{" "}
+              <code className="font-mono">profile.yaml</code>
+            </span>
+          )}
+        </p>
       </div>
-      <p className="text-muted">
-        <code className="font-mono">profile.yaml</code>:{" "}
-        {fileValue ? <span className="text-fg">{fileValue}</span> : <span>unset</span>}
-        {hint ? ` · ${hint}` : null}
-      </p>
     </div>
   );
 }
 
 function SkillSelect({
-  label,
+  id,
   value,
   skills,
   fileValue,
   onChange,
 }: {
-  label: string;
+  id: string;
   value: string;
   skills: string[];
   fileValue: string;
@@ -260,18 +325,28 @@ function SkillSelect({
   // silently rewrite the override the moment the form is saved.
   const options = skills.includes(value) || value === "" ? skills : [value, ...skills];
   return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full max-w-sm rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
-    >
-      <option value="">{fileValue ? `the file's value (${fileValue})` : "the file's value"}</option>
-      {options.map((s) => (
-        <option key={s} value={s}>
-          {s}
-        </option>
-      ))}
-    </select>
+    <div className="relative w-full max-w-sm">
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "h-8 w-full appearance-none rounded-md border border-input bg-bg pr-8 pl-3 font-mono text-xs text-fg shadow-xs",
+          "transition-[border-color,box-shadow] duration-150 ease-out hover:border-muted/45",
+          "outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35",
+        )}
+      >
+        <option value="">{fileValue ? `the file's value (${fileValue})` : "the file's value"}</option>
+        {options.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted"
+      />
+    </div>
   );
 }

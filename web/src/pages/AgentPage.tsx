@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Brain,
@@ -11,15 +11,17 @@ import {
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
+import { ConductorDown } from "../components/agent/ConductorDown";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
+import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
-import { Alert } from "../components/ui/alert";
+import { Separator } from "../components/ui/separator";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
@@ -69,10 +71,21 @@ const groups: Group[] = [
 
 const tabs: Tab[] = groups.flatMap((g) => g.tabs);
 
+/**
+ * The tab bar is horizontal, and it is a row of links rather than `ui/tabs` on purpose: an
+ * active tab here is a route, so the back button and a deep link both work, and only an
+ * anchor gives that for free. The classes are `TabsTrigger`'s so it still reads as one
+ * component family.
+ *
+ * It used to be a 192px rail, which put a second grey nav column immediately right of the
+ * app's own and spent a quarter of the window before any content.
+ */
 function tabLink({ isActive }: { isActive: boolean }) {
   return cn(
-    "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-    isActive ? "bg-raised text-fg" : "text-muted hover:bg-raised/70 hover:text-fg",
+    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium whitespace-nowrap",
+    "transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    "[&_svg]:size-3.5 [&_svg]:shrink-0",
+    isActive ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
   );
 }
 
@@ -91,8 +104,9 @@ export function AgentPage() {
 
   if (viewer && !viewer.agentEnabled) {
     return (
-      <div className="p-6">
+      <div className="mx-auto w-full max-w-3xl px-6 py-16 lg:px-8">
         <Empty
+          icon={Settings2}
           title="The conductor is not configured on this control plane"
           hint="Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server and run podium-agent beside it. See docs/agent.md."
         />
@@ -100,32 +114,52 @@ export function AgentPage() {
     );
   }
 
+  const routed = (
+    <Routes>
+      <Route index element={<Navigate to="/agent/chat" replace />} />
+      {tabs.map((t) => (
+        <Route key={t.path} path={t.route ?? t.path} element={t.element} />
+      ))}
+      <Route path="*" element={<Navigate to="/agent/chat" replace />} />
+    </Routes>
+  );
+
   return (
-    <div className="flex h-full min-h-0">
-      <nav className="flex w-48 shrink-0 flex-col gap-4 border-r border-border bg-panel/60 px-2 py-4">
-        {groups.map((g) => (
-          <div key={g.label} className="space-y-1">
-            <p className="px-2.5 pb-1 text-[11px] font-medium tracking-wider text-muted uppercase">
-              {g.label}
-            </p>
-            {g.tabs.map((t) => (
-              <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-                <t.icon className="size-4 shrink-0" />
-                {t.label}
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </nav>
-      <div className={cn("min-w-0 flex-1", chat ? "overflow-hidden" : "overflow-y-auto p-6")}>
-        <Routes>
-          <Route index element={<Navigate to="/agent/chat" replace />} />
-          {tabs.map((t) => (
-            <Route key={t.path} path={t.route ?? t.path} element={t.element} />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border bg-panel/50">
+        <nav
+          aria-label="Agent"
+          className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2.5 lg:px-8"
+        >
+          {groups.map((g, i) => (
+            <Fragment key={g.label}>
+              {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
+              <span className="text-2xs font-medium tracking-wider text-faint uppercase">
+                {g.label}
+              </span>
+              <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
+                {g.tabs.map((t) => (
+                  <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
+                    <t.icon />
+                    {t.label}
+                  </NavLink>
+                ))}
+              </div>
+            </Fragment>
           ))}
-          <Route path="*" element={<Navigate to="/agent/chat" replace />} />
-        </Routes>
+        </nav>
       </div>
+
+      {/* Chat is a full-height pane and owns its own scrolling; every other tab is a page. */}
+      {chat ? (
+        <div className="min-h-0 flex-1 overflow-hidden">{routed}</div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 lg:px-8">
+          <div key={pathname} className="mx-auto w-full max-w-7xl animate-in fade-in-0 duration-200">
+            {routed}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -161,42 +195,62 @@ function SettingsTab() {
   }
 
   const stored = settings.data?.providers ?? [];
+  const connected = PROVIDERS.filter(
+    (p) => stored.find((s) => s.provider === p.id)?.keySet,
+  ).length;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         title="Settings"
         description="Credentials for the models this conductor can run. Each one is a Podium secret; the UI never sees more than the last four characters."
+        // With nothing read back, "0 of 2 connected" would be a claim rather than a count.
+        meta={
+          settings.data === undefined ? null : (
+            <>
+              <Badge tone={connected > 0 ? "ok" : "idle"}>
+                {connected} of {PROVIDERS.length} connected
+              </Badge>
+              {connected < PROVIDERS.length ? (
+                <Chip>{PROVIDERS.length - connected} still to set up</Chip>
+              ) : null}
+            </>
+          )
+        }
       />
       {isAgentUnreachable(settings.error) ? (
-        <Alert variant="warn">
-          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </Alert>
+        <ConductorDown
+          what="The stored credentials could not be read"
+          onRetry={() => void settings.refetch()}
+          retrying={settings.isFetching}
+        />
       ) : null}
 
-      {PROVIDERS.map((p) => (
-        <ProviderCard
-          key={p.id}
-          provider={p}
-          settings={stored.find((s) => s.provider === p.id)}
-          loading={settings.isPending}
-          onSave={(key) => save.mutateAsync({ provider: p.id, key })}
-          onClear={async () => {
-            await clear.mutateAsync(p.id);
-          }}
-          onStartOAuth={
-            p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
-          }
-          onPollOAuth={
-            p.subscription
-              ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
-              : undefined
-          }
-          onSignedIn={() => void reload()}
-        />
-      ))}
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {PROVIDERS.map((p) => (
+          <ProviderCard
+            key={p.id}
+            provider={p}
+            settings={stored.find((s) => s.provider === p.id)}
+            loading={settings.isPending}
+            onSave={(key) => save.mutateAsync({ provider: p.id, key })}
+            onClear={async () => {
+              await clear.mutateAsync(p.id);
+            }}
+            onStartOAuth={
+              p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+            }
+            onPollOAuth={
+              p.subscription
+                ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                : undefined
+            }
+            onSignedIn={() => void reload()}
+          />
+        ))}
+      </div>
 
-      <p className="max-w-3xl text-xs text-muted">
+      <p className="max-w-3xl text-xs leading-relaxed text-muted">
         Each credential is stored as a Podium secret —{" "}
         {PROVIDERS.map((p, i) => (
           <span key={p.id}>
@@ -243,15 +297,17 @@ function ProfileTab() {
   const skills = (profile.data?.skills ?? []).filter((s) => !s.shadowed).map((s) => s.name);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         title="Profile"
-        description="Who the bot is, which model it defaults to, and which skill a new chat starts on."
+        description="Who the bot is, which model it defaults to, and which skill a new chat starts on. Every field here overrides profile.yaml on the conductor's host."
       />
       {isAgentUnreachable(profile.error) ? (
-        <Alert variant="warn">
-          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </Alert>
+        <ConductorDown
+          what="The profile could not be read"
+          onRetry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+        />
       ) : null}
       <ProfileCard
         key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}

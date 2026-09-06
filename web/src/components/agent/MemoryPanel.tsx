@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Brain, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code } from "@connectrpc/connect";
@@ -7,8 +8,22 @@ import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/
 import { absolute, relative } from "../../lib/format";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
-import { TableSkeleton } from "../Skeleton";
+import { PageHeader } from "../PageHeader";
+import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
+import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Tooltip } from "../ui/tooltip";
+import { ConductorDown } from "./ConductorDown";
 
 /** How long the search box waits before asking. */
 const DEBOUNCE_MS = 300;
@@ -63,6 +78,9 @@ export function MemoryPanel() {
       return { items: out, nextCursor: next };
     },
     enabled: !searching,
+    // Asking for another page changes the key, so without this the list would blink back to
+    // a skeleton to show one more page of what is already on the screen.
+    placeholderData: (prev) => prev,
   });
 
   const search = useQuery({
@@ -86,6 +104,7 @@ export function MemoryPanel() {
   if (connectCode(active.error) === Code.FailedPrecondition) {
     return (
       <Empty
+        icon={Brain}
         title="Memory is not configured on this host"
         hint="Set PODIUM_AGENT_MEMORY_URL and PODIUM_AGENT_MEMORY_API_KEY on podium-agent and run the memory service beside it. See docs/agent.md#memory."
       />
@@ -93,36 +112,74 @@ export function MemoryPanel() {
   }
 
   const items = searching ? search.data?.items : list.data?.items;
+  const failed = active.isError && !isAgentUnreachable(active.error);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <PageHeader
+        title="Memory"
+        description="One bank of durable facts, shared by every agent turn. A turn retains what it worked out; this is where a human reads it back and throws out what is wrong."
+      />
+
       {isAgentUnreachable(active.error) ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </p>
+        <ConductorDown
+          what={searching ? "The search could not run" : "The memory could not be read"}
+          onRetry={() => void active.refetch()}
+          retrying={active.isFetching}
+        />
       ) : null}
 
+      {/* role="note" rather than the default status: this is standing copy, not something
+          that just happened, and a live region that never changes is noise to a reader. */}
+      <Alert variant="warn" role="note" title="Treat every line here as something an agent was told">
+        Anything an agent reads — a Slack message, a ticket, a repository — can try to plant a
+        false memory here. This list is where a human catches it: forget anything that looks
+        wrong.
+      </Alert>
+
       <div className="space-y-2">
-        <input
-          type="search"
-          data-testid="memory-search"
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          placeholder="Search what the agents remember"
-          aria-label="Search memories"
-          className="w-full rounded border border-border bg-panel px-3 py-2 text-sm text-fg placeholder:text-muted focus-visible:ring-1 focus-visible:ring-accent"
-        />
-        <p className="text-xs text-muted">
-          One memory bank, shared by every agent turn. Anything an agent reads — a Slack
-          message, a ticket, a repository — can try to plant a false memory here, and this
-          list is where a human catches it. Forget anything that looks wrong.
+        <div className="relative max-w-xl">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint"
+          />
+          <Input
+            type="search"
+            data-testid="memory-search"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="Search what the agents remember"
+            aria-label="Search memories"
+            className="pl-8"
+          />
+        </div>
+        <p className="text-2xs text-faint" aria-live="polite">
+          {searching ? (
+            active.isPending ? (
+              <>Searching for “{query}”…</>
+            ) : (
+              <>
+                <span className="tabular">{items?.length ?? 0}</span>{" "}
+                {items?.length === 1 ? "match" : "matches"} for “{query}”
+                {items && items.length > 0 ? ", closest first" : ""}
+              </>
+            )
+          ) : active.isPending ? (
+            <>Reading the memory…</>
+          ) : (
+            <>
+              <span className="tabular">{items?.length ?? 0}</span> most recent
+              {list.data?.nextCursor ? ", and there are more" : ""}
+            </>
+          )}
         </p>
       </div>
 
-      {active.isPending ? <TableSkeleton rows={4} cols={2} /> : null}
+      {active.isPending ? <MemorySkeleton /> : null}
 
-      {active.isError && !isAgentUnreachable(active.error) ? (
+      {failed ? (
         <Empty
+          icon={Brain}
           title={searching ? "Could not search the memory" : "Could not read the memory"}
           hint={errorMessage(active.error)}
         />
@@ -130,16 +187,21 @@ export function MemoryPanel() {
 
       {items?.length === 0 ? (
         searching ? (
-          <Empty title="Nothing remembered matches that." />
+          <Empty
+            icon={Search}
+            title="Nothing remembered matches that."
+            hint="The store is not empty — nothing in it is close enough to those words. Try a name, a host or a port instead of a sentence."
+          />
         ) : (
           <Empty
+            icon={Brain}
             title="Nothing remembered yet."
             hint="Agents retain durable facts about your organisation here after each turn."
           />
         )
       ) : null}
 
-      <ul className="space-y-2">
+      <ul className="space-y-2.5">
         {items?.map((m) => (
           <MemoryCard
             key={m.id}
@@ -151,15 +213,39 @@ export function MemoryPanel() {
       </ul>
 
       {!searching && list.data?.nextCursor ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
+          disabled={list.isFetching}
           onClick={() => setPages((p) => [...p, list.data.nextCursor])}
-          className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:text-fg focus-visible:ring-1 focus-visible:ring-accent"
         >
-          Load more
-        </button>
+          {list.isFetching ? "Loading…" : "Load more"}
+        </Button>
       ) : null}
     </div>
+  );
+}
+
+/** Dot separates the quiet metadata so two loose words do not read as one phrase. */
+function Dot() {
+  return <span aria-hidden>·</span>;
+}
+
+function MemorySkeleton() {
+  return (
+    <ul aria-busy="true" aria-label="Loading" className="space-y-2.5">
+      {[0, 1, 2].map((i) => (
+        <li key={i} className="space-y-3 rounded-xl border border-border bg-card px-4 py-3.5">
+          <Skeleton className="h-3.5 w-4/5" />
+          <div className="flex gap-2">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="ml-auto h-4 w-12" />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -176,58 +262,44 @@ function MemoryCard({
   const meta = memory.metadata;
   const source = memory.tags.find((t) => t.startsWith("source:"))?.slice("source:".length);
   const skill = memory.tags.find((t) => t.startsWith("skill:"))?.slice("skill:".length);
+  // Whatever is left is a plain subject tag the retain step chose, and it is as much of the
+  // provenance as the prefixed ones.
+  const plain = memory.tags.filter((t) => !t.startsWith("source:") && !t.startsWith("skill:"));
+  const quiet = memory.entities.length > 0 || memory.context !== "" || meta.task_id;
 
   return (
     <li
       data-testid="memory-row"
-      className="rounded border border-border bg-panel px-3 py-2 text-sm"
+      className="rounded-xl border border-border bg-card px-4 py-3 shadow-xs"
     >
       <div className="flex items-start gap-3">
-        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-fg">{memory.text}</p>
-        <Badge tone={FACT_TONE[memory.factType] ?? "idle"}>{memory.factType || "fact"}</Badge>
-        {confirming ? null : (
-          <button
+        <p className="min-w-0 flex-1 text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
+          {memory.text}
+        </p>
+        <Tooltip label="Forget this memory">
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             data-testid="memory-delete"
             aria-label="Forget this memory"
             onClick={() => setConfirming(true)}
-            className="rounded border border-border px-2 py-0.5 text-xs text-muted hover:border-err/50 hover:text-err focus-visible:ring-1 focus-visible:ring-accent"
+            className="hover:bg-err/12 hover:text-err"
           >
-            Forget
-          </button>
-        )}
+            <Trash2 />
+          </Button>
+        </Tooltip>
       </div>
 
-      {confirming ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-err/40 bg-err/10 px-2 py-1.5 text-xs">
-          <span className="text-err">Forget this? Every future agent turn stops seeing it.</span>
-          <button
-            type="button"
-            data-testid="memory-delete-confirm"
-            disabled={forgetting}
-            onClick={onForget}
-            className="ml-auto rounded border border-err/50 px-2 py-0.5 text-err disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-accent"
-          >
-            {forgetting ? "Forgetting…" : "Forget"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setConfirming(false)}
-            className="rounded border border-border px-2 py-0.5 text-muted hover:text-fg focus-visible:ring-1 focus-visible:ring-accent"
-          >
-            Keep
-          </button>
-        </div>
-      ) : null}
-
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <Badge tone={FACT_TONE[memory.factType] ?? "idle"}>{memory.factType || "fact"}</Badge>
         {source ? (
           meta.source_url ? (
             <a
               href={meta.source_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="rounded bg-raised px-1.5 py-0.5 text-accent hover:underline"
+              className="inline-flex w-fit items-center rounded-md border border-accent/35 bg-accent/12 px-1.5 py-0.5 text-2xs text-accent hover:underline"
             >
               {source}
             </a>
@@ -235,19 +307,68 @@ function MemoryCard({
             <Chip>{source}</Chip>
           )
         ) : null}
-        {skill ? <Chip>{skill}</Chip> : null}
-        {memory.createdAt ? (
-          <span title={absolute(memory.createdAt)}>{relative(memory.createdAt)}</span>
-        ) : (
-          <span>learned at an unknown time</span>
-        )}
-        {meta.task_id ? (
-          <Link to={`/tasks/${meta.task_id}`} className="font-mono text-accent hover:underline">
-            {meta.task_id}
-          </Link>
-        ) : null}
-        {memory.entities.length > 0 ? <span>about {memory.entities.join(", ")}</span> : null}
+        {skill ? <Chip>/{skill}</Chip> : null}
+        {plain.map((t) => (
+          <Chip key={t}>{t}</Chip>
+        ))}
+        <span className="ml-auto shrink-0 text-2xs text-faint">
+          {memory.createdAt ? (
+            <span title={absolute(memory.createdAt)}>{relative(memory.createdAt)}</span>
+          ) : (
+            <span>learned at an unknown time</span>
+          )}
+        </span>
       </div>
+
+      {quiet ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-hairline pt-2 text-2xs text-faint">
+          {memory.entities.length > 0 ? <span>about {memory.entities.join(", ")}</span> : null}
+          {memory.entities.length > 0 && memory.context ? <Dot /> : null}
+          {memory.context ? <span className="min-w-0 truncate">in {memory.context}</span> : null}
+          {meta.task_id ? (
+            <>
+              <Dot />
+              <span>retained by</span>
+              <Link
+                to={`/tasks/${meta.task_id}`}
+                title={meta.task_id}
+                className="font-mono text-accent hover:underline"
+              >
+                {meta.task_id}
+              </Link>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Forget this memory?</DialogTitle>
+            <DialogDescription>
+              Forget this? Every future agent turn stops seeing it.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="rounded-lg border border-border bg-raised/60 px-3 py-2 text-xs leading-relaxed break-words text-fg">
+            {memory.text}
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(false)}>
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="memory-delete-confirm"
+              disabled={forgetting}
+              onClick={onForget}
+            >
+              {forgetting ? "Forgetting…" : "Forget"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </li>
   );
 }

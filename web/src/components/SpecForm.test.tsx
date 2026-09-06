@@ -41,6 +41,11 @@ function problems(): string[] {
     .map((li) => li.textContent ?? "");
 }
 
+/** The optional groups are shut until they hold something, so a test has to open one. */
+function openSection(name: RegExp) {
+  return userEvent.click(screen.getByRole("button", { name }));
+}
+
 describe("SpecForm", () => {
   beforeEach(() => {
     createTask.mockReset();
@@ -53,6 +58,7 @@ describe("SpecForm", () => {
 
     await userEvent.type(screen.getByLabelText("Image"), "alpine:3");
     await userEvent.type(screen.getByLabelText("Command"), "sh\n-c\necho hi");
+    await openSection(/Placement/);
     await userEvent.type(screen.getByLabelText("Labels"), "linux/arm64");
     await userEvent.click(screen.getByRole("button", { name: "Submit task" }));
 
@@ -63,18 +69,39 @@ describe("SpecForm", () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/tasks/task_01new"));
   });
 
+  it("edits the environment as rows and submits them as a map", async () => {
+    createTask.mockResolvedValue({ task: { id: "task_env" } });
+    mount();
+
+    await userEvent.type(screen.getByLabelText("Image"), "alpine:3");
+    await openSection(/Environment/);
+    await userEvent.click(screen.getByRole("button", { name: "Add variable" }));
+    await userEvent.type(screen.getByLabelText("Environment name 1"), "CI");
+    await userEvent.type(screen.getByLabelText("Environment value 1"), "true");
+    await userEvent.click(screen.getByRole("button", { name: "Submit task" }));
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
+    expect(createTask.mock.calls[0][0]).toMatchObject({ spec: { env: { CI: "true" } } });
+  });
+
   it("lists every client-side problem at once and never calls the server", async () => {
     mount();
-    await userEvent.type(screen.getByLabelText("Environment"), "NOTANASSIGNMENT");
+    await openSection(/Limits and retries/);
     await userEvent.type(screen.getByLabelText("Timeout"), "soon");
+    await userEvent.type(screen.getByLabelText("Max attempts"), "many");
     await userEvent.click(screen.getByRole("button", { name: "Submit task" }));
 
     const found = problems();
     expect(found).toHaveLength(3);
-    expect(found.join("\n")).toContain("NOTANASSIGNMENT");
-    expect(found.join("\n")).toContain("timeout");
+    expect(found.join("\n")).toContain("soon");
+    expect(found.join("\n")).toContain("max_attempts");
     expect(found.join("\n")).toContain("image: is required");
     expect(createTask).not.toHaveBeenCalled();
+
+    // Each problem is also pinned to the control that carries it, and the button says no.
+    expect(screen.getByLabelText("Image")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Timeout")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Submit task" })).toBeDisabled();
   });
 
   it("renders every problem the server reports, not just the first", async () => {
@@ -135,18 +162,18 @@ describe("SpecForm", () => {
     });
   });
 
-  it("seeds the YAML tab from the form the first time, and never overwrites typed YAML", async () => {
+  it("shows the YAML view of the form, and never overwrites typed YAML", async () => {
     mount();
     await userEvent.type(screen.getByLabelText("Image"), "alpine:3");
-    await userEvent.click(screen.getByRole("button", { name: "YAML spec" }));
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
 
     const editor = screen.getByLabelText("Task spec YAML");
     expect(editor).toHaveValue("image: alpine:3\n");
 
     await userEvent.clear(editor);
     await userEvent.type(editor, "image: redis:7-alpine");
-    await userEvent.click(screen.getByRole("button", { name: "Form" }));
-    await userEvent.click(screen.getByRole("button", { name: "YAML spec" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Form" }));
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
     expect(screen.getByLabelText("Task spec YAML")).toHaveValue("image: redis:7-alpine");
   });
 
