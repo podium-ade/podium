@@ -119,7 +119,14 @@ start_one() {
 	fi
 	mkdir -p "$RUN" "$LOG"
 	# nohup so it outlives this shell; the log is the only place its output goes.
-	( cd "$root" && nohup "$bin" $EXTRA_ARGS >>"$LOG/$svc.log" 2>&1 & )
+	#
+	# The subshell is the background job and execs the service over itself, rather than
+	# backgrounding inside it: `( cmd & )` leaves the subshell running as the service's
+	# parent, holding whatever stdout this script was given. Under `make stack-up` that is
+	# a pipe, and a pipe with a writer still open is a `make` that never returns — three
+	# services up, healthy, and the command hanging until the last one exits. Redirecting
+	# stdin as well keeps a service from reading the terminal it no longer has.
+	( cd "$root" && exec nohup "$bin" $EXTRA_ARGS </dev/null >>"$LOG/$svc.log" 2>&1 ) &
 	pgrep -f "^$bin" >"$RUN/$svc.pid" 2>/dev/null || true
 	url=$(health_url "$svc")
 	if [ -n "$url" ]; then
