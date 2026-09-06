@@ -82,7 +82,7 @@ export function LogViewer({
   };
 
   return (
-    <section className="rounded border border-border bg-panel">
+    <section className="rounded-xl border border-border bg-card shadow-xs">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-2 text-xs">
         <span className="font-medium">Logs</span>
         <span className={phase === "error" ? "text-err" : "text-muted"}>{PHASE_TEXT[phase]}</span>

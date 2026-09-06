@@ -88,7 +88,7 @@ export function ChatComposer({
             e.preventDefault();
             send();
           }}
-          className="min-h-9 flex-1 resize-none rounded border border-border bg-bg px-3 py-2 text-sm text-fg placeholder:text-muted focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-60"
+          className="min-h-9 flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-fg placeholder:text-muted focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-60"
         />
         <SkillChip skills={skills} skill={skill} onChange={onSkillChange} disabled={disabled} />
         <button
@@ -96,7 +96,7 @@ export function ChatComposer({
           data-testid="chat-send"
           disabled={disabled || text.trim() === ""}
           onClick={send}
-          className="rounded border border-accent/40 bg-accent/15 px-3 py-2 text-sm text-fg disabled:opacity-50 focus-visible:ring-1 focus-visible:ring-accent"
+          className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           Send
         </button>

@@ -1,7 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+
+const root = path.dirname(fileURLToPath(import.meta.url));
 
 // Vite empties dist/ before a build, which would take the committed placeholder with it.
 // //go:embed of an empty directory is a compile error, so dist/.gitkeep has to survive every
@@ -25,6 +29,9 @@ const devToken = process.env.PODIUM_DEV_TOKEN ?? "";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), keepDist()],
+  resolve: {
+    alias: { "@": path.resolve(root, "src") },
+  },
   define: {
     __PODIUM_VERSION__: JSON.stringify(process.env.PODIUM_VERSION ?? "dev"),
   },

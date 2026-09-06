@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export type Tone = "ok" | "err" | "warn" | "run" | "idle" | "lost";
 
@@ -14,7 +15,10 @@ const TONE: Record<Tone, string> = {
 export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-block rounded border px-1.5 py-0.5 text-xs font-medium ${TONE[tone]}`}
+      className={cn(
+        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium",
+        TONE[tone],
+      )}
     >
       {children}
     </span>
@@ -34,14 +38,14 @@ export function Dot({ tone, title }: { tone: Tone; title: string }) {
     <span
       aria-label={title}
       title={title}
-      className={`inline-block size-2 rounded-full align-middle ${fill[tone]}`}
+      className={cn("inline-block size-2 rounded-full align-middle", fill[tone])}
     />
   );
 }
 
 export function Chip({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-block rounded bg-raised px-1.5 py-0.5 text-xs text-muted">
+    <span className="inline-flex items-center rounded-md bg-raised px-1.5 py-0.5 text-xs text-muted">
       {children}
     </span>
   );
