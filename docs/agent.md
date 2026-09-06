@@ -228,7 +228,7 @@ see *Extending the runtime image* below.
 ```yaml
 image: ghcr.io/alvaroibarguen/podium-agent-runtime:latest   # required
 system_prompt: file:../prompts/general.md                    # required
-allowed_tools: [Read, Grep, Glob, WebFetch, Bash]            # required, non-empty
+allowed_tools: [read, grep, glob, webfetch, bash]            # required, non-empty
 max_turns: 50                                                # default 50
 timeout: 30m                                                 # default 30m
 model: ""                                                    # default: the profile's
@@ -244,6 +244,15 @@ linear: false                                                # this is the skill
 docker: false                                                # attach a Docker daemon beside the turn
 env: {}                                                      # plain env, verbatim into the spec
 ```
+
+**`allowed_tools` are the harness's own tool names**, lower case: `read`, `write`, `edit`,
+`bash`, `grep`, `glob`, `list`, `patch`, `webfetch`, `task`, `todoread`, `todowrite`. A name
+that is not one of those is refused when the skill is loaded or saved, with the list in the
+message. That is deliberate rather than forgiving: these used to be the Claude Agent SDK's names
+(`Read`, `Grep`, `Bash`), and case-folding them would have worked for the ones that happen to
+match while silently dropping the ones that do not — a skill running without a tool it asked
+for, discovered from its behaviour. **A profile carrying the old names will not load until they
+are lower-cased.**
 
 `secrets`, `resources`, `env` and `labels` are validated by exactly the code that validates a
 task spec, because that is where they end up. Two rules of the conductor's own:
@@ -429,30 +438,37 @@ A turn runs on an **agent backend**, on a **model**, at an **effort**. All three
 the conductor before the task is created — the skill's own value, then the profile's, then the
 built-in default — and the resolved triple travels in the brief, so the runtime never has to.
 
-| backend | provider | credential | what it actually is |
-|---|---|---|---|
-| `claude` (default) | Anthropic | `podium.agent.anthropic_api_key` | the Claude Agent SDK against `api.anthropic.com` |
-| `grok` | xAI | `podium.agent.xai_api_key` | **the same image and the same SDK**, pointed at xAI's Anthropic-compatible `/v1/messages` |
+| backend | provider | credential |
+|---|---|---|
+| `claude` (default) | Anthropic | `podium.agent.anthropic_api_key` |
+| `grok` | xAI | `podium.agent.xai_api_key` |
 
-There is one runtime image. xAI serves an Anthropic-shaped Messages API, so a Grok turn is the
-whole harness — tools, transcript, artifacts, exit codes — with two environment variables
-changed inside the container: `ANTHROPIC_BASE_URL` becomes `PODIUM_AGENT_XAI_BASE_URL`, and
-`ANTHROPIC_AUTH_TOKEN` carries the xAI credential. `ANTHROPIC_API_KEY` is deliberately **removed**
-from the SDK's environment on a Grok turn: the SDK prefers a key over a token, and a stale one
-would silently send an Anthropic credential to another company's endpoint.
+**One runtime image, and no vendor in the code path.** The harness is
+[opencode](https://opencode.ai), which takes `--model provider/model` — so a backend is a flag
+rather than a dialect, and adding a third provider is a catalogue entry.
 
-The brief carries a `provider` block for a backend that is not the default:
+It was not always. The harness used to be the Claude Agent SDK, which speaks the Anthropic
+Messages API and only that; pointed at xAI's Anthropic-compatible endpoint it failed on the
+first request, because it sends a `system`-role entry inside `messages[]` that xAI rejects
+(`400 invalid-argument: Invalid message role`). That was not a bug to fix — it was a harness
+that could only ever talk to one vendor.
+
+Every brief carries a `provider` block, because the harness cannot be run without knowing where
+to send the request:
 
 ```json
-"provider": { "base_url": "https://api.x.ai", "api_key_env": "XAI_API_KEY" }
+"provider": { "id": "xai", "api_key_env": "XAI_API_KEY", "base_url": "https://api.x.ai" }
 ```
 
-It names a secret and never holds one — a brief is an environment variable on a task spec, so it
-is readable by anything that can read the spec, exactly like `memory.api_key_env`.
+`id` is whatever the harness calls that provider; with `profile.model` it becomes
+`--model xai/grok-4.6`. `base_url` is optional and overrides where that provider is reached — an
+egress proxy, or a test seam — and empty means the harness's own default. `api_key_env` names a
+secret and never holds one: a brief is an environment variable on a task spec, readable by
+anything that can read the spec, exactly like `memory.api_key_env`.
 
 ### Effort
 
-`effort` is the Claude Agent SDK's own `low | medium | high | xhigh | max`, and xAI's
+`effort` is `low | medium | high | xhigh | max` — it reaches the harness as `--variant` — and xAI's
 `reasoning_effort` shares the first four. Unset means the model's own default, which is the
 provider's choice and is usually the right one.
 
@@ -879,7 +895,7 @@ like:
 ```yaml
 image: registry.example.com/agent-coder:2026-09-05
 system_prompt: file:../prompts/coder.md
-allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
 max_turns: 200
 timeout: 2h
 secrets:

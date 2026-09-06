@@ -1,6 +1,6 @@
 # Running the agent runtime by hand
 
-`agent/runtime/` builds a container image that runs **one turn** of the Claude Agent SDK inside an
+`agent/runtime/` builds a container image that runs **one turn** of the opencode harness inside an
 ordinary Podium task. It reads a *turn brief* from `PODIUM_AGENT_TURN`, reports what the agent says
 through `podium-runner message`, leaves a transcript and a summary as artifacts, and exits with a
 code that says how the turn ended. It knows nothing about Slack, Linear or sessions — the conductor
@@ -122,10 +122,9 @@ printf %s "$XAI_API_KEY" | ./bin/podium secret set podium.agent.xai_api_key
   --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "Reply with the single word pong")
 ```
 
-`brief.sh` writes a `claude` brief, so that command needs a hand-edited brief to be a real Grok
-turn. The runtime reads `provider.base_url` and `provider.api_key_env` out of the brief and sets
-`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` for the SDK from them; `ANTHROPIC_API_KEY` is
-removed from the SDK's environment so a stale one cannot shadow the token.
+`brief.sh` writes an Anthropic brief, so that command needs a hand-edited brief to be a real
+Grok turn. The runtime reads the brief's `provider.id` and `profile.model` and runs the harness
+with `--model <id>/<model>`; `provider.api_key_env` names the variable the credential is in.
 
 Nothing is set in the image for either of these — `docker inspect` shows no `CLAUDE_*` or
 `ANTHROPIC_*` variable, and there is no `--dangerously-skip-permissions` anywhere. The only
