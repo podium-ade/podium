@@ -21,6 +21,7 @@ type initSecrets struct {
 	PGPassword  string
 	DevToken    string
 	S3SecretKey string
+	AgentToken  string
 	MasterKey   string // the path the key was written to
 	Transport   string
 	Tailnet     string
@@ -79,6 +80,7 @@ func newInitCommand() *cobra.Command {
 				{&values.PGPassword, 24},
 				{&values.DevToken, 32},
 				{&values.S3SecretKey, 24},
+				{&values.AgentToken, 32},
 			} {
 				if *gen.dst, err = randomSecret(gen.bytes); err != nil {
 					return err
@@ -163,6 +165,11 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
 		b.WriteString("PODIUM_DEV_TOKEN=" + v.DevToken + "\n\n")
 	}
+
+	b.WriteString("# The conductor's API token. podium-server presents it on every proxied call and\n")
+	b.WriteString("# the conductor accepts nothing else, so the two must agree — which is why it is\n")
+	b.WriteString("# minted here rather than left to be filled in. Every compose file requires it.\n")
+	b.WriteString("PODIUM_AGENT_TOKEN=" + v.AgentToken + "\n\n")
 
 	b.WriteString("# Podium's own single-use enrollment token, from `podium node enroll-token`.\n")
 	b.WriteString("# Needed on a worker's first run only. Not the same thing as TS_AUTHKEY.\n")

@@ -789,7 +789,7 @@ func createOrphan(t *testing.T, e *Executor, taskID, leaseID string, cmd []strin
 			"PODIUM_EVENTS_SOCK=" + eventsTarget,
 			"PODIUM_WORKDIR=/",
 		},
-		Labels:     labels,
+		Labels: labels,
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
 			{Type: mount.TypeBind, Source: e.runnerPath, Target: runnerTarget, ReadOnly: true},

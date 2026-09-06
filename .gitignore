@@ -33,6 +33,11 @@ vitest.config.ts.timestamp-*
 # fails the build when the source reads a PODIUM_* variable it does not list.
 !deploy/.env.example
 
+# What deploy/run-host.sh keeps: pids, logs, the node's data dir and the server's tsnet
+# state. Every one of those is either a live credential or throwaway, and none of it is
+# portable to another machine.
+/.podium/
+
 # A podium-node data_dir holds identity.json, which contains the node_key — a live credential
 # the server only ever returns once. Never let one that was pointed at the repo get committed.
 identity.json
