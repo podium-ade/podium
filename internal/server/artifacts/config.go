@@ -28,7 +28,7 @@ type Config struct {
 	// SecretKey is PODIUM_S3_SECRET_KEY. SENSITIVE: never log it.
 	SecretKey string
 	// Region is PODIUM_S3_REGION, default us-east-1. The bundled object store ignores it; a
-// real S3 does not.
+	// real S3 does not.
 	Region string
 	// UseSSL is derived from the endpoint's scheme, or PODIUM_S3_USE_SSL when the endpoint
 	// carries none.

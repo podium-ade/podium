@@ -252,11 +252,12 @@ message PollProviderOAuthRequest {
 // one that comes back authorised is the one that stored the token.
 message PollProviderOAuthResponse {
   // state is:
-  //   pending    the human has not finished yet; poll again after interval
-  //   slow_down  polling too fast; the interval in this response is the new one
-  //   done       authorised and stored; provider is filled in
-  //   denied     the human said no, or the provider refused this client
-  //   expired    the code timed out; start again
+  //
+  //    pending    the human has not finished yet; poll again after interval
+  //    slow_down  polling too fast; the interval in this response is the new one
+  //    done       authorised and stored; provider is filled in
+  //    denied     the human said no, or the provider refused this client
+  //    expired    the code timed out; start again
   string state = 1;
   // interval is the seconds to wait before the next poll. Only meaningful while pending.
   int32 interval = 2;
