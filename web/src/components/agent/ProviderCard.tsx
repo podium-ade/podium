@@ -208,7 +208,7 @@ export function ProviderCard({
   }
 
   return (
-    <section data-testid={tid("provider-card")} className="rounded border border-border bg-panel">
+    <section data-testid={tid("provider-card")} className="rounded-xl border border-border bg-card shadow-xs">
       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <BackendMark id={provider.backendID} />
         <h2 className="text-sm font-semibold">{provider.name}</h2>

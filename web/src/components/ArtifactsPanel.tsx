@@ -37,7 +37,7 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
   // as a fact about the deployment, is better than a row-shaped error.
   if (connectCode(query.error) === Code.FailedPrecondition) {
     return (
-      <section className="rounded border border-border bg-panel px-3 py-2 text-xs text-muted">
+      <section className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted shadow-xs">
         <span className="font-medium text-fg">Artifacts</span> — this server has no object store
         configured (<code className="font-mono">PODIUM_S3_ENDPOINT</code>), so nothing a task
         produces is kept.
@@ -50,7 +50,7 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
   const logs = rows.filter((a) => a.kind === "log");
 
   return (
-    <section className="rounded border border-border bg-panel">
+    <section className="rounded-xl border border-border bg-card shadow-xs">
       <h2 className="border-b border-border px-3 py-2 text-xs font-medium">
         Artifacts{rows.length > 0 ? ` (${rows.length})` : ""}
       </h2>

@@ -127,8 +127,12 @@ test("the agent settings page validates and stores a provider key", async ({ pag
 test("the agent tabs are real routes", async ({ page }) => {
   await authenticate(page);
 
-  // /agent lands on Settings.
+  // /agent lands on Chat — that is the thing an operator opens this tab to do.
   await page.goto("/agent");
+  await expect(page).toHaveURL(/\/agent\/chat$/);
+  await expect(page.getByTestId("chat-new")).toBeVisible();
+
+  await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/agent\/settings$/);
   await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
 

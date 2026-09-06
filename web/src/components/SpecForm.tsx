@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { useToast } from "./Toast";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
 import { Code, connectCode, errorMessage, tasks } from "../lib/client";
 import {
   docToYaml,
@@ -16,8 +19,7 @@ import {
 
 type Mode = "form" | "yaml";
 
-const input =
-  "w-full rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent";
+const input = "font-mono text-xs";
 
 export function SpecForm({
   initialFields = EMPTY_FIELDS,
@@ -132,11 +134,11 @@ export function SpecForm({
       ) : null}
 
       {mode === "form" ? (
-        <div className="space-y-4 rounded border border-border bg-panel p-3">
+        <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Image</span>
-              <input
+              <Input
                 aria-label="Image"
                 value={fields.image}
                 onChange={(e) => set("image", e.target.value)}
@@ -146,7 +148,7 @@ export function SpecForm({
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Working directory</span>
-              <input
+              <Input
                 aria-label="Working directory"
                 value={fields.workingDir}
                 onChange={(e) => set("workingDir", e.target.value)}
@@ -158,7 +160,7 @@ export function SpecForm({
 
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-muted">Command — one argument per line</span>
-            <textarea
+            <Textarea
               aria-label="Command"
               value={fields.command}
               onChange={(e) => set("command", e.target.value)}
@@ -177,7 +179,7 @@ export function SpecForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Environment — KEY=VALUE per line</span>
-              <textarea
+              <Textarea
                 aria-label="Environment"
                 value={fields.env}
                 onChange={(e) => set("env", e.target.value)}
@@ -189,7 +191,7 @@ export function SpecForm({
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Node labels — comma separated</span>
-              <input
+              <Input
                 aria-label="Labels"
                 value={fields.labels}
                 onChange={(e) => set("labels", e.target.value)}
@@ -202,7 +204,7 @@ export function SpecForm({
           <div className="grid gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Timeout</span>
-              <input
+              <Input
                 aria-label="Timeout"
                 value={fields.timeout}
                 onChange={(e) => set("timeout", e.target.value)}
@@ -212,7 +214,7 @@ export function SpecForm({
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Max attempts</span>
-              <input
+              <Input
                 aria-label="Max attempts"
                 value={fields.maxAttempts}
                 onChange={(e) => set("maxAttempts", e.target.value)}
@@ -222,7 +224,7 @@ export function SpecForm({
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">CPU cores</span>
-              <input
+              <Input
                 aria-label="CPU cores"
                 value={fields.cpu}
                 onChange={(e) => set("cpu", e.target.value)}
@@ -232,7 +234,7 @@ export function SpecForm({
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-muted">Memory (MB)</span>
-              <input
+              <Input
                 aria-label="Memory MB"
                 value={fields.memoryMb}
                 onChange={(e) => set("memoryMb", e.target.value)}
@@ -264,7 +266,7 @@ export function SpecForm({
           </p>
         </div>
       ) : (
-        <div className="space-y-2 rounded border border-border bg-panel p-3">
+        <div className="space-y-2 rounded-xl border border-border bg-card p-5 shadow-xs">
           <div className="flex items-center gap-3 text-xs">
             <span className="text-muted">
               The same document <code className="font-mono">podium run --spec</code> takes.
@@ -278,7 +280,7 @@ export function SpecForm({
               Fill from form
             </button>
           </div>
-          <textarea
+          <Textarea
             aria-label="Task spec YAML"
             value={yaml}
             onChange={(e) => setYaml(e.target.value)}
@@ -286,19 +288,15 @@ export function SpecForm({
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className={`${input} leading-5`}
+            className={`${input} min-h-96 leading-5`}
           />
         </div>
       )}
 
       <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={create.isPending}
-          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-bg disabled:opacity-50"
-        >
+        <Button type="submit" disabled={create.isPending}>
           {create.isPending ? "Submitting…" : "Submit task"}
-        </button>
+        </Button>
         <span className="text-xs text-muted">
           The task is queued immediately; the scheduler places it on the next eligible node.
         </span>

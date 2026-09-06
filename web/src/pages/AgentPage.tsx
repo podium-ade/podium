@@ -1,5 +1,14 @@
 import type { ReactNode } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router";
+import type { LucideIcon } from "lucide-react";
+import {
+  Brain,
+  History,
+  MessageSquare,
+  Settings2,
+  Sparkles,
+  UserRound,
+} from "lucide-react";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
@@ -8,11 +17,14 @@ import { ProviderCard } from "../components/agent/ProviderCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
+import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
+import { Alert } from "../components/ui/alert";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
+import { cn } from "../lib/utils";
 
 /**
  * Tab is one sub-route of /agent. The array below is the whole extension point: a new screen
@@ -22,22 +34,47 @@ import { useViewer } from "../lib/identity";
  * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
  * is the pattern the nested Routes matches, and it exists only for Chat, whose own screen
  * takes a chat id after the segment.
+ *
+ * Chat is first because that is the thing an operator opens this tab to do. Settings used to
+ * lead, which put a credentials form in front of the conversation.
  */
-type Tab = { path: string; label: string; element: ReactNode; route?: string };
+type Tab = {
+  path: string;
+  label: string;
+  element: ReactNode;
+  route?: string;
+  icon: LucideIcon;
+};
 
-const tabs: Tab[] = [
-  { path: "settings", label: "Settings", element: <SettingsTab /> },
-  { path: "profile", label: "Profile", element: <ProfileTab /> },
-  { path: "skills", label: "Skills", element: <SkillsPanel /> },
-  { path: "sessions", label: "Sessions", element: <SessionsTable /> },
-  { path: "memory", label: "Memory", element: <MemoryPanel /> },
-  { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*" },
+type Group = { label: string; tabs: Tab[] };
+
+const groups: Group[] = [
+  {
+    label: "Talk",
+    tabs: [
+      { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*", icon: MessageSquare },
+      { path: "sessions", label: "Sessions", element: <SessionsTable />, icon: History },
+      { path: "memory", label: "Memory", element: <MemoryPanel />, icon: Brain },
+    ],
+  },
+  {
+    label: "Configure",
+    tabs: [
+      { path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound },
+      { path: "skills", label: "Skills", element: <SkillsPanel />, icon: Sparkles },
+      { path: "settings", label: "Settings", element: <SettingsTab />, icon: Settings2 },
+    ],
+  },
 ];
 
-const tabLink = ({ isActive }: { isActive: boolean }) =>
-  `rounded px-3 py-1.5 text-sm ${
-    isActive ? "bg-raised text-fg" : "text-muted hover:text-fg"
-  } focus-visible:ring-1 focus-visible:ring-accent`;
+const tabs: Tab[] = groups.flatMap((g) => g.tabs);
+
+function tabLink({ isActive }: { isActive: boolean }) {
+  return cn(
+    "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+    isActive ? "bg-raised text-fg" : "text-muted hover:bg-raised/70 hover:text-fg",
+  );
+}
 
 /**
  * AgentPage is the bot's home in the UI: a tab shell whose active tab is a real route, so
@@ -49,31 +86,46 @@ const tabLink = ({ isActive }: { isActive: boolean }) =>
  */
 export function AgentPage() {
   const viewer = useViewer();
+  const { pathname } = useLocation();
+  const chat = pathname.startsWith("/agent/chat");
+
   if (viewer && !viewer.agentEnabled) {
     return (
-      <Empty
-        title="The conductor is not configured on this control plane"
-        hint="Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server and run podium-agent beside it. See docs/agent.md."
-      />
+      <div className="p-6">
+        <Empty
+          title="The conductor is not configured on this control plane"
+          hint="Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server and run podium-agent beside it. See docs/agent.md."
+        />
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <nav className="flex gap-1 border-b border-border pb-2">
-        {tabs.map((t) => (
-          <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-            {t.label}
-          </NavLink>
+    <div className="flex h-full min-h-0">
+      <nav className="flex w-48 shrink-0 flex-col gap-4 border-r border-border bg-panel/60 px-2 py-4">
+        {groups.map((g) => (
+          <div key={g.label} className="space-y-1">
+            <p className="px-2.5 pb-1 text-[11px] font-medium tracking-wider text-muted uppercase">
+              {g.label}
+            </p>
+            {g.tabs.map((t) => (
+              <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
+                <t.icon className="size-4 shrink-0" />
+                {t.label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
-      <Routes>
-        <Route index element={<Navigate to="/agent/settings" replace />} />
-        {tabs.map((t) => (
-          <Route key={t.path} path={t.route ?? t.path} element={t.element} />
-        ))}
-        <Route path="*" element={<Navigate to="/agent/settings" replace />} />
-      </Routes>
+      <div className={cn("min-w-0 flex-1", chat ? "overflow-hidden" : "overflow-y-auto p-6")}>
+        <Routes>
+          <Route index element={<Navigate to="/agent/chat" replace />} />
+          {tabs.map((t) => (
+            <Route key={t.path} path={t.route ?? t.path} element={t.element} />
+          ))}
+          <Route path="*" element={<Navigate to="/agent/chat" replace />} />
+        </Routes>
+      </div>
     </div>
   );
 }
@@ -112,10 +164,14 @@ function SettingsTab() {
 
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="Settings"
+        description="Credentials for the models this conductor can run. Each one is a Podium secret; the UI never sees more than the last four characters."
+      />
       {isAgentUnreachable(settings.error) ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+        <Alert variant="warn">
           podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </p>
+        </Alert>
       ) : null}
 
       {PROVIDERS.map((p) => (
@@ -188,10 +244,14 @@ function ProfileTab() {
 
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="Profile"
+        description="Who the bot is, which model it defaults to, and which skill a new chat starts on."
+      />
       {isAgentUnreachable(profile.error) ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+        <Alert variant="warn">
           podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </p>
+        </Alert>
       ) : null}
       <ProfileCard
         key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
