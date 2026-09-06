@@ -77,7 +77,7 @@ func chatProfileDir(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dst, "skills", chatDefaultSkill+".yaml"),
 		[]byte("image: "+agentRuntimeImage+`
 system_prompt: Answer questions about the data warehouse.
-allowed_tools: [Bash, Read, Write]
+allowed_tools: [bash, read, write]
 env:
   PODIUM_AGENT_DRY_RUN: "1"
 `), 0o600))
@@ -300,7 +300,7 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	}, func() string { return "agent log:\n" + agent.logs() })
 	t.Logf("chat turn task: %s", taskID)
 
-	// Read the stream until the assistant's answer lands. Frames arrive while the turn is
+	// read the stream until the assistant's answer lands. Frames arrive while the turn is
 	// still running, which is the whole point of a server-streaming RPC behind the proxy.
 	var (
 		userSeen      bool

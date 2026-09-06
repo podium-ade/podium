@@ -6,7 +6,7 @@
 #     --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "hello")
 #
 # The brief is the smallest one that validates: a chat source, the podium profile, the
-# general skill on the Claude backend, an empty transcript, no repos and no memory.
+# general skill on Anthropic, an empty transcript, no repos and no memory.
 # agent/runtime/src/brief.ts is the schema; agent/runtime/testdata/brief.example.json is the
 # full one, which is a Grok turn so that every field has a value somewhere.
 #
@@ -30,18 +30,18 @@ json=$(jq -cn --arg instruction "$instruction" '{
 		name: "podium",
 		display_name: "Podium",
 		system_prompt: "You are Podium, an agent that runs on Podium.",
-		model: "claude-opus-5",
-		agent: "claude"
+		model: "claude-opus-5"
 	},
 	skill: {
 		name: "general",
 		system_prompt: "Answer the question. Use the tools you have to check before you answer.",
-		allowed_tools: ["Read", "Grep", "Glob", "Bash"],
+		allowed_tools: ["read", "grep", "glob", "bash"],
 		max_turns: 20
 	},
 	transcript: [],
 	transcript_truncated: false,
-	instruction: $instruction
+	instruction: $instruction,
+	provider: {id: "anthropic", api_key_env: "ANTHROPIC_API_KEY"}
 }')
 
 printf '%s' "$json" | base64 | tr -d '\n'

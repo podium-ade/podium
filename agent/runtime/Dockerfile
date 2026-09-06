@@ -74,10 +74,17 @@ COPY --from=build /src/dist /opt/podium-agent/dist
 COPY --from=build /src/node_modules /opt/podium-agent/node_modules
 COPY package.json /opt/podium-agent/package.json
 
+# The harness. It is provider-agnostic — a turn picks its model with `provider/model` — and
+# it is installed globally rather than as a dependency of the runtime because it is a
+# program this code spawns, not a library it imports.
+RUN set -eux; \
+    npm install --global opencode-ai@1.18.29; \
+    opencode --version
+
 # Build-time assertion: if optional dependencies were skipped, or the wrong platform's
 # package landed, this is where it shows rather than in a task that has already been
 # scheduled.
-RUN cd /opt/podium-agent && node -e "require('@anthropic-ai/claude-agent-sdk')"
+RUN cd /opt/podium-agent && node -e "require('zod')"
 
 ENV HOME=/home/agent \
     NODE_ENV=production

@@ -12,13 +12,19 @@
     "display_name": "Podium",
     "system_prompt": "You are Podium, the engineering team's agent. You are direct and you never guess.",
     "model": "grok-4.6",
-    "agent": "grok",
     "effort": "xhigh"
   },
   "skill": {
     "name": "coder",
     "system_prompt": "You write code, verify it, and open a pull request. You never push to a default branch.",
-    "allowed_tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+    "allowed_tools": [
+      "read",
+      "grep",
+      "glob",
+      "bash",
+      "edit",
+      "write"
+    ],
     "max_turns": 50
   },
   "transcript": [
@@ -49,7 +55,8 @@
     "api_key_env": "PODIUM_MEMORY_API_KEY"
   },
   "provider": {
-    "base_url": "https://api.x.ai",
-    "api_key_env": "XAI_API_KEY"
+    "id": "xai",
+    "api_key_env": "XAI_API_KEY",
+    "base_url": "https://api.x.ai"
   }
 }

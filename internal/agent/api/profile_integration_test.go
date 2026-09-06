@@ -28,7 +28,7 @@ func fileProfile() *profiles.Profile {
 			"general": {
 				Name: "general", Origin: profiles.OriginFile,
 				Image: "podium-agent-runtime:dev", SystemPrompt: "Answer the question.",
-				AllowedTools: []string{"Read"}, MaxTurns: 50,
+				AllowedTools: []string{"read"}, MaxTurns: 50,
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func newSkill(name string) *agentv1.SkillDefinition {
 		Name:         name,
 		Image:        "example.invalid/reporter:dev",
 		SystemPrompt: "Write the weekly report.",
-		AllowedTools: []string{"Read", "Bash"},
+		AllowedTools: []string{"read", "bash"},
 		MaxTurns:     20,
 		Timeout:      "10m",
 		Env:          map[string]string{"PODIUM_AGENT_DRY_RUN": "1"},
@@ -88,7 +88,7 @@ func TestACreatedSkillReachesTheRunningProfileWithNoRestart(t *testing.T) {
 	// No reload, no restart: the same *Live the conductor reads is already carrying it.
 	live := f.live.Current().Skills["reporter"]
 	assert.Equal(t, "example.invalid/reporter:dev", live.Image)
-	assert.Equal(t, []string{"Read", "Bash"}, live.AllowedTools)
+	assert.Equal(t, []string{"read", "bash"}, live.AllowedTools)
 	assert.Equal(t, "1", live.Env["PODIUM_AGENT_DRY_RUN"])
 	require.Len(t, live.Secrets, 1)
 	assert.Equal(t, "podium.agent.github_token", live.Secrets[0].Name)
@@ -176,7 +176,7 @@ func TestAStoredSkillAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
 	files := fileProfile()
 	files.Skills["reporter"] = profiles.Skill{
 		Name: "reporter", Origin: profiles.OriginFile, Image: "the-file-wins:dev",
-		SystemPrompt: "The file's version.", AllowedTools: []string{"Read"}, MaxTurns: 50,
+		SystemPrompt: "The file's version.", AllowedTools: []string{"read"}, MaxTurns: 50,
 	}
 	restarted := profiles.NewLive(files)
 	svc := NewAgentService(AgentServiceOptions{

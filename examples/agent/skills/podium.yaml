@@ -16,7 +16,7 @@
 image: podium-agent-runtime-dev:dev
 docker: true
 system_prompt: file:../prompts/podium.md
-allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
 max_turns: 200
 timeout: 2h
 # This one runs on Grok rather than the profile's Claude. `high` and not `xhigh`: a 200-turn

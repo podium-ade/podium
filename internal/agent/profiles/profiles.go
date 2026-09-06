@@ -315,8 +315,15 @@ func (s Skill) validate(path string) error {
 		errs = append(errs, errors.New("allowed_tools is required and must name at least one tool"))
 	}
 	for _, tool := range s.AllowedTools {
-		if strings.TrimSpace(tool) == "" {
+		switch {
+		case strings.TrimSpace(tool) == "":
 			errs = append(errs, errors.New("allowed_tools holds an empty entry"))
+		case !validTool(tool):
+			// Loud on purpose. The harness changed and so did the tool names; a skill
+			// carrying the old ones would otherwise run with that tool silently absent.
+			errs = append(errs, fmt.Errorf(
+				"allowed_tools names %q, which is not a tool this harness has (have %s)",
+				tool, strings.Join(Tools, ", ")))
 		}
 	}
 	if s.MaxTurns < 1 {

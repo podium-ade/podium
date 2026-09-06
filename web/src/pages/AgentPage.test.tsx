@@ -77,7 +77,7 @@ const profileResponse = {
       name: "general",
       image: "podium-agent-runtime:dev",
       systemPrompt: "Answer the question in the thread.",
-      allowedTools: ["Read"],
+      allowedTools: ["read"],
       maxTurns: 50,
       timeout: "30m",
       model: "",

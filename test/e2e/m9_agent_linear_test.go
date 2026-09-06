@@ -277,7 +277,7 @@ func linearProfileDir(t *testing.T, extra map[string]string) string {
 
 	body := "image: " + agentRuntimeImage + `
 system_prompt: Work on a branch, verify it, and open a draft pull request.
-allowed_tools: [Read, Edit, Write, Bash, Grep, Glob]
+allowed_tools: [read, edit, write, bash, grep, glob]
 max_turns: 200
 timeout: 2h
 linear: true
