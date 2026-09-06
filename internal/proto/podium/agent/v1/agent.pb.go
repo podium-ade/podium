@@ -1248,13 +1248,11 @@ func (x *PollProviderOAuthRequest) GetFlowId() string {
 // one that comes back authorised is the one that stored the token.
 type PollProviderOAuthResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// state is:
-	//
-	//    pending    the human has not finished yet; poll again after interval
-	//    slow_down  polling too fast; the interval in this response is the new one
-	//    done       authorised and stored; provider is filled in
-	//    denied     the human said no, or the provider refused this client
-	//    expired    the code timed out; start again
+	// state is one of five. `pending` means the human has not finished yet, so poll again
+	// after interval. `slow_down` means the polling is too fast and the interval in this
+	// response is the new one. `done` means authorised and stored, and provider is filled in.
+	// `denied` means the human said no, or the provider refused this client. `expired` means
+	// the code timed out and the sign-in has to be started again.
 	State string `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	// interval is the seconds to wait before the next poll. Only meaningful while pending.
 	Interval int32 `protobuf:"varint,2,opt,name=interval,proto3" json:"interval,omitempty"`
