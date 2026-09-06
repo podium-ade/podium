@@ -41,14 +41,10 @@ shift || true
 services=${*:-server agent node}
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# The one value that cannot come from the file, because it names the file.
 ENV_FILE=${PODIUM_ENV_FILE:-$root/deploy/.env}
-BIN=${PODIUM_BIN_DIR:-$root/bin}
-STATE=${PODIUM_STATE_DIR:-$root/.podium}
-RUN=$STATE/run
-LOG=$STATE/log
-
 if [ ! -r "$ENV_FILE" ]; then
-	echo "no .env at $ENV_FILE — run: $BIN/podium-server init --dir $(dirname "$ENV_FILE")" >&2
+	echo "no .env at $ENV_FILE — run: ${PODIUM_BIN_DIR:-$root/bin}/podium-server init --dir $(dirname "$ENV_FILE")" >&2
 	exit 1
 fi
 # Values first, so anything already in the environment overrides the file.
@@ -57,6 +53,12 @@ set -a
 . "$ENV_FILE"
 set +a
 eval "$saved"
+
+# Read after the file, so the file can set them like anything else.
+BIN=${PODIUM_BIN_DIR:-$root/bin}
+STATE=${PODIUM_STATE_DIR:-$root/.podium}
+RUN=$STATE/run
+LOG=$STATE/log
 
 # --- the derivations the compose files do in YAML -------------------------------------------
 env_dir=$(dirname "$ENV_FILE")
@@ -77,8 +79,15 @@ pg_host=127.0.0.1:${PODIUM_PG_PORT:-5432}
 # Where the server is reached, which differs by transport: a tailnet device name, or the
 # dev transport's loopback listener.
 if [ "$PODIUM_TRANSPORT" = tailnet ]; then
-	[ -n "${PODIUM_TAILNET:-}" ] || { echo "PODIUM_TRANSPORT=tailnet needs PODIUM_TAILNET in $ENV_FILE" >&2; exit 1; }
-	: "${PODIUM_SERVER:=https://podium.${PODIUM_TAILNET}.ts.net}"
+	# PODIUM_TAILNET is only ever used to build this URL, so a deployment that names the
+	# server outright — a CNAME, a device that is not called `podium` — needs neither.
+	if [ -z "${PODIUM_SERVER:-}" ]; then
+		[ -n "${PODIUM_TAILNET:-}" ] || {
+			echo "PODIUM_TRANSPORT=tailnet needs PODIUM_TAILNET (or PODIUM_SERVER) in $ENV_FILE" >&2
+			exit 1
+		}
+		PODIUM_SERVER=https://podium.${PODIUM_TAILNET}.ts.net
+	fi
 else
 	: "${PODIUM_SERVER:=http://${PODIUM_DEV_LISTEN:-127.0.0.1:8080}}"
 fi
