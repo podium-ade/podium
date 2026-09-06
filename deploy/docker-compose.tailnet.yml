@@ -6,8 +6,12 @@
 #   # fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
 #   docker compose -f docker-compose.tailnet.yml up -d --wait
 #
-# UNVERIFIED: no part of this file has been run. The tailnet transport has never been
-# exercised against a real tailnet, and these images have never been published.
+# UNVERIFIED, but narrower than it used to be. The tailnet TRANSPORT has been exercised
+# against a real tailnet — a server device plus two workers, one of them a Linux box on
+# another machine, reconnecting across server restarts. This FILE still has not: the images
+# it names have never been published, so `up` cannot pull them, and the agent service below
+# cannot work as written for the reason given where it is defined. Until the images exist,
+# the tailnet path that runs is `make build` plus deploy/run-host.sh.
 #
 # HTTPS on the tailnet must be enabled first (admin console -> DNS -> HTTPS Certificates), and
 # so must MagicDNS. The server refuses to start with an actionable message if either is off.

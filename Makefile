@@ -19,7 +19,7 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-test
+.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-test stack-up stack-down stack-status
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -144,6 +144,21 @@ proto-breaking:
 
 fmt:
 	golangci-lint fmt
+
+# Run what `build` produced, against the dependencies in docker-compose.dev.yml and the
+# .env `podium-server init` writes. This is the only supported way to run the conductor
+# under the tailnet transport — see the note in deploy/run-host.sh — and the shortest loop
+# when you are changing Go code. Name services to act on a subset: `make stack-up S=agent`.
+S ?=
+
+stack-up:
+	@deploy/run-host.sh up $(S)
+
+stack-down:
+	@deploy/run-host.sh down $(S)
+
+stack-status:
+	@deploy/run-host.sh status $(S)
 
 clean:
 	rm -rf bin web/dist/assets web/dist/index.html
