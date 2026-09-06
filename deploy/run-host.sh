@@ -59,6 +59,9 @@ BIN=${PODIUM_BIN_DIR:-$root/bin}
 STATE=${PODIUM_STATE_DIR:-$root/.podium}
 RUN=$STATE/run
 LOG=$STATE/log
+# How long `down` waits for a service to actually exit. The server is the slow one: it tears
+# down a tsnet device, which takes seconds rather than milliseconds.
+STOP_TIMEOUT=30
 
 # --- the derivations the compose files do in YAML -------------------------------------------
 env_dir=$(dirname "$ENV_FILE")
@@ -156,7 +159,25 @@ down)
 	# Stopped newest-first so the node deregisters before the server goes. Matched on the
 	# full path, so another checkout's build of the same binary is left alone.
 	for svc in $(echo "$services" | tr ' ' '\n' | tail -r 2>/dev/null || echo "$services"); do
-		if pkill -f "^$BIN/podium-$svc" 2>/dev/null; then echo "  stopped $svc"; else echo "  $svc was not running"; fi
+		if pkill -f "^$BIN/podium-$svc" 2>/dev/null; then
+			# pkill returns when the signal is sent, not when the process is gone, and a
+			# service still shutting down still matches the pattern `up` tests. Waiting is
+			# what makes `stack-down && stack-up` a restart: without it `up` finds the
+			# dying process, reports "already running", starts nothing, and leaves the
+			# conductor with no control plane behind it.
+			waited=0
+			while pgrep -f "^$BIN/podium-$svc" >/dev/null 2>&1; do
+				waited=$((waited + 1))
+				if [ "$waited" -gt "$STOP_TIMEOUT" ]; then
+					echo "  $svc did not exit within ${STOP_TIMEOUT}s" >&2
+					exit 1
+				fi
+				sleep 1
+			done
+			echo "  stopped $svc"
+		else
+			echo "  $svc was not running"
+		fi
 		rm -f "$RUN/$svc.pid"
 	done
 	;;
