@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { ArrowDown, Bot, MessageSquarePlus, Sparkles } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Chat, ChatMessage, Skill } from "../../gen/podium/agent/v1/agent_pb";
@@ -7,12 +8,18 @@ import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { absolute, relative } from "../../lib/format";
-import { renderMarkdown } from "../../lib/markdown";
+import { absolute, relative, toDate } from "../../lib/format";
+import { Badge } from "../Badge";
 import { Empty } from "../Empty";
+import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
+import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
+import { Tooltip } from "../ui/tooltip";
 import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
+import { ConductorDown } from "./ConductorDown";
+import { ChatMarkdown } from "./chat/ChatMarkdown";
 
 /** SCROLL_SLACK_PX is how far off the bottom still counts as "at the bottom". */
 const SCROLL_SLACK_PX = 40;
@@ -72,22 +79,30 @@ export function ChatPanel() {
 
   if (connectCode(chats.error) === Code.FailedPrecondition) {
     return (
-      <Empty
-        title="The chat is not available on this conductor"
-        hint="podium-agent serves it with no extra configuration. See docs/agent.md#chat."
-      />
+      <div className="p-6">
+        <Empty
+          title="The chat is not available on this conductor"
+          hint="podium-agent serves it with no extra configuration. See docs/agent.md#chat."
+        />
+      </div>
     );
   }
   if (connectCode(chats.error) === Code.Unauthenticated) {
     return (
-      <Empty
-        title="The conductor does not know who you are"
-        hint="A chat belongs to a login, and podium-server asserts it. Reload, and check that this control plane's identity middleware is configured."
-      />
+      <div className="p-6">
+        <Empty
+          title="The conductor does not know who you are"
+          hint="A chat belongs to a login, and podium-server asserts it. Reload, and check that this control plane's identity middleware is configured."
+        />
+      </div>
     );
   }
   if (chats.isError && !isAgentUnreachable(chats.error)) {
-    return <Empty title="Could not read your chats" hint={errorMessage(chats.error)} />;
+    return (
+      <div className="p-6">
+        <Empty title="Could not read your chats" hint={errorMessage(chats.error)} />
+      </div>
+    );
   }
 
   const list = chats.data?.chats ?? [];
@@ -95,9 +110,13 @@ export function ChatPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {isAgentUnreachable(chats.error) ? (
-        <p className="mx-3 mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </p>
+        <div className="px-4 pt-3">
+          <ConductorDown
+            what="Your chats could not be read"
+            onRetry={() => void chats.refetch()}
+            retrying={chats.isFetching}
+          />
+        </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
@@ -109,12 +128,20 @@ export function ChatPanel() {
           creating={create.isPending}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
           {active === "" ? (
-            <div className="p-4">
+            <div className="grid min-h-0 flex-1 place-items-center p-6">
               <Empty
+                className="max-w-lg"
+                icon={Sparkles}
                 title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
-                hint="Ask the bot a question and it answers from the data warehouse, showing the SQL it ran."
+                hint="A question here runs as a real Podium task on a node, with the tools its skill allows. It answers with what it found, and shows the work."
+                action={
+                  <Button size="sm" disabled={create.isPending} onClick={() => create.mutate("")}>
+                    <MessageSquarePlus />
+                    {create.isPending ? "Opening…" : "New chat"}
+                  </Button>
+                }
               />
             </div>
           ) : (
@@ -125,15 +152,18 @@ export function ChatPanel() {
               chatId={active}
               botName={skills.data?.profileDisplayName ?? "Podium"}
               skills={skills.data?.skills ?? []}
-              chatDefaultSkill={
-                skills.data?.skills.find((s) => s.chatDefault)?.name ?? ""
-              }
+              chatDefaultSkill={skills.data?.skills.find((s) => s.chatDefault)?.name ?? ""}
             />
           )}
         </div>
       </div>
     </div>
   );
+}
+
+/** when is the instant a chat was last touched, for ordering the rail by recency. */
+function when(c: Chat): number {
+  return toDate(c.lastMessageAt ?? c.createdAt)?.getTime() ?? 0;
 }
 
 function ChatRail({
@@ -151,17 +181,31 @@ function ChatRail({
   creating: boolean;
   onOpen: (id: string) => void;
 }) {
+  // Newest first. The server's order is not part of the contract, and "what I was just
+  // doing" is the only order a chat list is ever read in.
+  const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
+
   return (
-    <div className="flex w-full shrink-0 flex-col gap-2 border-b border-border bg-panel p-3 sm:w-64 sm:border-r sm:border-b-0">
-      <button
-        type="button"
-        data-testid="chat-new"
-        disabled={creating}
-        onClick={onNew}
-        className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring/60"
-      >
-        {creating ? "Opening…" : "New chat"}
-      </button>
+    <div className="flex w-full shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:border-r sm:border-b-0">
+      <div className="flex items-center gap-2 px-3 py-3">
+        <p className="text-2xs font-medium tracking-wider text-faint uppercase">Chats</p>
+        {ordered.length > 0 ? (
+          <span className="tabular text-2xs text-faint">{ordered.length}</span>
+        ) : null}
+        <Tooltip label="New chat — or press N">
+          <Button
+            type="button"
+            size="sm"
+            data-testid="chat-new"
+            disabled={creating}
+            onClick={onNew}
+            className="ml-auto"
+          >
+            <MessageSquarePlus />
+            {creating ? "Opening…" : "New chat"}
+          </Button>
+        </Tooltip>
+      </div>
 
       {/* On a narrow viewport the rail is a select rather than a drawer: one control, no
           overlay, and the keyboard works. */}
@@ -169,37 +213,65 @@ function ChatRail({
         aria-label="Chat"
         value={active}
         onChange={(e) => onOpen(e.target.value)}
-        className="rounded border border-border bg-bg px-2 py-1.5 text-sm text-fg sm:hidden"
+        className="mx-3 mb-3 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg sm:hidden"
       >
         <option value="">Pick a chat…</option>
-        {chats.map((c) => (
+        {ordered.map((c) => (
           <option key={c.id} value={c.id}>
             {c.title}
           </option>
         ))}
       </select>
 
-      <ul data-testid="chat-list" className="hidden min-w-0 flex-1 space-y-1 sm:block">
-        {loading ? <li className="px-2 py-1 text-xs text-muted">Loading…</li> : null}
-        {!loading && chats.length === 0 ? (
-          <li className="px-2 py-1 text-xs text-muted">No chats yet.</li>
+      <ul
+        data-testid="chat-list"
+        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block"
+      >
+        {loading
+          ? Array.from({ length: 4 }, (_, i) => (
+              <li key={i} className="space-y-1.5 px-2.5 py-2" aria-hidden>
+                <Skeleton className="h-3.5 w-3/5" />
+                <Skeleton className="h-3 w-4/5" />
+              </li>
+            ))
+          : null}
+        {!loading && ordered.length === 0 ? (
+          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">
+            No chats yet. Start one and it appears here, newest first.
+          </li>
         ) : null}
-        {chats.map((c) => (
+        {ordered.map((c) => (
           <li key={c.id}>
             <button
               type="button"
               onClick={() => onOpen(c.id)}
               aria-current={c.id === active ? "true" : undefined}
-              className={`w-full rounded px-2 py-1.5 text-left focus-visible:ring-1 focus-visible:ring-accent ${
-                c.id === active ? "bg-raised" : "hover:bg-raised/60"
+              className={`relative block w-full rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                c.id === active
+                  ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
+                  : "hover:bg-raised/60"
               }`}
             >
-              <span className="block truncate text-sm text-fg">{c.title}</span>
-              <span className="block truncate text-xs text-muted">
-                {c.preview || "nothing said yet"}
+              <span className="flex items-baseline gap-2">
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm ${
+                    c.id === active ? "font-medium text-fg" : "text-fg"
+                  }`}
+                >
+                  {c.title}
+                </span>
+                <span
+                  className="tabular shrink-0 text-2xs text-faint"
+                  title={absolute(c.lastMessageAt ?? c.createdAt)}
+                >
+                  {relative(c.lastMessageAt ?? c.createdAt)}
+                </span>
               </span>
-              <span className="block text-xs text-muted">
-                {c.turnRunning ? "working…" : relative(c.lastMessageAt ?? c.createdAt)}
+              <span className="mt-1 flex items-center gap-1.5">
+                {c.turnRunning ? <Badge tone="run">running</Badge> : null}
+                <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                  {c.preview || "nothing said yet"}
+                </span>
               </span>
             </button>
           </li>
@@ -271,57 +343,56 @@ function Conversation({
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const busy = stream.running || send.isPending;
+  const connecting = stream.phase === "connecting" && stream.messages.length === 0;
 
   return (
     <>
-      <div
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX);
-        }}
-        className="relative min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
-      >
-        {stream.phase === "connecting" && stream.messages.length === 0 ? (
-          <p className="text-xs text-muted">Connecting…</p>
-        ) : null}
-        {stream.error ? (
-          <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-            The chat stream dropped and is reconnecting: {stream.error}
-          </p>
-        ) : null}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scroller}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX);
+          }}
+          className="absolute inset-0 overflow-y-auto"
+        >
+          <div className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
+            {connecting ? <TranscriptSkeleton /> : null}
 
-        {stream.messages.map((m, i) => (
-          <Bubble
-            key={String(m.seq)}
-            message={m}
-            botName={botName}
-            firstOfRun={runs[i]}
-          />
-        ))}
+            {stream.error ? (
+              <Alert variant="warn" title="The chat stream dropped and is reconnecting">
+                {stream.error}. Nothing was lost — the reconnect replays from the last message
+                this browser saw.
+              </Alert>
+            ) : null}
 
-        {stream.progress !== undefined ? (
-          <p data-testid="chat-progress" className="flex items-center gap-2 pl-1 text-xs text-run">
-            <span className="inline-block size-1.5 animate-pulse rounded-full bg-run" />
-            <span className="min-w-0 truncate">{stream.progress}</span>
-          </p>
-        ) : busy ? (
-          <p data-testid="chat-progress" className="flex items-center gap-2 pl-1 text-xs text-run">
-            <span className="inline-block size-1.5 animate-pulse rounded-full bg-run" />
-            <span>working…</span>
-          </p>
+            {!connecting && stream.messages.length === 0 ? (
+              <FirstMessage botName={botName} />
+            ) : null}
+
+            {stream.messages.map((m, i) => (
+              <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
+            ))}
+          </div>
+        </div>
+
+        {!pinned ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPinned(true)}
+              className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md"
+            >
+              <ArrowDown />
+              Jump to latest
+            </Button>
+          </div>
         ) : null}
       </div>
 
-      {!pinned ? (
-        <button
-          type="button"
-          onClick={() => setPinned(true)}
-          className="mx-auto -mt-8 mb-2 w-fit rounded-full border border-border bg-raised px-3 py-1 text-xs text-muted hover:text-fg focus-visible:ring-1 focus-visible:ring-accent"
-        >
-          ↓ new messages
-        </button>
-      ) : null}
+      {busy ? <RunningTurn progress={stream.progress} taskId={stream.taskId} /> : null}
 
       <ChatComposer
         skills={skills}
@@ -338,6 +409,70 @@ function Conversation({
 }
 
 /**
+ * RunningTurn is the live state of a turn: what it is doing right now, and the task it is
+ * doing it in. The progress line is ephemeral — it is replaced in place and dropped the
+ * moment the answer lands — so it belongs here, above the composer, rather than in the
+ * transcript where it would leave a trail of things nobody said.
+ */
+function RunningTurn({ progress, taskId }: { progress?: string; taskId?: string }) {
+  return (
+    <div data-testid="chat-progress" className="border-t border-hairline bg-panel">
+      <div className="h-0.5 w-full animate-shimmer bg-accent/60" aria-hidden />
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 px-5 py-2">
+        <Badge tone="run">running</Badge>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted">
+          {progress ?? "Working on it…"}
+        </span>
+        {taskId ? (
+          <Link
+            to={`/tasks/${taskId}`}
+            title={taskId}
+            className="shrink-0 font-mono text-2xs text-accent hover:underline"
+          >
+            {taskId}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function FirstMessage({ botName }: { botName: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-10 text-center">
+      <span className="grid size-10 place-items-center rounded-xl border border-border bg-panel text-accent">
+        <Sparkles className="size-5" />
+      </span>
+      <p className="text-sm font-medium text-fg">Ask {botName} something</p>
+      <p className="max-w-md text-xs leading-relaxed text-muted">
+        Each question runs as one Podium task and exits when it has an answer. Try{" "}
+        <span className="text-fg">why did the nightly ETL fail?</span> — or pick a skill below
+        to change which image, tools and model the turn runs with.
+      </p>
+    </div>
+  );
+}
+
+function TranscriptSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading the conversation" className="space-y-5">
+      <div className="flex justify-end">
+        <Skeleton className="h-9 w-64 rounded-xl" />
+      </div>
+      <div className="flex gap-3">
+        <Skeleton className="size-7 shrink-0 rounded-lg" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-11/12" />
+          <Skeleton className="h-3.5 w-2/3" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * runsOf marks the first message of each run by one speaker, so the bot's name is a label
  * above a run rather than a repeat above every bubble.
  */
@@ -345,7 +480,13 @@ function runsOf(messages: ChatMessage[]): boolean[] {
   return messages.map((m, i) => i === 0 || messages[i - 1].role !== m.role);
 }
 
-function Bubble({
+/**
+ * Turn renders one message, and the two roles are built differently on purpose. A question
+ * is short and is scanned for, so it is a bubble on the right. An answer is a document —
+ * headings, lists, diffs — so it runs the full measure of the column under a name, where
+ * markdown has room to read as markdown rather than as chat.
+ */
+function Turn({
   message,
   botName,
   firstOfRun,
@@ -354,20 +495,45 @@ function Bubble({
   botName: string;
   firstOfRun: boolean;
 }) {
-  const mine = message.role === "user";
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div
+          data-testid="chat-message"
+          data-role={message.role}
+          title={absolute(message.ts)}
+          className="min-w-0 max-w-[85%] rounded-xl rounded-br-sm border border-accent/25 bg-accent/12 px-3.5 py-2.5"
+        >
+          <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
+          <ChatAttachments attachments={message.attachments} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-      {!mine && firstOfRun ? <span className="mb-1 text-xs text-muted">{botName}</span> : null}
-      <div
-        data-testid="chat-message"
-        data-role={message.role}
-        title={absolute(message.ts)}
-        className={`max-w-full min-w-0 rounded-lg border px-3 py-2 text-sm ${
-          mine ? "border-accent/30 bg-accent/15" : "border-border bg-background"
+    <div className="flex gap-3">
+      <span
+        aria-hidden
+        className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${
+          firstOfRun ? "border border-border bg-panel text-accent" : ""
         }`}
       >
-        <div className="min-w-0">{renderMarkdown(message.text, `m${message.seq}-`)}</div>
-        <ChatAttachments attachments={message.attachments} />
+        {firstOfRun ? <Bot className="size-4" /> : null}
+      </span>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {firstOfRun ? (
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs font-medium text-fg">{botName}</span>
+            <span className="text-2xs text-faint" title={absolute(message.ts)}>
+              {relative(message.ts)}
+            </span>
+          </div>
+        ) : null}
+        <div data-testid="chat-message" data-role={message.role} className="min-w-0">
+          <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
+          <ChatAttachments attachments={message.attachments} />
+        </div>
       </div>
     </div>
   );

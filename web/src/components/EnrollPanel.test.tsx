@@ -14,15 +14,19 @@ vi.mock("../lib/client", async () => {
   return { ...actual, admin: { createEnrollmentToken: (...a: unknown[]) => createEnrollmentToken(...a) } };
 });
 
-function mount() {
+/** Enrolment is a dialog now, so every test opens it before it can touch the form. */
+async function mount(user: ReturnType<typeof userEvent.setup>) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const result = render(
     <QueryClientProvider client={qc}>
       <ToastHost>
         <EnrollPanel server="http://127.0.0.1:18080" />
       </ToastHost>
     </QueryClientProvider>,
   );
+  await user.click(screen.getByRole("button", { name: "Add a node" }));
+  await screen.findByRole("dialog");
+  return result;
 }
 
 describe("enrollCommand", () => {
@@ -51,31 +55,29 @@ describe("EnrollPanel", () => {
     createEnrollmentToken.mockReset();
   });
 
-  it("sends the typed labels and TTL, then shows the command once", async () => {
+  it("sends the typed labels and chosen TTL, then shows the command once", async () => {
     createEnrollmentToken.mockResolvedValue({
       token: "tok_live",
       expiresAt: timestampFromDate(new Date("2026-01-01T00:00:00Z")),
     });
     const user = userEvent.setup();
-    mount();
+    await mount(user);
 
     expect(screen.queryByTestId("enroll-command")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Labels"), "demo, linux/arm64");
-    await user.clear(screen.getByLabelText("TTL"));
-    await user.type(screen.getByLabelText("TTL"), "30");
-    await user.selectOptions(screen.getByLabelText("TTL unit"), "minutes");
+    await user.click(screen.getByRole("radio", { name: "15 minutes" }));
     await user.click(screen.getByRole("button", { name: "Create enrollment token" }));
 
     await waitFor(() => expect(screen.getByTestId("enroll-command")).toBeInTheDocument());
     expect(createEnrollmentToken).toHaveBeenCalledWith({
       labels: ["demo", "linux/arm64"],
-      ttl: { seconds: 1800n, nanos: 0 },
+      ttl: { seconds: 900n, nanos: 0 },
     });
     expect(screen.getByTestId("enroll-command")).toHaveTextContent(
       "PODIUM_NODE_ENROLL_TOKEN=tok_live",
     );
-    expect(screen.getByText(/Shown once/)).toBeInTheDocument();
+    expect(screen.getByText(/Shown once, single use/)).toBeInTheDocument();
   });
 
   it("copies the command to the clipboard", async () => {
@@ -84,7 +86,7 @@ describe("EnrollPanel", () => {
     // userEvent.setup() installs its own clipboard stub, so replace it after that.
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    mount();
+    await mount(user);
     await user.click(screen.getByRole("button", { name: "Create enrollment token" }));
     await waitFor(() => expect(screen.getByTestId("enroll-command")).toBeInTheDocument());
 
@@ -93,24 +95,25 @@ describe("EnrollPanel", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
-  it("surfaces a server error and shows no command", async () => {
+  it("surfaces a server error where the action was, and shows no command", async () => {
     createEnrollmentToken.mockRejectedValue(new Error("permission denied"));
     const user = userEvent.setup();
-    mount();
+    await mount(user);
     await user.click(screen.getByRole("button", { name: "Create enrollment token" }));
 
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        "CreateEnrollmentToken: permission denied",
+        "Could not create an enrollment token",
       ),
     );
+    expect(screen.getByRole("status")).toHaveTextContent("permission denied");
     expect(screen.queryByTestId("enroll-command")).not.toBeInTheDocument();
   });
 
   it("drops empty labels rather than sending blanks", async () => {
     createEnrollmentToken.mockResolvedValue({ token: "tok_blank" });
     const user = userEvent.setup();
-    mount();
+    await mount(user);
     await user.type(screen.getByLabelText("Labels"), " , demo , ");
     await user.click(screen.getByRole("button", { name: "Create enrollment token" }));
     await waitFor(() => expect(createEnrollmentToken).toHaveBeenCalled());

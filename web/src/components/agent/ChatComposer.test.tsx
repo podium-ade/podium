@@ -166,10 +166,16 @@ describe("ChatComposer", () => {
     expect(onSkillChange).not.toHaveBeenCalled();
   });
 
-  it("offers the skill's own model as the default, named", () => {
+  it("offers the skill's own model as the default, named", async () => {
     mount();
-    // "analyst" in the fixture resolves to a model; the closed picker says which, so a
-    // human can see what "the skill's" means before choosing anything else.
-    expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("The skill's model");
+    // The picker is folded into a popover, but the closed control still says what will run,
+    // so a human can see what "the skill's" means before opening anything.
+    const trigger = screen.getByTestId("chat-run-config");
+    expect(trigger).toHaveTextContent("The skill's model");
+
+    await userEvent.click(trigger);
+    expect(await screen.findByTestId("agent-picker-trigger")).toHaveTextContent(
+      "The skill's model",
+    );
   });
 });

@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "rea
 import { Header } from "./components/Header";
 import { ToastHost } from "./components/Toast";
 import { TokenGate } from "./components/TokenGate";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { cn } from "./lib/utils";
 import { AgentPage } from "./pages/AgentPage";
 import { NodesPage } from "./pages/NodesPage";
@@ -22,11 +23,16 @@ function Shell() {
   return (
     <div className="flex h-full bg-background">
       <Header />
-      <main className={cn("min-w-0 flex-1", agent ? "overflow-hidden" : "overflow-y-auto p-6")}>
+      <main
+        className={cn(
+          "min-w-0 flex-1",
+          agent ? "overflow-hidden" : "overflow-y-auto px-6 py-7 lg:px-8",
+        )}
+      >
         {agent ? (
           <Outlet />
         ) : (
-          <div className="mx-auto w-full max-w-7xl">
+          <div key={pathname} className="mx-auto w-full max-w-7xl animate-in fade-in-0 duration-200">
             <Outlet />
           </div>
         )}
@@ -38,24 +44,26 @@ function Shell() {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastHost>
-        <TokenGate>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<Shell />}>
-                <Route path="/" element={<TasksPage />} />
-                <Route path="/tasks/:id" element={<TaskDetailPage />} />
-                <Route path="/submit" element={<SubmitPage />} />
-                <Route path="/nodes" element={<NodesPage />} />
-                <Route path="/secrets" element={<SecretsPage />} />
-                {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
-                <Route path="/agent/*" element={<AgentPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </TokenGate>
-      </ToastHost>
+      <TooltipProvider>
+        <ToastHost>
+          <TokenGate>
+            <BrowserRouter>
+              <Routes>
+                <Route element={<Shell />}>
+                  <Route path="/" element={<TasksPage />} />
+                  <Route path="/tasks/:id" element={<TaskDetailPage />} />
+                  <Route path="/submit" element={<SubmitPage />} />
+                  <Route path="/nodes" element={<NodesPage />} />
+                  <Route path="/secrets" element={<SecretsPage />} />
+                  {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
+                  <Route path="/agent/*" element={<AgentPage />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+          </TokenGate>
+        </ToastHost>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

@@ -47,6 +47,12 @@ function mount(n = node()) {
   );
 }
 
+/** The four actions live behind a per-node menu, so every test starts by opening it. */
+async function openMenu(name = "worker-3") {
+  await userEvent.click(screen.getByRole("button", { name: `Actions for ${name}` }));
+  return screen.findByRole("menu");
+}
+
 describe("NodeActions", () => {
   beforeEach(() => {
     drainNode.mockReset();
@@ -59,38 +65,50 @@ describe("NodeActions", () => {
     drainNode.mockResolvedValue({ node: node({ draining: true }) });
     mount();
 
-    await userEvent.click(screen.getByRole("button", { name: "Drain" }));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Drain" }));
     expect(drainNode).not.toHaveBeenCalled();
-    expect(screen.getByText(/Stop scheduling new work on worker-3\?/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Yes, drain" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Drain worker-3?");
+    expect(dialog).toHaveTextContent(/keeps running until it finishes/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Drain node" }));
     await waitFor(() => expect(drainNode).toHaveBeenCalledWith({ nodeId: "node_01abc" }));
   });
 
   it("backs out of a confirm without calling anything", async () => {
     mount();
-    await userEvent.click(screen.getByRole("button", { name: "Drain" }));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Drain" }));
+    await screen.findByRole("dialog");
+
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(drainNode).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Drain" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("button", { name: "Actions for worker-3" })).toBeInTheDocument();
   });
 
   it("offers Undrain instead of Drain once the node is draining", async () => {
     undrainNode.mockResolvedValue({ node: node() });
     mount(node({ draining: true }));
 
-    expect(screen.queryByRole("button", { name: "Drain" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Undrain" }));
-    await userEvent.click(screen.getByRole("button", { name: "Yes, undrain" }));
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Drain" })).toBeNull();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Undrain" }));
+
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: "Undrain node" }));
     await waitFor(() => expect(undrainNode).toHaveBeenCalledWith({ nodeId: "node_01abc" }));
   });
 
-  it("treats a DRAINING status the same as the draining flag", () => {
+  it("treats a DRAINING status the same as the draining flag", async () => {
     mount(node({ status: NodeStatus.DRAINING, draining: false }));
-    expect(screen.getByRole("button", { name: "Undrain" })).toBeInTheDocument();
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Undrain" })).toBeInTheDocument();
   });
 
-  it("shows the server's refusal beside the node instead of a toast that scrolls away", async () => {
+  it("keeps the server's refusal in front of the operator instead of in a toast that scrolls away", async () => {
     deleteNode.mockRejectedValue(
       new ConnectError(
         "delete node: worker-3 is online and not drained; drain it first",
@@ -99,22 +117,47 @@ describe("NodeActions", () => {
     );
     mount();
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await userEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: "Delete node" }));
 
     expect(
       await screen.findByText(/is online and not drained; drain it first/),
     ).toBeInTheDocument();
+    // The dialog stays open, because the checkbox that answers this refusal is inside it.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("sends force only when the operator asks for it", async () => {
+    deleteNode.mockResolvedValue({});
+    mount();
+
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await screen.findByRole("dialog");
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /not drained/ }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Delete node" }));
+
+    await waitFor(() =>
+      expect(deleteNode).toHaveBeenCalledWith({ nodeId: "node_01abc", force: true }),
+    );
   });
 
   it("offers Rekey only for a node bound to a Tailscale device", async () => {
-    mount();
-    expect(screen.queryByRole("button", { name: "Rekey" })).toBeNull();
+    const unbound = mount();
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Rekey" })).toBeNull();
+    unbound.unmount();
 
     rekeyNode.mockResolvedValue({ node: node() });
     mount(node({ tsStableId: "nWxYz" }));
-    await userEvent.click(screen.getByRole("button", { name: "Rekey" }));
-    await userEvent.click(screen.getByRole("button", { name: "Yes, rekey" }));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rekey" }));
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: "Rekey node" }));
     await waitFor(() => expect(rekeyNode).toHaveBeenCalledWith({ nodeId: "node_01abc" }));
   });
 });
