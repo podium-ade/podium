@@ -637,11 +637,12 @@ export const PollProviderOAuthRequestSchema: GenMessage<PollProviderOAuthRequest
 export type PollProviderOAuthResponse = Message<"podium.agent.v1.PollProviderOAuthResponse"> & {
   /**
    * state is:
-   *   pending    the human has not finished yet; poll again after interval
-   *   slow_down  polling too fast; the interval in this response is the new one
-   *   done       authorised and stored; provider is filled in
-   *   denied     the human said no, or the provider refused this client
-   *   expired    the code timed out; start again
+   *
+   *    pending    the human has not finished yet; poll again after interval
+   *    slow_down  polling too fast; the interval in this response is the new one
+   *    done       authorised and stored; provider is filled in
+   *    denied     the human said no, or the provider refused this client
+   *    expired    the code timed out; start again
    *
    * @generated from field: string state = 1;
    */
