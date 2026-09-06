@@ -285,7 +285,9 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
 | Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic or xAI credential exists here, so every turn ever run was a dry run |
-| Grok backend: xAI credentials, subscription sign-in, per-turn agent/model/effort | ✅ | ⚠️ both credential paths proved against the **real xAI**: a bad key refused by `api.x.ai` in its own words, and a live device code issued by `auth.x.ai`. **Nobody has approved a sign-in, and no turn has run on a Grok model** |
+| xAI credentials: API key and subscription sign-in | ✅ | ✅ **both proved end to end against the real xAI.** A bad key refused by `api.x.ai` in its own words; a device-code sign-in approved by a human, a refresh token issued, the access token validated and stored |
+| Per-turn agent/model/effort picker | ✅ | ✅ resolution, credential routing and the brief proved on a live stack |
+| Running a turn **on a Grok model** | ❌ | ❌ **does not work.** The Claude Agent SDK sends Anthropic-only request fields that `api.x.ai` rejects — see the agent-layer section |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -458,9 +460,14 @@ a real Docker engine. What has **not** happened:
   so the half that stores a credential — and xAI's reported allow-listing of its OAuth API
   surface, which can yield a token the API then refuses — is still untested. That refusal is
   why the storing poll validates the token against the API before saving it.
-  What remains wholly unproven is the claim this backend rests on: that `api.x.ai` serves an
-  Anthropic-shaped `/v1/messages` the Claude Agent SDK can be pointed at. No turn has run on
-  a Grok model.
+  **The claim this backend rests on turned out to be false, and a real turn is what disproved
+  it.** `api.x.ai` serves an Anthropic-*shaped* `/v1/messages`, but not one the Claude Agent
+  SDK can drive: the harness unconditionally sends a `{"role": "system"}` entry inside
+  `messages[]` (its agent-type roster), which xAI rejects with
+  `400 invalid-argument: Invalid message role` — and alongside it `output_config`,
+  `thinking: {type: "adaptive"}` and `context_management`, all Anthropic-only. None of that is
+  Podium's to choose. **A turn cannot run on Grok through this runtime**, and pointing the
+  SDK's base URL at xAI is not a route that can be made to work from here.
 - **`PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has no default, deliberately.** xAI operates no
   self-service client registration, and every third-party tool that offers this flow reuses
   xAI's own Grok CLI client id. Podium documents that and declines to ship it, because the
