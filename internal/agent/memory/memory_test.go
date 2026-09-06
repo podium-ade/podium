@@ -498,3 +498,63 @@ func TestACancelledContextStopsTheCall(t *testing.T) {
 // The interface is what the conductor and the API handlers depend on; the concrete client
 // has to satisfy it.
 var _ Client = (*HTTP)(nil)
+
+// operationsBody is what hindsight 0.9.2 answered on this machine when every retain was
+// failing: the model key in the container was a placeholder, so extraction 401'd, retried
+// three times and gave up — while /health stayed green and Retain went on returning 202.
+const operationsBody = `{"bank_id":"podium","total":2,"limit":3,"offset":0,"operations":[
+  {"id":"81e013c4-f15d-4cac-97b6-e22f0359aba4","task_type":"retain","items_count":1,
+   "document_id":"turn_01m1s5xrrr5wwjh1t0w5djy2xy","filename":null,"details":null,
+   "created_at":"2026-09-05T19:57:37.134654+00:00","updated_at":"2026-09-05T20:00:39.262692+00:00",
+   "status":"failed","retry_count":3,"next_retry_at":null,"progress":null,
+   "error_message":"RuntimeError: Fact extraction failed: 1/1 chunks failed. First failures: chunk 0: AuthenticationError: Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}}"},
+  {"id":"1f3f6b47-1fbf-4025-a111-895891a45521","task_type":"retain","items_count":1,
+   "document_id":"turn_01m1me0mcbtn5seejpjpbvt4se","filename":null,"details":null,
+   "created_at":"2026-09-05T16:20:20.618426+00:00","updated_at":"2026-09-05T16:23:22.474889+00:00",
+   "status":"failed","retry_count":3,"next_retry_at":null,"progress":null,
+   "error_message":"RuntimeError: Fact extraction failed: 1/1 chunks failed."}]}`
+
+func TestFailedOperationsReportsWhatRetainCannot(t *testing.T) {
+	f, c := newFake(t)
+	f.body = operationsBody
+
+	ops, err := c.FailedOperations(context.Background(), 3)
+	require.NoError(t, err)
+
+	got := f.last()
+	assert.Equal(t, http.MethodGet, got.Method)
+	assert.Equal(t, "/v1/default/banks/podium/operations", got.Path)
+	assert.Contains(t, got.Query, "status=failed")
+	assert.Contains(t, got.Query, "exclude_parents=true",
+		"a retain is recorded as both a batch and the chunk inside it, and both fail "+
+			"together — counting the parent too doubles every number")
+
+	require.Len(t, ops, 2)
+	assert.Equal(t, "retain", ops[0].Type)
+	assert.Equal(t, OperationFailed, ops[0].Status)
+	assert.Equal(t, "turn_01m1s5xrrr5wwjh1t0w5djy2xy", ops[0].DocumentID,
+		"the document id is the turn id, which is how a lost memory is traced back")
+	assert.Equal(t, 3, ops[0].RetryCount)
+	assert.Contains(t, ops[0].ErrorMessage, "invalid x-api-key")
+	assert.Equal(t,
+		time.Date(2026, 9, 5, 20, 0, 39, 262692000, time.UTC),
+		ops[0].UpdatedAt.UTC())
+}
+
+func TestFailedOperationsOfAHealthyBankIsEmpty(t *testing.T) {
+	f, c := newFake(t)
+	f.body = `{"bank_id":"podium","total":0,"limit":50,"offset":0,"operations":[]}`
+
+	ops, err := c.FailedOperations(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Empty(t, ops)
+}
+
+func TestFailedOperationsSurfacesARefusedKey(t *testing.T) {
+	f, c := newFake(t)
+	f.status = http.StatusUnauthorized
+	f.body = `{"detail":"invalid api key"}`
+
+	_, err := c.FailedOperations(context.Background(), 3)
+	require.ErrorIs(t, err, ErrUnauthorized)
+}
