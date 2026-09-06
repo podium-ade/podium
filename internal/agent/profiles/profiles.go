@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -32,13 +33,28 @@ var NameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 // skill selector.
 var SkillPrefixRE = regexp.MustCompile(`^/([a-z][a-z0-9-]{0,31})(\s+|$)`)
 
-// AnthropicKeySecret is the reserved secret the conductor attaches to every turn itself. A
-// skill may not name it: the whole point of the reservation is that no skill file decides
+// AnthropicKeySecret is the reserved secret the conductor attaches to a Claude turn itself.
+// A skill may not name it: the whole point of the reservation is that no skill file decides
 // whether the bot can talk to the model.
 const AnthropicKeySecret = "podium.agent.anthropic_api_key"
 
 // AnthropicKeyEnv is where that secret lands in the task container.
 const AnthropicKeyEnv = "ANTHROPIC_API_KEY"
+
+// XAIKeySecret is the same reservation for a Grok turn: the xAI credential, which is either
+// an API key or the access token of a subscription sign-in. Both are bearer tokens for the
+// same endpoint, so there is one secret and not two.
+const XAIKeySecret = "podium.agent.xai_api_key"
+
+// XAIKeyEnv is where that secret lands in the task container. It is named for what it holds
+// — an xAI credential — and the runtime is what maps it onto the SDK's ANTHROPIC_AUTH_TOKEN
+// once it knows the turn is a Grok one.
+const XAIKeyEnv = "XAI_API_KEY"
+
+// XAIRefreshSecret is the refresh token of a subscription sign-in. It is stored so a token
+// that expires in an hour does not mean a human signs in every hour, and it never leaves
+// this host: no turn is ever handed it, and no skill may name it.
+const XAIRefreshSecret = "podium.agent.xai_refresh_token"
 
 // MemoryKeySecret is the other reserved secret the conductor attaches itself: the shared
 // memory's API key. A skill may not name it and a skill cannot opt out of memory — only the
@@ -67,12 +83,18 @@ const (
 // that names it.
 const filePrefix = "file:"
 
-// Profile is the bot: one identity, one model, a set of skills.
+// Profile is the bot: one identity, one agent backend, one model, a set of skills.
 type Profile struct {
 	Name         string `yaml:"name"`
 	DisplayName  string `yaml:"display_name"`
 	SystemPrompt string `yaml:"system_prompt"`
 	Model        string `yaml:"model"`
+	// Agent is the backend every skill runs on unless it names its own. Empty is
+	// DefaultAgent, so a profile.yaml written before Grok existed still loads.
+	Agent string `yaml:"agent"`
+	// Effort is the reasoning effort every skill runs at unless it names its own. Empty
+	// means the model's own default, which is what the provider picks.
+	Effort       string `yaml:"effort"`
 	DefaultSkill string `yaml:"default_skill"`
 	// ChatDefaultSkill is the skill a web-chat message runs when the human has not chosen
 	// one. It is a profile decision rather than a page constant: the profile owner decides
@@ -104,6 +126,8 @@ type Skill struct {
 	MaxTurns      int               `yaml:"max_turns" json:"max_turns"`
 	Timeout       spec.Duration     `yaml:"timeout" json:"timeout"`
 	Model         string            `yaml:"model" json:"model,omitempty"`
+	Agent         string            `yaml:"agent" json:"agent,omitempty"`
+	Effort        string            `yaml:"effort" json:"effort,omitempty"`
 	Labels        []string          `yaml:"labels" json:"labels,omitempty"`
 	Resources     spec.Resources    `yaml:"resources" json:"resources,omitempty"`
 	Secrets       []spec.SecretRef  `yaml:"secrets" json:"secrets,omitempty"`
@@ -291,8 +315,15 @@ func (s Skill) validate(path string) error {
 		errs = append(errs, errors.New("allowed_tools is required and must name at least one tool"))
 	}
 	for _, tool := range s.AllowedTools {
-		if strings.TrimSpace(tool) == "" {
+		switch {
+		case strings.TrimSpace(tool) == "":
 			errs = append(errs, errors.New("allowed_tools holds an empty entry"))
+		case !validTool(tool):
+			// Loud on purpose. The harness changed and so did the tool names; a skill
+			// carrying the old ones would otherwise run with that tool silently absent.
+			errs = append(errs, fmt.Errorf(
+				"allowed_tools names %q, which is not a tool this harness has (have %s)",
+				tool, strings.Join(Tools, ", ")))
 		}
 	}
 	if s.MaxTurns < 1 {
@@ -301,11 +332,16 @@ func (s Skill) validate(path string) error {
 	if s.Timeout <= 0 {
 		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", s.Timeout))
 	}
+	// A skill's own triple, checked with its own model. When the skill names no model the
+	// effective one is the profile's, and Profile.validate re-checks it there.
+	if err := validateTriple(s.Agent, s.Model, s.Effort); err != nil {
+		errs = append(errs, err)
+	}
 	for _, ref := range s.Secrets {
 		switch ref.Name {
-		case AnthropicKeySecret, MemoryKeySecret:
-			errs = append(errs, fmt.Errorf("secrets may not name %s: it is added automatically to every turn",
-				ref.Name))
+		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret, MemoryKeySecret:
+			errs = append(errs, fmt.Errorf("secrets may not name %s: the conductor decides what "+
+				"credential a turn gets, from the agent the skill runs on", ref.Name))
 		}
 	}
 	for key := range s.Env {
@@ -315,6 +351,9 @@ func (s Skill) validate(path string) error {
 		case AnthropicKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				AnthropicKeyEnv, AnthropicKeySecret))
+		case XAIKeyEnv:
+			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
+				XAIKeyEnv, XAIKeySecret))
 		case MemoryKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				MemoryKeyEnv, MemoryKeySecret))
@@ -370,6 +409,19 @@ func (p *Profile) validate(path string) error {
 	}
 	if strings.TrimSpace(p.Model) == "" {
 		errs = append(errs, errors.New("model is required"))
+	}
+	if err := validateTriple(p.Agent, p.Model, p.Effort); err != nil {
+		errs = append(errs, err)
+	}
+	// Every skill again, this time with the model, agent and effort a turn of it will
+	// actually run: a skill naming an effort its *inherited* model does not accept is
+	// exactly as broken as one naming an effort its own model does not, and only here is
+	// the combination known.
+	for _, name := range p.SkillNames() {
+		s := p.Skills[name]
+		if err := validateTriple(p.AgentFor(s), p.ModelFor(s), p.EffortFor(s)); err != nil {
+			errs = append(errs, fmt.Errorf("skill %q: %w", name, err))
+		}
 	}
 	if p.DefaultSkill == "" {
 		errs = append(errs, errors.New("default_skill is required"))
@@ -522,4 +574,71 @@ func (p *Profile) ModelFor(s Skill) string {
 		return s.Model
 	}
 	return p.Model
+}
+
+// Resolve is what a turn actually runs on: the override, then the skill, then the profile,
+// then the built-in default. It is the ONE place that ordering lives, so the conductor, the
+// brief and the credential the turn is handed can never disagree about it.
+func (p *Profile) Resolve(s Skill, o Override) Choice {
+	c := Choice{Agent: p.AgentFor(s), Model: p.ModelFor(s), Effort: p.EffortFor(s)}
+	if o.Agent != "" {
+		c.Agent = o.Agent
+		// A backend the caller chose without naming a model would otherwise keep the model
+		// of the backend it came from — grok-4.6 on Claude — which is a request no provider
+		// can serve. The new backend's default is the only sane answer.
+		if o.Model == "" {
+			if b, ok := FindBackend(o.Agent); ok {
+				c.Model = b.DefaultModel
+			}
+		}
+	}
+	if o.Model != "" {
+		c.Model = o.Model
+		// The model moved and the backend did not, so follow the model to its own backend.
+		// Picking grok-4.6 means picking Grok; there is no other reading.
+		if o.Agent == "" {
+			if b, ok := backendOf(o.Model); ok {
+				c.Agent = b.ID
+			}
+		}
+	}
+	if o.Effort != "" {
+		c.Effort = o.Effort
+	}
+	// An inherited effort the newly chosen model does not accept is dropped rather than
+	// carried into a request the provider would refuse. Naming one explicitly is checked by
+	// ValidateOverride and refused; inheriting one is not the caller's doing.
+	if o.Effort == "" && c.Effort != "" {
+		if b, ok := FindBackend(c.Agent); ok {
+			if m, known := b.FindModel(c.Model); known && !slices.Contains(m.Efforts, c.Effort) {
+				c.Effort = ""
+			}
+		}
+	}
+	return c
+}
+
+// AgentFor is the backend a skill runs on: its own, then the profile's, then DefaultAgent.
+// It never returns "": a turn always runs on something, and the brief says which.
+func (p *Profile) AgentFor(s Skill) string {
+	switch {
+	case s.Agent != "":
+		return s.Agent
+	case p.Agent != "":
+		return p.Agent
+	default:
+		return DefaultAgent
+	}
+}
+
+// EffortFor is the reasoning effort a skill runs at, or "" for the model's own default.
+//
+// Inheriting the profile's level is safe because validateTriple has already refused the
+// combination that would make it wrong — a skill that switches backend and inherits a level
+// its new model does not accept fails to load rather than running at a level nobody chose.
+func (p *Profile) EffortFor(s Skill) string {
+	if s.Effort != "" {
+		return s.Effort
+	}
+	return p.Effort
 }

@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { SkillSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { INHERIT } from "../../lib/agents";
+import { catalogue } from "../../test/agents";
 import { ChatComposer } from "./ChatComposer";
 
 const skills = [
@@ -25,6 +27,9 @@ function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
       skill="analyst"
       onSkillChange={onSkillChange}
       disabled={false}
+      agents={catalogue()}
+      choice={INHERIT}
+      onChoiceChange={vi.fn()}
       onSend={onSend}
       {...over}
     />,
@@ -36,7 +41,8 @@ describe("ChatComposer", () => {
   it("sends on Enter", async () => {
     const { onSend } = mount();
     await userEvent.type(screen.getByTestId("chat-composer"), "how many accounts{Enter}");
-    expect(onSend).toHaveBeenCalledWith("how many accounts");
+    // The choice rides with the text: what runs the message is a per-message decision.
+    expect(onSend).toHaveBeenCalledWith("how many accounts", INHERIT);
     // And the box is empty again, so the next question starts clean.
     expect(screen.getByTestId("chat-composer")).toHaveValue("");
   });
@@ -60,7 +66,7 @@ describe("ChatComposer", () => {
 
     await userEvent.type(screen.getByTestId("chat-composer"), "a question");
     await userEvent.click(screen.getByTestId("chat-send"));
-    expect(onSend).toHaveBeenCalledWith("a question");
+    expect(onSend).toHaveBeenCalledWith("a question", INHERIT);
   });
 
   it("is disabled while a turn runs and says what it is doing", () => {
@@ -93,7 +99,16 @@ describe("ChatComposer", () => {
 
   it("has no chip at all with no skills, and no cycle with one", () => {
     const { unmount } = render(
-      <ChatComposer skills={[]} skill="" onSkillChange={vi.fn()} disabled={false} onSend={vi.fn()} />,
+      <ChatComposer
+        skills={[]}
+        skill=""
+        onSkillChange={vi.fn()}
+        disabled={false}
+        agents={catalogue()}
+        choice={INHERIT}
+        onChoiceChange={vi.fn()}
+        onSend={vi.fn()}
+      />,
     );
     expect(screen.queryByTestId("chat-skill")).toBeNull();
     unmount();
@@ -104,6 +119,9 @@ describe("ChatComposer", () => {
         skill="analyst"
         onSkillChange={vi.fn()}
         disabled={false}
+        agents={catalogue()}
+        choice={INHERIT}
+        onChoiceChange={vi.fn()}
         onSend={vi.fn()}
       />,
     );
@@ -129,5 +147,29 @@ describe("ChatComposer", () => {
     expect(box).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     expect(box).not.toHaveFocus();
+  });
+
+  // The point of the picker: one skill, asked on whichever model, without a second skill
+  // that differs from the first by a single field.
+  it("sends the chosen model with the message, leaving the skill alone", async () => {
+    const onSend = vi.fn();
+    const onSkillChange = vi.fn();
+    mount({ onSend, onSkillChange, choice: { agent: "grok", model: "grok-4.6", effort: "" } });
+
+    await userEvent.type(screen.getByTestId("chat-composer"), "who is on call{Enter}");
+    expect(onSend).toHaveBeenCalledWith("who is on call", {
+      agent: "grok",
+      model: "grok-4.6",
+      effort: "",
+    });
+    // The skill chip is untouched by the model choice: they are two decisions.
+    expect(onSkillChange).not.toHaveBeenCalled();
+  });
+
+  it("offers the skill's own model as the default, named", () => {
+    mount();
+    // "analyst" in the fixture resolves to a model; the closed picker says which, so a
+    // human can see what "the skill's" means before choosing anything else.
+    expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("The skill's model");
   });
 });

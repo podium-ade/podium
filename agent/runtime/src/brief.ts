@@ -23,6 +23,13 @@ export const ReservedRepoName = ".podium";
 /** RepoNameRE constrains repos[].name: it becomes a directory under /workspace. */
 export const RepoNameRE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+/**
+ * EffortLevels are the levels a model may be asked to think at. The conductor has already
+ * refused one the chosen model does not accept, so anything that arrives here is passed
+ * straight through to the harness.
+ */
+export const EffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
+
 /** BriefError is every way a brief can be unusable. It always means exit 2. */
 export class BriefError extends Error {
   readonly exitCode = ExitBriefInvalid;
@@ -67,6 +74,8 @@ const briefSchema = z.strictObject({
     display_name: z.string().min(1),
     system_prompt: z.string(),
     model: z.string().min(1),
+    // Absent means the model's own default effort, which is the provider's choice.
+    effort: z.enum(EffortLevels).optional(),
   }),
   skill: z.strictObject({
     name: z.string().min(1),
@@ -84,12 +93,29 @@ const briefSchema = z.strictObject({
       api_key_env: z.string().min(1),
     })
     .optional(),
+  // Which model API serves this turn. It is REQUIRED and it names no vendor in this file:
+  // `id` is whatever the harness calls that provider, and together with profile.model it is
+  // the whole of "what runs this turn".
+  //
+  // It carries the NAME of a secret and never a value, exactly as memory does — a brief is
+  // an environment variable on a task spec, readable by anything that can read the spec.
+  provider: z.strictObject({
+    // id is the harness's provider id: "anthropic", "xai". Paired with profile.model it
+    // becomes the harness's `provider/model`.
+    id: z.string().min(1),
+    // api_key_env names the environment variable the conductor put the credential in.
+    api_key_env: z.string().min(1),
+    // base_url overrides where that provider is reached — an egress proxy, or a test seam.
+    // Absent means the harness's own default for the provider.
+    base_url: z.string().optional(),
+  }),
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
 export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 export type RepoRef = z.infer<typeof repoSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
+export type ProviderRef = TurnBrief["provider"];
 
 /**
  * decodeBrief reads, decodes and validates the brief. Every failure is a BriefError, and

@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 )
 
 // Reaction is the three states a source can show on the message that started a turn.
@@ -69,6 +71,13 @@ type InboundEvent struct {
 	// (the chat's chat_default_skill). Unlike Skill it is only a preference: a human typing
 	// /skill overrides it, and it beats profile.default_skill.
 	DefaultSkill string
+	// Override is a per-turn choice of backend, model and effort, from a source whose human
+	// can make one — the web chat's picker. Empty everywhere else: Slack and Linear have no
+	// surface to choose on, so their turns run on what the skill says.
+	//
+	// It is the reason a skill's model is a default rather than a fixture. Without it the
+	// only way to ask one skill on another model is a second skill differing by one field.
+	Override profiles.Override
 	// BriefKind is the source.kind the runtime's schema must see, which is not always
 	// SourceKind: the schema allows only slack, linear and chat, and the test-only dev
 	// source presents itself as chat.

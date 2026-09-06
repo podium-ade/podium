@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SkillDefinitionSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { catalogue } from "../../test/agents";
 import { SkillEditor } from "./SkillEditor";
 
 const onSubmit = vi.fn();
@@ -17,6 +18,8 @@ function mount(props: Partial<Parameters<typeof SkillEditor>[0]> = {}) {
   return render(
     <MemoryRouter>
       <SkillEditor
+        agents={catalogue()}
+        profileDefault={{ agent: "claude", model: "claude-opus-5", effort: "" }}
         secretNames={REGISTERED}
         onSubmit={onSubmit}
         onCancel={onCancel}
@@ -32,7 +35,7 @@ describe("SkillEditor", () => {
     await userEvent.type(screen.getByLabelText("Skill name"), "reporter");
     await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
     await userEvent.type(screen.getByLabelText("System prompt"), "Write the weekly report.");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "Read\nBash");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read\nbash");
 
     await userEvent.click(screen.getByRole("button", { name: "Add a secret" }));
     await userEvent.type(
@@ -48,7 +51,7 @@ describe("SkillEditor", () => {
       name: "reporter",
       image: "ghcr.io/example/reporter:v1",
       systemPrompt: "Write the weekly report.",
-      allowedTools: ["Read", "Bash"],
+      allowedTools: ["read", "bash"],
       maxTurns: 50,
       timeout: "30m",
       linear: false,
@@ -93,7 +96,7 @@ describe("SkillEditor", () => {
     await userEvent.type(screen.getByLabelText("Skill name"), "Not A Name");
     await userEvent.type(screen.getByLabelText("Image"), "img:1");
     await userEvent.type(screen.getByLabelText("System prompt"), "hi");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "Read");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
     await userEvent.click(screen.getByRole("button", { name: "Create skill" }));
 
     expect(onSubmit).not.toHaveBeenCalled();
@@ -115,7 +118,7 @@ describe("SkillEditor", () => {
         name: "reporter",
         image: "ghcr.io/example/reporter:v1",
         systemPrompt: "Write the weekly report.",
-        allowedTools: ["Read"],
+        allowedTools: ["read"],
         maxTurns: 12,
         timeout: "5m",
         origin: "stored",

@@ -36,17 +36,18 @@ const (
 // The field order is the schema's order and the encoding is compact, because
 // examples/agent/brief.sh renders the same document with `jq -cn` and a test compares bytes.
 type Brief struct {
-	Version             int          `json:"version"`
-	SessionID           string       `json:"session_id"`
-	TurnID              string       `json:"turn_id"`
-	Source              BriefSource  `json:"source"`
-	Profile             BriefProfile `json:"profile"`
-	Skill               BriefSkill   `json:"skill"`
-	Transcript          []BriefEntry `json:"transcript"`
-	TranscriptTruncated bool         `json:"transcript_truncated"`
-	Instruction         string       `json:"instruction"`
-	Repos               []BriefRepo  `json:"repos,omitempty"`
-	Memory              *BriefMemory `json:"memory,omitempty"`
+	Version             int            `json:"version"`
+	SessionID           string         `json:"session_id"`
+	TurnID              string         `json:"turn_id"`
+	Source              BriefSource    `json:"source"`
+	Profile             BriefProfile   `json:"profile"`
+	Skill               BriefSkill     `json:"skill"`
+	Transcript          []BriefEntry   `json:"transcript"`
+	TranscriptTruncated bool           `json:"transcript_truncated"`
+	Instruction         string         `json:"instruction"`
+	Repos               []BriefRepo    `json:"repos,omitempty"`
+	Memory              *BriefMemory   `json:"memory,omitempty"`
+	Provider            *BriefProvider `json:"provider,omitempty"`
 }
 
 // BriefSource is where the turn came from and how a human reaches the conversation.
@@ -56,12 +57,32 @@ type BriefSource struct {
 	URL  string `json:"url,omitempty"`
 }
 
-// BriefProfile is the bot's identity for this turn.
+// BriefProfile is the bot's identity for this turn, and the model it runs on.
 type BriefProfile struct {
 	Name         string `json:"name"`
 	DisplayName  string `json:"display_name"`
 	SystemPrompt string `json:"system_prompt"`
 	Model        string `json:"model"`
+	// Effort is the resolved reasoning effort, absent for the model's own default.
+	Effort string `json:"effort,omitempty"`
+}
+
+// BriefProvider is which model API serves this turn. It is always emitted: `id` and
+// profile.model together are the whole of what the harness is pointed at, and a turn with
+// nowhere to send its requests cannot run.
+//
+// Nothing here names a vendor in Go: `id` is whatever the harness calls that provider, so
+// adding a third is a catalogue entry rather than a change to this struct.
+//
+// APIKeyEnv is the NAME of the variable the credential lands in, never a value. A brief is
+// an environment variable on a task spec and is visible to anything that can read the spec,
+// exactly as memory.api_key_env is.
+type BriefProvider struct {
+	ID        string `json:"id"`
+	APIKeyEnv string `json:"api_key_env"`
+	// BaseURL overrides where the provider is reached — an egress proxy, or a test seam.
+	// Empty means the harness's own default for that provider.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // BriefSkill is the job the turn is doing.

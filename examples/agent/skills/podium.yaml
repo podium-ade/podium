@@ -16,9 +16,15 @@
 image: podium-agent-runtime-dev:dev
 docker: true
 system_prompt: file:../prompts/podium.md
-allowed_tools: [Read, Edit, Write, Bash, Grep, Glob, WebFetch]
+allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
 max_turns: 200
 timeout: 2h
+# This one runs on Grok rather than the profile's Claude. `high` and not `xhigh`: a 200-turn
+# skill with a two-hour timeout is the wrong place to spend the top of the effort range by
+# default, and the chat's picker can raise it for a message that needs it.
+agent: grok
+model: grok-4.6
+effort: high
 labels: [privileged]
 # A nested build is heavier than an ordinary turn: the daemon pulls its own images and
 # `go test ./...` compiles the world. docs/agent.md says 8 GB is the floor for this skill.

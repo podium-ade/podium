@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 )
 
 // goldenBrief is step 16's fixture, and agent/runtime/src/brief.ts is the schema it follows.
@@ -22,13 +24,18 @@ func minimalBrief() *Brief {
 		TurnID:    "turn_01",
 		Source:    BriefSource{Kind: SourceSlack, Ref: "C1/1.1/1.1"},
 		Profile: BriefProfile{
-			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium", Model: "claude-opus-5",
+			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
+			Model: "claude-opus-5",
 		},
 		Skill: BriefSkill{
-			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"Read"}, MaxTurns: 20,
+			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"read"}, MaxTurns: 20,
 		},
 		Transcript:  []BriefEntry{},
 		Instruction: "hello",
+		Provider: &BriefProvider{
+			ID:        profiles.ProviderAnthropic,
+			APIKeyEnv: profiles.KeyEnvFor(profiles.ProviderAnthropic),
+		},
 	}
 }
 

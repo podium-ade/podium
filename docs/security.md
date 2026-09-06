@@ -144,9 +144,10 @@ delete secrets and delete nodes.
   credentials.** Anybody in a channel the bot is in — including a channel somebody else invites
   it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
   allowlist of users and no roles. A turn gets exactly the secrets its own skill names, plus the
-  reserved `podium.agent.anthropic_api_key` and `podium.agent.memory_api_key` the conductor
-  attaches itself. Keep `secrets:` minimal per skill and do not put a credential in a skill a
-  public channel can reach.
+  reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
+  credential — `podium.agent.anthropic_api_key` for a `claude` turn or `podium.agent.xai_api_key`
+  for a `grok` one, never both. Keep `secrets:` minimal per skill and do not put a credential in
+  a skill a public channel can reach.
 - **A skill is not a boundary around secrets, and never was.** It decides what *this bot* hands
   a turn, and that is worth keeping tight — but it stops nobody. `CreateTask` checks only that a
   named secret **exists**; there is no authorisation over which secrets a caller may name. So
@@ -154,8 +155,8 @@ delete secrets and delete nodes.
   secret into an image and a command of their choosing, and print the value. That is section 4
   again: **no RBAC**. It is why a skill defined in the web UI may name any registered secret,
   exactly as a task spec may — restricting one path while the other is wide open would be
-  theatre, not a control. The only names a skill may not use are the two reserved ones above,
-  and that is a routing rule, not a privilege: the conductor supplies both itself.
+  theatre, not a control. The only names a skill may not use are the reserved ones above, and
+  that is a routing rule, not a privilege: the conductor supplies them itself.
   **The control is who can reach the API at all.** Put the control plane on a tailnet, keep the
   set of people who can reach it small, and treat every registered secret as readable by every
   one of them.
@@ -441,6 +442,31 @@ One 32-byte AES-256 key encrypts every stored secret. `podium-server gen-master-
 no value, no ciphertext, in the message at all. A "reveal" button is not a feature that could be
 added later without changing the threat model.
 
+### The one credential that is not in the secret store
+
+A subscription sign-in to xAI (see [`agent.md`](agent.md#signing-in-with-a-subscription)) issues
+an access token **and** a refresh token. The access token is a Podium secret like any other. The
+refresh token is not: it lives in the conductor's own Postgres, `podium_agent`, in the
+`provider.xai` settings row, in clear.
+
+It is there because of the rule directly above. The secret store has no read endpoint by design,
+so a value put in it cannot be read back — and refreshing an hourly token without a human means
+reading the refresh token back every hour. One of the two had to give, and adding a read
+endpoint to the secret store is the worse trade.
+
+What bounds it:
+
+- It **never leaves the host**. It is not attached to any turn, it is in no brief and no task
+  spec, it is in no log line, and it is never copied into an API response — `ProviderSettings`
+  carries a boolean saying a refresh token exists and nothing more.
+- It is spent only against the token endpoint discovered from `PODIUM_AGENT_XAI_OAUTH_ISSUER`,
+  which is checked against that issuer's own host before anything is sent to it.
+- Signing out, or pasting an API key over the sign-in, deletes it.
+
+**So treat `podium_agent`'s database as holding a credential, because it does.** Back it up the
+way you would back up a secret, and give it the same access controls as the control plane's
+own database. An install that only ever pastes API keys has nothing here.
+
 ### In flight
 
 ```
@@ -584,8 +610,12 @@ Everything below is a real hole, not a hypothetical:
   rules are a courtesy. See *A skill with a data credential*.
 - **A web chat is partitioned by login, not protected by it.** Another login's chat answers
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
-- **The Anthropic key can be replaced or removed by anyone who can reach the web UI**, and the
-  only record of who did it is `set_by` on the current key.
+- **A provider credential can be replaced or removed by anyone who can reach the web UI**, and
+  the only record of who did it is `set_by` on the current one. That includes signing the bot in
+  to somebody's Grok subscription, and signing it out again.
+- **A subscription refresh token is stored in clear in the conductor's own database**, because
+  the secret store deliberately has no read endpoint and refreshing needs one. See *The one
+  credential that is not in the secret store*.
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.

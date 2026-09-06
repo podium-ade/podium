@@ -1,6 +1,6 @@
 # Running the agent runtime by hand
 
-`agent/runtime/` builds a container image that runs **one turn** of the Claude Agent SDK inside an
+`agent/runtime/` builds a container image that runs **one turn** of the opencode harness inside an
 ordinary Podium task. It reads a *turn brief* from `PODIUM_AGENT_TURN`, reports what the agent says
 through `podium-runner message`, leaves a transcript and a summary as artifacts, and exits with a
 code that says how the turn ended. It knows nothing about Slack, Linear or sessions — the conductor
@@ -94,9 +94,10 @@ TASK=$(./bin/podium run --detach --image podium-agent-runtime:dev \
 
 ## For real
 
-The Anthropic key reaches the container as a Podium secret with `target: env`, and that is the only
-path — the runtime reads no file, no mount and nothing in the brief. Its reserved name is
-`podium.agent.anthropic_api_key`.
+The model credential reaches the container as a Podium secret with `target: env`, and that is the
+only path — the runtime reads no file, no mount and nothing in the brief. Which one it is follows
+the brief's `profile.agent`: `podium.agent.anthropic_api_key` for `claude`, and
+`podium.agent.xai_api_key` for `grok`.
 
 ```sh
 printf %s "$ANTHROPIC_API_KEY" | ./bin/podium secret set podium.agent.anthropic_api_key
@@ -109,6 +110,21 @@ printf %s "$ANTHROPIC_API_KEY" | ./bin/podium secret set podium.agent.anthropic_
 Add `--secret podium.agent.github_token:env:GITHUB_TOKEN` when the brief has `repos`, and
 `--secret podium.agent.memory_api_key:env:PODIUM_MEMORY_API_KEY` when it has `memory`. A brief that
 names a memory env var which is not set is refused (exit 2): the conductor promised it.
+
+For a Grok turn — a brief whose `profile.agent` is `grok` and which carries a `provider` block,
+as `testdata/brief.example.json` does — swap the credential for the one that backend spends:
+
+```sh
+printf %s "$XAI_API_KEY" | ./bin/podium secret set podium.agent.xai_api_key
+
+./bin/podium run --image podium-agent-runtime:dev \
+  --secret podium.agent.xai_api_key:env:XAI_API_KEY \
+  --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "Reply with the single word pong")
+```
+
+`brief.sh` writes an Anthropic brief, so that command needs a hand-edited brief to be a real
+Grok turn. The runtime reads the brief's `provider.id` and `profile.model` and runs the harness
+with `--model <id>/<model>`; `provider.api_key_env` names the variable the credential is in.
 
 Nothing is set in the image for either of these — `docker inspect` shows no `CLAUDE_*` or
 `ANTHROPIC_*` variable, and there is no `--dangerously-skip-permissions` anywhere. The only

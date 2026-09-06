@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
 
@@ -31,11 +32,18 @@ func (s *AgentService) ListSkills(
 	out := make([]*agentv1.Skill, 0, len(profile.Skills))
 	for _, name := range profile.SkillNames() {
 		skill := profile.Skills[name]
+		// Resolved, not the skill's own fields: the composer shows this as what "the
+		// skill's" means, and a skill that inherits everything would otherwise show blanks
+		// where a human expects to read a model name.
+		runs := profile.Resolve(skill, profiles.Override{})
 		out = append(out, &agentv1.Skill{
 			Name:        name,
 			Image:       skill.Image,
 			Hint:        promptHint(skill.SystemPrompt),
 			ChatDefault: name == chatDefault,
+			Agent:       runs.Agent,
+			Model:       runs.Model,
+			Effort:      runs.Effort,
 		})
 	}
 	_ = ctx

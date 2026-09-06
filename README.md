@@ -153,10 +153,25 @@ an error naming the other), `PODIUM_AGENT_LINEAR_API_KEY`, and the `PODIUM_AGENT
 `PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090` — keep it on loopback, because the server
 proxies it and nothing else should reach it.
 
-**To get a real answer rather than a dry run** you also need an Anthropic key, set in **Agent →
-Settings**, which validates it against `GET /v1/models` and stores it as the Podium secret
-`podium.agent.anthropic_api_key`; and at least one enrolled node whose engine has the runtime
-images. Without a key the machinery runs end to end and returns a canned answer.
+**To get a real answer rather than a dry run** you also need a model credential, set in **Agent →
+Settings**, and at least one enrolled node whose engine has the runtime images. Without one the
+machinery runs end to end and returns a canned answer.
+
+Two backends, one runtime image:
+
+- **Claude** — paste an Anthropic key. It is validated against `GET /v1/models` and stored as the
+  Podium secret `podium.agent.anthropic_api_key`.
+- **Grok** — paste an xAI key, or sign in with a SuperGrok / X Premium+ subscription. The
+  subscription sign-in is an OAuth device code; the client id ships as a default, and setting
+  the variable to the empty string turns it off.
+
+The harness is [opencode](https://opencode.ai), which takes `--model provider/model` — so a
+backend is a flag rather than a dialect, one runtime image serves every provider, and adding a
+third is a catalogue entry.
+
+A profile picks the default backend, model and reasoning effort, and any skill can override all
+three. The picker on **Agent → Skills** is one control for the three, because they are one
+decision — a model only runs on one backend, and which effort levels exist depends on the model.
 
 Full reference, including the Slack app manifest and the Linear setup:
 **[docs/agent.md](docs/agent.md)**.
@@ -271,7 +286,10 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
-| Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic key exists here, so every turn ever run was a dry run |
+| Agent runtime image (one opencode turn per task) | ✅ | ⚠️ a real turn completed on **both** providers, with accounting and artifacts. Tool calls, repo clones, memory and the max-turns cap are unit-tested only |
+| xAI credentials: API key and subscription sign-in | ✅ | ✅ **both proved end to end against the real xAI.** A bad key refused by `api.x.ai` in its own words; a device-code sign-in approved by a human, a refresh token issued, the access token validated and stored |
+| Per-turn agent/model/effort picker | ✅ | ✅ resolution, credential routing and the brief proved on a live stack |
+| Running a turn **on a Grok model** | ✅ | ✅ `xai/grok-4.6` completed a turn through the runtime on the live stack |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -429,12 +447,18 @@ The conductor, the runtime image and all three skills are implemented, unit-test
 integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
 a real Docker engine. What has **not** happened:
 
-- **No agent turn has ever called a model.** There is no Anthropic API key on the build machine,
-  so every turn ever executed — in tests, in the acceptance script, by hand — ran with
-  `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven, and
-  it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
-  around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
-  turn to write a pull request.**
+- **Both providers run a real turn.** The runtime's harness is opencode, not the Claude Agent
+  SDK — the SDK could only talk to Anthropic, and pointing it at xAI failed on the first
+  request with `400 invalid-argument: Invalid message role` because it puts a `system`-role
+  entry inside `messages[]`. Under opencode, `xai/grok-4.6` and `anthropic/claude-opus-5` each
+  completed a turn end to end on a live stack, with cost and turn count recorded and the
+  transcript and `turn.json` artifacts intact. **What has not been exercised on a live model is
+  everything past a one-word answer**: a turn that calls tools, clones a repository, writes an
+  artifact, uses memory, or hits `max_turns`. Those paths have unit tests and nothing more.
+- **The harness adds its own scaffolding to every turn.** A custom agent's prompt is applied
+  and is behaviourally authoritative — verified with a sentinel instruction — but it does not
+  replace opencode's own ~5k tokens of tool definitions and base instructions. The previous
+  harness did the same thing, so this is not a regression, but it is not nothing either.
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.

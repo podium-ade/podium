@@ -6,8 +6,9 @@
 #     --env PODIUM_AGENT_TURN=$(examples/agent/brief.sh "hello")
 #
 # The brief is the smallest one that validates: a chat source, the podium profile, the
-# general skill, an empty transcript, no repos and no memory. agent/runtime/src/brief.ts is
-# the schema; agent/runtime/testdata/brief.example.json is the full one.
+# general skill on Anthropic, an empty transcript, no repos and no memory.
+# agent/runtime/src/brief.ts is the schema; agent/runtime/testdata/brief.example.json is the
+# full one, which is a Grok turn so that every field has a value somewhere.
 #
 # The JSON is compact and its keys are in the schema's order, because a Go test asserts
 # this script and its own encoder produce the same bytes for the same instruction.
@@ -34,12 +35,13 @@ json=$(jq -cn --arg instruction "$instruction" '{
 	skill: {
 		name: "general",
 		system_prompt: "Answer the question. Use the tools you have to check before you answer.",
-		allowed_tools: ["Read", "Grep", "Glob", "Bash"],
+		allowed_tools: ["read", "grep", "glob", "bash"],
 		max_turns: 20
 	},
 	transcript: [],
 	transcript_truncated: false,
-	instruction: $instruction
+	instruction: $instruction,
+	provider: {id: "anthropic", api_key_env: "ANTHROPIC_API_KEY"}
 }')
 
 printf '%s' "$json" | base64 | tr -d '\n'
