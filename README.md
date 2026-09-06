@@ -161,11 +161,13 @@ Two backends, one runtime image:
 
 - **Claude** — paste an Anthropic key. It is validated against `GET /v1/models` and stored as the
   Podium secret `podium.agent.anthropic_api_key`.
-- **Grok** — paste an xAI key, or sign in with a SuperGrok / X Premium+ subscription. xAI serves
-  an Anthropic-compatible `/v1/messages`, so a Grok turn is the *same* image and the *same*
-  Claude Agent SDK with its base URL and bearer swapped. The subscription sign-in is an OAuth
-  device code and needs `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` set; without it the key box is the
-  only way in.
+- **Grok** — paste an xAI key, or sign in with a SuperGrok / X Premium+ subscription. The
+  subscription sign-in is an OAuth device code; the client id ships as a default, and setting
+  the variable to the empty string turns it off.
+
+The harness is [opencode](https://opencode.ai), which takes `--model provider/model` — so a
+backend is a flag rather than a dialect, one runtime image serves every provider, and adding a
+third is a catalogue entry.
 
 A profile picks the default backend, model and reasoning effort, and any skill can override all
 three. The picker on **Agent → Skills** is one control for the three, because they are one
@@ -284,10 +286,10 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
 | Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
 | Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
-| Agent runtime image (one Claude Agent SDK turn per task) | ✅ | ⚠️ every path **except the model call**. No Anthropic or xAI credential exists here, so every turn ever run was a dry run |
+| Agent runtime image (one opencode turn per task) | ✅ | ⚠️ every path proved on a live stack, and a real Grok turn completed. The Anthropic path through opencode has **not** been run against a live Claude model |
 | xAI credentials: API key and subscription sign-in | ✅ | ✅ **both proved end to end against the real xAI.** A bad key refused by `api.x.ai` in its own words; a device-code sign-in approved by a human, a refresh token issued, the access token validated and stored |
 | Per-turn agent/model/effort picker | ✅ | ✅ resolution, credential routing and the brief proved on a live stack |
-| Running a turn **on a Grok model** | ❌ | ❌ **does not work.** The Claude Agent SDK sends Anthropic-only request fields that `api.x.ai` rejects — see the agent-layer section |
+| Running a turn **on a Grok model** | ✅ | ✅ `xai/grok-4.6` completed a turn through the runtime on the live stack |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
@@ -445,34 +447,17 @@ The conductor, the runtime image and all three skills are implemented, unit-test
 integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
 a real Docker engine. What has **not** happened:
 
-- **No agent turn has ever called a model.** There is no Anthropic or xAI credential on the
-  build machine, so every turn ever executed — in tests, in the acceptance script, by hand — ran
-  with `PODIUM_AGENT_DRY_RUN=1` and returned a canned answer. Exactly one code path is unproven,
-  and it is the one that matters: the single `query()` call into the Claude Agent SDK. Everything
-  around it is exercised. **Run the smoke test in `examples/agent/README.md` before trusting a
-  turn to write a pull request.**
-- **Grok: both credential paths reach xAI for real; no turn has run on a Grok model.**
-  `SetProviderKey` was run against the real `api.x.ai` with a bad key, and xAI's own refusal —
-  *"Incorrect API key provided. You can obtain an API key from https://console.x.ai."* — came
-  back through the error detail and onto the card. `StartProviderOAuth` was run against the
-  real `auth.x.ai`: OIDC discovery succeeded, the same-site endpoint check passed, xAI issued
-  a device code, and the poll answered `authorization_pending`. **Nobody has approved one**,
-  so the half that stores a credential — and xAI's reported allow-listing of its OAuth API
-  surface, which can yield a token the API then refuses — is still untested. That refusal is
-  why the storing poll validates the token against the API before saving it.
-  **The claim this backend rests on turned out to be false, and a real turn is what disproved
-  it.** `api.x.ai` serves an Anthropic-*shaped* `/v1/messages`, but not one the Claude Agent
-  SDK can drive: the harness unconditionally sends a `{"role": "system"}` entry inside
-  `messages[]` (its agent-type roster), which xAI rejects with
-  `400 invalid-argument: Invalid message role` — and alongside it `output_config`,
-  `thinking: {type: "adaptive"}` and `context_management`, all Anthropic-only. None of that is
-  Podium's to choose. **A turn cannot run on Grok through this runtime**, and pointing the
-  SDK's base URL at xAI is not a route that can be made to work from here.
-- **`PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` has no default, deliberately.** xAI operates no
-  self-service client registration, and every third-party tool that offers this flow reuses
-  xAI's own Grok CLI client id. Podium documents that and declines to ship it, because the
-  consent screen a human approves names whoever owns the client id — xAI's CLI, not Podium.
-  Setting it is a decision about how your bot introduces itself to your identity provider.
+- **A Grok turn runs; a Claude turn through the new harness has not been.** The runtime's
+  harness is opencode, not the Claude Agent SDK — the SDK could only talk to Anthropic, and
+  pointing it at xAI failed on the first request with
+  `400 invalid-argument: Invalid message role` because it puts a `system`-role entry inside
+  `messages[]`. Under opencode, `xai/grok-4.6` completes a turn end to end. The
+  `anthropic/…` path is the same code with a different flag and is exercised by the unit
+  tests, but **no turn has been run against a live Claude model since the harness changed**.
+- **The harness adds its own scaffolding to every turn.** A custom agent's prompt is applied
+  and is behaviourally authoritative — verified with a sentinel instruction — but it does not
+  replace opencode's own ~5k tokens of tool definitions and base instructions. The previous
+  harness did the same thing, so this is not a regression, but it is not nothing either.
 - **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
   upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
   driven by a fake in tests. Nothing has connected to Slack.
