@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /*
   Dark is the default; a light preference flips the same tokens. Podium's original utilities
@@ -8,41 +9,43 @@
 */
 
 @theme {
-  --color-bg: #0c0e12;
-  --color-panel: #14181f;
-  --color-raised: #1c222c;
-  --color-border: #2a3140;
-  --color-fg: #e8ecf2;
-  --color-muted: #8b95a5;
-  --color-accent: #6ea8fe;
-  --color-ok: #4ade80;
-  --color-warn: #fbbf24;
-  --color-err: #f87171;
-  --color-run: #38bdf8;
-  --color-idle: #94a3b8;
+  --color-bg: oklch(0.163 0.011 264);
+  --color-panel: oklch(0.203 0.012 264);
+  --color-raised: oklch(0.253 0.014 264);
+  --color-border: oklch(0.302 0.016 264);
+  --color-hairline: oklch(0.253 0.014 264);
+  --color-fg: oklch(0.967 0.004 264);
+  --color-muted: oklch(0.706 0.018 264);
+  --color-faint: oklch(0.576 0.018 264);
+  --color-accent: oklch(0.724 0.146 248);
+  --color-ok: oklch(0.784 0.157 155);
+  --color-warn: oklch(0.822 0.144 82);
+  --color-err: oklch(0.702 0.176 22);
+  --color-run: oklch(0.784 0.126 220);
+  --color-idle: oklch(0.667 0.024 258);
   /* lost is not a failure: it gets its own colour so it cannot be read as one. */
-  --color-lost: #c084fc;
+  --color-lost: oklch(0.735 0.157 305);
 
   --color-background: var(--color-bg);
   --color-foreground: var(--color-fg);
   --color-card: var(--color-panel);
   --color-card-foreground: var(--color-fg);
-  --color-popover: var(--color-panel);
+  --color-popover: var(--color-raised);
   --color-popover-foreground: var(--color-fg);
   --color-primary: var(--color-accent);
-  --color-primary-foreground: #0c0e12;
+  --color-primary-foreground: oklch(0.163 0.011 264);
   --color-secondary: var(--color-raised);
   --color-secondary-foreground: var(--color-fg);
   --color-muted-foreground: var(--color-muted);
   --color-accent-foreground: var(--color-fg);
   --color-destructive: var(--color-err);
-  --color-destructive-foreground: #0c0e12;
+  --color-destructive-foreground: oklch(0.163 0.011 264);
   --color-input: var(--color-border);
   --color-ring: var(--color-accent);
-  --color-sidebar: #10141b;
+  --color-sidebar: oklch(0.183 0.012 264);
   --color-sidebar-foreground: var(--color-fg);
   --color-sidebar-primary: var(--color-accent);
-  --color-sidebar-primary-foreground: #0c0e12;
+  --color-sidebar-primary-foreground: oklch(0.163 0.011 264);
   --color-sidebar-accent: var(--color-raised);
   --color-sidebar-accent-foreground: var(--color-fg);
   --color-sidebar-border: var(--color-border);
@@ -50,37 +53,79 @@
 
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
 
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.24);
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28), 0 1px 3px rgb(0 0 0 / 0.16);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.32);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.36), 0 1px 3px oklch(0 0 0 / 0.2);
+  --shadow-md: 0 2px 4px oklch(0 0 0 / 0.28), 0 4px 12px oklch(0 0 0 / 0.28);
+  --shadow-lg: 0 8px 24px oklch(0 0 0 / 0.4), 0 2px 6px oklch(0 0 0 / 0.3);
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2s var(--ease-out-quint) infinite;
+
+  @keyframes shimmer {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 currentColor;
+      opacity: 0.7;
+    }
+    70% {
+      box-shadow: 0 0 0 5px transparent;
+      opacity: 0;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+      opacity: 0;
+    }
+  }
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --color-bg: #f6f7f9;
-    --color-panel: #ffffff;
-    --color-raised: #eef1f5;
-    --color-border: #d5dae3;
-    --color-fg: #12161d;
-    --color-muted: #5b6472;
-    --color-accent: #2563eb;
-    --color-ok: #15803d;
-    --color-warn: #a16207;
-    --color-err: #b91c1c;
-    --color-run: #0369a1;
-    --color-idle: #64748b;
-    --color-lost: #7e22ce;
-    --color-primary-foreground: #ffffff;
-    --color-destructive-foreground: #ffffff;
-    --color-sidebar: #fbfbfc;
-    --color-sidebar-primary-foreground: #ffffff;
-    --shadow-xs: 0 1px 2px rgb(15 23 42 / 0.04);
-    --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.05), 0 1px 3px rgb(15 23 42 / 0.04);
+    --color-bg: oklch(0.977 0.003 264);
+    --color-panel: oklch(1 0 0);
+    --color-raised: oklch(0.949 0.005 264);
+    --color-border: oklch(0.895 0.007 264);
+    --color-hairline: oklch(0.933 0.006 264);
+    --color-fg: oklch(0.229 0.017 264);
+    --color-muted: oklch(0.502 0.019 264);
+    --color-faint: oklch(0.612 0.018 264);
+    --color-accent: oklch(0.545 0.204 264);
+    --color-ok: oklch(0.545 0.145 155);
+    --color-warn: oklch(0.578 0.126 66);
+    --color-err: oklch(0.545 0.196 26);
+    --color-run: oklch(0.529 0.128 235);
+    --color-idle: oklch(0.553 0.028 258);
+    --color-lost: oklch(0.507 0.216 305);
+    --color-primary-foreground: oklch(1 0 0);
+    --color-destructive-foreground: oklch(1 0 0);
+    --color-popover: oklch(1 0 0);
+    --color-sidebar: oklch(0.992 0.002 264);
+    --color-sidebar-primary-foreground: oklch(1 0 0);
+    --shadow-xs: 0 1px 2px oklch(0.229 0.017 264 / 0.05);
+    --shadow-sm: 0 1px 2px oklch(0.229 0.017 264 / 0.06), 0 1px 3px oklch(0.229 0.017 264 / 0.04);
+    --shadow-md: 0 2px 4px oklch(0.229 0.017 264 / 0.05), 0 6px 16px oklch(0.229 0.017 264 / 0.08);
+    --shadow-lg:
+      0 12px 32px oklch(0.229 0.017 264 / 0.12), 0 2px 6px oklch(0.229 0.017 264 / 0.06);
   }
 }
 
@@ -96,12 +141,59 @@ body {
   font-family: var(--font-sans);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-accent) 32%, transparent);
+  background: color-mix(in oklab, var(--color-accent) 30%, transparent);
 }
 
 #root {
   isolation: isolate;
+}
+
+/* Numbers that sit in columns — durations, exit codes, counts — must not dance as they tick. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  A thin, unobtrusive scrollbar. The console is dense and full of scrollable panes; the
+  platform default draws a light gutter that reads as a border in dark mode.
+*/
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-muted);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

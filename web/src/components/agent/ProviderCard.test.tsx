@@ -283,13 +283,18 @@ describe("ProviderCard", () => {
     );
   });
 
-  it("shows who set the key and when, and offers to replace it", () => {
+  // A configured provider shows no input: an empty password field under "Connected" reads
+  // as a credential that has gone missing. Replacing one is deliberate, behind "Rotate key".
+  it("shows who set the key and when, and offers to replace it", async () => {
     mount(connected);
     expect(screen.getByText("Connected")).toBeInTheDocument();
     const meta = screen.getByTestId("provider-key-meta-anthropic");
     expect(meta).toHaveTextContent("••••abcd");
     expect(meta).toHaveTextContent("set by alice@example.com");
     expect(meta).toHaveTextContent("2m ago");
+    expect(screen.queryByTestId("provider-key-input-anthropic")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Rotate key" }));
     expect(screen.getByTestId("provider-key-input-anthropic")).toHaveAttribute(
       "placeholder",
       "Paste a new key to replace ••••abcd",
@@ -300,7 +305,7 @@ describe("ProviderCard", () => {
 
   // A key set with `podium secret set`, or replaced with it since: the conductor confirms a
   // key exists but withholds a hint that is about a different one.
-  it("says a key was set outside the UI when there is no hint for it", () => {
+  it("says a key was set outside the UI when there is no hint for it", async () => {
     mount(
       create(ProviderSettingsSchema, {
         provider: "anthropic",
@@ -311,6 +316,8 @@ describe("ProviderCard", () => {
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(screen.getByTestId("provider-key-meta-anthropic")).toHaveTextContent("set outside this UI");
     expect(screen.getByTestId("provider-key-meta-anthropic")).not.toHaveTextContent("••••");
+
+    await userEvent.click(screen.getByRole("button", { name: "Rotate key" }));
     expect(screen.getByTestId("provider-key-input-anthropic")).toHaveAttribute(
       "placeholder",
       "Paste a key to replace the one that is set",

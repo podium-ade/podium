@@ -1,11 +1,14 @@
-import type { LabelHTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
+function Label({ className, ...props }: ComponentProps<"label">) {
   return (
     <label
+      data-slot="label"
       className={cn(
-        "text-xs font-medium text-muted peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        "flex items-center gap-1.5 text-xs font-medium text-muted select-none",
+        "peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        "group-data-[disabled=true]:opacity-50",
         className,
       )}
       {...props}
