@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -399,7 +400,12 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 	}
 	out := &BriefProvider{ID: b.Provider, APIKeyEnv: profiles.KeyEnvFor(b.Provider)}
 	if b.Provider == profiles.ProviderXAI {
-		out.BaseURL = c.xaiBaseURL
+		// PODIUM_AGENT_XAI_BASE_URL names the host, not an API root: validateXAIKey builds
+		// `<base>/v1/models` from the same value. The harness is handed a provider baseURL
+		// and appends the endpoint to it directly, so it needs the version in the URL —
+		// without it a turn dies on its first request with a 404 from
+		// https://api.x.ai/responses.
+		out.BaseURL = strings.TrimSuffix(c.xaiBaseURL, "/") + "/v1"
 	}
 	return out
 }
