@@ -1,17 +1,18 @@
-import type { HTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 function Separator({
   className,
   orientation = "horizontal",
   ...props
-}: HTMLAttributes<HTMLDivElement> & { orientation?: "horizontal" | "vertical" }) {
+}: ComponentProps<"div"> & { orientation?: "horizontal" | "vertical" }) {
   return (
     <div
       role="separator"
+      data-slot="separator"
       aria-orientation={orientation}
       className={cn(
-        "shrink-0 bg-border",
+        "shrink-0 bg-hairline",
         orientation === "horizontal" ? "h-px w-full" : "h-full w-px",
         className,
       )}

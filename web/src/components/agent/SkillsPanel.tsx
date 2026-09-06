@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Database, FileCode2, Plus, Sparkles } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SkillDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
@@ -6,8 +7,12 @@ import { agent, errorMessage, isAgentUnreachable, secrets } from "../../lib/clie
 import { relative } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
+import { PageHeader } from "../PageHeader";
 import { TableSkeleton } from "../Skeleton";
 import { useToast } from "../Toast";
+import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
+import { ConductorDown } from "./ConductorDown";
 import { SkillEditor, type SkillDraft } from "./SkillEditor";
 
 /** How much of a prompt's first line the list shows. */
@@ -131,100 +136,113 @@ export function SkillsPanel() {
   const p = profile.data?.profile;
   const chatDefault = p?.chatDefaultSkill || p?.defaultSkill || "";
 
+  const open = (skill: SkillDefinition | undefined) => {
+    setSaveError(undefined);
+    setEditing({ skill });
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <PageHeader
+        title="Skills"
+        description="A skill is one job the bot can do, and its image is the unit of capability: what a turn can reach at all is decided by what is in the image."
+        actions={
+          <Button type="button" size="sm" data-testid="skill-new" onClick={() => open(undefined)}>
+            <Plus />
+            New skill
+          </Button>
+        }
+      />
+
       {isAgentUnreachable(profile.error) ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          podium-agent is not reachable. Check its /readyz on PODIUM_AGENT_LISTEN.
-        </p>
+        <ConductorDown
+          what="The skills could not be read"
+          onRetry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+        />
       ) : null}
 
       {profile.data?.staleReason ? (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          The conductor is running an older profile than this database holds, because the
-          stored one would not load: {profile.data.staleReason}
-        </p>
+        <Alert variant="warn" title="The conductor is running an older profile than this database holds">
+          The stored one would not load: {profile.data.staleReason}
+        </Alert>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-base font-semibold">Skills</h1>
-        <button
-          type="button"
-          data-testid="skill-new"
-          onClick={() => {
-            setSaveError(undefined);
-            setEditing({});
-          }}
-          className="ml-auto rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
-        >
-          New skill
-        </button>
-      </div>
+      <Alert variant="info" title="A skill saved here takes effect on the next turn, with no restart">
+        The conductor rebuilds its profile on every write. A{" "}
+        <code className="font-mono">skills/&lt;name&gt;.yaml</code> in the profile directory is
+        read at start-up only, so changing one of those still needs a restart.
+      </Alert>
 
-      <p className="max-w-3xl text-xs text-muted">
-        A skill is one job the bot can do, and its image is the unit of capability: what a
-        turn can reach at all is decided by what is in the image. A skill saved here takes
-        effect on the <span className="text-fg">next turn, with no restart</span> — the
-        conductor rebuilds its profile on every write. A{" "}
-        <code className="font-mono">skills/&lt;name&gt;.yaml</code> in the profile directory
-        is read at start-up only, so changing one of those still needs a restart.
-      </p>
-
-      {profile.isPending ? <TableSkeleton rows={3} cols={2} /> : null}
+      {profile.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
 
       {!profile.isPending && running.length === 0 ? (
-        <Empty title="No skills" hint="Nothing is loaded. Create one above." />
+        <Empty
+          icon={Sparkles}
+          title="No skills"
+          hint="Nothing is loaded, so the bot has no job it can do. Create one, or drop a skills/<name>.yaml in the profile directory and restart the conductor."
+          action={
+            <Button type="button" size="sm" onClick={() => open(undefined)}>
+              <Plus />
+              New skill
+            </Button>
+          }
+        />
       ) : null}
 
-      <ul className="space-y-2">
+      <ul className="space-y-2.5">
         {running.map((s) => (
           <li
             key={`${s.origin}:${s.name}`}
             data-testid="skill-row"
-            className="rounded border border-border bg-panel px-3 py-2"
+            className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-xs"
           >
-            <div className="flex flex-wrap items-start gap-3">
-              <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
+                  <Provenance skill={s} />
+                  {s.name === p?.defaultSkill ? <Badge tone="ok">default skill</Badge> : null}
+                  {s.name === chatDefault ? <Chip>chat default</Chip> : null}
+                  {s.linear ? <Chip>Linear tickets</Chip> : null}
+                </div>
+                {/* The image is the unit of capability: what a turn of this skill can do at
+                    all is decided by what is in the image, before any prompt or tool list is
+                    read. */}
                 <p
-                  className="truncate font-mono text-sm text-fg"
+                  className="truncate font-mono text-xs text-muted"
                   title={s.image}
                   data-testid="skill-image"
                 >
                   {s.image}
                 </p>
-                <p className="text-xs">
-                  <span className="font-mono text-accent">/{s.name}</span>
-                  {s.model ? <span className="text-muted"> · {s.model}</span> : null}
-                </p>
                 {promptHint(s.systemPrompt) ? (
-                  <p className="text-xs text-muted">{promptHint(s.systemPrompt)}</p>
+                  <p className="max-w-2xl text-xs leading-relaxed text-muted">
+                    {promptHint(s.systemPrompt)}
+                  </p>
                 ) : null}
               </div>
               {/* A file skill opens too, read-only. It cannot be changed here — the files
                   win — but "you may not edit this" and "you may not look at this" are very
                   different rules, and only the first one was ever intended. */}
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 aria-label={`${s.editable ? "Edit" : "View"} ${s.name}`}
-                onClick={() => {
-                  setSaveError(undefined);
-                  setEditing({ skill: s });
-                }}
-                className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+                onClick={() => open(s)}
               >
                 {s.editable ? "Edit" : "View"}
-              </button>
+              </Button>
             </div>
 
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {s.editable ? null : <Badge tone="idle">file · read-only</Badge>}
-              {s.name === p?.defaultSkill ? <Badge tone="ok">default skill</Badge> : null}
-              {s.name === chatDefault ? <Chip>chat default</Chip> : null}
-              {s.linear ? <Chip>Linear tickets</Chip> : null}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-hairline pt-2.5">
+              {s.model ? <Chip className="font-mono">{s.model}</Chip> : <Chip>the profile&apos;s model</Chip>}
+              {s.effort ? <Chip>{s.effort} effort</Chip> : null}
               <Chip>
                 {s.allowedTools.length} {s.allowedTools.length === 1 ? "tool" : "tools"}
               </Chip>
-              <Chip>
+              <Chip className="tabular">
                 {s.maxTurns} turns · {s.timeout || "default"}
               </Chip>
               {s.slackChannels.map((c) => (
@@ -234,13 +252,13 @@ export function SkillsPanel() {
                 <span
                   key={`${sec.name}:${sec.key}`}
                   data-testid="skill-secret"
-                  className="inline-block rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-muted"
+                  className="inline-flex w-fit items-center rounded-md border border-border bg-raised/70 px-1.5 py-0.5 font-mono text-2xs whitespace-nowrap text-muted"
                 >
                   {sec.name}
                 </span>
               ))}
               {s.updatedBy ? (
-                <span className="ml-auto text-xs text-muted">
+                <span className="ml-auto shrink-0 text-2xs text-faint">
                   by {s.updatedBy}
                   {s.updatedAt ? ` · ${relative(s.updatedAt)}` : ""}
                 </span>
@@ -248,10 +266,9 @@ export function SkillsPanel() {
             </div>
 
             {s.editable ? null : (
-              <p className="mt-2 text-xs text-muted">
-                Defined by{" "}
-                <code className="font-mono text-fg">skills/{s.name}.yaml</code> on the
-                conductor&apos;s host. Change it by editing that file and restarting
+              <p className="mt-2.5 text-2xs leading-relaxed text-faint">
+                Defined by <code className="font-mono text-muted">skills/{s.name}.yaml</code> on
+                the conductor&apos;s host. Change it by editing that file and restarting
                 podium-agent; this screen will not write over it.
               </p>
             )}
@@ -260,39 +277,44 @@ export function SkillsPanel() {
       </ul>
 
       {shadowed.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-warn">Shadowed</h2>
-          <p className="max-w-3xl text-xs text-muted">
-            A file of the same name defines these, and the files win. They never run. Open one
-            to see what it holds and delete it, or rename the file.
-          </p>
-          <ul className="space-y-2">
+        <section className="space-y-2.5">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-fg">Shadowed</h2>
+            <p className="max-w-3xl text-xs leading-relaxed text-muted">
+              A file of the same name defines these, and the files win. They never run. Open
+              one to see what it holds and delete it, or rename the file.
+            </p>
+          </div>
+          <ul className="space-y-2.5">
             {shadowed.map((s) => (
               <li
                 key={`shadowed:${s.name}`}
                 data-testid="skill-shadowed"
-                className="rounded border border-warn/40 bg-warn/10 px-3 py-2"
+                className="rounded-xl border border-warn/40 bg-warn/8 px-4 py-3.5"
               >
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-sm text-fg">{s.image}</p>
-                    <p className="text-xs text-warn">
-                      <span className="font-mono">/{s.name}</span> never runs:{" "}
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
+                      <Badge tone="warn">never runs</Badge>
+                    </div>
+                    <p className="truncate font-mono text-xs text-muted" title={s.image}>
+                      {s.image}
+                    </p>
+                    <p className="text-xs leading-relaxed text-warn">
                       <code className="font-mono">skills/{s.name}.yaml</code> defines the same
-                      name and the file wins.
+                      name and the file wins, so this stored definition is dead weight.
                     </p>
                   </div>
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     aria-label={`Review ${s.name}`}
-                    onClick={() => {
-                      setSaveError(undefined);
-                      setEditing({ skill: s });
-                    }}
-                    className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+                    onClick={() => open(s)}
                   >
                     Review
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}
@@ -300,6 +322,35 @@ export function SkillsPanel() {
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Provenance is the one thing about a skill that is genuinely confusing, so it is said in
+ * words rather than left to be inferred from whether the button says Edit or View.
+ */
+function Provenance({ skill }: { skill: SkillDefinition }) {
+  if (!skill.editable) {
+    return (
+      <Badge tone="idle" dot={false}>
+        <FileCode2 aria-hidden className="size-3" />
+        file · read-only
+      </Badge>
+    );
+  }
+  if (skill.origin === "file") {
+    return (
+      <Badge tone="idle" dot={false}>
+        <FileCode2 aria-hidden className="size-3" />
+        file
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone="idle" dot={false}>
+      <Database aria-hidden className="size-3" />
+      database
+    </Badge>
   );
 }
 

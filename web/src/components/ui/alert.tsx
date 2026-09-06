@@ -1,26 +1,58 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { HTMLAttributes } from "react";
+import { AlertTriangle, CheckCircle2, Info, OctagonAlert, Unplug } from "lucide-react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const alertVariants = cva("relative w-full rounded-lg border px-3 py-2.5 text-xs", {
-  variants: {
-    variant: {
-      default: "border-border bg-card text-fg",
-      warn: "border-warn/40 bg-warn/10 text-warn",
-      destructive: "border-err/50 bg-err/10 text-err",
-      lost: "border-lost/50 bg-lost/10 text-lost",
-      info: "border-idle/40 bg-idle/10 text-fg",
+const alertVariants = cva(
+  "relative flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs leading-relaxed [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+  {
+    variants: {
+      variant: {
+        default: "border-border bg-raised/60 text-fg [&>svg]:text-muted",
+        warn: "border-warn/35 bg-warn/10 text-warn",
+        destructive: "border-err/40 bg-err/10 text-err",
+        lost: "border-lost/40 bg-lost/10 text-lost",
+        info: "border-accent/30 bg-accent/8 text-fg [&>svg]:text-accent",
+        success: "border-ok/35 bg-ok/10 text-ok",
+      },
     },
+    defaultVariants: { variant: "default" },
   },
-  defaultVariants: { variant: "default" },
-});
+);
 
-function Alert({
-  className,
-  variant,
-  ...props
-}: HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>) {
-  return <div role="status" className={cn(alertVariants({ variant }), className)} {...props} />;
+const ICON = {
+  default: Info,
+  warn: AlertTriangle,
+  destructive: OctagonAlert,
+  lost: Unplug,
+  info: Info,
+  success: CheckCircle2,
+} as const;
+
+interface AlertProps
+  extends Omit<ComponentProps<"div">, "title">,
+    VariantProps<typeof alertVariants> {
+  /** Set false for a bare alert with no leading glyph. */
+  icon?: boolean;
+  title?: ReactNode;
+}
+
+function Alert({ className, variant, icon = true, title, children, ...props }: AlertProps) {
+  const Icon = ICON[variant ?? "default"];
+  return (
+    <div
+      role="status"
+      data-slot="alert"
+      className={cn(alertVariants({ variant }), className)}
+      {...props}
+    >
+      {icon ? <Icon aria-hidden /> : null}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        {title ? <p className="font-medium">{title}</p> : null}
+        {children ? <div className={cn(title && "opacity-90")}>{children}</div> : null}
+      </div>
+    </div>
+  );
 }
 
 export { Alert };

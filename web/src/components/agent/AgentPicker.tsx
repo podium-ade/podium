@@ -1,6 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import type { AgentBackend, AgentModel } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { BackendMark } from "./BackendMark";
 
 export type AgentPickerProps = {
@@ -144,24 +149,24 @@ export function AgentPicker({
           aria-label={`${label}: agent and model`}
           data-testid="agent-picker-trigger"
           onClick={toggle}
-          className="flex w-full max-w-md items-center gap-2 rounded border border-border bg-bg px-2 py-1.5 text-left text-xs outline-none hover:border-accent focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-50"
+          className="flex w-full items-center gap-2.5 rounded-md border border-border bg-bg px-2.5 py-2 text-left text-xs shadow-xs transition-[border-color,box-shadow] duration-150 outline-none hover:border-muted/45 focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <BackendMark id={summary.markID} />
           <span className="min-w-0 flex-1">
             <span className="block truncate font-mono text-fg">{summary.title}</span>
-            <span className="block truncate text-muted">{summary.sub}</span>
+            <span className="block truncate text-2xs text-muted">{summary.sub}</span>
           </span>
           {value.effort ? (
-            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted">
+            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-2xs text-muted">
               {value.effort}
             </span>
           ) : null}
-          <Caret />
+          <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted" />
         </button>
 
         {open ? (
           <div
-            className="absolute z-20 mt-1 w-full max-w-md overflow-hidden rounded border border-border bg-panel shadow-lg"
+            className="absolute z-30 mt-1 w-full origin-top animate-in fade-in-0 zoom-in-95 overflow-hidden rounded-lg border border-border bg-popover shadow-lg duration-150"
             onKeyDown={onKeyDown}
           >
             <input
@@ -173,13 +178,13 @@ export function AgentPicker({
                 setQuery(e.target.value);
                 setActive(0);
               }}
-              className="w-full border-b border-border bg-panel px-3 py-2 text-xs outline-none placeholder:text-muted"
+              className="w-full border-b border-hairline bg-transparent px-3 py-2 text-xs text-fg outline-none placeholder:text-faint"
             />
             <ul
               id={listID}
               role="listbox"
               aria-label={`${label}: models`}
-              className="max-h-80 overflow-y-auto py-1"
+              className="max-h-72 overflow-y-auto py-1"
             >
               {rows.length === 0 ? (
                 <li className="px-3 py-2 text-xs text-muted">
@@ -223,11 +228,11 @@ export function AgentPicker({
       ) : null}
 
       {backend && !backend.ready ? (
-        <p className="text-xs text-warn" data-testid="agent-picker-unready">
+        <Alert variant="warn" data-testid="agent-picker-unready">
           No {backend.provider === "xai" ? "xAI" : "Anthropic"} credential is stored, so a turn
           on {backend.displayName} will fail. Set one on the Settings tab — this choice is
           saved either way.
-        </p>
+        </Alert>
       ) : null}
     </div>
   );
@@ -352,7 +357,7 @@ function RowItem({
   onHover: () => void;
   onPick: () => void;
 }) {
-  const base = `flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs ${
+  const base = `flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
     active ? "bg-raised" : ""
   }`;
 
@@ -378,7 +383,7 @@ function RowItem({
         <button
           type="button"
           data-testid="agent-picker-custom"
-          className={`${base} border-t border-border`}
+          className={`${base} border-t border-hairline`}
           onMouseEnter={onHover}
           onClick={onPick}
         >
@@ -399,14 +404,14 @@ function RowItem({
       {row.first ? (
         <li
           aria-hidden="true"
-          className="flex items-center gap-2 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted"
+          className="flex items-center gap-2 px-3 pt-2 pb-1 text-2xs font-semibold tracking-wide text-faint uppercase"
         >
           <BackendMark id={row.backend.id} />
           {row.backend.displayName}
           {row.backend.ready ? (
-            <span className="ml-auto font-normal normal-case text-ok">credential set</span>
+            <span className="ml-auto font-normal text-ok normal-case">credential set</span>
           ) : (
-            <span className="ml-auto font-normal normal-case text-warn">no credential</span>
+            <span className="ml-auto font-normal text-warn normal-case">no credential</span>
           )}
         </li>
       ) : null}
@@ -417,7 +422,7 @@ function RowItem({
             <span className="flex flex-wrap items-baseline gap-x-2">
               <span className="font-mono text-fg">{row.model.id}</span>
               {row.model.contextTokens > 0 ? (
-                <span className="text-muted">{tokens(row.model.contextTokens)}</span>
+                <span className="tabular text-2xs text-faint">{tokens(row.model.contextTokens)}</span>
               ) : null}
             </span>
             <span className="block text-muted">{row.model.note}</span>
@@ -448,12 +453,12 @@ function EffortStrip({
   const options = ["", ...efforts];
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs text-muted">Effort</span>
+      <span className="text-2xs font-medium tracking-wide text-faint uppercase">Effort</span>
       <div
         role="radiogroup"
         aria-label={`${label}: reasoning effort`}
         data-testid="effort-strip"
-        className="inline-flex overflow-hidden rounded border border-border"
+        className="inline-flex w-fit items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5"
       >
         {options.map((e) => (
           <button
@@ -464,9 +469,9 @@ function EffortStrip({
             aria-label={e || "auto"}
             disabled={disabled}
             onClick={() => onChange(e)}
-            className={`px-2 py-1 text-xs capitalize ${
-              value === e ? "bg-accent text-bg" : "text-muted hover:text-fg"
-            } disabled:opacity-50`}
+            className={`h-6 rounded-md px-2 text-2xs font-medium capitalize transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 ${
+              value === e ? "bg-raised text-fg" : "text-muted hover:text-fg"
+            }`}
           >
             {e || "auto"}
           </button>
@@ -490,15 +495,17 @@ function CustomModel({
   onChange: (v: AgentChoice) => void;
   onDone: () => void;
 }) {
+  const id = useId();
   return (
-    <div className="flex flex-wrap items-end gap-2 rounded border border-border bg-raised px-2 py-2">
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-muted">Backend</span>
+    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-raised/50 p-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={`${id}-backend`}>Backend</Label>
         <select
+          id={`${id}-backend`}
           aria-label={`${label}: backend`}
           value={value.agent || agents[0]?.id || ""}
           onChange={(e) => onChange({ ...value, agent: e.target.value })}
-          className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+          className="h-8 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35"
         >
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
@@ -506,44 +513,38 @@ function CustomModel({
             </option>
           ))}
         </select>
-      </label>
-      <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs">
-        <span className="text-muted">Model id</span>
-        <input
+      </div>
+      <div className="flex min-w-40 flex-1 flex-col gap-1">
+        <Label htmlFor={`${id}-model`}>Model id</Label>
+        <Input
+          id={`${id}-model`}
           aria-label={`${label}: model id`}
           value={value.model}
           autoFocus
           placeholder="grok-5"
           onChange={(e) =>
-            onChange({ agent: value.agent || agents[0]?.id || "", model: e.target.value, effort: value.effort })
+            onChange({
+              agent: value.agent || agents[0]?.id || "",
+              model: e.target.value,
+              effort: value.effort,
+            })
           }
-          className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs outline-none focus:border-accent"
+          className="h-8 font-mono text-xs"
         />
-      </label>
-      <button
-        type="button"
-        onClick={onDone}
-        className="rounded border border-border px-2 py-1 text-xs text-muted hover:text-fg"
-      >
+      </div>
+      <Button type="button" variant="outline" size="sm" onClick={onDone}>
         Done
-      </button>
+      </Button>
     </div>
   );
 }
 
 function Tick({ shown }: { shown: boolean }) {
   return (
-    <span aria-hidden="true" className={`mt-0.5 w-3 shrink-0 text-accent ${shown ? "" : "opacity-0"}`}>
-      ✓
-    </span>
-  );
-}
-
-function Caret() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3 shrink-0 text-muted" fill="currentColor">
-      <path d="M4 6l4 4 4-4z" />
-    </svg>
+    <Check
+      aria-hidden="true"
+      className={`mt-0.5 size-3 shrink-0 text-accent ${shown ? "" : "opacity-0"}`}
+    />
   );
 }
 

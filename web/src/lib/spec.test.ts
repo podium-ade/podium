@@ -100,9 +100,22 @@ sidecars:
 
   it("rejects an unknown field inside a sidecar, but not the sidecar's own name", () => {
     const { problems } = parseSpecYaml(
-      "image: alpine:3\nsidecars:\n  my-db:\n    image: pgvector/pgvector:pg16\n    privileged: true\n",
+      "image: alpine:3\nsidecars:\n  my-db:\n    image: pgvector/pgvector:pg16\n    hostname: db\n",
     );
-    expect(problems).toEqual(["sidecars.my-db.privileged: is not a task spec field (known: image, command, env, readiness, resources)"]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("sidecars.my-db.hostname: is not a task spec field");
+  });
+
+  // privileged and share_workspace are sidecar fields on the server (pkg/spec.Sidecar) even
+  // though neither is a task-spec field. Rejecting them here refused a spec podium-server
+  // accepts, which is the one thing this decoder must never do.
+  it("keeps the two dind fields a sidecar is allowed to set", () => {
+    const { spec, problems } = parseSpecYaml(
+      "image: alpine:3\nsidecars:\n  dind:\n    image: docker:27-dind\n    privileged: true\n    share_workspace: true\n",
+    );
+    expect(problems).toEqual([]);
+    expect(spec?.sidecars?.dind.privileged).toBe(true);
+    expect(spec?.sidecars?.dind.shareWorkspace).toBe(true);
   });
 
   it("reports every problem at once, the way the server's validator does", () => {

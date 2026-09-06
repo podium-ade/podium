@@ -71,29 +71,50 @@ describe("SecretsPage", () => {
     expect(document.body.textContent).not.toContain("hunter2");
   });
 
-  it("sends the value as bytes and clears the field afterwards", async () => {
+  it("does not prefill a value when rotating an existing secret", async () => {
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Rotate DB_PASSWORD" }));
+    // The rotate dialog masks its own draft, but there is nothing stored for it to start from.
+    expect(screen.getByLabelText("Name")).toHaveValue("DB_PASSWORD");
+    expect(screen.getByLabelText("Value")).toHaveValue("");
+  });
+
+  it("sends the value as bytes and does not leave it in the DOM", async () => {
     setSecret.mockResolvedValue({ secret: { name: "TOKEN", version: 1 } });
     mount();
     await screen.findByText("DB_PASSWORD");
 
-    await userEvent.type(screen.getByLabelText("Secret name"), "TOKEN");
-    await userEvent.type(screen.getByLabelText("Secret value"), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: "New secret" }));
+    await userEvent.type(screen.getByLabelText("Name"), "TOKEN");
+    await userEvent.type(screen.getByLabelText("Value"), "hunter2");
     await userEvent.click(screen.getByRole("button", { name: "Save secret" }));
 
     await waitFor(() => expect(setSecret).toHaveBeenCalledTimes(1));
     const sent = setSecret.mock.calls[0][0] as { name: string; value: Uint8Array };
     expect(sent.name).toBe("TOKEN");
     expect(new TextDecoder().decode(sent.value)).toBe("hunter2");
-    await waitFor(() => expect(screen.getByLabelText("Secret value")).toHaveValue(""));
+    // The dialog closes on success, which takes the field and its plaintext with it.
+    await waitFor(() => expect(screen.queryByLabelText("Value")).toBeNull());
     expect(document.body.textContent).not.toContain("hunter2");
   });
 
   it("will not save without both a name and a value", async () => {
     mount();
     await screen.findByText("DB_PASSWORD");
+    await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
-    await userEvent.type(screen.getByLabelText("Secret name"), "TOKEN");
+    await userEvent.type(screen.getByLabelText("Name"), "TOKEN");
     expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
+  });
+
+  it("warns that setting an existing name rotates it rather than editing it", async () => {
+    mount();
+    await screen.findByText("DB_PASSWORD");
+    await userEvent.click(screen.getByRole("button", { name: "New secret" }));
+    await userEvent.type(screen.getByLabelText("Name"), "DB_PASSWORD");
+
+    expect(screen.getByText("DB_PASSWORD already exists")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rotate to version 4" })).toBeInTheDocument();
   });
 
   it("confirms a delete by name before sending it", async () => {
@@ -104,12 +125,15 @@ describe("SecretsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete DB_PASSWORD" }));
     expect(deleteSecret).not.toHaveBeenCalled();
     expect(screen.getByText("Delete DB_PASSWORD?")).toBeInTheDocument();
+    // Typing the name back is the confirmation; the button is inert until it matches.
+    expect(screen.getByRole("button", { name: "Delete secret" })).toBeDisabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deleteSecret).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Delete DB_PASSWORD" }));
-    await userEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await userEvent.type(screen.getByLabelText(/to confirm/i), "DB_PASSWORD");
+    await userEvent.click(screen.getByRole("button", { name: "Delete secret" }));
     await waitFor(() => expect(deleteSecret).toHaveBeenCalledWith({ name: "DB_PASSWORD" }));
   });
 

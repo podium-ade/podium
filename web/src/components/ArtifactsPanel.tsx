@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Download, FileArchive, FileText, Link2, Loader } from "lucide-react";
 import { Badge } from "./Badge";
+import { Skeleton } from "./Skeleton";
 import { useToast } from "./Toast";
+import { Alert } from "./ui/alert";
+import { Button } from "./ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Tooltip } from "./ui/tooltip";
 import type { Artifact } from "../gen/podium/v1/artifact_pb";
 import { download } from "../lib/artifacts";
 import { artifacts as artifactClient, Code, connectCode, errorMessage } from "../lib/client";
@@ -37,11 +43,19 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
   // as a fact about the deployment, is better than a row-shaped error.
   if (connectCode(query.error) === Code.FailedPrecondition) {
     return (
-      <section className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted shadow-xs">
-        <span className="font-medium text-fg">Artifacts</span> — this server has no object store
-        configured (<code className="font-mono">PODIUM_S3_ENDPOINT</code>), so nothing a task
-        produces is kept.
-      </section>
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Artifacts</CardTitle>
+          </div>
+        </CardHeader>
+        <div className="px-5 pb-5">
+          <Alert title="No object store configured">
+            This server has no <code className="font-mono">PODIUM_S3_ENDPOINT</code>, so nothing a
+            task produces is kept.
+          </Alert>
+        </div>
+      </Card>
     );
   }
 
@@ -50,24 +64,47 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
   const logs = rows.filter((a) => a.kind === "log");
 
   return (
-    <section className="rounded-xl border border-border bg-card shadow-xs">
-      <h2 className="border-b border-border px-3 py-2 text-xs font-medium">
-        Artifacts{rows.length > 0 ? ` (${rows.length})` : ""}
-      </h2>
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            Artifacts
+            {rows.length > 0 ? (
+              <span className="tabular text-2xs font-normal text-faint">{rows.length}</span>
+            ) : null}
+          </CardTitle>
+          <CardDescription>
+            What the task left behind, downloaded through the control plane.
+          </CardDescription>
+        </div>
+      </CardHeader>
+
       {query.isPending ? (
-        <p className="px-3 py-2 text-xs text-muted">loading…</p>
+        <div aria-busy="true" aria-label="Loading artifacts">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-center gap-3 border-t border-hairline px-5 py-3">
+              <Skeleton className="size-7 shrink-0" />
+              <Skeleton className="h-3.5 w-56" />
+              <Skeleton className="ml-auto h-3 w-24" />
+            </div>
+          ))}
+        </div>
       ) : rows.length === 0 ? (
-        <p className="px-3 py-2 text-xs text-muted">
-          Nothing stored. A task keeps what it writes to{" "}
-          <code className="font-mono">/workspace/.podium/artifacts/</code>.
-        </p>
+        <div className="border-t border-hairline px-5 py-9 text-center">
+          <p className="text-xs text-muted">Nothing stored.</p>
+          <p className="mx-auto mt-1 max-w-sm text-2xs leading-relaxed text-faint">
+            A task keeps whatever it writes to{" "}
+            <code className="font-mono text-muted">/workspace/.podium/artifacts/</code>, plus its
+            own output once the roll-up sweep has archived it.
+          </p>
+        </div>
       ) : (
-        <div className="divide-y divide-border">
+        <div>
           {files.map((a) => (
             <ArtifactRow key={a.id} artifact={a} />
           ))}
           {logs.length > 0 ? (
-            <p className="px-3 py-1.5 text-xs text-muted">
+            <p className="border-t border-hairline bg-panel/60 px-5 py-2 text-2xs text-faint">
               Archived logs — the same output as above, compressed into the object store once the
               task finished.
             </p>
@@ -77,13 +114,15 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
           ))}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
 function ArtifactRow({ artifact }: { artifact: Artifact }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
+  const kind = artifact.kind || "file";
+  const Icon = kind === "log" ? FileArchive : FileText;
 
   const get = useMutation({
     mutationFn: () => download(artifact),
@@ -106,35 +145,59 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
   return (
     <div
       data-testid="artifact-row"
-      data-kind={artifact.kind || "file"}
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-xs"
+      data-kind={kind}
+      className="flex items-center gap-3 border-t border-hairline px-5 py-2.5 transition-colors hover:bg-raised/30"
     >
-      <Badge tone={artifact.kind === "log" ? "idle" : "run"}>{artifact.kind || "file"}</Badge>
-      <span className="font-mono break-all">{artifact.name}</span>
-      <span className="text-muted">{humanBytes(artifact.sizeBytes)}</span>
-      <span className="text-muted">{artifact.contentType || "application/octet-stream"}</span>
-      <span className="text-muted" title={absolute(artifact.createdAt)}>
-        {relative(artifact.createdAt)}
+      <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-raised/50 text-faint">
+        <Icon className="size-3.5" />
       </span>
-      <span className="ml-auto flex gap-2">
-        <button
-          type="button"
-          disabled={get.isPending}
-          onClick={() => get.mutate()}
-          className="rounded border border-border px-2 py-0.5 hover:border-accent disabled:opacity-40"
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-mono text-xs text-fg" title={artifact.name}>
+            {artifact.name}
+          </span>
+          <Badge tone={kind === "log" ? "idle" : "run"} dot={false}>
+            {kind}
+          </Badge>
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-2xs text-faint">
+          <span className="tabular">{humanBytes(artifact.sizeBytes)}</span>
+          <span aria-hidden>·</span>
+          <span className="truncate">{artifact.contentType || "application/octet-stream"}</span>
+          <span aria-hidden>·</span>
+          <span title={absolute(artifact.createdAt)}>{relative(artifact.createdAt)}</span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Tooltip label="Download through the control plane">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={get.isPending ? "Downloading…" : "Download"}
+            disabled={get.isPending}
+            onClick={() => get.mutate()}
+          >
+            {get.isPending ? <Loader className="animate-spin" /> : <Download />}
+          </Button>
+        </Tooltip>
+        <Tooltip
+          label={
+            copied
+              ? "Copied"
+              : "Copy a presigned link straight to the object store, valid for 15 minutes"
+          }
         >
-          {get.isPending ? "Downloading…" : "Download"}
-        </button>
-        <button
-          type="button"
-          disabled={copyLink.isPending}
-          onClick={() => copyLink.mutate()}
-          title="A presigned link straight to the object store, valid for 15 minutes"
-          className="rounded border border-border px-2 py-0.5 hover:border-accent disabled:opacity-40"
-        >
-          {copied ? "Copied" : "Copy link"}
-        </button>
-      </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Copy link"
+            disabled={copyLink.isPending}
+            onClick={() => copyLink.mutate()}
+          >
+            <Link2 className={copied ? "text-ok" : undefined} />
+          </Button>
+        </Tooltip>
+      </div>
     </div>
   );
 }
