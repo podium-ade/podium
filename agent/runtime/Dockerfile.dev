@@ -106,11 +106,11 @@ RUN set -eux; \
     test ! -e /usr/local/bin/dockerd; \
     docker --version; docker compose version; docker buildx version
 
-# golangci-lint, at the version .github/workflows/ci.yml installs. CONTRIBUTING.md is blunt
+# golangci-lint, at the version .github/workflows/ci-go.yml installs. CONTRIBUTING.md is blunt
 # about why the number matters: .golangci.yml is v2-shaped and a v1 binary will not read it.
 # A turn that lints with a different v2 than CI is worse than one that does not lint at all,
 # because it reports clean on findings the pull request will fail on — images/dev.test.ts
-# reads the version back out of ci.yml and fails if these two drift.
+# reads the version back out of ci-go.yml and fails if these two drift.
 ARG GOLANGCI_LINT_VERSION=2.13.2
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -152,9 +152,16 @@ ENV NODE_ENV=development \
 
 # The caches Go, pnpm and golangci-lint write on first use, created for uid 1000 up front so
 # a turn does not discover half way through a build that $HOME was root's doing.
+#
+# The chown is the rest of that sentence. Every step above runs as root and inherits the
+# base image's HOME=/home/agent, so the ones that keep state — `go version` writing
+# .config/go, `npm install --global` writing .npm — leave root-owned directories in the
+# agent's home. The turn only finds out at run time, when a tool that wants a new directory
+# under $HOME/.config gets EACCES and the whole turn dies before its first tool call.
 RUN set -eux; \
     install -d -o 1000 -g 1000 -m 0755 \
-        /home/agent/go /home/agent/.cache /home/agent/.cache/go-build
+        /home/agent/go /home/agent/.cache /home/agent/.cache/go-build; \
+    chown -R 1000:1000 /home/agent
 
 # Build-time assertion, like the SDK check in the base image: the toolchain must compile and
 # link something that imports net/http — the package that decides whether this image needed
