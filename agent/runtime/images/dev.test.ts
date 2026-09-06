@@ -18,12 +18,12 @@ function repoFile(path: string): string {
 /**
  * The two versions this image is not allowed to disagree with, read out of the files that
  * decide them rather than repeated here. go.mod is what the compiler has to satisfy, and
- * ci.yml is the golangci-lint every pull request is judged by — an image that lints with a
+ * ci-go.yml is the golangci-lint every pull request is judged by — an image that lints with a
  * different v2 reports clean on findings CI will fail on.
  */
 const goVersion = /^go (\d+\.\d+(?:\.\d+)?)$/m.exec(repoFile("go.mod"))?.[1];
 const golangciVersion = /-b "\$\(go env GOPATH\)\/bin" v(\d+\.\d+\.\d+)/.exec(
-  repoFile(".github/workflows/ci.yml"),
+  repoFile(".github/workflows/ci-go.yml"),
 )?.[1];
 
 type Run = { status: number; stdout: string; stderr: string };
@@ -93,7 +93,7 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     // fails on the module, and one that builds on a newer one green-lights syntax CI rejects.
     expect(goVersion, "no `go` directive found in go.mod").toBeTruthy();
     expect(run.stdout).toContain(`GO: go version go${goVersion} linux/`);
-    expect(golangciVersion, "no golangci-lint version found in .github/workflows/ci.yml").toBeTruthy();
+    expect(golangciVersion, "no golangci-lint version found in .github/workflows/ci-go.yml").toBeTruthy();
     expect(run.stdout).toContain(`LINT: golangci-lint has version ${golangciVersion} `);
     expect(run.stdout).toContain("MAKE: GNU Make");
     expect(run.stdout).toMatch(/GIT: git version \d/);
@@ -127,6 +127,9 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
       echo "UID: $(id -u)"
       echo "NODE_ENV: \${NODE_ENV:-unset}"
       echo "DOCKER_HOST: \${DOCKER_HOST:-unset}"
+      echo "STRAY: $(find "$HOME" ! -user agent | wc -l | tr -d ' ')"
+      mkdir -p "$HOME/.config/opencode"
+      echo "CONFIG: created"
       mkdir -p /tmp/gobuild
       printf 'package main\\nimport ("fmt"; "net/http")\\nfunc main() { fmt.Println(http.MethodGet) }\\n' > /tmp/gobuild/main.go
       printf 'module gobuild\\n\\ngo 1.26\\n' > /tmp/gobuild/go.mod
@@ -144,6 +147,12 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     // Unset on purpose. The engine a turn uses is a sidecar on the task's network, so its
     // address is task spec (`env: DOCKER_HOST`), not something this image can know.
     expect(run.stdout).toContain("DOCKER_HOST: unset");
+    // Nothing in $HOME may belong to root. The root-run steps that build this image inherit
+    // HOME=/home/agent and write there themselves, and a single root-owned .config was
+    // enough to kill every turn on this image at its first tool call: the harness could not
+    // create $HOME/.config/opencode and exited before doing any work.
+    expect(run.stdout).toContain("STRAY: 0");
+    expect(run.stdout).toContain("CONFIG: created");
     // A real compile and link of net/http, as uid 1000, out of the caches the image
     // pre-creates. net/http is the package that would need a C toolchain if cgo were on.
     expect(run.stdout).toContain("BUILT: GET");
