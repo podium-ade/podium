@@ -31,7 +31,7 @@ default_skill: general
 
 const goodSkill = `image: podium-agent-runtime:dev
 system_prompt: answer the question
-allowed_tools: [Read, Grep]
+allowed_tools: [read, grep]
 `
 
 func base() map[string]string {
@@ -65,7 +65,7 @@ func TestAFilePromptIsRelativeToTheFileThatNamesIt(t *testing.T) {
 	files := base()
 	files["skills/general.yaml"] = `image: alpine:3
 system_prompt: file:../prompts/general.md
-allowed_tools: [Read]
+allowed_tools: [read]
 `
 	files["prompts/general.md"] = "answer it"
 	p, err := Load(write(t, files))
@@ -83,7 +83,7 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 			f["skills/general.yaml"] = goodSkill + "systemprompt: oops\n"
 		}, []string{"skills/general.yaml", "systemprompt"}},
 		{"no image", func(f map[string]string) {
-			f["skills/general.yaml"] = "system_prompt: x\nallowed_tools: [Read]\n"
+			f["skills/general.yaml"] = "system_prompt: x\nallowed_tools: [read]\n"
 		}, []string{"skills/general.yaml", "image is required"}},
 		{"empty allowed_tools", func(f map[string]string) {
 			f["skills/general.yaml"] = "image: alpine:3\nsystem_prompt: x\nallowed_tools: []\n"
@@ -109,7 +109,7 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 			f["prompts/profile.md"] = "   \n"
 		}, []string{"profile.yaml", "is empty"}},
 		{"no system prompt at all", func(f map[string]string) {
-			f["skills/general.yaml"] = "image: alpine:3\nallowed_tools: [Read]\n"
+			f["skills/general.yaml"] = "image: alpine:3\nallowed_tools: [read]\n"
 		}, []string{"skills/general.yaml", "system_prompt is required"}},
 		{"a default_skill that does not exist", func(f map[string]string) {
 			f["profile.yaml"] = goodProfile + "" // replaced below

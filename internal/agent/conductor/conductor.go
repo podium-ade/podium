@@ -355,7 +355,6 @@ func (c *Conductor) brief(
 			DisplayName:  profile.DisplayName,
 			SystemPrompt: profile.SystemPrompt,
 			Model:        choice.Model,
-			Agent:        choice.Agent,
 			Effort:       choice.Effort,
 		},
 		Skill: BriefSkill{
@@ -368,9 +367,7 @@ func (c *Conductor) brief(
 		Instruction: ev.Text,
 		Memory:      c.memory,
 	}
-	if p := c.providerFor(choice.Agent); p != nil {
-		b.Provider = p
-	}
+	b.Provider = c.providerFor(choice.Agent)
 	for _, r := range skill.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
@@ -382,13 +379,23 @@ func (c *Conductor) brief(
 	return b
 }
 
-// providerFor is the endpoint block a backend needs, or nil when the runtime's own defaults
-// are right. Only Grok needs one: it is the same SDK pointed somewhere else.
+// providerFor is which model API a backend's turns go to, and which environment variable
+// holds the credential. Every turn has one — the harness is told `provider/model` and
+// cannot be run without it.
+//
+// The base URL is only set where an install can point it somewhere else; leaving it empty
+// means the harness's own default for that provider, which is the right answer for a
+// provider Podium has no endpoint opinion about.
 func (c *Conductor) providerFor(agent string) *BriefProvider {
-	if agent != profiles.AgentGrok {
-		return nil
+	b, ok := profiles.FindBackend(agent)
+	if !ok {
+		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
-	return &BriefProvider{BaseURL: c.xaiBaseURL, APIKeyEnv: profiles.XAIKeyEnv}
+	out := &BriefProvider{ID: b.Provider, APIKeyEnv: profiles.KeyEnvFor(b.Provider)}
+	if b.Provider == profiles.ProviderXAI {
+		out.BaseURL = c.xaiBaseURL
+	}
+	return out
 }
 
 // taskSpec is the task one turn runs. The secrets are exactly the skill's, plus the

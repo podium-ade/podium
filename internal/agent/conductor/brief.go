@@ -57,31 +57,32 @@ type BriefSource struct {
 	URL  string `json:"url,omitempty"`
 }
 
-// BriefProfile is the bot's identity for this turn, and what it runs on.
+// BriefProfile is the bot's identity for this turn, and the model it runs on.
 type BriefProfile struct {
 	Name         string `json:"name"`
 	DisplayName  string `json:"display_name"`
 	SystemPrompt string `json:"system_prompt"`
 	Model        string `json:"model"`
-	// Agent is the resolved backend: "claude" or "grok". Always emitted — the conductor
-	// resolves skill-then-profile-then-default, so the runtime never has to.
-	Agent string `json:"agent"`
 	// Effort is the resolved reasoning effort, absent for the model's own default.
 	Effort string `json:"effort,omitempty"`
 }
 
-// BriefProvider tells the runtime where to send the agent SDK's requests and which
-// environment variable holds the credential for it.
+// BriefProvider is which model API serves this turn. It is always emitted: `id` and
+// profile.model together are the whole of what the harness is pointed at, and a turn with
+// nowhere to send its requests cannot run.
 //
-// It is present only when the backend is not the SDK's own default — a Grok turn, whose
-// requests go to xAI's Anthropic-compatible endpoint. A Claude turn carries none, and the
-// SDK's own defaults apply. Naming the env var rather than carrying the credential is the
-// whole point: a brief is an environment variable on a task spec and is visible to anything
-// that can read the spec, so it holds the NAME of a secret and never a value, exactly as
-// memory.api_key_env does.
+// Nothing here names a vendor in Go: `id` is whatever the harness calls that provider, so
+// adding a third is a catalogue entry rather than a change to this struct.
+//
+// APIKeyEnv is the NAME of the variable the credential lands in, never a value. A brief is
+// an environment variable on a task spec and is visible to anything that can read the spec,
+// exactly as memory.api_key_env is.
 type BriefProvider struct {
-	BaseURL   string `json:"base_url"`
+	ID        string `json:"id"`
 	APIKeyEnv string `json:"api_key_env"`
+	// BaseURL overrides where the provider is reached — an egress proxy, or a test seam.
+	// Empty means the harness's own default for that provider.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // BriefSkill is the job the turn is doing.

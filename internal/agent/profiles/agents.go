@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -140,6 +141,35 @@ var Backends = []Backend{{
 		},
 	},
 }}
+
+// Tools is the harness's tool vocabulary, and the set a skill's allowed_tools is held to.
+// It mirrors KnownTools in agent/runtime/src/opencode.ts.
+//
+// THIS CHANGED VOCABULARY when the harness did. Skills used to name the Claude Agent SDK's
+// tools — Read, Grep, Bash — and the harness that runs them now calls the same things
+// `read`, `grep`, `bash`. The names are validated rather than case-folded on the way
+// through, because a silent remap would quietly work for the tools whose names happen to
+// match and quietly drop the ones that do not. A skill that names a tool nobody has is
+// refused when it is loaded or saved, which is the cheapest place to find out.
+var Tools = []string{
+	"bash", "edit", "glob", "grep", "list", "patch",
+	"read", "task", "todoread", "todowrite", "webfetch", "write",
+}
+
+// validTool reports whether the harness has a tool by this name.
+func validTool(name string) bool { return slices.Contains(Tools, name) }
+
+// SecretFor is the reserved Podium secret a provider's credential is stored as, and
+// KeyEnvFor is where that credential lands in a task container.
+//
+// They are derived from the provider id rather than listed, so adding a provider is one
+// catalogue entry and not a pair of constants somebody has to remember to write. The two
+// spellings they produce for the providers that exist today are asserted against the
+// constants below, which is what stops the derivation drifting from them.
+func SecretFor(provider string) string { return "podium.agent." + provider + "_api_key" }
+
+// KeyEnvFor is the environment variable name for a provider's credential.
+func KeyEnvFor(provider string) string { return strings.ToUpper(provider) + "_API_KEY" }
 
 // FindBackend is the backend with this id, or false. An empty id is DefaultAgent.
 func FindBackend(id string) (Backend, bool) {

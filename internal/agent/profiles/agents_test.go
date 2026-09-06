@@ -121,7 +121,7 @@ func TestAProfileRefusesAnInheritedEffortItsSkillsModelCannotTake(t *testing.T) 
 		Effort: EffortMax, DefaultSkill: "coder",
 		Skills: map[string]Skill{"coder": {
 			Name: "coder", Agent: AgentGrok, Model: "grok-4.6",
-			Image: "alpine:3", AllowedTools: []string{"Read"}, SystemPrompt: "x",
+			Image: "alpine:3", AllowedTools: []string{"read"}, SystemPrompt: "x",
 			MaxTurns: 1, Timeout: DefaultTimeout,
 		}},
 	}

@@ -293,10 +293,17 @@ export function SkillEditor({
               onChange={(e) => setTools(e.target.value)}
               rows={5}
               spellCheck={false}
-              placeholder={"Read\nGrep\nGlob\nBash"}
+              placeholder={"read\ngrep\nglob\nbash"}
               className={FIELD}
             />
-            <span className="text-muted">One per line. At least one is required.</span>
+            <span className="text-muted">
+            One per line, in the harness&apos;s own names — <code className="font-mono">read</code>,{" "}
+            <code className="font-mono">grep</code>, <code className="font-mono">glob</code>,{" "}
+            <code className="font-mono">bash</code>, <code className="font-mono">edit</code>,{" "}
+            <code className="font-mono">write</code>, <code className="font-mono">webfetch</code>,{" "}
+            <code className="font-mono">list</code>, <code className="font-mono">patch</code>,{" "}
+            <code className="font-mono">task</code>. At least one is required.
+          </span>
             {tried && toolList.length === 0 ? (
               <span className="text-err">Name at least one tool.</span>
             ) : null}

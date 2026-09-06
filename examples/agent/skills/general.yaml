@@ -14,7 +14,7 @@
 # docs/agent.md#extending-the-runtime-image.
 image: podium-agent-runtime:dev
 system_prompt: file:../prompts/general.md
-allowed_tools: [Read, Grep, Glob, WebFetch, Bash]
+allowed_tools: [read, grep, glob, webfetch, bash]
 max_turns: 50
 timeout: 15m
 # agent: grok

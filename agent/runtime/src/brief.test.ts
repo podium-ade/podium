@@ -19,9 +19,9 @@ const minimal = {
     display_name: "Podium",
     system_prompt: "be direct",
     model: "claude-opus-5",
-    agent: "claude",
   },
-  skill: { name: "general", system_prompt: "answer questions", allowed_tools: ["Read"], max_turns: 20 },
+  provider: { id: "anthropic", api_key_env: "ANTHROPIC_API_KEY" },
+  skill: { name: "general", system_prompt: "answer questions", allowed_tools: ["read"], max_turns: 20 },
   transcript: [],
   transcript_truncated: false,
   instruction: "hello",
@@ -32,17 +32,19 @@ describe("decodeBrief", () => {
     const brief = decodeBrief(encode(minimal));
     expect(brief.session_id).toBe("sess_1");
     expect(brief.source.kind).toBe("chat");
-    expect(brief.skill.allowed_tools).toEqual(["Read"]);
+    expect(brief.skill.allowed_tools).toEqual(["read"]);
     expect(brief.repos).toBeUndefined();
     expect(brief.memory).toBeUndefined();
-    expect(brief.provider).toBeUndefined();
+    expect(brief.provider.base_url).toBeUndefined();
     expect(brief.profile.effort).toBeUndefined();
   });
 
-  it("refuses a backend it cannot run", () => {
-    expect(() => decodeBrief(encode({ ...minimal, profile: { ...minimal.profile, agent: "gemini" } })))
+  it("requires a provider: a turn with nowhere to send its requests cannot run", () => {
+    const { provider: _dropped, ...noProvider } = minimal;
+    expect(() => decodeBrief(encode(noProvider))).toThrow(BriefError);
+    expect(() => decodeBrief(encode({ ...minimal, provider: { id: "", api_key_env: "X" } })))
       .toThrow(BriefError);
-    expect(() => decodeBrief(encode({ ...minimal, profile: { ...minimal.profile, agent: "" } })))
+    expect(() => decodeBrief(encode({ ...minimal, provider: { id: "xai", api_key_env: "" } })))
       .toThrow(BriefError);
   });
 
@@ -63,10 +65,10 @@ describe("decodeBrief", () => {
     expect(brief.repos?.[0]?.name).toBe("podium");
     expect(brief.memory?.api_key_env).toBe("PODIUM_MEMORY_API_KEY");
     // The fixture is a Grok turn, so it is also the one place every new field has a value.
-    expect(brief.profile.agent).toBe("grok");
     expect(brief.profile.effort).toBe("xhigh");
-    expect(brief.provider?.base_url).toBe("https://api.x.ai");
-    expect(brief.provider?.api_key_env).toBe("XAI_API_KEY");
+    expect(brief.provider.id).toBe("xai");
+    expect(brief.provider.api_key_env).toBe("XAI_API_KEY");
+    expect(brief.provider.base_url).toBe("https://api.x.ai");
   });
 
   it("round-trips transcript_truncated", () => {

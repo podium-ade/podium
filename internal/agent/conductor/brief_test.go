@@ -25,13 +25,17 @@ func minimalBrief() *Brief {
 		Source:    BriefSource{Kind: SourceSlack, Ref: "C1/1.1/1.1"},
 		Profile: BriefProfile{
 			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
-			Model: "claude-opus-5", Agent: profiles.AgentClaude,
+			Model: "claude-opus-5",
 		},
 		Skill: BriefSkill{
-			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"Read"}, MaxTurns: 20,
+			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"read"}, MaxTurns: 20,
 		},
 		Transcript:  []BriefEntry{},
 		Instruction: "hello",
+		Provider: &BriefProvider{
+			ID:        profiles.ProviderAnthropic,
+			APIKeyEnv: profiles.KeyEnvFor(profiles.ProviderAnthropic),
+		},
 	}
 }
 
@@ -88,7 +92,7 @@ func TestAnOptionalFieldIsOmittedNotNulled(t *testing.T) {
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(raw, &got))
-	for _, key := range []string{"repos", "memory", "provider"} {
+	for _, key := range []string{"repos", "memory"} {
 		_, present := got[key]
 		assert.False(t, present, "%s must be omitted, not null", key)
 	}

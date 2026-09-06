@@ -57,51 +57,51 @@ func TestMemoryIsAttachedOnTopOfWhicheverCredential(t *testing.T) {
 	assert.Equal(t, profiles.MemoryKeySecret, refs[1].Name)
 }
 
-// A Claude turn needs no provider block: the agent SDK's own defaults are already right, and
-// a block naming them would be a second place to keep them correct.
-func TestOnlyANonDefaultBackendCarriesAProviderBlock(t *testing.T) {
+// Every turn carries a provider block now: the harness is told `provider/model` and cannot
+// run without one. What changes between backends is which provider and which credential.
+func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
-	assert.Nil(t, c.providerFor(profiles.AgentClaude))
 
-	p := c.providerFor(profiles.AgentGrok)
-	require.NotNil(t, p)
-	assert.Equal(t, "https://api.x.ai", p.BaseURL)
+	claude := c.providerFor(profiles.AgentClaude)
+	require.NotNil(t, claude)
+	assert.Equal(t, profiles.ProviderAnthropic, claude.ID)
+	assert.Equal(t, "ANTHROPIC_API_KEY", claude.APIKeyEnv)
+	assert.Empty(t, claude.BaseURL, "no endpoint opinion means the harness's own default")
+
+	grok := c.providerFor(profiles.AgentGrok)
+	require.NotNil(t, grok)
+	assert.Equal(t, profiles.ProviderXAI, grok.ID)
 	// The NAME of a secret, never a value: a brief is an environment variable on a task
 	// spec and is readable by anything that can read the spec.
-	assert.Equal(t, profiles.XAIKeyEnv, p.APIKeyEnv)
+	assert.Equal(t, "XAI_API_KEY", grok.APIKeyEnv)
+	assert.Equal(t, "https://api.x.ai", grok.BaseURL)
 }
 
-// The endpoint is configurable so an install behind an egress proxy can name one.
-func TestTheProviderBlockFollowsTheConfiguredEndpoint(t *testing.T) {
-	proxied := &Conductor{xaiBaseURL: "https://xai.proxy.internal"}
-	assert.Equal(t, "https://xai.proxy.internal", proxied.providerFor(profiles.AgentGrok).BaseURL)
+// An agent id nobody configured still produces a runnable turn rather than a brief the
+// runtime will refuse: it falls back to the default backend.
+func TestAnUnknownBackendFallsBackRatherThanEmittingNothing(t *testing.T) {
+	got := (&Conductor{}).providerFor("gemini")
+	require.NotNil(t, got)
+	assert.Equal(t, profiles.ProviderAnthropic, got.ID)
 }
 
-// The credential follows the OVERRIDE, not just the skill. A human who switches a Claude
-// skill to Grok for one message must get the xAI credential on that turn — and must not get
-// the Anthropic one.
-func TestAnOverrideChangesWhichCredentialTheTurnGets(t *testing.T) {
-	claudeSkill := profiles.Skill{Name: "general"}
-	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
-
-	assert.Equal(t, profiles.AnthropicKeySecret,
-		(&Conductor{}).reservedSecrets(p.Resolve(claudeSkill, profiles.Override{}).Agent)[0].Name)
-
-	grok := p.Resolve(claudeSkill, profiles.Override{Model: "grok-4.6"})
-	refs := (&Conductor{}).reservedSecrets(grok.Agent)
-	require.Len(t, refs, 1)
-	assert.Equal(t, profiles.XAIKeySecret, refs[0].Name,
-		"the override moved the turn to Grok, so the credential has to move with it")
-}
-
-// And so does the provider block: a Grok turn reached by override still needs the endpoint.
+// The credential follows the OVERRIDE, and so does the provider block.
 func TestAnOverrideChangesTheProviderBlock(t *testing.T) {
 	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
 	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
 
-	assert.Nil(t, c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{}).Agent))
+	base := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{}).Agent)
+	assert.Equal(t, profiles.ProviderAnthropic, base.ID)
 
-	got := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{Model: "grok-4.6"}).Agent)
-	require.NotNil(t, got)
-	assert.Equal(t, profiles.XAIKeyEnv, got.APIKeyEnv)
+	moved := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{Model: "grok-4.6"}).Agent)
+	assert.Equal(t, profiles.ProviderXAI, moved.ID)
+	assert.Equal(t, "XAI_API_KEY", moved.APIKeyEnv)
+}
+
+// The derived names must agree with the constants the rest of the code and the docs use.
+func TestDerivedCredentialNamesMatchTheConstants(t *testing.T) {
+	assert.Equal(t, profiles.AnthropicKeySecret, profiles.SecretFor(profiles.ProviderAnthropic))
+	assert.Equal(t, profiles.AnthropicKeyEnv, profiles.KeyEnvFor(profiles.ProviderAnthropic))
+	assert.Equal(t, profiles.XAIKeySecret, profiles.SecretFor(profiles.ProviderXAI))
+	assert.Equal(t, profiles.XAIKeyEnv, profiles.KeyEnvFor(profiles.ProviderXAI))
 }

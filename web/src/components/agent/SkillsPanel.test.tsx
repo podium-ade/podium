@@ -32,7 +32,7 @@ function skill(over: Record<string, unknown> = {}) {
     name: "general",
     image: "podium-agent-runtime:dev",
     systemPrompt: "# The general skill\n\nAnswer the question in the thread.",
-    allowedTools: ["Read", "Grep"],
+    allowedTools: ["read", "grep"],
     maxTurns: 50,
     timeout: "30m",
     model: "",
@@ -184,7 +184,7 @@ describe("SkillsPanel", () => {
     await userEvent.type(screen.getByLabelText("Skill name"), "reporter");
     await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
     await userEvent.type(screen.getByLabelText("System prompt"), "Write the report.");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "Read");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
     await userEvent.click(screen.getByRole("button", { name: "Add a secret" }));
     await userEvent.type(
       screen.getByLabelText("Secret name 1"),
@@ -197,7 +197,7 @@ describe("SkillsPanel", () => {
     expect(createSkill.mock.calls[0][0].skill).toMatchObject({
       name: "reporter",
       image: "ghcr.io/example/reporter:v1",
-      allowedTools: ["Read"],
+      allowedTools: ["read"],
       secrets: [
         { name: "podium.agent.github_token", target: "env", key: "GITHUB_TOKEN" },
       ],
@@ -214,7 +214,7 @@ describe("SkillsPanel", () => {
     await userEvent.type(screen.getByLabelText("Skill name"), "reporter");
     await userEvent.type(screen.getByLabelText("Image"), "x");
     await userEvent.type(screen.getByLabelText("System prompt"), "hi");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "Read");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
     await userEvent.click(screen.getByRole("button", { name: "Create skill" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("image is required");

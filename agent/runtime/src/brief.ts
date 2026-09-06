@@ -24,15 +24,9 @@ export const ReservedRepoName = ".podium";
 export const RepoNameRE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 /**
- * AgentKinds are the backends a turn can run on. They mirror internal/agent/profiles'
- * AgentClaude and AgentGrok, and both are THIS runtime driving the Claude Agent SDK — what
- * differs is the endpoint and the credential, which arrive in `provider`.
- */
-export const AgentKinds = ["claude", "grok"] as const;
-
-/**
- * EffortLevels are the SDK's own vocabulary. The conductor has already refused a level the
- * chosen model does not accept, so anything that arrives here is passed straight through.
+ * EffortLevels are the levels a model may be asked to think at. The conductor has already
+ * refused one the chosen model does not accept, so anything that arrives here is passed
+ * straight through to the harness.
  */
 export const EffortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
 
@@ -80,9 +74,6 @@ const briefSchema = z.strictObject({
     display_name: z.string().min(1),
     system_prompt: z.string(),
     model: z.string().min(1),
-    // The backend this turn runs on. The conductor resolves it — skill, then profile, then
-    // its own default — so it is always present and this runtime never has to.
-    agent: z.enum(AgentKinds),
     // Absent means the model's own default effort, which is the provider's choice.
     effort: z.enum(EffortLevels).optional(),
   }),
@@ -102,22 +93,29 @@ const briefSchema = z.strictObject({
       api_key_env: z.string().min(1),
     })
     .optional(),
-  // Where to send the agent SDK's requests, and which environment variable holds the
-  // credential for it. Absent means the SDK's own defaults, which is what a Claude turn
-  // gets. It carries the NAME of a secret and never a value, exactly as memory does.
-  provider: z
-    .strictObject({
-      base_url: z.string().min(1),
-      api_key_env: z.string().min(1),
-    })
-    .optional(),
+  // Which model API serves this turn. It is REQUIRED and it names no vendor in this file:
+  // `id` is whatever the harness calls that provider, and together with profile.model it is
+  // the whole of "what runs this turn".
+  //
+  // It carries the NAME of a secret and never a value, exactly as memory does — a brief is
+  // an environment variable on a task spec, readable by anything that can read the spec.
+  provider: z.strictObject({
+    // id is the harness's provider id: "anthropic", "xai". Paired with profile.model it
+    // becomes the harness's `provider/model`.
+    id: z.string().min(1),
+    // api_key_env names the environment variable the conductor put the credential in.
+    api_key_env: z.string().min(1),
+    // base_url overrides where that provider is reached — an egress proxy, or a test seam.
+    // Absent means the harness's own default for the provider.
+    base_url: z.string().optional(),
+  }),
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
 export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 export type RepoRef = z.infer<typeof repoSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
-export type AgentKind = TurnBrief["profile"]["agent"];
+export type ProviderRef = TurnBrief["provider"];
 
 /**
  * decodeBrief reads, decodes and validates the brief. Every failure is a BriefError, and
