@@ -986,6 +986,27 @@ its own goroutine with a 10-second budget. A memory outage is a log line and a b
 `podium_agent_memory_retain_total{result="error"}`. It is never said in the conversation, and it
 never fails or delays a turn.
 
+### Accepted is not retained
+
+The retain is **asynchronous**, so `result="accepted"` means the memory engine took the work —
+not that a fact exists. Extraction runs afterwards, in the engine's own worker, against a model
+API this process never calls. When that fails it fails for every retain at once, and nothing on
+the turn path can see it: the engine answers `/health`, `Retain` keeps returning 202, the
+conductor keeps logging hand-offs, turns keep succeeding, and the bank stays empty. An install
+can sit like that for weeks. The usual cause is a model key the provider rejects — see
+`PODIUM_MEMORY_LLM_API_KEY` in `deploy/.env.example`.
+
+So the conductor asks. Every five minutes it reads the engine's failed operations and reports
+them on `podium_agent_memory_extraction_failed`, a gauge of how many accepted retains produced
+nothing. **Anything above zero is memories being lost silently.** Each one is also a `WARN`
+naming its `document_id` — the turn id, so a lost memory traces back to the conversation that
+produced it — and the engine's own error text, which names the cause.
+
+The gauge is deliberately not the same signal as a memory outage: if the check itself cannot
+reach the engine, that is a `WARN` and `/readyz`, and the gauge is left alone. An unreachable
+engine is not the same thing as data loss. Because it reads the engine rather than tracking what
+it handed over, it also covers retains a task container made for itself over MCP.
+
 ### Reading and forgetting, in the UI
 
 `/agent/memory` lists what is remembered, newest first, with a search box over it. Every card

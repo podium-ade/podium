@@ -29,6 +29,7 @@ type fakeMemory struct {
 	listedLimit  int
 	query        string
 	queryLimit   int
+	failedOps    []memory.Operation
 }
 
 func (f *fakeMemory) Retain(context.Context, memory.Item) error { return f.err }
@@ -64,6 +65,12 @@ func (f *fakeMemory) Forget(_ context.Context, id string) error {
 }
 
 func (f *fakeMemory) Ready(context.Context) error { return f.err }
+
+func (f *fakeMemory) FailedOperations(context.Context, int) ([]memory.Operation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.failedOps, f.err
+}
 
 func (f *fakeMemory) forgotten() []string {
 	f.mu.Lock()

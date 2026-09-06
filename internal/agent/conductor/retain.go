@@ -28,7 +28,7 @@ const truncationNote = "\n…(answer truncated)"
 
 // Metric labels for podium_agent_memory_retain_total.
 const (
-	retainOK       = "ok"
+	retainAccepted = "accepted"
 	retainError    = "error"
 	retainRedacted = "redacted"
 )
@@ -72,10 +72,16 @@ func (r *turnRun) retain(ctx context.Context, status string) {
 		err := c.memories.Retain(retainCtx, item)
 		switch {
 		case err == nil:
-			c.metrics.MemoryRetains.WithLabelValues(retainOK).Inc()
+			c.metrics.MemoryRetains.WithLabelValues(retainAccepted).Inc()
+			// "accepted", not "retained": the retain is asynchronous, so all this says
+			// is that Hindsight took the work. Whether a fact came out of it is decided
+			// later by its own worker and reported by watchExtractions — see
+			// reconcile.go, and note that this line looked healthy throughout an
+			// install where extraction had never once succeeded.
+			//
 			// The content is not logged, at any level: it is a task's words about a
 			// human's words, and this log is not where either belongs.
-			c.logger.InfoContext(retainCtx, "retained the turn in shared memory",
+			c.logger.InfoContext(retainCtx, "handed the turn to shared memory for extraction",
 				"turn_id", r.turn.ID, "bytes", len(item.Content))
 		case errors.Is(err, memory.ErrRedacted):
 			c.metrics.MemoryRetains.WithLabelValues(retainRedacted).Inc()
