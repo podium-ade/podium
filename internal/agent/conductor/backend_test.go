@@ -74,7 +74,9 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 	// The NAME of a secret, never a value: a brief is an environment variable on a task
 	// spec and is readable by anything that can read the spec.
 	assert.Equal(t, "XAI_API_KEY", grok.APIKeyEnv)
-	assert.Equal(t, "https://api.x.ai", grok.BaseURL)
+	// With the version, because the harness appends the endpoint to this and nothing
+	// else: a bare host sends the turn to https://api.x.ai/responses, which is a 404.
+	assert.Equal(t, "https://api.x.ai/v1", grok.BaseURL)
 }
 
 // An agent id nobody configured still produces a runnable turn rather than a brief the
