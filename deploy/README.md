@@ -41,12 +41,41 @@
 |---|---|
 | `docker-compose.yml` | Postgres, the object store, the control plane, and an optional worker behind the `node` profile |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
-| `docker-compose.dev.yml` | Postgres only, for running the binaries by hand |
+| `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
+| `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
 | `install-node.sh` | turns a Linux machine into a worker: checks, downloads, verifies, configures, starts, waits |
 | `systemd/podium-node.service` | the hardened unit `install-node.sh` installs |
 | `docker/*.Dockerfile` | the four service images — `server`, `node`, `agent`, `cli` — base pinned by digest. None has ever been built |
 | `tailscale-acl.example.json` | the ACL policy from the networking design |
+
+---
+
+## From a clone, with no release
+
+No images are published yet, so this is the path that works today. It needs Docker for the
+dependencies and Go for the binaries, and nothing outside the repo.
+
+```sh
+make build                                                        # bin/podium-{server,agent,node,podium}
+docker compose -f deploy/docker-compose.dev.yml \
+  --profile memory --profile artifacts up -d --wait               # Postgres, Hindsight, object store
+./bin/podium-server init --dir deploy                             # master.key + deploy/.env, mode 0600
+make stack-up                                                     # server, then conductor, then node
+make stack-status
+```
+
+`make stack-down` stops them. Logs and pids are under `.podium/`, which is gitignored.
+
+`run-host.sh` reads the same `deploy/.env` the compose files read — the one `init` writes,
+holding `PODIUM_PG_PASSWORD` rather than a whole `PODIUM_DATABASE_URL` — and does the
+derivations the compose files do in YAML. Anything already exported wins over the file, so
+`PODIUM_AGENT_PROFILE_DIR=… make stack-up` works for a one-off.
+
+Under `PODIUM_TRANSPORT=tailnet` this is the **only** way to run the conductor: the server
+listens on :443 of its own Tailscale device and has no port on the compose network, so a
+sibling container cannot reach it. `docker-compose.tailnet.yml` says as much where it defines
+its `agent` service.
 
 ---
 
