@@ -197,7 +197,7 @@ async function main(): Promise<number> {
   }
 
   const env = { ...process.env };
-  // The brief can be a quarter of a megabyte and the harness has no business with it. The
+  // The brief can be 96 KiB and the harness has no business with it. The
   // skill bundles are the same: they are already on disk where the harness looks, so what
   // is left in the environment is only a copy for the agent's own `env` to print.
   delete env[BriefEnv];

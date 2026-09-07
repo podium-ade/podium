@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { BriefEnv, BriefError, MaxBriefBytes, decodeBrief } from "./brief.js";
+import { BriefEnv, BriefError, MaxArgStrlen, MaxBriefBytes, decodeBrief } from "./brief.js";
 
 /** encode builds the env the conductor sets. */
 function encode(brief: unknown): NodeJS.ProcessEnv {
@@ -97,7 +97,27 @@ describe("decodeBrief", () => {
     const env = encode(padded);
     const size = Buffer.byteLength(env[BriefEnv] ?? "", "utf8");
     expect(size).toBeGreaterThan(MaxBriefBytes);
-    expect(() => decodeBrief(env)).toThrow(`turn brief is ${size} bytes; the limit is 262144`);
+    expect(() => decodeBrief(env)).toThrow(`turn brief is ${size} bytes; the limit is 98304`);
+  });
+
+  it("keeps the cap under what a container can exec with", () => {
+    // The cap this side refuses at is the cap the conductor emits at, and both exist to keep
+    // PODIUM_AGENT_TURN inside MAX_ARG_STRLEN. Bisected against a real container — Docker
+    // 29.4.3, Linux 6.12.76 aarch64, `getconf PAGESIZE` 4096:
+    //
+    //   PODIUM_AGENT_TURN of 131053 bytes  ->  ok
+    //   PODIUM_AGENT_TURN of 131054 bytes  ->  exec /bin/sh: argument list too long
+    //
+    // Past that the container never starts, so this file never runs and nothing reports it.
+    // The cap was 256 KiB, twice the ceiling; raising it back must fail here.
+    const measuredLargestValue = 131053;
+    expect(measuredLargestValue + `${BriefEnv}=`.length + 1).toBe(MaxArgStrlen);
+
+    const envString = MaxBriefBytes + `${BriefEnv}=`.length + 1;
+    expect(envString).toBeLessThan(MaxArgStrlen);
+    // And not merely under it: a quarter of the ceiling stays unused, which is what the
+    // name, the `=` and the NUL are paid out of.
+    expect(MaxBriefBytes).toBeLessThanOrEqual(MaxArgStrlen - MaxArgStrlen / 4);
   });
 
   it("accepts a brief exactly at the cap", () => {

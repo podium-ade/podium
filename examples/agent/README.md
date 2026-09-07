@@ -33,7 +33,7 @@ examples/agent/brief.sh "hello" | base64 -d | jq .
 
 `agent/runtime/src/brief.ts` is the schema and the single source of truth for the shape;
 `agent/runtime/testdata/brief.example.json` is a full brief with a transcript, a repo and memory.
-The brief is base64(JSON), capped at 256 KiB, and the schema rejects unknown keys — a misspelt field
+The brief is base64(JSON), capped at 96 KiB, and the schema rejects unknown keys — a misspelt field
 fails the turn rather than silently changing it.
 
 ## Dry run
