@@ -243,6 +243,7 @@ repos: []                                                    # [{name, url, defa
 slack_channels: []                                           # channel IDs this playbook is the default for
 linear: false                                                # this is the playbook Linear tickets run
 docker: false                                                # attach a Docker daemon beside the turn
+browser: false                                               # attach a headless Chrome beside the turn
 skills: []                                                   # Agent Skills this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
 ```
@@ -297,12 +298,44 @@ Two things an operator has to know:
 The daemon is not free: it pulls its own images every turn, because its store starts empty. Budget
 memory for it (the example playbook asks for 8 GB) and expect a cold pull on the first `docker run`.
 
+#### `browser: true`
+
+The turn gets a headless Chrome of its own and the tools to drive it: navigate, click, fill,
+resize, screenshot, and read the console and network the page produced. The conductor attaches a
+`chrome` sidecar — `chromedp/headless-shell`, pinned by digest, ready when it answers on 9222 —
+and the runtime points an MCP server at it, so the tools appear as `browser*` in the harness.
+A playbook without the flag gets neither the sidecar nor the tools.
+
+**The browser is a container, not something in the image.** That is what makes it isolated: its
+own filesystem, its own profile, its own network namespace, discarded with the task. A page the
+agent visits cannot read the workspace, the GitHub token or the model credential — they are in a
+different container. It also means the agent image carries no Chromium; what it carries is the
+small MCP client that attaches to the sidecar over CDP.
+
+Unlike `docker: true` this asks nothing of the node — an ordinary unprivileged container — so it
+needs no label and runs anywhere.
+
+Two things a playbook using it has to know:
+
+- **The browser starts with no tab.** `new_page` first, then navigate. `take_snapshot` — the
+  accessibility tree — is how you find something to click, and it is much cheaper than a
+  screenshot.
+- **Serve on `0.0.0.0`, and address your own container as `task`.** A server the turn starts on
+  loopback is reachable by nothing else; the browser is somewhere else. `http://task:8080` is
+  what it should be told to open.
+
 #### `skills:` — third-party Agent Skills
 
 An **Agent Skill** is a directory holding a `SKILL.md` with YAML frontmatter: a procedure somebody
 else wrote, which the model loads when a task matches its description. It is the industry shape,
 and the harness discovers them natively. A **playbook** is Podium's own concept — a configured
 kind of turn — and is a different thing entirely; that is why it stopped being called a skill.
+
+It is also a different kind of field from the two above it. `docker:` and `browser:` ask for an
+**environment** — a container running beside the turn. `skills:` allows **content** the model may
+load into its own context. A playbook wanting an adversarial review of a pull request supplies the
+environment (`browser: true`, `docker: true`, the token, the repository) and names the skill that
+supplies the method.
 
 `skills:` is a playbook's allow-list, by name:
 

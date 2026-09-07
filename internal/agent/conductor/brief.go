@@ -47,6 +47,7 @@ type Brief struct {
 	Instruction         string         `json:"instruction"`
 	Repos               []BriefRepo    `json:"repos,omitempty"`
 	Memory              *BriefMemory   `json:"memory,omitempty"`
+	Browser             *BriefBrowser  `json:"browser,omitempty"`
 	Provider            *BriefProvider `json:"provider,omitempty"`
 }
 
@@ -134,6 +135,14 @@ type BriefRepo struct {
 type BriefMemory struct {
 	MCPURL    string `json:"mcp_url"`
 	APIKeyEnv string `json:"api_key_env"`
+}
+
+// BriefBrowser points the runtime at the headless Chrome running beside this turn. It
+// carries an address and nothing else: the browser is reached over the task's own private
+// network, so there is no credential to name.
+type BriefBrowser struct {
+	// CDPURL is the DevTools endpoint of the browser sidecar.
+	CDPURL string `json:"cdp_url"`
 }
 
 // Roles a transcript entry may carry.
