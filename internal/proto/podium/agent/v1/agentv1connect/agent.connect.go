@@ -98,6 +98,8 @@ const (
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
 	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
+	// AgentServiceRenameChatProcedure is the fully-qualified name of the AgentService's RenameChat RPC.
+	AgentServiceRenameChatProcedure = "/podium.agent.v1.AgentService/RenameChat"
 	// AgentServiceDeleteChatProcedure is the fully-qualified name of the AgentService's DeleteChat RPC.
 	AgentServiceDeleteChatProcedure = "/podium.agent.v1.AgentService/DeleteChat"
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
@@ -179,6 +181,9 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// RenameChat changes the title of one of the caller's chats. Another login's chat is
+	// not_found, the same as every other chat RPC. An empty title is refused.
+	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
 	// DeleteChat removes one of the caller's chats and every message in it. Another
 	// login's chat is not_found, the same as a chat that is not there: the existence of
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
@@ -348,6 +353,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 			connect.WithClientOptions(opts...),
 		),
+		renameChat: connect.NewClient[v1.RenameChatRequest, v1.RenameChatResponse](
+			httpClient,
+			baseURL+AgentServiceRenameChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RenameChat")),
+			connect.WithClientOptions(opts...),
+		),
 		deleteChat: connect.NewClient[v1.DeleteChatRequest, v1.DeleteChatResponse](
 			httpClient,
 			baseURL+AgentServiceDeleteChatProcedure,
@@ -395,6 +406,7 @@ type agentServiceClient struct {
 	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	renameChat         *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	deleteChat         *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
 	streamChat         *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
@@ -520,6 +532,11 @@ func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request
 	return c.listChats.CallUnary(ctx, req)
 }
 
+// RenameChat calls podium.agent.v1.AgentService.RenameChat.
+func (c *agentServiceClient) RenameChat(ctx context.Context, req *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
+	return c.renameChat.CallUnary(ctx, req)
+}
+
 // DeleteChat calls podium.agent.v1.AgentService.DeleteChat.
 func (c *agentServiceClient) DeleteChat(ctx context.Context, req *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error) {
 	return c.deleteChat.CallUnary(ctx, req)
@@ -607,6 +624,9 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// RenameChat changes the title of one of the caller's chats. Another login's chat is
+	// not_found, the same as every other chat RPC. An empty title is refused.
+	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
 	// DeleteChat removes one of the caller's chats and every message in it. Another
 	// login's chat is not_found, the same as a chat that is not there: the existence of
 	// somebody else's conversation is not this caller's to learn. Sessions and turns the
@@ -772,6 +792,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceRenameChatHandler := connect.NewUnaryHandler(
+		AgentServiceRenameChatProcedure,
+		svc.RenameChat,
+		connect.WithSchema(agentServiceMethods.ByName("RenameChat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceDeleteChatHandler := connect.NewUnaryHandler(
 		AgentServiceDeleteChatProcedure,
 		svc.DeleteChat,
@@ -840,6 +866,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
 			agentServiceListChatsHandler.ServeHTTP(w, r)
+		case AgentServiceRenameChatProcedure:
+			agentServiceRenameChatHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteChatProcedure:
 			agentServiceDeleteChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
@@ -949,6 +977,10 @@ func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RenameChat is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error) {

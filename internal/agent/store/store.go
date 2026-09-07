@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,10 @@ import (
 
 // ErrNotFound is what the readers return for a row that is not there.
 var ErrNotFound = errors.New("agent store: not found")
+
+// ErrInvalidChatTitle is a title a rename would not store: empty, too long, or holding
+// a control character. The handler maps it to InvalidArgument.
+var ErrInvalidChatTitle = errors.New("invalid chat title")
 
 // Page limits, the same shape podium-server uses.
 const (
@@ -457,6 +462,11 @@ func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 // DefaultChatTitle is what a chat created with no title is called.
 const DefaultChatTitle = "New chat"
 
+// MaxChatTitleRunes is the longest title RenameChat will store. The rail truncates
+// visually well before this; the cap exists so a paste cannot write a multi-kilobyte
+// title into every ListChats payload.
+const MaxChatTitleRunes = 80
+
 // ChatPreviewChars is how much of the last message the chat list shows.
 const ChatPreviewChars = 80
 
@@ -510,6 +520,29 @@ func (s *Store) CreateChat(ctx context.Context, login, title string) (Chat, erro
 	})
 	if err != nil {
 		return Chat{}, fmt.Errorf("create chat for %s: %w", login, err)
+	}
+	return Chat{ID: row.ID, Title: row.Title, Login: row.Login, CreatedAt: row.CreatedAt.UTC()}, nil
+}
+
+// RenameChat sets the title of one of login's chats. Another login's chat is not
+// found, the same as every other chat read: knowing the id is not access.
+func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, error) {
+	if login == "" {
+		return Chat{}, errors.New("rename chat: a login is required")
+	}
+	if id == "" {
+		return Chat{}, errors.New("rename chat: chat id is required")
+	}
+	cleaned, err := cleanChatTitle(title)
+	if err != nil {
+		return Chat{}, err
+	}
+	row, err := s.q.RenameChat(ctx, db.RenameChatParams{ID: id, Login: login, Title: cleaned})
+	if noRows(err) {
+		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("rename chat %s: %w", id, err)
 	}
 	return Chat{ID: row.ID, Title: row.Title, Login: row.Login, CreatedAt: row.CreatedAt.UTC()}, nil
 }
@@ -733,6 +766,25 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		}
 	}
 	return msg, nil
+}
+
+// cleanChatTitle is what a rename stores: trimmed, internal whitespace collapsed, no
+// control characters, and no longer than MaxChatTitleRunes. An empty title after that
+// is refused rather than becoming DefaultChatTitle — renaming to nothing is a mistake,
+// not a request for a new chat.
+func cleanChatTitle(title string) (string, error) {
+	title = strings.Join(strings.Fields(title), " ")
+	if title == "" {
+		return "", fmt.Errorf("%w: a title is required", ErrInvalidChatTitle)
+	}
+	if strings.ContainsFunc(title, unicode.IsControl) {
+		return "", fmt.Errorf("%w: a title cannot hold control characters", ErrInvalidChatTitle)
+	}
+	n := utf8.RuneCountInString(title)
+	if n > MaxChatTitleRunes {
+		return "", fmt.Errorf("%w: %d runes is more than the %d-rune limit", ErrInvalidChatTitle, n, MaxChatTitleRunes)
+	}
+	return title, nil
 }
 
 // preview is the head of a message, cut on a rune boundary so a multi-byte character is
