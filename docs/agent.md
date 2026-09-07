@@ -373,12 +373,14 @@ Two consequences worth stating plainly:
   a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
   absent rather than defended against. A skill's script is run through its interpreter
   (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
-- **Phase 2 carries small skills only.** A bundle travels as one environment variable, and Linux
-  caps a single environment string at 128 KiB — past that the container cannot `exec` at all. The
-  64 KiB delivery cap is half of that, which is a few hundred kilobytes of markdown after
-  compression and is nowhere near enough for a skill that ships binaries or a wheel. A skill that
-  does not fit is refused, naming the cap; carrying one needs real storage, which is the next
-  piece of work, not a limit you can raise here.
+- **Phase 2 carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
+  environment variable, and Linux caps a single environment string at 128 KiB — past that the
+  container cannot `exec` at all, before Podium runs to say so. The 64 KiB delivery cap is half
+  of that margin; for markdown, which compresses about threefold, the unpacked 128 KiB cap is
+  what you hit first. Either way it is a directory of prose and small scripts, not a skill that
+  ships a binary, a wheel or an image. A skill that does not fit is refused, naming the cap;
+  carrying a large one needs real storage, which is the next piece of work rather than a number
+  you can raise here.
 
 There is no web UI for this yet: `skills:` is a playbook *file* field. A playbook created in the
 browser has no skills.
