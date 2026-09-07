@@ -37,6 +37,8 @@ const (
 	ActionEdit   = "edit"
 	ActionAttach = "attach"
 	ActionReact  = "react"
+	// ActionLinkPullRequest is a pull request the turn's answer named. Text is its URL.
+	ActionLinkPullRequest = "link_pull_request"
 )
 
 // Source is the in-memory source.
@@ -48,10 +50,12 @@ type Source struct {
 	// transcript is what has been said in each ref, in order: the injected messages and
 	// the conductor's own finals.
 	transcript map[string][]conductor.BriefEntry
-	records    []Record
-	seq        int64
-	nextMsg    int64
-	closed     bool
+	// pulls is every pull request linked to a ref, which the web chat would have stored.
+	pulls   map[string][]conductor.PullRequest
+	records []Record
+	seq     int64
+	nextMsg int64
+	closed  bool
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -62,6 +66,7 @@ func New(kind string) *Source {
 		kind:       kind,
 		events:     make(chan conductor.InboundEvent, 32),
 		transcript: map[string][]conductor.BriefEntry{},
+		pulls:      map[string][]conductor.PullRequest{},
 	}
 }
 
@@ -150,6 +155,26 @@ func (s *Source) Attach(_ context.Context, ref string, file conductor.Attachment
 	defer s.mu.Unlock()
 	s.record(Record{Action: ActionAttach, Ref: ref, Name: file.Name, ContentType: file.ContentType, Size: n})
 	return nil
+}
+
+// LinkPullRequests implements the conductor's optional pull-request half of Source, so a
+// test can see which pull requests a turn's answer produced. The real one is the web chat,
+// which stores them; this one keeps the list and answers with it.
+func (s *Source) LinkPullRequests(_ context.Context, ref string, prs []conductor.PullRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, pr := range prs {
+		s.record(Record{Action: ActionLinkPullRequest, Ref: ref, Text: pr.URL})
+		s.pulls[ref] = append(s.pulls[ref], pr)
+	}
+	return nil
+}
+
+// PullRequests is every pull request linked to one ref, in order.
+func (s *Source) PullRequests(ref string) []conductor.PullRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]conductor.PullRequest(nil), s.pulls[ref]...)
 }
 
 // React implements conductor.Source.

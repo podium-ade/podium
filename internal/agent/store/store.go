@@ -798,6 +798,108 @@ func (s *Store) DeleteChat(ctx context.Context, id, login string) error {
 	return nil
 }
 
+// Where a chat's pull-request link came from. They are exactly the values the
+// chat_pull_requests.source check constraint allows.
+const (
+	// PullRequestFromTurn is a link a turn's own answer named.
+	PullRequestFromTurn = "turn"
+	// PullRequestFromHuman is a link a person attached by hand.
+	PullRequestFromHuman = "human"
+)
+
+// ChatPullRequest is one pull request a chat's work produced. Owner, Repo and Number are
+// what the URL itself said — nothing here was learnt from GitHub, and the conductor holds
+// no credential that could ask it.
+type ChatPullRequest struct {
+	ChatID string
+	// URL is canonical: https://github.com/<owner>/<repo>/pull/<number>. It is the
+	// identity of the link, which is what makes /pull/12/files and /pull/12 one row.
+	URL    string
+	Owner  string
+	Repo   string
+	Number int
+	// Source is PullRequestFromTurn or PullRequestFromHuman.
+	Source    string
+	CreatedAt time.Time
+}
+
+// LinkChatPullRequest records a pull request a turn's answer named, and reports whether
+// this call is what linked it. False means the chat already had it — the same turn saying
+// it twice, or a human having detached it, and neither is an error.
+func (s *Store) LinkChatPullRequest(ctx context.Context, pr ChatPullRequest) (bool, error) {
+	n, err := s.q.LinkChatPullRequest(ctx, db.LinkChatPullRequestParams{
+		ChatID:    pr.ChatID,
+		Url:       pr.URL,
+		Owner:     pr.Owner,
+		Repo:      pr.Repo,
+		Number:    int32(pr.Number),
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return false, fmt.Errorf("link %s to chat %s: %w", pr.URL, pr.ChatID, err)
+	}
+	return n > 0, nil
+}
+
+// AttachChatPullRequest is a person linking one by hand. It revives a link they detached
+// earlier and takes it over from the turn that found it: re-attaching what you removed is
+// meant, and the row is yours afterwards.
+func (s *Store) AttachChatPullRequest(ctx context.Context, pr ChatPullRequest) (ChatPullRequest, error) {
+	row, err := s.q.AttachChatPullRequest(ctx, db.AttachChatPullRequestParams{
+		ChatID:    pr.ChatID,
+		Url:       pr.URL,
+		Owner:     pr.Owner,
+		Repo:      pr.Repo,
+		Number:    int32(pr.Number),
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return ChatPullRequest{}, fmt.Errorf("attach %s to chat %s: %w", pr.URL, pr.ChatID, err)
+	}
+	return pullRequestFromRow(row), nil
+}
+
+// DetachChatPullRequest takes one link off a chat. ErrNotFound means it was not linked, or
+// was detached already; the two are the same answer.
+func (s *Store) DetachChatPullRequest(ctx context.Context, chatID, url string) error {
+	now := time.Now().UTC()
+	n, err := s.q.DetachChatPullRequest(ctx, db.DetachChatPullRequestParams{
+		DetachedAt: &now, ChatID: chatID, Url: url,
+	})
+	if err != nil {
+		return fmt.Errorf("detach %s from chat %s: %w", url, chatID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: chat %s has no link to %s", ErrNotFound, chatID, url)
+	}
+	return nil
+}
+
+// ListChatPullRequests returns a chat's links, oldest first. Detached ones are not there.
+func (s *Store) ListChatPullRequests(ctx context.Context, chatID string) ([]ChatPullRequest, error) {
+	rows, err := s.q.ListChatPullRequests(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("list the pull requests of chat %s: %w", chatID, err)
+	}
+	out := make([]ChatPullRequest, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, pullRequestFromRow(r))
+	}
+	return out, nil
+}
+
+func pullRequestFromRow(r db.ChatPullRequest) ChatPullRequest {
+	return ChatPullRequest{
+		ChatID:    r.ChatID,
+		URL:       r.Url,
+		Owner:     r.Owner,
+		Repo:      r.Repo,
+		Number:    int(r.Number),
+		Source:    r.Source,
+		CreatedAt: r.CreatedAt.UTC(),
+	}
+}
+
 // marshalAttachments always writes a JSON array: the column is `not null default '[]'` and
 // a nil slice must not become the literal null.
 func marshalAttachments(files []ChatAttachment) ([]byte, error) {

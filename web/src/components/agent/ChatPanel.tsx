@@ -27,6 +27,7 @@ import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
+import { ChatPullRequests } from "./ChatPullRequests";
 import { ConductorDown } from "./ConductorDown";
 import { ChatMarkdown } from "./chat/ChatMarkdown";
 
@@ -727,6 +728,7 @@ function Conversation({
   return (
     <>
       <ConversationTitle title={title} onRename={onRename} />
+      <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
       <div className="relative min-h-0 flex-1">
         <div
           ref={scroller}

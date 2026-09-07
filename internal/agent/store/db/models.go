@@ -38,6 +38,17 @@ type ChatMessage struct {
 	Ts          time.Time
 }
 
+type ChatPullRequest struct {
+	ChatID     string
+	Url        string
+	Owner      string
+	Repo       string
+	Number     int32
+	Source     string
+	CreatedAt  time.Time
+	DetachedAt *time.Time
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time

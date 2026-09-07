@@ -423,6 +423,8 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, opening, "the first frame is always the turn state")
 	assert.Equal(t, chat.StatusFinished, opening.GetState())
 	require.NotNil(t, nextFrame(t, stream).GetChat(), "the chat row follows, so the composer knows the playbook")
+	require.NotNil(t, nextFrame(t, stream).GetPullRequests(),
+		"then the pull requests, before the transcript they would otherwise be buried in")
 
 	// Replay, in seq order.
 	first := nextFrame(t, stream).GetMessage()
@@ -520,6 +522,7 @@ func TestStreamChatFromSeqSkipsWhatTheClientHas(t *testing.T) {
 	stream := f.streamAs(streamCtx, t, "alice", chatID, 2)
 	require.NotNil(t, nextFrame(t, stream).GetStatus(), "the first frame is always the turn state")
 	require.NotNil(t, nextFrame(t, stream).GetChat())
+	require.NotNil(t, nextFrame(t, stream).GetPullRequests())
 
 	msg := nextFrame(t, stream).GetMessage()
 	require.NotNil(t, msg)
@@ -550,6 +553,7 @@ func TestStreamChatSaysATurnIsAlreadyRunning(t *testing.T) {
 	assert.Equal(t, chat.StatusStarted, status.GetState(),
 		"a browser joining mid-turn finds the composer disabled without waiting for a progress line")
 	require.NotNil(t, nextFrame(t, stream).GetChat())
+	require.NotNil(t, nextFrame(t, stream).GetPullRequests())
 	assert.Equal(t, uint64(1), nextFrame(t, stream).GetMessage().GetSeq())
 	require.NoError(t, stream.Close())
 }
@@ -676,12 +680,122 @@ func TestStreamChatEndsWhenTheClientGoesAway(t *testing.T) {
 	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
 	require.NotNil(t, nextFrame(t, stream).GetStatus())
 	require.NotNil(t, nextFrame(t, stream).GetChat())
+	require.NotNil(t, nextFrame(t, stream).GetPullRequests())
 	require.NotNil(t, nextFrame(t, stream).GetMessage())
 
 	cancel()
 	_ = stream.Close()
 	assert.Eventually(t, func() bool { return subscriberGone(f, chatID) },
 		10*time.Second, 50*time.Millisecond, "the subscription must go with the request")
+}
+
+func TestAttachAndDetachAPullRequestThroughTheService(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+
+	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
+	assert.Empty(t, nextFrame(t, stream).GetPullRequests().GetPullRequests(),
+		"a new chat has produced nothing yet")
+
+	// A URL with the path a browser was actually on. What is stored is canonical.
+	attached, err := f.client.AttachChatPullRequest(ctx, connect.NewRequest(
+		&agentv1.AttachChatPullRequestRequest{
+			ChatId: chatID, Url: "https://github.com/acme/api/pull/41/files",
+		}))
+	require.NoError(t, err)
+	require.Len(t, attached.Msg.GetPullRequests(), 1)
+	pr := attached.Msg.GetPullRequests()[0]
+	assert.Equal(t, "https://github.com/acme/api/pull/41", pr.GetUrl())
+	assert.Equal(t, "acme", pr.GetOwner())
+	assert.Equal(t, "api", pr.GetRepo())
+	assert.Equal(t, int32(41), pr.GetNumber())
+	assert.Equal(t, store.PullRequestFromHuman, pr.GetSource())
+
+	// Every browser watching the chat is told, not only the one that pressed the button.
+	live := nextFrame(t, stream).GetPullRequests()
+	require.NotNil(t, live)
+	require.Len(t, live.GetPullRequests(), 1)
+	assert.Equal(t, "https://github.com/acme/api/pull/41", live.GetPullRequests()[0].GetUrl())
+
+	detached, err := f.client.DetachChatPullRequest(ctx, connect.NewRequest(
+		&agentv1.DetachChatPullRequestRequest{
+			ChatId: chatID, Url: "https://github.com/acme/api/pull/41",
+		}))
+	require.NoError(t, err)
+	assert.Empty(t, detached.Msg.GetPullRequests())
+	assert.Empty(t, nextFrame(t, stream).GetPullRequests().GetPullRequests())
+	require.NoError(t, stream.Close())
+}
+
+func TestWhatTheChatPullRequestRPCsRefuse(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+
+	// An issue is not a pull request, and neither is a repository or another host.
+	for _, url := range []string{
+		"", "https://github.com/acme/api/issues/41", "https://github.com/acme/api",
+		"https://gitlab.com/acme/api/pull/41", "not a url at all",
+	} {
+		_, err := f.client.AttachChatPullRequest(ctx, connect.NewRequest(
+			&agentv1.AttachChatPullRequestRequest{ChatId: chatID, Url: url}))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "should be refused: %q", url)
+	}
+
+	_, err = f.client.AttachChatPullRequest(ctx, connect.NewRequest(
+		&agentv1.AttachChatPullRequestRequest{Url: "https://github.com/acme/api/pull/41"}))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "chat_id is required")
+
+	// Detaching something that is not linked is not found, the same as a link that was
+	// already taken off.
+	_, err = f.client.DetachChatPullRequest(ctx, connect.NewRequest(
+		&agentv1.DetachChatPullRequestRequest{
+			ChatId: chatID, Url: "https://github.com/acme/api/pull/41",
+		}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+
+	// Another login's chat is not found, not forbidden: its existence is not bob's to learn.
+	bob := f.clientAs("bob")
+	_, err = bob.AttachChatPullRequest(ctx, connect.NewRequest(
+		&agentv1.AttachChatPullRequestRequest{
+			ChatId: chatID, Url: "https://github.com/acme/api/pull/41",
+		}))
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+}
+
+func TestAChatStreamOpensWithThePullRequestsItAlreadyHas(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+
+	// What a finished turn leaves behind, through the same call the conductor makes.
+	require.NoError(t, f.source.LinkPullRequests(ctx, chatID,
+		conductor.FindPullRequests("Opened https://github.com/acme/api/pull/41 with the fix.")))
+
+	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
+	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
+
+	opening := nextFrame(t, stream).GetPullRequests()
+	require.NotNil(t, opening)
+	require.Len(t, opening.GetPullRequests(), 1)
+	assert.Equal(t, "https://github.com/acme/api/pull/41", opening.GetPullRequests()[0].GetUrl())
+	assert.Equal(t, store.PullRequestFromTurn, opening.GetPullRequests()[0].GetSource(),
+		"a reload can still tell a turn's link from a human's")
+	require.NoError(t, stream.Close())
 }
 
 // subscriberGone reports whether the chat has no live subscribers left. It publishes

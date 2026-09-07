@@ -20,12 +20,18 @@ import (
 // answered anyway, and refusing it here says so instead of failing the turn.
 const maxChatMessageBytes = 32 << 10
 
-// ChatSource is the part of the chat source the handlers use: the write path that starts a
-// turn, and the live fan-out. Reads go to the store directly.
+// ChatSource is the part of the chat source the handlers use: the write paths, and the
+// live fan-out. Reads go to the store directly.
+//
+// The pull-request writes are here rather than on the store because the point of them is
+// the frame: every browser watching the conversation has to see the list change, not only
+// the one that pressed the button.
 type ChatSource interface {
 	Send(ctx context.Context, req chat.SendRequest) (store.ChatMessage, error)
 	Subscribe(ctx context.Context, chatID string) *chat.Subscriber
 	Running(ctx context.Context, chatID string) (bool, error)
+	AttachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
+	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 }
 
 // TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
@@ -247,6 +253,79 @@ func (s *AgentService) SendChatMessage(
 	return connect.NewResponse(&agentv1.SendChatMessageResponse{Message: chatMessageToProto(msg)}), nil
 }
 
+// maxPullRequestURLBytes is the longest URL the attach and detach RPCs will look at. A
+// GitHub pull-request URL is around sixty characters; this is only what stops an
+// arbitrarily long string being handed to a regular expression.
+const maxPullRequestURLBytes = 2 << 10
+
+// AttachChatPullRequest links a pull request to one of the caller's chats by hand.
+func (s *AgentService) AttachChatPullRequest(
+	ctx context.Context, req *connect.Request[agentv1.AttachChatPullRequestRequest],
+) (*connect.Response[agentv1.AttachChatPullRequestResponse], error) {
+	login, err := s.checkPullRequestRequest(ctx, req.Msg.GetChatId(), req.Msg.GetUrl())
+	if err != nil {
+		return nil, err
+	}
+	prs, err := s.chat.AttachPullRequest(ctx, req.Msg.GetChatId(), login, req.Msg.GetUrl())
+	if err != nil {
+		return nil, pullRequestError(err)
+	}
+	s.logger.InfoContext(ctx, "a pull request was attached to a chat",
+		"chat_id", req.Msg.GetChatId(), "login", login, "url", req.Msg.GetUrl())
+	return connect.NewResponse(&agentv1.AttachChatPullRequestResponse{
+		PullRequests: pullRequestsToProto(prs),
+	}), nil
+}
+
+// DetachChatPullRequest takes one link off one of the caller's chats.
+func (s *AgentService) DetachChatPullRequest(
+	ctx context.Context, req *connect.Request[agentv1.DetachChatPullRequestRequest],
+) (*connect.Response[agentv1.DetachChatPullRequestResponse], error) {
+	login, err := s.checkPullRequestRequest(ctx, req.Msg.GetChatId(), req.Msg.GetUrl())
+	if err != nil {
+		return nil, err
+	}
+	prs, err := s.chat.DetachPullRequest(ctx, req.Msg.GetChatId(), login, req.Msg.GetUrl())
+	if err != nil {
+		return nil, pullRequestError(err)
+	}
+	s.logger.InfoContext(ctx, "a pull request was detached from a chat",
+		"chat_id", req.Msg.GetChatId(), "login", login, "url", req.Msg.GetUrl())
+	return connect.NewResponse(&agentv1.DetachChatPullRequestResponse{
+		PullRequests: pullRequestsToProto(prs),
+	}), nil
+}
+
+// checkPullRequestRequest is the preamble both pull-request RPCs share.
+func (s *AgentService) checkPullRequestRequest(ctx context.Context, chatID, url string) (string, error) {
+	if err := s.chatEnabled(); err != nil {
+		return "", err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return "", err
+	}
+	if chatID == "" {
+		return "", connect.NewError(connect.CodeInvalidArgument,
+			errors.New("chat_id is required"))
+	}
+	if len(url) > maxPullRequestURLBytes {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"%d bytes is more than the %d-byte limit for a pull request URL",
+			len(url), maxPullRequestURLBytes))
+	}
+	return login, nil
+}
+
+// pullRequestError maps a URL that is not a pull request onto InvalidArgument and leaves
+// everything else to the store's own mapping.
+func pullRequestError(err error) error {
+	if errors.Is(err, chat.ErrNotPullRequestURL) {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return storeError(err)
+}
+
 // checkOverride refuses a per-turn choice the catalogue does not allow, before the message
 // is stored.
 //
@@ -338,6 +417,20 @@ func (s *AgentService) StreamChat(
 	}); err != nil {
 		return err
 	}
+	// The pull requests, before the transcript. They are the answer to "what did this
+	// conversation produce", and a reader who has that in front of them before the replay
+	// arrives does not have to read the transcript to find out.
+	prs, err := s.store.ListChatPullRequests(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	if err := stream.Send(&agentv1.ChatFrame{
+		Frame: &agentv1.ChatFrame_PullRequests{PullRequests: &agentv1.ChatPullRequests{
+			PullRequests: pullRequestsToProto(prs),
+		}},
+	}); err != nil {
+		return err
+	}
 
 	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq())
 	if err != nil {
@@ -399,6 +492,10 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 		}}}
 	case chat.FrameChat:
 		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Chat{Chat: chatToProto(f.Chat)}}
+	case chat.FramePullRequests:
+		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_PullRequests{
+			PullRequests: &agentv1.ChatPullRequests{PullRequests: pullRequestsToProto(f.PullRequests)},
+		}}
 	default:
 		// An unknown kind is a programming error, and an empty frame is what a client can
 		// safely ignore.
@@ -417,6 +514,21 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
+	}
+	return out
+}
+
+func pullRequestsToProto(prs []store.ChatPullRequest) []*agentv1.ChatPullRequest {
+	out := make([]*agentv1.ChatPullRequest, 0, len(prs))
+	for _, pr := range prs {
+		out = append(out, &agentv1.ChatPullRequest{
+			Url:       pr.URL,
+			Owner:     pr.Owner,
+			Repo:      pr.Repo,
+			Number:    int32(pr.Number),
+			Source:    pr.Source,
+			CreatedAt: timestamppb.New(pr.CreatedAt),
+		})
 	}
 	return out
 }
