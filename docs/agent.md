@@ -116,6 +116,7 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
+| `PODIUM_AGENT_SKILLS_DIR` | for `skills:` | — | one directory per Agent Skill, each with a `SKILL.md`. No default: unset means this conductor delivers none |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -242,6 +243,7 @@ repos: []                                                    # [{name, url, defa
 slack_channels: []                                           # channel IDs this playbook is the default for
 linear: false                                                # this is the playbook Linear tickets run
 docker: false                                                # attach a Docker daemon beside the turn
+skills: []                                                   # Agent Skills this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
@@ -261,8 +263,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   `podium.agent.xai_api_key` and `podium.agent.xai_refresh_token` are all refused. The conductor
   decides what credential a turn gets, from the agent the playbook runs on — see *Which agent,
   which model, how hard it thinks*.
-- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY` or `XAI_API_KEY`.** The first is
-  the brief; the other two come from the secrets.
+- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY` or anything
+  starting `PODIUM_AGENT_SKILL_`.** The first is the brief, the next two come from the secrets,
+  and the last is where a skill's bundle travels.
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
@@ -293,6 +296,92 @@ Two things an operator has to know:
 
 The daemon is not free: it pulls its own images every turn, because its store starts empty. Budget
 memory for it (the example playbook asks for 8 GB) and expect a cold pull on the first `docker run`.
+
+#### `skills:` — third-party Agent Skills
+
+An **Agent Skill** is a directory holding a `SKILL.md` with YAML frontmatter: a procedure somebody
+else wrote, which the model loads when a task matches its description. It is the industry shape,
+and the harness discovers them natively. A **playbook** is Podium's own concept — a configured
+kind of turn — and is a different thing entirely; that is why it stopped being called a skill.
+
+`skills:` is a playbook's allow-list, by name:
+
+```yaml
+skills: [pr-review, release-notes]
+```
+
+**Nothing is implicit.** A playbook that names no skills gets none, and that is not the same as
+"whatever the harness happens to find": the turn's config denies every skill by pattern, which
+also removes the `skill` tool from the agent altogether — so the skills built into the harness
+itself cannot be loaded either.
+
+The names come out of **`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per
+skill:
+
+```
+$PODIUM_AGENT_SKILLS_DIR/
+  pr-review/
+    SKILL.md
+    reference/checklist.md
+  release-notes/
+    SKILL.md
+```
+
+There is no default for that variable. Unset means this conductor delivers no skills, and a
+playbook that names one fails its turns saying so — every other playbook keeps running.
+
+**Where they land.** Just before the harness starts, the runtime writes each skill to
+`$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
+in Podium's images, which is the harness's own global skill directory. It then writes the
+permission map:
+
+```json
+{ "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } } }
+```
+
+The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
+does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
+
+**How the bytes get there.** The conductor reads the directory at the start of every turn, packs
+it, and puts it on the task spec as one environment variable per skill —
+`PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the name, a sha256 digest
+and the name of that variable, the same way it carries the *name* of a credential's variable and
+never the value. The runtime verifies the digest before it writes anything.
+
+Reading per turn rather than at start-up is deliberate: a skill you have just edited is the one the
+next turn gets, and a skill that has gone wrong fails the playbook that names it instead of taking
+the conductor down.
+
+**What a bundle may contain.** The guards are refusals, not repairs — a skill that trips one fails
+the turn with a message naming what it was:
+
+| Rule | Limit |
+| --- | --- |
+| Skills per playbook | 8 |
+| Files per skill | 64 |
+| Bytes per skill, unpacked | 128 KiB |
+| Bytes per skill, as delivered | 64 KiB |
+| Path components | `[A-Za-z0-9][A-Za-z0-9._-]*`, at most 8 deep, no `..` and nothing absolute |
+| File contents | UTF-8 text only |
+| `SKILL.md` | required, and its frontmatter `name` must equal the directory name |
+| `name` | `^[a-z0-9]+(-[a-z0-9]+)*$`, 1–64 characters |
+| `description` | required, 1–1024 characters — it is all the model reads to decide whether to use the skill |
+
+Two consequences worth stating plainly:
+
+- **Nothing in a bundle is executable.** Files land mode 0644 and the wire format has no room for
+  a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
+  absent rather than defended against. A skill's script is run through its interpreter
+  (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
+- **Phase 2 carries small skills only.** A bundle travels as one environment variable, and Linux
+  caps a single environment string at 128 KiB — past that the container cannot `exec` at all. The
+  64 KiB delivery cap is half of that, which is a few hundred kilobytes of markdown after
+  compression and is nowhere near enough for a skill that ships binaries or a wheel. A skill that
+  does not fit is refused, naming the cap; carrying one needs real storage, which is the next
+  piece of work, not a limit you can raise here.
+
+There is no web UI for this yet: `skills:` is a playbook *file* field. A playbook created in the
+browser has no skills.
 
 ### Which playbook runs
 
