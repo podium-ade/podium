@@ -106,7 +106,11 @@ type AgentServiceOptions struct {
 	Profiles *profiles.Live
 	// Chat is the web chat's write path and live fan-out. Nil makes the chat RPCs answer
 	// FailedPrecondition.
-	Chat   ChatSource
+	Chat ChatSource
+	// Tasks stops a running Podium task. DeleteChat uses it so a conversation that still
+	// has a turn in flight does not leave a container running after it is gone. Nil is a
+	// supported configuration: tests that never start a turn omit it.
+	Tasks  TaskCanceller
 	Logger *slog.Logger
 }
 
@@ -125,6 +129,7 @@ type AgentService struct {
 	skillsDir string
 	profiles  *profiles.Live
 	chat      ChatSource
+	tasks     TaskCanceller
 	logger    *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished.
@@ -178,6 +183,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		skillsDir:  opts.SkillsDir,
 		profiles:   opts.Profiles,
 		chat:       opts.Chat,
+		tasks:      opts.Tasks,
 		logger:     opts.Logger,
 	}
 }
