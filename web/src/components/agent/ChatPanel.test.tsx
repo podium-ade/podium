@@ -18,6 +18,7 @@ import { ChatPanel } from "./ChatPanel";
 const listChats = vi.fn();
 const listPlaybooks = vi.fn();
 const createChat = vi.fn();
+const renameChat = vi.fn();
 const deleteChat = vi.fn();
 const sendChatMessage = vi.fn();
 const streamChat = vi.fn();
@@ -30,6 +31,7 @@ vi.mock("../../lib/client", async () => {
       listChats: (...a: unknown[]) => listChats(...a),
       listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       createChat: (...a: unknown[]) => createChat(...a),
+      renameChat: (...a: unknown[]) => renameChat(...a),
       deleteChat: (...a: unknown[]) => deleteChat(...a),
       sendChatMessage: (...a: unknown[]) => sendChatMessage(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
@@ -121,6 +123,7 @@ describe("ChatPanel", () => {
     listChats.mockReset();
     listPlaybooks.mockReset();
     createChat.mockReset();
+    renameChat.mockReset();
     deleteChat.mockReset();
     sendChatMessage.mockReset();
     streamChat.mockReset();
@@ -291,6 +294,62 @@ describe("ChatPanel", () => {
     expect(bubble.querySelectorAll("a")).toHaveLength(0);
     expect(bubble.textContent).toContain("<img src=x onerror=alert(1)>");
     expect(bubble.textContent).toContain("[x](javascript:alert(1))");
+  });
+
+  it("renames a chat from the rail", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    renameChat.mockResolvedValue({ chat: { ...chat, title: "Q3 forecast" } });
+    mount();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    const box = await screen.findByTestId("chat-title-input");
+    await userEvent.clear(box);
+    await userEvent.type(box, "Q3 forecast{Enter}");
+
+    await waitFor(() =>
+      expect(renameChat).toHaveBeenCalledWith({ chatId: "chat_01abc", title: "Q3 forecast" }),
+    );
+  });
+
+  it("does not rename when the title is left empty or unchanged", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    mount();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    const box = await screen.findByTestId("chat-title-input");
+    await userEvent.clear(box);
+    await userEvent.type(box, "{Enter}");
+    expect(renameChat).not.toHaveBeenCalled();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await userEvent.type(await screen.findByTestId("chat-title-input"), "{Enter}");
+    expect(renameChat).not.toHaveBeenCalled();
+  });
+
+  it("cancels a rename with Escape", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    mount();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await userEvent.type(await screen.findByTestId("chat-title-input"), "nope{Escape}");
+    expect(screen.queryByTestId("chat-title-input")).toBeNull();
+    expect(renameChat).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("chat-list")).toHaveTextContent("August numbers");
+  });
+
+  it("renames from the open chat's title", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    renameChat.mockResolvedValue({ chat: { ...chat, title: "Q3 forecast" } });
+    mount("/agent/chat/chat_01abc");
+
+    await userEvent.click(await screen.findByTestId("chat-title"));
+    const box = await screen.findByTestId("chat-title-input");
+    await userEvent.clear(box);
+    await userEvent.type(box, "Q3 forecast{Enter}");
+
+    await waitFor(() =>
+      expect(renameChat).toHaveBeenCalledWith({ chatId: "chat_01abc", title: "Q3 forecast" }),
+    );
   });
 
   it("says a missing chat is gone rather than reconnecting the stream", async () => {
