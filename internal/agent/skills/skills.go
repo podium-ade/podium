@@ -101,6 +101,10 @@ type Bundle struct {
 	Encoded string
 	// Files is how many files the bundle carries. For the log line.
 	Files int
+	// Document is the bundle document itself: the JSON file map SHA256 is over. It is what
+	// the conductor's database stores, because it is the form the digest means something
+	// about — a gzip stream is one of many encodings of it, and base64 is a delivery detail.
+	Document []byte
 }
 
 // document is the bundle's wire format: a map of relative path to file content.
@@ -144,35 +148,6 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// LoadAll reads every named skill out of dir, in the order given. One that fails fails the
-// whole set: a turn that quietly ran with three of its four skills would answer differently
-// from the one the playbook describes, and nobody would know which had happened.
-func LoadAll(dir string, names []string) ([]Bundle, error) {
-	if len(names) == 0 {
-		return nil, nil
-	}
-	if len(names) > MaxSkills {
-		return nil, fmt.Errorf("%d skills are declared; the limit is %d per playbook", len(names), MaxSkills)
-	}
-	if dir == "" {
-		return nil, fmt.Errorf("%s is not set, so no skill can be delivered", DirEnv)
-	}
-	out := make([]Bundle, 0, len(names))
-	seen := make(map[string]bool, len(names))
-	for _, name := range names {
-		if seen[name] {
-			return nil, fmt.Errorf("skill %q is declared twice", name)
-		}
-		seen[name] = true
-		b, err := Load(dir, name)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, b)
-	}
-	return out, nil
-}
-
 // Load reads one skill directory and packs it.
 func Load(dir, name string) (Bundle, error) {
 	if err := ValidateName(name); err != nil {
@@ -196,9 +171,46 @@ func Load(dir, name string) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	if _, ok := files[SkillFile]; !ok {
+		return Bundle{}, fmt.Errorf("skill %q: %s has no %s", name, root, SkillFile)
+	}
+	return Build(name, files)
+}
+
+// Build is every rule a bundle has to pass, applied to a file map that is already in hand.
+//
+// It is the single validator. Load calls it after walking a directory on the conductor's
+// host; Parse's callers call it after reading an upload out of a browser. A skill uploaded
+// through the API is therefore refused for exactly the reasons a skill on disk is, and there
+// is no second copy of the rules to drift.
+func Build(name string, files map[string]string) (Bundle, error) {
+	if err := ValidateName(name); err != nil {
+		return Bundle{}, err
+	}
+	if len(files) == 0 {
+		return Bundle{}, fmt.Errorf("skill %q is empty", name)
+	}
+	if len(files) > MaxFiles {
+		return Bundle{}, fmt.Errorf("skill %q holds %d files; the limit is %d", name, len(files), MaxFiles)
+	}
+	total := 0
+	for rel, content := range files {
+		if err := checkPath(rel); err != nil {
+			return Bundle{}, fmt.Errorf("skill %q: %w", name, err)
+		}
+		if !utf8.ValidString(content) {
+			return Bundle{}, fmt.Errorf("skill %q: %s is not valid UTF-8; a skill bundle carries text (see %s)",
+				name, rel, Docs)
+		}
+		total += len(content)
+		if total > MaxBytes {
+			return Bundle{}, fmt.Errorf("skill %q holds more than %d bytes of files; that is the limit",
+				name, MaxBytes)
+		}
+	}
 	skill, ok := files[SkillFile]
 	if !ok {
-		return Bundle{}, fmt.Errorf("skill %q: %s has no %s", name, root, SkillFile)
+		return Bundle{}, fmt.Errorf("skill %q has no %s", name, SkillFile)
 	}
 	fm, err := readFrontmatter(skill)
 	if err != nil {
@@ -228,12 +240,35 @@ func Load(dir, name string) (Bundle, error) {
 	sum := sha256.Sum256(raw)
 	return Bundle{
 		Name:        name,
-		Description: fm.Description,
+		Description: strings.TrimSpace(fm.Description),
 		SHA256:      hex.EncodeToString(sum[:]),
 		Env:         EnvFor(name),
 		Encoded:     encoded,
 		Files:       len(files),
+		Document:    raw,
 	}, nil
+}
+
+// FromDocument rebuilds a Bundle from a stored bundle document — the bytes Build produced
+// and the conductor's database kept.
+//
+// It re-runs Build rather than trusting the row, so a document that has been corrupted,
+// truncated or edited in the database fails the turn instead of reaching a container. The
+// digest is over the same canonical JSON either way, so a round trip through Postgres
+// changes nothing about it.
+func FromDocument(name string, doc []byte) (Bundle, error) {
+	if len(doc) > MaxBytes {
+		return Bundle{}, fmt.Errorf("skill %q: the stored bundle is %d bytes; the limit is %d",
+			name, len(doc), MaxBytes)
+	}
+	var d document
+	if err := json.Unmarshal(doc, &d); err != nil {
+		return Bundle{}, fmt.Errorf("skill %q: the stored bundle is not a bundle document: %w", name, err)
+	}
+	if len(d.Files) == 0 {
+		return Bundle{}, fmt.Errorf("skill %q: the stored bundle has no files", name)
+	}
+	return Build(name, d.Files)
 }
 
 // collect walks one skill directory into the bundle's file map. Everything that is not a

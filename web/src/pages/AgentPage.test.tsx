@@ -29,6 +29,7 @@ const createPlaybook = vi.fn();
 const updatePlaybook = vi.fn();
 const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
+const listSkills = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -51,6 +52,7 @@ vi.mock("../lib/client", async () => {
       createPlaybook: (...a: unknown[]) => createPlaybook(...a),
       updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
       deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
+      listSkills: (...a: unknown[]) => listSkills(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
@@ -163,6 +165,7 @@ describe("AgentPage", () => {
     listSessions.mockResolvedValue({ sessions: [], nextCursor: "" });
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     listPlaybooks.mockResolvedValue({ playbooks: [], profileDisplayName: "Podium" });
+    listSkills.mockResolvedValue({ skills: [], skillsDir: "", maxBytes: 131072n, maxFiles: 64 });
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
@@ -195,6 +198,7 @@ describe("AgentPage", () => {
       "Memory",
       "Profile",
       "Playbooks",
+      "Skills",
       "Settings",
     ]);
 

@@ -3,6 +3,7 @@ package skills
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -247,26 +248,28 @@ func TestLoadAllRefusesMoreThanTheCapAndAnyDuplicate(t *testing.T) {
 	for _, n := range []string{"a", "b"} {
 		write(t, filepath.Join(root, n), SkillFile, skillMD(n, "Use always."))
 	}
+	ctx := context.Background()
+	lib := Library{Dir: root}
 
-	got, err := LoadAll(root, []string{"a", "b"})
+	got, err := lib.Bundles(ctx, []string{"a", "b"})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	require.Equal(t, "a", got[0].Name)
 
-	_, err = LoadAll(root, []string{"a", "a"})
+	_, err = lib.Bundles(ctx, []string{"a", "a"})
 	require.ErrorContains(t, err, `skill "a" is declared twice`)
 
 	many := make([]string, MaxSkills+1)
 	for i := range many {
 		many[i] = "a"
 	}
-	_, err = LoadAll(root, many)
+	_, err = lib.Bundles(ctx, many)
 	require.ErrorContains(t, err, "the limit is 8 per playbook")
 
-	_, err = LoadAll("", []string{"a"})
+	_, err = Library{}.Bundles(ctx, []string{"a"})
 	require.ErrorContains(t, err, "PODIUM_AGENT_SKILLS_DIR is not set")
 
-	got, err = LoadAll(root, nil)
+	got, err = lib.Bundles(ctx, nil)
 	require.NoError(t, err)
 	require.Empty(t, got)
 }

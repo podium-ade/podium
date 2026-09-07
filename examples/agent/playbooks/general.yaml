@@ -20,9 +20,10 @@ timeout: 15m
 # agent: grok
 # model: grok-4.6
 # effort: high
-# The Agent Skills a turn of this playbook may use, by name, out of PODIUM_AGENT_SKILLS_DIR.
-# Unset means none, and none is the default everywhere: the harness is handed a permission map
-# that denies every skill it has not been told about. A skill is executable content somebody
-# else wrote, running in the turn's container with the turn's credentials — read
-# docs/security.md#a-playbook-that-carries-agent-skills before naming one.
+# The Agent Skills a turn of this playbook may use, by name, out of the conductor's skill
+# library: the Skills screen in the web UI, plus PODIUM_AGENT_SKILLS_DIR on its host, which
+# wins a name clash. Unset means none, and none is the default everywhere: the harness is
+# handed a permission map that denies every skill it has not been told about. A skill is
+# executable content somebody else wrote, running in the turn's container with the turn's
+# credentials — read docs/security.md#a-playbook-that-carries-agent-skills before naming one.
 # skills: [pr-review]

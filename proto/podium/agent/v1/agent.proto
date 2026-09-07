@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 // AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
 // bearer token and reached from a browser only through podium-server, which proxies
 // /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
-// sessions (17), settings (18), memory (19), playbooks and chat (21).
+// sessions (17), settings (18), memory (19), playbooks and chat (21), Agent Skills (22).
 service AgentService {
   // ListSessions returns conversations the bot has taken part in, newest first.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
@@ -59,6 +59,21 @@ service AgentService {
   // DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
   // stored playbook that is not there is not an error.
   rpc DeletePlaybook(DeletePlaybookRequest) returns (DeletePlaybookResponse);
+  // ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
+  // uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
+  // The directory wins a name clash, and a stored skill it shadows is reported as such.
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  // UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
+  // held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
+  // path it may not, or with a SKILL.md the harness would not load is refused with the rule
+  // it broke.
+  rpc UploadSkill(UploadSkillRequest) returns (UploadSkillResponse);
+  // SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
+  // names a disabled skill fails its turns saying so rather than running without it.
+  rpc SetSkillEnabled(SetSkillEnabledRequest) returns (SetSkillEnabledResponse);
+  // DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
+  // file on the conductor's host and this API does not delete those.
+  rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
   // CreateChat opens a new web-chat conversation owned by the calling login.
   rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
   // ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -607,6 +622,15 @@ message PlaybookDefinition {
   // effort is the reasoning effort a turn of this playbook runs at, or empty for the
   // profile's. The levels a model accepts come from ListAgents.
   string effort = 21;
+  // skills is the Agent Skills a turn of this playbook may load, by name. Empty means none,
+  // and none is enforced rather than merely unconfigured: the turn's harness config denies
+  // every skill by pattern, which also removes the skill tool from the agent.
+  //
+  // An Agent Skill is instructions and scripts somebody else wrote, and they run in the
+  // turn's container with the turn's GitHub token and model credential. This list is the
+  // whole of what decides which ones do, and editing it here is a UI action rather than a
+  // file edit — see docs/security.md.
+  repeated string skills = 22;
 }
 
 message GetProfileRequest {}
@@ -658,3 +682,98 @@ message DeletePlaybookRequest {
 }
 
 message DeletePlaybookResponse {}
+
+// AgentSkill is one Agent Skill the conductor can hand a turn.
+//
+// EVERY FIELD IS CONTENT except origin, enabled and the provenance. name and description come
+// out of a SKILL.md somebody else wrote; a browser renders them as text and never as markup.
+message AgentSkill {
+  // name is the skill's own frontmatter name, which is also the directory it is installed
+  // into inside the container and the only name a playbook can allow-list.
+  string name = 1;
+  // description is the frontmatter's. It is the whole of what the model reads to decide
+  // whether to use the skill, which is why it is shown here.
+  string description = 2;
+  // sha256 is the digest of the bundle document. It is what the runtime verifies before it
+  // writes anything into a container — TRANSPORT INTEGRITY, not provenance: it says the
+  // bytes that arrived are the bytes the conductor read, and nothing about who wrote them.
+  string sha256 = 3;
+  // size_bytes is the bundle document's length, which is what the caps are measured against.
+  int64 size_bytes = 4;
+  int32 file_count = 5;
+  // enabled is false for a stored skill somebody turned off. Always true for a directory
+  // skill: there is nothing in a directory to turn off.
+  bool enabled = 6;
+  // origin is "dir" for a directory under PODIUM_AGENT_SKILLS_DIR on the conductor's host,
+  // and "stored" for a bundle uploaded through this API.
+  string origin = 7;
+  // editable is false for a directory skill: the files win, and the write RPCs refuse one.
+  bool editable = 8;
+  // shadowed is true for a stored skill whose name a directory also holds. The directory
+  // wins, so a shadowed skill never runs; it is reported so it can be deleted.
+  bool shadowed = 9;
+  // uploaded_by and uploaded_at are set for a stored skill only.
+  string uploaded_by = 10;
+  google.protobuf.Timestamp uploaded_at = 11;
+  // problem is why this skill would fail a turn that asked for it — a directory with no
+  // SKILL.md, a bundle over a cap, a row whose digest no longer matches. Empty normally. It
+  // is reported rather than the entry being hidden: a skill an operator can see in a shell
+  // and cannot see here is the worst version of this.
+  string problem = 12;
+  // playbooks names the playbooks whose skills: list this skill, so a human can see what a
+  // delete or a disable would change before doing it.
+  repeated string playbooks = 13;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsResponse {
+  // skills is every skill that could run, sorted by name, followed by any shadowed stored
+  // skill. Two entries can share a name when one is shadowed; they differ in origin.
+  repeated AgentSkill skills = 1;
+  // skills_dir is PODIUM_AGENT_SKILLS_DIR, or "" when this conductor has none. The UI says
+  // which directory it read rather than leaving a reader to guess why one is missing.
+  string skills_dir = 2;
+  // max_bytes and max_files are the caps an upload is held to, so the UI can name the same
+  // number the refusal would.
+  int64 max_bytes = 3;
+  int32 max_files = 4;
+  // max_per_playbook is how many skills one playbook may name.
+  int32 max_per_playbook = 5;
+}
+
+message UploadSkillRequest {
+  // content is a zip of the skill's directory, or a bare SKILL.md. Which one it is comes
+  // from the bytes — a zip is recognised by its own header — so a client does not declare
+  // it and cannot mis-declare it.
+  bytes content = 1;
+  // filename is what the human called the upload. It appears in error messages and nowhere
+  // else: the skill's NAME comes from its SKILL.md frontmatter, because that is the only
+  // name the harness will load it under.
+  string filename = 2;
+  // replace allows overwriting a stored skill of the same name, and without it an existing
+  // name is refused. A skill is a dependency of every playbook that names it, and a file
+  // picker should not be able to swap one by accident.
+  bool replace = 3;
+}
+
+message UploadSkillResponse {
+  AgentSkill skill = 1;
+  // replaced is true when this overwrote a stored bundle rather than adding a new skill.
+  bool replaced = 2;
+}
+
+message SetSkillEnabledRequest {
+  string name = 1;
+  bool enabled = 2;
+}
+
+message SetSkillEnabledResponse {
+  AgentSkill skill = 1;
+}
+
+message DeleteSkillRequest {
+  string name = 1;
+}
+
+message DeleteSkillResponse {}
