@@ -137,16 +137,18 @@ export function AgentPage() {
           {groups.map((g, i) => (
             <Fragment key={g.label}>
               {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
-              <span className="text-2xs font-medium tracking-wider text-faint uppercase">
-                {g.label}
-              </span>
-              <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-                {g.tabs.map((t) => (
-                  <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-                    <t.icon />
-                    {t.label}
-                  </NavLink>
-                ))}
+              <div className="flex items-center gap-2">
+                <span className="text-2xs font-medium tracking-wider text-faint uppercase">
+                  {g.label}
+                </span>
+                <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
+                  {g.tabs.map((t) => (
+                    <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
+                      <t.icon />
+                      {t.label}
+                    </NavLink>
+                  ))}
+                </div>
               </div>
             </Fragment>
           ))}
