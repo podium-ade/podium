@@ -83,6 +83,17 @@ const (
 	// AgentServiceDeletePlaybookProcedure is the fully-qualified name of the AgentService's
 	// DeletePlaybook RPC.
 	AgentServiceDeletePlaybookProcedure = "/podium.agent.v1.AgentService/DeletePlaybook"
+	// AgentServiceListSkillsProcedure is the fully-qualified name of the AgentService's ListSkills RPC.
+	AgentServiceListSkillsProcedure = "/podium.agent.v1.AgentService/ListSkills"
+	// AgentServiceUploadSkillProcedure is the fully-qualified name of the AgentService's UploadSkill
+	// RPC.
+	AgentServiceUploadSkillProcedure = "/podium.agent.v1.AgentService/UploadSkill"
+	// AgentServiceSetSkillEnabledProcedure is the fully-qualified name of the AgentService's
+	// SetSkillEnabled RPC.
+	AgentServiceSetSkillEnabledProcedure = "/podium.agent.v1.AgentService/SetSkillEnabled"
+	// AgentServiceDeleteSkillProcedure is the fully-qualified name of the AgentService's DeleteSkill
+	// RPC.
+	AgentServiceDeleteSkillProcedure = "/podium.agent.v1.AgentService/DeleteSkill"
 	// AgentServiceCreateChatProcedure is the fully-qualified name of the AgentService's CreateChat RPC.
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
@@ -146,6 +157,21 @@ type AgentServiceClient interface {
 	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
 	// stored playbook that is not there is not an error.
 	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
+	// ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
+	// uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
+	// The directory wins a name clash, and a stored skill it shadows is reported as such.
+	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
+	// held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
+	// path it may not, or with a SKILL.md the harness would not load is refused with the rule
+	// it broke.
+	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
+	// SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
+	// names a disabled skill fails its turns saying so rather than running without it.
+	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
+	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
+	// file on the conductor's host and this API does not delete those.
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -279,6 +305,30 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
 			connect.WithClientOptions(opts...),
 		),
+		listSkills: connect.NewClient[v1.ListSkillsRequest, v1.ListSkillsResponse](
+			httpClient,
+			baseURL+AgentServiceListSkillsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+			connect.WithClientOptions(opts...),
+		),
+		uploadSkill: connect.NewClient[v1.UploadSkillRequest, v1.UploadSkillResponse](
+			httpClient,
+			baseURL+AgentServiceUploadSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UploadSkill")),
+			connect.WithClientOptions(opts...),
+		),
+		setSkillEnabled: connect.NewClient[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse](
+			httpClient,
+			baseURL+AgentServiceSetSkillEnabledProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetSkillEnabled")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSkill: connect.NewClient[v1.DeleteSkillRequest, v1.DeleteSkillResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+			connect.WithClientOptions(opts...),
+		),
 		createChat: connect.NewClient[v1.CreateChatRequest, v1.CreateChatResponse](
 			httpClient,
 			baseURL+AgentServiceCreateChatProcedure,
@@ -326,6 +376,10 @@ type agentServiceClient struct {
 	createPlaybook     *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
 	updatePlaybook     *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
 	deletePlaybook     *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
+	listSkills         *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	uploadSkill        *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
+	setSkillEnabled    *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
+	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
 	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
@@ -422,6 +476,26 @@ func (c *agentServiceClient) DeletePlaybook(ctx context.Context, req *connect.Re
 	return c.deletePlaybook.CallUnary(ctx, req)
 }
 
+// ListSkills calls podium.agent.v1.AgentService.ListSkills.
+func (c *agentServiceClient) ListSkills(ctx context.Context, req *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
+	return c.listSkills.CallUnary(ctx, req)
+}
+
+// UploadSkill calls podium.agent.v1.AgentService.UploadSkill.
+func (c *agentServiceClient) UploadSkill(ctx context.Context, req *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error) {
+	return c.uploadSkill.CallUnary(ctx, req)
+}
+
+// SetSkillEnabled calls podium.agent.v1.AgentService.SetSkillEnabled.
+func (c *agentServiceClient) SetSkillEnabled(ctx context.Context, req *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error) {
+	return c.setSkillEnabled.CallUnary(ctx, req)
+}
+
+// DeleteSkill calls podium.agent.v1.AgentService.DeleteSkill.
+func (c *agentServiceClient) DeleteSkill(ctx context.Context, req *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return c.deleteSkill.CallUnary(ctx, req)
+}
+
 // CreateChat calls podium.agent.v1.AgentService.CreateChat.
 func (c *agentServiceClient) CreateChat(ctx context.Context, req *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
 	return c.createChat.CallUnary(ctx, req)
@@ -494,6 +568,21 @@ type AgentServiceHandler interface {
 	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
 	// stored playbook that is not there is not an error.
 	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
+	// ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
+	// uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
+	// The directory wins a name clash, and a stored skill it shadows is reported as such.
+	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
+	// held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
+	// path it may not, or with a SKILL.md the harness would not load is refused with the rule
+	// it broke.
+	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
+	// SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
+	// names a disabled skill fails its turns saying so rather than running without it.
+	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
+	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
+	// file on the conductor's host and this API does not delete those.
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -623,6 +712,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListSkillsHandler := connect.NewUnaryHandler(
+		AgentServiceListSkillsProcedure,
+		svc.ListSkills,
+		connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUploadSkillHandler := connect.NewUnaryHandler(
+		AgentServiceUploadSkillProcedure,
+		svc.UploadSkill,
+		connect.WithSchema(agentServiceMethods.ByName("UploadSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetSkillEnabledHandler := connect.NewUnaryHandler(
+		AgentServiceSetSkillEnabledProcedure,
+		svc.SetSkillEnabled,
+		connect.WithSchema(agentServiceMethods.ByName("SetSkillEnabled")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteSkillHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteSkillProcedure,
+		svc.DeleteSkill,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceCreateChatHandler := connect.NewUnaryHandler(
 		AgentServiceCreateChatProcedure,
 		svc.CreateChat,
@@ -685,6 +798,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceUpdatePlaybookHandler.ServeHTTP(w, r)
 		case AgentServiceDeletePlaybookProcedure:
 			agentServiceDeletePlaybookHandler.ServeHTTP(w, r)
+		case AgentServiceListSkillsProcedure:
+			agentServiceListSkillsHandler.ServeHTTP(w, r)
+		case AgentServiceUploadSkillProcedure:
+			agentServiceUploadSkillHandler.ServeHTTP(w, r)
+		case AgentServiceSetSkillEnabledProcedure:
+			agentServiceSetSkillEnabledHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteSkillProcedure:
+			agentServiceDeleteSkillHandler.ServeHTTP(w, r)
 		case AgentServiceCreateChatProcedure:
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
@@ -772,6 +893,22 @@ func (UnimplementedAgentServiceHandler) UpdatePlaybook(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePlaybook is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSkills is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UploadSkill is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSkillEnabled is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteSkill is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {

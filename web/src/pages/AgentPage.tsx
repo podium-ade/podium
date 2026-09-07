@@ -4,6 +4,7 @@ import {
   Brain,
   History,
   MessageSquare,
+  Puzzle,
   Settings2,
   Sparkles,
   UserRound,
@@ -17,6 +18,7 @@ import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
+import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { PageHeader } from "../components/PageHeader";
@@ -64,6 +66,7 @@ const groups: Group[] = [
     tabs: [
       { path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound },
       { path: "playbooks", label: "Playbooks", element: <PlaybooksPanel />, icon: Sparkles },
+      { path: "skills", label: "Skills", element: <SkillsPanel />, icon: Puzzle },
       { path: "settings", label: "Settings", element: <SettingsTab />, icon: Settings2 },
     ],
   },

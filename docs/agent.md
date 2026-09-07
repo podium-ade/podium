@@ -116,7 +116,7 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
-| `PODIUM_AGENT_SKILLS_DIR` | for `skills:` | — | one directory per Agent Skill, each with a `SKILL.md`. No default: unset means this conductor delivers none |
+| `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -315,8 +315,17 @@ skills: [pr-review, release-notes]
 also removes the `skill` tool from the agent altogether — so the skills built into the harness
 itself cannot be loaded either.
 
-The names come out of **`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per
-skill:
+The names come out of the conductor's **skill library**, which has two halves.
+
+**Uploaded, in the conductor's database.** The Skills screen in the web UI takes a zip of the
+skill's directory or the text of a `SKILL.md`, validates it, and stores the bundle beside the
+playbooks. This is the way in that needs no shell on the conductor's host, and it is what
+`AgentService.ListSkills`, `UploadSkill`, `SetSkillEnabled` and `DeleteSkill` are for. A stored
+skill can be turned **off** without being deleted; a playbook that names a disabled skill fails
+its turns saying so, because a turn quietly running with fewer skills than its playbook
+describes is the one outcome nobody can diagnose afterwards.
+
+**`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per skill:
 
 ```
 $PODIUM_AGENT_SKILLS_DIR/
@@ -327,8 +336,25 @@ $PODIUM_AGENT_SKILLS_DIR/
     SKILL.md
 ```
 
-There is no default for that variable. Unset means this conductor delivers no skills, and a
-playbook that names one fails its turns saying so — every other playbook keeps running.
+There is no default for that variable, and it is not required: a conductor with no directory
+serves the uploaded half alone.
+
+**When a name is in both places, the directory wins.** It is a file, put there by whoever runs
+the process, and it is the escape hatch for the case where the database or the browser is not
+available — so a browser cannot override one. That is the same rule a `playbooks/<name>.yaml`
+gets, and the consequences are the same three:
+
+- The write RPCs refuse a name the directory holds: upload, disable and delete all answer
+  `failed_precondition` naming the directory.
+- A stored skill the directory has since claimed is **shadowed**. It never runs, and the Skills
+  screen shows it under its own heading so it can be deleted — which is the only way to make
+  that list say what a turn will actually get.
+- A directory that exists and will not load is an **error**, not a reason to serve the
+  database's answer under the same name. `ListSkills` reports it with the reason attached
+  rather than hiding it.
+
+A name that is in neither place fails the turn of the playbook that asked for it, naming both
+places it looked. Every other playbook keeps running.
 
 **Where they land.** Just before the harness starts, the runtime writes each skill to
 `$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
@@ -342,15 +368,26 @@ permission map:
 The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
 does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
 
-**How the bytes get there.** The conductor reads the directory at the start of every turn, packs
-it, and puts it on the task spec as one environment variable per skill —
-`PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the name, a sha256 digest
-and the name of that variable, the same way it carries the *name* of a credential's variable and
-never the value. The runtime verifies the digest before it writes anything.
+**How the bytes get there.** The conductor resolves the playbook's names against the library at
+the start of every turn — the directory first, then the database — packs each bundle, and puts it
+on the task spec as one environment variable per skill: `PODIUM_AGENT_SKILL_PR_REVIEW` for
+`pr-review`. The brief carries only the name, a sha256 digest and the name of that variable, the
+same way it carries the *name* of a credential's variable and never the value. The runtime
+verifies the digest before it writes anything.
 
-Reading per turn rather than at start-up is deliberate: a skill you have just edited is the one the
-next turn gets, and a skill that has gone wrong fails the playbook that names it instead of taking
-the conductor down.
+What the database holds is the bundle **document** — the JSON file map the digest is over — and
+not the gzip and base64 a turn travels with. Those are re-derived per turn, so the digest means
+one thing whatever the delivery later becomes, and a document that has been changed under the
+row fails on it rather than reaching a container. It lives in `podium_agent`, table
+`agent_skills`, one row per skill — the table is not called `skills` because 0003 renamed
+that one to `playbooks` precisely to free the word. It is a `bytea` column and not an object:
+`PODIUM_S3_*` belongs to `podium-server`, so putting bundles in the artifact bucket would mean
+handing the conductor read and delete on every artifact any task has ever produced, in order to
+store something capped at 128 KiB.
+
+Resolving per turn rather than at start-up is deliberate: a skill you have just edited or just
+uploaded is the one the next turn gets, with no restart, and a skill that has gone wrong fails
+the playbook that names it instead of taking the conductor down.
 
 **What a bundle may contain.** The guards are refusals, not repairs — a skill that trips one fails
 the turn with a message naming what it was:
@@ -373,17 +410,52 @@ Two consequences worth stating plainly:
   a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
   absent rather than defended against. A skill's script is run through its interpreter
   (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
-- **Phase 2 carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
-  environment variable, and Linux caps a single environment string at 128 KiB — past that the
-  container cannot `exec` at all, before Podium runs to say so. The 64 KiB delivery cap is half
-  of that margin; for markdown, which compresses about threefold, the unpacked 128 KiB cap is
-  what you hit first. Either way it is a directory of prose and small scripts, not a skill that
-  ships a binary, a wheel or an image. A skill that does not fit is refused, naming the cap;
-  carrying a large one needs real storage, which is the next piece of work rather than a number
-  you can raise here.
+- **Podium carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
+  environment variable on the task spec, and Linux caps a single environment string at 128 KiB —
+  past that the container cannot `exec` at all, before Podium runs to say so. The 64 KiB
+  delivery cap is half of that margin; for markdown, which compresses about threefold, the
+  unpacked 128 KiB cap is what you hit first. Either way it is a directory of prose and small
+  scripts, not a skill that ships a binary, a wheel or an image.
 
-There is no web UI for this yet: `skills:` is a playbook *file* field. A playbook created in the
-browser has no skills.
+  **Storing a skill did not raise that cap, and could not.** The bytes have to reach a task
+  container, and there are exactly three ways anything does: an environment string, a read-only
+  bind mount of a file the node wrote, and the image itself. The workspace volume is created
+  empty; nothing calls `CopyToContainer`. A task has no object-store credential and no API
+  token, and the node has no way to fetch a blob from the control plane — `NodeService` is
+  `Enroll`, `Stream` and `UploadArtifact`, and nothing else. So lifting the cap means teaching
+  the control plane to carry a file to a node and the node to bind-mount it, exactly as it
+  already does for a `target: file` secret. That is a `podium.v1` wire change, a
+  `podium-server` change and a `podium-node` change; it is not a number that can be raised
+  here.
+
+**Where the caps are enforced.** All of them, at upload as well as at delivery. A skill too big
+to travel used to be accepted and then fail the first turn that asked for it; it is now refused
+when somebody presses Upload, with the number in the message. Nothing that fails a rule is ever
+stored, so the library cannot hold a skill that will not run.
+
+An upload has two caps of its own, for the archive rather than the skill: **1 MiB** of bytes
+and **256 entries** before it is read at all. A zip is compressed, so an archive is read as far
+as that and then refused with the unpacked cap it actually failed — the number a human can act
+on. A `__MACOSX/` entry and a `.DS_Store` are skipped rather than refused, because a desktop
+archiver put them there and nobody meant to ship them. Everything else an archive can carry and
+a bundle cannot — a symlink, an absolute path, a `..`, a duplicate path, a non-UTF-8 file — is a
+refusal naming the entry.
+
+#### Granting a skill from the browser
+
+`skills:` is also a field on the playbook editor, so a playbook created in the browser can name
+skills. The editor offers the installed names and warns — rather than refuses — about a name
+with nothing behind it: `profiles.Load` deliberately does not check that a named skill exists,
+because a playbook file has to load on a machine that has none, and the editor refusing where
+the loader accepts would be the only place in Podium the two disagreed.
+
+**Deleting a skill a playbook names is allowed**, for the same reason. `ListSkills` reports
+which playbooks name each skill and the delete dialog says which turns will start failing, so
+it is a decision rather than a surprise.
+
+Who may do any of this: whoever can reach the web UI. There is no per-skill or per-playbook
+permission, and granting a skill to a playbook is exactly as consequential as giving that
+playbook a credential. See `docs/security.md`.
 
 ### Which playbook runs
 

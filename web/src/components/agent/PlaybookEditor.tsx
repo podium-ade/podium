@@ -43,6 +43,7 @@ export type PlaybookDraft = {
   repos: { name: string; url: string; defaultBranch: string }[];
   slackChannels: string[];
   linear: boolean;
+  skills: string[];
   env: Record<string, string>;
 };
 
@@ -57,6 +58,17 @@ export type PlaybookEditorProps = {
   secretNames: string[];
   /** True when the secret list could not be read, so "not registered" cannot be claimed. */
   secretsUnknown?: boolean;
+  /**
+   * The Agent Skills this conductor can actually deliver, for the allow-list. A name not in
+   * here is still accepted — profiles.Load deliberately does not check that a named skill
+   * exists, so a playbook stays loadable on a machine that has none — and the form warns
+   * instead of refusing.
+   */
+  skillNames?: string[];
+  /** The names of skills that exist and are turned off. Naming one fails the turn. */
+  disabledSkillNames?: string[];
+  /** True when the skill list could not be read, so "not installed" cannot be claimed. */
+  skillsUnknown?: boolean;
   saving?: boolean;
   deleting?: boolean;
   /**
@@ -102,6 +114,9 @@ export function PlaybookEditor({
   profileDefault,
   secretNames,
   secretsUnknown,
+  skillNames,
+  disabledSkillNames,
+  skillsUnknown,
   saving,
   deleting,
   error,
@@ -129,6 +144,7 @@ export function PlaybookEditor({
   const [labels, setLabels] = useState((playbook?.labels ?? []).join(", "));
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
+  const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
   const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
   const [memoryMb, setMemoryMb] = useState(String(playbook?.resources?.memoryMb ?? ""));
   const [pids, setPids] = useState(String(playbook?.resources?.pids ?? ""));
@@ -145,8 +161,11 @@ export function PlaybookEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const registered = useMemo(() => new Set(secretNames), [secretNames]);
+  const installed = useMemo(() => new Set(skillNames ?? []), [skillNames]);
+  const disabled = useMemo(() => new Set(disabledSkillNames ?? []), [disabledSkillNames]);
 
   const toolList = splitLines(tools);
+  const skillList = splitLines(skills);
   const nameOk = PLAYBOOK_NAME_RE.test(name);
   const problems: string[] = [];
   if (!nameOk) problems.push("name");
@@ -179,6 +198,7 @@ export function PlaybookEditor({
         .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
       slackChannels: splitList(channels),
       linear,
+      skills: skillList,
       env: Object.fromEntries(
         envRows.filter((r) => r.a.trim() !== "").map((r) => [r.a.trim(), r.b]),
       ),
@@ -528,6 +548,66 @@ export function PlaybookEditor({
               <p className="text-2xs text-faint">
                 No secrets are registered on this control plane yet.{" "}
                 <Link to="/secrets" className="text-accent hover:underline">
+                  Add one
+                </Link>{" "}
+                and it will appear here.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <h3 className="text-xs font-medium text-fg">Agent Skills</h3>
+              <p className="max-w-2xl text-2xs leading-relaxed text-faint">
+                One name per line, out of the{" "}
+                <Link to="/agent/skills" className="text-accent hover:underline">
+                  Skills
+                </Link>{" "}
+                library. A skill is instructions and scripts somebody else wrote, and they run
+                in this playbook&apos;s container with this playbook&apos;s credentials. Naming
+                none — the default — is enforced and not merely unset: the turn is handed a
+                permission map that denies every skill, the harness&apos;s own included.
+              </p>
+            </div>
+            <datalist id="podium-skill-names">
+              {(skillNames ?? []).map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            <Textarea
+              id={`${uid}-skills`}
+              aria-label="Agent Skills"
+              value={skills}
+              onChange={(e) => setSkills(e.target.value)}
+              rows={3}
+              spellCheck={false}
+              placeholder={"pr-review\nrelease-notes"}
+              className="max-w-md font-mono text-xs"
+            />
+            {skillList
+              .filter((n) => !skillsUnknown && !installed.has(n))
+              .map((n) => (
+                <p key={n} className="text-xs text-warn" data-testid="skill-missing">
+                  No skill named <Mono>{n}</Mono> is installed on this conductor — a turn of this
+                  playbook will fail.{" "}
+                  <Link to="/agent/skills" className="text-accent hover:underline">
+                    Add it
+                  </Link>
+                  .
+                </p>
+              ))}
+            {skillList
+              .filter((n) => disabled.has(n))
+              .map((n) => (
+                <p key={n} className="text-xs text-warn" data-testid="skill-disabled">
+                  <Mono>{n}</Mono> is installed but disabled — a turn of this playbook will fail
+                  rather than run without it.
+                </p>
+              ))}
+            {(skillNames ?? []).length === 0 && !skillsUnknown ? (
+              <p className="text-2xs text-faint">
+                No skills are installed on this conductor yet.{" "}
+                <Link to="/agent/skills" className="text-accent hover:underline">
                   Add one
                 </Link>{" "}
                 and it will appear here.

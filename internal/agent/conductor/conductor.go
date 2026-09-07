@@ -307,12 +307,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// not at start-up so that a skill an operator has just edited is the one the next turn
 	// gets, and so that a broken skill fails the playbook that names it rather than the
 	// whole conductor.
-	bundles, err := c.skillBundles(playbook)
+	bundles, err := c.skillBundles(ctx, playbook)
 	if err != nil {
-		// The reason names a path and a cap on the conductor's own host, so it goes to the
-		// log and not to a human, like every other "I could not start".
+		// The reason names a path, a database row or a cap on the conductor's own side, so it
+		// goes to the log and not to a human, like every other "I could not start".
 		c.logger.ErrorContext(ctx, "the playbook's agent skills could not be prepared",
-			"turn_id", turn.ID, "playbook", playbook.Name, "skills_dir", c.skillsDir, "error", err)
+			"turn_id", turn.ID, "playbook", playbook.Name, "skills_dir", c.skillsDir,
+			"skills", playbook.Skills, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
 			"The `%s` playbook asks for skills I could not prepare, so nothing ran. "+
 				"An operator should check the logs.", playbook.Name)})
@@ -492,21 +493,31 @@ func (c *Conductor) taskSpec(
 }
 
 // skillBundles reads and packs the Agent Skills the playbook names. A playbook that names
-// none reads nothing: the directory does not have to exist, or be configured, for a bot
-// that does not use skills.
-func (c *Conductor) skillBundles(playbook profiles.Playbook) ([]skills.Bundle, error) {
+// none reads nothing: neither source has to exist, or be configured, for a bot that does not
+// use skills.
+func (c *Conductor) skillBundles(ctx context.Context, playbook profiles.Playbook) ([]skills.Bundle, error) {
 	if len(playbook.Skills) == 0 {
 		return nil, nil
 	}
-	if c.skillsDir == "" {
-		return nil, fmt.Errorf("playbook %q names %d agent skill(s) and %s is not set on this host",
-			playbook.Name, len(playbook.Skills), skills.DirEnv)
-	}
-	bundles, err := skills.LoadAll(c.skillsDir, playbook.Skills)
+	bundles, err := c.skills().Bundles(ctx, playbook.Skills)
 	if err != nil {
 		return nil, fmt.Errorf("playbook %q: %w", playbook.Name, err)
 	}
 	return bundles, nil
+}
+
+// skills is the library one turn resolves its names against: the directory on this host
+// first, then the conductor's database. The directory wins — see skills.Library.
+//
+// The nil check is not decoration. A *store.Store assigned straight into an interface field
+// gives a non-nil interface holding a nil pointer, and the library's "do I have a database"
+// test would then be true on a Conductor built without one.
+func (c *Conductor) skills() skills.Library {
+	lib := skills.Library{Dir: c.skillsDir}
+	if c.store != nil {
+		lib.Store = c.store
+	}
+	return lib
 }
 
 // The Docker daemon a `docker: true` playbook gets. It is the conductor's to build rather
