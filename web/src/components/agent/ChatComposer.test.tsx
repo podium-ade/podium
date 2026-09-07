@@ -78,18 +78,23 @@ describe("ChatComposer", () => {
     expect(screen.getByTestId("chat-playbook")).toBeDisabled();
   });
 
-  it("cycles the playbook chip on click", async () => {
+  it("opens a menu of playbooks and picks one", async () => {
     const { onPlaybookChange } = mount();
     const chip = screen.getByTestId("chat-playbook");
     expect(chip).toHaveTextContent("/analyst");
     await userEvent.click(chip);
+    const menu = await screen.findByTestId("chat-playbook-menu");
+    expect(menu).toHaveTextContent("/coder");
+    expect(menu).toHaveTextContent("/general");
+    await userEvent.click(screen.getByRole("button", { name: /\/coder/ }));
     expect(onPlaybookChange).toHaveBeenCalledWith("coder");
   });
 
-  it("wraps round the end of the playbook list", async () => {
-    const { onPlaybookChange } = mount({ playbook: "general" });
+  it("marks the current playbook in the menu", async () => {
+    mount({ playbook: "general" });
     await userEvent.click(screen.getByTestId("chat-playbook"));
-    expect(onPlaybookChange).toHaveBeenCalledWith("analyst");
+    const selected = await screen.findByRole("option", { selected: true });
+    expect(selected).toHaveTextContent("/general");
   });
 
   it("shows the first playbook when the chosen one is not there", () => {
@@ -185,8 +190,9 @@ describe("ChatComposer", () => {
     expect(trigger).toHaveTextContent("The playbook's model");
 
     await userEvent.click(trigger);
-    expect(await screen.findByTestId("agent-picker-trigger")).toHaveTextContent(
-      "The playbook's model",
-    );
+    // One click, not a menu inside a menu: the catalogue is the popover.
+    const list = await screen.findByRole("listbox", { name: "This message: models" });
+    expect(list).toHaveTextContent("Inherit");
+    expect(list).toHaveTextContent("grok-4.6");
   });
 });

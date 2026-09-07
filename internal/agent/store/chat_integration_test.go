@@ -330,6 +330,73 @@ func TestAChatRemembersItsPlaybookAndMayBeRenamed(t *testing.T) {
 	assert.Equal(t, "August numbers", byID[chat.ID].Title)
 }
 
+func TestRunningChatTaskIsTheTurnInFlight(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "August numbers")
+	require.NoError(t, err)
+	id, err := s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "a chat that has never had a turn has no task to cancel")
+
+	turn := runningTurn(t, s, chat.ID)
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "CreateTask has not answered yet, so there is nothing to cancel")
+
+	require.NoError(t, s.SetTurnTask(ctx, turn.ID, "task_01xyz"))
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "task_01xyz", id)
+
+	other, err := s.CreateChat(ctx, "alice", "something else")
+	require.NoError(t, err)
+	id, err = s.RunningChatTask(ctx, other.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "the running task is per chat, not per login")
+
+	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "4,812."))
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "a finished turn is no longer a task to cancel")
+}
+
+func TestDeleteChatTakesItsMessagesAndNobodyElses(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	alice, err := s.CreateChat(ctx, "alice", "alice's")
+	require.NoError(t, err)
+	_, err = s.AppendChatMessage(ctx, ChatMessage{ChatID: alice.ID, Role: RoleUser, Text: "hello"})
+	require.NoError(t, err)
+	bob, err := s.CreateChat(ctx, "bob", "bob's")
+	require.NoError(t, err)
+
+	err = s.DeleteChat(ctx, alice.ID, "bob")
+	assert.ErrorIs(t, err, ErrNotFound, "another login's chat is not there, not forbidden")
+	_, err = s.GetChat(ctx, alice.ID)
+	require.NoError(t, err, "bob's attempt must leave alice's chat")
+
+	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice"))
+	_, err = s.GetChat(ctx, alice.ID)
+	assert.ErrorIs(t, err, ErrNotFound)
+	msgs, err := s.ListChatMessages(ctx, alice.ID, 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "the messages go with the chat")
+
+	_, err = s.GetChat(ctx, bob.ID)
+	require.NoError(t, err, "bob's chat is not in alice's delete")
+
+	err = s.DeleteChat(ctx, alice.ID, "alice")
+	assert.ErrorIs(t, err, ErrNotFound, "deleting a chat that is already gone is not found")
+
+	err = s.DeleteChat(ctx, "", "alice")
+	assert.ErrorContains(t, err, "an id is required")
+	err = s.DeleteChat(ctx, alice.ID, "")
+	assert.ErrorContains(t, err, "a login is required")
+}
+
 func TestChatPreviewCutsRunesNotBytes(t *testing.T) {
 	assert.Equal(t, "", preview("   ", 5))
 	assert.Equal(t, "hello", preview("  hello  ", 5))

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { AgentBackend, AgentModel } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -6,6 +6,7 @@ import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { BackendMark } from "./BackendMark";
 
 export type AgentPickerProps = {
@@ -24,6 +25,12 @@ export type AgentPickerProps = {
   loading?: boolean;
   /** Prefix for the aria-labels, so two pickers on one screen are distinguishable. */
   label: string;
+  /**
+   * Skip the trigger and render the searchable list in-flow. The chat composer uses this
+   * inside its own popover so picking a model is one click, not a menu inside a menu —
+   * nested absolute lists were what painted the catalogue off the bottom of the window.
+   */
+  embedded?: boolean;
 };
 
 /**
@@ -49,12 +56,12 @@ export function AgentPicker({
   disabled,
   loading,
   label,
+  embedded,
 }: AgentPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [custom, setCustom] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listID = useId();
 
@@ -70,26 +77,7 @@ export function AgentPicker({
   // against a model it has never heard of anyway.
   const efforts = chosen?.model.efforts ?? backendEfforts(backend);
 
-  // The popover closes on a click anywhere else and on Escape. Both are the behaviours a
-  // person already expects from every other menu they use today.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  // The search box takes focus when the popover opens, so typing filters immediately
-  // rather than needing a click first. Focus is the only thing this effect does: resetting
-  // the query and the cursor happens in the handler that opened it.
-  useEffect(() => {
-    if (open) searchRef.current?.focus();
-  }, [open]);
-
-  function toggle() {
-    const next = !open;
+  function onOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
       setQuery("");
@@ -138,74 +126,89 @@ export function AgentPicker({
 
   const summary = describe(value, chosen, backend, inherit, inherited);
 
-  return (
-    <div className="space-y-2" ref={rootRef}>
-      <div className="relative">
-        <button
-          type="button"
-          disabled={disabled || loading}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-label={`${label}: agent and model`}
-          data-testid="agent-picker-trigger"
-          onClick={toggle}
-          className="flex w-full items-center gap-2.5 rounded-md border border-border bg-bg px-2.5 py-2 text-left text-xs shadow-xs transition-[border-color,box-shadow] duration-150 outline-none hover:border-muted/45 focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <BackendMark id={summary.markID} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-fg">{summary.title}</span>
-            <span className="block truncate text-2xs text-muted">{summary.sub}</span>
-          </span>
-          {value.effort ? (
-            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-2xs text-muted">
-              {value.effort}
-            </span>
-          ) : null}
-          <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted" />
-        </button>
-
-        {open ? (
-          <div
-            className="absolute z-30 mt-1 w-full origin-top animate-in fade-in-0 zoom-in-95 overflow-hidden rounded-lg border border-border bg-popover shadow-lg duration-150"
-            onKeyDown={onKeyDown}
-          >
-            <input
-              ref={searchRef}
-              value={query}
-              aria-label={`${label}: search models`}
-              placeholder="Search models…"
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setActive(0);
-              }}
-              className="w-full border-b border-hairline bg-transparent px-3 py-2 text-xs text-fg outline-none placeholder:text-faint"
-            />
-            <ul
-              id={listID}
-              role="listbox"
-              aria-label={`${label}: models`}
-              className="max-h-72 overflow-y-auto py-1"
-            >
-              {rows.length === 0 ? (
-                <li className="px-3 py-2 text-xs text-muted">
-                  Nothing matches. Pick “Use another model id” to type one.
-                </li>
-              ) : null}
-              {rows.map((row, i) => (
-                <RowItem
-                  key={rowKey(row)}
-                  row={row}
-                  active={i === active}
-                  selected={isSelected(row, value)}
-                  inherited={inherited}
-                  onHover={() => setActive(i)}
-                  onPick={() => choose(row)}
-                />
-              ))}
-            </ul>
-          </div>
+  const menu = (
+    <>
+      <input
+        ref={searchRef}
+        value={query}
+        aria-label={`${label}: search models`}
+        placeholder="Search models…"
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActive(0);
+        }}
+        autoFocus={embedded}
+        className="w-full shrink-0 border-b border-hairline bg-transparent px-3 py-2 text-xs text-fg outline-none placeholder:text-faint"
+      />
+      <ul
+        id={listID}
+        role="listbox"
+        aria-label={`${label}: models`}
+        className={embedded ? "py-1" : "min-h-0 flex-1 overflow-y-auto py-1"}
+      >
+        {rows.length === 0 ? (
+          <li className="px-3 py-2 text-xs text-muted">
+            Nothing matches. Pick “Use another model id” to type one.
+          </li>
         ) : null}
-      </div>
+        {rows.map((row, i) => (
+          <RowItem
+            key={rowKey(row)}
+            row={row}
+            active={i === active}
+            selected={isSelected(row, value)}
+            inherited={inherited}
+            onHover={() => setActive(i)}
+            onPick={() => choose(row)}
+          />
+        ))}
+      </ul>
+    </>
+  );
+
+  return (
+    <div className="w-full space-y-2">
+      {embedded ? (
+        <div onKeyDown={onKeyDown}>{menu}</div>
+      ) : (
+        <Popover open={open} onOpenChange={onOpenChange} modal={false}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled || loading}
+              aria-haspopup="listbox"
+              aria-expanded={open}
+              aria-label={`${label}: agent and model`}
+              data-testid="agent-picker-trigger"
+              className="flex w-full items-center gap-2.5 rounded-md border border-border bg-bg px-2.5 py-2 text-left text-xs shadow-xs transition-[border-color,box-shadow] duration-150 outline-none hover:border-muted/45 focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <BackendMark id={summary.markID} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-fg">{summary.title}</span>
+                <span className="block truncate text-2xs text-muted">{summary.sub}</span>
+              </span>
+              {value.effort ? (
+                <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-2xs text-muted">
+                  {value.effort}
+                </span>
+              ) : null}
+              <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              searchRef.current?.focus();
+            }}
+            onKeyDown={onKeyDown}
+            className="flex w-[var(--radix-popover-trigger-width)] min-w-72 flex-col overflow-hidden p-0"
+          >
+            {menu}
+          </PopoverContent>
+        </Popover>
+      )}
 
       {custom || (value.model !== "" && !chosen) ? (
         <CustomModel

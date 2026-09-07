@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Bot, MessageSquarePlus, Sparkles } from "lucide-react";
+import { ArrowDown, Bot, MessageSquarePlus, Sparkles, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,6 +15,14 @@ import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Tooltip } from "../ui/tooltip";
 import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
@@ -63,6 +71,18 @@ export function ChatPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
+  const [pendingDelete, setPendingDelete] = useState<Chat | null>(null);
+  const remove = useMutation({
+    mutationFn: (chat: Chat) => agent.deleteChat({ chatId: chat.id }),
+    onSuccess: async (_res, chat) => {
+      setPendingDelete(null);
+      toast(`${chat.title} deleted.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      if (active === chat.id) navigate("/agent/chat");
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
   // n opens a new chat when the composer is not focused, which is the one shortcut worth
   // having on a page whose main control is a textarea.
   useEffect(() => {
@@ -106,6 +126,7 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  const deleteStopsTask = pendingDelete?.turnRunning === true;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -127,6 +148,8 @@ export function ChatPanel() {
           onNew={() => create.mutate("")}
           creating={create.isPending}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
+          onDelete={setPendingDelete}
+          deletingId={remove.isPending ? remove.variables?.id : undefined}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
           {active === "" ? (
@@ -158,6 +181,62 @@ export function ChatPanel() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {deleteStopsTask
+                ? `Stop the task and delete ${pendingDelete.title}?`
+                : `Delete ${pendingDelete?.title}?`}
+            </DialogTitle>
+            <DialogDescription>
+              The conversation goes with it. There is no undo, and nothing else holds a copy.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteStopsTask ? (
+            <Alert variant="warn" role="note">
+              A task is running in this chat. Confirming asks the node to stop it — SIGTERM, then
+              up to 30 seconds — and then deletes the conversation.
+            </Alert>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPendingDelete(null)}>
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="chat-delete-confirm"
+              aria-label={
+                deleteStopsTask
+                  ? `Stop the task and delete ${pendingDelete.title}`
+                  : pendingDelete
+                    ? `Confirm deleting ${pendingDelete.title}`
+                    : undefined
+              }
+              disabled={remove.isPending}
+              onClick={() => {
+                if (pendingDelete) remove.mutate(pendingDelete);
+              }}
+            >
+              {remove.isPending
+                ? deleteStopsTask
+                  ? "Stopping…"
+                  : "Deleting…"
+                : deleteStopsTask
+                  ? "Stop and delete"
+                  : "Delete chat"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -174,6 +253,8 @@ function ChatRail({
   onNew,
   creating,
   onOpen,
+  onDelete,
+  deletingId,
 }: {
   chats: Chat[];
   active: string;
@@ -181,13 +262,16 @@ function ChatRail({
   onNew: () => void;
   creating: boolean;
   onOpen: (id: string) => void;
+  onDelete: (chat: Chat) => void;
+  deletingId?: string;
 }) {
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
+  const activeChat = ordered.find((c) => c.id === active);
 
   return (
-    <div className="flex w-full shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:border-r sm:border-b-0">
+    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
       <div className="flex items-center gap-2 px-3 py-3">
         <p className="text-2xs font-medium tracking-wider text-faint uppercase">Chats</p>
         {ordered.length > 0 ? (
@@ -210,23 +294,41 @@ function ChatRail({
 
       {/* On a narrow viewport the rail is a select rather than a drawer: one control, no
           overlay, and the keyboard works. */}
-      <select
-        aria-label="Chat"
-        value={active}
-        onChange={(e) => onOpen(e.target.value)}
-        className="mx-3 mb-3 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg sm:hidden"
-      >
-        <option value="">Pick a chat…</option>
-        {ordered.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.title}
-          </option>
-        ))}
-      </select>
+      <div className="mx-3 mb-3 flex items-center gap-2 sm:hidden">
+        <select
+          aria-label="Chat"
+          value={active}
+          onChange={(e) => onOpen(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+        >
+          <option value="">Pick a chat…</option>
+          {ordered.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.title}
+            </option>
+          ))}
+        </select>
+        {activeChat ? (
+          <Tooltip label={`Delete ${activeChat.title}`}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-testid="chat-delete-mobile"
+              aria-label={`Delete ${activeChat.title}`}
+              disabled={deletingId === activeChat.id}
+              onClick={() => onDelete(activeChat)}
+              className="hover:bg-err/12 hover:text-err"
+            >
+              <Trash2 />
+            </Button>
+          </Tooltip>
+        ) : null}
+      </div>
 
       <ul
         data-testid="chat-list"
-        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block"
+        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
       >
         {loading
           ? Array.from({ length: 4 }, (_, i) => (
@@ -242,16 +344,19 @@ function ChatRail({
           </li>
         ) : null}
         {ordered.map((c) => (
-          <li key={c.id}>
+          <li
+            key={c.id}
+            className={`relative flex items-stretch rounded-md ${
+              c.id === active
+                ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
+                : "hover:bg-raised/60"
+            }`}
+          >
             <button
               type="button"
               onClick={() => onOpen(c.id)}
               aria-current={c.id === active ? "true" : undefined}
-              className={`relative block w-full rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                c.id === active
-                  ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
-                  : "hover:bg-raised/60"
-              }`}
+              className="min-w-0 flex-1 rounded-md px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <span className="flex items-baseline gap-2">
                 <span
@@ -278,6 +383,20 @@ function ChatRail({
                 </span>
               </span>
             </button>
+            <Tooltip label={`Delete ${c.title}`}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                data-testid="chat-delete"
+                aria-label={`Delete ${c.title}`}
+                disabled={deletingId === c.id}
+                onClick={() => onDelete(c)}
+                className="m-1 shrink-0 self-start hover:bg-err/12 hover:text-err"
+              >
+                <Trash2 />
+              </Button>
+            </Tooltip>
           </li>
         ))}
       </ul>
@@ -298,6 +417,7 @@ function Conversation({
   playbooks: Playbook[];
   chatDefaultPlaybook: string;
 }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const stream = useChatStream(chatId);
@@ -356,7 +476,25 @@ function Conversation({
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const busy = stream.running || send.isPending;
-  const connecting = stream.phase === "connecting" && stream.messages.length === 0;
+  const connecting = stream.phase === "connecting" && stream.messages.length === 0 && !stream.gone;
+
+  if (stream.gone) {
+    return (
+      <div className="grid min-h-0 flex-1 place-items-center p-6">
+        <Empty
+          className="max-w-lg"
+          icon={Sparkles}
+          title="This chat is gone"
+          hint="It was deleted, or it was never yours. Pick another, or start a new one."
+          action={
+            <Button size="sm" onClick={() => navigate("/agent/chat")}>
+              Back to chats
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <>

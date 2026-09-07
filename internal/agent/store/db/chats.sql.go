@@ -109,6 +109,26 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 	return i, err
 }
 
+const deleteChat = `-- name: DeleteChat :execrows
+delete from chats where id = $1 and login = $2
+`
+
+type DeleteChatParams struct {
+	ID    string
+	Login string
+}
+
+// DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
+// query so another owner's chat cannot be removed even if the id is known; zero rows
+// means it was not there or not theirs.
+func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteChat, arg.ID, arg.Login)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getChat = `-- name: GetChat :one
 select id, title, login, created_at, playbook, auto_title from chats where id = $1
 `
