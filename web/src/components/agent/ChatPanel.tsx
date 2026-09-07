@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Bot, MessageSquarePlus, Sparkles } from "lucide-react";
+import { ArrowDown, Bot, MessageSquarePlus, Pencil, Sparkles } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,6 +15,7 @@ import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
@@ -23,6 +24,9 @@ import { ChatMarkdown } from "./chat/ChatMarkdown";
 
 /** SCROLL_SLACK_PX is how far off the bottom still counts as "at the bottom". */
 const SCROLL_SLACK_PX = 40;
+
+/** Matches store.MaxChatTitleRunes — the input refuses more, the server does too. */
+const MAX_CHAT_TITLE = 80;
 
 /**
  * ChatPanel is the web chat: the third place a turn can start from, and the only one whose
@@ -62,6 +66,18 @@ export function ChatPanel() {
     },
     onError: (err) => toast(errorMessage(err)),
   });
+
+  const rename = useMutation({
+    mutationFn: (v: { id: string; title: string }) =>
+      agent.renameChat({ chatId: v.id, title: v.title }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
+  const renameChat = (id: string, title: string) =>
+    rename.mutateAsync({ id, title }).then(() => undefined);
 
   // n opens a new chat when the composer is not focused, which is the one shortcut worth
   // having on a page whose main control is a textarea.
@@ -127,6 +143,7 @@ export function ChatPanel() {
           onNew={() => create.mutate("")}
           creating={create.isPending}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
+          onRename={renameChat}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
           {active === "" ? (
@@ -150,6 +167,8 @@ export function ChatPanel() {
             <Conversation
               key={active}
               chatId={active}
+              title={list.find((c) => c.id === active)?.title ?? ""}
+              onRename={(title) => renameChat(active, title)}
               botName={playbooks.data?.profileDisplayName ?? "Podium"}
               playbooks={playbooks.data?.playbooks ?? []}
               chatDefaultPlaybook={playbooks.data?.playbooks.find((s) => s.chatDefault)?.name ?? ""}
@@ -173,6 +192,7 @@ function ChatRail({
   onNew,
   creating,
   onOpen,
+  onRename,
 }: {
   chats: Chat[];
   active: string;
@@ -180,6 +200,7 @@ function ChatRail({
   onNew: () => void;
   creating: boolean;
   onOpen: (id: string) => void;
+  onRename: (id: string, title: string) => Promise<void>;
 }) {
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
@@ -241,53 +262,258 @@ function ChatRail({
           </li>
         ) : null}
         {ordered.map((c) => (
-          <li key={c.id}>
-            <button
-              type="button"
-              onClick={() => onOpen(c.id)}
-              aria-current={c.id === active ? "true" : undefined}
-              className={`relative block w-full rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                c.id === active
-                  ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
-                  : "hover:bg-raised/60"
-              }`}
-            >
-              <span className="flex items-baseline gap-2">
-                <span
-                  className={`min-w-0 flex-1 truncate text-sm ${
-                    c.id === active ? "font-medium text-fg" : "text-fg"
-                  }`}
-                >
-                  {c.title}
-                </span>
-                <span
-                  className="tabular shrink-0 text-2xs text-faint"
-                  title={absolute(c.lastMessageAt ?? c.createdAt)}
-                >
-                  {relative(c.lastMessageAt ?? c.createdAt)}
-                </span>
-              </span>
-              <span className="mt-1 flex items-center gap-1.5">
-                {c.turnRunning ? <Badge tone="run">running</Badge> : null}
-                <span className="min-w-0 flex-1 truncate text-xs text-muted">
-                  {c.preview || "nothing said yet"}
-                </span>
-              </span>
-            </button>
-          </li>
+          <ChatRow
+            key={c.id}
+            chat={c}
+            active={c.id === active}
+            onOpen={onOpen}
+            onRename={onRename}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
+function ChatRow({
+  chat,
+  active,
+  onOpen,
+  onRename,
+}: {
+  chat: Chat;
+  active: boolean;
+  onOpen: (id: string) => void;
+  onRename: (id: string, title: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(chat.title);
+  const [saving, setSaving] = useState(false);
+  const ignoreBlur = useRef(false);
+
+  const start = () => {
+    ignoreBlur.current = false;
+    setDraft(chat.title);
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    ignoreBlur.current = true;
+    setDraft(chat.title);
+    setEditing(false);
+  };
+
+  const submit = async () => {
+    const next = draft.trim();
+    if (next === "" || next === chat.title) {
+      cancel();
+      return;
+    }
+    setSaving(true);
+    try {
+      await onRename(chat.id, next);
+      ignoreBlur.current = true;
+      setEditing(false);
+    } catch {
+      // The mutation already toasted.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <li>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+          className="px-2.5 py-2"
+        >
+          <Input
+            data-testid="chat-title-input"
+            aria-label="Chat title"
+            value={draft}
+            maxLength={MAX_CHAT_TITLE}
+            disabled={saving}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (!ignoreBlur.current) void submit();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                cancel();
+              }
+            }}
+            className="h-7 px-2"
+          />
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group relative">
+      <button
+        type="button"
+        onClick={() => onOpen(chat.id)}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          start();
+        }}
+        aria-current={active ? "true" : undefined}
+        className={`relative block w-full rounded-md px-2.5 py-2 pr-8 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+          active
+            ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
+            : "hover:bg-raised/60"
+        }`}
+      >
+        <span className="flex items-baseline gap-2">
+          <span
+            className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium text-fg" : "text-fg"}`}
+          >
+            {chat.title}
+          </span>
+          <span
+            className={`tabular shrink-0 text-2xs text-faint ${
+              active ? "invisible" : "group-hover:invisible group-focus-within:invisible"
+            }`}
+            title={absolute(chat.lastMessageAt ?? chat.createdAt)}
+          >
+            {relative(chat.lastMessageAt ?? chat.createdAt)}
+          </span>
+        </span>
+        <span className="mt-1 flex items-center gap-1.5">
+          {chat.turnRunning ? <Badge tone="run">running</Badge> : null}
+          <span className="min-w-0 flex-1 truncate text-xs text-muted">
+            {chat.preview || "nothing said yet"}
+          </span>
+        </span>
+      </button>
+      <Tooltip label="Rename">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          data-testid="chat-rename"
+          aria-label={`Rename ${chat.title}`}
+          onClick={start}
+          className={`absolute top-1.5 right-1 ${
+            active ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          }`}
+        >
+          <Pencil />
+        </Button>
+      </Tooltip>
+    </li>
+  );
+}
+
+function ConversationTitle({
+  title,
+  onRename,
+}: {
+  title: string;
+  onRename: (title: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const [saving, setSaving] = useState(false);
+  const ignoreBlur = useRef(false);
+
+  const start = () => {
+    if (!title) return;
+    ignoreBlur.current = false;
+    setDraft(title);
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    ignoreBlur.current = true;
+    setDraft(title);
+    setEditing(false);
+  };
+
+  const submit = async () => {
+    const next = draft.trim();
+    if (next === "" || next === title) {
+      cancel();
+      return;
+    }
+    setSaving(true);
+    try {
+      await onRename(next);
+      ignoreBlur.current = true;
+      setEditing(false);
+    } catch {
+      // The mutation already toasted.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex h-10 shrink-0 items-center border-b border-hairline px-5">
+      {editing ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+          className="min-w-0 flex-1"
+        >
+          <Input
+            data-testid="chat-title-input"
+            aria-label="Chat title"
+            value={draft}
+            maxLength={MAX_CHAT_TITLE}
+            disabled={saving}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (!ignoreBlur.current) void submit();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                cancel();
+              }
+            }}
+            className="h-7 px-2"
+          />
+        </form>
+      ) : (
+        <button
+          type="button"
+          data-testid="chat-title"
+          onClick={start}
+          title="Rename"
+          disabled={!title}
+          className="min-w-0 truncate rounded-md text-left text-sm font-medium text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:text-muted"
+        >
+          {title || "Chat"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Conversation({
   chatId,
+  title,
+  onRename,
   botName,
   playbooks,
   chatDefaultPlaybook,
 }: {
   chatId: string;
+  title: string;
+  onRename: (title: string) => Promise<void>;
   botName: string;
   playbooks: Playbook[];
   chatDefaultPlaybook: string;
@@ -347,6 +573,7 @@ function Conversation({
 
   return (
     <>
+      <ConversationTitle title={title} onRename={onRename} />
       <div className="relative min-h-0 flex-1">
         <div
           ref={scroller}

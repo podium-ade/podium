@@ -261,6 +261,33 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 	return items, nil
 }
 
+const renameChat = `-- name: RenameChat :one
+update chats set title = $1
+ where id = $2 and login = $3
+returning id, title, login, created_at
+`
+
+type RenameChatParams struct {
+	Title string
+	ID    string
+	Login string
+}
+
+// RenameChat is filtered by login so a rename cannot cross the partition even if
+// the caller forgot to check. No row is not found, whether the chat is missing or
+// belongs to somebody else — the same answer every other chat read gives.
+func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, renameChat, arg.Title, arg.ID, arg.Login)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3

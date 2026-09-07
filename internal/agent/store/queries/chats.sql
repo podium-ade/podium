@@ -13,6 +13,14 @@ returning *;
 -- name: GetChat :one
 select * from chats where id = @id;
 
+-- RenameChat is filtered by login so a rename cannot cross the partition even if
+-- the caller forgot to check. No row is not found, whether the chat is missing or
+-- belongs to somebody else — the same answer every other chat read gives.
+-- name: RenameChat :one
+update chats set title = @title
+ where id = @id and login = @login
+returning *;
+
 -- ListChats pages a login's own chats, newest first, with the two things the list needs
 -- that are not columns: when the conversation was last spoken in, and the head of what was
 -- said. turn_running comes from the conductor's own tables, so a reload agrees with the
