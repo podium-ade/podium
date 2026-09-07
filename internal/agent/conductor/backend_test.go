@@ -92,10 +92,10 @@ func TestAnOverrideChangesTheProviderBlock(t *testing.T) {
 	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
 	p := &profiles.Profile{Agent: profiles.AgentClaude, Model: "claude-opus-5"}
 
-	base := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{}).Agent)
+	base := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{}).Agent)
 	assert.Equal(t, profiles.ProviderAnthropic, base.ID)
 
-	moved := c.providerFor(p.Resolve(profiles.Skill{}, profiles.Override{Model: "grok-4.6"}).Agent)
+	moved := c.providerFor(p.Resolve(profiles.Playbook{}, profiles.Override{Model: "grok-4.6"}).Agent)
 	assert.Equal(t, profiles.ProviderXAI, moved.ID)
 	assert.Equal(t, "XAI_API_KEY", moved.APIKeyEnv)
 }

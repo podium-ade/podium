@@ -93,11 +93,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 
 	// The stored half, before anything reads the profile. A failure here is not fatal: the
 	// files alone are a working bot, and starting on them beats refusing to start because a
-	// skill somebody made in the browser no longer merges.
+	// playbook somebody made in the browser no longer merges.
 	if _, err := api.ReloadProfile(ctx, st, live); err != nil {
-		logger.WarnContext(ctx, "the skills stored in the conductor's database could not be "+
+		logger.WarnContext(ctx, "the playbooks stored in the conductor's database could not be "+
 			"merged into the profile; running the profile directory alone. Fix it on the "+
-			"Agent → Skills screen", "error", err)
+			"Agent → Playbooks screen", "error", err)
 	}
 	profile := live.Current()
 
@@ -139,12 +139,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			APIKey:       cfg.LinearAPIKey,
 			Endpoint:     cfg.LinearURL,
 			PollInterval: cfg.LinearPollInterval,
-			// A ticket has no channel and no /skill prefix, so the source names the skill
-			// and the profile's routing rules are bypassed. Zero skills claiming Linear is
+			// A ticket has no channel and no /playbook prefix, so the source names the playbook
+			// and the profile's routing rules are bypassed. Zero playbooks claiming Linear is
 			// only a misconfiguration when a key is set, which is exactly here.
-			Skill:   func() string { return live.Current().LinearSkill() },
-			Logger:  logger,
-			Metrics: agentlinear.NewMetrics(registry),
+			Playbook: func() string { return live.Current().LinearPlaybook() },
+			Logger:   logger,
+			Metrics:  agentlinear.NewMetrics(registry),
 			// The web UI as a HUMAN reaches it, which is not always how this process
 			// reaches the API. Used only for a fallback attachment link.
 			TaskURL: func(taskID string) string {
@@ -191,10 +191,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Store:       st,
 		DisplayName: profile.DisplayName,
 		UIURL:       cfg.WebURL(),
-		// The web chat is what profile.yaml's chat_default_skill is for, so a message
-		// that names no skill runs it rather than the profile's general default.
-		DefaultSkill: live.Current().ChatSkill,
-		Logger:       logger,
+		// The web chat is what profile.yaml's chat_default_playbook is for, so a message
+		// that names no playbook runs it rather than the profile's general default.
+		DefaultPlaybook: live.Current().ChatPlaybook,
+		Logger:          logger,
 	})
 	if err != nil {
 		st.Close()
@@ -276,8 +276,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		kinds = append(kinds, src.Kind())
 	}
 	logger.Info("conductor configured", "config", cfg,
-		"profile", profile.Name, "skills", profile.SkillNames(),
-		"chat_skill", profile.ChatSkill(), "sources", kinds)
+		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
+		"chat_playbook", profile.ChatPlaybook(), "sources", kinds)
 	if !cfg.SlackEnabled() && !cfg.LinearEnabled() {
 		logger.Info("no Slack or Linear credentials: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
@@ -349,8 +349,8 @@ func (a *Agent) readyz(w http.ResponseWriter, r *http.Request) {
 // catches a change this process did not make.
 //
 // A failure keeps the profile that is running. A conductor that has been serving turns for
-// an hour must not lose its skills because Postgres blinked, and the reason is reported on
-// the Skills screen either way.
+// an hour must not lose its playbooks because Postgres blinked, and the reason is reported on
+// the Playbooks screen either way.
 func (a *Agent) reconcileProfile(ctx context.Context) {
 	tick := time.NewTicker(reconcileInterval)
 	defer tick.Stop()

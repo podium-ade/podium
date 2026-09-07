@@ -1,8 +1,8 @@
--- UpsertSession is keyed on source_key, which is the conversation's identity. The skill is
--- deliberately NOT updated: one session, one skill, fixed at creation.
+-- UpsertSession is keyed on source_key, which is the conversation's identity. The playbook is
+-- deliberately NOT updated: one session, one playbook, fixed at creation.
 -- name: UpsertSession :one
-insert into sessions (id, source_kind, source_key, profile, skill, created_at)
-values (@id, @source_kind, @source_key, @profile, @skill, @created_at)
+insert into sessions (id, source_kind, source_key, profile, playbook, created_at)
+values (@id, @source_kind, @source_key, @profile, @playbook, @created_at)
 on conflict (source_key) do update set source_kind = sessions.source_kind
 returning *;
 

@@ -202,7 +202,7 @@ type agentBrief struct {
 	TurnID              string           `json:"turn_id"`
 	Source              agentSource      `json:"source"`
 	Profile             agentProfile     `json:"profile"`
-	Skill               agentSkill       `json:"skill"`
+	Playbook            agentPlaybook    `json:"playbook"`
 	Transcript          []agentUtterance `json:"transcript"`
 	TranscriptTruncated bool             `json:"transcript_truncated"`
 	Instruction         string           `json:"instruction"`
@@ -221,7 +221,7 @@ type agentProfile struct {
 	Model        string `json:"model"`
 }
 
-type agentSkill struct {
+type agentPlaybook struct {
 	Name         string   `json:"name"`
 	SystemPrompt string   `json:"system_prompt"`
 	AllowedTools []string `json:"allowed_tools"`
@@ -248,7 +248,7 @@ func turnBrief(instruction string) agentBrief {
 			SystemPrompt: "You are Podium, an agent that runs on Podium.",
 			Model:        "claude-opus-5",
 		},
-		Skill: agentSkill{
+		Playbook: agentPlaybook{
 			Name:         "general",
 			SystemPrompt: "Answer the question. Use the tools you have to check before you answer.",
 			AllowedTools: []string{"read", "grep", "glob", "bash"},

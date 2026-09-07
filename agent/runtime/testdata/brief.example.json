@@ -14,7 +14,7 @@
     "model": "grok-4.6",
     "effort": "xhigh"
   },
-  "skill": {
+  "playbook": {
     "name": "coder",
     "system_prompt": "You write code, verify it, and open a pull request. You never push to a default branch.",
     "allowed_tools": [

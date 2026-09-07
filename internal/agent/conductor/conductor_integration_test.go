@@ -99,19 +99,19 @@ func testProfile(t *testing.T) *profiles.Profile {
 display_name: Podium
 system_prompt: be Podium
 model: claude-opus-5
-default_skill: general
+default_playbook: general
 `), 0o600))
-	require.NoError(t, os.MkdirAll(dir+"/skills", 0o750))
-	require.NoError(t, os.WriteFile(dir+"/skills/general.yaml", []byte(`image: podium-agent-runtime:dev
+	require.NoError(t, os.MkdirAll(dir+"/playbooks", 0o750))
+	require.NoError(t, os.WriteFile(dir+"/playbooks/general.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: answer the question
 allowed_tools: [read, grep]
 timeout: 15m
 `), 0o600))
-	require.NoError(t, os.WriteFile(dir+"/skills/coder.yaml", []byte(`image: podium-agent-runtime:dev
+	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
 allowed_tools: [read, edit, bash]
 `), 0o600))
-	require.NoError(t, os.WriteFile(dir+"/skills/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
+	require.NoError(t, os.WriteFile(dir+"/playbooks/dogfood.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: build podium
 allowed_tools: [read, edit, bash]
 docker: true
@@ -495,8 +495,8 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// The spec a turn runs is the skill's, plus exactly one secret the skill did not name.
-func TestTheTaskSpecIsTheSkillPlusTheReservedSecret(t *testing.T) {
+// The spec a turn runs is the playbook's, plus exactly one secret the playbook did not name.
+func TestTheTaskSpecIsThePlaybookPlusTheReservedSecret(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -530,19 +530,19 @@ func TestTheTaskSpecIsTheSkillPlusTheReservedSecret(t *testing.T) {
 	assert.Equal(t, "C1/1.1", brief.Source.Ref)
 	assert.Equal(t, "podium", brief.Profile.Name)
 	assert.Equal(t, "claude-opus-5", brief.Profile.Model)
-	assert.Equal(t, "general", brief.Skill.Name)
-	assert.Equal(t, []string{"read", "grep"}, brief.Skill.AllowedTools)
-	assert.Equal(t, profiles.DefaultMaxTurns, brief.Skill.MaxTurns)
+	assert.Equal(t, "general", brief.Playbook.Name)
+	assert.Equal(t, []string{"read", "grep"}, brief.Playbook.AllowedTools)
+	assert.Equal(t, profiles.DefaultMaxTurns, brief.Playbook.MaxTurns)
 	assert.Equal(t, "hello", brief.Instruction)
 	assert.False(t, brief.TranscriptTruncated)
 	assert.Nil(t, brief.Memory, "step 17 sends no memory block")
 	assert.Empty(t, brief.Repos)
 }
 
-// A skill with `docker: true` gets a whole daemon it never had to describe. The shape is
+// A playbook with `docker: true` gets a whole daemon it never had to describe. The shape is
 // the conductor's, so this asserts every field of it: a half-configured daemon fails in
 // ways that read as the agent's fault.
-func TestADockerSkillGetsADaemonBesideIt(t *testing.T) {
+func TestADockerPlaybookGetsADaemonBesideIt(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -573,8 +573,8 @@ func TestADockerSkillGetsADaemonBesideIt(t *testing.T) {
 		"the agent runs plain `docker` and it reaches the sidecar")
 }
 
-// The flag is the whole switch: a skill without it is unchanged, and pays nothing.
-func TestASkillWithoutTheDockerFlagGetsNoSidecar(t *testing.T) {
+// The flag is the whole switch: a playbook without it is unchanged, and pays nothing.
+func TestAPlaybookWithoutTheDockerFlagGetsNoSidecar(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -814,9 +814,9 @@ func TestAFailedTurnPostsPlainWordsAndNoRawError(t *testing.T) {
 	assert.Contains(t, reactions(records), string(conductor.ReactionFailed))
 }
 
-// One session, one skill. A later /other in the same thread is refused politely and starts
+// One session, one playbook. A later /other in the same thread is refused politely and starts
 // nothing.
-func TestASecondSkillInOneThreadIsRefused(t *testing.T) {
+func TestASecondPlaybookInOneThreadIsRefused(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -838,7 +838,7 @@ func TestASecondSkillInOneThreadIsRefused(t *testing.T) {
 	waitFor(t, 30*time.Second, "the refusal", func() bool { return len(src.Records()) > before })
 	time.Sleep(300 * time.Millisecond)
 
-	assert.Len(t, fake.Specs(), 1, "a refused skill change starts no task")
+	assert.Len(t, fake.Specs(), 1, "a refused playbook change starts no task")
 	failures := posts(src.RecordsSince(int64(before)), conductor.OutFailure)
 	require.Len(t, failures, 1)
 	assert.Contains(t, failures[0].Text, "general")
@@ -847,13 +847,13 @@ func TestASecondSkillInOneThreadIsRefused(t *testing.T) {
 
 	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "general", sess.Skill, "the session keeps the skill it started with")
+	assert.Equal(t, "general", sess.Playbook, "the session keeps the playbook it started with")
 }
 
-// TestATypedSkillBeatsTheSourcesDefault is the precedence the web chat depends on. The chat
-// source carries chat_default_skill on every event, so unless a default is kept apart from
-// a skill the source actually knows, a /skill somebody typed could never take effect there.
-func TestATypedSkillBeatsTheSourcesDefault(t *testing.T) {
+// TestATypedPlaybookBeatsTheSourcesDefault is the precedence the web chat depends on. The chat
+// source carries chat_default_playbook on every event, so unless a default is kept apart from
+// a playbook the source actually knows, a /playbook somebody typed could never take effect there.
+func TestATypedPlaybookBeatsTheSourcesDefault(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -865,41 +865,41 @@ func TestATypedSkillBeatsTheSourcesDefault(t *testing.T) {
 	ctx := context.Background()
 	start(t, st, fake, src)
 
-	// Nothing named a skill, so the source's default runs rather than profile.default_skill.
+	// Nothing named a playbook, so the source's default runs rather than profile.default_playbook.
 	plain := inbound("C1/1.1", "hello")
-	plain.DefaultSkill = "coder"
+	plain.DefaultPlaybook = "coder"
 	require.NoError(t, src.Send(ctx, plain))
 	waitFor(t, 30*time.Second, "the first task", func() bool { return len(fake.Specs()) == 1 })
-	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[0]).Skill.Name)
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[0]).Playbook.Name)
 
-	// A typed /skill overrides that default, and is stripped from what the model is told.
+	// A typed /playbook overrides that default, and is stripped from what the model is told.
 	typed := inbound("C1/2.2", "/general reply with pong")
-	typed.DefaultSkill = "coder"
+	typed.DefaultPlaybook = "coder"
 	require.NoError(t, src.Send(ctx, typed))
 	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
 	brief := decodeBrief(t, fake.Specs()[1])
-	assert.Equal(t, "general", brief.Skill.Name)
+	assert.Equal(t, "general", brief.Playbook.Name)
 	assert.Equal(t, "reply with pong", brief.Instruction)
 	sess, err := st.GetSessionByKey(ctx, typed.SourceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "general", sess.Skill, "the session records the skill that ran")
+	assert.Equal(t, "general", sess.Playbook, "the session records the playbook that ran")
 
-	// And a skill the source knows — the chat's chip — beats the prefix, because a human
+	// And a playbook the source knows — the chat's chip — beats the prefix, because a human
 	// picking from the chip after typing is expressing the later intent.
 	chip := inbound("C1/3.3", "/general hi")
-	chip.Skill = "coder"
-	chip.DefaultSkill = "general"
+	chip.Playbook = "coder"
+	chip.DefaultPlaybook = "general"
 	require.NoError(t, src.Send(ctx, chip))
 	waitFor(t, 30*time.Second, "the third task", func() bool { return len(fake.Specs()) == 3 })
 	brief = decodeBrief(t, fake.Specs()[2])
-	assert.Equal(t, "coder", brief.Skill.Name)
+	assert.Equal(t, "coder", brief.Playbook.Name)
 	assert.Equal(t, "/general hi", brief.Instruction, "an overridden prefix is left in the text")
 }
 
-// A default is not somebody naming a skill, so it must not trip the one-session-one-skill
-// refusal: a chat whose first message chose a skill goes on working when the next message
+// A default is not somebody naming a playbook, so it must not trip the one-session-one-playbook
+// refusal: a chat whose first message chose a playbook goes on working when the next message
 // arrives carrying nothing but the profile's chat default.
-func TestTheSourcesDefaultDoesNotFightTheSessionsSkill(t *testing.T) {
+func TestTheSourcesDefaultDoesNotFightTheSessionsPlaybook(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -912,7 +912,7 @@ func TestTheSourcesDefaultDoesNotFightTheSessionsSkill(t *testing.T) {
 	start(t, st, fake, src)
 
 	first := inbound("C1/1.1", "/coder fix it")
-	first.DefaultSkill = "general"
+	first.DefaultPlaybook = "general"
 	require.NoError(t, src.Send(ctx, first))
 	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
 		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
@@ -920,16 +920,16 @@ func TestTheSourcesDefaultDoesNotFightTheSessionsSkill(t *testing.T) {
 	before := len(src.Records())
 
 	second := inbound("C1/1.1", "and again")
-	second.DefaultSkill = "general"
+	second.DefaultPlaybook = "general"
 	require.NoError(t, src.Send(ctx, second))
 	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
 
-	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Skill.Name)
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Playbook.Name)
 	assert.Empty(t, posts(src.RecordsSince(int64(before)), conductor.OutFailure),
-		"the session's own skill is not a skill change to refuse")
+		"the session's own playbook is not a playbook change to refuse")
 	sess, err := st.GetSessionByKey(ctx, second.SourceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Skill)
+	assert.Equal(t, "coder", sess.Playbook)
 }
 
 // An attachment name that matches nothing is normal — the runtime names files it mentioned —
@@ -1009,7 +1009,7 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 
 	ctx := context.Background()
 	sess, err := st.UpsertSession(ctx, store.Session{
-		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:1.1", Profile: "podium", Skill: "general",
+		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:1.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
 	orphan, err := st.CreateTurn(ctx, sess.ID, "C1/1.1")

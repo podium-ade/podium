@@ -59,17 +59,17 @@ type Options struct {
 	// in a retained memory's provenance; a chat memory with no URL is a chip that goes
 	// nowhere.
 	UIURL string
-	// DefaultSkill is the profile's chat_default_skill (falling back to default_skill),
+	// DefaultPlaybook is the profile's chat_default_playbook (falling back to default_playbook),
 	// carried on every event as the source's default. It is injected rather than read from a
 	// profile here because a source knows nothing about profiles — and it matters: without
-	// it the chat would silently run default_skill, and chat_default_skill would be a UI
+	// it the chat would silently run default_playbook, and chat_default_playbook would be a UI
 	// hint rather than the profile decision it is meant to be.
 	//
 	// It is a function rather than a string because the profile decision can change while
 	// this process runs: an operator setting the chat default in the web UI must reach the
 	// next message, not the next restart.
-	DefaultSkill func() string
-	Logger       *slog.Logger
+	DefaultPlaybook func() string
+	Logger          *slog.Logger
 }
 
 // SendRequest is one human message arriving from the browser.
@@ -79,12 +79,12 @@ type SendRequest struct {
 	// message.
 	Login string
 	Text  string
-	// Skill is the skill chip's choice, which wins outright: a human picking a chip after
-	// typing is expressing the later intent. Empty leaves the choice to a leading /skill in
+	// Playbook is the playbook chip's choice, which wins outright: a human picking a chip after
+	// typing is expressing the later intent. Empty leaves the choice to a leading /playbook in
 	// Text, and then to the profile's chat default.
-	Skill string
+	Playbook string
 	// Override is the composer's model picker: what THIS message runs on, whatever the
-	// skill's own default is. Empty everywhere means the skill decides.
+	// playbook's own default is. Empty everywhere means the playbook decides.
 	Override profiles.Override
 }
 
@@ -102,13 +102,13 @@ type live struct {
 
 // Source is the chat as the conductor sees it: a conductor.Source like any other.
 type Source struct {
-	store  Store
-	bcast  *Broadcaster
-	name   string
-	uiURL  string
-	skill  func() string
-	logger *slog.Logger
-	events chan conductor.InboundEvent
+	store    Store
+	bcast    *Broadcaster
+	name     string
+	uiURL    string
+	playbook func() string
+	logger   *slog.Logger
+	events   chan conductor.InboundEvent
 
 	mu   sync.Mutex
 	live map[string]*live
@@ -126,19 +126,19 @@ func New(opts Options) (*Source, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	skill := opts.DefaultSkill
-	if skill == nil {
-		skill = func() string { return "" }
+	playbook := opts.DefaultPlaybook
+	if playbook == nil {
+		playbook = func() string { return "" }
 	}
 	return &Source{
-		store:  opts.Store,
-		bcast:  NewBroadcaster(),
-		name:   opts.DisplayName,
-		uiURL:  strings.TrimSuffix(opts.UIURL, "/"),
-		skill:  skill,
-		logger: logger,
-		events: make(chan conductor.InboundEvent, eventBuffer),
-		live:   map[string]*live{},
+		store:    opts.Store,
+		bcast:    NewBroadcaster(),
+		name:     opts.DisplayName,
+		uiURL:    strings.TrimSuffix(opts.UIURL, "/"),
+		playbook: playbook,
+		logger:   logger,
+		events:   make(chan conductor.InboundEvent, eventBuffer),
+		live:     map[string]*live{},
 	}, nil
 }
 
@@ -204,20 +204,20 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
 
 	// The chip is knowledge and the profile's chat default is only a fallback, so they
-	// travel as different fields: a /skill the human typed loses to the chip and beats the
+	// travel as different fields: a /playbook the human typed loses to the chip and beats the
 	// default.
 	ev := conductor.InboundEvent{
-		SourceKind:   conductor.SourceChat,
-		SourceKey:    store.ChatSourceKey(req.ChatID),
-		Ref:          req.ChatID,
-		Author:       req.Login,
-		Text:         req.Text,
-		TS:           msg.TS,
-		URL:          s.URL(req.ChatID),
-		Skill:        req.Skill,
-		DefaultSkill: s.skill(),
-		Override:     req.Override,
-		BriefKind:    conductor.SourceChat,
+		SourceKind:      conductor.SourceChat,
+		SourceKey:       store.ChatSourceKey(req.ChatID),
+		Ref:             req.ChatID,
+		Author:          req.Login,
+		Text:            req.Text,
+		TS:              msg.TS,
+		URL:             s.URL(req.ChatID),
+		Playbook:        req.Playbook,
+		DefaultPlaybook: s.playbook(),
+		Override:        req.Override,
+		BriefKind:       conductor.SourceChat,
 	}
 	select {
 	case s.events <- ev:

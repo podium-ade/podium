@@ -49,7 +49,7 @@ type Options struct {
 	Store  *store.Store
 	Podium *podium.Client
 	// Profiles is the profile in force. It is a live holder rather than a profile because
-	// a skill created in the web UI has to reach the next turn without a restart: every
+	// a playbook created in the web UI has to reach the next turn without a restart: every
 	// read below takes one snapshot and works from it.
 	Profiles *profiles.Live
 	Sources  []Source
@@ -172,22 +172,22 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 	}
 }
 
-// accept does the bookkeeping an event needs before any work starts: pick the skill, find
+// accept does the bookkeeping an event needs before any work starts: pick the playbook, find
 // or create the session, and either start a turn or remember the message for the turn that
 // is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// One snapshot for the whole of this event. A profile swapped in half way through must
-	// not route the message against one set of skills and then start the turn against
+	// not route the message against one set of playbooks and then start the turn against
 	// another.
 	profile := c.profiles.Current()
 	sel := profile.Select(profiles.Routing{
-		Skill:        ev.Skill,
-		DefaultSkill: ev.DefaultSkill,
-		Channel:      ev.Channel,
-		Text:         ev.Text,
+		Playbook:        ev.Playbook,
+		DefaultPlaybook: ev.DefaultPlaybook,
+		Channel:         ev.Channel,
+		Text:            ev.Text,
 	})
-	if sel.Skill.Name == "" {
-		c.logger.ErrorContext(ctx, "no skill could be selected; the profile has no default",
+	if sel.Playbook.Name == "" {
+		c.logger.ErrorContext(ctx, "no playbook could be selected; the profile has no default",
 			"source", src.Kind(), "source_key", ev.SourceKey)
 		return
 	}
@@ -196,30 +196,30 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		SourceKind: src.Kind(),
 		SourceKey:  ev.SourceKey,
 		Profile:    profile.Name,
-		Skill:      sel.Skill.Name,
+		Playbook:   sel.Playbook.Name,
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
 		return
 	}
 
-	// One session, one skill, fixed at creation. A later /other in the same thread is
+	// One session, one playbook, fixed at creation. A later /other in the same thread is
 	// refused rather than silently ignored: the human asked for something specific.
-	if sel.Explicit && sess.Skill != sel.Skill.Name {
+	if sel.Explicit && sess.Playbook != sel.Playbook.Name {
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"This thread is running the `%s` skill and a thread keeps the skill it started with. "+
-				"Start a new thread to use `%s`.", sess.Skill, sel.Skill.Name)})
+			"This thread is running the `%s` playbook and a thread keeps the playbook it started with. "+
+				"Start a new thread to use `%s`.", sess.Playbook, sel.Playbook.Name)})
 		return
 	}
-	skill, ok := profile.Skills[sess.Skill]
+	playbook, ok := profile.Playbooks[sess.Playbook]
 	if !ok {
-		c.logger.ErrorContext(ctx, "the session's skill is no longer loaded",
-			"session_id", sess.ID, "skill", sess.Skill)
+		c.logger.ErrorContext(ctx, "the session's playbook is no longer loaded",
+			"session_id", sess.ID, "playbook", sess.Playbook)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"This thread ran the `%s` skill, which this bot no longer has. Start a new thread.", sess.Skill)})
+			"This thread ran the `%s` playbook, which this bot no longer has. Start a new thread.", sess.Playbook)})
 		return
 	}
-	// Whatever the routing rules said, the instruction is the text minus a /skill prefix.
+	// Whatever the routing rules said, the instruction is the text minus a /playbook prefix.
 	ev.Text = sel.Instruction
 
 	c.mu.Lock()
@@ -244,16 +244,16 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.serve(ctx, src, sess, skill, ev)
+		c.serve(ctx, src, sess, playbook, ev)
 	}()
 }
 
 // serve runs turns for one session until nothing is pending. It holds the session's
 // "running" flag for its whole life, which is what serialises turns within a session while
 // leaving different sessions free to run at once.
-func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, skill profiles.Skill, ev InboundEvent) {
+func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook, ev InboundEvent) {
 	for {
-		c.runTurn(ctx, src, sess, skill, ev)
+		c.runTurn(ctx, src, sess, playbook, ev)
 
 		c.mu.Lock()
 		st := c.sessions[sess.ID]
@@ -271,7 +271,7 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, s
 }
 
 // runTurn is one inbound message, end to end.
-func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, skill profiles.Skill, ev InboundEvent) {
+func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook, ev InboundEvent) {
 	started := time.Now()
 
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
@@ -295,24 +295,24 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, skill, turn.ID, ev, entries)
+	brief := c.brief(sess, playbook, turn.ID, ev, entries)
 	encoded, err := brief.Encode()
 	if err != nil {
 		c.logger.WarnContext(ctx, "the turn brief does not fit", "turn_id", turn.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "This conversation is too large for me to take in at once. Start a new thread with just the question."})
-		c.failTurn(ctx, src, sess, skill, turn, ev.Ref, started, store.TurnFailed)
+		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
 
-	taskSpec := c.taskSpec(src, skill, encoded, ev)
+	taskSpec := c.taskSpec(src, playbook, encoded, ev)
 	task, err := c.podium.CreateTask(ctx, taskSpec)
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
 		c.logger.WarnContext(ctx, "creating the turn's task failed",
-			"turn_id", turn.ID, "image", skill.Image, "error", err)
+			"turn_id", turn.ID, "image", playbook.Image, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side and the work never started. An operator should check the logs."})
-		c.failTurn(ctx, src, sess, skill, turn, ev.Ref, started, store.TurnFailed)
+		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
 	if err := c.store.SetTurnTask(ctx, turn.ID, task.GetId()); err != nil {
@@ -321,13 +321,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 	turn.TaskID = task.GetId()
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
-		"skill", skill.Name, "task_id", task.GetId(), "source", src.Kind())
+		"playbook", playbook.Name, "task_id", task.GetId(), "source", src.Kind())
 
 	(&turnRun{
 		c:           c,
 		src:         src,
 		sess:        sess,
-		skill:       skill,
+		playbook:    playbook,
 		turn:        turn,
 		ref:         ev.Ref,
 		author:      ev.Author,
@@ -341,17 +341,17 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
-	sess store.Session, skill profiles.Skill, turnID string, ev InboundEvent, entries []BriefEntry,
+	sess store.Session, playbook profiles.Playbook, turnID string, ev InboundEvent, entries []BriefEntry,
 ) *Brief {
 	kind := ev.BriefKind
 	if kind == "" {
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
-	// One resolution for the whole brief: the override, then the skill, then the profile.
+	// One resolution for the whole brief: the override, then the playbook, then the profile.
 	// taskSpec resolves the same way for the credential, so the two cannot disagree about
 	// which backend this turn is running on.
-	choice := profile.Resolve(skill, ev.Override)
+	choice := profile.Resolve(playbook, ev.Override)
 	b := &Brief{
 		Version:   BriefVersion,
 		SessionID: sess.ID,
@@ -364,18 +364,18 @@ func (c *Conductor) brief(
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},
-		Skill: BriefSkill{
-			Name:         skill.Name,
-			SystemPrompt: skill.SystemPrompt,
-			AllowedTools: append([]string{}, skill.AllowedTools...),
-			MaxTurns:     skill.MaxTurns,
+		Playbook: BriefPlaybook{
+			Name:         playbook.Name,
+			SystemPrompt: playbook.SystemPrompt,
+			AllowedTools: append([]string{}, playbook.AllowedTools...),
+			MaxTurns:     playbook.MaxTurns,
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
 		Memory:      c.memory,
 	}
 	b.Provider = c.providerFor(choice.Agent)
-	for _, r := range skill.Repos {
+	for _, r := range playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
 	if b.Instruction == "" {
@@ -410,12 +410,12 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 	return out
 }
 
-// taskSpec is the task one turn runs. The secrets are exactly the skill's, plus the
-// reserved credential the conductor always adds: a skill only ever gets the credentials its
+// taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
+// reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.
-func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief string, ev InboundEvent) *spec.TaskSpec {
+func (c *Conductor) taskSpec(src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent) *spec.TaskSpec {
 	env := map[string]string{}
-	for k, v := range skill.Env {
+	for k, v := range playbook.Env {
 		env[k] = v
 	}
 	// TEST ONLY, and only for the dev source: the three dry-run knobs step 16 defined.
@@ -428,32 +428,32 @@ func (c *Conductor) taskSpec(src Source, skill profiles.Skill, encodedBrief stri
 	}
 	env[BriefEnv] = encodedBrief
 
-	if skill.Docker {
+	if playbook.Docker {
 		env[profiles.DockerHostEnv] = dockerSidecarHost
 	}
 
 	s := &spec.TaskSpec{
-		Image:     skill.Image,
+		Image:     playbook.Image,
 		Env:       env,
-		Labels:    append([]string(nil), skill.Labels...),
-		Resources: skill.Resources,
-		Timeout:   skill.Timeout,
-		Secrets: append(append([]spec.SecretRef(nil), skill.Secrets...),
-			c.reservedSecrets(c.profiles.Current().Resolve(skill, ev.Override).Agent)...),
+		Labels:    append([]string(nil), playbook.Labels...),
+		Resources: playbook.Resources,
+		Timeout:   playbook.Timeout,
+		Secrets: append(append([]spec.SecretRef(nil), playbook.Secrets...),
+			c.reservedSecrets(c.profiles.Current().Resolve(playbook, ev.Override).Agent)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
 		RetryOnNodeLoss: false,
 	}
-	if skill.Docker {
+	if playbook.Docker {
 		s.Sidecars = map[string]spec.Sidecar{dockerSidecarName: dockerSidecar()}
 	}
 	s.ApplyDefaults()
 	return s
 }
 
-// The Docker daemon a `docker: true` skill gets. It is the conductor's to build rather
-// than the skill file's: a half-configured daemon — TLS still on, no workspace, no probe —
+// The Docker daemon a `docker: true` playbook gets. It is the conductor's to build rather
+// than the playbook file's: a half-configured daemon — TLS still on, no workspace, no probe —
 // fails in ways that read as the agent's fault, and there is exactly one shape that works.
 const (
 	// dockerSidecarName is also the DNS alias the daemon answers to on the task's own
@@ -489,7 +489,7 @@ func dockerSidecar() spec.Sidecar {
 	}
 }
 
-// reservedSecrets are the credentials the conductor attaches itself, whatever the skill
+// reservedSecrets are the credentials the conductor attaches itself, whatever the playbook
 // file says.
 //
 // Exactly one model credential goes on a turn, and it is the one the turn's backend spends.
@@ -528,15 +528,15 @@ func (c *Conductor) reservedSecrets(agent string) []spec.SecretRef {
 // failTurn records a turn that never got as far as a task, or one whose brief was
 // impossible, and shows the failure on the triggering message.
 func (c *Conductor) failTurn(
-	ctx context.Context, src Source, sess store.Session, skill profiles.Skill,
+	ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook,
 	turn store.Turn, ref string, started time.Time, status string,
 ) {
 	if err := c.store.FinishTurn(ctx, turn.ID, status, nil, nil, ""); err != nil {
 		c.logger.ErrorContext(ctx, "finishing a failed turn failed", "turn_id", turn.ID, "error", err)
 	}
 	c.finish(ctx, src, ref, ReactionFailed)
-	c.metrics.Turns.WithLabelValues(sess.SourceKind, skill.Name, status).Inc()
-	c.metrics.TurnDuration.WithLabelValues(skill.Name).Observe(time.Since(started).Seconds())
+	c.metrics.Turns.WithLabelValues(sess.SourceKind, playbook.Name, status).Inc()
+	c.metrics.TurnDuration.WithLabelValues(playbook.Name).Observe(time.Since(started).Seconds())
 }
 
 // post says one thing and returns the message id, or "" when it could not be said. A
@@ -582,7 +582,7 @@ func (c *Conductor) recover(ctx context.Context) {
 			continue
 		}
 		src := c.sourceOf(sess.SourceKind)
-		skill := c.profiles.Current().Skills[sess.Skill]
+		playbook := c.profiles.Current().Playbooks[sess.Playbook]
 
 		if turn.TaskID == "" {
 			c.logger.WarnContext(ctx, "a turn was recorded but its task never was; failing it",
@@ -622,7 +622,7 @@ func (c *Conductor) recover(ctx context.Context) {
 			c:         c,
 			src:       src,
 			sess:      sess,
-			skill:     skill,
+			playbook:  playbook,
 			turn:      turn,
 			ref:       turn.TriggerRef,
 			startedAt: turn.StartedAt,

@@ -64,11 +64,11 @@ type Options struct {
 	Endpoint string
 	// PollInterval is how often assigned issues are asked for. Required.
 	PollInterval time.Duration
-	// Skill names the skill Linear tickets run — the one with linear: true. Required: a
-	// ticket has no channel and no /skill prefix, so the source names it and the profile's
-	// routing rules are bypassed. It is a function because that skill can change while the
+	// Playbook names the playbook Linear tickets run — the one with linear: true. Required: a
+	// ticket has no channel and no /playbook prefix, so the source names it and the profile's
+	// routing rules are bypassed. It is a function because that playbook can change while the
 	// process runs, and it must return non-empty at New.
-	Skill func() string
+	Playbook func() string
 	// TaskURL renders a link to a Podium task page for a human. It is the fallback when an
 	// attachment cannot be uploaded into the conversation.
 	TaskURL func(taskID string) string
@@ -93,7 +93,7 @@ type Source struct {
 	metrics  *Metrics
 	events   chan conductor.InboundEvent
 	interval time.Duration
-	skill    func() string
+	playbook func() string
 	taskURL  func(string) string
 	session  SessionLookup
 	cursor   CursorStore
@@ -142,9 +142,9 @@ var _ conductor.Source = (*Source)(nil)
 // New builds the source. Nothing is dialled until Run.
 func New(opts Options) (*Source, error) {
 	switch {
-	case opts.Skill == nil || opts.Skill() == "":
-		return nil, errors.New("linear: no skill sets `linear: true`, so there is nothing to run a " +
-			"ticket with. Set it on exactly one skill — a skills/*.yaml, or one made in the web " +
+	case opts.Playbook == nil || opts.Playbook() == "":
+		return nil, errors.New("linear: no playbook sets `linear: true`, so there is nothing to run a " +
+			"ticket with. Set it on exactly one playbook — a playbooks/*.yaml, or one made in the web " +
 			"UI — or unset PODIUM_AGENT_LINEAR_API_KEY")
 	case opts.PollInterval <= 0:
 		return nil, errors.New("linear: a poll interval is required")
@@ -187,7 +187,7 @@ func New(opts Options) (*Source, error) {
 		metrics:  metrics,
 		events:   make(chan conductor.InboundEvent, 32),
 		interval: opts.PollInterval,
-		skill:    opts.Skill,
+		playbook: opts.Playbook,
 		taskURL:  taskURL,
 		session:  opts.Session,
 		cursor:   opts.Cursor,
@@ -222,7 +222,7 @@ func (s *Source) Run(ctx context.Context) error {
 	}
 	s.me = me
 	s.logger.InfoContext(ctx, "linear source connected", "bot_user_id", me.ID,
-		"bot_user", me.label(), "poll_interval", s.interval, "skill", s.skill)
+		"bot_user", me.label(), "poll_interval", s.interval, "playbook", s.playbook)
 
 	for {
 		s.tick(ctx)
@@ -416,12 +416,12 @@ func (s *Source) derive(ctx context.Context, issue Issue) {
 // emit fills in the fields that are the same for every Linear event and offers it to the
 // conductor. Env stays empty: the conductor honours it only for the dev source, and a
 // source that could put environment on a task spec is a source that could hand a task a
-// credential its skill file never named.
+// credential its playbook file never named.
 func (s *Source) emit(ctx context.Context, ev conductor.InboundEvent) {
 	ev.SourceKind = Kind
 	ev.BriefKind = conductor.SourceLinear
-	// The skill is named here rather than routed: Select honours a non-empty Skill first.
-	ev.Skill = s.skill()
+	// The playbook is named here rather than routed: Select honours a non-empty Playbook first.
+	ev.Playbook = s.playbook()
 	select {
 	case s.events <- ev:
 	case <-ctx.Done():

@@ -11,7 +11,7 @@ import (
 )
 
 const getSession = `-- name: GetSession :one
-select id, source_kind, source_key, profile, skill, created_at, last_turn_at from sessions where id = $1
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions where id = $1
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -22,7 +22,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.SourceKind,
 		&i.SourceKey,
 		&i.Profile,
-		&i.Skill,
+		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
 	)
@@ -30,7 +30,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getSessionByKey = `-- name: GetSessionByKey :one
-select id, source_kind, source_key, profile, skill, created_at, last_turn_at from sessions where source_key = $1
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions where source_key = $1
 `
 
 func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Session, error) {
@@ -41,7 +41,7 @@ func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Sessio
 		&i.SourceKind,
 		&i.SourceKey,
 		&i.Profile,
-		&i.Skill,
+		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
 	)
@@ -49,7 +49,7 @@ func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Sessio
 }
 
 const listSessions = `-- name: ListSessions :many
-select id, source_kind, source_key, profile, skill, created_at, last_turn_at from sessions
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions
 where ($1::text = '' or id < $1::text)
 order by id desc
 limit $2::int
@@ -74,7 +74,7 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.SourceKind,
 			&i.SourceKey,
 			&i.Profile,
-			&i.Skill,
+			&i.Playbook,
 			&i.CreatedAt,
 			&i.LastTurnAt,
 		); err != nil {
@@ -103,10 +103,10 @@ func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) erro
 }
 
 const upsertSession = `-- name: UpsertSession :one
-insert into sessions (id, source_kind, source_key, profile, skill, created_at)
+insert into sessions (id, source_kind, source_key, profile, playbook, created_at)
 values ($1, $2, $3, $4, $5, $6)
 on conflict (source_key) do update set source_kind = sessions.source_kind
-returning id, source_kind, source_key, profile, skill, created_at, last_turn_at
+returning id, source_kind, source_key, profile, playbook, created_at, last_turn_at
 `
 
 type UpsertSessionParams struct {
@@ -114,19 +114,19 @@ type UpsertSessionParams struct {
 	SourceKind string
 	SourceKey  string
 	Profile    string
-	Skill      string
+	Playbook   string
 	CreatedAt  time.Time
 }
 
-// UpsertSession is keyed on source_key, which is the conversation's identity. The skill is
-// deliberately NOT updated: one session, one skill, fixed at creation.
+// UpsertSession is keyed on source_key, which is the conversation's identity. The playbook is
+// deliberately NOT updated: one session, one playbook, fixed at creation.
 func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) (Session, error) {
 	row := q.db.QueryRow(ctx, upsertSession,
 		arg.ID,
 		arg.SourceKind,
 		arg.SourceKey,
 		arg.Profile,
-		arg.Skill,
+		arg.Playbook,
 		arg.CreatedAt,
 	)
 	var i Session
@@ -135,7 +135,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) (S
 		&i.SourceKind,
 		&i.SourceKey,
 		&i.Profile,
-		&i.Skill,
+		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
 	)

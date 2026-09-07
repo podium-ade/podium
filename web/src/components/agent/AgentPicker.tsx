@@ -14,7 +14,7 @@ export type AgentPickerProps = {
   /** The catalogue from ListAgents. Empty while it loads. */
   agents: AgentBackend[];
   /**
-   * What an empty choice means here, and what to call it. A skill inherits the profile's;
+   * What an empty choice means here, and what to call it. A playbook inherits the profile's;
    * the profile falls back to profile.yaml's. Undefined removes the option entirely.
    */
   inherit?: { label: string; hint?: string };

@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 // AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
 // bearer token and reached from a browser only through podium-server, which proxies
 // /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
-// sessions (17), settings (18), memory (19), skills and chat (21).
+// sessions (17), settings (18), memory (19), playbooks and chat (21).
 service AgentService {
   // ListSessions returns conversations the bot has taken part in, newest first.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
@@ -41,24 +41,24 @@ service AgentService {
   // DeleteMemory takes one memory out of every future recall. It is a tombstone rather
   // than a row deletion: the memory engine keeps the record for audit and stops serving it.
   rpc DeleteMemory(DeleteMemoryRequest) returns (DeleteMemoryResponse);
-  // ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+  // ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
   // a name, an image and which one the chat starts with.
-  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
-  // GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
-  // merged with what the conductor's database holds — and every skill in full, so a
+  rpc ListPlaybooks(ListPlaybooksRequest) returns (ListPlaybooksResponse);
+  // GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
+  // merged with what the conductor's database holds — and every playbook in full, so a
   // browser can manage them.
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
-  // UpdateProfile overrides profile.yaml's display name, model and default skills. An
+  // UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
   // empty field clears the override and returns that field to the file's value.
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
-  // CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+  // CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
   // already defines is refused: the files are authoritative for the names they hold.
-  rpc CreateSkill(CreateSkillRequest) returns (CreateSkillResponse);
-  // UpdateSkill replaces a stored skill. A file-defined skill is refused.
-  rpc UpdateSkill(UpdateSkillRequest) returns (UpdateSkillResponse);
-  // DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
-  // stored skill that is not there is not an error.
-  rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
+  rpc CreatePlaybook(CreatePlaybookRequest) returns (CreatePlaybookResponse);
+  // UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
+  rpc UpdatePlaybook(UpdatePlaybookRequest) returns (UpdatePlaybookResponse);
+  // DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
+  // stored playbook that is not there is not an error.
+  rpc DeletePlaybook(DeletePlaybookRequest) returns (DeletePlaybookResponse);
   // CreateChat opens a new web-chat conversation owned by the calling login.
   rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
   // ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -81,8 +81,8 @@ message Session {
   string source_kind = 2;
   string source_key = 3;
   string profile = 4;
-  // skill is fixed when the session is created: one session, one skill.
-  string skill = 5;
+  // playbook is fixed when the session is created: one session, one playbook.
+  string playbook = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp last_turn_at = 7;
 }
@@ -283,7 +283,7 @@ message AgentModel {
 // AgentBackend is one thing a turn can run on: a harness, the credential it needs, and the
 // models it can be pointed at.
 message AgentBackend {
-  // id is what a skill's `agent` field holds: "claude" or "grok".
+  // id is what a playbook's `agent` field holds: "claude" or "grok".
   string id = 1;
   string display_name = 2;
   // provider is the credential this backend spends: "anthropic" or "xai".
@@ -292,7 +292,7 @@ message AgentBackend {
   string note = 4;
   string default_model = 5;
   repeated AgentModel models = 6;
-  // ready is true when this control plane holds a credential for the backend. A skill may
+  // ready is true when this control plane holds a credential for the backend. A playbook may
   // still be saved against a backend that is not ready — the operator may be setting it up
   // in either order — and the UI says so rather than refusing.
   bool ready = 7;
@@ -318,7 +318,7 @@ message Memory {
   // fact_type is world, experience or observation. An observation is derived by the memory
   // engine from the facts under it.
   string fact_type = 3;
-  // tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+  // tags are recorded by the conductor (source:<kind>, playbook:<name>) and never filtered on.
   repeated string tags = 4;
   // metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
   // and source_url.
@@ -361,31 +361,31 @@ message DeleteMemoryRequest {
 
 message DeleteMemoryResponse {}
 
-// Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
-message Skill {
+// Playbook is one job the bot can do, as much of it as a browser needs to offer the choice.
+message Playbook {
   string name = 1;
-  // image is the runtime image a turn of this skill runs. Shown so a human can tell the
-  // data skill from the browser one.
+  // image is the runtime image a turn of this playbook runs. Shown so a human can tell the
+  // data playbook from the browser one.
   string image = 2;
-  // hint is the first line of the skill's prompt, capped. It is a description, not a
+  // hint is the first line of the playbook's prompt, capped. It is a description, not a
   // contract: the prompt is the operator's own file.
   string hint = 3;
-  // chat_default is true for the skill a new chat message uses when nothing else picks one.
+  // chat_default is true for the playbook a new chat message uses when nothing else picks one.
   bool chat_default = 4;
-  // agent, model and effort are what a turn of this skill runs on with no override:
-  // RESOLVED, so the skill's own value or the profile's, never empty for agent and model.
-  // The composer shows them as what "the skill's" means before anything is picked.
+  // agent, model and effort are what a turn of this playbook runs on with no override:
+  // RESOLVED, so the playbook's own value or the profile's, never empty for agent and model.
+  // The composer shows them as what "the playbook's" means before anything is picked.
   string agent = 5;
   string model = 6;
-  // effort is empty when neither the skill nor the profile names one, which means the
+  // effort is empty when neither the playbook nor the profile names one, which means the
   // model's own default.
   string effort = 7;
 }
 
-message ListSkillsRequest {}
+message ListPlaybooksRequest {}
 
-message ListSkillsResponse {
-  repeated Skill skills = 1;
+message ListPlaybooksResponse {
+  repeated Playbook playbooks = 1;
   // profile_display_name labels the bot's own messages in the chat.
   string profile_display_name = 2;
 }
@@ -473,21 +473,21 @@ message ListChatsResponse {
 message SendChatMessageRequest {
   string chat_id = 1;
   string text = 2;
-  // skill names the skill this message runs and wins over everything else, a leading
-  // /skill in the text included: a human picking the chip after typing is the later
-  // intent. Empty leaves the choice to a leading /skill in the text, then to
-  // profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
-  // not a skill selector: it stays in the text.
-  string skill = 3;
-  // agent, model and effort override what the skill runs on, for THIS message only.
+  // playbook names the playbook this message runs and wins over everything else, a leading
+  // /playbook in the text included: a human picking the chip after typing is the later
+  // intent. Empty leaves the choice to a leading /playbook in the text, then to
+  // profile.yaml's chat_default_playbook, then to its default_playbook. An unknown /name is
+  // not a playbook selector: it stays in the text.
+  string playbook = 3;
+  // agent, model and effort override what the playbook runs on, for THIS message only.
   //
   // They exist so that "which job" and "what runs it" are two choices instead of one. A
-  // skill's own values are a default, not a fixture: without this, the only way to ask the
-  // same skill on a different model is a second skill that differs by one field, and a
+  // playbook's own values are a default, not a fixture: without this, the only way to ask the
+  // same playbook on a different model is a second playbook that differs by one field, and a
   // profile fills up with near-duplicates.
   //
-  // Empty means the skill's, then the profile's. The three are validated together against
-  // the same catalogue a skill is, so a level the chosen model does not accept is refused
+  // Empty means the playbook's, then the profile's. The three are validated together against
+  // the same catalogue a playbook is, so a level the chosen model does not accept is refused
   // here rather than failing the turn.
   string agent = 4;
   string model = 5;
@@ -515,44 +515,44 @@ message AgentProfile {
   string name = 1;
   string display_name = 2;
   string model = 3;
-  string default_skill = 4;
-  // chat_default_skill is the skill a web chat starts with. Empty means default_skill.
-  string chat_default_skill = 5;
+  string default_playbook = 4;
+  // chat_default_playbook is the playbook a web chat starts with. Empty means default_playbook.
+  string chat_default_playbook = 5;
   // profile_dir is where the file half was read from, so an operator editing YAML knows
   // which directory this process actually loaded.
   string profile_dir = 6;
   // The file_* fields are profile.yaml verbatim, whatever is overriding them.
   string file_display_name = 7;
   string file_model = 8;
-  string file_default_skill = 9;
-  string file_chat_default_skill = 10;
+  string file_default_playbook = 9;
+  string file_chat_default_playbook = 10;
   // overridden names the fields a stored override is currently supplying, by their
-  // profile.yaml key: display_name, model, default_skill, chat_default_skill, agent,
+  // profile.yaml key: display_name, model, default_playbook, chat_default_playbook, agent,
   // effort.
   repeated string overridden = 11;
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
   google.protobuf.Timestamp updated_at = 13;
-  // agent is the backend every skill runs on unless it names its own: "claude" or "grok".
+  // agent is the backend every playbook runs on unless it names its own: "claude" or "grok".
   string agent = 14;
-  // effort is the reasoning effort every skill runs at unless it names its own. Empty
+  // effort is the reasoning effort every playbook runs at unless it names its own. Empty
   // means the model's own default.
   string effort = 15;
   string file_agent = 16;
   string file_effort = 17;
 }
 
-// SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
-message SkillResources {
+// PlaybookResources caps a turn's container. It is spec.Resources, which is where it ends up.
+message PlaybookResources {
   double cpu = 1;
   int32 memory_mb = 2;
   int32 pids = 3;
 }
 
-// SkillSecretRef names a stored secret and says where the turn wants it. It carries the
+// PlaybookSecretRef names a stored secret and says where the turn wants it. It carries the
 // NAME of a value and never a value: a secret's value cannot be read back out of Podium at
 // all, and nothing in this API is an exception.
-message SkillSecretRef {
+message PlaybookSecretRef {
   string name = 1;
   // target is "env" or "file". Empty defaults to "env".
   string target = 2;
@@ -560,18 +560,18 @@ message SkillSecretRef {
   string key = 3;
 }
 
-// SkillRepo is a repository a turn of this skill gets cloned into /workspace.
-message SkillRepo {
+// PlaybookRepo is a repository a turn of this playbook gets cloned into /workspace.
+message PlaybookRepo {
   string name = 1;
   string url = 2;
   string default_branch = 3;
 }
 
-// SkillDefinition is one skill in full: everything skills/<name>.yaml holds, plus where
+// PlaybookDefinition is one playbook in full: everything playbooks/<name>.yaml holds, plus where
 // this copy came from and whether a browser may change it.
-message SkillDefinition {
+message PlaybookDefinition {
   string name = 1;
-  // image is the runtime image a turn of this skill runs. It is free text the operator
+  // image is the runtime image a turn of this playbook runs. It is free text the operator
   // supplies; it has to implement the turn-brief protocol, and FROM podium-agent-runtime
   // is the easy way to get one that does.
   string image = 2;
@@ -583,28 +583,28 @@ message SkillDefinition {
   // model is empty for "whatever the profile says".
   string model = 7;
   repeated string labels = 8;
-  SkillResources resources = 9;
-  repeated SkillSecretRef secrets = 10;
-  repeated SkillRepo repos = 11;
+  PlaybookResources resources = 9;
+  repeated PlaybookSecretRef secrets = 10;
+  repeated PlaybookRepo repos = 11;
   repeated string slack_channels = 12;
   bool linear = 13;
   map<string, string> env = 14;
-  // origin is "file" for a skills/<name>.yaml on the conductor's host and "stored" for one
+  // origin is "file" for a playbooks/<name>.yaml on the conductor's host and "stored" for one
   // created through this API.
   string origin = 15;
-  // editable is false for a file skill: the files are authoritative for the names they
+  // editable is false for a file playbook: the files are authoritative for the names they
   // hold and the write RPCs refuse one.
   bool editable = 16;
-  // shadowed is true for a stored skill whose name a file skill also defines. The file
-  // wins, so a shadowed skill never runs; it is reported so it can be deleted.
+  // shadowed is true for a stored playbook whose name a file playbook also defines. The file
+  // wins, so a shadowed playbook never runs; it is reported so it can be deleted.
   bool shadowed = 17;
-  // updated_by and updated_at are set for a stored skill only.
+  // updated_by and updated_at are set for a stored playbook only.
   string updated_by = 18;
   google.protobuf.Timestamp updated_at = 19;
-  // agent is the backend a turn of this skill runs on: "claude", "grok", or empty for
+  // agent is the backend a turn of this playbook runs on: "claude", "grok", or empty for
   // whatever the profile says.
   string agent = 20;
-  // effort is the reasoning effort a turn of this skill runs at, or empty for the
+  // effort is the reasoning effort a turn of this playbook runs at, or empty for the
   // profile's. The levels a model accepts come from ListAgents.
   string effort = 21;
 }
@@ -613,9 +613,9 @@ message GetProfileRequest {}
 
 message GetProfileResponse {
   AgentProfile profile = 1;
-  // skills is every skill that runs, sorted by name, followed by any shadowed stored
-  // skill. Two entries can share a name when one is shadowed; they differ in origin.
-  repeated SkillDefinition skills = 2;
+  // playbooks is every playbook that runs, sorted by name, followed by any shadowed stored
+  // playbook. Two entries can share a name when one is shadowed; they differ in origin.
+  repeated PlaybookDefinition playbooks = 2;
   // stale_reason is set when what the database holds could not be merged into a valid
   // profile, so the conductor is still running the last one that could. Empty normally.
   string stale_reason = 3;
@@ -626,8 +626,8 @@ message UpdateProfileRequest {
   // returns that field to the file's value.
   string display_name = 1;
   string model = 2;
-  string default_skill = 3;
-  string chat_default_skill = 4;
+  string default_playbook = 3;
+  string chat_default_playbook = 4;
   string agent = 5;
   string effort = 6;
 }
@@ -636,25 +636,25 @@ message UpdateProfileResponse {
   AgentProfile profile = 1;
 }
 
-message CreateSkillRequest {
-  SkillDefinition skill = 1;
+message CreatePlaybookRequest {
+  PlaybookDefinition playbook = 1;
 }
 
-message CreateSkillResponse {
-  SkillDefinition skill = 1;
+message CreatePlaybookResponse {
+  PlaybookDefinition playbook = 1;
 }
 
-message UpdateSkillRequest {
-  // skill.name names the skill to replace.
-  SkillDefinition skill = 1;
+message UpdatePlaybookRequest {
+  // playbook.name names the playbook to replace.
+  PlaybookDefinition playbook = 1;
 }
 
-message UpdateSkillResponse {
-  SkillDefinition skill = 1;
+message UpdatePlaybookResponse {
+  PlaybookDefinition playbook = 1;
 }
 
-message DeleteSkillRequest {
+message DeletePlaybookRequest {
   string name = 1;
 }
 
-message DeleteSkillResponse {}
+message DeletePlaybookResponse {}

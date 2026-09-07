@@ -41,7 +41,7 @@ type Brief struct {
 	TurnID              string         `json:"turn_id"`
 	Source              BriefSource    `json:"source"`
 	Profile             BriefProfile   `json:"profile"`
-	Skill               BriefSkill     `json:"skill"`
+	Playbook            BriefPlaybook  `json:"playbook"`
 	Transcript          []BriefEntry   `json:"transcript"`
 	TranscriptTruncated bool           `json:"transcript_truncated"`
 	Instruction         string         `json:"instruction"`
@@ -85,8 +85,8 @@ type BriefProvider struct {
 	BaseURL string `json:"base_url,omitempty"`
 }
 
-// BriefSkill is the job the turn is doing.
-type BriefSkill struct {
+// BriefPlaybook is the job the turn is doing.
+type BriefPlaybook struct {
 	Name         string   `json:"name"`
 	SystemPrompt string   `json:"system_prompt"`
 	AllowedTools []string `json:"allowed_tools"`
@@ -163,8 +163,8 @@ func (b *Brief) normalise() {
 	if b.Transcript == nil {
 		b.Transcript = []BriefEntry{}
 	}
-	if b.Skill.AllowedTools == nil {
-		b.Skill.AllowedTools = []string{}
+	if b.Playbook.AllowedTools == nil {
+		b.Playbook.AllowedTools = []string{}
 	}
 }
 

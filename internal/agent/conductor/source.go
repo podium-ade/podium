@@ -51,7 +51,7 @@ type InboundEvent struct {
 	// brief.source.ref. For Slack it is <channel>/<thread_ts>/<trigger_ts>, because a
 	// reaction goes on the triggering message and a post goes into the thread.
 	Ref string
-	// Channel is the routing key a skill's slack_channels list is matched against. Empty
+	// Channel is the routing key a playbook's slack_channels list is matched against. Empty
 	// when the source has no notion of a channel.
 	Channel string
 	// Author is the display name of the human who spoke.
@@ -63,20 +63,20 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Skill is a skill the source KNOWS is right (Linear's linear: true skill, the chat's
-	// skill chip). It bypasses every routing rule, a typed /skill included. Empty means
+	// Playbook is a playbook the source KNOWS is right (Linear's linear: true playbook, the chat's
+	// playbook chip). It bypasses every routing rule, a typed /playbook included. Empty means
 	// "let the profile's rules decide". Slack always leaves it empty.
-	Skill string
-	// DefaultSkill is what this source falls back to when nothing more specific picks one
-	// (the chat's chat_default_skill). Unlike Skill it is only a preference: a human typing
-	// /skill overrides it, and it beats profile.default_skill.
-	DefaultSkill string
+	Playbook string
+	// DefaultPlaybook is what this source falls back to when nothing more specific picks one
+	// (the chat's chat_default_playbook). Unlike Playbook it is only a preference: a human typing
+	// /playbook overrides it, and it beats profile.default_playbook.
+	DefaultPlaybook string
 	// Override is a per-turn choice of backend, model and effort, from a source whose human
 	// can make one — the web chat's picker. Empty everywhere else: Slack and Linear have no
-	// surface to choose on, so their turns run on what the skill says.
+	// surface to choose on, so their turns run on what the playbook says.
 	//
-	// It is the reason a skill's model is a default rather than a fixture. Without it the
-	// only way to ask one skill on another model is a second skill differing by one field.
+	// It is the reason a playbook's model is a default rather than a fixture. Without it the
+	// only way to ask one playbook on another model is a second playbook differing by one field.
 	Override profiles.Override
 	// BriefKind is the source.kind the runtime's schema must see, which is not always
 	// SourceKind: the schema allows only slack, linear and chat, and the test-only dev

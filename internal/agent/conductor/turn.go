@@ -37,11 +37,11 @@ const (
 // turnRun is one turn being followed. Everything in it is touched from exactly one
 // goroutine — the one running run — so none of it is locked.
 type turnRun struct {
-	c     *Conductor
-	src   Source
-	sess  store.Session
-	skill profiles.Skill
-	turn  store.Turn
+	c        *Conductor
+	src      Source
+	sess     store.Session
+	playbook profiles.Playbook
+	turn     store.Turn
 	// ref is the source's reference to the message that started the turn.
 	ref string
 	// author, instruction and url come off the inbound event and exist for the
@@ -114,7 +114,7 @@ func (r *turnRun) run(ctx context.Context) {
 	}
 
 	r.settle(ctx, task)
-	result := classify(task, r.skill.Timeout.Std())
+	result := classify(task, r.playbook.Timeout.Std())
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.
@@ -159,7 +159,7 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		r.c.logger.WarnContext(ctx, "a turn succeeded but reported no accounting, so its "+
 			"num_turns and cost_usd are unrecorded: neither the runtime's accounting message "+
 			"nor its turn.json artifact arrived",
-			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "skill", r.skill.Name)
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.playbook.Name)
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
 	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, strings.Join(r.finals, "\n\n")); err != nil {
@@ -171,10 +171,10 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		reaction = ReactionFailed
 	}
 	r.c.finish(ctx, r.src, r.ref, reaction)
-	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.skill.Name, status).Inc()
-	r.c.metrics.TurnDuration.WithLabelValues(r.skill.Name).Observe(time.Since(r.startedAt).Seconds())
+	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.playbook.Name, status).Inc()
+	r.c.metrics.TurnDuration.WithLabelValues(r.playbook.Name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
-		"status", status, "skill", r.skill.Name)
+		"status", status, "playbook", r.playbook.Name)
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
 	r.retain(ctx, status)

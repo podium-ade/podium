@@ -370,11 +370,11 @@ func TestMemoryRPCsThroughTheServerProxy(t *testing.T) {
 		"id":           "ed1bd235-bd25-483c-beff-4d54ff776e52",
 		"text":         "Bob owns the Podium scheduler.",
 		"fact_type":    "world",
-		"context":      "podium agent, skill general",
+		"context":      "podium agent, playbook general",
 		"document_id":  "turn_01probe",
 		"mentioned_at": time.Now().UTC().Format(time.RFC3339Nano),
 		"entities":     "Bob, scheduler",
-		"tags":         []string{"source:slack", "skill:general"},
+		"tags":         []string{"source:slack", "playbook:general"},
 		"metadata":     map[string]string{"turn_id": "turn_01probe", "task_id": "task_01probe"},
 		"state":        "valid",
 	})

@@ -60,7 +60,7 @@ func newChatFixture(t *testing.T) chatFixture {
 	svc := NewAgentService(AgentServiceOptions{
 		Store: st,
 		Chat:  src,
-		Profiles: profiles.NewLive(&profiles.Profile{DisplayName: "Podium", DefaultSkill: "general", Skills: map[string]profiles.Skill{
+		Profiles: profiles.NewLive(&profiles.Profile{DisplayName: "Podium", DefaultPlaybook: "general", Playbooks: map[string]profiles.Playbook{
 			"general": {Name: "general", Image: "podium-agent-runtime:dev", SystemPrompt: "Answer."},
 		}}),
 	})
@@ -249,7 +249,7 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 
 	// Then live: a human message reaches the stream the moment it is sent.
 	sent, err := f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
-		ChatId: chatID, Text: "chart it", Skill: "general",
+		ChatId: chatID, Text: "chart it", Playbook: "general",
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, uint64(3), sent.Msg.GetMessage().GetSeq())
