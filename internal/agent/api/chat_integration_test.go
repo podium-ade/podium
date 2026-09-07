@@ -189,6 +189,53 @@ func TestTwoLoginsSeeDisjointChatsThroughTheService(t *testing.T) {
 	assert.NotEqual(t, alice.Msg.GetChat().GetId(), bobs.Msg.GetChat().GetId())
 }
 
+func TestDeleteChatThroughTheService(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	bob := f.clientAs("bob")
+
+	alice, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "alice's"}))
+	require.NoError(t, err)
+	chatID := alice.Msg.GetChat().GetId()
+	_, err = f.store.AppendChatMessage(ctx, store.ChatMessage{
+		ChatID: chatID, Role: store.RoleUser, Text: "hello",
+	})
+	require.NoError(t, err)
+	bobs, err := bob.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "bob's"}))
+	require.NoError(t, err)
+
+	// Knowing the id is not access: bob cannot delete alice's chat, and what he is told
+	// is that it does not exist.
+	_, err = bob.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	_, err = f.store.GetChat(ctx, chatID)
+	require.NoError(t, err)
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.NoError(t, err)
+
+	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, listed.Msg.GetChats())
+	msgs, err := f.store.ListChatMessages(ctx, chatID, 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs)
+
+	bobList, err := bob.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, bobList.Msg.GetChats(), 1)
+	assert.Equal(t, bobs.Msg.GetChat().GetId(), bobList.Msg.GetChats()[0].GetId())
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
 func TestARequestWithNoLoginIsRefused(t *testing.T) {
 	f := newChatFixture(t)
 	// The bearer alone reaches a conductor directly rather than through podium-server's
@@ -420,6 +467,9 @@ func TestTheChatRPCsWithoutASourceSaySo(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	_, err = svc.ListChats(loginCtx("alice"), connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	_, err = svc.DeleteChat(loginCtx("alice"), connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: "chat_01abc"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }

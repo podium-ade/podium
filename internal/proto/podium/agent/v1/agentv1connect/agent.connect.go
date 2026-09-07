@@ -98,6 +98,8 @@ const (
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
 	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
+	// AgentServiceDeleteChatProcedure is the fully-qualified name of the AgentService's DeleteChat RPC.
+	AgentServiceDeleteChatProcedure = "/podium.agent.v1.AgentService/DeleteChat"
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
 	// SendChatMessage RPC.
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
@@ -177,6 +179,11 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// DeleteChat removes one of the caller's chats and every message in it. Another
+	// login's chat is not_found, the same as a chat that is not there: the existence of
+	// somebody else's conversation is not this caller's to learn. Sessions and turns the
+	// chat started are kept — they are the audit, not the transcript.
+	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
 	// FailedPrecondition while a turn for that chat is already running: one turn at a time
 	// per conversation is the whole model.
@@ -341,6 +348,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 			connect.WithClientOptions(opts...),
 		),
+		deleteChat: connect.NewClient[v1.DeleteChatRequest, v1.DeleteChatResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteChat")),
+			connect.WithClientOptions(opts...),
+		),
 		sendChatMessage: connect.NewClient[v1.SendChatMessageRequest, v1.SendChatMessageResponse](
 			httpClient,
 			baseURL+AgentServiceSendChatMessageProcedure,
@@ -382,6 +395,7 @@ type agentServiceClient struct {
 	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	deleteChat         *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
 	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
 	streamChat         *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 }
@@ -506,6 +520,11 @@ func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request
 	return c.listChats.CallUnary(ctx, req)
 }
 
+// DeleteChat calls podium.agent.v1.AgentService.DeleteChat.
+func (c *agentServiceClient) DeleteChat(ctx context.Context, req *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error) {
+	return c.deleteChat.CallUnary(ctx, req)
+}
+
 // SendChatMessage calls podium.agent.v1.AgentService.SendChatMessage.
 func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
 	return c.sendChatMessage.CallUnary(ctx, req)
@@ -588,6 +607,11 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// DeleteChat removes one of the caller's chats and every message in it. Another
+	// login's chat is not_found, the same as a chat that is not there: the existence of
+	// somebody else's conversation is not this caller's to learn. Sessions and turns the
+	// chat started are kept — they are the audit, not the transcript.
+	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
 	// FailedPrecondition while a turn for that chat is already running: one turn at a time
 	// per conversation is the whole model.
@@ -748,6 +772,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceDeleteChatHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteChatProcedure,
+		svc.DeleteChat,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteChat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceSendChatMessageHandler := connect.NewUnaryHandler(
 		AgentServiceSendChatMessageProcedure,
 		svc.SendChatMessage,
@@ -810,6 +840,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
 			agentServiceListChatsHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteChatProcedure:
+			agentServiceDeleteChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
@@ -917,6 +949,10 @@ func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteChat is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {

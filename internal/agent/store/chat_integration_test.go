@@ -292,6 +292,41 @@ func TestAMessageForAChatThatIsNotThereIsRefused(t *testing.T) {
 	assert.ErrorContains(t, err, "chat_messages_chat_id_fkey")
 }
 
+func TestDeleteChatTakesItsMessagesAndNobodyElses(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	alice, err := s.CreateChat(ctx, "alice", "alice's")
+	require.NoError(t, err)
+	_, err = s.AppendChatMessage(ctx, ChatMessage{ChatID: alice.ID, Role: RoleUser, Text: "hello"})
+	require.NoError(t, err)
+	bob, err := s.CreateChat(ctx, "bob", "bob's")
+	require.NoError(t, err)
+
+	err = s.DeleteChat(ctx, alice.ID, "bob")
+	assert.ErrorIs(t, err, ErrNotFound, "another login's chat is not there, not forbidden")
+	_, err = s.GetChat(ctx, alice.ID)
+	require.NoError(t, err, "bob's attempt must leave alice's chat")
+
+	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice"))
+	_, err = s.GetChat(ctx, alice.ID)
+	assert.ErrorIs(t, err, ErrNotFound)
+	msgs, err := s.ListChatMessages(ctx, alice.ID, 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "the messages go with the chat")
+
+	_, err = s.GetChat(ctx, bob.ID)
+	require.NoError(t, err, "bob's chat is not in alice's delete")
+
+	err = s.DeleteChat(ctx, alice.ID, "alice")
+	assert.ErrorIs(t, err, ErrNotFound, "deleting a chat that is already gone is not found")
+
+	err = s.DeleteChat(ctx, "", "alice")
+	assert.ErrorContains(t, err, "an id is required")
+	err = s.DeleteChat(ctx, alice.ID, "")
+	assert.ErrorContains(t, err, "a login is required")
+}
+
 func TestChatPreviewCutsRunesNotBytes(t *testing.T) {
 	assert.Equal(t, "", preview("   ", 5))
 	assert.Equal(t, "hello", preview("  hello  ", 5))

@@ -79,6 +79,11 @@ service AgentService {
   // ListChats returns the caller's own chats, newest first. Another login's chats are
   // never returned.
   rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
+  // DeleteChat removes one of the caller's chats and every message in it. Another
+  // login's chat is not_found, the same as a chat that is not there: the existence of
+  // somebody else's conversation is not this caller's to learn. Sessions and turns the
+  // chat started are kept — they are the audit, not the transcript.
+  rpc DeleteChat(DeleteChatRequest) returns (DeleteChatResponse);
   // SendChatMessage stores one human message and starts a turn on it. It is refused with
   // FailedPrecondition while a turn for that chat is already running: one turn at a time
   // per conversation is the whole model.
@@ -484,6 +489,12 @@ message ListChatsResponse {
   // Empty when there is no further page.
   string next_cursor = 2;
 }
+
+message DeleteChatRequest {
+  string chat_id = 1;
+}
+
+message DeleteChatResponse {}
 
 message SendChatMessageRequest {
   string chat_id = 1;

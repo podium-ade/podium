@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Bot, MessageSquarePlus, Sparkles } from "lucide-react";
+import { ArrowDown, Bot, MessageSquarePlus, Sparkles, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,6 +15,14 @@ import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Tooltip } from "../ui/tooltip";
 import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
@@ -59,6 +67,18 @@ export function ChatPanel() {
     onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
       if (res.chat) navigate(`/agent/chat/${res.chat.id}`);
+    },
+    onError: (err) => toast(errorMessage(err)),
+  });
+
+  const [pendingDelete, setPendingDelete] = useState<Chat | null>(null);
+  const remove = useMutation({
+    mutationFn: (chat: Chat) => agent.deleteChat({ chatId: chat.id }),
+    onSuccess: async (_res, chat) => {
+      setPendingDelete(null);
+      toast(`${chat.title} deleted.`, "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+      if (active === chat.id) navigate("/agent/chat");
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -127,6 +147,8 @@ export function ChatPanel() {
           onNew={() => create.mutate("")}
           creating={create.isPending}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
+          onDelete={setPendingDelete}
+          deletingId={remove.isPending ? remove.variables?.id : undefined}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
           {active === "" ? (
@@ -157,6 +179,40 @@ export function ChatPanel() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {pendingDelete?.title}?</DialogTitle>
+            <DialogDescription>
+              The conversation goes with it. There is no undo, and nothing else holds a copy.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPendingDelete(null)}>
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="chat-delete-confirm"
+              aria-label={pendingDelete ? `Confirm deleting ${pendingDelete.title}` : undefined}
+              disabled={remove.isPending}
+              onClick={() => {
+                if (pendingDelete) remove.mutate(pendingDelete);
+              }}
+            >
+              {remove.isPending ? "Deleting…" : "Delete chat"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -173,6 +229,8 @@ function ChatRail({
   onNew,
   creating,
   onOpen,
+  onDelete,
+  deletingId,
 }: {
   chats: Chat[];
   active: string;
@@ -180,10 +238,13 @@ function ChatRail({
   onNew: () => void;
   creating: boolean;
   onOpen: (id: string) => void;
+  onDelete: (chat: Chat) => void;
+  deletingId?: string;
 }) {
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
+  const activeChat = ordered.find((c) => c.id === active);
 
   return (
     <div className="flex w-full shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:border-r sm:border-b-0">
@@ -209,19 +270,37 @@ function ChatRail({
 
       {/* On a narrow viewport the rail is a select rather than a drawer: one control, no
           overlay, and the keyboard works. */}
-      <select
-        aria-label="Chat"
-        value={active}
-        onChange={(e) => onOpen(e.target.value)}
-        className="mx-3 mb-3 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg sm:hidden"
-      >
-        <option value="">Pick a chat…</option>
-        {ordered.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.title}
-          </option>
-        ))}
-      </select>
+      <div className="mx-3 mb-3 flex items-center gap-2 sm:hidden">
+        <select
+          aria-label="Chat"
+          value={active}
+          onChange={(e) => onOpen(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+        >
+          <option value="">Pick a chat…</option>
+          {ordered.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.title}
+            </option>
+          ))}
+        </select>
+        {activeChat ? (
+          <Tooltip label={`Delete ${activeChat.title}`}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-testid="chat-delete-mobile"
+              aria-label={`Delete ${activeChat.title}`}
+              disabled={deletingId === activeChat.id}
+              onClick={() => onDelete(activeChat)}
+              className="hover:bg-err/12 hover:text-err"
+            >
+              <Trash2 />
+            </Button>
+          </Tooltip>
+        ) : null}
+      </div>
 
       <ul
         data-testid="chat-list"
@@ -241,16 +320,19 @@ function ChatRail({
           </li>
         ) : null}
         {ordered.map((c) => (
-          <li key={c.id}>
+          <li
+            key={c.id}
+            className={`relative flex items-stretch rounded-md ${
+              c.id === active
+                ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
+                : "hover:bg-raised/60"
+            }`}
+          >
             <button
               type="button"
               onClick={() => onOpen(c.id)}
               aria-current={c.id === active ? "true" : undefined}
-              className={`relative block w-full rounded-md px-2.5 py-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                c.id === active
-                  ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
-                  : "hover:bg-raised/60"
-              }`}
+              className="min-w-0 flex-1 rounded-md px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <span className="flex items-baseline gap-2">
                 <span
@@ -274,6 +356,20 @@ function ChatRail({
                 </span>
               </span>
             </button>
+            <Tooltip label={`Delete ${c.title}`}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                data-testid="chat-delete"
+                aria-label={`Delete ${c.title}`}
+                disabled={deletingId === c.id}
+                onClick={() => onDelete(c)}
+                className="m-1 shrink-0 self-start hover:bg-err/12 hover:text-err"
+              >
+                <Trash2 />
+              </Button>
+            </Tooltip>
           </li>
         ))}
       </ul>
