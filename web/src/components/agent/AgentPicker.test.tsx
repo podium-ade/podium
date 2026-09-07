@@ -12,7 +12,7 @@ function mount(value: AgentChoice = INHERIT, props: Partial<Parameters<typeof Ag
   onChange.mockReset();
   return render(
     <AgentPicker
-      label="Skill"
+      label="Playbook"
       value={value}
       onChange={onChange}
       agents={catalogue()}
@@ -36,7 +36,7 @@ function Controlled({ initial = INHERIT }: { initial?: AgentChoice }) {
   const [value, setValue] = useState(initial);
   return (
     <AgentPicker
-      label="Skill"
+      label="Playbook"
       value={value}
       onChange={setValue}
       agents={catalogue()}
@@ -59,7 +59,7 @@ describe("AgentPicker", () => {
   it("groups the models by backend and says which ones have a credential", async () => {
     mount();
     await open();
-    const list = screen.getByRole("listbox", { name: "Skill: models" });
+    const list = screen.getByRole("listbox", { name: "Playbook: models" });
     expect(within(list).getByText("Claude")).toBeInTheDocument();
     expect(within(list).getByText("Grok")).toBeInTheDocument();
     expect(within(list).getByText("credential set")).toBeInTheDocument();
@@ -112,8 +112,8 @@ describe("AgentPicker", () => {
   it("filters as you type and keeps the backend heading on what is left", async () => {
     mount();
     await open();
-    await userEvent.type(screen.getByLabelText("Skill: search models"), "sonnet");
-    const list = screen.getByRole("listbox", { name: "Skill: models" });
+    await userEvent.type(screen.getByLabelText("Playbook: search models"), "sonnet");
+    const list = screen.getByRole("listbox", { name: "Playbook: models" });
     expect(within(list).getByText("claude-sonnet-5")).toBeInTheDocument();
     expect(within(list).queryByText("grok-4.6")).toBeNull();
     // The heading survives the filter, so a filtered row still says what it runs on.
@@ -136,7 +136,7 @@ describe("AgentPicker", () => {
     mount();
     await open();
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("listbox", { name: "Skill: models" })).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Playbook: models" })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -144,10 +144,10 @@ describe("AgentPicker", () => {
     render(<Controlled />);
     await open();
     await userEvent.click(screen.getByTestId("agent-picker-custom"));
-    await userEvent.selectOptions(screen.getByLabelText("Skill: backend"), "grok");
-    await userEvent.type(screen.getByLabelText("Skill: model id"), "grok-5");
+    await userEvent.selectOptions(screen.getByLabelText("Playbook: backend"), "grok");
+    await userEvent.type(screen.getByLabelText("Playbook: model id"), "grok-5");
 
-    expect(screen.getByLabelText("Skill: model id")).toHaveValue("grok-5");
+    expect(screen.getByLabelText("Playbook: model id")).toHaveValue("grok-5");
     const trigger = screen.getByTestId("agent-picker-trigger");
     expect(trigger).toHaveTextContent("grok-5");
     expect(trigger).toHaveTextContent("not in the catalogue");
@@ -156,7 +156,7 @@ describe("AgentPicker", () => {
   it("shows a model that is not in the catalogue rather than silently dropping it", () => {
     mount({ agent: "grok", model: "grok-99", effort: "" });
     expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("grok-99");
-    expect(screen.getByLabelText("Skill: model id")).toHaveValue("grok-99");
+    expect(screen.getByLabelText("Playbook: model id")).toHaveValue("grok-99");
   });
 
   it("still offers an effort for a model it has never heard of", () => {
@@ -184,7 +184,7 @@ describe("AgentPicker", () => {
   it("offers no inherit row when the level above has nothing to inherit from", async () => {
     mount(INHERIT, { inherit: undefined, inherited: undefined });
     await open();
-    const list = screen.getByRole("listbox", { name: "Skill: models" });
+    const list = screen.getByRole("listbox", { name: "Playbook: models" });
     expect(within(list).queryByText("Inherit")).toBeNull();
   });
 });

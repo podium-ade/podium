@@ -37,7 +37,7 @@ const session = {
   sourceKind: "slack",
   sourceKey: "slack:C0123:1725000000.000100",
   profile: "podium",
-  skill: "general",
+  playbook: "general",
   createdAt: timestampFromDate(new Date(Date.now() - 3_600_000)),
   lastTurnAt: timestampFromDate(new Date(Date.now() - 60_000)),
 };
@@ -70,7 +70,7 @@ describe("SessionsTable", () => {
     expect(screen.getByText(/Mention the bot in Slack/)).toBeInTheDocument();
   });
 
-  it("shows the source, a readable conversation ref and the skill", async () => {
+  it("shows the source, a readable conversation ref and the playbook", async () => {
     mount();
     const row = await screen.findByTestId("session-row");
     expect(row).toHaveTextContent("slack");

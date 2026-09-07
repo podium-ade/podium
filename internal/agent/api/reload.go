@@ -14,7 +14,7 @@ import (
 // the four fields are one decision an operator makes on one screen.
 const overridesSettingKey = "profile.overrides"
 
-// ReloadProfile rebuilds the profile a turn runs from — the profile directory, the skills
+// ReloadProfile rebuilds the profile a turn runs from — the profile directory, the playbooks
 // the database holds and the stored overrides — and swaps it into live.
 //
 // This is the whole of "a change reaches a running conductor without a restart": every
@@ -30,11 +30,11 @@ func ReloadProfile(ctx context.Context, st *store.Store, live *profiles.Live) (*
 	if err != nil {
 		return nil, err
 	}
-	stored, err := st.ListStoredSkills(ctx)
+	stored, err := st.ListStoredPlaybooks(ctx)
 	if err != nil {
 		return nil, err
 	}
-	merged, _, err := profiles.Merge(files, ov, skillsOf(stored))
+	merged, _, err := profiles.Merge(files, ov, playbooksOf(stored))
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +81,10 @@ func readOverrides(ctx context.Context, st *store.Store) (profiles.Overrides, er
 	return ov, nil
 }
 
-func skillsOf(rows []store.StoredSkill) []profiles.Skill {
-	out := make([]profiles.Skill, 0, len(rows))
+func playbooksOf(rows []store.StoredPlaybook) []profiles.Playbook {
+	out := make([]profiles.Playbook, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, r.Skill)
+		out = append(out, r.Playbook)
 	}
 	return out
 }

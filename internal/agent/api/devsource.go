@@ -41,11 +41,11 @@ func NewDevSource() *DevSource {
 
 // devInbound is the body of POST /dev/inbound.
 type devInbound struct {
-	Channel string `json:"channel"`
-	Thread  string `json:"thread"`
-	Author  string `json:"author"`
-	Text    string `json:"text"`
-	Skill   string `json:"skill"`
+	Channel  string `json:"channel"`
+	Thread   string `json:"thread"`
+	Author   string `json:"author"`
+	Text     string `json:"text"`
+	Playbook string `json:"playbook"`
 	// DryRun and its two companions map onto the runtime's test-only knobs.
 	DryRun        bool `json:"dry_run"`
 	DryRunSleepMS int  `json:"dry_run_sleep_ms"`
@@ -100,7 +100,7 @@ func (d *DevSource) inbound(w http.ResponseWriter, r *http.Request) {
 		Author:     body.Author,
 		Text:       body.Text,
 		TS:         time.Now().UTC(),
-		Skill:      body.Skill,
+		Playbook:   body.Playbook,
 		// The runtime's schema knows slack, linear and chat. The dev source presents itself
 		// as chat, which is what it is: a text conversation with no integration.
 		BriefKind: conductor.SourceChat,

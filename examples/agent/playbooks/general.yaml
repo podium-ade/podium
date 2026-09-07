@@ -1,9 +1,9 @@
-# The skill a mention gets when nothing else routes it: answer the question in the thread.
+# The playbook a mention gets when nothing else routes it: answer the question in the thread.
 # It reads and it runs shell commands; it clones nothing and it holds no credentials beyond
 # the model key the conductor attaches to every turn.
 #
 # It names no agent, model or effort, so it runs on whatever profile.yaml is set to. Adding
-# `agent: grok` here — and nothing else — would run this one skill on Grok and leave the
+# `agent: grok` here — and nothing else — would run this one playbook on Grok and leave the
 # rest of the bot alone.
 #
 # The image is the locally built :dev tag, so `make agent-runtime` is all it takes for this

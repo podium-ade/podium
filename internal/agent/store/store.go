@@ -81,7 +81,7 @@ type Session struct {
 	SourceKind string
 	SourceKey  string
 	Profile    string
-	Skill      string
+	Playbook   string
 	CreatedAt  time.Time
 	LastTurnAt *time.Time
 }
@@ -100,9 +100,9 @@ type Turn struct {
 	FinalText  string
 }
 
-// UpsertSession returns the session for want.SourceKey, creating it if it is new. The skill
-// of an existing session is never changed: one session, one skill, fixed at creation. The
-// returned row is authoritative, so a caller that wanted a different skill can see it did
+// UpsertSession returns the session for want.SourceKey, creating it if it is new. The playbook
+// of an existing session is never changed: one session, one playbook, fixed at creation. The
+// returned row is authoritative, so a caller that wanted a different playbook can see it did
 // not get one.
 func (s *Store) UpsertSession(ctx context.Context, want Session) (Session, error) {
 	id := want.ID
@@ -118,7 +118,7 @@ func (s *Store) UpsertSession(ctx context.Context, want Session) (Session, error
 		SourceKind: want.SourceKind,
 		SourceKey:  want.SourceKey,
 		Profile:    want.Profile,
-		Skill:      want.Skill,
+		Playbook:   want.Playbook,
 		CreatedAt:  created,
 	})
 	if err != nil {
@@ -379,7 +379,7 @@ func sessionFromRow(r db.Session) Session {
 		SourceKind: r.SourceKind,
 		SourceKey:  r.SourceKey,
 		Profile:    r.Profile,
-		Skill:      r.Skill,
+		Playbook:   r.Playbook,
 		CreatedAt:  r.CreatedAt.UTC(),
 		LastTurnAt: utcPtr(r.LastTurnAt),
 	}

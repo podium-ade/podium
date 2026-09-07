@@ -18,7 +18,7 @@ import (
 // because podium-server is the only thing that should reach it and it runs on this host.
 const DefaultListen = "127.0.0.1:8090"
 
-// DefaultProfileDir holds profile.yaml, skills/ and prompts/.
+// DefaultProfileDir holds profile.yaml, playbooks/ and prompts/.
 const DefaultProfileDir = "/etc/podium/agent"
 
 // ProfileFile is the one file a profile directory must contain.
@@ -122,7 +122,7 @@ type Config struct {
 	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
 	MemoryTaskURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
-	// turn: there is no per-user or per-skill scoping in this track.
+	// turn: there is no per-user or per-playbook scoping in this track.
 	MemoryBank string
 	// MemoryAPIKey is PODIUM_AGENT_MEMORY_API_KEY, the bearer Hindsight requires for both
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so

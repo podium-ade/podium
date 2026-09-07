@@ -5,7 +5,7 @@ import { Button } from "../ui/button";
 /**
  * ConductorDown is what every agent screen shows when podium-agent does not answer.
  *
- * It is deliberately not an error page. The conductor is restarted whenever a skill or a
+ * It is deliberately not an error page. The conductor is restarted whenever a playbook or a
  * profile changes, and for those few seconds every read from it fails; an operator who is
  * shown a red failure learns to distrust the screen rather than the process. So the headline
  * names what could not be read, the body says the wait is expected, and there is a retry to

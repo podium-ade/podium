@@ -96,8 +96,8 @@ type AgentServiceOptions struct {
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
 	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
 	Memory memory.Client
-	// Profiles is the profile in force, swapped whenever a stored skill changes. Nil makes
-	// the skill and profile RPCs answer FailedPrecondition.
+	// Profiles is the profile in force, swapped whenever a stored playbook changes. Nil makes
+	// the playbook and profile RPCs answer FailedPrecondition.
 	Profiles *profiles.Live
 	// Chat is the web chat's write path and live fan-out. Nil makes the chat RPCs answer
 	// FailedPrecondition.
@@ -125,7 +125,7 @@ type AgentService struct {
 	flowMu sync.Mutex
 	flows  map[string]*oauthFlow
 
-	// writeMu serialises the read-validate-write of a skill or an override, so two
+	// writeMu serialises the read-validate-write of a playbook or an override, so two
 	// browsers saving at once cannot each validate against a set the other is changing.
 	writeMu sync.Mutex
 	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
@@ -240,7 +240,7 @@ func sessionToProto(s store.Session) *agentv1.Session {
 		SourceKind: s.SourceKind,
 		SourceKey:  s.SourceKey,
 		Profile:    s.Profile,
-		Skill:      s.Skill,
+		Playbook:   s.Playbook,
 		CreatedAt:  timestamppb.New(s.CreatedAt),
 	}
 	if s.LastTurnAt != nil {

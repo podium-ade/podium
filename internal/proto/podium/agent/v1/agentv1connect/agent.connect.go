@@ -66,22 +66,23 @@ const (
 	// AgentServiceDeleteMemoryProcedure is the fully-qualified name of the AgentService's DeleteMemory
 	// RPC.
 	AgentServiceDeleteMemoryProcedure = "/podium.agent.v1.AgentService/DeleteMemory"
-	// AgentServiceListSkillsProcedure is the fully-qualified name of the AgentService's ListSkills RPC.
-	AgentServiceListSkillsProcedure = "/podium.agent.v1.AgentService/ListSkills"
+	// AgentServiceListPlaybooksProcedure is the fully-qualified name of the AgentService's
+	// ListPlaybooks RPC.
+	AgentServiceListPlaybooksProcedure = "/podium.agent.v1.AgentService/ListPlaybooks"
 	// AgentServiceGetProfileProcedure is the fully-qualified name of the AgentService's GetProfile RPC.
 	AgentServiceGetProfileProcedure = "/podium.agent.v1.AgentService/GetProfile"
 	// AgentServiceUpdateProfileProcedure is the fully-qualified name of the AgentService's
 	// UpdateProfile RPC.
 	AgentServiceUpdateProfileProcedure = "/podium.agent.v1.AgentService/UpdateProfile"
-	// AgentServiceCreateSkillProcedure is the fully-qualified name of the AgentService's CreateSkill
-	// RPC.
-	AgentServiceCreateSkillProcedure = "/podium.agent.v1.AgentService/CreateSkill"
-	// AgentServiceUpdateSkillProcedure is the fully-qualified name of the AgentService's UpdateSkill
-	// RPC.
-	AgentServiceUpdateSkillProcedure = "/podium.agent.v1.AgentService/UpdateSkill"
-	// AgentServiceDeleteSkillProcedure is the fully-qualified name of the AgentService's DeleteSkill
-	// RPC.
-	AgentServiceDeleteSkillProcedure = "/podium.agent.v1.AgentService/DeleteSkill"
+	// AgentServiceCreatePlaybookProcedure is the fully-qualified name of the AgentService's
+	// CreatePlaybook RPC.
+	AgentServiceCreatePlaybookProcedure = "/podium.agent.v1.AgentService/CreatePlaybook"
+	// AgentServiceUpdatePlaybookProcedure is the fully-qualified name of the AgentService's
+	// UpdatePlaybook RPC.
+	AgentServiceUpdatePlaybookProcedure = "/podium.agent.v1.AgentService/UpdatePlaybook"
+	// AgentServiceDeletePlaybookProcedure is the fully-qualified name of the AgentService's
+	// DeletePlaybook RPC.
+	AgentServiceDeletePlaybookProcedure = "/podium.agent.v1.AgentService/DeletePlaybook"
 	// AgentServiceCreateChatProcedure is the fully-qualified name of the AgentService's CreateChat RPC.
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
@@ -127,24 +128,24 @@ type AgentServiceClient interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
-	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
-	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
-	// merged with what the conductor's database holds — and every skill in full, so a
+	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
+	// merged with what the conductor's database holds — and every playbook in full, so a
 	// browser can manage them.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default skills. An
+	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
-	// CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
 	// already defines is refused: the files are authoritative for the names they hold.
-	CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error)
-	// UpdateSkill replaces a stored skill. A file-defined skill is refused.
-	UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error)
-	// DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
-	// stored skill that is not there is not an error.
-	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
+	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
+	// UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
+	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
+	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
+	// stored playbook that is not there is not an error.
+	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -242,10 +243,10 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
 			connect.WithClientOptions(opts...),
 		),
-		listSkills: connect.NewClient[v1.ListSkillsRequest, v1.ListSkillsResponse](
+		listPlaybooks: connect.NewClient[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse](
 			httpClient,
-			baseURL+AgentServiceListSkillsProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+			baseURL+AgentServiceListPlaybooksProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListPlaybooks")),
 			connect.WithClientOptions(opts...),
 		),
 		getProfile: connect.NewClient[v1.GetProfileRequest, v1.GetProfileResponse](
@@ -260,22 +261,22 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
 			connect.WithClientOptions(opts...),
 		),
-		createSkill: connect.NewClient[v1.CreateSkillRequest, v1.CreateSkillResponse](
+		createPlaybook: connect.NewClient[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse](
 			httpClient,
-			baseURL+AgentServiceCreateSkillProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("CreateSkill")),
+			baseURL+AgentServiceCreatePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreatePlaybook")),
 			connect.WithClientOptions(opts...),
 		),
-		updateSkill: connect.NewClient[v1.UpdateSkillRequest, v1.UpdateSkillResponse](
+		updatePlaybook: connect.NewClient[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse](
 			httpClient,
-			baseURL+AgentServiceUpdateSkillProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("UpdateSkill")),
+			baseURL+AgentServiceUpdatePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdatePlaybook")),
 			connect.WithClientOptions(opts...),
 		),
-		deleteSkill: connect.NewClient[v1.DeleteSkillRequest, v1.DeleteSkillResponse](
+		deletePlaybook: connect.NewClient[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse](
 			httpClient,
-			baseURL+AgentServiceDeleteSkillProcedure,
-			connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+			baseURL+AgentServiceDeletePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
 			connect.WithClientOptions(opts...),
 		),
 		createChat: connect.NewClient[v1.CreateChatRequest, v1.CreateChatResponse](
@@ -319,12 +320,12 @@ type agentServiceClient struct {
 	listMemories       *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
 	searchMemories     *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
 	deleteMemory       *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
-	listSkills         *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	listPlaybooks      *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
 	getProfile         *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile      *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	createSkill        *connect.Client[v1.CreateSkillRequest, v1.CreateSkillResponse]
-	updateSkill        *connect.Client[v1.UpdateSkillRequest, v1.UpdateSkillResponse]
-	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
+	createPlaybook     *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
+	updatePlaybook     *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
+	deletePlaybook     *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
 	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
 	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
@@ -391,9 +392,9 @@ func (c *agentServiceClient) DeleteMemory(ctx context.Context, req *connect.Requ
 	return c.deleteMemory.CallUnary(ctx, req)
 }
 
-// ListSkills calls podium.agent.v1.AgentService.ListSkills.
-func (c *agentServiceClient) ListSkills(ctx context.Context, req *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
-	return c.listSkills.CallUnary(ctx, req)
+// ListPlaybooks calls podium.agent.v1.AgentService.ListPlaybooks.
+func (c *agentServiceClient) ListPlaybooks(ctx context.Context, req *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error) {
+	return c.listPlaybooks.CallUnary(ctx, req)
 }
 
 // GetProfile calls podium.agent.v1.AgentService.GetProfile.
@@ -406,19 +407,19 @@ func (c *agentServiceClient) UpdateProfile(ctx context.Context, req *connect.Req
 	return c.updateProfile.CallUnary(ctx, req)
 }
 
-// CreateSkill calls podium.agent.v1.AgentService.CreateSkill.
-func (c *agentServiceClient) CreateSkill(ctx context.Context, req *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error) {
-	return c.createSkill.CallUnary(ctx, req)
+// CreatePlaybook calls podium.agent.v1.AgentService.CreatePlaybook.
+func (c *agentServiceClient) CreatePlaybook(ctx context.Context, req *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
+	return c.createPlaybook.CallUnary(ctx, req)
 }
 
-// UpdateSkill calls podium.agent.v1.AgentService.UpdateSkill.
-func (c *agentServiceClient) UpdateSkill(ctx context.Context, req *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error) {
-	return c.updateSkill.CallUnary(ctx, req)
+// UpdatePlaybook calls podium.agent.v1.AgentService.UpdatePlaybook.
+func (c *agentServiceClient) UpdatePlaybook(ctx context.Context, req *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error) {
+	return c.updatePlaybook.CallUnary(ctx, req)
 }
 
-// DeleteSkill calls podium.agent.v1.AgentService.DeleteSkill.
-func (c *agentServiceClient) DeleteSkill(ctx context.Context, req *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
-	return c.deleteSkill.CallUnary(ctx, req)
+// DeletePlaybook calls podium.agent.v1.AgentService.DeletePlaybook.
+func (c *agentServiceClient) DeletePlaybook(ctx context.Context, req *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error) {
+	return c.deletePlaybook.CallUnary(ctx, req)
 }
 
 // CreateChat calls podium.agent.v1.AgentService.CreateChat.
@@ -475,24 +476,24 @@ type AgentServiceHandler interface {
 	// DeleteMemory takes one memory out of every future recall. It is a tombstone rather
 	// than a row deletion: the memory engine keeps the record for audit and stops serving it.
 	DeleteMemory(context.Context, *connect.Request[v1.DeleteMemoryRequest]) (*connect.Response[v1.DeleteMemoryResponse], error)
-	// ListSkills reports the profile's skills so the chat can offer them. Nothing secret:
+	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
-	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and skills/
-	// merged with what the conductor's database holds — and every skill in full, so a
+	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
+	// merged with what the conductor's database holds — and every playbook in full, so a
 	// browser can manage them.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default skills. An
+	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
-	// CreateSkill stores a new skill in the conductor's database. A name a skills/*.yaml
+	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
 	// already defines is refused: the files are authoritative for the names they hold.
-	CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error)
-	// UpdateSkill replaces a stored skill. A file-defined skill is refused.
-	UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error)
-	// DeleteSkill removes a stored skill. A file-defined skill is refused; deleting a
-	// stored skill that is not there is not an error.
-	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
+	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
+	// UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
+	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
+	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
+	// stored playbook that is not there is not an error.
+	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -586,10 +587,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DeleteMemory")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceListSkillsHandler := connect.NewUnaryHandler(
-		AgentServiceListSkillsProcedure,
-		svc.ListSkills,
-		connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+	agentServiceListPlaybooksHandler := connect.NewUnaryHandler(
+		AgentServiceListPlaybooksProcedure,
+		svc.ListPlaybooks,
+		connect.WithSchema(agentServiceMethods.ByName("ListPlaybooks")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetProfileHandler := connect.NewUnaryHandler(
@@ -604,22 +605,22 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceCreateSkillHandler := connect.NewUnaryHandler(
-		AgentServiceCreateSkillProcedure,
-		svc.CreateSkill,
-		connect.WithSchema(agentServiceMethods.ByName("CreateSkill")),
+	agentServiceCreatePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceCreatePlaybookProcedure,
+		svc.CreatePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("CreatePlaybook")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceUpdateSkillHandler := connect.NewUnaryHandler(
-		AgentServiceUpdateSkillProcedure,
-		svc.UpdateSkill,
-		connect.WithSchema(agentServiceMethods.ByName("UpdateSkill")),
+	agentServiceUpdatePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceUpdatePlaybookProcedure,
+		svc.UpdatePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("UpdatePlaybook")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentServiceDeleteSkillHandler := connect.NewUnaryHandler(
-		AgentServiceDeleteSkillProcedure,
-		svc.DeleteSkill,
-		connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
+	agentServiceDeletePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceDeletePlaybookProcedure,
+		svc.DeletePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceCreateChatHandler := connect.NewUnaryHandler(
@@ -672,18 +673,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSearchMemoriesHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteMemoryProcedure:
 			agentServiceDeleteMemoryHandler.ServeHTTP(w, r)
-		case AgentServiceListSkillsProcedure:
-			agentServiceListSkillsHandler.ServeHTTP(w, r)
+		case AgentServiceListPlaybooksProcedure:
+			agentServiceListPlaybooksHandler.ServeHTTP(w, r)
 		case AgentServiceGetProfileProcedure:
 			agentServiceGetProfileHandler.ServeHTTP(w, r)
 		case AgentServiceUpdateProfileProcedure:
 			agentServiceUpdateProfileHandler.ServeHTTP(w, r)
-		case AgentServiceCreateSkillProcedure:
-			agentServiceCreateSkillHandler.ServeHTTP(w, r)
-		case AgentServiceUpdateSkillProcedure:
-			agentServiceUpdateSkillHandler.ServeHTTP(w, r)
-		case AgentServiceDeleteSkillProcedure:
-			agentServiceDeleteSkillHandler.ServeHTTP(w, r)
+		case AgentServiceCreatePlaybookProcedure:
+			agentServiceCreatePlaybookHandler.ServeHTTP(w, r)
+		case AgentServiceUpdatePlaybookProcedure:
+			agentServiceUpdatePlaybookHandler.ServeHTTP(w, r)
+		case AgentServiceDeletePlaybookProcedure:
+			agentServiceDeletePlaybookHandler.ServeHTTP(w, r)
 		case AgentServiceCreateChatProcedure:
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
@@ -749,8 +750,8 @@ func (UnimplementedAgentServiceHandler) DeleteMemory(context.Context, *connect.R
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMemory is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSkills is not implemented"))
+func (UnimplementedAgentServiceHandler) ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListPlaybooks is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error) {
@@ -761,16 +762,16 @@ func (UnimplementedAgentServiceHandler) UpdateProfile(context.Context, *connect.
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateProfile is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) CreateSkill(context.Context, *connect.Request[v1.CreateSkillRequest]) (*connect.Response[v1.CreateSkillResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateSkill is not implemented"))
+func (UnimplementedAgentServiceHandler) CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreatePlaybook is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) UpdateSkill(context.Context, *connect.Request[v1.UpdateSkillRequest]) (*connect.Response[v1.UpdateSkillResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateSkill is not implemented"))
+func (UnimplementedAgentServiceHandler) UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdatePlaybook is not implemented"))
 }
 
-func (UnimplementedAgentServiceHandler) DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteSkill is not implemented"))
+func (UnimplementedAgentServiceHandler) DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePlaybook is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {

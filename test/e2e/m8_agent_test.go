@@ -67,7 +67,7 @@ func startAgent(t *testing.T, h *harness) *agentProc {
 		h:           h,
 		addr:        freeLoopbackAddr(t),
 		databaseURL: newAgentDatabase(t),
-		// The example profile is what docs/agent.md points at, and its skill's image is the
+		// The example profile is what docs/agent.md points at, and its playbook's image is the
 		// locally built :dev tag, so the e2e node can run it without a registry.
 		profileDir: filepath.Join(root, "examples", "agent"),
 	}
@@ -423,7 +423,7 @@ func TestAgentTurnRoundTrip(t *testing.T) {
 	code, body = agent.post("/podium.agent.v1.AgentService/ListSessions", agentToken, "{}")
 	require.Equal(t, http.StatusOK, code, "ListSessions with the bearer: %s", body)
 	assert.Contains(t, body, sourceKey)
-	assert.Contains(t, body, `"skill":"general"`)
+	assert.Contains(t, body, `"playbook":"general"`)
 
 	// /healthz is open and says nothing about dependencies; /readyz needs them.
 	code, _ = agent.get("/healthz", "")

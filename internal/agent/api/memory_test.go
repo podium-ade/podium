@@ -85,7 +85,7 @@ func oneMemory() memory.Memory {
 		ID:       "ed1bd235-bd25-483c-beff-4d54ff776e52",
 		Text:     "Bob owns the Podium scheduler.",
 		FactType: memory.FactWorld,
-		Tags:     []string{"source:slack", "skill:general"},
+		Tags:     []string{"source:slack", "playbook:general"},
 		Metadata: map[string]string{
 			"turn_id":    "turn_01",
 			"task_id":    "task_01",
@@ -93,7 +93,7 @@ func oneMemory() memory.Memory {
 			"source_url": "https://example.slack.com/archives/C1/p11",
 		},
 		Entities:   []string{"Bob", "scheduler"},
-		Context:    "podium agent, skill general",
+		Context:    "podium agent, playbook general",
 		DocumentID: "turn_01",
 		LearnedAt:  time.Date(2026, 9, 3, 19, 12, 4, 0, time.UTC),
 	}
@@ -150,9 +150,9 @@ func TestListMemoriesReturnsTheProvenanceIntact(t *testing.T) {
 	assert.Equal(t, "ed1bd235-bd25-483c-beff-4d54ff776e52", got.GetId())
 	assert.Equal(t, "Bob owns the Podium scheduler.", got.GetText())
 	assert.Equal(t, memory.FactWorld, got.GetFactType())
-	assert.Equal(t, []string{"source:slack", "skill:general"}, got.GetTags())
+	assert.Equal(t, []string{"source:slack", "playbook:general"}, got.GetTags())
 	assert.Equal(t, []string{"Bob", "scheduler"}, got.GetEntities())
-	assert.Equal(t, "podium agent, skill general", got.GetContext())
+	assert.Equal(t, "podium agent, playbook general", got.GetContext())
 	assert.Equal(t, "turn_01", got.GetDocumentId())
 	// The provenance is the mitigation for a poisoned memory: every chip in the UI reads
 	// out of this map, so nothing here may be dropped in translation.

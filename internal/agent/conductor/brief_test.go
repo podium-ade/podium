@@ -27,7 +27,7 @@ func minimalBrief() *Brief {
 			Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
 			Model: "claude-opus-5",
 		},
-		Skill: BriefSkill{
+		Playbook: BriefPlaybook{
 			Name: "general", SystemPrompt: "answer it", AllowedTools: []string{"read"}, MaxTurns: 20,
 		},
 		Transcript:  []BriefEntry{},
@@ -108,7 +108,7 @@ func TestAnOptionalFieldIsOmittedNotNulled(t *testing.T) {
 func TestANilTranscriptBecomesAnEmptyArray(t *testing.T) {
 	b := minimalBrief()
 	b.Transcript = nil
-	b.Skill.AllowedTools = nil
+	b.Playbook.AllowedTools = nil
 	encoded, err := b.Encode()
 	require.NoError(t, err)
 	raw, _ := base64.StdEncoding.DecodeString(encoded)

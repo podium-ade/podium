@@ -37,7 +37,7 @@ describe("writeConfig", () => {
     const tools = config.agent[AgentName].tools as Record<string, boolean>;
     expect(tools.read).toBe(true);
     expect(tools.grep).toBe(true);
-    // The ones the skill did not name are explicitly off. Omitting them would leave the
+    // The ones the playbook did not name are explicitly off. Omitting them would leave the
     // harness's own defaults in place, which is the opposite of an allow-list.
     expect(tools.bash).toBe(false);
     expect(tools.write).toBe(false);
@@ -71,8 +71,8 @@ describe("writeConfig", () => {
     expect(JSON.stringify(config)).not.toContain("PODIUM_MEMORY_API_KEY=");
   });
 
-  it("enables the memory tools when the host has memory, whatever the skill listed", () => {
-    // A skill cannot opt out of memory: the conductor decides whether a turn gets one.
+  it("enables the memory tools when the host has memory, whatever the playbook listed", () => {
+    // A playbook cannot opt out of memory: the conductor decides whether a turn gets one.
     const { config } = write({
       tools: ["read"],
       memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },

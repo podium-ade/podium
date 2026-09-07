@@ -2,30 +2,30 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
-import { SkillSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { PlaybookSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT } from "../../lib/agents";
 import { catalogue } from "../../test/agents";
 import { ChatComposer } from "./ChatComposer";
 
-const skills = [
-  create(SkillSchema, {
+const playbooks = [
+  create(PlaybookSchema, {
     name: "analyst",
     image: "local/agent-warehouse:dev",
     hint: "Answer questions about the data warehouse.",
     chatDefault: true,
   }),
-  create(SkillSchema, { name: "coder", image: "local/agent-browser:dev", hint: "Write the change." }),
-  create(SkillSchema, { name: "general", image: "podium-agent-runtime:dev", hint: "Answer the question." }),
+  create(PlaybookSchema, { name: "coder", image: "local/agent-browser:dev", hint: "Write the change." }),
+  create(PlaybookSchema, { name: "general", image: "podium-agent-runtime:dev", hint: "Answer the question." }),
 ];
 
 function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
   const onSend = vi.fn();
-  const onSkillChange = vi.fn();
+  const onPlaybookChange = vi.fn();
   render(
     <ChatComposer
-      skills={skills}
-      skill="analyst"
-      onSkillChange={onSkillChange}
+      playbooks={playbooks}
+      playbook="analyst"
+      onPlaybookChange={onPlaybookChange}
       disabled={false}
       agents={catalogue()}
       choice={INHERIT}
@@ -34,7 +34,7 @@ function mount(over: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
       {...over}
     />,
   );
-  return { onSend, onSkillChange };
+  return { onSend, onPlaybookChange };
 }
 
 describe("ChatComposer", () => {
@@ -75,34 +75,34 @@ describe("ChatComposer", () => {
     expect(box).toBeDisabled();
     expect(box).toHaveAttribute("placeholder", "Working…");
     expect(screen.getByTestId("chat-send")).toBeDisabled();
-    expect(screen.getByTestId("chat-skill")).toBeDisabled();
+    expect(screen.getByTestId("chat-playbook")).toBeDisabled();
   });
 
-  it("cycles the skill chip on click", async () => {
-    const { onSkillChange } = mount();
-    const chip = screen.getByTestId("chat-skill");
+  it("cycles the playbook chip on click", async () => {
+    const { onPlaybookChange } = mount();
+    const chip = screen.getByTestId("chat-playbook");
     expect(chip).toHaveTextContent("/analyst");
     await userEvent.click(chip);
-    expect(onSkillChange).toHaveBeenCalledWith("coder");
+    expect(onPlaybookChange).toHaveBeenCalledWith("coder");
   });
 
-  it("wraps round the end of the skill list", async () => {
-    const { onSkillChange } = mount({ skill: "general" });
-    await userEvent.click(screen.getByTestId("chat-skill"));
-    expect(onSkillChange).toHaveBeenCalledWith("analyst");
+  it("wraps round the end of the playbook list", async () => {
+    const { onPlaybookChange } = mount({ playbook: "general" });
+    await userEvent.click(screen.getByTestId("chat-playbook"));
+    expect(onPlaybookChange).toHaveBeenCalledWith("analyst");
   });
 
-  it("shows the first skill when the chosen one is not there", () => {
-    mount({ skill: "gone" });
-    expect(screen.getByTestId("chat-skill")).toHaveTextContent("/analyst");
+  it("shows the first playbook when the chosen one is not there", () => {
+    mount({ playbook: "gone" });
+    expect(screen.getByTestId("chat-playbook")).toHaveTextContent("/analyst");
   });
 
-  it("has no chip at all with no skills, and no cycle with one", () => {
+  it("has no chip at all with no playbooks, and no cycle with one", () => {
     const { unmount } = render(
       <ChatComposer
-        skills={[]}
-        skill=""
-        onSkillChange={vi.fn()}
+        playbooks={[]}
+        playbook=""
+        onPlaybookChange={vi.fn()}
         disabled={false}
         agents={catalogue()}
         choice={INHERIT}
@@ -110,14 +110,14 @@ describe("ChatComposer", () => {
         onSend={vi.fn()}
       />,
     );
-    expect(screen.queryByTestId("chat-skill")).toBeNull();
+    expect(screen.queryByTestId("chat-playbook")).toBeNull();
     unmount();
 
     render(
       <ChatComposer
-        skills={[skills[0]]}
-        skill="analyst"
-        onSkillChange={vi.fn()}
+        playbooks={[playbooks[0]]}
+        playbook="analyst"
+        onPlaybookChange={vi.fn()}
         disabled={false}
         agents={catalogue()}
         choice={INHERIT}
@@ -125,19 +125,19 @@ describe("ChatComposer", () => {
         onSend={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("chat-skill")).toBeDisabled();
+    expect(screen.getByTestId("chat-playbook")).toBeDisabled();
   });
 
-  it("follows a typed /skill prefix", async () => {
-    const { onSkillChange } = mount();
+  it("follows a typed /playbook prefix", async () => {
+    const { onPlaybookChange } = mount();
     await userEvent.type(screen.getByTestId("chat-composer"), "/coder ");
-    expect(onSkillChange).toHaveBeenCalledWith("coder");
+    expect(onPlaybookChange).toHaveBeenCalledWith("coder");
   });
 
-  it("ignores a /prefix that is not a skill", async () => {
-    const { onSkillChange } = mount();
+  it("ignores a /prefix that is not a playbook", async () => {
+    const { onPlaybookChange } = mount();
     await userEvent.type(screen.getByTestId("chat-composer"), "/shrug what now");
-    expect(onSkillChange).not.toHaveBeenCalled();
+    expect(onPlaybookChange).not.toHaveBeenCalled();
   });
 
   it("blurs on Escape", async () => {
@@ -149,12 +149,12 @@ describe("ChatComposer", () => {
     expect(box).not.toHaveFocus();
   });
 
-  // The point of the picker: one skill, asked on whichever model, without a second skill
+  // The point of the picker: one playbook, asked on whichever model, without a second playbook
   // that differs from the first by a single field.
-  it("sends the chosen model with the message, leaving the skill alone", async () => {
+  it("sends the chosen model with the message, leaving the playbook alone", async () => {
     const onSend = vi.fn();
-    const onSkillChange = vi.fn();
-    mount({ onSend, onSkillChange, choice: { agent: "grok", model: "grok-4.6", effort: "" } });
+    const onPlaybookChange = vi.fn();
+    mount({ onSend, onPlaybookChange, choice: { agent: "grok", model: "grok-4.6", effort: "" } });
 
     await userEvent.type(screen.getByTestId("chat-composer"), "who is on call{Enter}");
     expect(onSend).toHaveBeenCalledWith("who is on call", {
@@ -162,20 +162,20 @@ describe("ChatComposer", () => {
       model: "grok-4.6",
       effort: "",
     });
-    // The skill chip is untouched by the model choice: they are two decisions.
-    expect(onSkillChange).not.toHaveBeenCalled();
+    // The playbook chip is untouched by the model choice: they are two decisions.
+    expect(onPlaybookChange).not.toHaveBeenCalled();
   });
 
-  it("offers the skill's own model as the default, named", async () => {
+  it("offers the playbook's own model as the default, named", async () => {
     mount();
     // The picker is folded into a popover, but the closed control still says what will run,
-    // so a human can see what "the skill's" means before opening anything.
+    // so a human can see what "the playbook's" means before opening anything.
     const trigger = screen.getByTestId("chat-run-config");
-    expect(trigger).toHaveTextContent("The skill's model");
+    expect(trigger).toHaveTextContent("The playbook's model");
 
     await userEvent.click(trigger);
     expect(await screen.findByTestId("agent-picker-trigger")).toHaveTextContent(
-      "The skill's model",
+      "The playbook's model",
     );
   });
 });

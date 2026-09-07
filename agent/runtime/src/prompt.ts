@@ -19,7 +19,7 @@ const sourceLabels: Record<SourceKind, string> = {
 export function buildSystemPrompt(brief: TurnBrief): string {
   const sections = [
     brief.profile.system_prompt,
-    brief.skill.system_prompt,
+    brief.playbook.system_prompt,
     runtimeBlock(brief),
   ];
   if (brief.memory) {

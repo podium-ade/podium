@@ -58,7 +58,7 @@ func classify(task *podiumv1.Task, timeout time.Duration) outcome {
 	if reason == reasonTimeout {
 		return outcome{
 			Status: store.TurnTimeout,
-			Post:   fmt.Sprintf("I hit the %s limit for this skill. Task `%s`.", timeout, id),
+			Post:   fmt.Sprintf("I hit the %s limit for this playbook. Task `%s`.", timeout, id),
 		}
 	}
 	if names := missingSecrets(reason); names != "" {

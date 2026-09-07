@@ -16,7 +16,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { SessionsTable } from "../components/agent/SessionsTable";
-import { SkillsPanel } from "../components/agent/SkillsPanel";
+import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { PageHeader } from "../components/PageHeader";
@@ -63,7 +63,7 @@ const groups: Group[] = [
     label: "Configure",
     tabs: [
       { path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound },
-      { path: "skills", label: "Skills", element: <SkillsPanel />, icon: Sparkles },
+      { path: "playbooks", label: "Playbooks", element: <PlaybooksPanel />, icon: Sparkles },
       { path: "settings", label: "Settings", element: <SettingsTab />, icon: Settings2 },
     ],
   },
@@ -168,7 +168,7 @@ export function AgentPage() {
  * SettingsTab owns the RPCs and hands each card the functions it needs.
  *
  * Every provider gets a card whether or not it is configured, because the card is also
- * where an operator finds out that it is not: a Grok skill that cannot run is easier to
+ * where an operator finds out that it is not: a Grok playbook that cannot run is easier to
  * understand next to a card that says "Not set" than as a failure on the next turn.
  */
 function SettingsTab() {
@@ -294,13 +294,13 @@ function ProfileTab() {
   }
 
   const p = profile.data?.profile;
-  const skills = (profile.data?.skills ?? []).filter((s) => !s.shadowed).map((s) => s.name);
+  const playbooks = (profile.data?.playbooks ?? []).filter((s) => !s.shadowed).map((s) => s.name);
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Profile"
-        description="Who the bot is, which model it defaults to, and which skill a new chat starts on. Every field here overrides profile.yaml on the conductor's host."
+        description="Who the bot is, which model it defaults to, and which playbook a new chat starts on. Every field here overrides profile.yaml on the conductor's host."
       />
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown
@@ -312,7 +312,7 @@ function ProfileTab() {
       <ProfileCard
         key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
         profile={p}
-        skills={skills}
+        playbooks={playbooks}
         agents={agents}
         loading={profile.isPending}
         saving={save.isPending}

@@ -108,7 +108,7 @@ async function main(): Promise<number> {
     const why =
       `${keyEnv} is not set, and this turn runs on ${brief.provider.id}, which needs it. It ` +
       `reaches this container only as a Podium secret with target: env, which the conductor ` +
-      `attaches from the backend the skill runs on.`;
+      `attaches from the backend the playbook runs on.`;
     warn(why);
     summary.code = ExitHarnessError;
     await reportTurn(invoke, summary, `I could not start: ${why}`);
@@ -162,7 +162,7 @@ async function main(): Promise<number> {
     oc.writeConfig({
       dir: configDir,
       systemPrompt: buildSystemPrompt(brief),
-      tools: brief.skill.allowed_tools,
+      tools: brief.playbook.allowed_tools,
       providerID: brief.provider.id,
       baseURL: brief.provider.base_url,
       memory: brief.memory
@@ -207,12 +207,12 @@ async function main(): Promise<number> {
       switch (event.type) {
         case "step_start":
           steps += 1;
-          if (steps > brief.skill.max_turns) {
+          if (steps > brief.playbook.max_turns) {
             // The harness has no turn cap of its own, so this is the cap: stop it, and say
             // plainly that the answer is incomplete rather than relaying a half-finished one.
             summary.code = ExitMaxTurns;
             finalText =
-              `I ran out of turns. This skill allows ${brief.skill.max_turns} and the work ` +
+              `I ran out of turns. This playbook allows ${brief.playbook.max_turns} and the work ` +
               `was not finished, so nothing here is a complete answer.`;
             run.child.kill("SIGTERM");
           }

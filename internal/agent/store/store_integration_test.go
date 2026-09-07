@@ -92,20 +92,20 @@ func TestSessionRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	want := Session{SourceKind: "slack", SourceKey: "slack:C1:1.1", Profile: "podium", Skill: "general"}
+	want := Session{SourceKind: "slack", SourceKey: "slack:C1:1.1", Profile: "podium", Playbook: "general"}
 	sess, err := s.UpsertSession(ctx, want)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(sess.ID, "sess_"), "ids are prefixed ULIDs: %s", sess.ID)
-	assert.Equal(t, "general", sess.Skill)
+	assert.Equal(t, "general", sess.Playbook)
 	assert.Nil(t, sess.LastTurnAt, "a session with no turn has never had one")
 
-	// One session, one skill: a second event asking for another skill gets the original.
+	// One session, one playbook: a second event asking for another playbook gets the original.
 	again, err := s.UpsertSession(ctx, Session{
-		SourceKind: "slack", SourceKey: "slack:C1:1.1", Profile: "podium", Skill: "coder",
+		SourceKind: "slack", SourceKey: "slack:C1:1.1", Profile: "podium", Playbook: "coder",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, sess.ID, again.ID, "the same source key is the same session")
-	assert.Equal(t, "general", again.Skill, "the skill of an existing session is never changed")
+	assert.Equal(t, "general", again.Playbook, "the playbook of an existing session is never changed")
 
 	byID, err := s.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestListSessionsIsNewestFirstAndPages(t *testing.T) {
 	var ids []string
 	for i := range 5 {
 		sess, err := s.UpsertSession(ctx, Session{
-			SourceKind: "dev", SourceKey: "dev:C1:" + string(rune('a'+i)), Profile: "podium", Skill: "general",
+			SourceKind: "dev", SourceKey: "dev:C1:" + string(rune('a'+i)), Profile: "podium", Playbook: "general",
 		})
 		require.NoError(t, err)
 		ids = append(ids, sess.ID)
@@ -156,7 +156,7 @@ func TestTurnRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	sess, err := s.UpsertSession(ctx, Session{
-		SourceKind: "dev", SourceKey: "dev:C1:1.1", Profile: "podium", Skill: "general",
+		SourceKind: "dev", SourceKey: "dev:C1:1.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
 
@@ -205,7 +205,7 @@ func TestTheSchemaRefusesAnInventedTurnStatus(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	sess, err := s.UpsertSession(ctx, Session{
-		SourceKind: "dev", SourceKey: "dev:C1:1.1", Profile: "podium", Skill: "general",
+		SourceKind: "dev", SourceKey: "dev:C1:1.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
 	turn, err := s.CreateTurn(ctx, sess.ID, "C1/1.1")

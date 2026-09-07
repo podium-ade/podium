@@ -58,8 +58,8 @@ const repoSchema = z.strictObject({
   default_branch: z.string().min(1),
 });
 
-// TODO(step 17+): a skill may want its own MCP servers. That is a `mcp_servers` list on
-// `skill`, mirrored here and merged into the runtime's own memory server in main.ts.
+// TODO(step 17+): a playbook may want its own MCP servers. That is a `mcp_servers` list on
+// `playbook`, mirrored here and merged into the runtime's own memory server in main.ts.
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -77,7 +77,7 @@ const briefSchema = z.strictObject({
     // Absent means the model's own default effort, which is the provider's choice.
     effort: z.enum(EffortLevels).optional(),
   }),
-  skill: z.strictObject({
+  playbook: z.strictObject({
     name: z.string().min(1),
     system_prompt: z.string(),
     allowed_tools: z.array(z.string()),
