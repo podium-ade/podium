@@ -266,6 +266,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		SkillsDir:        a.cfg.SkillsDir,
 		Profiles:         live,
 		Chat:             a.chat,
+		Tasks:            a.podium,
 		Logger:           a.logger,
 	})
 	a.http = &http.Server{

@@ -1501,8 +1501,12 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
 
 - **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
   is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
-  another login's chat id gets you `not_found`, not access. `RenameChat` is the same partition:
-  only the owner can change the title.
+  another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
+  are the same partition: only the owner can change the title or remove a chat, and
+  another login's id is `not_found`. The messages go with a delete. Sessions and turns it
+  started stay — they are the audit of the work, not the transcript. A task still answering
+  the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
+  is gone immediately. The web UI says so in the confirm before it acts.
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.
@@ -1538,8 +1542,8 @@ material somebody else supplied. Ask for a table and you get a fenced block, whi
 prompt should ask the model for.
 
 A chat can be renamed by its owner. The title is stored on the chat row; an empty title is
-refused rather than becoming "New chat" again. Deleting a chat, sharing one, a model-written
-title, uploading a file into the chat, and streaming the model's tokens are deliberately not
+refused rather than becoming "New chat" again. Sharing a chat, a model-written title,
+uploading a file into the chat, and streaming the model's tokens are deliberately not
 built. The unit of streaming is the `progress` message the runtime sends, not a token.
 
 ---
@@ -1557,7 +1561,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
 | `ListPlaybooks` | the chat's playbook chip: name, image, prompt hint, which is the chat default |
-| `CreateChat`, `ListChats`, `RenameChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
+| `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server

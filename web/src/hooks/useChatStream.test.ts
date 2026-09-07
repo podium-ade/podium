@@ -200,6 +200,17 @@ describe("useChatStream", () => {
     await waitFor(() => expect(fromSeqs()).toEqual([0n, 0n]));
   });
 
+  it("does not reconnect when the chat is not there", async () => {
+    streamChat.mockImplementation(() => {
+      throw new ConnectError("agent store: not found: chat chat_01abc", Code.NotFound);
+    });
+    const { result } = renderHook(() => useChatStream("chat_01abc"));
+    await waitFor(() => expect(result.current.gone).toBe(true));
+    expect(result.current.error).toContain("not found");
+    await new Promise((r) => setTimeout(r, 800));
+    expect(streamChat).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels the stream on unmount and on a chat switch", async () => {
     const signals: AbortSignal[] = [];
     streamChat.mockImplementation((_req: unknown, opts: { signal: AbortSignal }) => {

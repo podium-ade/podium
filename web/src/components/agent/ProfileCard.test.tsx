@@ -38,7 +38,7 @@ describe("ProfileCard", () => {
   it("shows the file's value beside every field and leaves the inputs empty when nothing overrides it", () => {
     mount();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
-    expect(screen.getByLabelText("Default playbook")).toHaveValue("");
+    expect(screen.getByLabelText("Default playbook")).toHaveTextContent("the file's value (general)");
     // The model is a picker now, and with nothing overriding it it offers the file's value.
     expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("Use profile.yaml's");
     // The file is what is in force, so it has to be on the screen.
@@ -69,8 +69,8 @@ describe("ProfileCard", () => {
 
   it("picks a default playbook from the loaded playbooks rather than free text", async () => {
     mount();
-    const select = screen.getByLabelText("Default playbook");
-    await userEvent.selectOptions(select, "analyst");
+    await userEvent.click(screen.getByLabelText("Default playbook"));
+    await userEvent.click(await screen.findByRole("option", { name: "analyst" }));
     await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSave).toHaveBeenCalledWith(
