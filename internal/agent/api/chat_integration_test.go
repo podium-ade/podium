@@ -607,12 +607,50 @@ func TestSendChatMessageValidatesItsInput(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
+func TestRenameChatThroughTheService(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	bob := f.clientAs("bob")
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "August numbers"}))
+	require.NoError(t, err)
+	id := created.Msg.GetChat().GetId()
+
+	renamed, err := f.client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{
+		ChatId: id, Title: "  Q3   forecast ",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", renamed.Msg.GetChat().GetTitle())
+
+	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, listed.Msg.GetChats(), 1)
+	assert.Equal(t, "Q3 forecast", listed.Msg.GetChats()[0].GetTitle())
+
+	_, err = bob.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{ChatId: id, Title: "stolen"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+
+	_, err = f.client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{ChatId: id, Title: "  "}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	_, err = f.client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{Title: "no id"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
 func TestTheChatRPCsWithoutASourceSaySo(t *testing.T) {
 	svc := NewAgentService(AgentServiceOptions{Store: newStore(t)})
 	_, err := svc.CreateChat(loginCtx("alice"), connect.NewRequest(&agentv1.CreateChatRequest{}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	_, err = svc.ListChats(loginCtx("alice"), connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	_, err = svc.RenameChat(loginCtx("alice"), connect.NewRequest(&agentv1.RenameChatRequest{
+		ChatId: "chat_01abc", Title: "nope",
+	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	_, err = svc.DeleteChat(loginCtx("alice"), connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: "chat_01abc"}))

@@ -328,6 +328,15 @@ func TestAChatRemembersItsPlaybookAndMayBeRenamed(t *testing.T) {
 	}
 	assert.Equal(t, "analyst", byID[chat.ID].Playbook)
 	assert.Equal(t, "August numbers", byID[chat.ID].Title)
+
+	// A rename is the owner's word on the name, so a later turn must not write over it.
+	human, err := s.RenameChat(ctx, chat.ID, "alice", "Q3 forecast")
+	require.NoError(t, err)
+	assert.False(t, human.AutoTitle)
+	assert.Equal(t, "analyst", human.Playbook, "a rename does not forget the playbook")
+	fromTurn, err := s.SetChatTitle(ctx, chat.ID, "a model wrote this")
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", fromTurn.Title)
 }
 
 func TestRunningChatTaskIsTheTurnInFlight(t *testing.T) {
@@ -402,4 +411,41 @@ func TestChatPreviewCutsRunesNotBytes(t *testing.T) {
 	assert.Equal(t, "hello", preview("  hello  ", 5))
 	assert.Equal(t, "héllo…", preview("héllo world", 6), "a trailing space before the ellipsis reads as a typo")
 	assert.Equal(t, "héllo", preview("héllo", 6))
+}
+
+func TestRenameChat(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "August numbers")
+	require.NoError(t, err)
+	bob, err := s.CreateChat(ctx, "bob", "bob's chat")
+	require.NoError(t, err)
+
+	renamed, err := s.RenameChat(ctx, chat.ID, "alice", "  Q3   forecast ")
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", renamed.Title)
+	assert.Equal(t, chat.ID, renamed.ID)
+
+	read, err := s.GetChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", read.Title)
+
+	_, err = s.RenameChat(ctx, chat.ID, "bob", "stolen")
+	assert.ErrorIs(t, err, ErrNotFound, "knowing the id is not access")
+	still, err := s.GetChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", still.Title, "a refused rename must not write")
+
+	_, err = s.RenameChat(ctx, bob.ID, "alice", "stolen")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	_, err = s.RenameChat(ctx, "chat_nope", "alice", "gone")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	_, err = s.RenameChat(ctx, chat.ID, "alice", "   ")
+	assert.ErrorIs(t, err, ErrInvalidChatTitle)
+
+	_, err = s.RenameChat(ctx, chat.ID, "", "no owner")
+	assert.ErrorContains(t, err, "a login is required")
 }
