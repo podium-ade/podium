@@ -246,6 +246,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Memory:       briefMemory,
 		MemoryClient: a.memory,
 		XAIBaseURL:   a.cfg.XAIBaseURL,
+		SkillsDir:    a.cfg.SkillsDir,
 	})
 	if err != nil {
 		st.Close()
