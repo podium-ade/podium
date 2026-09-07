@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 import type { ChatMessage } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
@@ -21,6 +22,8 @@ export interface ChatStreamState {
   taskId?: string;
   phase: ChatPhase;
   error?: string;
+  /** gone is true when StreamChat answered NotFound: deleted, or never this login's. */
+  gone?: boolean;
 }
 
 /** state carries the chat it belongs to, so a chat switch shows nothing rather than the
@@ -126,7 +129,11 @@ export function useChatStream(chatId: string): ChatStreamState {
           if (ctrl.signal.aborted) return;
           if (err instanceof Resync) continue;
           const message = errorMessage(err);
-          update((prev) => ({ ...prev, phase: "error", error: message }));
+          const gone = err instanceof ConnectError && err.code === Code.NotFound;
+          update((prev) => ({ ...prev, phase: "error", error: message, gone }));
+          // NotFound is a deleted or never-yours chat. Reconnecting would loop the same
+          // refusal forever and claim "nothing was lost" about a conversation that is gone.
+          if (gone) return;
           await sleep(backoff, ctrl.signal);
           backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
         }
