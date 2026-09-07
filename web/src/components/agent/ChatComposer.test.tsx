@@ -133,6 +133,17 @@ describe("ChatComposer", () => {
     expect(screen.getByTestId("chat-playbook")).toBeDisabled();
   });
 
+  it("locks the chip once the chat has a playbook, and ignores a typed prefix", async () => {
+    const { onPlaybookChange } = mount({ playbook: "analyst", playbookLocked: true });
+    const chip = screen.getByTestId("chat-playbook");
+    expect(chip).toBeDisabled();
+    expect(chip).toHaveAccessibleName(/keeps the playbook it started with/);
+    await userEvent.click(chip);
+    expect(onPlaybookChange).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByTestId("chat-composer"), "/coder ");
+    expect(onPlaybookChange).not.toHaveBeenCalled();
+  });
+
   it("follows a typed /playbook prefix", async () => {
     const { onPlaybookChange } = mount();
     await userEvent.type(screen.getByTestId("chat-composer"), "/coder ");

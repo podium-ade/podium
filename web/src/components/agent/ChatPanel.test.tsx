@@ -96,6 +96,7 @@ const chat = {
   lastMessageAt: timestampFromDate(new Date(Date.now() - 30_000)),
   preview: "how many active accounts",
   turnRunning: false,
+  playbook: "analyst",
 };
 
 const playbooks = [
@@ -223,6 +224,13 @@ describe("ChatPanel", () => {
     expect(screen.getAllByTestId("chat-message")).toHaveLength(1);
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("report.csv");
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
+  });
+
+  it("locks the playbook chip of a chat that has already started", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    mount("/agent/chat/chat_01abc");
+    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toBeDisabled());
+    expect(screen.getByTestId("chat-list")).toHaveTextContent("/analyst");
   });
 
   it("sends a message with the chip's playbook", async () => {

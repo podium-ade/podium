@@ -26,6 +26,10 @@ const (
 	FrameProgress FrameKind = "progress"
 	// FrameStatus is a turn starting, finishing or failing.
 	FrameStatus FrameKind = "status"
+	// FrameChat is the conversation's own row after a title or playbook change. A reload
+	// re-reads it from ListChats, so dropping it is recovered; it is still durable so a
+	// subscriber that fell behind is told to resync rather than keep a stale name.
+	FrameChat FrameKind = "chat"
 )
 
 // Turn states a status frame carries. They are the source's three reactions in the words
@@ -46,6 +50,8 @@ type Frame struct {
 	// State and TaskID are set for FrameStatus.
 	State  string
 	TaskID string
+	// Chat is set for FrameChat.
+	Chat store.Chat
 }
 
 // durable reports whether losing this frame would lose something a reload could not

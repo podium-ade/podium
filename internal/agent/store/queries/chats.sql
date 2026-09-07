@@ -6,8 +6,8 @@
 -- boundary and it is free, so every read is filtered by it.
 
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at)
-values (@id, @title, @login, @created_at)
+insert into chats (id, title, login, created_at, playbook, auto_title)
+values (@id, @title, @login, @created_at, @playbook, @auto_title)
 returning *;
 
 -- name: GetChat :one
@@ -16,8 +16,11 @@ select * from chats where id = @id;
 -- RenameChat is filtered by login so a rename cannot cross the partition even if
 -- the caller forgot to check. No row is not found, whether the chat is missing or
 -- belongs to somebody else — the same answer every other chat read gives.
+--
+-- It clears auto_title: a name a human typed is theirs, the same rule as a title
+-- supplied at create, so no later turn renames the chat over the top of it.
 -- name: RenameChat :one
-update chats set title = @title
+update chats set title = @title, auto_title = false
  where id = @id and login = @login
 returning *;
 
@@ -85,6 +88,20 @@ select exists (
    where s.source_key = @source_key
      and t.status = 'running'
 )::bool as running;
+
+-- SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
+-- already set: one chat, one playbook, fixed at the first message.
+-- name: SetChatPlaybook :one
+update chats set playbook = @playbook
+where id = @id and playbook = ''
+returning *;
+
+-- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
+-- (auto_title = false) is left alone.
+-- name: SetChatTitle :one
+update chats set title = @title
+where id = @id and auto_title
+returning *;
 
 -- DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
 -- query so another owner's chat cannot be removed even if the id is known; zero rows

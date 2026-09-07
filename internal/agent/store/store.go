@@ -476,6 +476,12 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
+	// Playbook is the playbook this chat runs. Empty until the first message; then it is
+	// fixed — one chat, one playbook.
+	Playbook string
+	// AutoTitle is true when Podium may rewrite Title from the first query. False when
+	// the caller supplied a title at create.
+	AutoTitle bool
 	// LastMessageAt is nil for a chat nobody has spoken in yet.
 	LastMessageAt *time.Time
 	// Preview is the head of the last message, or "" when there is none.
@@ -504,28 +510,34 @@ type ChatMessage struct {
 	TS          time.Time
 }
 
-// CreateChat opens a chat owned by login. An empty title becomes DefaultChatTitle.
+// CreateChat opens a chat owned by login. An empty title becomes DefaultChatTitle, and
+// AutoTitle stays true so the first query may rename it. A supplied title is kept.
 func (s *Store) CreateChat(ctx context.Context, login, title string) (Chat, error) {
 	if login == "" {
 		return Chat{}, errors.New("create chat: a login is required")
 	}
+	auto := true
 	if strings.TrimSpace(title) == "" {
 		title = DefaultChatTitle
+	} else {
+		auto = false
 	}
 	row, err := s.q.CreateChat(ctx, db.CreateChatParams{
 		ID:        ids.New("chat"),
 		Title:     title,
 		Login:     login,
 		CreatedAt: time.Now().UTC(),
+		AutoTitle: auto,
 	})
 	if err != nil {
 		return Chat{}, fmt.Errorf("create chat for %s: %w", login, err)
 	}
-	return Chat{ID: row.ID, Title: row.Title, Login: row.Login, CreatedAt: row.CreatedAt.UTC()}, nil
+	return chatFromRow(row), nil
 }
 
 // RenameChat sets the title of one of login's chats. Another login's chat is not
-// found, the same as every other chat read: knowing the id is not access.
+// found, the same as every other chat read: knowing the id is not access. The row it
+// returns has AutoTitle cleared: the name is the owner's now.
 func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, error) {
 	if login == "" {
 		return Chat{}, errors.New("rename chat: a login is required")
@@ -544,7 +556,7 @@ func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, 
 	if err != nil {
 		return Chat{}, fmt.Errorf("rename chat %s: %w", id, err)
 	}
-	return Chat{ID: row.ID, Title: row.Title, Login: row.Login, CreatedAt: row.CreatedAt.UTC()}, nil
+	return chatFromRow(row), nil
 }
 
 // GetChat reads one chat by id, whoever owns it. The caller checks the login: a handler
@@ -557,7 +569,7 @@ func (s *Store) GetChat(ctx context.Context, id string) (Chat, error) {
 	if err != nil {
 		return Chat{}, fmt.Errorf("get chat %s: %w", id, err)
 	}
-	return Chat{ID: row.ID, Title: row.Title, Login: row.Login, CreatedAt: row.CreatedAt.UTC()}, nil
+	return chatFromRow(row), nil
 }
 
 // ListChats returns one login's own chats, newest first. Another login's are not returned
@@ -583,6 +595,8 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 			Title:       r.Title,
 			Login:       r.Login,
 			CreatedAt:   r.CreatedAt.UTC(),
+			Playbook:    r.Playbook,
+			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
 		}
 		if r.HasMessage {
@@ -684,6 +698,51 @@ func (s *Store) AttachToLastAssistantMessage(
 		return ChatMessage{}, fmt.Errorf("attach %s to chat %s: %w", file.Name, chatID, err)
 	}
 	return chatMessageFromRow(updated)
+}
+
+// SetChatPlaybook records the playbook a chat started with. An already-set playbook is
+// left alone and the current row is returned: one chat, one playbook.
+func (s *Store) SetChatPlaybook(ctx context.Context, id, playbook string) (Chat, error) {
+	playbook = strings.TrimSpace(playbook)
+	if id == "" || playbook == "" {
+		return Chat{}, errors.New("set chat playbook: an id and a playbook are required")
+	}
+	row, err := s.q.SetChatPlaybook(ctx, db.SetChatPlaybookParams{ID: id, Playbook: playbook})
+	if noRows(err) {
+		return s.GetChat(ctx, id)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("set playbook of chat %s: %w", id, err)
+	}
+	return chatFromRow(row), nil
+}
+
+// SetChatTitle rewrites an auto-named chat. A title supplied at create is left alone and
+// the current row is returned.
+func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error) {
+	title = strings.TrimSpace(title)
+	if id == "" || title == "" {
+		return Chat{}, errors.New("set chat title: an id and a title are required")
+	}
+	row, err := s.q.SetChatTitle(ctx, db.SetChatTitleParams{ID: id, Title: title})
+	if noRows(err) {
+		return s.GetChat(ctx, id)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("set title of chat %s: %w", id, err)
+	}
+	return chatFromRow(row), nil
+}
+
+func chatFromRow(row db.Chat) Chat {
+	return Chat{
+		ID:        row.ID,
+		Title:     row.Title,
+		Login:     row.Login,
+		CreatedAt: row.CreatedAt.UTC(),
+		Playbook:  row.Playbook,
+		AutoTitle: row.AutoTitle,
+	}
 }
 
 // ChatTurnRunning reports whether a turn of this chat is in flight. It is the server-side

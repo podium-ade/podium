@@ -392,6 +392,8 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Msg.GetChats(), 1)
 	assert.Equal(t, "August numbers", listed.Msg.GetChats()[0].GetTitle())
+	assert.Equal(t, chatDefaultPlaybook, listed.Msg.GetChats()[0].GetPlaybook(),
+		"a chat remembers the playbook it started with")
 	assert.Equal(t, "dry run: hello there", listed.Msg.GetChats()[0].GetPreview())
 	require.NotNil(t, listed.Msg.GetChats()[0].GetLastMessageAt())
 
@@ -417,6 +419,8 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, tail.Receive(), "the stream opens with the turn state: %v", tail.Err())
 	require.NotNil(t, tail.Msg().GetStatus(), "the first frame is always the turn state")
+	require.True(t, tail.Receive(), "then the chat row: %v", tail.Err())
+	require.NotNil(t, tail.Msg().GetChat())
 	require.True(t, tail.Receive(), "a replay from seq 3 must deliver seq 4: %v", tail.Err())
 	assert.Equal(t, uint64(4), tail.Msg().GetMessage().GetSeq())
 	require.NoError(t, tail.Close())

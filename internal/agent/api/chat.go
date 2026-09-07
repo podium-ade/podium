@@ -331,6 +331,13 @@ func (s *AgentService) StreamChat(
 	}); err != nil {
 		return err
 	}
+	// The chat row itself — title and playbook — so a deep link does not wait for ListChats
+	// to learn which playbook this conversation already chose.
+	if err := stream.Send(&agentv1.ChatFrame{
+		Frame: &agentv1.ChatFrame_Chat{Chat: chatToProto(row)},
+	}); err != nil {
+		return err
+	}
 
 	lastSeq, err := s.replay(ctx, stream, chatID, req.Msg.GetFromSeq())
 	if err != nil {
@@ -390,6 +397,8 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Status{Status: &agentv1.ChatStatus{
 			State: f.State, TaskId: f.TaskID,
 		}}}
+	case chat.FrameChat:
+		return &agentv1.ChatFrame{Frame: &agentv1.ChatFrame_Chat{Chat: chatToProto(f.Chat)}}
 	default:
 		// An unknown kind is a programming error, and an empty frame is what a client can
 		// safely ignore.
@@ -404,6 +413,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		CreatedAt:   timestamppb.New(c.CreatedAt),
 		Preview:     c.Preview,
 		TurnRunning: c.TurnRunning,
+		Playbook:    c.Playbook,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
