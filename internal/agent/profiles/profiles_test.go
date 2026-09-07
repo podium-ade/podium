@@ -135,6 +135,19 @@ default_playbook: general
 		{"a playbook file name that is not a playbook name", func(f map[string]string) {
 			f["playbooks/Coder.yaml"] = goodPlaybook
 		}, []string{"Coder.yaml", "must match"}},
+		{"a skill name the harness would refuse", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "skills: [Pr_Review]\n"
+		}, []string{"playbooks/general.yaml", "skill name", "must match"}},
+		{"the same skill twice", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "skills: [pr-review, pr-review]\n"
+		}, []string{"playbooks/general.yaml", `skills names "pr-review" twice`}},
+		{"more skills than the cap", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook +
+				"skills: [a, b, c, d, e, f, g, h, i]\n"
+		}, []string{"playbooks/general.yaml", "the limit is 8"}},
+		{"a skill bundle env var of its own", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "env: {PODIUM_AGENT_SKILL_PR_REVIEW: x}\n"
+		}, []string{"playbooks/general.yaml", "AGENT_SKILL_PR_REVIEW"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -147,6 +160,21 @@ default_playbook: general
 			}
 		})
 	}
+}
+
+// A playbook's Agent Skills are an allow-list of names and nothing more: whether a name has
+// a directory behind it is the conductor's business, not the profile loader's, so a profile
+// loads on a machine with no skills directory at all.
+func TestAPlaybookDeclaresSkillsByNameAndDefaultsToNone(t *testing.T) {
+	p, err := Load(write(t, base()))
+	require.NoError(t, err)
+	assert.Empty(t, p.Playbooks["general"].Skills, "nothing is implicit")
+
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "skills: [pr-review, release-notes]\n"
+	p, err = Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"pr-review", "release-notes"}, p.Playbooks["general"].Skills)
 }
 
 // Without the flag there is no attached daemon to collide with, so a playbook may point its
