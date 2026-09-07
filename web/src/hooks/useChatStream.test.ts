@@ -64,6 +64,25 @@ function message(seq: number, role = "user", text = "hello") {
 
 const resync = create(ChatFrameSchema, { frame: { case: "resync", value: true } });
 
+/** pullRequests is the whole-set frame the server sends at the start and on every change. */
+function pullRequests(...numbers: number[]) {
+  return create(ChatFrameSchema, {
+    frame: {
+      case: "pullRequests",
+      value: {
+        pullRequests: numbers.map((n) => ({
+          url: `https://github.com/acme/api/pull/${n}`,
+          owner: "acme",
+          repo: "api",
+          number: n,
+          source: "turn",
+          createdAt: timestampFromDate(new Date()),
+        })),
+      },
+    },
+  });
+}
+
 /** fromSeqs is the from_seq of every streamChat call so far. */
 function fromSeqs(): bigint[] {
   return streamChat.mock.calls.map((c) => (c[0] as { fromSeq: bigint }).fromSeq);
@@ -89,6 +108,25 @@ describe("useChatStream", () => {
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
     expect(result.current.messages.map((m) => m.text)).toEqual(["first", "second"]);
     expect(result.current.phase).toBe("streaming");
+  });
+
+  it("takes the newest pull-request frame as the whole truth", async () => {
+    const stream = feed();
+    streamChat.mockImplementation(() => stream);
+    const { result } = renderHook(() => useChatStream("chat_01abc"));
+    expect(result.current.pullRequests).toEqual([]);
+
+    stream.push(pullRequests(41));
+    await waitFor(() => expect(result.current.pullRequests).toHaveLength(1));
+    expect(result.current.pullRequests[0].url).toBe("https://github.com/acme/api/pull/41");
+
+    // A turn found a second one: the frame carries the set, so there is nothing to merge.
+    stream.push(pullRequests(41, 42));
+    await waitFor(() => expect(result.current.pullRequests).toHaveLength(2));
+
+    // And a detach empties it just as plainly.
+    stream.push(pullRequests());
+    await waitFor(() => expect(result.current.pullRequests).toHaveLength(0));
   });
 
   it("replaces a message that arrives twice on the same seq", async () => {

@@ -55,6 +55,20 @@ type autoTitler interface {
 	SetAutoTitle(ctx context.Context, ref, title string) error
 }
 
+// pullRequestLinker is the other optional half the web chat implements: a conversation can
+// carry the pull requests its turns produced. Slack and Linear do not — GitHub already
+// unfurls a link in a Slack thread and attaches one to a Linear issue, and neither has a
+// list of them belonging to the conversation for Podium to keep.
+type pullRequestLinker interface {
+	LinkPullRequests(ctx context.Context, ref string, prs []PullRequest) error
+}
+
+// maxPullRequestsPerTurn bounds what one turn may link. A turn that opens a pull request
+// names one; a turn asked to summarise every open pull request in a repository names
+// dozens, and nothing in the text tells the two apart. The cap is where a list stops being
+// "the work this chat produced", and a human can still attach what it left out.
+const maxPullRequestsPerTurn = 20
+
 // Options is what a Conductor needs. Everything is required except Memory, MemoryClient
 // and Metrics.
 type Options struct {

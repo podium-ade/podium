@@ -341,6 +341,81 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	assert.Equal(t, 2, relayed, "only message events are relayed")
 }
 
+// TestATurnLinksThePullRequestsItsAnswerNamed is the automatic half of a chat's pull
+// requests, driven through the whole turn loop.
+//
+// The turn says four things. A progress line names a pull request, and the answer names
+// one twice — bare and as a markdown link — plus an issue in the same repository. Exactly
+// one link comes out of that, and it is the one the ANSWER named: progress is coalesced,
+// superseded and never stored, so reading it would make a link appear or not depending on
+// how fast the runtime was talking.
+func TestATurnLinksThePullRequestsItsAnswerNamed(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutProgress,
+				"looking at https://github.com/acme/api/pull/1 for the pattern"),
+			messageEvent(taskID, 2, conductor.OutFinal,
+				"Opened https://github.com/acme/api/pull/41 with the fix."),
+			messageEvent(taskID, 3, conductor.OutFinal,
+				"Details in [#41](https://github.com/acme/api/pull/41); it closes "+
+					"https://github.com/acme/api/issues/40."),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	ev := inbound("C1/2.1", "fix the nil dereference and open a PR")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	linked := src.PullRequests(ev.Ref)
+	require.Len(t, linked, 1, "one pull request, named twice, in one answer")
+	assert.Equal(t, conductor.PullRequest{
+		URL: "https://github.com/acme/api/pull/41", Owner: "acme", Repo: "api", Number: 41,
+	}, linked[0])
+
+	// And what was linked is derivable from the row: final_text is the same joined answer
+	// the scan read, so a reviewer can see where the link came from.
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Contains(t, turn.FinalText, "https://github.com/acme/api/pull/41")
+	assert.NotContains(t, turn.FinalText, "https://github.com/acme/api/pull/1 ")
+}
+
+// TestATurnThatNamesNoPullRequestLinksNone is the ordinary turn: it answers a question, it
+// opens nothing, and the conversation gains no links.
+func TestATurnThatNamesNoPullRequestLinksNone(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutFinal,
+				"It fails because the source table was empty. The repository is "+
+					"https://github.com/acme/api and the run is at "+
+					"https://github.com/acme/api/commit/aa519fc."),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	ev := inbound("C1/3.1", "why did the nightly ETL fail?")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+	assert.Empty(t, src.PullRequests(ev.Ref),
+		"a repository and a commit are not pull requests")
+}
+
 // TestATurnWithNoObjectStoreStillRecordsItsAccounting is the failing configuration: a host
 // with PODIUM_S3_* unset, where the runtime's turn.json is written inside the container and
 // then thrown away because artifacts are disabled. Nothing is registered as an artifact

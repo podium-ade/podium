@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage, ChatPullRequest } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
 /** MAX_BACKOFF_MS caps the wait between reconnects. */
@@ -20,6 +20,12 @@ export interface ChatStreamState {
   running: boolean;
   /** chat is the latest title/playbook row, when the stream said so. */
   chat?: Chat;
+  /**
+   * pullRequests is the chat's whole set of links, oldest first. The stream sends the set
+   * before the transcript and again whenever it changes, so the newest frame is the truth
+   * and there is nothing to merge.
+   */
+  pullRequests: ChatPullRequest[];
   /** taskId is the Podium task the running turn is using, when the stream said so. */
   taskId?: string;
   phase: ChatPhase;
@@ -35,7 +41,12 @@ interface Keyed extends ChatStreamState {
   chatId: string;
 }
 
-const empty: ChatStreamState = { messages: [], running: false, phase: "connecting" };
+const empty: ChatStreamState = {
+  messages: [],
+  pullRequests: [],
+  running: false,
+  phase: "connecting",
+};
 
 /**
  * useChatStream follows StreamChat for one chat.
@@ -114,6 +125,16 @@ export function useChatStream(chatId: string): ChatStreamState {
                   running: started,
                   taskId: status.taskId === "" ? undefined : status.taskId,
                   progress: started ? prev.progress : undefined,
+                }));
+                break;
+              }
+              case "pullRequests": {
+                const set = frame.frame.value.pullRequests;
+                update((prev) => ({
+                  ...prev,
+                  phase: "streaming",
+                  error: undefined,
+                  pullRequests: set,
                 }));
                 break;
               }

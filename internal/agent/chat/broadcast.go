@@ -30,6 +30,11 @@ const (
 	// re-reads it from ListChats, so dropping it is recovered; it is still durable so a
 	// subscriber that fell behind is told to resync rather than keep a stale name.
 	FrameChat FrameKind = "chat"
+	// FramePullRequests is the whole set of pull requests linked to the chat, sent again
+	// every time it changes. It is the set rather than the change because there is no
+	// order to reconcile: a subscriber that takes the newest frame as the truth is right,
+	// and a browser that missed one is corrected by the next.
+	FramePullRequests FrameKind = "pull_requests"
 )
 
 // Turn states a status frame carries. They are the source's three reactions in the words
@@ -52,6 +57,8 @@ type Frame struct {
 	TaskID string
 	// Chat is set for FrameChat.
 	Chat store.Chat
+	// PullRequests is set for FramePullRequests.
+	PullRequests []store.ChatPullRequest
 }
 
 // durable reports whether losing this frame would lose something a reload could not
