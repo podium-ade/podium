@@ -1504,7 +1504,9 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   another login's chat id gets you `not_found`, not access. `DeleteChat` is the same partition:
   only the owner can remove a chat, and another login's id is `not_found`. The messages go
   with it. Sessions and turns it started stay — they are the audit of the work, not the
-  transcript.
+  transcript. A task still answering the chat is cancelled first: the node gets SIGTERM and
+  up to 30 seconds, the conversation is gone immediately. The web UI says so in the confirm
+  before it acts.
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.

@@ -85,6 +85,19 @@ func (c *Client) CreateTask(ctx context.Context, s *spec.TaskSpec) (*podiumv1.Ta
 	return res.Msg.GetTask(), nil
 }
 
+// CancelTask asks the node to stop a task. It does not wait: the container only dies
+// once the node processes the cancel.
+func (c *Client) CancelTask(ctx context.Context, taskID, reason string) error {
+	_, err := c.Tasks.CancelTask(ctx, connect.NewRequest(&podiumv1.CancelTaskRequest{
+		TaskId: taskID,
+		Reason: reason,
+	}))
+	if err != nil {
+		return fmt.Errorf("cancel task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // GetTask reads a task back, which is how a follow learns the terminal status.
 func (c *Client) GetTask(ctx context.Context, taskID string) (*podiumv1.Task, error) {
 	res, err := c.Tasks.GetTask(ctx, connect.NewRequest(&podiumv1.GetTaskRequest{TaskId: taskID}))
