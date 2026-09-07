@@ -58,6 +58,24 @@ describe("buildSystemPrompt", () => {
     );
   });
 
+  it("asks a first chat turn to name the conversation, and not a later one", () => {
+    const first = {
+      ...golden(),
+      source: { kind: "chat" as const, ref: "chat_1" },
+      transcript: [{ role: "user" as const, author: "alice", ts: "2026-09-03T10:00:00Z", text: "hi" }],
+    };
+    expect(buildSystemPrompt(first)).toContain("chat-title.txt");
+    const later = {
+      ...first,
+      transcript: [
+        ...first.transcript,
+        { role: "assistant" as const, author: "Podium", ts: "2026-09-03T10:00:01Z", text: "hello" },
+      ],
+    };
+    expect(buildSystemPrompt(later)).not.toContain("chat-title.txt");
+    expect(buildSystemPrompt(golden())).not.toContain("chat-title.txt");
+  });
+
   it("puts the profile before the playbook before the runtime block", () => {
     const prompt = buildSystemPrompt(golden());
     const profile = prompt.indexOf("You are Podium, the engineering team's agent.");

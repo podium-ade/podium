@@ -48,6 +48,8 @@ type Store interface {
 		ctx context.Context, chatID string, file store.ChatAttachment,
 	) (store.ChatMessage, error)
 	ChatTurnRunning(ctx context.Context, chatID string) (bool, error)
+	SetChatPlaybook(ctx context.Context, id, playbook string) (store.Chat, error)
+	SetChatTitle(ctx context.Context, id, title string) (store.Chat, error)
 }
 
 // Options is what a Source needs.
@@ -202,6 +204,7 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		return store.ChatMessage{}, err
 	}
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
+	s.remember(ctx, chat, req)
 
 	// The chip is knowledge and the profile's chat default is only a fallback, so they
 	// travel as different fields: a /playbook the human typed loses to the chip and beats the
@@ -228,6 +231,56 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		return store.ChatMessage{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
 	return msg, nil
+}
+
+// remember records the playbook this chat started with and names it from the first query.
+// Both writes are first-wins: a later message cannot change either, and a title the caller
+// supplied at create is left alone.
+func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest) {
+	playbook := req.Playbook
+	if playbook == "" {
+		if m := profiles.PlaybookPrefixRE.FindStringSubmatch(req.Text); m != nil {
+			playbook = m[1]
+		} else {
+			playbook = s.playbook()
+		}
+	}
+	if chat.Playbook == "" && playbook != "" {
+		updated, err := s.store.SetChatPlaybook(ctx, req.ChatID, playbook)
+		if err != nil {
+			s.logger.WarnContext(ctx, "recording the chat's playbook failed",
+				"chat_id", req.ChatID, "playbook", playbook, "error", err)
+		} else {
+			chat = updated
+		}
+	}
+	if chat.AutoTitle && chat.Title == store.DefaultChatTitle {
+		if title := TitleFromQuery(req.Text); title != "" {
+			updated, err := s.store.SetChatTitle(ctx, req.ChatID, title)
+			if err != nil {
+				s.logger.WarnContext(ctx, "naming the chat from its first query failed",
+					"chat_id", req.ChatID, "error", err)
+			} else {
+				chat = updated
+			}
+		}
+	}
+	s.bcast.Publish(req.ChatID, Frame{Kind: FrameChat, Chat: chat})
+}
+
+// SetAutoTitle is the model-written name of a chat, applied only while AutoTitle is still
+// true. The first turn writes ChatTitleArtifact; the conductor reads it and calls this.
+func (s *Source) SetAutoTitle(ctx context.Context, ref, title string) error {
+	title = SanitizeTitle(title)
+	if title == "" {
+		return nil
+	}
+	chat, err := s.store.SetChatTitle(ctx, ref, title)
+	if err != nil {
+		return err
+	}
+	s.bcast.Publish(ref, Frame{Kind: FrameChat, Chat: chat})
+	return nil
 }
 
 // Running reports whether a turn of this chat is in flight, from both halves of the story:

@@ -6,8 +6,8 @@
 -- boundary and it is free, so every read is filtered by it.
 
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at)
-values (@id, @title, @login, @created_at)
+insert into chats (id, title, login, created_at, playbook, auto_title)
+values (@id, @title, @login, @created_at, @playbook, @auto_title)
 returning *;
 
 -- name: GetChat :one
@@ -77,3 +77,17 @@ select exists (
    where s.source_key = @source_key
      and t.status = 'running'
 )::bool as running;
+
+-- SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
+-- already set: one chat, one playbook, fixed at the first message.
+-- name: SetChatPlaybook :one
+update chats set playbook = @playbook
+where id = @id and playbook = ''
+returning *;
+
+-- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
+-- (auto_title = false) is left alone.
+-- name: SetChatTitle :one
+update chats set title = @title
+where id = @id and auto_title
+returning *;

@@ -136,6 +136,27 @@ func nextFrame(t *testing.T, stream *connect.ServerStreamForClient[agentv1.ChatF
 	}
 }
 
+func TestAChatRemembersItsPlaybookAndGetsAName(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{}))
+	require.NoError(t, err)
+	assert.Equal(t, store.DefaultChatTitle, created.Msg.GetChat().GetTitle())
+	assert.Empty(t, created.Msg.GetChat().GetPlaybook())
+
+	_, err = f.client.SendChatMessage(ctx, connect.NewRequest(&agentv1.SendChatMessageRequest{
+		ChatId: created.Msg.GetChat().GetId(), Text: "how many active accounts last month", Playbook: "analyst",
+	}))
+	require.NoError(t, err)
+
+	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, listed.Msg.GetChats(), 1)
+	assert.Equal(t, "analyst", listed.Msg.GetChats()[0].GetPlaybook())
+	assert.Equal(t, "how many active accounts last month", listed.Msg.GetChats()[0].GetTitle())
+}
+
 func TestCreateAndListChatsThroughTheService(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -236,6 +257,7 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	opening := nextFrame(t, stream).GetStatus()
 	require.NotNil(t, opening, "the first frame is always the turn state")
 	assert.Equal(t, chat.StatusFinished, opening.GetState())
+	require.NotNil(t, nextFrame(t, stream).GetChat(), "the chat row follows, so the composer knows the playbook")
 
 	// Replay, in seq order.
 	first := nextFrame(t, stream).GetMessage()
@@ -258,6 +280,10 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, live)
 	assert.Equal(t, uint64(3), live.GetSeq())
 	assert.Equal(t, "chart it", live.GetText())
+	named := nextFrame(t, stream).GetChat()
+	require.NotNil(t, named)
+	assert.Equal(t, "general", named.GetPlaybook())
+	assert.Equal(t, "chart it", named.GetTitle())
 
 	// A turn was started by that send, so the stream is told the composer is busy.
 	require.NoError(t, f.source.React(ctx, chatID, conductor.ReactionWorking))
@@ -328,6 +354,7 @@ func TestStreamChatFromSeqSkipsWhatTheClientHas(t *testing.T) {
 	defer cancel()
 	stream := f.streamAs(streamCtx, t, "alice", chatID, 2)
 	require.NotNil(t, nextFrame(t, stream).GetStatus(), "the first frame is always the turn state")
+	require.NotNil(t, nextFrame(t, stream).GetChat())
 
 	msg := nextFrame(t, stream).GetMessage()
 	require.NotNil(t, msg)
@@ -357,6 +384,7 @@ func TestStreamChatSaysATurnIsAlreadyRunning(t *testing.T) {
 	require.NotNil(t, status)
 	assert.Equal(t, chat.StatusStarted, status.GetState(),
 		"a browser joining mid-turn finds the composer disabled without waiting for a progress line")
+	require.NotNil(t, nextFrame(t, stream).GetChat())
 	assert.Equal(t, uint64(1), nextFrame(t, stream).GetMessage().GetSeq())
 	require.NoError(t, stream.Close())
 }
@@ -441,6 +469,7 @@ func TestStreamChatEndsWhenTheClientGoesAway(t *testing.T) {
 	streamCtx, cancel := context.WithCancel(ctx)
 	stream := f.streamAs(streamCtx, t, "alice", chatID, 0)
 	require.NotNil(t, nextFrame(t, stream).GetStatus())
+	require.NotNil(t, nextFrame(t, stream).GetChat())
 	require.NotNil(t, nextFrame(t, stream).GetMessage())
 
 	cancel()

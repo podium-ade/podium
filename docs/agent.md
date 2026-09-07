@@ -1523,8 +1523,12 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   too — it moves the chip in the browser, and on the wire a typed `/playbook` beats the chat
   default even when the chip is left unset, as an API client leaves it. The chip itself still
   wins over a prefix: it is the last thing the human touched. A conversation keeps the playbook it
-  started with — the same one-session-one-playbook rule as a Slack thread — so switching the chip
-  in an existing chat is refused with a sentence saying to start a new one.
+  started with — the same one-session-one-playbook rule as a Slack thread — so the chip is locked
+  after the first message, and switching it later is refused with a sentence saying to start a
+  new chat. `Chat.playbook` is that name, empty until the first message.
+- **The title is generated from the first query.** An untitled chat ("New chat") is named from
+  the first message the moment it is sent, then the first turn of that chat may overwrite it
+  with a model-written title (`chat-title.txt`). A title supplied at create is never rewritten.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
   is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one
@@ -1536,7 +1540,7 @@ other link scheme renders as literal text**, because an answer is content a task
 material somebody else supplied. Ask for a table and you get a fenced block, which is what a
 prompt should ask the model for.
 
-What is deliberately not built: renaming or deleting a chat, sharing one, a model-written title,
+What is deliberately not built: renaming or deleting a chat, sharing one,
 uploading a file into the chat, and streaming the model's tokens. The unit of streaming is the
 `progress` message the runtime sends, not a token.
 

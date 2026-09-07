@@ -44,6 +44,17 @@ const terminalStatusBudget = 60 * time.Second
 // store is optional and this file is not kept without one.
 const turnSummaryArtifact = "turn.json"
 
+// chatTitleArtifact is the file a first web-chat turn writes so the conversation can be
+// named from the model. It matches chat.ChatTitleArtifact; this package cannot import chat
+// (chat already imports conductor).
+const chatTitleArtifact = "chat-title.txt"
+
+// autoTitler is the optional half of Source the web chat implements: a turn can name the
+// conversation. Slack and Linear have their own titles and ignore this.
+type autoTitler interface {
+	SetAutoTitle(ctx context.Context, ref, title string) error
+}
+
 // Options is what a Conductor needs. Everything is required except Memory, MemoryClient
 // and Metrics.
 type Options struct {

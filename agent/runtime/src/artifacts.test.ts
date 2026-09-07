@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  ChatTitleName,
   TranscriptName,
   TurnName,
   appendTranscript,
@@ -64,7 +65,7 @@ describe("matchAttachments", () => {
       },
       dir,
     );
-    expect(matchAttachments(`${TranscriptName} and ${TurnName}`, dir)).toEqual([]);
+    expect(matchAttachments(`${TranscriptName} and ${TurnName} and ${ChatTitleName}`, dir)).toEqual([]);
   });
 
   it("ignores subdirectories", () => {
