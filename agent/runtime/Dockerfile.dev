@@ -14,6 +14,10 @@
 # client set. Like those two it is layered on the base by ARG, so dist/ and node_modules
 # can never drift from podium-agent-runtime.
 #
+# It does carry the MCP client that drives a browser, which is not the same thing: the
+# browser a `browser: true` turn uses is a sidecar container, and this talks to it over CDP.
+# Still no Chromium here.
+#
 # Versions are pinned to what this repository actually builds with. Each one below names the
 # file that decides it, because a toolchain that disagrees with CI produces a turn that
 # reports green on work CI will reject.
@@ -129,6 +133,23 @@ RUN set -eux; \
     npm install --global "pnpm@${PNPM_VERSION}"; \
     npm cache clean --force; \
     pnpm --version
+
+# The MCP server that drives a browser, for a `browser: true` playbook.
+#
+# This is the CLIENT half only, and that is the whole point of the split: the browser itself
+# is a sidecar container the conductor starts, and this attaches to it over CDP with
+# --browserUrl. So no Chromium lands in this image — the comment at the top of this file
+# about not carrying a browser still holds — and the browser a turn drives is isolated in
+# its own container, with its own profile, thrown away with the task.
+#
+# Pinned, and installed rather than fetched by npx at run time: a turn that cannot reach a
+# registry should still be able to look at a page, and two turns a week apart should drive
+# the browser the same way.
+ARG CHROME_DEVTOOLS_MCP_VERSION=1.8.0
+RUN set -eux; \
+    npm install --global "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
+    npm cache clean --force; \
+    chrome-devtools-mcp --version
 
 # NODE_ENV is inherited as `production` from the base, and pnpm reads it: `pnpm install
 # --frozen-lockfile` under it silently omits devDependencies, so `make web` would then fail

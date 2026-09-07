@@ -116,6 +116,11 @@ system_prompt: build podium
 allowed_tools: [read, edit, bash]
 docker: true
 `), 0o600))
+	require.NoError(t, os.WriteFile(dir+"/playbooks/looker.yaml", []byte(`image: podium-agent-runtime-dev:dev
+system_prompt: look at the page
+allowed_tools: [read, bash]
+browser: true
+`), 0o600))
 
 	p, err := profiles.Load(dir)
 	require.NoError(t, err)
@@ -571,6 +576,44 @@ func TestADockerPlaybookGetsADaemonBesideIt(t *testing.T) {
 
 	assert.Equal(t, "tcp://dind:2375", got.GetEnv()["DOCKER_HOST"],
 		"the agent runs plain `docker` and it reaches the sidecar")
+}
+
+// A `browser: true` playbook gets a headless Chrome beside it, and the address of that
+// Chrome in its brief. The two must arrive together: tools with no browser, or a browser no
+// tool can reach, is worse than neither.
+func TestABrowserPlaybookGetsAHeadlessChromeBesideIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "looked")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "/looker look at it")))
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	got := fake.Specs()[0]
+	sidecars := got.GetSidecars()
+	require.Len(t, sidecars, 1, "a browser, attached by the flag alone")
+	chrome, ok := sidecars["chrome"]
+	require.True(t, ok, "the sidecar is keyed by the name the CDP URL resolves")
+
+	assert.False(t, chrome.GetPrivileged(),
+		"a browser is an ordinary container: unlike dockerd it asks nothing of the kernel")
+	assert.False(t, chrome.GetShareWorkspace(),
+		"the browser has no business reading the workspace it is looking at a server for")
+	assert.Equal(t, int32(9222), chrome.GetReadiness().GetTcpPort(),
+		"the turn must not start before the browser listens")
+	assert.Contains(t, chrome.GetImage(), "@sha256:", "the browser is pinned by digest")
+	assert.Equal(t, []string{"--disable-dev-shm-usage"}, chrome.GetCommand(),
+		"the one flag the image does not set: headless-shell already listens, and saying so "+
+			"again kills it with `Address already in use`")
+
+	b := decodeBrief(t, got)
+	require.NotNil(t, b.Browser, "the brief carries the address, or the tools have nothing to drive")
+	assert.Equal(t, "http://chrome:9222", b.Browser.CDPURL)
 }
 
 // The flag is the whole switch: a playbook without it is unchanged, and pays nothing.
