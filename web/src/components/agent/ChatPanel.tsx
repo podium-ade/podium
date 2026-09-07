@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Bot, MessageSquarePlus, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -656,7 +656,22 @@ function Conversation({
   const playbook = stream.chat?.playbook || chosen || storedPlaybook || chatDefaultPlaybook;
   const locked = (stream.chat?.playbook || storedPlaybook) !== "";
   const [pinned, setPinned] = useState(true);
+  const pinnedRef = useRef(true);
+  const lastTop = useRef(0);
   const scroller = useRef<HTMLDivElement>(null);
+  const transcript = useRef<HTMLDivElement>(null);
+
+  const pin = (next: boolean) => {
+    pinnedRef.current = next;
+    setPinned(next);
+  };
+
+  const stick = useCallback(() => {
+    const el = scroller.current;
+    if (!el || !pinnedRef.current) return;
+    el.scrollTop = el.scrollHeight;
+    lastTop.current = el.scrollTop;
+  }, []);
 
   useEffect(() => {
     if (!stream.chat) return;
@@ -681,7 +696,7 @@ function Conversation({
         effort: v.choice.effort,
       }),
     onSuccess: () => {
-      setPinned(true);
+      pin(true);
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
     },
     onError: (err) => {
@@ -695,12 +710,20 @@ function Conversation({
     },
   });
 
-  // Auto-scroll, unless the human has scrolled up to read something.
-  useEffect(() => {
-    if (!pinned) return;
-    const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [pinned, stream.messages, stream.progress]);
+  // Layout, not paint: a replayed transcript is already taller than the viewport, and an
+  // effect would flash the top of the conversation before jumping. Images then grow the
+  // column after commit — ResizeObserver is what keeps a pinned view on the latest turn.
+  useLayoutEffect(() => {
+    stick();
+  }, [pinned, stick, stream.messages, stream.progress]);
+
+  useLayoutEffect(() => {
+    const el = transcript.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => stick());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [stick, stream.gone]);
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const busy = stream.running || send.isPending;
@@ -730,13 +753,21 @@ function Conversation({
       <div className="relative min-h-0 flex-1">
         <div
           ref={scroller}
+          data-testid="chat-scroller"
           onScroll={(e) => {
             const el = e.currentTarget;
-            setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX);
+            const atBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX;
+            // Content growing (an image decoding) leaves scrollTop where it was and is
+            // not a human scrolling up — unpinning on that would leave a pinned open
+            // sitting in the middle of the replay.
+            if (atBottom) pin(true);
+            else if (el.scrollTop + 1 < lastTop.current) pin(false);
+            lastTop.current = el.scrollTop;
           }}
-          className="absolute inset-0 overflow-y-auto"
+          className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
         >
-          <div className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
+          <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
             {connecting ? <TranscriptSkeleton /> : null}
 
             {stream.error ? (
@@ -762,7 +793,7 @@ function Conversation({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setPinned(true)}
+              onClick={() => pin(true)}
               className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md"
             >
               <ArrowDown />

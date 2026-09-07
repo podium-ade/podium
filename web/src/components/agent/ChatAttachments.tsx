@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, FileText, Loader2 } from "lucide-react";
 import type { ChatAttachment } from "../../gen/podium/agent/v1/agent_pb";
-import { downloadURL } from "../../lib/artifacts";
-import { getToken, notifyRejected } from "../../lib/auth";
+import { cachedImageURL, fetchArtifact } from "../../lib/artifactCache";
 import { humanBytes } from "../../lib/format";
 import { useToast } from "../Toast";
 
@@ -86,20 +85,6 @@ export function ChatAttachments({ attachments }: { attachments: ChatAttachment[]
   );
 }
 
-/** fetchArtifact reads one artifact's bytes through the control plane, with the bearer. */
-async function fetchArtifact(artifactId: string): Promise<Blob> {
-  const headers = new Headers();
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(downloadURL(artifactId), { headers });
-  if (!res.ok) {
-    if (res.status === 401) notifyRejected();
-    const detail = (await res.text()).trim();
-    throw new Error(detail === "" ? `download failed with HTTP ${res.status}` : detail);
-  }
-  return res.blob();
-}
-
 function InlineImage({ attachment }: { attachment: ChatAttachment }) {
   const [url, setUrl] = useState<string>();
   const [error, setError] = useState<string>();
@@ -109,23 +94,17 @@ function InlineImage({ attachment }: { attachment: ChatAttachment }) {
   const mime = imageMIME(attachment);
 
   useEffect(() => {
-    let objectURL: string | undefined;
     let cancelled = false;
     void (async () => {
       try {
-        const blob = await fetchArtifact(artifactId);
-        if (cancelled) return;
-        objectURL = URL.createObjectURL(
-          blob.type.startsWith("image/") ? blob : new Blob([blob], { type: mime }),
-        );
-        setUrl(objectURL);
+        const objectURL = await cachedImageURL(artifactId, mime);
+        if (!cancelled) setUrl(objectURL);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
     })();
     return () => {
       cancelled = true;
-      if (objectURL) URL.revokeObjectURL(objectURL);
     };
   }, [artifactId, mime]);
 

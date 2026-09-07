@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { ChatAttachmentSchema } from "../../gen/podium/agent/v1/agent_pb";
+import { clearArtifactCache } from "../../lib/artifactCache";
 import { setToken, clearToken } from "../../lib/auth";
 import { ToastHost } from "../Toast";
 import { ChatAttachments } from "./ChatAttachments";
@@ -37,6 +38,7 @@ let blobTypes: string[] = [];
 
 beforeEach(() => {
   calls = [];
+  clearArtifactCache();
   setToken("devtoken-not-a-real-token");
   vi.stubGlobal(
     "fetch",
@@ -163,5 +165,16 @@ describe("ChatAttachments", () => {
     await waitFor(() => expect(screen.getAllByTestId("chat-attachment")).toHaveLength(2));
     expect(screen.getByRole("img")).toHaveAttribute("alt", "trend.png");
     expect(screen.getAllByTestId("chat-attachment")[1]).toHaveTextContent("report.csv");
+  });
+
+  it("does not refetch an image this tab has already shown", async () => {
+    const { unmount } = mount([png]);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    unmount();
+
+    mount([png]);
+    const img = await waitFor(() => screen.getByRole("img"));
+    expect(img).toHaveAttribute("src", "blob:artifact");
+    expect(calls).toHaveLength(1);
   });
 });
