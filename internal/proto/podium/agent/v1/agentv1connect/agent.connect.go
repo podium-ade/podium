@@ -98,6 +98,8 @@ const (
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
 	AgentServiceListChatsProcedure = "/podium.agent.v1.AgentService/ListChats"
+	// AgentServiceRenameChatProcedure is the fully-qualified name of the AgentService's RenameChat RPC.
+	AgentServiceRenameChatProcedure = "/podium.agent.v1.AgentService/RenameChat"
 	// AgentServiceSendChatMessageProcedure is the fully-qualified name of the AgentService's
 	// SendChatMessage RPC.
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
@@ -177,6 +179,9 @@ type AgentServiceClient interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// RenameChat changes the title of one of the caller's chats. Another login's chat is
+	// not_found, the same as every other chat RPC. An empty title is refused.
+	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
 	// FailedPrecondition while a turn for that chat is already running: one turn at a time
 	// per conversation is the whole model.
@@ -341,6 +346,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 			connect.WithClientOptions(opts...),
 		),
+		renameChat: connect.NewClient[v1.RenameChatRequest, v1.RenameChatResponse](
+			httpClient,
+			baseURL+AgentServiceRenameChatProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RenameChat")),
+			connect.WithClientOptions(opts...),
+		),
 		sendChatMessage: connect.NewClient[v1.SendChatMessageRequest, v1.SendChatMessageResponse](
 			httpClient,
 			baseURL+AgentServiceSendChatMessageProcedure,
@@ -382,6 +393,7 @@ type agentServiceClient struct {
 	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	renameChat         *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
 	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
 	streamChat         *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
 }
@@ -506,6 +518,11 @@ func (c *agentServiceClient) ListChats(ctx context.Context, req *connect.Request
 	return c.listChats.CallUnary(ctx, req)
 }
 
+// RenameChat calls podium.agent.v1.AgentService.RenameChat.
+func (c *agentServiceClient) RenameChat(ctx context.Context, req *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
+	return c.renameChat.CallUnary(ctx, req)
+}
+
 // SendChatMessage calls podium.agent.v1.AgentService.SendChatMessage.
 func (c *agentServiceClient) SendChatMessage(ctx context.Context, req *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {
 	return c.sendChatMessage.CallUnary(ctx, req)
@@ -588,6 +605,9 @@ type AgentServiceHandler interface {
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
 	// never returned.
 	ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error)
+	// RenameChat changes the title of one of the caller's chats. Another login's chat is
+	// not_found, the same as every other chat RPC. An empty title is refused.
+	RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
 	// FailedPrecondition while a turn for that chat is already running: one turn at a time
 	// per conversation is the whole model.
@@ -748,6 +768,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ListChats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceRenameChatHandler := connect.NewUnaryHandler(
+		AgentServiceRenameChatProcedure,
+		svc.RenameChat,
+		connect.WithSchema(agentServiceMethods.ByName("RenameChat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceSendChatMessageHandler := connect.NewUnaryHandler(
 		AgentServiceSendChatMessageProcedure,
 		svc.SendChatMessage,
@@ -810,6 +836,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
 			agentServiceListChatsHandler.ServeHTTP(w, r)
+		case AgentServiceRenameChatProcedure:
+			agentServiceRenameChatHandler.ServeHTTP(w, r)
 		case AgentServiceSendChatMessageProcedure:
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
@@ -917,6 +945,10 @@ func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) ListChats(context.Context, *connect.Request[v1.ListChatsRequest]) (*connect.Response[v1.ListChatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListChats is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RenameChat(context.Context, *connect.Request[v1.RenameChatRequest]) (*connect.Response[v1.RenameChatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.RenameChat is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error) {

@@ -96,6 +96,7 @@ env:
 const (
 	createChatPath      = "/podium.agent.v1.AgentService/CreateChat"
 	listChatsPath       = "/podium.agent.v1.AgentService/ListChats"
+	renameChatPath      = "/podium.agent.v1.AgentService/RenameChat"
 	sendChatMessagePath = "/podium.agent.v1.AgentService/SendChatMessage"
 	listPlaybooksPath   = "/podium.agent.v1.AgentService/ListPlaybooks"
 )
@@ -251,6 +252,12 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	chatID := created.Msg.GetChat().GetId()
 	require.True(t, strings.HasPrefix(chatID, "chat_"), "ids are prefixed ULIDs: %s", chatID)
 	assert.False(t, created.Msg.GetChat().GetTurnRunning())
+
+	renamed, err := client.RenameChat(ctx, connect.NewRequest(&agentv1.RenameChatRequest{
+		ChatId: chatID, Title: "  Q3   forecast ",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "Q3 forecast", renamed.Msg.GetChat().GetTitle())
 
 	// The chat belongs to the login the SERVER asserted, not the one the client sent.
 	assert.Equal(t, map[string]string{chatID: "dev"}, chatLogins(t, agent.databaseURL),
@@ -481,9 +488,13 @@ func TestChatsArePerLogin(t *testing.T) {
 	assert.Contains(t, body, bobChat)
 	assert.NotContains(t, body, devChat, "another login's chat must never be returned")
 
-	// And knowing the id is not access: bob cannot speak into dev's chat.
+	// And knowing the id is not access: bob cannot speak into or rename dev's chat.
 	code, body = agent.postAs(sendChatMessagePath, agentToken, "bob",
 		fmt.Sprintf(`{"chat_id":%q,"text":"hello"}`, devChat))
+	assert.Equal(t, http.StatusNotFound, code, body)
+
+	code, body = agent.postAs(renameChatPath, agentToken, "bob",
+		fmt.Sprintf(`{"chat_id":%q,"title":"stolen"}`, devChat))
 	assert.Equal(t, http.StatusNotFound, code, body)
 }
 

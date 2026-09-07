@@ -74,6 +74,32 @@ func (s *AgentService) CreateChat(
 	return connect.NewResponse(&agentv1.CreateChatResponse{Chat: chatToProto(row)}), nil
 }
 
+// RenameChat changes the title of one of the caller's chats.
+func (s *AgentService) RenameChat(
+	ctx context.Context, req *connect.Request[agentv1.RenameChatRequest],
+) (*connect.Response[agentv1.RenameChatResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.GetChatId() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("rename chat: chat_id is required"))
+	}
+	row, err := s.store.RenameChat(ctx, req.Msg.GetChatId(), login, req.Msg.GetTitle())
+	switch {
+	case errors.Is(err, store.ErrInvalidChatTitle):
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	case err != nil:
+		return nil, storeError(err)
+	}
+	s.logger.InfoContext(ctx, "a chat was renamed", "chat_id", row.ID, "login", login)
+	return connect.NewResponse(&agentv1.RenameChatResponse{Chat: chatToProto(row)}), nil
+}
+
 // ListChats returns the caller's own chats, newest first.
 func (s *AgentService) ListChats(
 	ctx context.Context, req *connect.Request[agentv1.ListChatsRequest],

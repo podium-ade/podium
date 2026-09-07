@@ -79,6 +79,9 @@ service AgentService {
   // ListChats returns the caller's own chats, newest first. Another login's chats are
   // never returned.
   rpc ListChats(ListChatsRequest) returns (ListChatsResponse);
+  // RenameChat changes the title of one of the caller's chats. Another login's chat is
+  // not_found, the same as every other chat RPC. An empty title is refused.
+  rpc RenameChat(RenameChatRequest) returns (RenameChatResponse);
   // SendChatMessage stores one human message and starts a turn on it. It is refused with
   // FailedPrecondition while a turn for that chat is already running: one turn at a time
   // per conversation is the whole model.
@@ -472,6 +475,15 @@ message CreateChatRequest {
 }
 
 message CreateChatResponse {
+  Chat chat = 1;
+}
+
+message RenameChatRequest {
+  string chat_id = 1;
+  string title = 2;
+}
+
+message RenameChatResponse {
   Chat chat = 1;
 }
 
