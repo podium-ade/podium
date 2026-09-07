@@ -277,6 +277,32 @@ include it; add it deliberately, and read
 **Neither.** Leave `PODIUM_AGENT_MEMORY_URL` empty. Turns then run with no memory at all, which
 is a supported configuration and costs nothing but recall.
 
+## Reaching the control plane from a task
+
+A task that has to *use* Podium — drive a browser over the UI, read the server's own database —
+reaches it the same way any other tailnet client does, and the shared-memory table above is not
+the shape to copy. Two addresses, and the first one surprises people:
+
+| target | from the task container | from a sidecar |
+|---|---|---|
+| the control plane, over the tailnet | `https://<host>.<suffix>.ts.net` | same |
+| a port published on the node's own host | `host.docker.internal:<port>` | not reachable |
+
+**The tailnet name works, and so does the tailnet IP.** The container inherits the host's
+routes, so a task on a tailnet node routes to `100.x.y.z` without being a tailnet device
+itself, and the MagicDNS name resolves in *public* DNS once the tailnet has HTTPS certificates
+enabled. A browser sidecar gets this too — it is on the same bridge — which is what makes a
+live-stack UI test from a task possible at all. The confinement here is the ACL
+([above](#the-acl)), not the network: to a Tailscale ACL the traffic is the *node* talking, so
+whatever `tag:podium-node` may reach, every task on that node may reach.
+
+**`host.docker.internal` is the task container only.** The node adds that mapping to a task and
+deliberately not to its sidecars ([`security.md`](security.md#3-a-task-container--untrusted)),
+so a browser sidecar cannot open a port that is only published on the node's host — point it at
+the tailnet address instead. And on a native Linux engine a service bound to `127.0.0.1` is out
+of reach through the bridge gateway even from the task; Docker Desktop proxies it, which makes
+this the kind of difference that works on a Mac and fails on a worker.
+
 ## Why there is no public ingress
 
 Nothing in Podium needs a public address:

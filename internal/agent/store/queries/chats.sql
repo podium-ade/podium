@@ -91,3 +91,9 @@ returning *;
 update chats set title = @title
 where id = @id and auto_title
 returning *;
+
+-- DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
+-- query so another owner's chat cannot be removed even if the id is known; zero rows
+-- means it was not there or not theirs.
+-- name: DeleteChat :execrows
+delete from chats where id = @id and login = @login;

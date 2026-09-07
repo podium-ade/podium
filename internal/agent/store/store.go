@@ -722,6 +722,48 @@ func (s *Store) ChatTurnRunning(ctx context.Context, chatID string) (bool, error
 	return running, nil
 }
 
+// RunningChatTask is the Podium task currently answering this chat. Empty when nothing is
+// in flight, when the chat has never had a turn, and when the turn row exists but
+// CreateTask has not answered yet — there is then nothing to cancel.
+func (s *Store) RunningChatTask(ctx context.Context, chatID string) (string, error) {
+	sess, err := s.GetSessionByKey(ctx, ChatSourceKey(chatID))
+	if errors.Is(err, ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	turns, err := s.ListTurns(ctx, sess.ID, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(turns) == 0 || turns[0].Status != TurnRunning {
+		return "", nil
+	}
+	return turns[0].TaskID, nil
+}
+
+// DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
+// ErrNotFound means it was not there or not theirs: the two are the same answer so the
+// existence of another login's chat is not leaked. Sessions and turns are left alone —
+// they are the audit of the work, not the transcript.
+func (s *Store) DeleteChat(ctx context.Context, id, login string) error {
+	if login == "" {
+		return errors.New("delete chat: a login is required")
+	}
+	if id == "" {
+		return errors.New("delete chat: an id is required")
+	}
+	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: login})
+	if err != nil {
+		return fmt.Errorf("delete chat %s: %w", id, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: chat %s", ErrNotFound, id)
+	}
+	return nil
+}
+
 // marshalAttachments always writes a JSON array: the column is `not null default '[]'` and
 // a nil slice must not become the literal null.
 func marshalAttachments(files []ChatAttachment) ([]byte, error) {

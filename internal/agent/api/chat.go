@@ -28,6 +28,12 @@ type ChatSource interface {
 	Running(ctx context.Context, chatID string) (bool, error)
 }
 
+// TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
+// the node gets SIGTERM and up to 30s, and nothing here waits.
+type TaskCanceller interface {
+	CancelTask(ctx context.Context, taskID, reason string) error
+}
+
 // requireLogin is the whole of the chat's ownership story. There is no RBAC in this track,
 // but a login is a natural partition and it is free, so a request that arrived without one
 // gets nothing rather than somebody else's chats.
@@ -95,6 +101,78 @@ func (s *AgentService) ListChats(
 		out = append(out, chatToProto(r))
 	}
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
+}
+
+// DeleteChat removes one of the caller's chats and every message in it.
+//
+// A task still answering the chat is cancelled first. The transcript is about to
+// disappear, and a container nobody is listening to would otherwise keep the node slot
+// and can still finish work the person who asked for it will never see. Cancel does not
+// wait: the chat is gone immediately, the node has up to 30s. Sessions and turns stay.
+func (s *AgentService) DeleteChat(
+	ctx context.Context, req *connect.Request[agentv1.DeleteChatRequest],
+) (*connect.Response[agentv1.DeleteChatResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("delete chat: chat_id is required"))
+	}
+	row, err := s.store.GetChat(ctx, chatID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if row.Login != login {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
+		return nil, err
+	}
+	if err := s.store.DeleteChat(ctx, chatID, login); err != nil {
+		return nil, storeError(err)
+	}
+	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
+	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
+}
+
+// stopRunningChatTask asks the node to stop the task currently answering this chat.
+//
+// FailedPrecondition and NotFound are the control plane saying there is nothing to
+// stop, which is what a turn that ended between the modal and this call looks like:
+// delete can proceed. Anything else left a task running, and deleting the chat then
+// would hide it.
+func (s *AgentService) stopRunningChatTask(ctx context.Context, chatID string) error {
+	taskID, err := s.store.RunningChatTask(ctx, chatID)
+	if err != nil {
+		return storeError(err)
+	}
+	if taskID == "" {
+		return nil
+	}
+	if s.tasks == nil {
+		s.logger.WarnContext(ctx, "deleting a chat with a running task, but this conductor cannot cancel it",
+			"chat_id", chatID, "task_id", taskID)
+		return nil
+	}
+	err = s.tasks.CancelTask(ctx, taskID, "the chat this task was answering was deleted")
+	if err == nil {
+		s.logger.InfoContext(ctx, "stopped the task of a chat that is being deleted",
+			"chat_id", chatID, "task_id", taskID)
+		return nil
+	}
+	switch connect.CodeOf(err) {
+	case connect.CodeFailedPrecondition, connect.CodeNotFound:
+		return nil
+	default:
+		return connect.NewError(connect.CodeInternal, fmt.Errorf(
+			"delete chat %s: stop its task %s: %w", chatID, taskID, err))
+	}
 }
 
 // SendChatMessage stores one human message and starts a turn on it.
