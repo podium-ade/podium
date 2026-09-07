@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Loader2 } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Loader2 } from "lucide-react";
 import type { AgentBackend, Playbook } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { Button } from "../ui/button";
@@ -121,24 +121,26 @@ export function ChatComposer({
               disabled={disabled}
             />
 
-            <p className="ml-auto hidden items-center gap-1 text-2xs text-faint md:flex">
-              <Kbd>Enter</Kbd> sends
-              <span className="px-0.5">·</span>
-              <Kbd>Shift</Kbd>
-              <Kbd>Enter</Kbd> for a new line
-            </p>
+            <div className="ml-auto flex items-center gap-2">
+              <p className="hidden items-center gap-1 text-2xs text-faint lg:flex">
+                <Kbd>Enter</Kbd> sends
+                <span className="px-0.5">·</span>
+                <Kbd>Shift</Kbd>
+                <Kbd>Enter</Kbd> for a new line
+              </p>
 
-            <Button
-              type="button"
-              size="sm"
-              data-testid="chat-send"
-              disabled={disabled || text.trim() === ""}
-              onClick={send}
-            >
-              {disabled ? <Loader2 className="animate-spin" /> : null}
-              {disabled ? "Working…" : "Send"}
-              {disabled ? null : <ArrowUp />}
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                data-testid="chat-send"
+                disabled={disabled || text.trim() === ""}
+                onClick={send}
+              >
+                {disabled ? <Loader2 className="animate-spin" /> : null}
+                {disabled ? "Working…" : "Send"}
+                {disabled ? null : <ArrowUp />}
+              </Button>
+            </div>
           </div>
         </div>
         <p className="mt-1.5 px-1 text-2xs text-faint">
@@ -152,10 +154,9 @@ export function ChatComposer({
 /**
  * RunConfig is the model half of the decision, folded into a popover.
  *
- * It is a popover rather than a row of controls because the answer is almost always "the
- * playbook's own", and a composer that spends three lines saying so is a composer with less
- * room to type in. The closed control still names what will actually run, so nothing is
- * hidden — only folded.
+ * The catalogue is inlined here rather than nested behind a second trigger: a menu inside
+ * a menu is what used to paint the list off the bottom of the window. One click opens a
+ * portaled sheet that flips above the composer and scrolls inside the remaining viewport.
  */
 function RunConfig({
   playbooks,
@@ -177,7 +178,7 @@ function RunConfig({
   const backendID = choice.model === "" ? inherited.agent : choice.agent;
 
   return (
-    <Popover>
+    <Popover modal={false}>
       <Tooltip label="What this message runs on">
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" size="sm" disabled={disabled} data-testid="chat-run-config">
@@ -194,23 +195,30 @@ function RunConfig({
           </Button>
         </PopoverTrigger>
       </Tooltip>
-      <PopoverContent align="start" side="top" className="w-90 space-y-3">
-        <div className="space-y-0.5">
+      <PopoverContent
+        align="start"
+        side="top"
+        className="flex w-80 flex-col gap-2 overflow-hidden p-0"
+      >
+        <div className="shrink-0 space-y-0.5 px-3 pt-2.5 pb-1">
           <p className="text-xs font-medium text-fg">What runs this message</p>
           <p className="text-2xs leading-relaxed text-faint">
             The playbook decides the image and the tools; this decides which model reads them. It
             applies to the messages you send from now on, and is never saved to the playbook.
           </p>
         </div>
-        <AgentPicker
-          label="This message"
-          value={choice}
-          onChange={onChange}
-          agents={agents}
-          disabled={disabled}
-          inherit={{ label: "The playbook's model", hint: playbookRuns(playbooks, playbook) }}
-          inherited={inherited}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          <AgentPicker
+            label="This message"
+            value={choice}
+            onChange={onChange}
+            agents={agents}
+            disabled={disabled}
+            embedded
+            inherit={{ label: "The playbook's model", hint: playbookRuns(playbooks, playbook) }}
+            inherited={inherited}
+          />
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -229,9 +237,11 @@ function playbookRuns(playbooks: Playbook[], playbook: string): string {
 }
 
 /**
- * PlaybookChip shows which playbook the next message runs and cycles through them on click. It is
- * a cycle rather than a dropdown because there are two or three playbooks, and a menu for three
- * items is a menu nobody opens.
+ * PlaybookChip shows which playbook the next message runs and opens a menu of the others.
+ *
+ * It used to cycle on click, which hid every option but the next one and did not scale past
+ * two or three playbooks. The menu is portaled and prefers the side with room — same rule as
+ * the model picker — so it cannot open off the bottom of the composer.
  */
 function PlaybookChip({
   playbooks,
@@ -244,25 +254,64 @@ function PlaybookChip({
   onChange: (name: string) => void;
   disabled: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   if (playbooks.length === 0) return null;
   const at = playbooks.findIndex((s) => s.name === playbook);
   const current = at >= 0 ? playbooks[at] : playbooks[0];
-  const next = playbooks[(Math.max(at, 0) + 1) % playbooks.length];
+  const alone = playbooks.length === 1;
 
   return (
-    <Tooltip label={current.hint ? `${current.hint} · ${current.image}` : current.image}>
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        data-testid="chat-playbook"
-        disabled={disabled || playbooks.length === 1}
-        aria-label={`Playbook: ${current.name}. Click to switch to ${next.name}.`}
-        onClick={() => onChange(next.name)}
-        className="font-mono"
-      >
-        /{current.name}
-      </Button>
-    </Tooltip>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <Tooltip label={current.hint ? `${current.hint} · ${current.image}` : current.image}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            data-testid="chat-playbook"
+            disabled={disabled || alone}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            aria-label={
+              alone ? `Playbook: ${current.name}` : `Playbook: ${current.name}. Open to switch.`
+            }
+            className="font-mono"
+          >
+            /{current.name}
+            {alone ? null : <ChevronDown />}
+          </Button>
+        </PopoverTrigger>
+      </Tooltip>
+      <PopoverContent align="start" side="top" className="w-72 overflow-hidden p-1">
+        <ul role="listbox" aria-label="Playbook" data-testid="chat-playbook-menu">
+          {playbooks.map((s) => {
+            const selected = s.name === current.name;
+            return (
+              <li key={s.name} role="option" aria-selected={selected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(s.name);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-raised"
+                >
+                  <Check
+                    aria-hidden
+                    className={`mt-0.5 size-3.5 shrink-0 text-accent ${selected ? "" : "opacity-0"}`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-mono text-fg">/{s.name}</span>
+                    <span className="block truncate text-2xs text-muted">
+                      {s.hint || s.image}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }

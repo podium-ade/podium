@@ -41,6 +41,7 @@ function SelectContent({
   className,
   children,
   position = "popper",
+  collisionPadding = 12,
   ...props
 }: ComponentProps<typeof SelectPrimitive.Content>) {
   return (
@@ -49,20 +50,25 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         sideOffset={6}
+        collisionPadding={collisionPadding}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
+          "relative z-50 flex min-w-[8rem] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
+          "max-h-[min(18rem,var(--radix-select-content-available-height))]",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+          "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
           position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]",
           className,
         )}
         {...props}
       >
-        <SelectPrimitive.ScrollUpButton className="flex h-6 items-center justify-center text-muted">
+        <SelectPrimitive.ScrollUpButton className="flex h-6 shrink-0 items-center justify-center text-muted">
           <ChevronUp className="size-3.5" />
         </SelectPrimitive.ScrollUpButton>
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
-        <SelectPrimitive.ScrollDownButton className="flex h-6 items-center justify-center text-muted">
+        <SelectPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto p-1">
+          {children}
+        </SelectPrimitive.Viewport>
+        <SelectPrimitive.ScrollDownButton className="flex h-6 shrink-0 items-center justify-center text-muted">
           <ChevronDown className="size-3.5" />
         </SelectPrimitive.ScrollDownButton>
       </SelectPrimitive.Content>
