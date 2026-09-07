@@ -68,9 +68,9 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, sourceKey string) (bool, 
 
 const createChat = `-- name: CreateChat :one
 
-insert into chats (id, title, login, created_at)
-values ($1, $2, $3, $4)
-returning id, title, login, created_at
+insert into chats (id, title, login, created_at, playbook, auto_title)
+values ($1, $2, $3, $4, $5, $6)
+returning id, title, login, created_at, playbook, auto_title
 `
 
 type CreateChatParams struct {
@@ -78,6 +78,8 @@ type CreateChatParams struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
+	Playbook  string
+	AutoTitle bool
 }
 
 // The web chat. Unlike Slack and Linear there is no external system holding the
@@ -92,6 +94,8 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		arg.Title,
 		arg.Login,
 		arg.CreatedAt,
+		arg.Playbook,
+		arg.AutoTitle,
 	)
 	var i Chat
 	err := row.Scan(
@@ -99,12 +103,14 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
+		&i.Playbook,
+		&i.AutoTitle,
 	)
 	return i, err
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at from chats where id = $1
+select id, title, login, created_at, playbook, auto_title from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -115,6 +121,8 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
+		&i.Playbook,
+		&i.AutoTitle,
 	)
 	return i, err
 }
@@ -178,7 +186,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at,
+select c.id, c.title, c.login, c.created_at, c.playbook, c.auto_title,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -212,6 +220,8 @@ type ListChatsRow struct {
 	Title         string
 	Login         string
 	CreatedAt     time.Time
+	Playbook      string
+	AutoTitle     bool
 	HasMessage    bool
 	LastMessageAt time.Time
 	LastText      string
@@ -246,6 +256,8 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Title,
 			&i.Login,
 			&i.CreatedAt,
+			&i.Playbook,
+			&i.AutoTitle,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -283,6 +295,60 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.Text,
 		&i.Attachments,
 		&i.Ts,
+	)
+	return i, err
+}
+
+const setChatPlaybook = `-- name: SetChatPlaybook :one
+update chats set playbook = $1
+where id = $2 and playbook = ''
+returning id, title, login, created_at, playbook, auto_title
+`
+
+type SetChatPlaybookParams struct {
+	Playbook string
+	ID       string
+}
+
+// SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
+// already set: one chat, one playbook, fixed at the first message.
+func (q *Queries) SetChatPlaybook(ctx context.Context, arg SetChatPlaybookParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, setChatPlaybook, arg.Playbook, arg.ID)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.Playbook,
+		&i.AutoTitle,
+	)
+	return i, err
+}
+
+const setChatTitle = `-- name: SetChatTitle :one
+update chats set title = $1
+where id = $2 and auto_title
+returning id, title, login, created_at, playbook, auto_title
+`
+
+type SetChatTitleParams struct {
+	Title string
+	ID    string
+}
+
+// SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
+// (auto_title = false) is left alone.
+func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, setChatTitle, arg.Title, arg.ID)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.Playbook,
+		&i.AutoTitle,
 	)
 	return i, err
 }

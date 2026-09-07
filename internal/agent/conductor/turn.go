@@ -306,7 +306,9 @@ func (r *turnRun) readAccounting(ctx context.Context, from string, raw []byte) {
 func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) {
 	// The artifact is only worth fetching when it is the last route left.
 	wantSummary := r.acct == nil && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED
-	if len(r.attachments) == 0 && !wantSummary {
+	_, canTitle := r.src.(autoTitler)
+	wantTitle := canTitle && task.GetStatus() == podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED
+	if len(r.attachments) == 0 && !wantSummary && !wantTitle {
 		return
 	}
 	list, err := r.c.podium.ListArtifacts(ctx, r.turn.TaskID)
@@ -322,7 +324,13 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) {
 	if art, ok := byName[turnSummaryArtifact]; wantSummary && ok {
 		r.readSummary(ctx, art)
 	}
+	if art, ok := byName[chatTitleArtifact]; wantTitle && ok {
+		r.applyChatTitle(ctx, art)
+	}
 	for _, name := range r.attachments {
+		if name == chatTitleArtifact {
+			continue
+		}
 		art, ok := byName[name]
 		if !ok {
 			// Normal, not an error: a name that matches nothing is how the runtime says
@@ -368,6 +376,32 @@ func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
 	}); err != nil {
 		r.c.logger.WarnContext(ctx, "attaching a file to the conversation failed",
 			"artifact_id", art.GetId(), "name", art.GetName(), "error", err)
+	}
+}
+
+// applyChatTitle reads the model-written name of a web chat. A title the caller supplied
+// at create is left alone by the source; a missing or empty file is not an error.
+func (r *turnRun) applyChatTitle(ctx context.Context, art *podiumv1.Artifact) {
+	namer, ok := r.src.(autoTitler)
+	if !ok {
+		return
+	}
+	body, _, err := r.c.podium.Artifact(ctx, art.GetId())
+	if err != nil {
+		r.c.logger.WarnContext(ctx, "reading the chat title failed",
+			"artifact_id", art.GetId(), "error", err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(body, 4<<10))
+	if err != nil {
+		r.c.logger.WarnContext(ctx, "reading the chat title failed",
+			"artifact_id", art.GetId(), "error", err)
+		return
+	}
+	if err := namer.SetAutoTitle(ctx, r.ref, string(raw)); err != nil {
+		r.c.logger.WarnContext(ctx, "naming the chat from the turn failed",
+			"ref", r.ref, "error", err)
 	}
 }
 

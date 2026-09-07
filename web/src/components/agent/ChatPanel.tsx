@@ -150,6 +150,7 @@ export function ChatPanel() {
             <Conversation
               key={active}
               chatId={active}
+              storedPlaybook={list.find((c) => c.id === active)?.playbook ?? ""}
               botName={playbooks.data?.profileDisplayName ?? "Podium"}
               playbooks={playbooks.data?.playbooks ?? []}
               chatDefaultPlaybook={playbooks.data?.playbooks.find((s) => s.chatDefault)?.name ?? ""}
@@ -269,6 +270,9 @@ function ChatRail({
               </span>
               <span className="mt-1 flex items-center gap-1.5">
                 {c.turnRunning ? <Badge tone="run">running</Badge> : null}
+                {c.playbook ? (
+                  <span className="font-mono shrink-0 text-2xs text-faint">/{c.playbook}</span>
+                ) : null}
                 <span className="min-w-0 flex-1 truncate text-xs text-muted">
                   {c.preview || "nothing said yet"}
                 </span>
@@ -283,11 +287,13 @@ function ChatRail({
 
 function Conversation({
   chatId,
+  storedPlaybook,
   botName,
   playbooks,
   chatDefaultPlaybook,
 }: {
   chatId: string;
+  storedPlaybook: string;
   botName: string;
   playbooks: Playbook[];
   chatDefaultPlaybook: string;
@@ -296,11 +302,18 @@ function Conversation({
   const toast = useToast();
   const stream = useChatStream(chatId);
   // Undefined means "whatever the profile says", which is not known until ListPlaybooks
-  // answers — so the choice is derived rather than copied into state on arrival.
-  const [chosen, setChosen] = useState<string>();
-  const playbook = chosen ?? chatDefaultPlaybook;
+  // answers — so the choice is derived rather than copied into state on arrival. A playbook
+  // the chat already ran is knowledge, not a preference, and wins.
+  const [chosen, setChosen] = useState<string | undefined>(storedPlaybook || undefined);
+  const playbook = stream.chat?.playbook || chosen || storedPlaybook || chatDefaultPlaybook;
+  const locked = (stream.chat?.playbook || storedPlaybook) !== "";
   const [pinned, setPinned] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!stream.chat) return;
+    void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+  }, [qc, stream.chat]);
 
   // The choice is sticky across messages, the way every chat that has a model picker
   // behaves: you pick once and keep asking. It is still sent per message, so nothing is
@@ -398,6 +411,7 @@ function Conversation({
         playbooks={playbooks}
         playbook={playbook}
         onPlaybookChange={setChosen}
+        playbookLocked={locked}
         disabled={busy}
         agents={agents}
         choice={choice}

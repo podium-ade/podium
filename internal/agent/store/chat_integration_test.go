@@ -292,6 +292,44 @@ func TestAMessageForAChatThatIsNotThereIsRefused(t *testing.T) {
 	assert.ErrorContains(t, err, "chat_messages_chat_id_fkey")
 }
 
+func TestAChatRemembersItsPlaybookAndMayBeRenamed(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "")
+	require.NoError(t, err)
+	assert.True(t, chat.AutoTitle)
+	assert.Empty(t, chat.Playbook)
+
+	named, err := s.SetChatPlaybook(ctx, chat.ID, "analyst")
+	require.NoError(t, err)
+	assert.Equal(t, "analyst", named.Playbook)
+	again, err := s.SetChatPlaybook(ctx, chat.ID, "general")
+	require.NoError(t, err)
+	assert.Equal(t, "analyst", again.Playbook, "one chat, one playbook — the first write wins")
+
+	titled, err := s.SetChatTitle(ctx, chat.ID, "August numbers")
+	require.NoError(t, err)
+	assert.Equal(t, "August numbers", titled.Title)
+	assert.Equal(t, "analyst", titled.Playbook)
+
+	owned, err := s.CreateChat(ctx, "alice", "Keep this")
+	require.NoError(t, err)
+	assert.False(t, owned.AutoTitle)
+	kept, err := s.SetChatTitle(ctx, owned.ID, "overwrite")
+	require.NoError(t, err)
+	assert.Equal(t, "Keep this", kept.Title, "a title supplied at create is never rewritten")
+
+	listed, _, err := s.ListChats(ctx, "alice", 0, "")
+	require.NoError(t, err)
+	byID := map[string]Chat{}
+	for _, c := range listed {
+		byID[c.ID] = c
+	}
+	assert.Equal(t, "analyst", byID[chat.ID].Playbook)
+	assert.Equal(t, "August numbers", byID[chat.ID].Title)
+}
+
 func TestChatPreviewCutsRunesNotBytes(t *testing.T) {
 	assert.Equal(t, "", preview("   ", 5))
 	assert.Equal(t, "hello", preview("  hello  ", 5))

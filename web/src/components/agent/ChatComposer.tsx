@@ -21,6 +21,11 @@ export interface ChatComposerProps {
   /** playbook is the playbook the next message will use. */
   playbook: string;
   onPlaybookChange: (name: string) => void;
+  /**
+   * playbookLocked is true once this conversation has started: one chat, one playbook.
+   * The chip still shows which playbook it is, but cycling it is refused — start a new chat.
+   */
+  playbookLocked?: boolean;
   /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
   disabled: boolean;
   /** The backend catalogue, for the model picker. Empty while it loads. */
@@ -46,6 +51,7 @@ export function ChatComposer({
   playbooks,
   playbook,
   onPlaybookChange,
+  playbookLocked = false,
   disabled,
   agents,
   choice,
@@ -71,7 +77,14 @@ export function ChatComposer({
   const retype = (next: string) => {
     setText(next);
     const m = PLAYBOOK_PREFIX.exec(next);
-    if (m && m[1] !== playbook && playbooks.some((s) => s.name === m[1])) onPlaybookChange(m[1]);
+    if (
+      m &&
+      m[1] !== playbook &&
+      !playbookLocked &&
+      playbooks.some((s) => s.name === m[1])
+    ) {
+      onPlaybookChange(m[1]);
+    }
   };
 
   const send = () => {
@@ -108,7 +121,13 @@ export function ChatComposer({
           />
 
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-2 py-2">
-            <PlaybookChip playbooks={playbooks} playbook={playbook} onChange={onPlaybookChange} disabled={disabled} />
+            <PlaybookChip
+              playbooks={playbooks}
+              playbook={playbook}
+              onChange={onPlaybookChange}
+              disabled={disabled}
+              locked={playbookLocked}
+            />
             {/* The model is chosen per MESSAGE, beside the playbook and not inside it. A playbook
                 is "which job"; the model is "what runs it". Folding the second into the
                 first is what makes a profile fill up with playbooks that differ by one field. */}
@@ -238,26 +257,37 @@ function PlaybookChip({
   playbook,
   onChange,
   disabled,
+  locked,
 }: {
   playbooks: Playbook[];
   playbook: string;
   onChange: (name: string) => void;
   disabled: boolean;
+  locked: boolean;
 }) {
   if (playbooks.length === 0) return null;
   const at = playbooks.findIndex((s) => s.name === playbook);
   const current = at >= 0 ? playbooks[at] : playbooks[0];
   const next = playbooks[(Math.max(at, 0) + 1) % playbooks.length];
+  const label = locked
+    ? `This chat runs /${current.name}. Start a new chat to use a different playbook.`
+    : current.hint
+      ? `${current.hint} · ${current.image}`
+      : current.image;
 
   return (
-    <Tooltip label={current.hint ? `${current.hint} · ${current.image}` : current.image}>
+    <Tooltip label={label}>
       <Button
         type="button"
         variant="secondary"
         size="sm"
         data-testid="chat-playbook"
-        disabled={disabled || playbooks.length === 1}
-        aria-label={`Playbook: ${current.name}. Click to switch to ${next.name}.`}
+        disabled={disabled || locked || playbooks.length === 1}
+        aria-label={
+          locked
+            ? `Playbook: ${current.name}. This chat keeps the playbook it started with.`
+            : `Playbook: ${current.name}. Click to switch to ${next.name}.`
+        }
         onClick={() => onChange(next.name)}
         className="font-mono"
       >
