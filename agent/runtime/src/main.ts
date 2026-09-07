@@ -20,6 +20,7 @@ import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { CloneError, TokenEnv, WorkspaceDir, cloneRepos, redact } from "./repos.js";
+import { SkillError, installSkills } from "./skills.js";
 
 const ExitOK = 0;
 const ExitMaxTurns = 3;
@@ -134,6 +135,23 @@ async function main(): Promise<number> {
     }
   }
 
+  // The playbook's Agent Skills, unpacked where the harness will find them. A bundle that
+  // fails any of its checks fails the turn: the alternative is a turn that runs with fewer
+  // skills than the playbook describes and says nothing about it.
+  const skillRefs = brief.playbook.skills ?? [];
+  if (skillRefs.length > 0) {
+    try {
+      const names = installSkills(skillRefs);
+      warn(`installed ${names.length} agent skill(s): ${names.join(", ")}`);
+    } catch (err) {
+      const why = err instanceof SkillError ? err.message : messageOf(err);
+      warn(why);
+      summary.code = ExitHarnessError;
+      await reportTurn(invoke, summary, `I could not install this playbook's skills: ${why}`);
+      return ExitHarnessError;
+    }
+  }
+
   let finalText = "";
   let held = "";
   let lastProgressAt = 0;
@@ -168,6 +186,7 @@ async function main(): Promise<number> {
       memory: brief.memory
         ? { url: brief.memory.mcp_url, apiKeyEnv: brief.memory.api_key_env }
         : undefined,
+      skills: skillRefs.map((s) => s.name),
     });
   } catch (err) {
     const why = messageOf(err);
@@ -178,8 +197,13 @@ async function main(): Promise<number> {
   }
 
   const env = { ...process.env };
-  // The brief can be a quarter of a megabyte and the harness has no business with it.
+  // The brief can be a quarter of a megabyte and the harness has no business with it. The
+  // skill bundles are the same: they are already on disk where the harness looks, so what
+  // is left in the environment is only a copy for the agent's own `env` to print.
   delete env[BriefEnv];
+  for (const ref of skillRefs) {
+    delete env[ref.bundle_env];
+  }
 
   let steps = 0;
   try {

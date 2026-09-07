@@ -121,6 +121,36 @@ describe("decodeBrief", () => {
     ).toBe("podium.v2-x");
   });
 
+  it("takes a skill as a name, a digest and the variable its bundle travels in", () => {
+    const skills = [
+      {
+        name: "pr-review",
+        sha256: "a".repeat(64),
+        bundle_env: "PODIUM_AGENT_SKILL_PR_REVIEW",
+      },
+    ];
+    const brief = decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills } }));
+    expect(brief.playbook.skills).toEqual(skills);
+    // Absent, not empty: a playbook that names no skills leaves the key out.
+    expect(decodeBrief(encode(minimal)).playbook.skills).toBeUndefined();
+  });
+
+  it("refuses a skill ref that is not one", () => {
+    const bad = [
+      { name: "../etc", sha256: "a".repeat(64), bundle_env: "X" },
+      { name: "Upper", sha256: "a".repeat(64), bundle_env: "X" },
+      { name: "pr-review", sha256: "nothex", bundle_env: "X" },
+      { name: "pr-review", sha256: "A".repeat(64), bundle_env: "X" },
+      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "" },
+      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "X", extra: 1 },
+    ];
+    for (const skill of bad) {
+      expect(() =>
+        decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills: [skill] } })),
+      ).toThrow(BriefError);
+    }
+  });
+
   it("refuses a source kind it does not know", () => {
     expect(() => decodeBrief(encode({ ...minimal, source: { kind: "email", ref: "x" } }))).toThrow(BriefError);
   });

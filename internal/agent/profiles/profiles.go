@@ -21,6 +21,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/alvaroibarguen/podium/internal/agent/skills"
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
@@ -134,6 +135,15 @@ type Playbook struct {
 	Repos         []Repo            `yaml:"repos" json:"repos,omitempty"`
 	SlackChannels []string          `yaml:"slack_channels" json:"slack_channels,omitempty"`
 	Env           map[string]string `yaml:"env" json:"env,omitempty"`
+	// Skills is the Agent Skills a turn of this playbook may use, by name, out of
+	// PODIUM_AGENT_SKILLS_DIR on the conductor's host. Nothing is implicit: a playbook that
+	// names none gets none, and the harness's own permission map denies every skill it has
+	// not been told about — including the ones built into the harness.
+	//
+	// An Agent Skill is executable content somebody else wrote, and it runs in the turn's
+	// container with that turn's credentials. This list is the whole of what decides which
+	// ones do. See docs/security.md.
+	Skills []string `yaml:"skills" json:"skills,omitempty"`
 	// Docker gives the turn a real Docker daemon beside it: the conductor attaches a
 	// privileged `dind` sidecar and points DOCKER_HOST at it. A playbook needs this to run a
 	// dev stack, `docker compose`, or testcontainers.
@@ -333,6 +343,32 @@ func (s *Playbook) applyDefaults() {
 	}
 }
 
+// validateSkills checks the Agent Skills allow-list against the harness's own naming rule
+// and the per-playbook cap. It deliberately does NOT check that the named skill exists:
+// the directory it comes from is the conductor's configuration, not the profile's, and a
+// playbook file has to be loadable on a machine that has no skills directory at all — a
+// test, a `podium agent` on a laptop, CI. A name with nothing behind it fails the turn that
+// wants it, naming the directory, and leaves every other playbook running.
+func (s Playbook) validateSkills() []error {
+	var errs []error
+	if len(s.Skills) > skills.MaxSkills {
+		errs = append(errs, fmt.Errorf("skills names %d skills; the limit is %d",
+			len(s.Skills), skills.MaxSkills))
+	}
+	seen := make(map[string]bool, len(s.Skills))
+	for _, name := range s.Skills {
+		if err := skills.ValidateName(name); err != nil {
+			errs = append(errs, fmt.Errorf("skills: %w", err))
+			continue
+		}
+		if seen[name] {
+			errs = append(errs, fmt.Errorf("skills names %q twice", name))
+		}
+		seen[name] = true
+	}
+	return errs
+}
+
 func (s Playbook) validate(path string) error {
 	var errs []error
 	if strings.TrimSpace(s.Image) == "" {
@@ -371,7 +407,13 @@ func (s Playbook) validate(path string) error {
 				"credential a turn gets, from the agent the playbook runs on", ref.Name))
 		}
 	}
+	errs = append(errs, s.validateSkills()...)
 	for key := range s.Env {
+		if strings.HasPrefix(key, skills.EnvPrefix) {
+			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
+				"variable per skill it delivers", key, skills.EnvPrefix))
+			continue
+		}
 		switch key {
 		case BriefEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes the turn brief", BriefEnv))

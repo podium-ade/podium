@@ -91,6 +91,28 @@ type BriefPlaybook struct {
 	SystemPrompt string   `json:"system_prompt"`
 	AllowedTools []string `json:"allowed_tools"`
 	MaxTurns     int      `json:"max_turns"`
+	// Skills is the Agent Skills this turn may use. Absent means none, and the runtime
+	// writes a permission map that denies every skill either way.
+	Skills []BriefSkill `json:"skills,omitempty"`
+}
+
+// BriefSkill points the runtime at one Agent Skill bundle. It carries a NAME and a DIGEST,
+// never the bytes: the bundle rides in its own environment variable, exactly as a
+// credential does, and for the same reason — the brief is a document an operator reads, and
+// a quarter of a megabyte of base64 in the middle of it is not readable.
+//
+// Keeping them apart also keeps the two caps apart. A brief that does not fit is truncated
+// by dropping the oldest transcript entries; a bundle in the brief would therefore buy
+// itself room by silently deleting the conversation, which is the wrong trade to make on a
+// human's behalf.
+type BriefSkill struct {
+	// Name is the skill's name and the directory it is unpacked into.
+	Name string `json:"name"`
+	// SHA256 is the hex digest of the bundle document the runtime must verify before it
+	// writes anything.
+	SHA256 string `json:"sha256"`
+	// BundleEnv names the environment variable holding base64(gzip(document)).
+	BundleEnv string `json:"bundle_env"`
 }
 
 // BriefEntry is one utterance of the conversation so far.
