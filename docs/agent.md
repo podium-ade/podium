@@ -27,12 +27,12 @@ sees the master key, and never touches Docker.
 ```
 somebody says something
   ↓  source (Slack)                          normalises it into an InboundEvent
-  ↓  Select                                  which skill? the chip, /skill, the channel, the defaults
-  ↓  UpsertSession                            by source key — one thread, one session, one skill
+  ↓  Select                                  which playbook? the chip, /playbook, the channel, the defaults
+  ↓  UpsertSession                            by source key — one thread, one session, one playbook
   ↓  React 👀  +  post "👀 working…"          before any work starts
   ↓  FetchTranscript                          the thread so far
   ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 256 KiB
-  ↓  CreateTask                               image + brief + the skill's secrets + the Anthropic key
+  ↓  CreateTask                               image + brief + the playbook's secrets + the Anthropic key
   ↓  StreamTaskEvents                         relay every `message` event, exactly once
   ↓  GetTask                                  the terminal status decides what is said last
   ↓  FinishTurn  +  React ✅ or ❌
@@ -77,7 +77,7 @@ task id.
 |---|---|---|
 | `succeeded` | `succeeded` | nothing beyond the answer |
 | `failed`, exit 3 (the runtime ran out of turns) | `failed` | "I ran out of turns before finishing. Task `task_…`." |
-| `failed`, `failure_reason: timeout` | `timeout` | "I hit the 15m limit for this skill. Task `task_…`." |
+| `failed`, `failure_reason: timeout` | `timeout` | "I hit the 15m limit for this playbook. Task `task_…`." |
 | `failed`, a missing secret | `failed` | "This bot is missing a credential (`NAME`). An operator needs to set it. Task `task_…`." |
 | `failed`, anything else | `failed` | "Something went wrong on my side. Task `task_…`." |
 | `lost` | `lost` | "The machine running this went away. Task `task_…`. I did not retry." |
@@ -115,7 +115,8 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
-| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `skills/`, `prompts/` |
+| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
+| `PODIUM_AGENT_SKILLS_DIR` | for `skills:` | — | one directory per Agent Skill, each with a `SKILL.md`. No default: unset means this conductor delivers none |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -161,8 +162,8 @@ docker exec podium-dev-postgres createdb -U podium podium_agent
 ```
 
 Losing this database costs turn records, not conversations: the conversations are in Slack — and
-now also every skill made in the web UI, which lives in its `skills` table. Skills that came out
-of the profile directory are unaffected. Back it up if the UI is where your skills are defined.
+now also every playbook made in the web UI, which lives in its `playbooks` table. Playbooks that came out
+of the profile directory are unaffected. Back it up if the UI is where your playbooks are defined.
 
 The shared memory has a third database, `podium_memory`, on the same Postgres — see *Memory*
 below. Losing **that** one does lose something: it is the only copy.
@@ -177,8 +178,8 @@ unauthenticated like the server's. Everything else on that listener is behind
 A memory service that is down makes `/readyz` 503 — and turns still run and still answer
 through it. That is deliberate: a bot with no memory is a worse bot, not a broken one.
 
-Metrics: `podium_agent_turns_total{source,skill,status}`,
-`podium_agent_turn_duration_seconds{skill}`, `podium_agent_relayed_messages_total{type}`,
+Metrics: `podium_agent_turns_total{source,playbook,status}`,
+`podium_agent_turn_duration_seconds{playbook}`, `podium_agent_relayed_messages_total{type}`,
 `podium_agent_source_events_total{source}`, `podium_agent_follow_reconnects_total`,
 `podium_agent_turns_without_accounting_total`,
 `podium_agent_memory_retain_total{result}` (`ok`, `error`, `redacted`).
@@ -187,13 +188,13 @@ Metrics: `podium_agent_turns_total{source,skill,status}`,
 
 ## The profile directory
 
-One profile per conductor. [`../examples/agent`](../examples/agent) is a working one: one skill,
+One profile per conductor. [`../examples/agent`](../examples/agent) is a working one: one playbook,
 on the one image Podium ships, holding no credential of its own.
 
 ```
 profile.yaml
 prompts/profile.md
-skills/general.yaml
+playbooks/general.yaml
 prompts/general.md
 ```
 
@@ -210,19 +211,19 @@ model: claude-opus-5         # required
 agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
-default_skill: general       # required; must name a loaded skill
-chat_default_skill: dba      # optional; the skill /agent/chat starts with.
-                             # Must name a loaded skill; unset means default_skill.
-                             # Only worth setting once you have a second skill:
+default_playbook: general       # required; must name a loaded playbook
+chat_default_playbook: dba      # optional; the playbook /agent/chat starts with.
+                             # Must name a loaded playbook; unset means default_playbook.
+                             # Only worth setting once you have a second playbook:
                              # examples/agent leaves it unset.
 ```
 
-### `skills/<name>.yaml`
+### `playbooks/<name>.yaml`
 
-The file name is the skill name and must match `^[a-z][a-z0-9-]{0,31}$`.
+The file name is the playbook name and must match `^[a-z][a-z0-9-]{0,31}$`.
 
 Podium ships the base image `podium-agent-runtime`, and `-dev` beside it for turns that build
-Podium itself. A skill needing any other tools names an image **you** built `FROM` the base —
+Podium itself. A playbook needing any other tools names an image **you** built `FROM` the base —
 see *Extending the runtime image* below.
 
 ```yaml
@@ -239,18 +240,19 @@ resources: {cpu: 2, memory_mb: 4096}                         # verbatim into the
 secrets:                                                     # verbatim into the spec
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
-slack_channels: []                                           # channel IDs this skill is the default for
-linear: false                                                # this is the skill Linear tickets run
+slack_channels: []                                           # channel IDs this playbook is the default for
+linear: false                                                # this is the playbook Linear tickets run
 docker: false                                                # attach a Docker daemon beside the turn
+skills: []                                                   # Agent Skills this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
 **`allowed_tools` are the harness's own tool names**, lower case: `read`, `write`, `edit`,
 `bash`, `grep`, `glob`, `list`, `patch`, `webfetch`, `task`, `todoread`, `todowrite`. A name
-that is not one of those is refused when the skill is loaded or saved, with the list in the
+that is not one of those is refused when the playbook is loaded or saved, with the list in the
 message. That is deliberate rather than forgiving: these used to be the Claude Agent SDK's names
 (`Read`, `Grep`, `Bash`), and case-folding them would have worked for the ones that happen to
-match while silently dropping the ones that do not — a skill running without a tool it asked
+match while silently dropping the ones that do not — a playbook running without a tool it asked
 for, discovered from its behaviour. **A profile carrying the old names will not load until they
 are lower-cased.**
 
@@ -259,15 +261,16 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 
 - **No model credential may appear in `secrets:`.** `podium.agent.anthropic_api_key`,
   `podium.agent.xai_api_key` and `podium.agent.xai_refresh_token` are all refused. The conductor
-  decides what credential a turn gets, from the agent the skill runs on — see *Which agent,
+  decides what credential a turn gets, from the agent the playbook runs on — see *Which agent,
   which model, how hard it thinks*.
-- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY` or `XAI_API_KEY`.** The first is
-  the brief; the other two come from the secrets.
-- **At most one skill may set `linear: true`.** Two is a start-up error: a ticket has no channel
-  and no `/skill` prefix, so there would be nothing to choose between them with. Zero is fine —
+- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY` or anything
+  starting `PODIUM_AGENT_SKILL_`.** The first is the brief, the next two come from the secrets,
+  and the last is where a skill's bundle travels.
+- **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
+  and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
-  it attached. A skill without the flag may set it freely: nothing is attached to collide with.
+  it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
 #### `docker: true`
 
@@ -286,77 +289,165 @@ Two things an operator has to know:
 - **It only runs on a node started with `--allow-privileged-sidecars`**, which is off by default.
   A privileged container is root on that node's kernel — see
   [`security.md`](security.md#a-privileged-sidecar--a-docker-daemon-beside-the-task).
-- **Podium places on labels alone.** It does not know which nodes allow privilege, so a skill with
+- **Podium places on labels alone.** It does not know which nodes allow privilege, so a playbook with
   `docker: true` must carry a label the operator also put on those nodes (the example uses
   `privileged`). A turn that lands on a node without the flag fails at provisioning with a message
   naming the flag — it does not hang, and it is not retried.
 
 The daemon is not free: it pulls its own images every turn, because its store starts empty. Budget
-memory for it (the example skill asks for 8 GB) and expect a cold pull on the first `docker run`.
+memory for it (the example playbook asks for 8 GB) and expect a cold pull on the first `docker run`.
 
-### Which skill runs
+#### `skills:` — third-party Agent Skills
+
+An **Agent Skill** is a directory holding a `SKILL.md` with YAML frontmatter: a procedure somebody
+else wrote, which the model loads when a task matches its description. It is the industry shape,
+and the harness discovers them natively. A **playbook** is Podium's own concept — a configured
+kind of turn — and is a different thing entirely; that is why it stopped being called a skill.
+
+`skills:` is a playbook's allow-list, by name:
+
+```yaml
+skills: [pr-review, release-notes]
+```
+
+**Nothing is implicit.** A playbook that names no skills gets none, and that is not the same as
+"whatever the harness happens to find": the turn's config denies every skill by pattern, which
+also removes the `skill` tool from the agent altogether — so the skills built into the harness
+itself cannot be loaded either.
+
+The names come out of **`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per
+skill:
+
+```
+$PODIUM_AGENT_SKILLS_DIR/
+  pr-review/
+    SKILL.md
+    reference/checklist.md
+  release-notes/
+    SKILL.md
+```
+
+There is no default for that variable. Unset means this conductor delivers no skills, and a
+playbook that names one fails its turns saying so — every other playbook keeps running.
+
+**Where they land.** Just before the harness starts, the runtime writes each skill to
+`$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
+in Podium's images, which is the harness's own global skill directory. It then writes the
+permission map:
+
+```json
+{ "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } } }
+```
+
+The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
+does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
+
+**How the bytes get there.** The conductor reads the directory at the start of every turn, packs
+it, and puts it on the task spec as one environment variable per skill —
+`PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the name, a sha256 digest
+and the name of that variable, the same way it carries the *name* of a credential's variable and
+never the value. The runtime verifies the digest before it writes anything.
+
+Reading per turn rather than at start-up is deliberate: a skill you have just edited is the one the
+next turn gets, and a skill that has gone wrong fails the playbook that names it instead of taking
+the conductor down.
+
+**What a bundle may contain.** The guards are refusals, not repairs — a skill that trips one fails
+the turn with a message naming what it was:
+
+| Rule | Limit |
+| --- | --- |
+| Skills per playbook | 8 |
+| Files per skill | 64 |
+| Bytes per skill, unpacked | 128 KiB |
+| Bytes per skill, as delivered | 64 KiB |
+| Path components | `[A-Za-z0-9][A-Za-z0-9._-]*`, at most 8 deep, no `..` and nothing absolute |
+| File contents | UTF-8 text only |
+| `SKILL.md` | required, and its frontmatter `name` must equal the directory name |
+| `name` | `^[a-z0-9]+(-[a-z0-9]+)*$`, 1–64 characters |
+| `description` | required, 1–1024 characters — it is all the model reads to decide whether to use the skill |
+
+Two consequences worth stating plainly:
+
+- **Nothing in a bundle is executable.** Files land mode 0644 and the wire format has no room for
+  a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
+  absent rather than defended against. A skill's script is run through its interpreter
+  (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
+- **Phase 2 carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
+  environment variable, and Linux caps a single environment string at 128 KiB — past that the
+  container cannot `exec` at all, before Podium runs to say so. The 64 KiB delivery cap is half
+  of that margin; for markdown, which compresses about threefold, the unpacked 128 KiB cap is
+  what you hit first. Either way it is a directory of prose and small scripts, not a skill that
+  ships a binary, a wheel or an image. A skill that does not fit is refused, naming the cap;
+  carrying a large one needs real storage, which is the next piece of work rather than a number
+  you can raise here.
+
+There is no web UI for this yet: `skills:` is a playbook *file* field. A playbook created in the
+browser has no skills.
+
+### Which playbook runs
 
 In order:
 
-1. **A skill the source knows** is right, which no rule below may second-guess: the web chat's
-   skill chip (`SendChatMessage.skill`) and the `linear: true` skill a ticket runs. A ticket's
+1. **A playbook the source knows** is right, which no rule below may second-guess: the web chat's
+   playbook chip (`SendChatMessage.playbook`) and the `linear: true` playbook a ticket runs. A ticket's
    text is not a command line, so a `/word` in its description is left alone — and a chip
    chosen after typing `/other` is the later intent, so it wins.
-2. The message starts with `/<skill>` followed by whitespace or the end — that skill, prefix
+2. The message starts with `/<playbook>` followed by whitespace or the end — that playbook, prefix
    stripped. An **unknown** `/name` is not an error: it is left in the text and falls through, so
-   somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a skill selector either.
-3. The channel is in a skill's `slack_channels`. Two skills claiming one channel is a startup
+   somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
+3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error.
-4. **The source's own default**: the web chat's `profile.yaml: chat_default_skill`. Every chat
-   message carries it, which is exactly why it is only a default — a `/skill` a human typed is
+4. **The source's own default**: the web chat's `profile.yaml: chat_default_playbook`. Every chat
+   message carries it, which is exactly why it is only a default — a `/playbook` a human typed is
    more specific than a per-source preference, and wins.
-5. `profile.default_skill`.
+5. `profile.default_playbook`.
 
 Rule 1 is knowledge and rules 4 and 5 are fallbacks, and keeping them apart is the whole of the
-order: Linear names the skill because it genuinely knows it, while the web chat merely *prefers*
+order: Linear names the playbook because it genuinely knows it, while the web chat merely *prefers*
 one. Slack says neither and starts at rule 2.
 
-**One session, one skill**, fixed when the thread's session is created. A later `/other` in the
-same thread is refused politely: start a new thread. A default is not somebody naming a skill,
+**One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
+same thread is refused politely: start a new thread. A default is not somebody naming a playbook,
 so it never triggers that refusal.
 
-Changing a skill **file** needs a restart. There is no SIGHUP reload. A skill made in the web
-UI does not — see *Skills in the web UI* below.
+Changing a playbook **file** needs a restart. There is no SIGHUP reload. A playbook made in the web
+UI does not — see *Playbooks in the web UI* below.
 
-### Skills in the web UI
+### Playbooks in the web UI
 
-A profile does not have to live only on the conductor's host. **Agent → Skills** in the web UI
-creates, edits and deletes skills, and **Agent → Profile** sets the display name, the model and
-the two default skills, so a skill's image, prompt, tools, limits, environment and the secrets
+A profile does not have to live only on the conductor's host. **Agent → Playbooks** in the web UI
+creates, edits and deletes playbooks, and **Agent → Profile** sets the display name, the model and
+the two default playbooks, so a playbook's image, prompt, tools, limits, environment and the secrets
 it names are defined in a browser instead of by editing YAML over SSH.
 
-**Deleting is only offered inside the editor.** The list has an *Edit* on each stored skill and
+**Deleting is only offered inside the editor.** The list has an *Edit* on each stored playbook and
 nothing destructive; the delete, behind a confirm, sits at the bottom of the edit form, so the
 definition being thrown away is on the screen with the button. A shadowed row opens the same
 form read-only — it cannot be saved over, and the delete is the only thing it offers.
 
 The three decisions worth knowing before you use it:
 
-**Where it is stored.** A UI-defined skill is a row in the conductor's own database
-(`podium_agent`), table `skills`, one row per skill. The `definition` column holds the same
-document a `skills/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
+**Where it is stored.** A UI-defined playbook is a row in the conductor's own database
+(`podium_agent`), table `playbooks`, one row per playbook. The `definition` column holds the same
+document a `playbooks/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
 profile overrides are one row in `settings`, under the key `profile.overrides`. Nothing is
 written to the profile directory: `PODIUM_AGENT_PROFILE_DIR` is mounted read-only in the shipped
 compose file and stays that way.
 
-**The files win.** A `skills/<name>.yaml` is authoritative for the name it holds:
+**The files win.** A `playbooks/<name>.yaml` is authoritative for the name it holds:
 
 | | |
 |---|---|
-| a name only the files define | the file's skill runs; the UI shows it **read-only**, because the file is where it is defined |
-| a name only the database holds | the stored skill runs; the UI edits it, and deletes it from that edit form |
+| a name only the files define | the file's playbook runs; the UI shows it **read-only**, because the file is where it is defined |
+| a name only the database holds | the stored playbook runs; the UI edits it, and deletes it from that edit form |
 | a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is open it and delete it |
 
-Creating a skill whose name a file already defines is refused outright, so the shadowed state is
+Creating a playbook whose name a file already defines is refused outright, so the shadowed state is
 only ever reached by adding a file for a name the database already had. The rule is deliberately
 not "the most recent write wins": which of two definitions runs must never depend on which was
 saved last, and a GitOps deployment must stay the authority over the names it ships. Editing a
-file-defined skill means editing the file and restarting the conductor, exactly as before.
+file-defined playbook means editing the file and restarting the conductor, exactly as before.
 
 Profile *settings* work the other way round, because they are not definitions with a name but
 single values with one writer: `profile.yaml` supplies the default and a field set in the UI
@@ -367,31 +458,31 @@ and clearing a field returns it to the file's.
 conductor holds its profile in a live holder (`profiles.Live`) that every reader takes a snapshot
 from per use; a write through the API validates the change, stores it, rebuilds the whole profile
 and swaps the new one in atomically. The next turn is routed against the new profile. A turn
-already in flight is untouched — it took its skill by value when it started, so nothing about it
+already in flight is untouched — it took its playbook by value when it started, so nothing about it
 can change under it. Every conductor also re-reads the stored half every 15 seconds, which is
 what makes a second conductor on the same database, or a row changed with `psql`, land as well.
 
 The profile directory itself is still read **once, at start**. That half is a deploy artefact and
 re-reading a file somebody is half way through saving is not an improvement.
 
-**What is refused.** A skill made in a browser is validated by exactly the code that validates a
-skill file — same rules, same messages — so nothing is accepted here that a file could not say,
+**What is refused.** A playbook made in a browser is validated by exactly the code that validates a
+playbook file — same rules, same messages — so nothing is accepted here that a file could not say,
 and nothing is stored that would fail to load at the next restart:
 
 - everything in the table above (`image`, `allowed_tools`, `max_turns`, `timeout`, `resources`,
   `env`, `labels` and `secrets` are checked by the task-spec validator, because that is where
   they end up);
 - the two reserved secret names and the three reserved env vars, below;
-- `system_prompt` must be the prompt itself. `file:` works only in a `skills/<name>.yaml`, which
+- `system_prompt` must be the prompt itself. `file:` works only in a `playbooks/<name>.yaml`, which
   has a file beside it to resolve the path against;
-- anything that would make the merged profile ambiguous: two skills claiming one Slack channel,
-  two setting `linear: true`, a default naming a skill that is not loaded. Deleting the skill
-  `default_skill` names is refused for the same reason.
+- anything that would make the merged profile ambiguous: two playbooks claiming one Slack channel,
+  two setting `linear: true`, a default naming a playbook that is not loaded. Deleting the playbook
+  `default_playbook` names is refused for the same reason.
 
-**What is not restricted.** A skill may name **any registered secret**, exactly as a task spec
+**What is not restricted.** A playbook may name **any registered secret**, exactly as a task spec
 may. There is no allow-list and there will not be one: `CreateTask` checks only that a named
 secret exists, so anyone who can reach the control plane can already mount any secret into an
-image of their choosing — restricting the skill path alone would be theatre. See
+image of their choosing — restricting the playbook path alone would be theatre. See
 [`security.md`](security.md#5-the-conductor-and-the-bot). The UI shows secret **names** only;
 there is no way to read a value back through any API in Podium.
 
@@ -406,28 +497,28 @@ Two names the conductor genuinely reserves, and one convention. The Anthropic ke
 the web UI (see *Setting the provider key* below), the conductor writes the memory key at
 startup out of its own environment, and the third is set with `podium secret set`.
 
-A skill may name **any** registered secret under any name it likes; nothing below is an
+A playbook may name **any** registered secret under any name it likes; nothing below is an
 allow-list. These three are simply the names Podium's own docs and defaults use.
 
 | name | lands as | who needs it |
 |---|---|---|
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn on the `claude` backend; the conductor attaches it. Set it in the web UI, or with the CLI |
 | `podium.agent.xai_api_key` | `XAI_API_KEY` | every turn on the `grok` backend; likewise. It holds an xAI API key **or** the access token of a subscription sign-in — both are bearers for the same endpoint |
-| `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A skill may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
-| `podium.agent.github_token` | `GITHUB_TOKEN` | a skill with `repos:` — and only the skills whose files name it. See *Skills that clone repositories* |
+| `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A playbook may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
+| `podium.agent.github_token` | `GITHUB_TOKEN` | a playbook with `repos:` — and only the playbooks whose files name it. See *Playbooks that clone repositories* |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 
 The model credential must **exist** before a turn on that backend can run, even a dry run: the
 task spec names it and the control plane refuses a task that names a secret it does not have.
 That failure reaches the thread as "This bot is missing a credential". A control plane that only
-ever runs Claude skills needs no xAI credential at all, and the reverse.
+ever runs Claude playbooks needs no xAI credential at all, and the reverse.
 
 **Exactly one model credential goes on a turn**, and it is the one the turn's backend spends. A
 Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one: a
 container gets the credential it needs and no other.
 
-A skill file may not name any of the model credentials, or the memory one. They are added by the
-conductor: no skill decides whether the bot can talk to a model, and no skill can opt out of
+A playbook file may not name any of the model credentials, or the memory one. They are added by the
+conductor: no playbook decides whether the bot can talk to a model, and no playbook can opt out of
 memory — only the operator can, by leaving `PODIUM_AGENT_MEMORY_URL` empty.
 
 ---
@@ -435,7 +526,7 @@ memory — only the operator can, by leaving `PODIUM_AGENT_MEMORY_URL` empty.
 ## Which agent, which model, how hard it thinks
 
 A turn runs on an **agent backend**, on a **model**, at an **effort**. All three are resolved by
-the conductor before the task is created — the skill's own value, then the profile's, then the
+the conductor before the task is created — the playbook's own value, then the profile's, then the
 built-in default — and the resolved triple travels in the brief, so the runtime never has to.
 
 | backend | provider | credential |
@@ -479,7 +570,7 @@ them at load time:
   turn.
 - `grok-4.5` and older document `xhigh` as a synonym for `high`, so it is not offered for them:
   a level that silently means a different level is worse than no level.
-- A **skill that switches backend and inherits the profile's effort** is checked with the model
+- A **playbook that switches backend and inherits the profile's effort** is checked with the model
   it will actually run on, not with the profile's — that combination is the one that would
   otherwise slip through.
 
@@ -493,7 +584,7 @@ left unchecked — the provider gets to be the one that refuses it.
 whether a credential for it is stored. The web UI's picker is built from it, and so is the
 validation a save is held to — one list, so the two cannot drift.
 
-<!-- screenshot: the agent/model picker open on the Skills tab, Claude and Grok grouped -->
+<!-- screenshot: the agent/model picker open on the Playbooks tab, Claude and Grok grouped -->
 
 Picking a model picks its backend, because a model only runs on one. The effort strip re-renders
 per model. A backend with no credential is still selectable — an operator may be setting the two
@@ -671,7 +762,7 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
 5. **Invite the bot to every channel you want it in**: `/invite @Podium`. It cannot see a channel
    it is not in, whatever its scopes say.
 6. Put both tokens in `.env` and start the conductor. The startup log names the sources it
-   enabled and the skills it loaded.
+   enabled and the playbooks it loaded.
 
 Then, in a channel the bot is in:
 
@@ -720,12 +811,12 @@ already accept, and a webhook would be one.
 2. **Signed in AS THE BOT USER**, go to **Settings → Security & access → Personal API keys → New
    API key**. Copy it into `PODIUM_AGENT_LINEAR_API_KEY`. A key made from *your own* account
    would make the bot read your issues and comment as you.
-3. **Exactly one skill must set `linear: true`.** That is the skill every ticket runs, and
-   **you have to write it**: [`../examples/agent`](../examples/agent) ships one skill and it
-   takes no tickets, so that profile cannot be used with a Linear key as it stands. Two skills
+3. **Exactly one playbook must set `linear: true`.** That is the playbook every ticket runs, and
+   **you have to write it**: [`../examples/agent`](../examples/agent) ships one playbook and it
+   takes no tickets, so that profile cannot be used with a Linear key as it stands. Two playbooks
    claiming it is a start-up error; zero is fine until a Linear key is set, and then the
-   conductor refuses to start and says so. A ticket skill usually wants `repos:` and the GitHub
-   token — see *Skills that clone repositories*.
+   conductor refuses to start and says so. A ticket playbook usually wants `repos:` and the GitHub
+   token — see *Playbooks that clone repositories*.
 4. **Name a state `In Progress`** on the teams the bot works in, or accept the fallback (below).
 5. Start the conductor. `linear source connected` in the log names the user the key belongs to.
    A key that is set and does not work makes `podium-agent` **exit non-zero at boot**, naming
@@ -871,7 +962,7 @@ package in your image owns `numpy` — two of those on one `sys.path` is a real 
 
 ### Where the image has to be resolvable from
 
-A skill's `image:` is **any reference the node's own Docker engine can resolve**, exactly like a
+A playbook's `image:` is **any reference the node's own Docker engine can resolve**, exactly like a
 task spec's. There is no catalogue and no validation beyond the reference being well formed: the
 first a missing image is known about is the pull failing on the node, which fails that turn.
 
@@ -886,10 +977,10 @@ first a missing image is known about is the pull failing on the node, which fail
 
 ---
 
-## Skills that clone repositories
+## Playbooks that clone repositories
 
-A skill with `repos:` gets its repositories cloned into the workspace before the turn starts, and
-it needs a credential to do it. Podium ships no such skill — the shape below is what one looks
+A playbook with `repos:` gets its repositories cloned into the workspace before the turn starts, and
+it needs a credential to do it. Podium ships no such playbook — the shape below is what one looks
 like:
 
 ```yaml
@@ -904,15 +995,15 @@ repos:
   - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
 ```
 
-**This skill has write access to your repositories.** Read
+**This playbook has write access to your repositories.** Read
 [`security.md`](security.md#5-the-conductor-and-the-bot) before pointing one at a repository that
 deploys on merge, and have its prompt open a **draft** pull request so a human reads the diff
 before anything happens.
 
 ### The GitHub token
 
-A skill only ever gets the secrets its own file names, so the token reaches the turns of the
-skills that name it and no others.
+A playbook only ever gets the secrets its own file names, so the token reaches the turns of the
+playbooks that name it and no others.
 
 Set it once, as an operator:
 
@@ -921,7 +1012,7 @@ podium secret set podium.agent.github_token      # the value on stdin
 ```
 
 Make it a **fine-grained personal access token**, scoped to exactly the repositories in the
-skill's `repos:` list, with **Contents: read and write** and **Pull requests: read and write** and
+playbook's `repos:` list, with **Contents: read and write** and **Pull requests: read and write** and
 nothing else. Not `repo` on a classic token, which is every repository the owner can see. Not
 `workflow`. Rotate it on a schedule; a token that never expires is a token nobody will notice the
 loss of.
@@ -945,9 +1036,9 @@ branch if it wants it — a branch naming convention in the prompt is what makes
 
 ---
 
-## Skills that read a database
+## Playbooks that read a database
 
-A skill you give a database credential **reads everything that credential can read**, for
+A playbook you give a database credential **reads everything that credential can read**, for
 anybody who can reach the chat or the channel it answers in. There is no table allowlist, no
 column masking and no row filter anywhere in Podium. Two things make that survivable, and only
 one of them is a control.
@@ -976,7 +1067,7 @@ For BigQuery, the equivalent is a service account with `roles/bigquery.dataViewe
 datasets it may read plus `roles/bigquery.jobUser` on the project so it can run a query at all —
 and **not** `dataEditor`, `admin` or `roles/bigquery.user`.
 
-Register it as a secret and name it in the skill, as a connection string in the environment or a
+Register it as a secret and name it in the playbook, as a connection string in the environment or a
 key file on the secrets tmpfs:
 
 ```sh
@@ -990,7 +1081,7 @@ secrets:
 ```
 
 A task naming a secret the control plane does not have is refused before it reaches a node
-([`security.md`](security.md#secrets)), so a skill file must name only the secrets you actually
+([`security.md`](security.md#secrets)), so a playbook file must name only the secrets you actually
 registered.
 
 ### Keep big results out of the answer
@@ -1010,7 +1101,7 @@ The same reasoning applies to what a turn retains in memory: a metric's definiti
 of a query are worth keeping, **numbers are not** — they go stale, and a stale number read back
 as fact is worse than no memory — and row-level data never is. Like the read-only role's
 counterpart, that rule lives in a prompt and is therefore a courtesy: see
-[`security.md`](security.md#a-skill-with-a-data-credential).
+[`security.md`](security.md#a-playbook-with-a-data-credential).
 
 ---
 
@@ -1019,7 +1110,7 @@ counterpart, that rule lives in a prompt and is therefore a courtesy: see
 `podium-agent-runtime-dev` is the one image `make agent-runtime` builds beside the base, and it
 is also the **worked example** of *Extending the runtime image* above: a real image, built the
 way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
-Node and Docker. `examples/agent/skills/podium.yaml` is that skill — it pairs this image with
+Node and Docker. `examples/agent/playbooks/podium.yaml` is that playbook — it pairs this image with
 `docker: true`, which is what gives the turn the daemon the toolchain expects to find.
 
 On top of the base runtime it carries the toolchain
@@ -1080,9 +1171,9 @@ env:
 
 ## No RBAC
 
-**Whoever can tag the bot, or assign it a ticket, can run code on a worker with that skill's
+**Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
 credentials.** There is no allowlist of users, no roles, and no read-only mode. Keep `secrets:`
-minimal per skill, and do not put a credential in a skill that anybody in a public channel can
+minimal per playbook, and do not put a credential in a playbook that anybody in a public channel can
 reach — but do not mistake that for a boundary around the secret store. `CreateTask` checks only
 that a named secret **exists**, so anyone who can reach the control plane can already mount any
 registered secret into an image and a command of their own. See
@@ -1107,7 +1198,7 @@ boundary being relied on.
 
 ## Memory
 
-Every turn, whatever its skill or source, shares **one** memory that outlives the container it
+Every turn, whatever its playbook or source, shares **one** memory that outlives the container it
 ran in. It is [Hindsight](https://github.com/vectorize-io/hindsight): one container on the
 control-plane host, its own database inside the Postgres Podium already runs, and an MCP server
 the agent talks to directly. **Podium stores no memory of its own** — the conductor wires a URL
@@ -1120,7 +1211,7 @@ tab says so.
 
 ### What an agent can do with it
 
-The runtime adds three MCP tools to every turn's allow-list, whatever the skill file says, and a
+The runtime adds three MCP tools to every turn's allow-list, whatever the playbook file says, and a
 **Memory** section to the system prompt telling the model when to use them:
 
 | tool | for |
@@ -1139,8 +1230,8 @@ One item per **successful** turn that actually answered:
 
 ```
 content:      "<author> asked: <instruction>\n\n<display_name> answered: <final text>"
-context:      "podium agent, skill <skill>"
-tags:         ["source:<kind>", "skill:<name>"]
+context:      "podium agent, playbook <playbook>"
+tags:         ["source:<kind>", "playbook:<name>"]
 metadata:     {session_id, turn_id, task_id, source_ref, source_url}
 document_id:  <turn_id>
 ```
@@ -1185,7 +1276,7 @@ it handed over, it also covers retains a task container made for itself over MCP
 
 `/agent/memory` lists what is remembered, newest first, with a search box over it. Every card
 carries its provenance — the source (linked back to the Slack thread or the ticket where the
-source URL is known), the skill, when it was learned, and the task it came out of — and a
+source URL is known), the playbook, when it was learned, and the task it came out of — and a
 **Forget** button behind an inline confirm.
 
 **Forgetting is a tombstone, not a row deletion.** The memory engine has no single-memory
@@ -1251,7 +1342,7 @@ See [`operations.md`](operations.md#backup-and-restore) for the rest of the data
 
 ### Webhooks and other things not built
 
-Per-user or per-skill scoping (one bank, everyone sees everything — the tags are recorded for a
+Per-user or per-playbook scoping (one bank, everyone sees everything — the tags are recorded for a
 later step and never filtered on), mental models, knowledge pages and `reflect` are all memory
 engine features Podium does not surface.
 
@@ -1282,12 +1373,12 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   records one only when a task calls `podium-runner artifact add --content-type`, and a file
   the agent simply writes into the artifacts directory is collected with none — so the
   chat decides from the file's extension when the store has nothing to say.
-- **Which skill a message runs**: the skill chip beside the composer, which starts at
-  `profile.yaml: chat_default_skill` (falling back to `default_skill`). Typing `/<skill> …` works
-  too — it moves the chip in the browser, and on the wire a typed `/skill` beats the chat
+- **Which playbook a message runs**: the playbook chip beside the composer, which starts at
+  `profile.yaml: chat_default_playbook` (falling back to `default_playbook`). Typing `/<playbook> …` works
+  too — it moves the chip in the browser, and on the wire a typed `/playbook` beats the chat
   default even when the chip is left unset, as an API client leaves it. The chip itself still
-  wins over a prefix: it is the last thing the human touched. A conversation keeps the skill it
-  started with — the same one-session-one-skill rule as a Slack thread — so switching the chip
+  wins over a prefix: it is the last thing the human touched. A conversation keeps the playbook it
+  started with — the same one-session-one-playbook rule as a Slack thread — so switching the chip
   in an existing chat is refused with a sentence saying to start a new one.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
@@ -1318,7 +1409,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
-| `ListSkills` | the chat's skill chip: name, image, prompt hint, which is the chat default |
+| `ListPlaybooks` | the chat's playbook chip: name, image, prompt hint, which is the chat default |
 | `CreateChat`, `ListChats`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 
@@ -1396,7 +1487,7 @@ PODIUM_AGENT_MEMORY_API_KEY=memtoken \
 ```
 
 The Slack, Linear and memory variables are all optional; drop any of them to run without that
-source or without a memory. `PODIUM_AGENT_LINEAR_API_KEY` needs a skill with `linear: true` in
+source or without a memory. `PODIUM_AGENT_LINEAR_API_KEY` needs a playbook with `linear: true` in
 the profile directory or the conductor refuses to start, and `examples/agent` has none — see
 *Linear*. Note that
 `PODIUM_AGENT_MEMORY_TASK_URL` keeps its default (`http://host.docker.internal:8888`) even here:

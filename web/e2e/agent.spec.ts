@@ -13,7 +13,7 @@ const BAD_KEY = "sk-ant-test-bad";
 const KEY_SECRET = "podium.agent.anthropic_api_key";
 
 /**
- * DRY_RUN says the stack's conductor is running a profile whose chat skill sets
+ * DRY_RUN says the stack's conductor is running a profile whose chat playbook sets
  * PODIUM_AGENT_DRY_RUN=1 — the test seam step 16 defined, which makes the agent runtime skip
  * the model and answer "dry run: <instruction>".
  *
@@ -137,19 +137,19 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
 
   // The Profile tab reads the profile the conductor is actually running, files and stored
-  // skills merged, so the directory it was loaded from is the proof it is the real one.
+  // playbooks merged, so the directory it was loaded from is the proof it is the real one.
   await page.getByRole("link", { name: "Profile" }).click();
   await expect(page).toHaveURL(/\/agent\/profile$/);
   await expect(page.getByTestId("profile-card")).toBeVisible();
 
-  // The Skills tab. This harness's profile comes from files, so every skill on it must be
+  // The Playbooks tab. This harness's profile comes from files, so every playbook on it must be
   // read-only: the files are authoritative for the names they hold.
-  await page.getByRole("link", { name: "Skills" }).click();
-  await expect(page).toHaveURL(/\/agent\/skills$/);
-  await expect(page.getByTestId("skill-row").first()).toBeVisible();
-  await expect(page.getByTestId("skill-image").first()).not.toBeEmpty();
+  await page.getByRole("link", { name: "Playbooks" }).click();
+  await expect(page).toHaveURL(/\/agent\/playbooks$/);
+  await expect(page.getByTestId("playbook-row").first()).toBeVisible();
+  await expect(page.getByTestId("playbook-image").first()).not.toBeEmpty();
   await expect(page.getByText("file · read-only").first()).toBeVisible();
-  await expect(page.getByTestId("skill-new")).toBeVisible();
+  await expect(page.getByTestId("playbook-new")).toBeVisible();
 
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
@@ -186,7 +186,7 @@ test("the agent page makes no third-party requests", async ({ page }) => {
     "/agent",
     "/agent/settings",
     "/agent/profile",
-    "/agent/skills",
+    "/agent/playbooks",
     "/agent/sessions",
     "/agent/memory",
     "/agent/chat",
@@ -216,8 +216,8 @@ test("a new chat stores the question and disables the composer", async ({ page }
   await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
   const url = page.url();
 
-  // The skill chip shows what the next message will run: the profile's chat_default_skill.
-  await expect(page.getByTestId("chat-skill")).toBeVisible();
+  // The playbook chip shows what the next message will run: the profile's chat_default_playbook.
+  await expect(page.getByTestId("chat-playbook")).toBeVisible();
 
   await page.getByTestId("chat-composer").fill("how many active accounts last month");
   await page.getByTestId("chat-send").click();
@@ -240,7 +240,7 @@ test("a new chat stores the question and disables the composer", async ({ page }
 test("a chat turn streams progress and lands a final message", async ({ page }) => {
   test.skip(
     !DRY_RUN,
-    "needs a stack whose chat skill sets PODIUM_AGENT_DRY_RUN=1, plus a node and the " +
+    "needs a stack whose chat playbook sets PODIUM_AGENT_DRY_RUN=1, plus a node and the " +
       "agent runtime image; set PODIUM_AGENT_DRY_RUN=1 when running against one",
   );
   test.setTimeout(240_000);

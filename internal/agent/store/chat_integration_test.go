@@ -20,7 +20,7 @@ func runningTurn(t *testing.T, s *Store, chatID string) Turn {
 	t.Helper()
 	ctx := context.Background()
 	sess, err := s.UpsertSession(ctx, Session{
-		SourceKind: "chat", SourceKey: ChatSourceKey(chatID), Profile: "podium", Skill: "analyst",
+		SourceKind: "chat", SourceKey: ChatSourceKey(chatID), Profile: "podium", Playbook: "analyst",
 	})
 	require.NoError(t, err)
 	turn, err := s.CreateTurn(ctx, sess.ID, chatID)

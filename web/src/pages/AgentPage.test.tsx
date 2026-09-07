@@ -18,16 +18,16 @@ const clearProviderKey = vi.fn();
 const listSessions = vi.fn();
 const listTurns = vi.fn();
 const listChats = vi.fn();
-const listSkills = vi.fn();
+const listPlaybooks = vi.fn();
 const streamChat = vi.fn();
 const getProfile = vi.fn();
 const listAgents = vi.fn();
 const startProviderOAuth = vi.fn();
 const pollProviderOAuth = vi.fn();
 const updateProfile = vi.fn();
-const createSkill = vi.fn();
-const updateSkill = vi.fn();
-const deleteSkill = vi.fn();
+const createPlaybook = vi.fn();
+const updatePlaybook = vi.fn();
+const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
 
 vi.mock("../lib/client", async () => {
@@ -41,38 +41,38 @@ vi.mock("../lib/client", async () => {
       listSessions: (...a: unknown[]) => listSessions(...a),
       listTurns: (...a: unknown[]) => listTurns(...a),
       listChats: (...a: unknown[]) => listChats(...a),
-      listSkills: (...a: unknown[]) => listSkills(...a),
+      listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
       getProfile: (...a: unknown[]) => getProfile(...a),
       listAgents: (...a: unknown[]) => listAgents(...a),
       startProviderOAuth: (...a: unknown[]) => startProviderOAuth(...a),
       pollProviderOAuth: (...a: unknown[]) => pollProviderOAuth(...a),
       updateProfile: (...a: unknown[]) => updateProfile(...a),
-      createSkill: (...a: unknown[]) => createSkill(...a),
-      updateSkill: (...a: unknown[]) => updateSkill(...a),
-      deleteSkill: (...a: unknown[]) => deleteSkill(...a),
+      createPlaybook: (...a: unknown[]) => createPlaybook(...a),
+      updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
+      deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
 });
 
-/** The profile the tab tests read: one file skill, one stored, nothing overridden. */
+/** The profile the tab tests read: one file playbook, one stored, nothing overridden. */
 const profileResponse = {
   profile: {
     name: "podium",
     displayName: "Podium",
     model: "claude-opus-5",
-    defaultSkill: "general",
-    chatDefaultSkill: "",
+    defaultPlaybook: "general",
+    chatDefaultPlaybook: "",
     profileDir: "/etc/podium/agent",
     fileDisplayName: "Podium",
     fileModel: "claude-opus-5",
-    fileDefaultSkill: "general",
-    fileChatDefaultSkill: "",
+    fileDefaultPlaybook: "general",
+    fileChatDefaultPlaybook: "",
     overridden: [] as string[],
     updatedBy: "",
   },
-  skills: [
+  playbooks: [
     {
       name: "general",
       image: "podium-agent-runtime:dev",
@@ -148,7 +148,7 @@ describe("AgentPage", () => {
     listSessions.mockReset();
     listTurns.mockReset();
     listChats.mockReset();
-    listSkills.mockReset();
+    listPlaybooks.mockReset();
     streamChat.mockReset();
     getProfile.mockReset();
     listAgents.mockReset();
@@ -162,7 +162,7 @@ describe("AgentPage", () => {
     listAgents.mockResolvedValue({ agents: catalogue(), defaultAgent: "claude" });
     listSessions.mockResolvedValue({ sessions: [], nextCursor: "" });
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
-    listSkills.mockResolvedValue({ skills: [], profileDisplayName: "Podium" });
+    listPlaybooks.mockResolvedValue({ playbooks: [], profileDisplayName: "Podium" });
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
@@ -194,7 +194,7 @@ describe("AgentPage", () => {
       "Sessions",
       "Memory",
       "Profile",
-      "Skills",
+      "Playbooks",
       "Settings",
     ]);
 
@@ -205,14 +205,14 @@ describe("AgentPage", () => {
     expect(await screen.findByText("Anthropic")).toBeInTheDocument();
   });
 
-  it("shows the profile and the skills on their own routes", async () => {
+  it("shows the profile and the playbooks on their own routes", async () => {
     mount("/agent/profile");
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
 
-    await userEvent.click(screen.getByRole("link", { name: "Skills" }));
-    // The image is the headline of a skill row: it is the unit of capability.
-    expect(await screen.findByTestId("skill-image")).toHaveTextContent(
+    await userEvent.click(screen.getByRole("link", { name: "Playbooks" }));
+    // The image is the headline of a playbook row: it is the unit of capability.
+    expect(await screen.findByTestId("playbook-image")).toHaveTextContent(
       "podium-agent-runtime:dev",
     );
   });

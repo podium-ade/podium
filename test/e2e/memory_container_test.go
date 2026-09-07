@@ -118,8 +118,8 @@ func TestTheRealMemoryEngineSpeaksWhatTheClientExpects(t *testing.T) {
 	// Retain is accepted. What it becomes is the engine's business; see the file comment.
 	require.NoError(t, client.Retain(ctx, memory.Item{
 		Content:    "Bob owns the Podium scheduler, and has since the 12.4 release.",
-		Context:    "podium agent, skill general",
-		Tags:       []string{"source:slack", "skill:general"},
+		Context:    "podium agent, playbook general",
+		Tags:       []string{"source:slack", "playbook:general"},
 		Metadata:   map[string]string{"turn_id": "turn_01e2e"},
 		DocumentID: "turn_01e2e",
 	}))

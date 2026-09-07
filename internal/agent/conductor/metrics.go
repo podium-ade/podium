@@ -20,13 +20,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		Turns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_turns_total",
-			Help: "Turns that reached a terminal status, by source, skill and status.",
-		}, []string{"source", "skill", "status"}),
+			Help: "Turns that reached a terminal status, by source, playbook and status.",
+		}, []string{"source", "playbook", "status"}),
 		TurnDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "podium_agent_turn_duration_seconds",
 			Help:    "Wall time from the inbound event to the turn's terminal status.",
 			Buckets: prometheus.ExponentialBuckets(1, 2, 12),
-		}, []string{"skill"}),
+		}, []string{"playbook"}),
 		TurnsWithoutAccounting: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "podium_agent_turns_without_accounting_total",
 			Help: "Turns that succeeded without reporting num_turns and cost_usd, which are " +

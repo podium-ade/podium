@@ -20,6 +20,7 @@ import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
 import { CloneError, TokenEnv, WorkspaceDir, cloneRepos, redact } from "./repos.js";
+import { SkillError, installSkills } from "./skills.js";
 
 const ExitOK = 0;
 const ExitMaxTurns = 3;
@@ -108,7 +109,7 @@ async function main(): Promise<number> {
     const why =
       `${keyEnv} is not set, and this turn runs on ${brief.provider.id}, which needs it. It ` +
       `reaches this container only as a Podium secret with target: env, which the conductor ` +
-      `attaches from the backend the skill runs on.`;
+      `attaches from the backend the playbook runs on.`;
     warn(why);
     summary.code = ExitHarnessError;
     await reportTurn(invoke, summary, `I could not start: ${why}`);
@@ -130,6 +131,23 @@ async function main(): Promise<number> {
       warn(why);
       summary.code = ExitHarnessError;
       await reportTurn(invoke, summary, `I could not check the repositories out: ${why}`);
+      return ExitHarnessError;
+    }
+  }
+
+  // The playbook's Agent Skills, unpacked where the harness will find them. A bundle that
+  // fails any of its checks fails the turn: the alternative is a turn that runs with fewer
+  // skills than the playbook describes and says nothing about it.
+  const skillRefs = brief.playbook.skills ?? [];
+  if (skillRefs.length > 0) {
+    try {
+      const names = installSkills(skillRefs);
+      warn(`installed ${names.length} agent skill(s): ${names.join(", ")}`);
+    } catch (err) {
+      const why = err instanceof SkillError ? err.message : messageOf(err);
+      warn(why);
+      summary.code = ExitHarnessError;
+      await reportTurn(invoke, summary, `I could not install this playbook's skills: ${why}`);
       return ExitHarnessError;
     }
   }
@@ -162,12 +180,13 @@ async function main(): Promise<number> {
     oc.writeConfig({
       dir: configDir,
       systemPrompt: buildSystemPrompt(brief),
-      tools: brief.skill.allowed_tools,
+      tools: brief.playbook.allowed_tools,
       providerID: brief.provider.id,
       baseURL: brief.provider.base_url,
       memory: brief.memory
         ? { url: brief.memory.mcp_url, apiKeyEnv: brief.memory.api_key_env }
         : undefined,
+      skills: skillRefs.map((s) => s.name),
     });
   } catch (err) {
     const why = messageOf(err);
@@ -178,8 +197,13 @@ async function main(): Promise<number> {
   }
 
   const env = { ...process.env };
-  // The brief can be a quarter of a megabyte and the harness has no business with it.
+  // The brief can be a quarter of a megabyte and the harness has no business with it. The
+  // skill bundles are the same: they are already on disk where the harness looks, so what
+  // is left in the environment is only a copy for the agent's own `env` to print.
   delete env[BriefEnv];
+  for (const ref of skillRefs) {
+    delete env[ref.bundle_env];
+  }
 
   let steps = 0;
   try {
@@ -207,12 +231,12 @@ async function main(): Promise<number> {
       switch (event.type) {
         case "step_start":
           steps += 1;
-          if (steps > brief.skill.max_turns) {
+          if (steps > brief.playbook.max_turns) {
             // The harness has no turn cap of its own, so this is the cap: stop it, and say
             // plainly that the answer is incomplete rather than relaying a half-finished one.
             summary.code = ExitMaxTurns;
             finalText =
-              `I ran out of turns. This skill allows ${brief.skill.max_turns} and the work ` +
+              `I ran out of turns. This playbook allows ${brief.playbook.max_turns} and the work ` +
               `was not finished, so nothing here is a complete answer.`;
             run.child.kill("SIGTERM");
           }

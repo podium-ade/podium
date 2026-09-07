@@ -14,17 +14,17 @@ import (
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
 
-// fileProfile is the half of the profile that lives on the conductor's host: one skill,
-// general, defined by a skills/general.yaml.
+// fileProfile is the half of the profile that lives on the conductor's host: one playbook,
+// general, defined by a playbooks/general.yaml.
 func fileProfile() *profiles.Profile {
 	return &profiles.Profile{
-		Name:         "podium",
-		DisplayName:  "Podium",
-		SystemPrompt: "you are Podium",
-		Model:        "claude-opus-5",
-		DefaultSkill: "general",
-		Dir:          "/etc/podium/agent",
-		Skills: map[string]profiles.Skill{
+		Name:            "podium",
+		DisplayName:     "Podium",
+		SystemPrompt:    "you are Podium",
+		Model:           "claude-opus-5",
+		DefaultPlaybook: "general",
+		Dir:             "/etc/podium/agent",
+		Playbooks: map[string]profiles.Playbook{
 			"general": {
 				Name: "general", Origin: profiles.OriginFile,
 				Image: "podium-agent-runtime:dev", SystemPrompt: "Answer the question.",
@@ -51,9 +51,9 @@ func newProfileFixture(t *testing.T) profileFixture {
 	return profileFixture{svc: svc, live: live}
 }
 
-// newSkill is the request a browser sends to create a skill.
-func newSkill(name string) *agentv1.SkillDefinition {
-	return &agentv1.SkillDefinition{
+// newPlaybook is the request a browser sends to create a playbook.
+func newPlaybook(name string) *agentv1.PlaybookDefinition {
+	return &agentv1.PlaybookDefinition{
 		Name:         name,
 		Image:        "example.invalid/reporter:dev",
 		SystemPrompt: "Write the weekly report.",
@@ -61,32 +61,32 @@ func newSkill(name string) *agentv1.SkillDefinition {
 		MaxTurns:     20,
 		Timeout:      "10m",
 		Env:          map[string]string{"PODIUM_AGENT_DRY_RUN": "1"},
-		Secrets: []*agentv1.SkillSecretRef{
+		Secrets: []*agentv1.PlaybookSecretRef{
 			{Name: "podium.agent.github_token", Target: "env", Key: "GITHUB_TOKEN"},
 		},
 	}
 }
 
-func (f profileFixture) create(t *testing.T, in *agentv1.SkillDefinition) *agentv1.SkillDefinition {
+func (f profileFixture) create(t *testing.T, in *agentv1.PlaybookDefinition) *agentv1.PlaybookDefinition {
 	t.Helper()
-	res, err := f.svc.CreateSkill(loginCtx("alice"), connect.NewRequest(&agentv1.CreateSkillRequest{Skill: in}))
+	res, err := f.svc.CreatePlaybook(loginCtx("alice"), connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: in}))
 	require.NoError(t, err)
-	return res.Msg.GetSkill()
+	return res.Msg.GetPlaybook()
 }
 
-// The whole point of the feature: a skill made in a browser reaches the running conductor
+// The whole point of the feature: a playbook made in a browser reaches the running conductor
 // without anybody restarting anything.
-func TestACreatedSkillReachesTheRunningProfileWithNoRestart(t *testing.T) {
+func TestACreatedPlaybookReachesTheRunningProfileWithNoRestart(t *testing.T) {
 	f := newProfileFixture(t)
-	require.NotContains(t, f.live.Current().Skills, "reporter")
+	require.NotContains(t, f.live.Current().Playbooks, "reporter")
 
-	got := f.create(t, newSkill("reporter"))
+	got := f.create(t, newPlaybook("reporter"))
 	assert.Equal(t, profiles.OriginStored, got.GetOrigin())
 	assert.True(t, got.GetEditable())
 	assert.Equal(t, "alice", got.GetUpdatedBy())
 
 	// No reload, no restart: the same *Live the conductor reads is already carrying it.
-	live := f.live.Current().Skills["reporter"]
+	live := f.live.Current().Playbooks["reporter"]
 	assert.Equal(t, "example.invalid/reporter:dev", live.Image)
 	assert.Equal(t, []string{"read", "bash"}, live.AllowedTools)
 	assert.Equal(t, "1", live.Env["PODIUM_AGENT_DRY_RUN"])
@@ -96,10 +96,10 @@ func TestACreatedSkillReachesTheRunningProfileWithNoRestart(t *testing.T) {
 
 func TestGetProfileReportsTheFileValuesBesideTheOverrides(t *testing.T) {
 	f := newProfileFixture(t)
-	f.create(t, newSkill("reporter"))
+	f.create(t, newPlaybook("reporter"))
 
 	_, err := f.svc.UpdateProfile(loginCtx("alice"), connect.NewRequest(&agentv1.UpdateProfileRequest{
-		DisplayName: "Reporter Bot", DefaultSkill: "reporter",
+		DisplayName: "Reporter Bot", DefaultPlaybook: "reporter",
 	}))
 	require.NoError(t, err)
 
@@ -109,18 +109,18 @@ func TestGetProfileReportsTheFileValuesBesideTheOverrides(t *testing.T) {
 	assert.Equal(t, "podium", p.GetName())
 	assert.Equal(t, "Reporter Bot", p.GetDisplayName())
 	assert.Equal(t, "Podium", p.GetFileDisplayName(), "the file's value is reported beside the override")
-	assert.Equal(t, "general", p.GetFileDefaultSkill())
-	assert.Equal(t, []string{"display_name", "default_skill"}, p.GetOverridden())
+	assert.Equal(t, "general", p.GetFileDefaultPlaybook())
+	assert.Equal(t, []string{"display_name", "default_playbook"}, p.GetOverridden())
 	assert.Equal(t, "alice", p.GetUpdatedBy())
 	assert.Empty(t, res.Msg.GetStaleReason())
 
-	byName := map[string]*agentv1.SkillDefinition{}
-	for _, s := range res.Msg.GetSkills() {
+	byName := map[string]*agentv1.PlaybookDefinition{}
+	for _, s := range res.Msg.GetPlaybooks() {
 		byName[s.GetName()] = s
 	}
 	require.Len(t, byName, 2)
 	assert.Equal(t, profiles.OriginFile, byName["general"].GetOrigin())
-	assert.False(t, byName["general"].GetEditable(), "a file skill is read-only through this API")
+	assert.False(t, byName["general"].GetEditable(), "a file playbook is read-only through this API")
 	assert.Equal(t, profiles.OriginStored, byName["reporter"].GetOrigin())
 	assert.True(t, byName["reporter"].GetEditable())
 	assert.Equal(t, "10m0s", byName["reporter"].GetTimeout())
@@ -143,38 +143,38 @@ func TestChangingTheModelIsWhatGetSettingsReports(t *testing.T) {
 	assert.Equal(t, "claude-haiku-5", after.Msg.GetProvider().GetModel())
 }
 
-func TestAFileSkillIsReadOnly(t *testing.T) {
+func TestAFilePlaybookIsReadOnly(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
 
-	_, err := f.svc.CreateSkill(ctx, connect.NewRequest(&agentv1.CreateSkillRequest{Skill: newSkill("general")}))
+	_, err := f.svc.CreatePlaybook(ctx, connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: newPlaybook("general")}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeAlreadyExists, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), "skills/general.yaml")
+	assert.Contains(t, err.Error(), "playbooks/general.yaml")
 
-	_, err = f.svc.UpdateSkill(ctx, connect.NewRequest(&agentv1.UpdateSkillRequest{Skill: newSkill("general")}))
+	_, err = f.svc.UpdatePlaybook(ctx, connect.NewRequest(&agentv1.UpdatePlaybookRequest{Playbook: newPlaybook("general")}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	assert.Contains(t, err.Error(), "read-only here")
 	assert.Contains(t, err.Error(), "the files win")
 
-	_, err = f.svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "general"}))
+	_, err = f.svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "general"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 
-	assert.Equal(t, "podium-agent-runtime:dev", f.live.Current().Skills["general"].Image)
+	assert.Equal(t, "podium-agent-runtime:dev", f.live.Current().Playbooks["general"].Image)
 }
 
-// A stored skill a file skill later shadows still exists in the database. It is reported so
+// A stored playbook a file playbook later shadows still exists in the database. It is reported so
 // it can be deleted rather than quietly never running.
-func TestAStoredSkillAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
+func TestAStoredPlaybookAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
 	f := newProfileFixture(t)
-	f.create(t, newSkill("reporter"))
+	f.create(t, newPlaybook("reporter"))
 
-	// The operator adds skills/reporter.yaml and restarts: the same database, a profile
+	// The operator adds playbooks/reporter.yaml and restarts: the same database, a profile
 	// directory that now defines that name.
 	files := fileProfile()
-	files.Skills["reporter"] = profiles.Skill{
+	files.Playbooks["reporter"] = profiles.Playbook{
 		Name: "reporter", Origin: profiles.OriginFile, Image: "the-file-wins:dev",
 		SystemPrompt: "The file's version.", AllowedTools: []string{"read"}, MaxTurns: 50,
 	}
@@ -183,12 +183,12 @@ func TestAStoredSkillAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
 		Store: f.svc.store, Secrets: newFakeSecrets(), Profiles: restarted,
 	})
 	require.NoError(t, svc.ReloadProfile(context.Background()))
-	assert.Equal(t, "the-file-wins:dev", restarted.Current().Skills["reporter"].Image)
+	assert.Equal(t, "the-file-wins:dev", restarted.Current().Playbooks["reporter"].Image)
 
 	res, err := svc.GetProfile(loginCtx("alice"), connect.NewRequest(&agentv1.GetProfileRequest{}))
 	require.NoError(t, err)
-	var shadowed []*agentv1.SkillDefinition
-	for _, s := range res.Msg.GetSkills() {
+	var shadowed []*agentv1.PlaybookDefinition
+	for _, s := range res.Msg.GetPlaybooks() {
 		if s.GetShadowed() {
 			shadowed = append(shadowed, s)
 		}
@@ -197,78 +197,78 @@ func TestAStoredSkillAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
 	assert.Equal(t, "reporter", shadowed[0].GetName())
 	assert.Equal(t, "example.invalid/reporter:dev", shadowed[0].GetImage())
 
-	// Deleting the shadowed row is allowed: it is a stored skill, whatever the files say.
-	_, err = svc.DeleteSkill(loginCtx("alice"), connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "reporter"}))
+	// Deleting the shadowed row is allowed: it is a stored playbook, whatever the files say.
+	_, err = svc.DeletePlaybook(loginCtx("alice"), connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "reporter"}))
 	require.NoError(t, err)
-	assert.Equal(t, "the-file-wins:dev", restarted.Current().Skills["reporter"].Image)
+	assert.Equal(t, "the-file-wins:dev", restarted.Current().Playbooks["reporter"].Image)
 }
 
-func TestUpdateAndDeleteAStoredSkill(t *testing.T) {
+func TestUpdateAndDeleteAStoredPlaybook(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
-	f.create(t, newSkill("reporter"))
+	f.create(t, newPlaybook("reporter"))
 
-	changed := newSkill("reporter")
+	changed := newPlaybook("reporter")
 	changed.Image = "example.invalid/reporter:v2"
-	_, err := f.svc.UpdateSkill(ctx, connect.NewRequest(&agentv1.UpdateSkillRequest{Skill: changed}))
+	_, err := f.svc.UpdatePlaybook(ctx, connect.NewRequest(&agentv1.UpdatePlaybookRequest{Playbook: changed}))
 	require.NoError(t, err)
-	assert.Equal(t, "example.invalid/reporter:v2", f.live.Current().Skills["reporter"].Image)
+	assert.Equal(t, "example.invalid/reporter:v2", f.live.Current().Playbooks["reporter"].Image)
 
-	_, err = f.svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "reporter"}))
+	_, err = f.svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "reporter"}))
 	require.NoError(t, err)
-	assert.NotContains(t, f.live.Current().Skills, "reporter")
+	assert.NotContains(t, f.live.Current().Playbooks, "reporter")
 
-	_, err = f.svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "reporter"}))
+	_, err = f.svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "reporter"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 
-	_, err = f.svc.UpdateSkill(ctx, connect.NewRequest(&agentv1.UpdateSkillRequest{Skill: changed}))
+	_, err = f.svc.UpdatePlaybook(ctx, connect.NewRequest(&agentv1.UpdatePlaybookRequest{Playbook: changed}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 }
 
 // Nothing invalid is ever stored: the write is refused before it reaches Postgres, and the
 // running profile is untouched.
-func TestAnInvalidSkillIsRefusedAndNothingIsStored(t *testing.T) {
+func TestAnInvalidPlaybookIsRefusedAndNothingIsStored(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
 
 	for _, tc := range []struct {
 		name string
-		mut  func(*agentv1.SkillDefinition)
+		mut  func(*agentv1.PlaybookDefinition)
 		want string
 	}{
-		{"no image", func(s *agentv1.SkillDefinition) { s.Image = "" }, "image is required"},
-		{"no tools", func(s *agentv1.SkillDefinition) { s.AllowedTools = nil }, "allowed_tools is required"},
-		{"a bad name", func(s *agentv1.SkillDefinition) { s.Name = "Reporter!" }, "must match"},
-		{"a timeout that is not one", func(s *agentv1.SkillDefinition) { s.Timeout = "soon" },
+		{"no image", func(s *agentv1.PlaybookDefinition) { s.Image = "" }, "image is required"},
+		{"no tools", func(s *agentv1.PlaybookDefinition) { s.AllowedTools = nil }, "allowed_tools is required"},
+		{"a bad name", func(s *agentv1.PlaybookDefinition) { s.Name = "Reporter!" }, "must match"},
+		{"a timeout that is not one", func(s *agentv1.PlaybookDefinition) { s.Timeout = "soon" },
 			"must be a duration"},
-		{"the reserved provider key", func(s *agentv1.SkillDefinition) {
-			s.Secrets = append(s.Secrets, &agentv1.SkillSecretRef{
+		{"the reserved provider key", func(s *agentv1.PlaybookDefinition) {
+			s.Secrets = append(s.Secrets, &agentv1.PlaybookSecretRef{
 				Name: profiles.AnthropicKeySecret, Target: "env", Key: "ANTHROPIC_API_KEY"})
 		}, "secrets may not name " + profiles.AnthropicKeySecret},
-		{"the brief's env var", func(s *agentv1.SkillDefinition) {
+		{"the brief's env var", func(s *agentv1.PlaybookDefinition) {
 			s.Env = map[string]string{profiles.BriefEnv: "anything"}
 		}, "env may not set " + profiles.BriefEnv},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := newSkill("reporter")
+			in := newPlaybook("reporter")
 			tc.mut(in)
-			_, err := f.svc.CreateSkill(ctx, connect.NewRequest(&agentv1.CreateSkillRequest{Skill: in}))
+			_, err := f.svc.CreatePlaybook(ctx, connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: in}))
 			require.Error(t, err)
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 			assert.Contains(t, err.Error(), tc.want)
-			assert.NotContains(t, f.live.Current().Skills, "reporter")
+			assert.NotContains(t, f.live.Current().Playbooks, "reporter")
 		})
 	}
 }
 
-// A skill may name any registered secret, exactly as a task spec may. There is no
+// A playbook may name any registered secret, exactly as a task spec may. There is no
 // allow-list here because there is none on CreateTask either — see docs/security.md.
-func TestASkillMayNameAnySecretATaskCould(t *testing.T) {
+func TestAPlaybookMayNameAnySecretATaskCould(t *testing.T) {
 	f := newProfileFixture(t)
-	in := newSkill("reporter")
-	in.Secrets = []*agentv1.SkillSecretRef{
+	in := newPlaybook("reporter")
+	in.Secrets = []*agentv1.PlaybookSecretRef{
 		{Name: "some.database.password", Target: "env", Key: "PGPASSWORD"},
 		{Name: "some.service.account", Target: "file", Key: "/podium/secrets/sa.json"},
 	}
@@ -277,46 +277,46 @@ func TestASkillMayNameAnySecretATaskCould(t *testing.T) {
 	assert.Equal(t, "some.database.password", got.GetSecrets()[0].GetName())
 }
 
-// Two skills claiming one Slack channel is ambiguous routing, and the merge refuses it
+// Two playbooks claiming one Slack channel is ambiguous routing, and the merge refuses it
 // wherever the second one came from.
-func TestASkillThatWouldBreakRoutingIsRefused(t *testing.T) {
+func TestAPlaybookThatWouldBreakRoutingIsRefused(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
 
-	first := newSkill("reporter")
+	first := newPlaybook("reporter")
 	first.SlackChannels = []string{"C1"}
 	f.create(t, first)
 
-	second := newSkill("auditor")
+	second := newPlaybook("auditor")
 	second.SlackChannels = []string{"C1"}
-	_, err := f.svc.CreateSkill(ctx, connect.NewRequest(&agentv1.CreateSkillRequest{Skill: second}))
+	_, err := f.svc.CreatePlaybook(ctx, connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: second}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	assert.Contains(t, err.Error(), "both claim slack channel C1")
-	assert.NotContains(t, f.live.Current().Skills, "auditor")
+	assert.NotContains(t, f.live.Current().Playbooks, "auditor")
 }
 
-func TestDeletingTheDefaultSkillIsRefused(t *testing.T) {
+func TestDeletingTheDefaultPlaybookIsRefused(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
-	f.create(t, newSkill("reporter"))
-	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{DefaultSkill: "reporter"}))
+	f.create(t, newPlaybook("reporter"))
+	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{DefaultPlaybook: "reporter"}))
 	require.NoError(t, err)
 
-	_, err = f.svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "reporter"}))
+	_, err = f.svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "reporter"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), `default_skill "reporter" names no skill`)
-	assert.Contains(t, f.live.Current().Skills, "reporter")
+	assert.Contains(t, err.Error(), `default_playbook "reporter" names no playbook`)
+	assert.Contains(t, f.live.Current().Playbooks, "reporter")
 }
 
-func TestAProfileOverrideNamingAMissingSkillIsRefused(t *testing.T) {
+func TestAProfileOverrideNamingAMissingPlaybookIsRefused(t *testing.T) {
 	f := newProfileFixture(t)
 	_, err := f.svc.UpdateProfile(loginCtx("alice"),
-		connect.NewRequest(&agentv1.UpdateProfileRequest{DefaultSkill: "nope"}))
+		connect.NewRequest(&agentv1.UpdateProfileRequest{DefaultPlaybook: "nope"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	assert.Equal(t, "general", f.live.Current().DefaultSkill)
+	assert.Equal(t, "general", f.live.Current().DefaultPlaybook)
 }
 
 // Clearing an override is sending an empty field: there is no second RPC for "use the
@@ -338,26 +338,26 @@ func TestAnEmptyFieldClearsTheOverride(t *testing.T) {
 // The reconcile path: a second conductor on the same database, which never saw the write.
 func TestReloadPicksUpAChangeThisProcessDidNotMake(t *testing.T) {
 	f := newProfileFixture(t)
-	f.create(t, newSkill("reporter"))
+	f.create(t, newPlaybook("reporter"))
 
 	other := profiles.NewLive(fileProfile())
-	require.NotContains(t, other.Current().Skills, "reporter")
+	require.NotContains(t, other.Current().Playbooks, "reporter")
 
 	_, err := ReloadProfile(context.Background(), f.svc.store, other)
 	require.NoError(t, err)
-	assert.Contains(t, other.Current().Skills, "reporter")
+	assert.Contains(t, other.Current().Playbooks, "reporter")
 }
 
-// The chat's chip surface still works off the same live profile, so a new skill is
+// The chat's chip surface still works off the same live profile, so a new playbook is
 // selectable the moment it is created.
-func TestListSkillsSeesAStoredSkillImmediately(t *testing.T) {
+func TestListPlaybooksSeesAStoredPlaybookImmediately(t *testing.T) {
 	f := newProfileFixture(t)
-	f.create(t, newSkill("reporter"))
+	f.create(t, newPlaybook("reporter"))
 
-	res, err := f.svc.ListSkills(loginCtx("alice"), connect.NewRequest(&agentv1.ListSkillsRequest{}))
+	res, err := f.svc.ListPlaybooks(loginCtx("alice"), connect.NewRequest(&agentv1.ListPlaybooksRequest{}))
 	require.NoError(t, err)
 	var names []string
-	for _, s := range res.Msg.GetSkills() {
+	for _, s := range res.Msg.GetPlaybooks() {
 		names = append(names, s.GetName())
 	}
 	assert.Equal(t, []string{"general", "reporter"}, names)
@@ -369,8 +369,8 @@ func TestTheProfileRpcsWithNoProfileSaySo(t *testing.T) {
 
 	_, err := svc.GetProfile(ctx, connect.NewRequest(&agentv1.GetProfileRequest{}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	_, err = svc.CreateSkill(ctx, connect.NewRequest(&agentv1.CreateSkillRequest{Skill: newSkill("x")}))
+	_, err = svc.CreatePlaybook(ctx, connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: newPlaybook("x")}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	_, err = svc.DeleteSkill(ctx, connect.NewRequest(&agentv1.DeleteSkillRequest{Name: "x"}))
+	_, err = svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "x"}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }

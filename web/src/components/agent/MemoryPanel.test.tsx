@@ -41,7 +41,7 @@ const memory = {
   id: "ed1bd235-bd25-483c-beff-4d54ff776e52",
   text: "Bob owns the Podium scheduler.",
   factType: "world",
-  tags: ["source:slack", "skill:general"],
+  tags: ["source:slack", "playbook:general"],
   metadata: {
     session_id: "sess_01abc",
     turn_id: "turn_01abc",
@@ -51,7 +51,7 @@ const memory = {
   },
   createdAt: timestampFromDate(new Date(Date.now() - 60_000)),
   entities: ["Bob", "scheduler"],
-  context: "podium agent, skill general",
+  context: "podium agent, playbook general",
   documentId: "turn_01abc",
 };
 

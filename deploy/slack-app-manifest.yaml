@@ -17,7 +17,7 @@ display_information:
     Podium runs one agent turn per message as an ordinary Podium task: it reads the thread,
     does the work in a container on a worker, reports back in the thread and exits. There is
     no resident model session and no memory of a conversation outside the thread itself.
-    Whoever can tag the bot can make it run code with the skill's credentials — there is no
+    Whoever can tag the bot can make it run code with the playbook's credentials — there is no
     role model. See docs/security.md.
 
 features:

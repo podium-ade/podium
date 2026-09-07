@@ -29,6 +29,13 @@ type LinearCursor struct {
 	UpdatedAt time.Time
 }
 
+type Playbook struct {
+	Name       string
+	Definition []byte
+	UpdatedAt  time.Time
+	UpdatedBy  string
+}
+
 type Relayed struct {
 	TaskID string
 	Seq    int64
@@ -39,7 +46,7 @@ type Session struct {
 	SourceKind string
 	SourceKey  string
 	Profile    string
-	Skill      string
+	Playbook   string
 	CreatedAt  time.Time
 	LastTurnAt *time.Time
 }
@@ -48,13 +55,6 @@ type Setting struct {
 	Key       string
 	Value     []byte
 	UpdatedAt time.Time
-}
-
-type Skill struct {
-	Name       string
-	Definition []byte
-	UpdatedAt  time.Time
-	UpdatedBy  string
 }
 
 type Turn struct {

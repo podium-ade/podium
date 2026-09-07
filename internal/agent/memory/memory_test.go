@@ -147,8 +147,8 @@ func TestRetainSendsOneAsynchronousItem(t *testing.T) {
 
 	require.NoError(t, c.Retain(context.Background(), Item{
 		Content:    "alice asked: who owns the scheduler?\n\nPodium answered: Bob does.",
-		Context:    "podium agent, skill general",
-		Tags:       []string{"source:slack", "skill:general"},
+		Context:    "podium agent, playbook general",
+		Tags:       []string{"source:slack", "playbook:general"},
 		Metadata:   map[string]string{"turn_id": "turn_01", "task_id": "task_01"},
 		DocumentID: "turn_01",
 	}))
@@ -170,8 +170,8 @@ func TestRetainSendsOneAsynchronousItem(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(got.Body), &body))
 	require.Len(t, body.Items, 1)
 	assert.Contains(t, body.Items[0].Content, "who owns the scheduler")
-	assert.Equal(t, "podium agent, skill general", body.Items[0].Context)
-	assert.Equal(t, []string{"source:slack", "skill:general"}, body.Items[0].Tags)
+	assert.Equal(t, "podium agent, playbook general", body.Items[0].Context)
+	assert.Equal(t, []string{"source:slack", "playbook:general"}, body.Items[0].Tags)
 	assert.Equal(t, map[string]string{"turn_id": "turn_01", "task_id": "task_01"}, body.Items[0].Metadata)
 	assert.Equal(t, "turn_01", body.Items[0].DocumentID)
 	// Extraction is an LLM call of unbounded duration and the turn is already over, so the
@@ -213,10 +213,10 @@ func TestRetainNeverSendsARedactionMarker(t *testing.T) {
 const recallBody = `{"results":[
   {"id":"ed1bd235-bd25-483c-beff-4d54ff776e52",
    "text":"Bob owns the Podium scheduler.","type":"world",
-   "entities":["Bob","scheduler"],"context":"podium agent, skill general",
+   "entities":["Bob","scheduler"],"context":"podium agent, playbook general",
    "mentioned_at":"2026-09-03T19:12:04.756733+00:00","document_id":"turn_01probe",
    "metadata":{"task_id":"task_01probe","turn_id":"turn_01probe"},
-   "chunk_id":"podium_turn_01probe_0","tags":["source:slack","skill:general"],
+   "chunk_id":"podium_turn_01probe_0","tags":["source:slack","playbook:general"],
    "scores":{"final":1.09}},
   {"id":"2","text":"second","type":"observation"}
 ]}`
@@ -238,10 +238,10 @@ func TestRecallMapsTheWireOntoOneShape(t *testing.T) {
 	assert.Equal(t, "Bob owns the Podium scheduler.", items[0].Text)
 	assert.Equal(t, FactWorld, items[0].FactType, "recall calls it `type`, not `fact_type`")
 	assert.Equal(t, []string{"Bob", "scheduler"}, items[0].Entities)
-	assert.Equal(t, "podium agent, skill general", items[0].Context)
+	assert.Equal(t, "podium agent, playbook general", items[0].Context)
 	assert.Equal(t, "turn_01probe", items[0].DocumentID)
 	assert.Equal(t, map[string]string{"task_id": "task_01probe", "turn_id": "turn_01probe"}, items[0].Metadata)
-	assert.Equal(t, []string{"source:slack", "skill:general"}, items[0].Tags)
+	assert.Equal(t, []string{"source:slack", "playbook:general"}, items[0].Tags)
 	assert.Equal(t,
 		time.Date(2026, 9, 3, 19, 12, 4, 756733000, time.UTC),
 		items[0].LearnedAt.UTC())
@@ -274,11 +274,11 @@ func TestRecallRefusesAnEmptyQuery(t *testing.T) {
 // reads. There is deliberately no created_at: the wire has none.
 const listBody = `{"items":[
   {"id":"ed1bd235-bd25-483c-beff-4d54ff776e52",
-   "text":"Bob owns the Podium scheduler.","context":"podium agent, skill general",
+   "text":"Bob owns the Podium scheduler.","context":"podium agent, playbook general",
    "date":"2026-09-03T19:12:04.756733+00:00","fact_type":"world",
    "document_id":"turn_01probe","mentioned_at":"2026-09-03T19:12:04.756733+00:00",
    "entities":"Bob, scheduler","chunk_id":"podium_turn_01probe_0","proof_count":1,
-   "tags":["source:slack","skill:general"],
+   "tags":["source:slack","playbook:general"],
    "metadata":{"task_id":"task_01probe","turn_id":"turn_01probe"},
    "state":"valid","updated_at":"2026-09-03T19:12:04.953152+00:00","source_memory_ids":[]}
 ],"total":3,"limit":1,"offset":0}`

@@ -21,7 +21,7 @@ const minimal = {
     model: "claude-opus-5",
   },
   provider: { id: "anthropic", api_key_env: "ANTHROPIC_API_KEY" },
-  skill: { name: "general", system_prompt: "answer questions", allowed_tools: ["read"], max_turns: 20 },
+  playbook: { name: "general", system_prompt: "answer questions", allowed_tools: ["read"], max_turns: 20 },
   transcript: [],
   transcript_truncated: false,
   instruction: "hello",
@@ -32,7 +32,7 @@ describe("decodeBrief", () => {
     const brief = decodeBrief(encode(minimal));
     expect(brief.session_id).toBe("sess_1");
     expect(brief.source.kind).toBe("chat");
-    expect(brief.skill.allowed_tools).toEqual(["read"]);
+    expect(brief.playbook.allowed_tools).toEqual(["read"]);
     expect(brief.repos).toBeUndefined();
     expect(brief.memory).toBeUndefined();
     expect(brief.provider.base_url).toBeUndefined();
@@ -59,7 +59,7 @@ describe("decodeBrief", () => {
     const raw = readFileSync(new URL("../testdata/brief.example.json", import.meta.url), "utf8");
     const brief = decodeBrief({ [BriefEnv]: Buffer.from(raw, "utf8").toString("base64") });
     expect(brief.profile.name).toBe("podium");
-    expect(brief.skill.name).toBe("coder");
+    expect(brief.playbook.name).toBe("coder");
     expect(brief.transcript).toHaveLength(2);
     expect(brief.transcript_truncated).toBe(true);
     expect(brief.repos?.[0]?.name).toBe("podium");
@@ -121,12 +121,42 @@ describe("decodeBrief", () => {
     ).toBe("podium.v2-x");
   });
 
+  it("takes a skill as a name, a digest and the variable its bundle travels in", () => {
+    const skills = [
+      {
+        name: "pr-review",
+        sha256: "a".repeat(64),
+        bundle_env: "PODIUM_AGENT_SKILL_PR_REVIEW",
+      },
+    ];
+    const brief = decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills } }));
+    expect(brief.playbook.skills).toEqual(skills);
+    // Absent, not empty: a playbook that names no skills leaves the key out.
+    expect(decodeBrief(encode(minimal)).playbook.skills).toBeUndefined();
+  });
+
+  it("refuses a skill ref that is not one", () => {
+    const bad = [
+      { name: "../etc", sha256: "a".repeat(64), bundle_env: "X" },
+      { name: "Upper", sha256: "a".repeat(64), bundle_env: "X" },
+      { name: "pr-review", sha256: "nothex", bundle_env: "X" },
+      { name: "pr-review", sha256: "A".repeat(64), bundle_env: "X" },
+      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "" },
+      { name: "pr-review", sha256: "a".repeat(64), bundle_env: "X", extra: 1 },
+    ];
+    for (const skill of bad) {
+      expect(() =>
+        decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, skills: [skill] } })),
+      ).toThrow(BriefError);
+    }
+  });
+
   it("refuses a source kind it does not know", () => {
     expect(() => decodeBrief(encode({ ...minimal, source: { kind: "email", ref: "x" } }))).toThrow(BriefError);
   });
 
   it("refuses a non-positive max_turns", () => {
-    expect(() => decodeBrief(encode({ ...minimal, skill: { ...minimal.skill, max_turns: 0 } }))).toThrow(BriefError);
+    expect(() => decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, max_turns: 0 } }))).toThrow(BriefError);
   });
 
   it("refuses something that is not base64 JSON", () => {

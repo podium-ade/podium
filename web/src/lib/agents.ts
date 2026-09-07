@@ -7,7 +7,7 @@
  * that a test can build a choice without importing a picker.
  */
 
-/** AgentChoice is the triple a skill or a profile holds. "" means "inherit". */
+/** AgentChoice is the triple a playbook or a profile holds. "" means "inherit". */
 export type AgentChoice = { agent: string; model: string; effort: string };
 
 /** The empty choice, spelled once. */

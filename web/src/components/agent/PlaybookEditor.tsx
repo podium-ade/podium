@@ -1,7 +1,7 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router";
-import type { AgentBackend, SkillDefinition } from "../../gen/podium/agent/v1/agent_pb";
+import type { AgentBackend, PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -23,11 +23,11 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { AgentPicker } from "./AgentPicker";
 
-/** The same expression the conductor holds a skill name to. A name is also typed after a slash in Slack. */
-export const SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
+/** The same expression the conductor holds a playbook name to. A name is also typed after a slash in Slack. */
+export const PLAYBOOK_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** SkillDraft is what the editor hands back: the request message, in plain fields. */
-export type SkillDraft = {
+/** PlaybookDraft is what the editor hands back: the request message, in plain fields. */
+export type PlaybookDraft = {
   name: string;
   image: string;
   systemPrompt: string;
@@ -46,12 +46,12 @@ export type SkillDraft = {
   env: Record<string, string>;
 };
 
-export type SkillEditorProps = {
-  /** Undefined creates; a definition edits it. Only a stored skill is ever passed. */
-  skill?: SkillDefinition;
+export type PlaybookEditorProps = {
+  /** Undefined creates; a definition edits it. Only a stored playbook is ever passed. */
+  playbook?: PlaybookDefinition;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
-  /** What this skill runs on when it names nothing: the profile's own triple. */
+  /** What this playbook runs on when it names nothing: the profile's own triple. */
   profileDefault: AgentChoice;
   /** The names SecretService already holds, for the picker. Never a value: there is no read API. */
   secretNames: string[];
@@ -60,7 +60,7 @@ export type SkillEditorProps = {
   saving?: boolean;
   deleting?: boolean;
   /**
-   * readOnly renders a file skill: every control disabled, nothing to save and nothing to
+   * readOnly renders a file playbook: every control disabled, nothing to save and nothing to
    * delete. The files are authoritative for the names they hold, so this screen shows one
    * and never writes it — but showing it is the point, because a definition you cannot read
    * is harder to work with than one you merely cannot change.
@@ -68,8 +68,8 @@ export type SkillEditorProps = {
   readOnly?: boolean;
   /** The server's refusal, shown verbatim: its rules are the only rules. */
   error?: string;
-  onSubmit: (draft: SkillDraft) => void;
-  /** Deletes the skill being edited. Absent while creating: there is nothing to delete. */
+  onSubmit: (draft: PlaybookDraft) => void;
+  /** Deletes the playbook being edited. Absent while creating: there is nothing to delete. */
   onDelete?: () => void;
   onCancel: () => void;
 };
@@ -82,22 +82,22 @@ let nextRowId = 0;
 const row = (a = "", b = "", c = ""): Row => ({ id: nextRowId++, a, b, c });
 
 /**
- * SkillEditor is the whole of a skill in one form: which image runs it, what it is told,
+ * PlaybookEditor is the whole of a playbook in one form: which image runs it, what it is told,
  * which tools it may use, and which stored secrets it names.
  *
  * It is grouped rather than listed, because the fields answer four different questions —
- * what this skill IS, what RUNS it, what it can REACH, and what ROUTES to it — and a wall of
- * inputs makes an operator read all of them to change one. The parts most skills never set
- * are folded away, and fold themselves back open when the skill in front of you uses them.
+ * what this playbook IS, what RUNS it, what it can REACH, and what ROUTES to it — and a wall of
+ * inputs makes an operator read all of them to change one. The parts most playbooks never set
+ * are folded away, and fold themselves back open when the playbook in front of you uses them.
  *
  * Naming a secret here is not a privilege the editor hands out. A task spec names secrets
  * the same way and nothing in Podium authorises which names a caller may use — so there is
  * no allow-list here, and adding one would only be theatre. What the picker does is stop a
- * typo: a skill naming a secret the control plane does not hold fails admission on its first
+ * typo: a playbook naming a secret the control plane does not hold fails admission on its first
  * turn, and saying so now is cheaper than finding out in a thread.
  */
-export function SkillEditor({
-  skill,
+export function PlaybookEditor({
+  playbook,
   agents,
   profileDefault,
   secretNames,
@@ -109,37 +109,37 @@ export function SkillEditor({
   onDelete,
   onCancel,
   readOnly,
-}: SkillEditorProps) {
-  const creating = skill === undefined;
-  // A shadowed row is a stored skill a skills/<name>.yaml has since claimed. The conductor
+}: PlaybookEditorProps) {
+  const creating = playbook === undefined;
+  // A shadowed row is a stored playbook a playbooks/<name>.yaml has since claimed. The conductor
   // refuses to write over one, so the form shows what it holds and offers only the delete.
-  const shadowed = skill?.shadowed ?? false;
+  const shadowed = playbook?.shadowed ?? false;
   const locked = shadowed || (readOnly ?? false);
   const uid = useId();
 
-  const [name, setName] = useState(skill?.name ?? "");
-  const [image, setImage] = useState(skill?.image ?? "");
-  const [prompt, setPrompt] = useState(skill?.systemPrompt ?? "");
-  const [tools, setTools] = useState((skill?.allowedTools ?? []).join("\n"));
-  const [maxTurns, setMaxTurns] = useState(String(skill?.maxTurns || 50));
-  const [timeoutText, setTimeoutText] = useState(skill?.timeout || "30m");
+  const [name, setName] = useState(playbook?.name ?? "");
+  const [image, setImage] = useState(playbook?.image ?? "");
+  const [prompt, setPrompt] = useState(playbook?.systemPrompt ?? "");
+  const [tools, setTools] = useState((playbook?.allowedTools ?? []).join("\n"));
+  const [maxTurns, setMaxTurns] = useState(String(playbook?.maxTurns || 50));
+  const [timeoutText, setTimeoutText] = useState(playbook?.timeout || "30m");
   const [choice, setChoice] = useState<AgentChoice>(() =>
-    skill ? { agent: skill.agent, model: skill.model, effort: skill.effort } : INHERIT,
+    playbook ? { agent: playbook.agent, model: playbook.model, effort: playbook.effort } : INHERIT,
   );
-  const [labels, setLabels] = useState((skill?.labels ?? []).join(", "));
-  const [channels, setChannels] = useState((skill?.slackChannels ?? []).join(", "));
-  const [linear, setLinear] = useState(skill?.linear ?? false);
-  const [cpu, setCpu] = useState(String(skill?.resources?.cpu ?? ""));
-  const [memoryMb, setMemoryMb] = useState(String(skill?.resources?.memoryMb ?? ""));
-  const [pids, setPids] = useState(String(skill?.resources?.pids ?? ""));
+  const [labels, setLabels] = useState((playbook?.labels ?? []).join(", "));
+  const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
+  const [linear, setLinear] = useState(playbook?.linear ?? false);
+  const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
+  const [memoryMb, setMemoryMb] = useState(String(playbook?.resources?.memoryMb ?? ""));
+  const [pids, setPids] = useState(String(playbook?.resources?.pids ?? ""));
   const [secretRows, setSecretRows] = useState<Row[]>(() =>
-    (skill?.secrets ?? []).map((s) => row(s.name, s.target || "env", s.key)),
+    (playbook?.secrets ?? []).map((s) => row(s.name, s.target || "env", s.key)),
   );
   const [envRows, setEnvRows] = useState<Row[]>(() =>
-    Object.entries(skill?.env ?? {}).map(([k, v]) => row(k, v)),
+    Object.entries(playbook?.env ?? {}).map(([k, v]) => row(k, v)),
   );
   const [repoRows, setRepoRows] = useState<Row[]>(() =>
-    (skill?.repos ?? []).map((r) => row(r.name, r.url, r.defaultBranch)),
+    (playbook?.repos ?? []).map((r) => row(r.name, r.url, r.defaultBranch)),
   );
   const [tried, setTried] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -147,7 +147,7 @@ export function SkillEditor({
   const registered = useMemo(() => new Set(secretNames), [secretNames]);
 
   const toolList = splitLines(tools);
-  const nameOk = SKILL_NAME_RE.test(name);
+  const nameOk = PLAYBOOK_NAME_RE.test(name);
   const problems: string[] = [];
   if (!nameOk) problems.push("name");
   if (image.trim() === "") problems.push("image");
@@ -187,7 +187,7 @@ export function SkillEditor({
 
   return (
     <form
-      data-testid="skill-editor"
+      data-testid="playbook-editor"
       className="space-y-5 pb-2"
       onSubmit={(e) => {
         e.preventDefault();
@@ -201,52 +201,52 @@ export function SkillEditor({
           className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-muted transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <ChevronLeft className="size-3.5" />
-          Skills
+          Playbooks
         </button>
         <div className="min-w-0 space-y-1.5">
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">
-            {creating ? "New skill" : `/${skill.name}`}
+            {creating ? "New playbook" : `/${playbook.name}`}
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-muted">
             {locked ? (
               <>
-                Defined by <code className="font-mono">skills/{skill?.name}.yaml</code> on the
+                Defined by <code className="font-mono">playbooks/{playbook?.name}.yaml</code> on the
                 conductor&apos;s host. The files win, so this is read-only here — edit the file
-                and restart the conductor, or make a new skill to change one in the browser.
+                and restart the conductor, or make a new playbook to change one in the browser.
               </>
             ) : (
               <>
                 Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
-                <code className="font-mono">skills/&lt;name&gt;.yaml</code> is held to.
+                <code className="font-mono">playbooks/&lt;name&gt;.yaml</code> is held to.
               </>
             )}
           </p>
         </div>
       </header>
 
-      {skill && shadowed ? (
-        <Alert variant="warn" title={`skills/${skill.name}.yaml defines this name, and the file wins`}>
+      {playbook && shadowed ? (
+        <Alert variant="warn" title={`playbooks/${playbook.name}.yaml defines this name, and the file wins`}>
           This stored definition never runs and cannot be written over. It is shown so you can
           see what deleting it throws away.
         </Alert>
       ) : null}
 
-      {/* One fieldset rather than a disabled prop on every input: a shadowed skill and a
-          file skill are both read-only as a whole, and no field of either could usefully be
+      {/* One fieldset rather than a disabled prop on every input: a shadowed playbook and a
+          file playbook are both read-only as a whole, and no field of either could usefully be
           changed. It disables the picker's buttons too, which a per-input prop would miss. */}
       <fieldset disabled={locked} className="space-y-5">
         <Section
           title="Identity"
-          hint="What this skill is called, what image runs it, and what it is told."
+          hint="What this playbook is called, what image runs it, and what it is told."
         >
           <div className="grid gap-4 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
             <Field
               id={`${uid}-name`}
-              label="Skill name"
+              label="Playbook name"
               hint={
                 creating
                   ? "Lower case, digits and dashes; this is what a human types after a slash in Slack."
-                  : "A skill keeps the name it was created with."
+                  : "A playbook keeps the name it was created with."
               }
               error={tried && !nameOk ? "A name must match ^[a-z][a-z0-9-]{0,31}$." : undefined}
             >
@@ -261,7 +261,7 @@ export function SkillEditor({
               />
             </Field>
 
-            {/* The image is the unit of capability: what a turn of this skill can do at all
+            {/* The image is the unit of capability: what a turn of this playbook can do at all
                 is decided by what is in the image, before any prompt or tool list is read. */}
             <Field
               id={`${uid}-image`}
@@ -308,7 +308,7 @@ export function SkillEditor({
               onChange={(e) => setPrompt(e.target.value)}
               rows={8}
               spellCheck={false}
-              placeholder="What this skill is for, and how it should behave."
+              placeholder="What this playbook is for, and how it should behave."
               className="font-mono text-xs"
             />
           </Field>
@@ -316,7 +316,7 @@ export function SkillEditor({
 
         <Section
           title="Execution"
-          hint="What runs a turn of this skill, how far it may go, and where it may land."
+          hint="What runs a turn of this playbook, how far it may go, and where it may land."
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -348,7 +348,7 @@ export function SkillEditor({
                     one names itself. */}
                 <span className="block text-xs font-medium text-muted">Agent and model</span>
                 <AgentPicker
-                  label="Skill"
+                  label="Playbook"
                   value={choice}
                   onChange={setChoice}
                   agents={agents}
@@ -446,13 +446,13 @@ export function SkillEditor({
 
         <Section
           title="Access"
-          hint="What a turn of this skill can reach beyond its own image."
+          hint="What a turn of this playbook can reach beyond its own image."
         >
           <div className="space-y-2.5">
             <div className="space-y-1">
               <h3 className="text-xs font-medium text-fg">Secrets</h3>
               <p className="max-w-2xl text-2xs leading-relaxed text-faint">
-                A skill names a stored secret; it never holds one. The value is written on the{" "}
+                A playbook names a stored secret; it never holds one. The value is written on the{" "}
                 <Link to="/secrets" className="text-accent hover:underline">
                   Secrets
                 </Link>{" "}
@@ -510,7 +510,7 @@ export function SkillEditor({
                   {missing ? (
                     <p className="text-xs text-warn">
                       No secret named <Mono>{r.a.trim()}</Mono> is registered — a turn of this
-                      skill will fail admission.{" "}
+                      playbook will fail admission.{" "}
                       <Link to="/secrets" className="text-accent hover:underline">
                         Register it
                       </Link>
@@ -606,11 +606,11 @@ export function SkillEditor({
           </Disclosure>
         </Section>
 
-        <Section title="Routing" hint="What sends work to this skill without anybody typing its name.">
+        <Section title="Routing" hint="What sends work to this playbook without anybody typing its name.">
           <Field
             id={`${uid}-channels`}
             label="Slack channels"
-            hint="Channel ids this skill is the default for. Two skills may not claim one channel."
+            hint="Channel ids this playbook is the default for. Two playbooks may not claim one channel."
           >
             <Input
               id={`${uid}-channels`}
@@ -631,10 +631,10 @@ export function SkillEditor({
             />
             <div className="min-w-0 space-y-0.5">
               <Label htmlFor={`${uid}-linear`} className="text-fg">
-                This is the skill Linear tickets run
+                This is the playbook Linear tickets run
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
-                At most one skill may set it: a ticket has no channel and no slash prefix to
+                At most one playbook may set it: a ticket has no channel and no slash prefix to
                 choose with.
               </p>
             </div>
@@ -643,7 +643,7 @@ export function SkillEditor({
       </fieldset>
 
       {error ? (
-        <Alert variant="destructive" role="alert" title="The conductor refused this skill">
+        <Alert variant="destructive" role="alert" title="The conductor refused this playbook">
           {error}
         </Alert>
       ) : null}
@@ -658,7 +658,7 @@ export function SkillEditor({
       <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel/95 px-4 py-3 shadow-md backdrop-blur">
         {locked ? null : (
           <Button type="submit" size="sm" disabled={saving || deleting}>
-            {saving ? "Saving…" : creating ? "Create skill" : "Save skill"}
+            {saving ? "Saving…" : creating ? "Create playbook" : "Save playbook"}
           </Button>
         )}
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
@@ -678,20 +678,20 @@ export function SkillEditor({
               type="button"
               variant="danger"
               size="sm"
-              aria-label={`Delete ${skill.name}`}
+              aria-label={`Delete ${playbook.name}`}
               disabled={deleting}
               onClick={() => setConfirmingDelete(true)}
             >
               <Trash2 />
-              {deleting ? "Deleting…" : "Delete skill"}
+              {deleting ? "Deleting…" : "Delete playbook"}
             </Button>
             <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Delete /{skill.name}?</DialogTitle>
+                  <DialogTitle>Delete /{playbook.name}?</DialogTitle>
                   <DialogDescription>
                     The definition goes with it — prompt, tools, limits and the secrets it
-                    names. Anything that routes to this skill stops working on the next turn.
+                    names. Anything that routes to this playbook stops working on the next turn.
                     There is no undo.
                   </DialogDescription>
                 </DialogHeader>
@@ -708,14 +708,14 @@ export function SkillEditor({
                     type="button"
                     variant="destructive"
                     size="sm"
-                    aria-label={`Confirm deleting ${skill.name}`}
+                    aria-label={`Confirm deleting ${playbook.name}`}
                     disabled={deleting}
                     onClick={() => {
                       setConfirmingDelete(false);
                       onDelete();
                     }}
                   >
-                    {deleting ? "Deleting…" : "Delete skill"}
+                    {deleting ? "Deleting…" : "Delete playbook"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -773,9 +773,9 @@ function Field({
 }
 
 /**
- * Disclosure folds away a part most skills never set. It opens itself when the skill in
+ * Disclosure folds away a part most playbooks never set. It opens itself when the playbook in
  * front of you does use it, so nothing is ever hidden from the operator reading a definition
- * — only from the one creating a plain skill.
+ * — only from the one creating a plain playbook.
  */
 function Disclosure({
   label,

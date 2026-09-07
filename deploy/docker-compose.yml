@@ -214,7 +214,7 @@ services:
   # It needs a profile directory. There is no default content for one, so copy the example
   # before the first `up`:
   #
-  #   cp -r ../examples/agent ./agent      # then edit ./agent/skills/general.yaml's image
+  #   cp -r ../examples/agent ./agent      # then edit ./agent/playbooks/general.yaml's image
   #
   agent:
     image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
@@ -260,7 +260,7 @@ services:
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
     volumes:
-      # Read-only. A skill file names the image, the tools and the secrets its turns get, and
+      # Read-only. A playbook file names the image, the tools and the secrets its turns get, and
       # is what THIS bot hands a turn — not a boundary around the secret store, which has no
       # per-caller authorisation at all. See docs/security.md.
       - ./agent:/etc/podium/agent:ro

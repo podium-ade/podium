@@ -31,8 +31,8 @@ type Session struct {
 	SourceKind string `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
 	SourceKey  string `protobuf:"bytes,3,opt,name=source_key,json=sourceKey,proto3" json:"source_key,omitempty"`
 	Profile    string `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`
-	// skill is fixed when the session is created: one session, one skill.
-	Skill         string                 `protobuf:"bytes,5,opt,name=skill,proto3" json:"skill,omitempty"`
+	// playbook is fixed when the session is created: one session, one playbook.
+	Playbook      string                 `protobuf:"bytes,5,opt,name=playbook,proto3" json:"playbook,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	LastTurnAt    *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_turn_at,json=lastTurnAt,proto3" json:"last_turn_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -97,9 +97,9 @@ func (x *Session) GetProfile() string {
 	return ""
 }
 
-func (x *Session) GetSkill() string {
+func (x *Session) GetPlaybook() string {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return ""
 }
@@ -1409,7 +1409,7 @@ func (x *AgentModel) GetEfforts() []string {
 // models it can be pointed at.
 type AgentBackend struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id is what a skill's `agent` field holds: "claude" or "grok".
+	// id is what a playbook's `agent` field holds: "claude" or "grok".
 	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	// provider is the credential this backend spends: "anthropic" or "xai".
@@ -1418,7 +1418,7 @@ type AgentBackend struct {
 	Note         string        `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
 	DefaultModel string        `protobuf:"bytes,5,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
 	Models       []*AgentModel `protobuf:"bytes,6,rep,name=models,proto3" json:"models,omitempty"`
-	// ready is true when this control plane holds a credential for the backend. A skill may
+	// ready is true when this control plane holds a credential for the backend. A playbook may
 	// still be saved against a backend that is not ready — the operator may be setting it up
 	// in either order — and the UI says so rather than refusing.
 	Ready         bool `protobuf:"varint,7,opt,name=ready,proto3" json:"ready,omitempty"`
@@ -1607,7 +1607,7 @@ type Memory struct {
 	// fact_type is world, experience or observation. An observation is derived by the memory
 	// engine from the facts under it.
 	FactType string `protobuf:"bytes,3,opt,name=fact_type,json=factType,proto3" json:"fact_type,omitempty"`
-	// tags are recorded by the conductor (source:<kind>, skill:<name>) and never filtered on.
+	// tags are recorded by the conductor (source:<kind>, playbook:<name>) and never filtered on.
 	Tags []string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
 	// metadata is the provenance the conductor set: session_id, turn_id, task_id, source_ref
 	// and source_url.
@@ -2000,44 +2000,44 @@ func (*DeleteMemoryResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
-// Skill is one job the bot can do, as much of it as a browser needs to offer the choice.
-type Skill struct {
+// Playbook is one job the bot can do, as much of it as a browser needs to offer the choice.
+type Playbook struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// image is the runtime image a turn of this skill runs. Shown so a human can tell the
-	// data skill from the browser one.
+	// image is the runtime image a turn of this playbook runs. Shown so a human can tell the
+	// data playbook from the browser one.
 	Image string `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
-	// hint is the first line of the skill's prompt, capped. It is a description, not a
+	// hint is the first line of the playbook's prompt, capped. It is a description, not a
 	// contract: the prompt is the operator's own file.
 	Hint string `protobuf:"bytes,3,opt,name=hint,proto3" json:"hint,omitempty"`
-	// chat_default is true for the skill a new chat message uses when nothing else picks one.
+	// chat_default is true for the playbook a new chat message uses when nothing else picks one.
 	ChatDefault bool `protobuf:"varint,4,opt,name=chat_default,json=chatDefault,proto3" json:"chat_default,omitempty"`
-	// agent, model and effort are what a turn of this skill runs on with no override:
-	// RESOLVED, so the skill's own value or the profile's, never empty for agent and model.
-	// The composer shows them as what "the skill's" means before anything is picked.
+	// agent, model and effort are what a turn of this playbook runs on with no override:
+	// RESOLVED, so the playbook's own value or the profile's, never empty for agent and model.
+	// The composer shows them as what "the playbook's" means before anything is picked.
 	Agent string `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
 	Model string `protobuf:"bytes,6,opt,name=model,proto3" json:"model,omitempty"`
-	// effort is empty when neither the skill nor the profile names one, which means the
+	// effort is empty when neither the playbook nor the profile names one, which means the
 	// model's own default.
 	Effort        string `protobuf:"bytes,7,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Skill) Reset() {
-	*x = Skill{}
+func (x *Playbook) Reset() {
+	*x = Playbook{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Skill) String() string {
+func (x *Playbook) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Skill) ProtoMessage() {}
+func (*Playbook) ProtoMessage() {}
 
-func (x *Skill) ProtoReflect() protoreflect.Message {
+func (x *Playbook) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2049,80 +2049,80 @@ func (x *Skill) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Skill.ProtoReflect.Descriptor instead.
-func (*Skill) Descriptor() ([]byte, []int) {
+// Deprecated: Use Playbook.ProtoReflect.Descriptor instead.
+func (*Playbook) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *Skill) GetName() string {
+func (x *Playbook) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *Skill) GetImage() string {
+func (x *Playbook) GetImage() string {
 	if x != nil {
 		return x.Image
 	}
 	return ""
 }
 
-func (x *Skill) GetHint() string {
+func (x *Playbook) GetHint() string {
 	if x != nil {
 		return x.Hint
 	}
 	return ""
 }
 
-func (x *Skill) GetChatDefault() bool {
+func (x *Playbook) GetChatDefault() bool {
 	if x != nil {
 		return x.ChatDefault
 	}
 	return false
 }
 
-func (x *Skill) GetAgent() string {
+func (x *Playbook) GetAgent() string {
 	if x != nil {
 		return x.Agent
 	}
 	return ""
 }
 
-func (x *Skill) GetModel() string {
+func (x *Playbook) GetModel() string {
 	if x != nil {
 		return x.Model
 	}
 	return ""
 }
 
-func (x *Skill) GetEffort() string {
+func (x *Playbook) GetEffort() string {
 	if x != nil {
 		return x.Effort
 	}
 	return ""
 }
 
-type ListSkillsRequest struct {
+type ListPlaybooksRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListSkillsRequest) Reset() {
-	*x = ListSkillsRequest{}
+func (x *ListPlaybooksRequest) Reset() {
+	*x = ListPlaybooksRequest{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListSkillsRequest) String() string {
+func (x *ListPlaybooksRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListSkillsRequest) ProtoMessage() {}
+func (*ListPlaybooksRequest) ProtoMessage() {}
 
-func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
+func (x *ListPlaybooksRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2134,34 +2134,34 @@ func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListSkillsRequest.ProtoReflect.Descriptor instead.
-func (*ListSkillsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListPlaybooksRequest.ProtoReflect.Descriptor instead.
+func (*ListPlaybooksRequest) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
-type ListSkillsResponse struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Skills []*Skill               `protobuf:"bytes,1,rep,name=skills,proto3" json:"skills,omitempty"`
+type ListPlaybooksResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Playbooks []*Playbook            `protobuf:"bytes,1,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
 	// profile_display_name labels the bot's own messages in the chat.
 	ProfileDisplayName string `protobuf:"bytes,2,opt,name=profile_display_name,json=profileDisplayName,proto3" json:"profile_display_name,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
-func (x *ListSkillsResponse) Reset() {
-	*x = ListSkillsResponse{}
+func (x *ListPlaybooksResponse) Reset() {
+	*x = ListPlaybooksResponse{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListSkillsResponse) String() string {
+func (x *ListPlaybooksResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListSkillsResponse) ProtoMessage() {}
+func (*ListPlaybooksResponse) ProtoMessage() {}
 
-func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
+func (x *ListPlaybooksResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2173,19 +2173,19 @@ func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListSkillsResponse.ProtoReflect.Descriptor instead.
-func (*ListSkillsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListPlaybooksResponse.ProtoReflect.Descriptor instead.
+func (*ListPlaybooksResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
-func (x *ListSkillsResponse) GetSkills() []*Skill {
+func (x *ListPlaybooksResponse) GetPlaybooks() []*Playbook {
 	if x != nil {
-		return x.Skills
+		return x.Playbooks
 	}
 	return nil
 }
 
-func (x *ListSkillsResponse) GetProfileDisplayName() string {
+func (x *ListPlaybooksResponse) GetProfileDisplayName() string {
 	if x != nil {
 		return x.ProfileDisplayName
 	}
@@ -2806,21 +2806,21 @@ type SendChatMessageRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
 	Text   string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// skill names the skill this message runs and wins over everything else, a leading
-	// /skill in the text included: a human picking the chip after typing is the later
-	// intent. Empty leaves the choice to a leading /skill in the text, then to
-	// profile.yaml's chat_default_skill, then to its default_skill. An unknown /name is
-	// not a skill selector: it stays in the text.
-	Skill string `protobuf:"bytes,3,opt,name=skill,proto3" json:"skill,omitempty"`
-	// agent, model and effort override what the skill runs on, for THIS message only.
+	// playbook names the playbook this message runs and wins over everything else, a leading
+	// /playbook in the text included: a human picking the chip after typing is the later
+	// intent. Empty leaves the choice to a leading /playbook in the text, then to
+	// profile.yaml's chat_default_playbook, then to its default_playbook. An unknown /name is
+	// not a playbook selector: it stays in the text.
+	Playbook string `protobuf:"bytes,3,opt,name=playbook,proto3" json:"playbook,omitempty"`
+	// agent, model and effort override what the playbook runs on, for THIS message only.
 	//
 	// They exist so that "which job" and "what runs it" are two choices instead of one. A
-	// skill's own values are a default, not a fixture: without this, the only way to ask the
-	// same skill on a different model is a second skill that differs by one field, and a
+	// playbook's own values are a default, not a fixture: without this, the only way to ask the
+	// same playbook on a different model is a second playbook that differs by one field, and a
 	// profile fills up with near-duplicates.
 	//
-	// Empty means the skill's, then the profile's. The three are validated together against
-	// the same catalogue a skill is, so a level the chosen model does not accept is refused
+	// Empty means the playbook's, then the profile's. The three are validated together against
+	// the same catalogue a playbook is, so a level the chosen model does not accept is refused
 	// here rather than failing the turn.
 	Agent         string `protobuf:"bytes,4,opt,name=agent,proto3" json:"agent,omitempty"`
 	Model         string `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`
@@ -2873,9 +2873,9 @@ func (x *SendChatMessageRequest) GetText() string {
 	return ""
 }
 
-func (x *SendChatMessageRequest) GetSkill() string {
+func (x *SendChatMessageRequest) GetPlaybook() string {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return ""
 }
@@ -3007,30 +3007,30 @@ type AgentProfile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name is profile.yaml's and is never overridable: it labels every session row already
 	// written.
-	Name         string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	DisplayName  string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Model        string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	DefaultSkill string `protobuf:"bytes,4,opt,name=default_skill,json=defaultSkill,proto3" json:"default_skill,omitempty"`
-	// chat_default_skill is the skill a web chat starts with. Empty means default_skill.
-	ChatDefaultSkill string `protobuf:"bytes,5,opt,name=chat_default_skill,json=chatDefaultSkill,proto3" json:"chat_default_skill,omitempty"`
+	Name            string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	DisplayName     string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Model           string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	DefaultPlaybook string `protobuf:"bytes,4,opt,name=default_playbook,json=defaultPlaybook,proto3" json:"default_playbook,omitempty"`
+	// chat_default_playbook is the playbook a web chat starts with. Empty means default_playbook.
+	ChatDefaultPlaybook string `protobuf:"bytes,5,opt,name=chat_default_playbook,json=chatDefaultPlaybook,proto3" json:"chat_default_playbook,omitempty"`
 	// profile_dir is where the file half was read from, so an operator editing YAML knows
 	// which directory this process actually loaded.
 	ProfileDir string `protobuf:"bytes,6,opt,name=profile_dir,json=profileDir,proto3" json:"profile_dir,omitempty"`
 	// The file_* fields are profile.yaml verbatim, whatever is overriding them.
-	FileDisplayName      string `protobuf:"bytes,7,opt,name=file_display_name,json=fileDisplayName,proto3" json:"file_display_name,omitempty"`
-	FileModel            string `protobuf:"bytes,8,opt,name=file_model,json=fileModel,proto3" json:"file_model,omitempty"`
-	FileDefaultSkill     string `protobuf:"bytes,9,opt,name=file_default_skill,json=fileDefaultSkill,proto3" json:"file_default_skill,omitempty"`
-	FileChatDefaultSkill string `protobuf:"bytes,10,opt,name=file_chat_default_skill,json=fileChatDefaultSkill,proto3" json:"file_chat_default_skill,omitempty"`
+	FileDisplayName         string `protobuf:"bytes,7,opt,name=file_display_name,json=fileDisplayName,proto3" json:"file_display_name,omitempty"`
+	FileModel               string `protobuf:"bytes,8,opt,name=file_model,json=fileModel,proto3" json:"file_model,omitempty"`
+	FileDefaultPlaybook     string `protobuf:"bytes,9,opt,name=file_default_playbook,json=fileDefaultPlaybook,proto3" json:"file_default_playbook,omitempty"`
+	FileChatDefaultPlaybook string `protobuf:"bytes,10,opt,name=file_chat_default_playbook,json=fileChatDefaultPlaybook,proto3" json:"file_chat_default_playbook,omitempty"`
 	// overridden names the fields a stored override is currently supplying, by their
-	// profile.yaml key: display_name, model, default_skill, chat_default_skill, agent,
+	// profile.yaml key: display_name, model, default_playbook, chat_default_playbook, agent,
 	// effort.
 	Overridden []string `protobuf:"bytes,11,rep,name=overridden,proto3" json:"overridden,omitempty"`
 	// updated_by and updated_at describe the stored override, not the file.
 	UpdatedBy string                 `protobuf:"bytes,12,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// agent is the backend every skill runs on unless it names its own: "claude" or "grok".
+	// agent is the backend every playbook runs on unless it names its own: "claude" or "grok".
 	Agent string `protobuf:"bytes,14,opt,name=agent,proto3" json:"agent,omitempty"`
-	// effort is the reasoning effort every skill runs at unless it names its own. Empty
+	// effort is the reasoning effort every playbook runs at unless it names its own. Empty
 	// means the model's own default.
 	Effort        string `protobuf:"bytes,15,opt,name=effort,proto3" json:"effort,omitempty"`
 	FileAgent     string `protobuf:"bytes,16,opt,name=file_agent,json=fileAgent,proto3" json:"file_agent,omitempty"`
@@ -3090,16 +3090,16 @@ func (x *AgentProfile) GetModel() string {
 	return ""
 }
 
-func (x *AgentProfile) GetDefaultSkill() string {
+func (x *AgentProfile) GetDefaultPlaybook() string {
 	if x != nil {
-		return x.DefaultSkill
+		return x.DefaultPlaybook
 	}
 	return ""
 }
 
-func (x *AgentProfile) GetChatDefaultSkill() string {
+func (x *AgentProfile) GetChatDefaultPlaybook() string {
 	if x != nil {
-		return x.ChatDefaultSkill
+		return x.ChatDefaultPlaybook
 	}
 	return ""
 }
@@ -3125,16 +3125,16 @@ func (x *AgentProfile) GetFileModel() string {
 	return ""
 }
 
-func (x *AgentProfile) GetFileDefaultSkill() string {
+func (x *AgentProfile) GetFileDefaultPlaybook() string {
 	if x != nil {
-		return x.FileDefaultSkill
+		return x.FileDefaultPlaybook
 	}
 	return ""
 }
 
-func (x *AgentProfile) GetFileChatDefaultSkill() string {
+func (x *AgentProfile) GetFileChatDefaultPlaybook() string {
 	if x != nil {
-		return x.FileChatDefaultSkill
+		return x.FileChatDefaultPlaybook
 	}
 	return ""
 }
@@ -3188,8 +3188,8 @@ func (x *AgentProfile) GetFileEffort() string {
 	return ""
 }
 
-// SkillResources caps a turn's container. It is spec.Resources, which is where it ends up.
-type SkillResources struct {
+// PlaybookResources caps a turn's container. It is spec.Resources, which is where it ends up.
+type PlaybookResources struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Cpu           float64                `protobuf:"fixed64,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
 	MemoryMb      int32                  `protobuf:"varint,2,opt,name=memory_mb,json=memoryMb,proto3" json:"memory_mb,omitempty"`
@@ -3198,20 +3198,20 @@ type SkillResources struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SkillResources) Reset() {
-	*x = SkillResources{}
+func (x *PlaybookResources) Reset() {
+	*x = PlaybookResources{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SkillResources) String() string {
+func (x *PlaybookResources) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SkillResources) ProtoMessage() {}
+func (*PlaybookResources) ProtoMessage() {}
 
-func (x *SkillResources) ProtoReflect() protoreflect.Message {
+func (x *PlaybookResources) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3223,36 +3223,36 @@ func (x *SkillResources) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SkillResources.ProtoReflect.Descriptor instead.
-func (*SkillResources) Descriptor() ([]byte, []int) {
+// Deprecated: Use PlaybookResources.ProtoReflect.Descriptor instead.
+func (*PlaybookResources) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
-func (x *SkillResources) GetCpu() float64 {
+func (x *PlaybookResources) GetCpu() float64 {
 	if x != nil {
 		return x.Cpu
 	}
 	return 0
 }
 
-func (x *SkillResources) GetMemoryMb() int32 {
+func (x *PlaybookResources) GetMemoryMb() int32 {
 	if x != nil {
 		return x.MemoryMb
 	}
 	return 0
 }
 
-func (x *SkillResources) GetPids() int32 {
+func (x *PlaybookResources) GetPids() int32 {
 	if x != nil {
 		return x.Pids
 	}
 	return 0
 }
 
-// SkillSecretRef names a stored secret and says where the turn wants it. It carries the
+// PlaybookSecretRef names a stored secret and says where the turn wants it. It carries the
 // NAME of a value and never a value: a secret's value cannot be read back out of Podium at
 // all, and nothing in this API is an exception.
-type SkillSecretRef struct {
+type PlaybookSecretRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// target is "env" or "file". Empty defaults to "env".
@@ -3263,20 +3263,20 @@ type SkillSecretRef struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SkillSecretRef) Reset() {
-	*x = SkillSecretRef{}
+func (x *PlaybookSecretRef) Reset() {
+	*x = PlaybookSecretRef{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SkillSecretRef) String() string {
+func (x *PlaybookSecretRef) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SkillSecretRef) ProtoMessage() {}
+func (*PlaybookSecretRef) ProtoMessage() {}
 
-func (x *SkillSecretRef) ProtoReflect() protoreflect.Message {
+func (x *PlaybookSecretRef) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3288,34 +3288,34 @@ func (x *SkillSecretRef) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SkillSecretRef.ProtoReflect.Descriptor instead.
-func (*SkillSecretRef) Descriptor() ([]byte, []int) {
+// Deprecated: Use PlaybookSecretRef.ProtoReflect.Descriptor instead.
+func (*PlaybookSecretRef) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
-func (x *SkillSecretRef) GetName() string {
+func (x *PlaybookSecretRef) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *SkillSecretRef) GetTarget() string {
+func (x *PlaybookSecretRef) GetTarget() string {
 	if x != nil {
 		return x.Target
 	}
 	return ""
 }
 
-func (x *SkillSecretRef) GetKey() string {
+func (x *PlaybookSecretRef) GetKey() string {
 	if x != nil {
 		return x.Key
 	}
 	return ""
 }
 
-// SkillRepo is a repository a turn of this skill gets cloned into /workspace.
-type SkillRepo struct {
+// PlaybookRepo is a repository a turn of this playbook gets cloned into /workspace.
+type PlaybookRepo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
@@ -3324,20 +3324,20 @@ type SkillRepo struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SkillRepo) Reset() {
-	*x = SkillRepo{}
+func (x *PlaybookRepo) Reset() {
+	*x = PlaybookRepo{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SkillRepo) String() string {
+func (x *PlaybookRepo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SkillRepo) ProtoMessage() {}
+func (*PlaybookRepo) ProtoMessage() {}
 
-func (x *SkillRepo) ProtoReflect() protoreflect.Message {
+func (x *PlaybookRepo) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3349,38 +3349,38 @@ func (x *SkillRepo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SkillRepo.ProtoReflect.Descriptor instead.
-func (*SkillRepo) Descriptor() ([]byte, []int) {
+// Deprecated: Use PlaybookRepo.ProtoReflect.Descriptor instead.
+func (*PlaybookRepo) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
-func (x *SkillRepo) GetName() string {
+func (x *PlaybookRepo) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *SkillRepo) GetUrl() string {
+func (x *PlaybookRepo) GetUrl() string {
 	if x != nil {
 		return x.Url
 	}
 	return ""
 }
 
-func (x *SkillRepo) GetDefaultBranch() string {
+func (x *PlaybookRepo) GetDefaultBranch() string {
 	if x != nil {
 		return x.DefaultBranch
 	}
 	return ""
 }
 
-// SkillDefinition is one skill in full: everything skills/<name>.yaml holds, plus where
+// PlaybookDefinition is one playbook in full: everything playbooks/<name>.yaml holds, plus where
 // this copy came from and whether a browser may change it.
-type SkillDefinition struct {
+type PlaybookDefinition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// image is the runtime image a turn of this skill runs. It is free text the operator
+	// image is the runtime image a turn of this playbook runs. It is free text the operator
 	// supplies; it has to implement the turn-brief protocol, and FROM podium-agent-runtime
 	// is the easy way to get one that does.
 	Image        string   `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
@@ -3390,50 +3390,50 @@ type SkillDefinition struct {
 	// timeout is a duration string ("30m"). Empty means the default.
 	Timeout string `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// model is empty for "whatever the profile says".
-	Model         string            `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
-	Labels        []string          `protobuf:"bytes,8,rep,name=labels,proto3" json:"labels,omitempty"`
-	Resources     *SkillResources   `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
-	Secrets       []*SkillSecretRef `protobuf:"bytes,10,rep,name=secrets,proto3" json:"secrets,omitempty"`
-	Repos         []*SkillRepo      `protobuf:"bytes,11,rep,name=repos,proto3" json:"repos,omitempty"`
-	SlackChannels []string          `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
-	Linear        bool              `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
-	Env           map[string]string `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// origin is "file" for a skills/<name>.yaml on the conductor's host and "stored" for one
+	Model         string               `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
+	Labels        []string             `protobuf:"bytes,8,rep,name=labels,proto3" json:"labels,omitempty"`
+	Resources     *PlaybookResources   `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
+	Secrets       []*PlaybookSecretRef `protobuf:"bytes,10,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	Repos         []*PlaybookRepo      `protobuf:"bytes,11,rep,name=repos,proto3" json:"repos,omitempty"`
+	SlackChannels []string             `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
+	Linear        bool                 `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
+	Env           map[string]string    `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// origin is "file" for a playbooks/<name>.yaml on the conductor's host and "stored" for one
 	// created through this API.
 	Origin string `protobuf:"bytes,15,opt,name=origin,proto3" json:"origin,omitempty"`
-	// editable is false for a file skill: the files are authoritative for the names they
+	// editable is false for a file playbook: the files are authoritative for the names they
 	// hold and the write RPCs refuse one.
 	Editable bool `protobuf:"varint,16,opt,name=editable,proto3" json:"editable,omitempty"`
-	// shadowed is true for a stored skill whose name a file skill also defines. The file
-	// wins, so a shadowed skill never runs; it is reported so it can be deleted.
+	// shadowed is true for a stored playbook whose name a file playbook also defines. The file
+	// wins, so a shadowed playbook never runs; it is reported so it can be deleted.
 	Shadowed bool `protobuf:"varint,17,opt,name=shadowed,proto3" json:"shadowed,omitempty"`
-	// updated_by and updated_at are set for a stored skill only.
+	// updated_by and updated_at are set for a stored playbook only.
 	UpdatedBy string                 `protobuf:"bytes,18,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,19,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// agent is the backend a turn of this skill runs on: "claude", "grok", or empty for
+	// agent is the backend a turn of this playbook runs on: "claude", "grok", or empty for
 	// whatever the profile says.
 	Agent string `protobuf:"bytes,20,opt,name=agent,proto3" json:"agent,omitempty"`
-	// effort is the reasoning effort a turn of this skill runs at, or empty for the
+	// effort is the reasoning effort a turn of this playbook runs at, or empty for the
 	// profile's. The levels a model accepts come from ListAgents.
 	Effort        string `protobuf:"bytes,21,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SkillDefinition) Reset() {
-	*x = SkillDefinition{}
+func (x *PlaybookDefinition) Reset() {
+	*x = PlaybookDefinition{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SkillDefinition) String() string {
+func (x *PlaybookDefinition) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SkillDefinition) ProtoMessage() {}
+func (*PlaybookDefinition) ProtoMessage() {}
 
-func (x *SkillDefinition) ProtoReflect() protoreflect.Message {
+func (x *PlaybookDefinition) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3445,152 +3445,152 @@ func (x *SkillDefinition) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SkillDefinition.ProtoReflect.Descriptor instead.
-func (*SkillDefinition) Descriptor() ([]byte, []int) {
+// Deprecated: Use PlaybookDefinition.ProtoReflect.Descriptor instead.
+func (*PlaybookDefinition) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
-func (x *SkillDefinition) GetName() string {
+func (x *PlaybookDefinition) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetImage() string {
+func (x *PlaybookDefinition) GetImage() string {
 	if x != nil {
 		return x.Image
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetSystemPrompt() string {
+func (x *PlaybookDefinition) GetSystemPrompt() string {
 	if x != nil {
 		return x.SystemPrompt
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetAllowedTools() []string {
+func (x *PlaybookDefinition) GetAllowedTools() []string {
 	if x != nil {
 		return x.AllowedTools
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetMaxTurns() int32 {
+func (x *PlaybookDefinition) GetMaxTurns() int32 {
 	if x != nil {
 		return x.MaxTurns
 	}
 	return 0
 }
 
-func (x *SkillDefinition) GetTimeout() string {
+func (x *PlaybookDefinition) GetTimeout() string {
 	if x != nil {
 		return x.Timeout
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetModel() string {
+func (x *PlaybookDefinition) GetModel() string {
 	if x != nil {
 		return x.Model
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetLabels() []string {
+func (x *PlaybookDefinition) GetLabels() []string {
 	if x != nil {
 		return x.Labels
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetResources() *SkillResources {
+func (x *PlaybookDefinition) GetResources() *PlaybookResources {
 	if x != nil {
 		return x.Resources
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetSecrets() []*SkillSecretRef {
+func (x *PlaybookDefinition) GetSecrets() []*PlaybookSecretRef {
 	if x != nil {
 		return x.Secrets
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetRepos() []*SkillRepo {
+func (x *PlaybookDefinition) GetRepos() []*PlaybookRepo {
 	if x != nil {
 		return x.Repos
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetSlackChannels() []string {
+func (x *PlaybookDefinition) GetSlackChannels() []string {
 	if x != nil {
 		return x.SlackChannels
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetLinear() bool {
+func (x *PlaybookDefinition) GetLinear() bool {
 	if x != nil {
 		return x.Linear
 	}
 	return false
 }
 
-func (x *SkillDefinition) GetEnv() map[string]string {
+func (x *PlaybookDefinition) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetOrigin() string {
+func (x *PlaybookDefinition) GetOrigin() string {
 	if x != nil {
 		return x.Origin
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetEditable() bool {
+func (x *PlaybookDefinition) GetEditable() bool {
 	if x != nil {
 		return x.Editable
 	}
 	return false
 }
 
-func (x *SkillDefinition) GetShadowed() bool {
+func (x *PlaybookDefinition) GetShadowed() bool {
 	if x != nil {
 		return x.Shadowed
 	}
 	return false
 }
 
-func (x *SkillDefinition) GetUpdatedBy() string {
+func (x *PlaybookDefinition) GetUpdatedBy() string {
 	if x != nil {
 		return x.UpdatedBy
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetUpdatedAt() *timestamppb.Timestamp {
+func (x *PlaybookDefinition) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
 	}
 	return nil
 }
 
-func (x *SkillDefinition) GetAgent() string {
+func (x *PlaybookDefinition) GetAgent() string {
 	if x != nil {
 		return x.Agent
 	}
 	return ""
 }
 
-func (x *SkillDefinition) GetEffort() string {
+func (x *PlaybookDefinition) GetEffort() string {
 	if x != nil {
 		return x.Effort
 	}
@@ -3636,9 +3636,9 @@ func (*GetProfileRequest) Descriptor() ([]byte, []int) {
 type GetProfileResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Profile *AgentProfile          `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
-	// skills is every skill that runs, sorted by name, followed by any shadowed stored
-	// skill. Two entries can share a name when one is shadowed; they differ in origin.
-	Skills []*SkillDefinition `protobuf:"bytes,2,rep,name=skills,proto3" json:"skills,omitempty"`
+	// playbooks is every playbook that runs, sorted by name, followed by any shadowed stored
+	// playbook. Two entries can share a name when one is shadowed; they differ in origin.
+	Playbooks []*PlaybookDefinition `protobuf:"bytes,2,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
 	// stale_reason is set when what the database holds could not be merged into a valid
 	// profile, so the conductor is still running the last one that could. Empty normally.
 	StaleReason   string `protobuf:"bytes,3,opt,name=stale_reason,json=staleReason,proto3" json:"stale_reason,omitempty"`
@@ -3683,9 +3683,9 @@ func (x *GetProfileResponse) GetProfile() *AgentProfile {
 	return nil
 }
 
-func (x *GetProfileResponse) GetSkills() []*SkillDefinition {
+func (x *GetProfileResponse) GetPlaybooks() []*PlaybookDefinition {
 	if x != nil {
-		return x.Skills
+		return x.Playbooks
 	}
 	return nil
 }
@@ -3701,14 +3701,14 @@ type UpdateProfileRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Every field is an override of profile.yaml. An empty one clears the override, which
 	// returns that field to the file's value.
-	DisplayName      string `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Model            string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	DefaultSkill     string `protobuf:"bytes,3,opt,name=default_skill,json=defaultSkill,proto3" json:"default_skill,omitempty"`
-	ChatDefaultSkill string `protobuf:"bytes,4,opt,name=chat_default_skill,json=chatDefaultSkill,proto3" json:"chat_default_skill,omitempty"`
-	Agent            string `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
-	Effort           string `protobuf:"bytes,6,opt,name=effort,proto3" json:"effort,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	DisplayName         string `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Model               string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	DefaultPlaybook     string `protobuf:"bytes,3,opt,name=default_playbook,json=defaultPlaybook,proto3" json:"default_playbook,omitempty"`
+	ChatDefaultPlaybook string `protobuf:"bytes,4,opt,name=chat_default_playbook,json=chatDefaultPlaybook,proto3" json:"chat_default_playbook,omitempty"`
+	Agent               string `protobuf:"bytes,5,opt,name=agent,proto3" json:"agent,omitempty"`
+	Effort              string `protobuf:"bytes,6,opt,name=effort,proto3" json:"effort,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *UpdateProfileRequest) Reset() {
@@ -3755,16 +3755,16 @@ func (x *UpdateProfileRequest) GetModel() string {
 	return ""
 }
 
-func (x *UpdateProfileRequest) GetDefaultSkill() string {
+func (x *UpdateProfileRequest) GetDefaultPlaybook() string {
 	if x != nil {
-		return x.DefaultSkill
+		return x.DefaultPlaybook
 	}
 	return ""
 }
 
-func (x *UpdateProfileRequest) GetChatDefaultSkill() string {
+func (x *UpdateProfileRequest) GetChatDefaultPlaybook() string {
 	if x != nil {
-		return x.ChatDefaultSkill
+		return x.ChatDefaultPlaybook
 	}
 	return ""
 }
@@ -3827,27 +3827,27 @@ func (x *UpdateProfileResponse) GetProfile() *AgentProfile {
 	return nil
 }
 
-type CreateSkillRequest struct {
+type CreatePlaybookRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Skill         *SkillDefinition       `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	Playbook      *PlaybookDefinition    `protobuf:"bytes,1,opt,name=playbook,proto3" json:"playbook,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateSkillRequest) Reset() {
-	*x = CreateSkillRequest{}
+func (x *CreatePlaybookRequest) Reset() {
+	*x = CreatePlaybookRequest{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateSkillRequest) String() string {
+func (x *CreatePlaybookRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateSkillRequest) ProtoMessage() {}
+func (*CreatePlaybookRequest) ProtoMessage() {}
 
-func (x *CreateSkillRequest) ProtoReflect() protoreflect.Message {
+func (x *CreatePlaybookRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3859,39 +3859,39 @@ func (x *CreateSkillRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateSkillRequest.ProtoReflect.Descriptor instead.
-func (*CreateSkillRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreatePlaybookRequest.ProtoReflect.Descriptor instead.
+func (*CreatePlaybookRequest) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{56}
 }
 
-func (x *CreateSkillRequest) GetSkill() *SkillDefinition {
+func (x *CreatePlaybookRequest) GetPlaybook() *PlaybookDefinition {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return nil
 }
 
-type CreateSkillResponse struct {
+type CreatePlaybookResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Skill         *SkillDefinition       `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	Playbook      *PlaybookDefinition    `protobuf:"bytes,1,opt,name=playbook,proto3" json:"playbook,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateSkillResponse) Reset() {
-	*x = CreateSkillResponse{}
+func (x *CreatePlaybookResponse) Reset() {
+	*x = CreatePlaybookResponse{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateSkillResponse) String() string {
+func (x *CreatePlaybookResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateSkillResponse) ProtoMessage() {}
+func (*CreatePlaybookResponse) ProtoMessage() {}
 
-func (x *CreateSkillResponse) ProtoReflect() protoreflect.Message {
+func (x *CreatePlaybookResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3903,40 +3903,40 @@ func (x *CreateSkillResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateSkillResponse.ProtoReflect.Descriptor instead.
-func (*CreateSkillResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreatePlaybookResponse.ProtoReflect.Descriptor instead.
+func (*CreatePlaybookResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{57}
 }
 
-func (x *CreateSkillResponse) GetSkill() *SkillDefinition {
+func (x *CreatePlaybookResponse) GetPlaybook() *PlaybookDefinition {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return nil
 }
 
-type UpdateSkillRequest struct {
+type UpdatePlaybookRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// skill.name names the skill to replace.
-	Skill         *SkillDefinition `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	// playbook.name names the playbook to replace.
+	Playbook      *PlaybookDefinition `protobuf:"bytes,1,opt,name=playbook,proto3" json:"playbook,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSkillRequest) Reset() {
-	*x = UpdateSkillRequest{}
+func (x *UpdatePlaybookRequest) Reset() {
+	*x = UpdatePlaybookRequest{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSkillRequest) String() string {
+func (x *UpdatePlaybookRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSkillRequest) ProtoMessage() {}
+func (*UpdatePlaybookRequest) ProtoMessage() {}
 
-func (x *UpdateSkillRequest) ProtoReflect() protoreflect.Message {
+func (x *UpdatePlaybookRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3948,39 +3948,39 @@ func (x *UpdateSkillRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSkillRequest.ProtoReflect.Descriptor instead.
-func (*UpdateSkillRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdatePlaybookRequest.ProtoReflect.Descriptor instead.
+func (*UpdatePlaybookRequest) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{58}
 }
 
-func (x *UpdateSkillRequest) GetSkill() *SkillDefinition {
+func (x *UpdatePlaybookRequest) GetPlaybook() *PlaybookDefinition {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return nil
 }
 
-type UpdateSkillResponse struct {
+type UpdatePlaybookResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Skill         *SkillDefinition       `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	Playbook      *PlaybookDefinition    `protobuf:"bytes,1,opt,name=playbook,proto3" json:"playbook,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UpdateSkillResponse) Reset() {
-	*x = UpdateSkillResponse{}
+func (x *UpdatePlaybookResponse) Reset() {
+	*x = UpdatePlaybookResponse{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UpdateSkillResponse) String() string {
+func (x *UpdatePlaybookResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UpdateSkillResponse) ProtoMessage() {}
+func (*UpdatePlaybookResponse) ProtoMessage() {}
 
-func (x *UpdateSkillResponse) ProtoReflect() protoreflect.Message {
+func (x *UpdatePlaybookResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3992,39 +3992,39 @@ func (x *UpdateSkillResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UpdateSkillResponse.ProtoReflect.Descriptor instead.
-func (*UpdateSkillResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdatePlaybookResponse.ProtoReflect.Descriptor instead.
+func (*UpdatePlaybookResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{59}
 }
 
-func (x *UpdateSkillResponse) GetSkill() *SkillDefinition {
+func (x *UpdatePlaybookResponse) GetPlaybook() *PlaybookDefinition {
 	if x != nil {
-		return x.Skill
+		return x.Playbook
 	}
 	return nil
 }
 
-type DeleteSkillRequest struct {
+type DeletePlaybookRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeleteSkillRequest) Reset() {
-	*x = DeleteSkillRequest{}
+func (x *DeletePlaybookRequest) Reset() {
+	*x = DeletePlaybookRequest{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeleteSkillRequest) String() string {
+func (x *DeletePlaybookRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteSkillRequest) ProtoMessage() {}
+func (*DeletePlaybookRequest) ProtoMessage() {}
 
-func (x *DeleteSkillRequest) ProtoReflect() protoreflect.Message {
+func (x *DeletePlaybookRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4036,38 +4036,38 @@ func (x *DeleteSkillRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteSkillRequest.ProtoReflect.Descriptor instead.
-func (*DeleteSkillRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use DeletePlaybookRequest.ProtoReflect.Descriptor instead.
+func (*DeletePlaybookRequest) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{60}
 }
 
-func (x *DeleteSkillRequest) GetName() string {
+func (x *DeletePlaybookRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-type DeleteSkillResponse struct {
+type DeletePlaybookResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeleteSkillResponse) Reset() {
-	*x = DeleteSkillResponse{}
+func (x *DeletePlaybookResponse) Reset() {
+	*x = DeletePlaybookResponse{}
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeleteSkillResponse) String() string {
+func (x *DeletePlaybookResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteSkillResponse) ProtoMessage() {}
+func (*DeletePlaybookResponse) ProtoMessage() {}
 
-func (x *DeleteSkillResponse) ProtoReflect() protoreflect.Message {
+func (x *DeletePlaybookResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4079,8 +4079,8 @@ func (x *DeleteSkillResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteSkillResponse.ProtoReflect.Descriptor instead.
-func (*DeleteSkillResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use DeletePlaybookResponse.ProtoReflect.Descriptor instead.
+func (*DeletePlaybookResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{61}
 }
 
@@ -4088,15 +4088,15 @@ var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1bpodium/agent/v1/agent.proto\x12\x0fpodium.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x82\x02\n" +
+	"\x1bpodium/agent/v1/agent.proto\x12\x0fpodium.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x88\x02\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
 	"sourceKind\x12\x1d\n" +
 	"\n" +
 	"source_key\x18\x03 \x01(\tR\tsourceKey\x12\x18\n" +
-	"\aprofile\x18\x04 \x01(\tR\aprofile\x12\x14\n" +
-	"\x05skill\x18\x05 \x01(\tR\x05skill\x129\n" +
+	"\aprofile\x18\x04 \x01(\tR\aprofile\x12\x1a\n" +
+	"\bplaybook\x18\x05 \x01(\tR\bplaybook\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12<\n" +
 	"\flast_turn_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -4236,18 +4236,18 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x17.podium.agent.v1.MemoryR\x05items\"%\n" +
 	"\x13DeleteMemoryRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x16\n" +
-	"\x14DeleteMemoryResponse\"\xac\x01\n" +
-	"\x05Skill\x12\x12\n" +
+	"\x14DeleteMemoryResponse\"\xaf\x01\n" +
+	"\bPlaybook\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x12\n" +
 	"\x04hint\x18\x03 \x01(\tR\x04hint\x12!\n" +
 	"\fchat_default\x18\x04 \x01(\bR\vchatDefault\x12\x14\n" +
 	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\x06 \x01(\tR\x05model\x12\x16\n" +
-	"\x06effort\x18\a \x01(\tR\x06effort\"\x13\n" +
-	"\x11ListSkillsRequest\"v\n" +
-	"\x12ListSkillsResponse\x12.\n" +
-	"\x06skills\x18\x01 \x03(\v2\x16.podium.agent.v1.SkillR\x06skills\x120\n" +
+	"\x06effort\x18\a \x01(\tR\x06effort\"\x16\n" +
+	"\x14ListPlaybooksRequest\"\x82\x01\n" +
+	"\x15ListPlaybooksResponse\x127\n" +
+	"\tplaybooks\x18\x01 \x03(\v2\x19.podium.agent.v1.PlaybookR\tplaybooks\x120\n" +
 	"\x14profile_display_name\x18\x02 \x01(\tR\x12profileDisplayName\"\xe8\x01\n" +
 	"\x04Chat\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
@@ -4290,11 +4290,11 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x11ListChatsResponse\x12+\n" +
 	"\x05chats\x18\x01 \x03(\v2\x15.podium.agent.v1.ChatR\x05chats\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\x9f\x01\n" +
+	"nextCursor\"\xa5\x01\n" +
 	"\x16SendChatMessageRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
-	"\x05skill\x18\x03 \x01(\tR\x05skill\x12\x14\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
+	"\bplaybook\x18\x03 \x01(\tR\bplaybook\x12\x14\n" +
 	"\x05agent\x18\x04 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\x05 \x01(\tR\x05model\x12\x16\n" +
 	"\x06effort\x18\x06 \x01(\tR\x06effort\"Q\n" +
@@ -4302,21 +4302,21 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\amessage\x18\x01 \x01(\v2\x1c.podium.agent.v1.ChatMessageR\amessage\"G\n" +
 	"\x11StreamChatRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x19\n" +
-	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq\"\xe7\x04\n" +
+	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq\"\xff\x04\n" +
 	"\fAgentProfile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x14\n" +
-	"\x05model\x18\x03 \x01(\tR\x05model\x12#\n" +
-	"\rdefault_skill\x18\x04 \x01(\tR\fdefaultSkill\x12,\n" +
-	"\x12chat_default_skill\x18\x05 \x01(\tR\x10chatDefaultSkill\x12\x1f\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12)\n" +
+	"\x10default_playbook\x18\x04 \x01(\tR\x0fdefaultPlaybook\x122\n" +
+	"\x15chat_default_playbook\x18\x05 \x01(\tR\x13chatDefaultPlaybook\x12\x1f\n" +
 	"\vprofile_dir\x18\x06 \x01(\tR\n" +
 	"profileDir\x12*\n" +
 	"\x11file_display_name\x18\a \x01(\tR\x0ffileDisplayName\x12\x1d\n" +
 	"\n" +
-	"file_model\x18\b \x01(\tR\tfileModel\x12,\n" +
-	"\x12file_default_skill\x18\t \x01(\tR\x10fileDefaultSkill\x125\n" +
-	"\x17file_chat_default_skill\x18\n" +
-	" \x01(\tR\x14fileChatDefaultSkill\x12\x1e\n" +
+	"file_model\x18\b \x01(\tR\tfileModel\x122\n" +
+	"\x15file_default_playbook\x18\t \x01(\tR\x13fileDefaultPlaybook\x12;\n" +
+	"\x1afile_chat_default_playbook\x18\n" +
+	" \x01(\tR\x17fileChatDefaultPlaybook\x12\x1e\n" +
 	"\n" +
 	"overridden\x18\v \x03(\tR\n" +
 	"overridden\x12\x1d\n" +
@@ -4329,20 +4329,20 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"file_agent\x18\x10 \x01(\tR\tfileAgent\x12\x1f\n" +
 	"\vfile_effort\x18\x11 \x01(\tR\n" +
-	"fileEffort\"S\n" +
-	"\x0eSkillResources\x12\x10\n" +
+	"fileEffort\"V\n" +
+	"\x11PlaybookResources\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\x01R\x03cpu\x12\x1b\n" +
 	"\tmemory_mb\x18\x02 \x01(\x05R\bmemoryMb\x12\x12\n" +
-	"\x04pids\x18\x03 \x01(\x05R\x04pids\"N\n" +
-	"\x0eSkillSecretRef\x12\x12\n" +
+	"\x04pids\x18\x03 \x01(\x05R\x04pids\"Q\n" +
+	"\x11PlaybookSecretRef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x10\n" +
-	"\x03key\x18\x03 \x01(\tR\x03key\"X\n" +
-	"\tSkillRepo\x12\x12\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\"[\n" +
+	"\fPlaybookRepo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12%\n" +
-	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xa2\x06\n" +
-	"\x0fSkillDefinition\x12\x12\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xb1\x06\n" +
+	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
 	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x12#\n" +
@@ -4350,14 +4350,14 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\tmax_turns\x18\x05 \x01(\x05R\bmaxTurns\x12\x18\n" +
 	"\atimeout\x18\x06 \x01(\tR\atimeout\x12\x14\n" +
 	"\x05model\x18\a \x01(\tR\x05model\x12\x16\n" +
-	"\x06labels\x18\b \x03(\tR\x06labels\x12=\n" +
-	"\tresources\x18\t \x01(\v2\x1f.podium.agent.v1.SkillResourcesR\tresources\x129\n" +
+	"\x06labels\x18\b \x03(\tR\x06labels\x12@\n" +
+	"\tresources\x18\t \x01(\v2\".podium.agent.v1.PlaybookResourcesR\tresources\x12<\n" +
 	"\asecrets\x18\n" +
-	" \x03(\v2\x1f.podium.agent.v1.SkillSecretRefR\asecrets\x120\n" +
-	"\x05repos\x18\v \x03(\v2\x1a.podium.agent.v1.SkillRepoR\x05repos\x12%\n" +
+	" \x03(\v2\".podium.agent.v1.PlaybookSecretRefR\asecrets\x123\n" +
+	"\x05repos\x18\v \x03(\v2\x1d.podium.agent.v1.PlaybookRepoR\x05repos\x12%\n" +
 	"\x0eslack_channels\x18\f \x03(\tR\rslackChannels\x12\x16\n" +
-	"\x06linear\x18\r \x01(\bR\x06linear\x12;\n" +
-	"\x03env\x18\x0e \x03(\v2).podium.agent.v1.SkillDefinition.EnvEntryR\x03env\x12\x16\n" +
+	"\x06linear\x18\r \x01(\bR\x06linear\x12>\n" +
+	"\x03env\x18\x0e \x03(\v2,.podium.agent.v1.PlaybookDefinition.EnvEntryR\x03env\x12\x16\n" +
 	"\x06origin\x18\x0f \x01(\tR\x06origin\x12\x1a\n" +
 	"\beditable\x18\x10 \x01(\bR\beditable\x12\x1a\n" +
 	"\bshadowed\x18\x11 \x01(\bR\bshadowed\x12\x1d\n" +
@@ -4370,31 +4370,31 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +
-	"\x11GetProfileRequest\"\xaa\x01\n" +
+	"\x11GetProfileRequest\"\xb3\x01\n" +
 	"\x12GetProfileResponse\x127\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1d.podium.agent.v1.AgentProfileR\aprofile\x128\n" +
-	"\x06skills\x18\x02 \x03(\v2 .podium.agent.v1.SkillDefinitionR\x06skills\x12!\n" +
-	"\fstale_reason\x18\x03 \x01(\tR\vstaleReason\"\xd0\x01\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1d.podium.agent.v1.AgentProfileR\aprofile\x12A\n" +
+	"\tplaybooks\x18\x02 \x03(\v2#.podium.agent.v1.PlaybookDefinitionR\tplaybooks\x12!\n" +
+	"\fstale_reason\x18\x03 \x01(\tR\vstaleReason\"\xdc\x01\n" +
 	"\x14UpdateProfileRequest\x12!\n" +
 	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\x12\x14\n" +
-	"\x05model\x18\x02 \x01(\tR\x05model\x12#\n" +
-	"\rdefault_skill\x18\x03 \x01(\tR\fdefaultSkill\x12,\n" +
-	"\x12chat_default_skill\x18\x04 \x01(\tR\x10chatDefaultSkill\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\x12)\n" +
+	"\x10default_playbook\x18\x03 \x01(\tR\x0fdefaultPlaybook\x122\n" +
+	"\x15chat_default_playbook\x18\x04 \x01(\tR\x13chatDefaultPlaybook\x12\x14\n" +
 	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06effort\x18\x06 \x01(\tR\x06effort\"P\n" +
 	"\x15UpdateProfileResponse\x127\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1d.podium.agent.v1.AgentProfileR\aprofile\"L\n" +
-	"\x12CreateSkillRequest\x126\n" +
-	"\x05skill\x18\x01 \x01(\v2 .podium.agent.v1.SkillDefinitionR\x05skill\"M\n" +
-	"\x13CreateSkillResponse\x126\n" +
-	"\x05skill\x18\x01 \x01(\v2 .podium.agent.v1.SkillDefinitionR\x05skill\"L\n" +
-	"\x12UpdateSkillRequest\x126\n" +
-	"\x05skill\x18\x01 \x01(\v2 .podium.agent.v1.SkillDefinitionR\x05skill\"M\n" +
-	"\x13UpdateSkillResponse\x126\n" +
-	"\x05skill\x18\x01 \x01(\v2 .podium.agent.v1.SkillDefinitionR\x05skill\"(\n" +
-	"\x12DeleteSkillRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteSkillResponse2\x88\x10\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1d.podium.agent.v1.AgentProfileR\aprofile\"X\n" +
+	"\x15CreatePlaybookRequest\x12?\n" +
+	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"Y\n" +
+	"\x16CreatePlaybookResponse\x12?\n" +
+	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"X\n" +
+	"\x15UpdatePlaybookRequest\x12?\n" +
+	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"Y\n" +
+	"\x16UpdatePlaybookResponse\x12?\n" +
+	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"+\n" +
+	"\x15DeletePlaybookRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x18\n" +
+	"\x16DeletePlaybookResponse2\xac\x10\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
@@ -4409,15 +4409,14 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"ListAgents\x12\".podium.agent.v1.ListAgentsRequest\x1a#.podium.agent.v1.ListAgentsResponse\x12[\n" +
 	"\fListMemories\x12$.podium.agent.v1.ListMemoriesRequest\x1a%.podium.agent.v1.ListMemoriesResponse\x12a\n" +
 	"\x0eSearchMemories\x12&.podium.agent.v1.SearchMemoriesRequest\x1a'.podium.agent.v1.SearchMemoriesResponse\x12[\n" +
-	"\fDeleteMemory\x12$.podium.agent.v1.DeleteMemoryRequest\x1a%.podium.agent.v1.DeleteMemoryResponse\x12U\n" +
-	"\n" +
-	"ListSkills\x12\".podium.agent.v1.ListSkillsRequest\x1a#.podium.agent.v1.ListSkillsResponse\x12U\n" +
+	"\fDeleteMemory\x12$.podium.agent.v1.DeleteMemoryRequest\x1a%.podium.agent.v1.DeleteMemoryResponse\x12^\n" +
+	"\rListPlaybooks\x12%.podium.agent.v1.ListPlaybooksRequest\x1a&.podium.agent.v1.ListPlaybooksResponse\x12U\n" +
 	"\n" +
 	"GetProfile\x12\".podium.agent.v1.GetProfileRequest\x1a#.podium.agent.v1.GetProfileResponse\x12^\n" +
-	"\rUpdateProfile\x12%.podium.agent.v1.UpdateProfileRequest\x1a&.podium.agent.v1.UpdateProfileResponse\x12X\n" +
-	"\vCreateSkill\x12#.podium.agent.v1.CreateSkillRequest\x1a$.podium.agent.v1.CreateSkillResponse\x12X\n" +
-	"\vUpdateSkill\x12#.podium.agent.v1.UpdateSkillRequest\x1a$.podium.agent.v1.UpdateSkillResponse\x12X\n" +
-	"\vDeleteSkill\x12#.podium.agent.v1.DeleteSkillRequest\x1a$.podium.agent.v1.DeleteSkillResponse\x12U\n" +
+	"\rUpdateProfile\x12%.podium.agent.v1.UpdateProfileRequest\x1a&.podium.agent.v1.UpdateProfileResponse\x12a\n" +
+	"\x0eCreatePlaybook\x12&.podium.agent.v1.CreatePlaybookRequest\x1a'.podium.agent.v1.CreatePlaybookResponse\x12a\n" +
+	"\x0eUpdatePlaybook\x12&.podium.agent.v1.UpdatePlaybookRequest\x1a'.podium.agent.v1.UpdatePlaybookResponse\x12a\n" +
+	"\x0eDeletePlaybook\x12&.podium.agent.v1.DeletePlaybookRequest\x1a'.podium.agent.v1.DeletePlaybookResponse\x12U\n" +
 	"\n" +
 	"CreateChat\x12\".podium.agent.v1.CreateChatRequest\x1a#.podium.agent.v1.CreateChatResponse\x12R\n" +
 	"\tListChats\x12!.podium.agent.v1.ListChatsRequest\x1a\".podium.agent.v1.ListChatsResponse\x12d\n" +
@@ -4473,9 +4472,9 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*SearchMemoriesResponse)(nil),     // 29: podium.agent.v1.SearchMemoriesResponse
 	(*DeleteMemoryRequest)(nil),        // 30: podium.agent.v1.DeleteMemoryRequest
 	(*DeleteMemoryResponse)(nil),       // 31: podium.agent.v1.DeleteMemoryResponse
-	(*Skill)(nil),                      // 32: podium.agent.v1.Skill
-	(*ListSkillsRequest)(nil),          // 33: podium.agent.v1.ListSkillsRequest
-	(*ListSkillsResponse)(nil),         // 34: podium.agent.v1.ListSkillsResponse
+	(*Playbook)(nil),                   // 32: podium.agent.v1.Playbook
+	(*ListPlaybooksRequest)(nil),       // 33: podium.agent.v1.ListPlaybooksRequest
+	(*ListPlaybooksResponse)(nil),      // 34: podium.agent.v1.ListPlaybooksResponse
 	(*Chat)(nil),                       // 35: podium.agent.v1.Chat
 	(*ChatAttachment)(nil),             // 36: podium.agent.v1.ChatAttachment
 	(*ChatMessage)(nil),                // 37: podium.agent.v1.ChatMessage
@@ -4489,22 +4488,22 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*SendChatMessageResponse)(nil),    // 45: podium.agent.v1.SendChatMessageResponse
 	(*StreamChatRequest)(nil),          // 46: podium.agent.v1.StreamChatRequest
 	(*AgentProfile)(nil),               // 47: podium.agent.v1.AgentProfile
-	(*SkillResources)(nil),             // 48: podium.agent.v1.SkillResources
-	(*SkillSecretRef)(nil),             // 49: podium.agent.v1.SkillSecretRef
-	(*SkillRepo)(nil),                  // 50: podium.agent.v1.SkillRepo
-	(*SkillDefinition)(nil),            // 51: podium.agent.v1.SkillDefinition
+	(*PlaybookResources)(nil),          // 48: podium.agent.v1.PlaybookResources
+	(*PlaybookSecretRef)(nil),          // 49: podium.agent.v1.PlaybookSecretRef
+	(*PlaybookRepo)(nil),               // 50: podium.agent.v1.PlaybookRepo
+	(*PlaybookDefinition)(nil),         // 51: podium.agent.v1.PlaybookDefinition
 	(*GetProfileRequest)(nil),          // 52: podium.agent.v1.GetProfileRequest
 	(*GetProfileResponse)(nil),         // 53: podium.agent.v1.GetProfileResponse
 	(*UpdateProfileRequest)(nil),       // 54: podium.agent.v1.UpdateProfileRequest
 	(*UpdateProfileResponse)(nil),      // 55: podium.agent.v1.UpdateProfileResponse
-	(*CreateSkillRequest)(nil),         // 56: podium.agent.v1.CreateSkillRequest
-	(*CreateSkillResponse)(nil),        // 57: podium.agent.v1.CreateSkillResponse
-	(*UpdateSkillRequest)(nil),         // 58: podium.agent.v1.UpdateSkillRequest
-	(*UpdateSkillResponse)(nil),        // 59: podium.agent.v1.UpdateSkillResponse
-	(*DeleteSkillRequest)(nil),         // 60: podium.agent.v1.DeleteSkillRequest
-	(*DeleteSkillResponse)(nil),        // 61: podium.agent.v1.DeleteSkillResponse
+	(*CreatePlaybookRequest)(nil),      // 56: podium.agent.v1.CreatePlaybookRequest
+	(*CreatePlaybookResponse)(nil),     // 57: podium.agent.v1.CreatePlaybookResponse
+	(*UpdatePlaybookRequest)(nil),      // 58: podium.agent.v1.UpdatePlaybookRequest
+	(*UpdatePlaybookResponse)(nil),     // 59: podium.agent.v1.UpdatePlaybookResponse
+	(*DeletePlaybookRequest)(nil),      // 60: podium.agent.v1.DeletePlaybookRequest
+	(*DeletePlaybookResponse)(nil),     // 61: podium.agent.v1.DeletePlaybookResponse
 	nil,                                // 62: podium.agent.v1.Memory.MetadataEntry
-	nil,                                // 63: podium.agent.v1.SkillDefinition.EnvEntry
+	nil,                                // 63: podium.agent.v1.PlaybookDefinition.EnvEntry
 	(*timestamppb.Timestamp)(nil),      // 64: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
@@ -4529,7 +4528,7 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	64, // 18: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
 	25, // 19: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
 	25, // 20: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
-	32, // 21: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.Skill
+	32, // 21: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
 	64, // 22: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
 	64, // 23: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
 	36, // 24: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
@@ -4541,18 +4540,18 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	35, // 30: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
 	37, // 31: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
 	64, // 32: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
-	48, // 33: podium.agent.v1.SkillDefinition.resources:type_name -> podium.agent.v1.SkillResources
-	49, // 34: podium.agent.v1.SkillDefinition.secrets:type_name -> podium.agent.v1.SkillSecretRef
-	50, // 35: podium.agent.v1.SkillDefinition.repos:type_name -> podium.agent.v1.SkillRepo
-	63, // 36: podium.agent.v1.SkillDefinition.env:type_name -> podium.agent.v1.SkillDefinition.EnvEntry
-	64, // 37: podium.agent.v1.SkillDefinition.updated_at:type_name -> google.protobuf.Timestamp
+	48, // 33: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
+	49, // 34: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
+	50, // 35: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
+	63, // 36: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
+	64, // 37: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
 	47, // 38: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	51, // 39: podium.agent.v1.GetProfileResponse.skills:type_name -> podium.agent.v1.SkillDefinition
+	51, // 39: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
 	47, // 40: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	51, // 41: podium.agent.v1.CreateSkillRequest.skill:type_name -> podium.agent.v1.SkillDefinition
-	51, // 42: podium.agent.v1.CreateSkillResponse.skill:type_name -> podium.agent.v1.SkillDefinition
-	51, // 43: podium.agent.v1.UpdateSkillRequest.skill:type_name -> podium.agent.v1.SkillDefinition
-	51, // 44: podium.agent.v1.UpdateSkillResponse.skill:type_name -> podium.agent.v1.SkillDefinition
+	51, // 41: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	51, // 42: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	51, // 43: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	51, // 44: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
 	3,  // 45: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
 	5,  // 46: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
 	7,  // 47: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
@@ -4565,12 +4564,12 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	26, // 54: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
 	28, // 55: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
 	30, // 56: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
-	33, // 57: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
+	33, // 57: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
 	52, // 58: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
 	54, // 59: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
-	56, // 60: podium.agent.v1.AgentService.CreateSkill:input_type -> podium.agent.v1.CreateSkillRequest
-	58, // 61: podium.agent.v1.AgentService.UpdateSkill:input_type -> podium.agent.v1.UpdateSkillRequest
-	60, // 62: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
+	56, // 60: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
+	58, // 61: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
+	60, // 62: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
 	40, // 63: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
 	42, // 64: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
 	44, // 65: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
@@ -4587,12 +4586,12 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	27, // 76: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
 	29, // 77: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
 	31, // 78: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
-	34, // 79: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
+	34, // 79: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
 	53, // 80: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
 	55, // 81: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
-	57, // 82: podium.agent.v1.AgentService.CreateSkill:output_type -> podium.agent.v1.CreateSkillResponse
-	59, // 83: podium.agent.v1.AgentService.UpdateSkill:output_type -> podium.agent.v1.UpdateSkillResponse
-	61, // 84: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
+	57, // 82: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
+	59, // 83: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
+	61, // 84: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
 	41, // 85: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
 	43, // 86: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
 	45, // 87: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse

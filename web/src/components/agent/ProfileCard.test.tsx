@@ -13,11 +13,11 @@ function profile(fields: MessageInitShape<typeof AgentProfileSchema> = {}) {
     name: "podium",
     displayName: "Podium",
     model: "claude-opus-5",
-    defaultSkill: "general",
+    defaultPlaybook: "general",
     profileDir: "/etc/podium/agent",
     fileDisplayName: "Podium",
     fileModel: "claude-opus-5",
-    fileDefaultSkill: "general",
+    fileDefaultPlaybook: "general",
     ...fields,
   });
 }
@@ -27,7 +27,7 @@ function mount(p = profile()) {
   return render(
     <ProfileCard
       profile={p}
-      skills={["analyst", "general"]}
+      playbooks={["analyst", "general"]}
       agents={catalogue()}
       onSave={onSave}
     />,
@@ -38,7 +38,7 @@ describe("ProfileCard", () => {
   it("shows the file's value beside every field and leaves the inputs empty when nothing overrides it", () => {
     mount();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
-    expect(screen.getByLabelText("Default skill")).toHaveValue("");
+    expect(screen.getByLabelText("Default playbook")).toHaveValue("");
     // The model is a picker now, and with nothing overriding it it offers the file's value.
     expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("Use profile.yaml's");
     // The file is what is in force, so it has to be on the screen.
@@ -62,19 +62,19 @@ describe("ProfileCard", () => {
       model: "",
       agent: "",
       effort: "",
-      defaultSkill: "",
-      chatDefaultSkill: "",
+      defaultPlaybook: "",
+      chatDefaultPlaybook: "",
     });
   });
 
-  it("picks a default skill from the loaded skills rather than free text", async () => {
+  it("picks a default playbook from the loaded playbooks rather than free text", async () => {
     mount();
-    const select = screen.getByLabelText("Default skill");
+    const select = screen.getByLabelText("Default playbook");
     await userEvent.selectOptions(select, "analyst");
     await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultSkill: "analyst" }),
+      expect.objectContaining({ defaultPlaybook: "analyst" }),
     );
   });
 
