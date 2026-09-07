@@ -15,9 +15,9 @@ import (
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
 
-// maxChatMessageBytes caps one human message. The brief cap is 256 KiB for the whole
-// conversation, so a single message larger than this could never be answered anyway, and
-// refusing it here says so instead of failing the turn.
+// maxChatMessageBytes caps one human message. The brief cap is 96 KiB of base64 for the
+// whole conversation — 72 KiB of JSON — so a single message larger than this could never be
+// answered anyway, and refusing it here says so instead of failing the turn.
 const maxChatMessageBytes = 32 << 10
 
 // ChatSource is the part of the chat source the handlers use: the write path that starts a
