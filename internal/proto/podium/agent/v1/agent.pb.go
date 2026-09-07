@@ -3415,7 +3415,16 @@ type PlaybookDefinition struct {
 	Agent string `protobuf:"bytes,20,opt,name=agent,proto3" json:"agent,omitempty"`
 	// effort is the reasoning effort a turn of this playbook runs at, or empty for the
 	// profile's. The levels a model accepts come from ListAgents.
-	Effort        string `protobuf:"bytes,21,opt,name=effort,proto3" json:"effort,omitempty"`
+	Effort string `protobuf:"bytes,21,opt,name=effort,proto3" json:"effort,omitempty"`
+	// skills is the Agent Skills a turn of this playbook may load, by name. Empty means none,
+	// and none is enforced rather than merely unconfigured: the turn's harness config denies
+	// every skill by pattern, which also removes the skill tool from the agent.
+	//
+	// An Agent Skill is instructions and scripts somebody else wrote, and they run in the
+	// turn's container with the turn's GitHub token and model credential. This list is the
+	// whole of what decides which ones do, and editing it here is a UI action rather than a
+	// file edit — see docs/security.md.
+	Skills        []string `protobuf:"bytes,22,rep,name=skills,proto3" json:"skills,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3595,6 +3604,13 @@ func (x *PlaybookDefinition) GetEffort() string {
 		return x.Effort
 	}
 	return ""
+}
+
+func (x *PlaybookDefinition) GetSkills() []string {
+	if x != nil {
+		return x.Skills
+	}
+	return nil
 }
 
 type GetProfileRequest struct {
@@ -4084,6 +4100,589 @@ func (*DeletePlaybookResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{61}
 }
 
+// AgentSkill is one Agent Skill the conductor can hand a turn.
+//
+// EVERY FIELD IS CONTENT except origin, enabled and the provenance. name and description come
+// out of a SKILL.md somebody else wrote; a browser renders them as text and never as markup.
+type AgentSkill struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the skill's own frontmatter name, which is also the directory it is installed
+	// into inside the container and the only name a playbook can allow-list.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// description is the frontmatter's. It is the whole of what the model reads to decide
+	// whether to use the skill, which is why it is shown here.
+	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	// sha256 is the digest of the bundle document. It is what the runtime verifies before it
+	// writes anything into a container — TRANSPORT INTEGRITY, not provenance: it says the
+	// bytes that arrived are the bytes the conductor read, and nothing about who wrote them.
+	Sha256 string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// size_bytes is the bundle document's length, which is what the caps are measured against.
+	SizeBytes int64 `protobuf:"varint,4,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	FileCount int32 `protobuf:"varint,5,opt,name=file_count,json=fileCount,proto3" json:"file_count,omitempty"`
+	// enabled is false for a stored skill somebody turned off. Always true for a directory
+	// skill: there is nothing in a directory to turn off.
+	Enabled bool `protobuf:"varint,6,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// origin is "dir" for a directory under PODIUM_AGENT_SKILLS_DIR on the conductor's host,
+	// and "stored" for a bundle uploaded through this API.
+	Origin string `protobuf:"bytes,7,opt,name=origin,proto3" json:"origin,omitempty"`
+	// editable is false for a directory skill: the files win, and the write RPCs refuse one.
+	Editable bool `protobuf:"varint,8,opt,name=editable,proto3" json:"editable,omitempty"`
+	// shadowed is true for a stored skill whose name a directory also holds. The directory
+	// wins, so a shadowed skill never runs; it is reported so it can be deleted.
+	Shadowed bool `protobuf:"varint,9,opt,name=shadowed,proto3" json:"shadowed,omitempty"`
+	// uploaded_by and uploaded_at are set for a stored skill only.
+	UploadedBy string                 `protobuf:"bytes,10,opt,name=uploaded_by,json=uploadedBy,proto3" json:"uploaded_by,omitempty"`
+	UploadedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=uploaded_at,json=uploadedAt,proto3" json:"uploaded_at,omitempty"`
+	// problem is why this skill would fail a turn that asked for it — a directory with no
+	// SKILL.md, a bundle over a cap, a row whose digest no longer matches. Empty normally. It
+	// is reported rather than the entry being hidden: a skill an operator can see in a shell
+	// and cannot see here is the worst version of this.
+	Problem string `protobuf:"bytes,12,opt,name=problem,proto3" json:"problem,omitempty"`
+	// playbooks names the playbooks whose skills: list this skill, so a human can see what a
+	// delete or a disable would change before doing it.
+	Playbooks     []string `protobuf:"bytes,13,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentSkill) Reset() {
+	*x = AgentSkill{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentSkill) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentSkill) ProtoMessage() {}
+
+func (x *AgentSkill) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentSkill.ProtoReflect.Descriptor instead.
+func (*AgentSkill) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *AgentSkill) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *AgentSkill) GetFileCount() int32 {
+	if x != nil {
+		return x.FileCount
+	}
+	return 0
+}
+
+func (x *AgentSkill) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *AgentSkill) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetEditable() bool {
+	if x != nil {
+		return x.Editable
+	}
+	return false
+}
+
+func (x *AgentSkill) GetShadowed() bool {
+	if x != nil {
+		return x.Shadowed
+	}
+	return false
+}
+
+func (x *AgentSkill) GetUploadedBy() string {
+	if x != nil {
+		return x.UploadedBy
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetUploadedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UploadedAt
+	}
+	return nil
+}
+
+func (x *AgentSkill) GetProblem() string {
+	if x != nil {
+		return x.Problem
+	}
+	return ""
+}
+
+func (x *AgentSkill) GetPlaybooks() []string {
+	if x != nil {
+		return x.Playbooks
+	}
+	return nil
+}
+
+type ListSkillsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSkillsRequest) Reset() {
+	*x = ListSkillsRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSkillsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSkillsRequest) ProtoMessage() {}
+
+func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSkillsRequest.ProtoReflect.Descriptor instead.
+func (*ListSkillsRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{63}
+}
+
+type ListSkillsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// skills is every skill that could run, sorted by name, followed by any shadowed stored
+	// skill. Two entries can share a name when one is shadowed; they differ in origin.
+	Skills []*AgentSkill `protobuf:"bytes,1,rep,name=skills,proto3" json:"skills,omitempty"`
+	// skills_dir is PODIUM_AGENT_SKILLS_DIR, or "" when this conductor has none. The UI says
+	// which directory it read rather than leaving a reader to guess why one is missing.
+	SkillsDir string `protobuf:"bytes,2,opt,name=skills_dir,json=skillsDir,proto3" json:"skills_dir,omitempty"`
+	// max_bytes and max_files are the caps an upload is held to, so the UI can name the same
+	// number the refusal would.
+	MaxBytes int64 `protobuf:"varint,3,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	MaxFiles int32 `protobuf:"varint,4,opt,name=max_files,json=maxFiles,proto3" json:"max_files,omitempty"`
+	// max_per_playbook is how many skills one playbook may name.
+	MaxPerPlaybook int32 `protobuf:"varint,5,opt,name=max_per_playbook,json=maxPerPlaybook,proto3" json:"max_per_playbook,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListSkillsResponse) Reset() {
+	*x = ListSkillsResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSkillsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSkillsResponse) ProtoMessage() {}
+
+func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSkillsResponse.ProtoReflect.Descriptor instead.
+func (*ListSkillsResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *ListSkillsResponse) GetSkills() []*AgentSkill {
+	if x != nil {
+		return x.Skills
+	}
+	return nil
+}
+
+func (x *ListSkillsResponse) GetSkillsDir() string {
+	if x != nil {
+		return x.SkillsDir
+	}
+	return ""
+}
+
+func (x *ListSkillsResponse) GetMaxBytes() int64 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
+func (x *ListSkillsResponse) GetMaxFiles() int32 {
+	if x != nil {
+		return x.MaxFiles
+	}
+	return 0
+}
+
+func (x *ListSkillsResponse) GetMaxPerPlaybook() int32 {
+	if x != nil {
+		return x.MaxPerPlaybook
+	}
+	return 0
+}
+
+type UploadSkillRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// content is a zip of the skill's directory, or a bare SKILL.md. Which one it is comes
+	// from the bytes — a zip is recognised by its own header — so a client does not declare
+	// it and cannot mis-declare it.
+	Content []byte `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+	// filename is what the human called the upload. It appears in error messages and nowhere
+	// else: the skill's NAME comes from its SKILL.md frontmatter, because that is the only
+	// name the harness will load it under.
+	Filename string `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
+	// replace allows overwriting a stored skill of the same name, and without it an existing
+	// name is refused. A skill is a dependency of every playbook that names it, and a file
+	// picker should not be able to swap one by accident.
+	Replace       bool `protobuf:"varint,3,opt,name=replace,proto3" json:"replace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadSkillRequest) Reset() {
+	*x = UploadSkillRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadSkillRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadSkillRequest) ProtoMessage() {}
+
+func (x *UploadSkillRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadSkillRequest.ProtoReflect.Descriptor instead.
+func (*UploadSkillRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *UploadSkillRequest) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *UploadSkillRequest) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *UploadSkillRequest) GetReplace() bool {
+	if x != nil {
+		return x.Replace
+	}
+	return false
+}
+
+type UploadSkillResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Skill *AgentSkill            `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	// replaced is true when this overwrote a stored bundle rather than adding a new skill.
+	Replaced      bool `protobuf:"varint,2,opt,name=replaced,proto3" json:"replaced,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadSkillResponse) Reset() {
+	*x = UploadSkillResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadSkillResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadSkillResponse) ProtoMessage() {}
+
+func (x *UploadSkillResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadSkillResponse.ProtoReflect.Descriptor instead.
+func (*UploadSkillResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *UploadSkillResponse) GetSkill() *AgentSkill {
+	if x != nil {
+		return x.Skill
+	}
+	return nil
+}
+
+func (x *UploadSkillResponse) GetReplaced() bool {
+	if x != nil {
+		return x.Replaced
+	}
+	return false
+}
+
+type SetSkillEnabledRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSkillEnabledRequest) Reset() {
+	*x = SetSkillEnabledRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSkillEnabledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSkillEnabledRequest) ProtoMessage() {}
+
+func (x *SetSkillEnabledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSkillEnabledRequest.ProtoReflect.Descriptor instead.
+func (*SetSkillEnabledRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *SetSkillEnabledRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SetSkillEnabledRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type SetSkillEnabledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Skill         *AgentSkill            `protobuf:"bytes,1,opt,name=skill,proto3" json:"skill,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSkillEnabledResponse) Reset() {
+	*x = SetSkillEnabledResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSkillEnabledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSkillEnabledResponse) ProtoMessage() {}
+
+func (x *SetSkillEnabledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSkillEnabledResponse.ProtoReflect.Descriptor instead.
+func (*SetSkillEnabledResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *SetSkillEnabledResponse) GetSkill() *AgentSkill {
+	if x != nil {
+		return x.Skill
+	}
+	return nil
+}
+
+type DeleteSkillRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSkillRequest) Reset() {
+	*x = DeleteSkillRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSkillRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSkillRequest) ProtoMessage() {}
+
+func (x *DeleteSkillRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSkillRequest.ProtoReflect.Descriptor instead.
+func (*DeleteSkillRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *DeleteSkillRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type DeleteSkillResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteSkillResponse) Reset() {
+	*x = DeleteSkillResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteSkillResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteSkillResponse) ProtoMessage() {}
+
+func (x *DeleteSkillResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteSkillResponse.ProtoReflect.Descriptor instead.
+func (*DeleteSkillResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{70}
+}
+
 var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
@@ -4341,7 +4940,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fPlaybookRepo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12%\n" +
-	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xb1\x06\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xc9\x06\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -4366,7 +4965,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x13 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05agent\x18\x14 \x01(\tR\x05agent\x12\x16\n" +
-	"\x06effort\x18\x15 \x01(\tR\x06effort\x1a6\n" +
+	"\x06effort\x18\x15 \x01(\tR\x06effort\x12\x16\n" +
+	"\x06skills\x18\x16 \x03(\tR\x06skills\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +
@@ -4394,7 +4994,50 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"+\n" +
 	"\x15DeletePlaybookRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x18\n" +
-	"\x16DeletePlaybookResponse2\xac\x10\n" +
+	"\x16DeletePlaybookResponse\"\x98\x03\n" +
+	"\n" +
+	"AgentSkill\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\x12\x1d\n" +
+	"\n" +
+	"file_count\x18\x05 \x01(\x05R\tfileCount\x12\x18\n" +
+	"\aenabled\x18\x06 \x01(\bR\aenabled\x12\x16\n" +
+	"\x06origin\x18\a \x01(\tR\x06origin\x12\x1a\n" +
+	"\beditable\x18\b \x01(\bR\beditable\x12\x1a\n" +
+	"\bshadowed\x18\t \x01(\bR\bshadowed\x12\x1f\n" +
+	"\vuploaded_by\x18\n" +
+	" \x01(\tR\n" +
+	"uploadedBy\x12;\n" +
+	"\vuploaded_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"uploadedAt\x12\x18\n" +
+	"\aproblem\x18\f \x01(\tR\aproblem\x12\x1c\n" +
+	"\tplaybooks\x18\r \x03(\tR\tplaybooks\"\x13\n" +
+	"\x11ListSkillsRequest\"\xcc\x01\n" +
+	"\x12ListSkillsResponse\x123\n" +
+	"\x06skills\x18\x01 \x03(\v2\x1b.podium.agent.v1.AgentSkillR\x06skills\x12\x1d\n" +
+	"\n" +
+	"skills_dir\x18\x02 \x01(\tR\tskillsDir\x12\x1b\n" +
+	"\tmax_bytes\x18\x03 \x01(\x03R\bmaxBytes\x12\x1b\n" +
+	"\tmax_files\x18\x04 \x01(\x05R\bmaxFiles\x12(\n" +
+	"\x10max_per_playbook\x18\x05 \x01(\x05R\x0emaxPerPlaybook\"d\n" +
+	"\x12UploadSkillRequest\x12\x18\n" +
+	"\acontent\x18\x01 \x01(\fR\acontent\x12\x1a\n" +
+	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x18\n" +
+	"\areplace\x18\x03 \x01(\bR\areplace\"d\n" +
+	"\x13UploadSkillResponse\x121\n" +
+	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\x12\x1a\n" +
+	"\breplaced\x18\x02 \x01(\bR\breplaced\"F\n" +
+	"\x16SetSkillEnabledRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"L\n" +
+	"\x17SetSkillEnabledResponse\x121\n" +
+	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\"(\n" +
+	"\x12DeleteSkillRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
+	"\x13DeleteSkillResponse2\x9d\x13\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
@@ -4418,6 +5061,11 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0eUpdatePlaybook\x12&.podium.agent.v1.UpdatePlaybookRequest\x1a'.podium.agent.v1.UpdatePlaybookResponse\x12a\n" +
 	"\x0eDeletePlaybook\x12&.podium.agent.v1.DeletePlaybookRequest\x1a'.podium.agent.v1.DeletePlaybookResponse\x12U\n" +
 	"\n" +
+	"ListSkills\x12\".podium.agent.v1.ListSkillsRequest\x1a#.podium.agent.v1.ListSkillsResponse\x12X\n" +
+	"\vUploadSkill\x12#.podium.agent.v1.UploadSkillRequest\x1a$.podium.agent.v1.UploadSkillResponse\x12d\n" +
+	"\x0fSetSkillEnabled\x12'.podium.agent.v1.SetSkillEnabledRequest\x1a(.podium.agent.v1.SetSkillEnabledResponse\x12X\n" +
+	"\vDeleteSkill\x12#.podium.agent.v1.DeleteSkillRequest\x1a$.podium.agent.v1.DeleteSkillResponse\x12U\n" +
+	"\n" +
 	"CreateChat\x12\".podium.agent.v1.CreateChatRequest\x1a#.podium.agent.v1.CreateChatResponse\x12R\n" +
 	"\tListChats\x12!.podium.agent.v1.ListChatsRequest\x1a\".podium.agent.v1.ListChatsResponse\x12d\n" +
 	"\x0fSendChatMessage\x12'.podium.agent.v1.SendChatMessageRequest\x1a(.podium.agent.v1.SendChatMessageResponse\x12N\n" +
@@ -4438,7 +5086,7 @@ func file_podium_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_agent_proto_rawDescData
 }
 
-var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
+var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 73)
 var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*Session)(nil),                    // 0: podium.agent.v1.Session
 	(*Turn)(nil),                       // 1: podium.agent.v1.Turn
@@ -4502,49 +5150,58 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*UpdatePlaybookResponse)(nil),     // 59: podium.agent.v1.UpdatePlaybookResponse
 	(*DeletePlaybookRequest)(nil),      // 60: podium.agent.v1.DeletePlaybookRequest
 	(*DeletePlaybookResponse)(nil),     // 61: podium.agent.v1.DeletePlaybookResponse
-	nil,                                // 62: podium.agent.v1.Memory.MetadataEntry
-	nil,                                // 63: podium.agent.v1.PlaybookDefinition.EnvEntry
-	(*timestamppb.Timestamp)(nil),      // 64: google.protobuf.Timestamp
+	(*AgentSkill)(nil),                 // 62: podium.agent.v1.AgentSkill
+	(*ListSkillsRequest)(nil),          // 63: podium.agent.v1.ListSkillsRequest
+	(*ListSkillsResponse)(nil),         // 64: podium.agent.v1.ListSkillsResponse
+	(*UploadSkillRequest)(nil),         // 65: podium.agent.v1.UploadSkillRequest
+	(*UploadSkillResponse)(nil),        // 66: podium.agent.v1.UploadSkillResponse
+	(*SetSkillEnabledRequest)(nil),     // 67: podium.agent.v1.SetSkillEnabledRequest
+	(*SetSkillEnabledResponse)(nil),    // 68: podium.agent.v1.SetSkillEnabledResponse
+	(*DeleteSkillRequest)(nil),         // 69: podium.agent.v1.DeleteSkillRequest
+	(*DeleteSkillResponse)(nil),        // 70: podium.agent.v1.DeleteSkillResponse
+	nil,                                // 71: podium.agent.v1.Memory.MetadataEntry
+	nil,                                // 72: podium.agent.v1.PlaybookDefinition.EnvEntry
+	(*timestamppb.Timestamp)(nil),      // 73: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
-	64, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	64, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
-	64, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
-	64, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
+	73, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	73, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
+	73, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
+	73, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
 	0,  // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
 	0,  // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
 	1,  // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
-	64, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
-	64, // 9: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
+	73, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
+	73, // 9: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
 	10, // 10: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	10, // 11: podium.agent.v1.GetSettingsResponse.providers:type_name -> podium.agent.v1.ProviderSettings
 	10, // 12: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	64, // 13: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	73, // 13: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
 	10, // 14: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	21, // 15: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
 	22, // 16: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
-	62, // 17: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
-	64, // 18: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
+	71, // 17: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
+	73, // 18: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
 	25, // 19: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
 	25, // 20: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
 	32, // 21: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
-	64, // 22: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
-	64, // 23: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
+	73, // 22: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
+	73, // 23: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
 	36, // 24: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
-	64, // 25: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
+	73, // 25: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
 	37, // 26: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
 	38, // 27: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
 	35, // 28: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
 	2,  // 29: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
 	35, // 30: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
 	37, // 31: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
-	64, // 32: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
+	73, // 32: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
 	48, // 33: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
 	49, // 34: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
 	50, // 35: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
-	63, // 36: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
-	64, // 37: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
+	72, // 36: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
+	73, // 37: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
 	47, // 38: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
 	51, // 39: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
 	47, // 40: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
@@ -4552,55 +5209,67 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	51, // 42: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
 	51, // 43: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
 	51, // 44: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	3,  // 45: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
-	5,  // 46: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
-	7,  // 47: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
-	9,  // 48: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
-	12, // 49: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
-	15, // 50: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
-	17, // 51: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
-	19, // 52: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
-	23, // 53: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
-	26, // 54: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
-	28, // 55: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
-	30, // 56: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
-	33, // 57: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
-	52, // 58: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
-	54, // 59: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
-	56, // 60: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
-	58, // 61: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
-	60, // 62: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
-	40, // 63: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
-	42, // 64: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
-	44, // 65: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
-	46, // 66: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
-	4,  // 67: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,  // 68: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,  // 69: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	11, // 70: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
-	13, // 71: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
-	16, // 72: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
-	18, // 73: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
-	20, // 74: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
-	24, // 75: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
-	27, // 76: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
-	29, // 77: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
-	31, // 78: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
-	34, // 79: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
-	53, // 80: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
-	55, // 81: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
-	57, // 82: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
-	59, // 83: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
-	61, // 84: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
-	41, // 85: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
-	43, // 86: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
-	45, // 87: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
-	39, // 88: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
-	67, // [67:89] is the sub-list for method output_type
-	45, // [45:67] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	73, // 45: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
+	62, // 46: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
+	62, // 47: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	62, // 48: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	3,  // 49: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
+	5,  // 50: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
+	7,  // 51: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
+	9,  // 52: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
+	12, // 53: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
+	15, // 54: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
+	17, // 55: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
+	19, // 56: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
+	23, // 57: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
+	26, // 58: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
+	28, // 59: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
+	30, // 60: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
+	33, // 61: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
+	52, // 62: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
+	54, // 63: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
+	56, // 64: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
+	58, // 65: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
+	60, // 66: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
+	63, // 67: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
+	65, // 68: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
+	67, // 69: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
+	69, // 70: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
+	40, // 71: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
+	42, // 72: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
+	44, // 73: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
+	46, // 74: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
+	4,  // 75: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,  // 76: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,  // 77: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	11, // 78: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	13, // 79: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	16, // 80: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	18, // 81: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
+	20, // 82: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
+	24, // 83: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
+	27, // 84: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
+	29, // 85: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
+	31, // 86: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
+	34, // 87: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
+	53, // 88: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
+	55, // 89: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
+	57, // 90: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
+	59, // 91: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
+	61, // 92: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
+	64, // 93: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
+	66, // 94: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
+	68, // 95: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
+	70, // 96: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
+	41, // 97: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
+	43, // 98: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
+	45, // 99: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
+	39, // 100: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
+	75, // [75:101] is the sub-list for method output_type
+	49, // [49:75] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_agent_proto_init() }
@@ -4621,7 +5290,7 @@ func file_podium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_agent_proto_rawDesc), len(file_podium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   64,
+			NumMessages:   73,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

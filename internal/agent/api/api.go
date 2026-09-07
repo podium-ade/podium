@@ -96,6 +96,11 @@ type AgentServiceOptions struct {
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
 	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
 	Memory memory.Client
+	// SkillsDir is PODIUM_AGENT_SKILLS_DIR: the Agent Skills on this host, which the skill
+	// RPCs report and refuse to write over. Empty means the stored half is the only source,
+	// which is a supported configuration — it is what an install with no shell access to the
+	// conductor looks like.
+	SkillsDir string
 	// Profiles is the profile in force, swapped whenever a stored playbook changes. Nil makes
 	// the playbook and profile RPCs answer FailedPrecondition.
 	Profiles *profiles.Live
@@ -114,12 +119,13 @@ type AgentService struct {
 	xaiBaseURL string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
-	oauth    map[string]*oauthClient
-	http     *http.Client
-	memory   memory.Client
-	profiles *profiles.Live
-	chat     ChatSource
-	logger   *slog.Logger
+	oauth     map[string]*oauthClient
+	http      *http.Client
+	memory    memory.Client
+	skillsDir string
+	profiles  *profiles.Live
+	chat      ChatSource
+	logger    *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished.
 	flowMu sync.Mutex
@@ -169,6 +175,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		oauth:      oauth,
 		http:       opts.HTTPClient,
 		memory:     opts.Memory,
+		skillsDir:  opts.SkillsDir,
 		profiles:   opts.Profiles,
 		chat:       opts.Chat,
 		logger:     opts.Logger,

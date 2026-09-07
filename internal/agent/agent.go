@@ -263,6 +263,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		XAIOAuthClientID: a.cfg.XAIOAuthClientID,
 		XAIOAuthScopes:   a.cfg.XAIOAuthScopes,
 		Memory:           a.memory,
+		SkillsDir:        a.cfg.SkillsDir,
 		Profiles:         live,
 		Chat:             a.chat,
 		Logger:           a.logger,
