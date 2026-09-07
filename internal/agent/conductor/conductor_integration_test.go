@@ -604,8 +604,16 @@ func TestABrowserPlaybookGetsAHeadlessChromeBesideIt(t *testing.T) {
 		"a browser is an ordinary container: unlike dockerd it asks nothing of the kernel")
 	assert.False(t, chrome.GetShareWorkspace(),
 		"the browser has no business reading the workspace it is looking at a server for")
-	assert.Equal(t, int32(9222), chrome.GetReadiness().GetTcpPort(),
-		"the turn must not start before the browser listens")
+	// A command probe and not tcp_port, which a live turn proved is not optional: a
+	// tcp_port probe runs inside the container, needs nc or wget, and this image has
+	// neither — the sidecar never came ready and the turn died at provisioning with the
+	// browser working fine. 9223 rather than 9222 because socat binds 9222 before the
+	// browser behind it exists.
+	assert.Zero(t, chrome.GetReadiness().GetTcpPort(),
+		"tcp_port cannot be probed in an image with no nc")
+	assert.Equal(t, []string{"bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9223"},
+		chrome.GetReadiness().GetCommand(),
+		"the turn must not start before Chrome itself is listening")
 	assert.Contains(t, chrome.GetImage(), "@sha256:", "the browser is pinned by digest")
 	assert.Equal(t, []string{"--disable-dev-shm-usage"}, chrome.GetCommand(),
 		"the one flag the image does not set: headless-shell already listens, and saying so "+
