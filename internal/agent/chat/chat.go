@@ -294,7 +294,7 @@ func (s *Source) tookSpoke(chatID string) bool {
 }
 
 // FetchTranscript implements conductor.Source: the whole conversation, oldest first. The
-// brief's 256 KiB cap is what truncates a long one, oldest entry first (step 17).
+// brief's 96 KiB cap is what truncates a long one, oldest entry first (step 17).
 func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error) {
 	chat, err := s.store.GetChat(ctx, ref)
 	if err != nil {

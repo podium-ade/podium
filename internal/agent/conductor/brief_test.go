@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,6 +18,9 @@ import (
 
 // goldenBrief is step 16's fixture, and agent/runtime/src/brief.ts is the schema it follows.
 const goldenBrief = "../../../agent/runtime/testdata/brief.example.json"
+
+// runtimeBrief is the schema itself, and the other half of the cap this package enforces.
+const runtimeBrief = "../../../agent/runtime/src/brief.ts"
 
 func minimalBrief() *Brief {
 	return &Brief{
@@ -158,13 +163,77 @@ func TestEncodeTruncatesTheOldestEntriesFirst(t *testing.T) {
 }
 
 // A brief that does not fit with an empty transcript cannot be fixed by dropping history,
-// so it fails loudly rather than being sent for the runtime to refuse.
+// so it fails loudly rather than being sent for the runtime to refuse. The transcript is
+// deliberately not empty to begin with: this is the end of the truncation loop, after every
+// entry has already gone, and it is the only place that failure can still be reported —
+// past here it becomes a task container that cannot exec, with nothing to say why.
 func TestABriefThatCannotFitAtAllIsAnError(t *testing.T) {
 	b := minimalBrief()
+	for range 4 {
+		b.Transcript = append(b.Transcript, BriefEntry{
+			Role: RoleUser, Author: "alice", TS: "2026-09-03T10:00:00Z", Text: "hi",
+		})
+	}
 	b.Instruction = strings.Repeat("x", MaxBriefBytes)
+
 	_, err := b.Encode()
 	require.ErrorIs(t, err, ErrBriefTooLarge)
-	assert.Empty(t, b.Transcript)
+	assert.Empty(t, b.Transcript, "truncation must have run to exhaustion before giving up")
+	assert.True(t, b.TranscriptTruncated)
+	assert.ErrorContains(t, err, strconv.Itoa(MaxBriefBytes), "the message must name the cap")
+}
+
+// TestTheBriefCapLeavesRoomToExec is the guard on the number itself. MaxBriefBytes is not a
+// preference: a brief that passes validation and then cannot be handed to a container is the
+// one failure Podium cannot report, because exec happens before the runtime's entrypoint.
+//
+// MAX_ARG_STRLEN is 32 * PAGE_SIZE, so 131072 on a 4 KiB-page kernel. Bisected against a
+// real container — Docker 29.4.3, Linux 6.12.76 aarch64, `getconf PAGESIZE` 4096:
+//
+//	PODIUM_AGENT_TURN of 131053 bytes  ->  ok
+//	PODIUM_AGENT_TURN of 131054 bytes  ->  exec /bin/sh: argument list too long
+//
+// Raising MaxBriefBytes back over that ceiling — it was 256 KiB, twice it — must fail here.
+func TestTheBriefCapLeavesRoomToExec(t *testing.T) {
+	const measuredLargestValue = 131053
+	// What the kernel measures is the whole string plus its terminator, so the bisected
+	// value and maxArgStrlen have to reconcile exactly. If they stop doing that, the
+	// constant is describing a machine nobody measured.
+	require.Equal(t, maxArgStrlen, measuredLargestValue+len(BriefEnv)+len("=")+1,
+		"maxArgStrlen must be the measurement, not a guess")
+
+	envString := MaxBriefBytes + len(BriefEnv) + len("=") + 1
+	require.Less(t, envString, maxArgStrlen,
+		"a brief at the cap must be a string a container can exec with")
+	// And not merely under it: a quarter of the ceiling stays unused, which is what the
+	// name, the `=` and the NUL are paid out of.
+	assert.LessOrEqual(t, MaxBriefBytes, maxArgStrlen-maxArgStrlen/4,
+		"the cap must keep real headroom, not sit against the ceiling")
+
+	// The other direction on the number, and the reason it is not smaller: a chat message is
+	// capped at 32 KiB (api.maxChatMessageBytes) on the promise that a message the API
+	// accepts is a message a turn can answer. base64 costs a third, so the cap has to hold
+	// that message, both system prompts and some history as JSON.
+	b := minimalBrief()
+	b.Instruction = strings.Repeat("x", 32<<10)
+	encoded, err := b.Encode()
+	require.NoError(t, err, "a chat message at its own cap must still make a brief that fits")
+	assert.Less(t, len(encoded), MaxBriefBytes)
+}
+
+// The cap is half of a contract. A runtime that accepts more than the conductor emits, or
+// less, is a second bug — and the two halves are in different languages, so nothing but a
+// test reads both.
+func TestTheRuntimeAgreesOnTheBriefCap(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean(runtimeBrief))
+	require.NoError(t, err, "the runtime's schema must exist")
+
+	m := regexp.MustCompile(`export const MaxBriefBytes = (\d+) \* 1024;`).FindSubmatch(raw)
+	require.Len(t, m, 2, "agent/runtime/src/brief.ts must declare MaxBriefBytes in KiB")
+	kib, err := strconv.Atoi(string(m[1]))
+	require.NoError(t, err)
+	assert.Equal(t, MaxBriefBytes, kib*1024,
+		"the conductor and the runtime must cap the brief at the same number of bytes")
 }
 
 // A brief that already fits is left exactly as it was: nothing dropped, nothing declared.
