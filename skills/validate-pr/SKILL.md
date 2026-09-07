@@ -41,6 +41,17 @@ Build and start what you changed, the way the repository says to, and confirm th
 before you attack it. A pass that never got the application up has found nothing — say so
 plainly rather than reporting unattempted attacks as passes.
 
+## Write down what the change must do, before you attack it
+
+Read your own diff and turn it into a short list of criteria — the things a person would check
+to decide the work was done. Three or four is usual; one is fine. They become the rows of the
+table you post at the end, and each one gets walked on **both** viewports:
+
+- **Desktop, 1440×900** — `resize_page`.
+- **Phone, 390×844** — `resize_page`.
+
+A criterion you did not walk is not a pass. Say it was not run, and why.
+
 ## The attacks, in the order that finds bugs
 
 Work down the list. Each one is a question about a user who ends up worse off, not a box.
@@ -65,6 +76,15 @@ Work down the list. Each one is a question about a user who ends up worse off, n
    finish the flow without the mouse? Does Escape close what it opened, and does focus return
    to where it came from?
 
+## The verdict is FAIL if anything is wrong
+
+One rule, and it is not a judgement call: **any console error, uncaught exception, or 4xx/5xx
+tied to the change is a FAIL**, whatever the screen looked like. So is a criterion that does
+not hold on either viewport. There is no "passed with notes".
+
+A FAIL is not the end of the turn — you are the one who fixes it. But it does mean you are not
+finished, and it means you do not post a verdict yet.
+
 ## What counts as a finding
 
 **A finding needs a user who is worse off.** Name them: what they were doing, what happened,
@@ -75,7 +95,7 @@ Severity is that user's cost, not the size of the fix. Data lost or silently wro
 cannot be completed, and an error a user cannot act on are the top of the list. A label two
 pixels out is not on it at all.
 
-## Fix it, then verify the fix
+## Fix it, re-attack it, and know when to stop
 
 Fix what you found, in this branch, now. Then run the same attack again and watch it not
 happen. A fix you did not re-attack is a claim, and this procedure exists because claims about
@@ -84,25 +104,73 @@ your own code are worth nothing.
 Deciding not to fix something is allowed, and it has to be said out loud: what it is, who it
 costs, and why it is not being fixed in this change.
 
-## Evidence goes on the pull request
+**Three passes is the ceiling** — the first, and at most two more after fixes. If it still
+fails on the third, stop there: post the verdict as a FAIL with what is outstanding and say the
+cap was reached. A turn that loops on its own defects until it times out reports nothing at
+all, which is worse than reporting a defect.
 
-`gh` in this image takes attachments, so evidence lands where the review will happen:
+## Post the verdict on the pull request
 
-```sh
-gh pr edit <n> --attach 'empty-state.png#The list with no rows: a spinner that never stops'
+This is the deliverable. The screenshots are how a human confirms the work was done and done
+correctly, without checking out your branch to look — so **a turn that reports done and posts
+no verdict has not finished**, however clean the attack was. "Nothing broke" is the common
+outcome and the one where the pictures matter most: it is exactly the claim a reviewer cannot
+check from a diff.
+
+Save each shot as you take it — `take_screenshot` writes wherever `filePath` says, under the
+OS temporary directory — and name it for its state and its viewport, so the table reads
+without opening anything: `chat-empty-desktop.png`, `chat-menu-mobile.png`.
+
+Then append one block to the pull request body, between markers, so re-running replaces its
+own block instead of overwriting the description somebody wrote:
+
+```markdown
+<!-- validation:start -->
+## Self-validation — PASS
+
+> Attacked in the browser beside this turn, on desktop and phone.
+
+| # | What it must do | 1440×900 | 390×844 |
+|:-:|-----------------|:--------:|:-------:|
+| 1 | The model menu opens on screen and scrolls inside itself | ✅ | ✅ |
+| 2 | Picking a model keeps the menu open so effort can be set | ✅ | ✅ |
+
+| Desktop (1440×900) | Phone (390×844) |
+|:---:|:---:|
+| ![Model menu open, catalogue scrolling](./chat-menu-desktop.png) | ![Same menu, phone width](./chat-menu-mobile.png) |
+
+**Fixed while validating** — the catalogue painted below the fold at 800×600; it now flips above the chip.
+
+**Left** — the sidebar still takes 224px on a phone. Older than this change, and not made worse by it.
+<!-- validation:end -->
 ```
 
-**A screenshot of something broken is worth more than one of something working.** Attach the
-defect, and the same view after the fix. Do not attach a gallery of screens that were fine.
+Post it with the files attached in the same command. `--attach` uploads each file and rewrites
+the matching `./name.png` reference in the body to the uploaded URL, which is what makes the
+screenshots render in the table rather than hang off the bottom as bare links:
 
-## What you report when you are done
+```sh
+gh pr edit <n> --body-file /tmp/opencode/validation.md \
+  --attach '/tmp/opencode/chat-menu-desktop.png#Model menu open at 1440x900' \
+  --attach '/tmp/opencode/chat-menu-mobile.png#Same menu at 390x844'
+```
 
-Four things, in the answer for this turn:
+Build the body by reading the current description, stripping any previous block between the
+markers, and appending the new one. Never replace the description wholesale — the part above
+those markers is the author's.
 
-- **What you attacked** — which screens, and which of the attacks above. An attack you did not
-  run is not a pass; name it as not run.
-- **What broke** — each finding with its user, and the screenshot where there is one.
-- **What you fixed**, and how you verified each fix.
-- **What is left**, with the reason it is left.
+**A FAIL posts the same block**, with the verdict changed, ❌ against the criteria that failed,
+and the screenshot of each failure in the table. Do not post a running commentary while you are
+still fixing: one block, at the end, describing where the change actually landed.
+
+## What you say in the turn's own answer
+
+The pull request has the evidence; the answer is the summary a person reads first:
+
+- **What you attacked** — which criteria, which attacks, on which viewports. Anything not run,
+  named as not run.
+- **What broke**, each with the user who was worse off.
+- **What you fixed**, and that you re-attacked it.
+- **What is left**, with the reason.
 
 A pass means you tried to break it and could not. It never means you did not try.
