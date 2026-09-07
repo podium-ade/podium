@@ -84,16 +84,31 @@ your own code are worth nothing.
 Deciding not to fix something is allowed, and it has to be said out loud: what it is, who it
 costs, and why it is not being fixed in this change.
 
-## Evidence goes on the pull request
+## Attach the screenshots. Always. This is the point.
 
-`gh` in this image takes attachments, so evidence lands where the review will happen:
+The screenshots are not a defect report — they are how a human confirms the work was done, and
+done correctly, without rebuilding your branch to look for themselves. **A turn that reports
+done and attaches nothing has not finished**, however clean the attack was. "Nothing broke" is
+the most common outcome and the one where the pictures matter most, because a claim that
+everything is fine is exactly the claim a reviewer cannot check from a diff.
+
+Save each shot to a file as you take it — `take_screenshot` writes wherever `filePath` says,
+under the OS temporary directory — then attach the files to the pull request you just opened:
 
 ```sh
-gh pr edit <n> --attach 'empty-state.png#The list with no rows: a spinner that never stops'
+gh pr edit <n> --attach '/tmp/opencode/chat-desktop.png#Chat composer, model menu open at 800x600' \
+                --attach '/tmp/opencode/chat-mobile.png#Same menu at 390x844'
 ```
 
-**A screenshot of something broken is worth more than one of something working.** Attach the
-defect, and the same view after the fix. Do not attach a gallery of screens that were fine.
+What to attach, in order:
+
+- **Every screen the change touches, in its finished state.** This is the minimum, and it is
+  not conditional on finding anything.
+- **Both sides of every defect** — the break, and the same view after your fix.
+- **The narrow viewport** for anything with a layout, because that is where it goes wrong.
+
+The alt text after `#` is what a reviewer reads first: say what the picture shows, not
+"screenshot 1". The only thing not worth attaching is a screen your change never touched.
 
 ## What you report when you are done
 
@@ -106,3 +121,6 @@ Four things, in the answer for this turn:
 - **What is left**, with the reason it is left.
 
 A pass means you tried to break it and could not. It never means you did not try.
+
+And check the pull request before you say you are done: the attachments are either on it or
+they are not, and a report describing screenshots nobody can see is worse than no report.
