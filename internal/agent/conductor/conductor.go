@@ -566,9 +566,6 @@ const (
 	// network, which is why the URL below can be a constant.
 	browserSidecarName = "chrome"
 
-	// browserCDPPort is where headless-shell listens for DevTools clients.
-	browserCDPPort = 9222
-
 	// browserCDPURL is what the runtime hands its MCP server. Plaintext for the same
 	// reason the daemon's port is: the network carries this task and its sidecars alone.
 	browserCDPURL = "http://" + browserSidecarName + ":9222"
@@ -596,8 +593,26 @@ func browserSidecar() spec.Sidecar {
 		// shared memory from /dev/shm, which is 64 MB in a container and not enough for a
 		// real page, and the tab dies rather than the process — so it reads as a page that
 		// will not load.
-		Command:   []string{"--disable-dev-shm-usage"},
-		Readiness: spec.Readiness{TCPPort: browserCDPPort, Timeout: spec.Duration(browserSidecarReady)},
+		Command: []string{"--disable-dev-shm-usage"},
+		// A command probe, not tcp_port, for two reasons — and the first one makes the
+		// second moot anyway.
+		//
+		// A tcp_port probe is run from inside the container, because a node cannot route
+		// to a task's own network. It needs `nc` or `wget` to do that, and this image has
+		// neither: it carries a browser, socat and bash. The probe fails immediately with
+		// "readiness probe not supported by this image", the sidecar never comes ready,
+		// and the turn dies at provisioning while the browser sits there working.
+		//
+		// The second reason survives the first: 9222 is socat's listener, and socat binds
+		// it before the browser behind it exists, so a port check there can report ready
+		// while there is nothing to drive. 9223 is the browser's own port. Probing it is
+		// the difference between "something is listening" and "Chrome is up".
+		//
+		// bash's /dev/tcp is a redirection, not a program, so it needs nothing installed.
+		Readiness: spec.Readiness{
+			Command: []string{"bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9223"},
+			Timeout: spec.Duration(browserSidecarReady),
+		},
 	}
 }
 
