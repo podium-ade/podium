@@ -1501,12 +1501,12 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
 
 - **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
   is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
-  another login's chat id gets you `not_found`, not access. `DeleteChat` is the same partition:
-  only the owner can remove a chat, and another login's id is `not_found`. The messages go
-  with it. Sessions and turns it started stay — they are the audit of the work, not the
-  transcript. A task still answering the chat is cancelled first: the node gets SIGTERM and
-  up to 30 seconds, the conversation is gone immediately. The web UI says so in the confirm
-  before it acts.
+  another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
+  are the same partition: only the owner can change the title or remove a chat, and
+  another login's id is `not_found`. The messages go with a delete. Sessions and turns it
+  started stay — they are the audit of the work, not the transcript. A task still answering
+  the chat is cancelled first: the node gets SIGTERM and up to 30 seconds, the conversation
+  is gone immediately. The web UI says so in the confirm before it acts.
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.
@@ -1533,7 +1533,8 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   new chat. `Chat.playbook` is that name, empty until the first message.
 - **The title is generated from the first query.** An untitled chat ("New chat") is named from
   the first message the moment it is sent, then the first turn of that chat may overwrite it
-  with a model-written title (`chat-title.txt`). A title supplied at create is never rewritten.
+  with a model-written title (`chat-title.txt`). A title a human chose is never rewritten:
+  neither one supplied at create, nor one typed later through `RenameChat`.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
   is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one
@@ -1545,9 +1546,11 @@ other link scheme renders as literal text**, because an answer is content a task
 material somebody else supplied. Ask for a table and you get a fenced block, which is what a
 prompt should ask the model for.
 
-What is deliberately not built: renaming a chat, sharing one, uploading a file into the chat,
-and streaming the model's tokens. The unit of streaming is the `progress` message the runtime
-sends, not a token.
+A chat can be renamed by its owner. The title is stored on the chat row; an empty title is
+refused rather than becoming "New chat" again, and a rename is the owner's word on the name,
+so Podium stops generating one for that chat. Sharing a chat, uploading a file into the chat,
+and streaming the model's tokens are deliberately not built. The unit of streaming is the
+`progress` message the runtime sends, not a token.
 
 ---
 
@@ -1564,7 +1567,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
 | `ListPlaybooks` | the chat's playbook chip: name, image, prompt hint, which is the chat default |
-| `CreateChat`, `ListChats`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
+| `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server

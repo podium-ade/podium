@@ -293,6 +293,38 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 	return items, nil
 }
 
+const renameChat = `-- name: RenameChat :one
+update chats set title = $1, auto_title = false
+ where id = $2 and login = $3
+returning id, title, login, created_at, playbook, auto_title
+`
+
+type RenameChatParams struct {
+	Title string
+	ID    string
+	Login string
+}
+
+// RenameChat is filtered by login so a rename cannot cross the partition even if
+// the caller forgot to check. No row is not found, whether the chat is missing or
+// belongs to somebody else — the same answer every other chat read gives.
+//
+// It clears auto_title: a name a human typed is theirs, the same rule as a title
+// supplied at create, so no later turn renames the chat over the top of it.
+func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, renameChat, arg.Title, arg.ID, arg.Login)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.Playbook,
+		&i.AutoTitle,
+	)
+	return i, err
+}
+
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
