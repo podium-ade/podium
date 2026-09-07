@@ -2898,6 +2898,86 @@ func (x *ListChatsResponse) GetNextCursor() string {
 	return ""
 }
 
+type DeleteChatRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChatId        string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteChatRequest) Reset() {
+	*x = DeleteChatRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteChatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteChatRequest) ProtoMessage() {}
+
+func (x *DeleteChatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteChatRequest.ProtoReflect.Descriptor instead.
+func (*DeleteChatRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *DeleteChatRequest) GetChatId() string {
+	if x != nil {
+		return x.ChatId
+	}
+	return ""
+}
+
+type DeleteChatResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteChatResponse) Reset() {
+	*x = DeleteChatResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteChatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteChatResponse) ProtoMessage() {}
+
+func (x *DeleteChatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteChatResponse.ProtoReflect.Descriptor instead.
+func (*DeleteChatResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{47}
+}
+
 type SendChatMessageRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
@@ -2927,7 +3007,7 @@ type SendChatMessageRequest struct {
 
 func (x *SendChatMessageRequest) Reset() {
 	*x = SendChatMessageRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2939,7 +3019,7 @@ func (x *SendChatMessageRequest) String() string {
 func (*SendChatMessageRequest) ProtoMessage() {}
 
 func (x *SendChatMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2952,7 +3032,7 @@ func (x *SendChatMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendChatMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendChatMessageRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{46}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *SendChatMessageRequest) GetChatId() string {
@@ -3007,7 +3087,7 @@ type SendChatMessageResponse struct {
 
 func (x *SendChatMessageResponse) Reset() {
 	*x = SendChatMessageResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3019,7 +3099,7 @@ func (x *SendChatMessageResponse) String() string {
 func (*SendChatMessageResponse) ProtoMessage() {}
 
 func (x *SendChatMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3032,7 +3112,7 @@ func (x *SendChatMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendChatMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendChatMessageResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *SendChatMessageResponse) GetMessage() *ChatMessage {
@@ -3054,7 +3134,7 @@ type StreamChatRequest struct {
 
 func (x *StreamChatRequest) Reset() {
 	*x = StreamChatRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3066,7 +3146,7 @@ func (x *StreamChatRequest) String() string {
 func (*StreamChatRequest) ProtoMessage() {}
 
 func (x *StreamChatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3079,7 +3159,7 @@ func (x *StreamChatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamChatRequest.ProtoReflect.Descriptor instead.
 func (*StreamChatRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *StreamChatRequest) GetChatId() string {
@@ -3137,7 +3217,7 @@ type AgentProfile struct {
 
 func (x *AgentProfile) Reset() {
 	*x = AgentProfile{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3149,7 +3229,7 @@ func (x *AgentProfile) String() string {
 func (*AgentProfile) ProtoMessage() {}
 
 func (x *AgentProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3162,7 +3242,7 @@ func (x *AgentProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentProfile.ProtoReflect.Descriptor instead.
 func (*AgentProfile) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AgentProfile) GetName() string {
@@ -3296,7 +3376,7 @@ type PlaybookResources struct {
 
 func (x *PlaybookResources) Reset() {
 	*x = PlaybookResources{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3308,7 +3388,7 @@ func (x *PlaybookResources) String() string {
 func (*PlaybookResources) ProtoMessage() {}
 
 func (x *PlaybookResources) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3321,7 +3401,7 @@ func (x *PlaybookResources) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaybookResources.ProtoReflect.Descriptor instead.
 func (*PlaybookResources) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *PlaybookResources) GetCpu() float64 {
@@ -3361,7 +3441,7 @@ type PlaybookSecretRef struct {
 
 func (x *PlaybookSecretRef) Reset() {
 	*x = PlaybookSecretRef{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3373,7 +3453,7 @@ func (x *PlaybookSecretRef) String() string {
 func (*PlaybookSecretRef) ProtoMessage() {}
 
 func (x *PlaybookSecretRef) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3386,7 +3466,7 @@ func (x *PlaybookSecretRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaybookSecretRef.ProtoReflect.Descriptor instead.
 func (*PlaybookSecretRef) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{51}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *PlaybookSecretRef) GetName() string {
@@ -3422,7 +3502,7 @@ type PlaybookRepo struct {
 
 func (x *PlaybookRepo) Reset() {
 	*x = PlaybookRepo{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[52]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3434,7 +3514,7 @@ func (x *PlaybookRepo) String() string {
 func (*PlaybookRepo) ProtoMessage() {}
 
 func (x *PlaybookRepo) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[52]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3447,7 +3527,7 @@ func (x *PlaybookRepo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaybookRepo.ProtoReflect.Descriptor instead.
 func (*PlaybookRepo) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{52}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PlaybookRepo) GetName() string {
@@ -3527,7 +3607,7 @@ type PlaybookDefinition struct {
 
 func (x *PlaybookDefinition) Reset() {
 	*x = PlaybookDefinition{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[53]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3539,7 +3619,7 @@ func (x *PlaybookDefinition) String() string {
 func (*PlaybookDefinition) ProtoMessage() {}
 
 func (x *PlaybookDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[53]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3552,7 +3632,7 @@ func (x *PlaybookDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaybookDefinition.ProtoReflect.Descriptor instead.
 func (*PlaybookDefinition) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{53}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *PlaybookDefinition) GetName() string {
@@ -3717,7 +3797,7 @@ type GetProfileRequest struct {
 
 func (x *GetProfileRequest) Reset() {
 	*x = GetProfileRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[54]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3729,7 +3809,7 @@ func (x *GetProfileRequest) String() string {
 func (*GetProfileRequest) ProtoMessage() {}
 
 func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[54]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3742,7 +3822,7 @@ func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileRequest.ProtoReflect.Descriptor instead.
 func (*GetProfileRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{54}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{56}
 }
 
 type GetProfileResponse struct {
@@ -3760,7 +3840,7 @@ type GetProfileResponse struct {
 
 func (x *GetProfileResponse) Reset() {
 	*x = GetProfileResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[55]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3772,7 +3852,7 @@ func (x *GetProfileResponse) String() string {
 func (*GetProfileResponse) ProtoMessage() {}
 
 func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[55]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3785,7 +3865,7 @@ func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileResponse.ProtoReflect.Descriptor instead.
 func (*GetProfileResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{55}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *GetProfileResponse) GetProfile() *AgentProfile {
@@ -3825,7 +3905,7 @@ type UpdateProfileRequest struct {
 
 func (x *UpdateProfileRequest) Reset() {
 	*x = UpdateProfileRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3837,7 +3917,7 @@ func (x *UpdateProfileRequest) String() string {
 func (*UpdateProfileRequest) ProtoMessage() {}
 
 func (x *UpdateProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[56]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3850,7 +3930,7 @@ func (x *UpdateProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProfileRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProfileRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{56}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *UpdateProfileRequest) GetDisplayName() string {
@@ -3904,7 +3984,7 @@ type UpdateProfileResponse struct {
 
 func (x *UpdateProfileResponse) Reset() {
 	*x = UpdateProfileResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3916,7 +3996,7 @@ func (x *UpdateProfileResponse) String() string {
 func (*UpdateProfileResponse) ProtoMessage() {}
 
 func (x *UpdateProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[57]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3929,7 +4009,7 @@ func (x *UpdateProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProfileResponse.ProtoReflect.Descriptor instead.
 func (*UpdateProfileResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{57}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *UpdateProfileResponse) GetProfile() *AgentProfile {
@@ -3948,7 +4028,7 @@ type CreatePlaybookRequest struct {
 
 func (x *CreatePlaybookRequest) Reset() {
 	*x = CreatePlaybookRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3960,7 +4040,7 @@ func (x *CreatePlaybookRequest) String() string {
 func (*CreatePlaybookRequest) ProtoMessage() {}
 
 func (x *CreatePlaybookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[58]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3973,7 +4053,7 @@ func (x *CreatePlaybookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlaybookRequest.ProtoReflect.Descriptor instead.
 func (*CreatePlaybookRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{58}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *CreatePlaybookRequest) GetPlaybook() *PlaybookDefinition {
@@ -3992,7 +4072,7 @@ type CreatePlaybookResponse struct {
 
 func (x *CreatePlaybookResponse) Reset() {
 	*x = CreatePlaybookResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4004,7 +4084,7 @@ func (x *CreatePlaybookResponse) String() string {
 func (*CreatePlaybookResponse) ProtoMessage() {}
 
 func (x *CreatePlaybookResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[59]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4017,7 +4097,7 @@ func (x *CreatePlaybookResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlaybookResponse.ProtoReflect.Descriptor instead.
 func (*CreatePlaybookResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{59}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *CreatePlaybookResponse) GetPlaybook() *PlaybookDefinition {
@@ -4037,7 +4117,7 @@ type UpdatePlaybookRequest struct {
 
 func (x *UpdatePlaybookRequest) Reset() {
 	*x = UpdatePlaybookRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4049,7 +4129,7 @@ func (x *UpdatePlaybookRequest) String() string {
 func (*UpdatePlaybookRequest) ProtoMessage() {}
 
 func (x *UpdatePlaybookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[60]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4062,7 +4142,7 @@ func (x *UpdatePlaybookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlaybookRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePlaybookRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{60}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *UpdatePlaybookRequest) GetPlaybook() *PlaybookDefinition {
@@ -4081,7 +4161,7 @@ type UpdatePlaybookResponse struct {
 
 func (x *UpdatePlaybookResponse) Reset() {
 	*x = UpdatePlaybookResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4093,7 +4173,7 @@ func (x *UpdatePlaybookResponse) String() string {
 func (*UpdatePlaybookResponse) ProtoMessage() {}
 
 func (x *UpdatePlaybookResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[61]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4106,7 +4186,7 @@ func (x *UpdatePlaybookResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlaybookResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePlaybookResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{61}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *UpdatePlaybookResponse) GetPlaybook() *PlaybookDefinition {
@@ -4125,7 +4205,7 @@ type DeletePlaybookRequest struct {
 
 func (x *DeletePlaybookRequest) Reset() {
 	*x = DeletePlaybookRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4137,7 +4217,7 @@ func (x *DeletePlaybookRequest) String() string {
 func (*DeletePlaybookRequest) ProtoMessage() {}
 
 func (x *DeletePlaybookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[62]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4150,7 +4230,7 @@ func (x *DeletePlaybookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePlaybookRequest.ProtoReflect.Descriptor instead.
 func (*DeletePlaybookRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{62}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *DeletePlaybookRequest) GetName() string {
@@ -4168,7 +4248,7 @@ type DeletePlaybookResponse struct {
 
 func (x *DeletePlaybookResponse) Reset() {
 	*x = DeletePlaybookResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4180,7 +4260,7 @@ func (x *DeletePlaybookResponse) String() string {
 func (*DeletePlaybookResponse) ProtoMessage() {}
 
 func (x *DeletePlaybookResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[63]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4193,7 +4273,7 @@ func (x *DeletePlaybookResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePlaybookResponse.ProtoReflect.Descriptor instead.
 func (*DeletePlaybookResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{63}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{65}
 }
 
 // AgentSkill is one Agent Skill the conductor can hand a turn.
@@ -4243,7 +4323,7 @@ type AgentSkill struct {
 
 func (x *AgentSkill) Reset() {
 	*x = AgentSkill{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4255,7 +4335,7 @@ func (x *AgentSkill) String() string {
 func (*AgentSkill) ProtoMessage() {}
 
 func (x *AgentSkill) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[64]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4268,7 +4348,7 @@ func (x *AgentSkill) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentSkill.ProtoReflect.Descriptor instead.
 func (*AgentSkill) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{64}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *AgentSkill) GetName() string {
@@ -4370,7 +4450,7 @@ type ListSkillsRequest struct {
 
 func (x *ListSkillsRequest) Reset() {
 	*x = ListSkillsRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4382,7 +4462,7 @@ func (x *ListSkillsRequest) String() string {
 func (*ListSkillsRequest) ProtoMessage() {}
 
 func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[65]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4395,7 +4475,7 @@ func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSkillsRequest.ProtoReflect.Descriptor instead.
 func (*ListSkillsRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{65}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{67}
 }
 
 type ListSkillsResponse struct {
@@ -4418,7 +4498,7 @@ type ListSkillsResponse struct {
 
 func (x *ListSkillsResponse) Reset() {
 	*x = ListSkillsResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4430,7 +4510,7 @@ func (x *ListSkillsResponse) String() string {
 func (*ListSkillsResponse) ProtoMessage() {}
 
 func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[66]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4443,7 +4523,7 @@ func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSkillsResponse.ProtoReflect.Descriptor instead.
 func (*ListSkillsResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{66}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ListSkillsResponse) GetSkills() []*AgentSkill {
@@ -4501,7 +4581,7 @@ type UploadSkillRequest struct {
 
 func (x *UploadSkillRequest) Reset() {
 	*x = UploadSkillRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4513,7 +4593,7 @@ func (x *UploadSkillRequest) String() string {
 func (*UploadSkillRequest) ProtoMessage() {}
 
 func (x *UploadSkillRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[67]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4526,7 +4606,7 @@ func (x *UploadSkillRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadSkillRequest.ProtoReflect.Descriptor instead.
 func (*UploadSkillRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{67}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *UploadSkillRequest) GetContent() []byte {
@@ -4561,7 +4641,7 @@ type UploadSkillResponse struct {
 
 func (x *UploadSkillResponse) Reset() {
 	*x = UploadSkillResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4573,7 +4653,7 @@ func (x *UploadSkillResponse) String() string {
 func (*UploadSkillResponse) ProtoMessage() {}
 
 func (x *UploadSkillResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[68]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4586,7 +4666,7 @@ func (x *UploadSkillResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadSkillResponse.ProtoReflect.Descriptor instead.
 func (*UploadSkillResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{68}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *UploadSkillResponse) GetSkill() *AgentSkill {
@@ -4613,7 +4693,7 @@ type SetSkillEnabledRequest struct {
 
 func (x *SetSkillEnabledRequest) Reset() {
 	*x = SetSkillEnabledRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4625,7 +4705,7 @@ func (x *SetSkillEnabledRequest) String() string {
 func (*SetSkillEnabledRequest) ProtoMessage() {}
 
 func (x *SetSkillEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[69]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4638,7 +4718,7 @@ func (x *SetSkillEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSkillEnabledRequest.ProtoReflect.Descriptor instead.
 func (*SetSkillEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{69}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *SetSkillEnabledRequest) GetName() string {
@@ -4664,7 +4744,7 @@ type SetSkillEnabledResponse struct {
 
 func (x *SetSkillEnabledResponse) Reset() {
 	*x = SetSkillEnabledResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4676,7 +4756,7 @@ func (x *SetSkillEnabledResponse) String() string {
 func (*SetSkillEnabledResponse) ProtoMessage() {}
 
 func (x *SetSkillEnabledResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[70]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4689,7 +4769,7 @@ func (x *SetSkillEnabledResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSkillEnabledResponse.ProtoReflect.Descriptor instead.
 func (*SetSkillEnabledResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{70}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *SetSkillEnabledResponse) GetSkill() *AgentSkill {
@@ -4708,7 +4788,7 @@ type DeleteSkillRequest struct {
 
 func (x *DeleteSkillRequest) Reset() {
 	*x = DeleteSkillRequest{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[71]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4720,7 +4800,7 @@ func (x *DeleteSkillRequest) String() string {
 func (*DeleteSkillRequest) ProtoMessage() {}
 
 func (x *DeleteSkillRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[71]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4733,7 +4813,7 @@ func (x *DeleteSkillRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSkillRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSkillRequest) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{71}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *DeleteSkillRequest) GetName() string {
@@ -4751,7 +4831,7 @@ type DeleteSkillResponse struct {
 
 func (x *DeleteSkillResponse) Reset() {
 	*x = DeleteSkillResponse{}
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[72]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4763,7 +4843,7 @@ func (x *DeleteSkillResponse) String() string {
 func (*DeleteSkillResponse) ProtoMessage() {}
 
 func (x *DeleteSkillResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_agent_v1_agent_proto_msgTypes[72]
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4776,7 +4856,7 @@ func (x *DeleteSkillResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSkillResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSkillResponse) Descriptor() ([]byte, []int) {
-	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{72}
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{74}
 }
 
 var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -4990,7 +5070,10 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x11ListChatsResponse\x12+\n" +
 	"\x05chats\x18\x01 \x03(\v2\x15.podium.agent.v1.ChatR\x05chats\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\xa5\x01\n" +
+	"nextCursor\",\n" +
+	"\x11DeleteChatRequest\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x14\n" +
+	"\x12DeleteChatResponse\"\xa5\x01\n" +
 	"\x16SendChatMessageRequest\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
@@ -5138,7 +5221,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\"(\n" +
 	"\x12DeleteSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteSkillResponse2\xf4\x13\n" +
+	"\x13DeleteSkillResponse2\xcb\x14\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
@@ -5170,7 +5253,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"CreateChat\x12\".podium.agent.v1.CreateChatRequest\x1a#.podium.agent.v1.CreateChatResponse\x12R\n" +
 	"\tListChats\x12!.podium.agent.v1.ListChatsRequest\x1a\".podium.agent.v1.ListChatsResponse\x12U\n" +
 	"\n" +
-	"RenameChat\x12\".podium.agent.v1.RenameChatRequest\x1a#.podium.agent.v1.RenameChatResponse\x12d\n" +
+	"RenameChat\x12\".podium.agent.v1.RenameChatRequest\x1a#.podium.agent.v1.RenameChatResponse\x12U\n" +
+	"\n" +
+	"DeleteChat\x12\".podium.agent.v1.DeleteChatRequest\x1a#.podium.agent.v1.DeleteChatResponse\x12d\n" +
 	"\x0fSendChatMessage\x12'.podium.agent.v1.SendChatMessageRequest\x1a(.podium.agent.v1.SendChatMessageResponse\x12N\n" +
 	"\n" +
 	"StreamChat\x12\".podium.agent.v1.StreamChatRequest\x1a\x1a.podium.agent.v1.ChatFrame0\x01B\xc8\x01\n" +
@@ -5189,7 +5274,7 @@ func file_podium_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_agent_proto_rawDescData
 }
 
-var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 75)
+var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*Session)(nil),                    // 0: podium.agent.v1.Session
 	(*Turn)(nil),                       // 1: podium.agent.v1.Turn
@@ -5237,64 +5322,66 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*RenameChatResponse)(nil),         // 43: podium.agent.v1.RenameChatResponse
 	(*ListChatsRequest)(nil),           // 44: podium.agent.v1.ListChatsRequest
 	(*ListChatsResponse)(nil),          // 45: podium.agent.v1.ListChatsResponse
-	(*SendChatMessageRequest)(nil),     // 46: podium.agent.v1.SendChatMessageRequest
-	(*SendChatMessageResponse)(nil),    // 47: podium.agent.v1.SendChatMessageResponse
-	(*StreamChatRequest)(nil),          // 48: podium.agent.v1.StreamChatRequest
-	(*AgentProfile)(nil),               // 49: podium.agent.v1.AgentProfile
-	(*PlaybookResources)(nil),          // 50: podium.agent.v1.PlaybookResources
-	(*PlaybookSecretRef)(nil),          // 51: podium.agent.v1.PlaybookSecretRef
-	(*PlaybookRepo)(nil),               // 52: podium.agent.v1.PlaybookRepo
-	(*PlaybookDefinition)(nil),         // 53: podium.agent.v1.PlaybookDefinition
-	(*GetProfileRequest)(nil),          // 54: podium.agent.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),         // 55: podium.agent.v1.GetProfileResponse
-	(*UpdateProfileRequest)(nil),       // 56: podium.agent.v1.UpdateProfileRequest
-	(*UpdateProfileResponse)(nil),      // 57: podium.agent.v1.UpdateProfileResponse
-	(*CreatePlaybookRequest)(nil),      // 58: podium.agent.v1.CreatePlaybookRequest
-	(*CreatePlaybookResponse)(nil),     // 59: podium.agent.v1.CreatePlaybookResponse
-	(*UpdatePlaybookRequest)(nil),      // 60: podium.agent.v1.UpdatePlaybookRequest
-	(*UpdatePlaybookResponse)(nil),     // 61: podium.agent.v1.UpdatePlaybookResponse
-	(*DeletePlaybookRequest)(nil),      // 62: podium.agent.v1.DeletePlaybookRequest
-	(*DeletePlaybookResponse)(nil),     // 63: podium.agent.v1.DeletePlaybookResponse
-	(*AgentSkill)(nil),                 // 64: podium.agent.v1.AgentSkill
-	(*ListSkillsRequest)(nil),          // 65: podium.agent.v1.ListSkillsRequest
-	(*ListSkillsResponse)(nil),         // 66: podium.agent.v1.ListSkillsResponse
-	(*UploadSkillRequest)(nil),         // 67: podium.agent.v1.UploadSkillRequest
-	(*UploadSkillResponse)(nil),        // 68: podium.agent.v1.UploadSkillResponse
-	(*SetSkillEnabledRequest)(nil),     // 69: podium.agent.v1.SetSkillEnabledRequest
-	(*SetSkillEnabledResponse)(nil),    // 70: podium.agent.v1.SetSkillEnabledResponse
-	(*DeleteSkillRequest)(nil),         // 71: podium.agent.v1.DeleteSkillRequest
-	(*DeleteSkillResponse)(nil),        // 72: podium.agent.v1.DeleteSkillResponse
-	nil,                                // 73: podium.agent.v1.Memory.MetadataEntry
-	nil,                                // 74: podium.agent.v1.PlaybookDefinition.EnvEntry
-	(*timestamppb.Timestamp)(nil),      // 75: google.protobuf.Timestamp
+	(*DeleteChatRequest)(nil),          // 46: podium.agent.v1.DeleteChatRequest
+	(*DeleteChatResponse)(nil),         // 47: podium.agent.v1.DeleteChatResponse
+	(*SendChatMessageRequest)(nil),     // 48: podium.agent.v1.SendChatMessageRequest
+	(*SendChatMessageResponse)(nil),    // 49: podium.agent.v1.SendChatMessageResponse
+	(*StreamChatRequest)(nil),          // 50: podium.agent.v1.StreamChatRequest
+	(*AgentProfile)(nil),               // 51: podium.agent.v1.AgentProfile
+	(*PlaybookResources)(nil),          // 52: podium.agent.v1.PlaybookResources
+	(*PlaybookSecretRef)(nil),          // 53: podium.agent.v1.PlaybookSecretRef
+	(*PlaybookRepo)(nil),               // 54: podium.agent.v1.PlaybookRepo
+	(*PlaybookDefinition)(nil),         // 55: podium.agent.v1.PlaybookDefinition
+	(*GetProfileRequest)(nil),          // 56: podium.agent.v1.GetProfileRequest
+	(*GetProfileResponse)(nil),         // 57: podium.agent.v1.GetProfileResponse
+	(*UpdateProfileRequest)(nil),       // 58: podium.agent.v1.UpdateProfileRequest
+	(*UpdateProfileResponse)(nil),      // 59: podium.agent.v1.UpdateProfileResponse
+	(*CreatePlaybookRequest)(nil),      // 60: podium.agent.v1.CreatePlaybookRequest
+	(*CreatePlaybookResponse)(nil),     // 61: podium.agent.v1.CreatePlaybookResponse
+	(*UpdatePlaybookRequest)(nil),      // 62: podium.agent.v1.UpdatePlaybookRequest
+	(*UpdatePlaybookResponse)(nil),     // 63: podium.agent.v1.UpdatePlaybookResponse
+	(*DeletePlaybookRequest)(nil),      // 64: podium.agent.v1.DeletePlaybookRequest
+	(*DeletePlaybookResponse)(nil),     // 65: podium.agent.v1.DeletePlaybookResponse
+	(*AgentSkill)(nil),                 // 66: podium.agent.v1.AgentSkill
+	(*ListSkillsRequest)(nil),          // 67: podium.agent.v1.ListSkillsRequest
+	(*ListSkillsResponse)(nil),         // 68: podium.agent.v1.ListSkillsResponse
+	(*UploadSkillRequest)(nil),         // 69: podium.agent.v1.UploadSkillRequest
+	(*UploadSkillResponse)(nil),        // 70: podium.agent.v1.UploadSkillResponse
+	(*SetSkillEnabledRequest)(nil),     // 71: podium.agent.v1.SetSkillEnabledRequest
+	(*SetSkillEnabledResponse)(nil),    // 72: podium.agent.v1.SetSkillEnabledResponse
+	(*DeleteSkillRequest)(nil),         // 73: podium.agent.v1.DeleteSkillRequest
+	(*DeleteSkillResponse)(nil),        // 74: podium.agent.v1.DeleteSkillResponse
+	nil,                                // 75: podium.agent.v1.Memory.MetadataEntry
+	nil,                                // 76: podium.agent.v1.PlaybookDefinition.EnvEntry
+	(*timestamppb.Timestamp)(nil),      // 77: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
-	75, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	75, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
-	75, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
-	75, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
+	77, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	77, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
+	77, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
+	77, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
 	0,  // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
 	0,  // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
 	1,  // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
-	75, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
-	75, // 9: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
+	77, // 8: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
+	77, // 9: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
 	10, // 10: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	10, // 11: podium.agent.v1.GetSettingsResponse.providers:type_name -> podium.agent.v1.ProviderSettings
 	10, // 12: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	75, // 13: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	77, // 13: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
 	10, // 14: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
 	21, // 15: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
 	22, // 16: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
-	73, // 17: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
-	75, // 18: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
+	75, // 17: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
+	77, // 18: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
 	25, // 19: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
 	25, // 20: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
 	32, // 21: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
-	75, // 22: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
-	75, // 23: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
+	77, // 22: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
+	77, // 23: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
 	36, // 24: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
-	75, // 25: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
+	77, // 25: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
 	37, // 26: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
 	38, // 27: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
 	35, // 28: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
@@ -5302,23 +5389,23 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	2,  // 30: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
 	35, // 31: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
 	37, // 32: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
-	75, // 33: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
-	50, // 34: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
-	51, // 35: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
-	52, // 36: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
-	74, // 37: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
-	75, // 38: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
-	49, // 39: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	53, // 40: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
-	49, // 41: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	53, // 42: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	53, // 43: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	53, // 44: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	53, // 45: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	75, // 46: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
-	64, // 47: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
-	64, // 48: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
-	64, // 49: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	77, // 33: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
+	52, // 34: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
+	53, // 35: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
+	54, // 36: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
+	76, // 37: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
+	77, // 38: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
+	51, // 39: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	55, // 40: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
+	51, // 41: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	55, // 42: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	55, // 43: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	55, // 44: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	55, // 45: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	77, // 46: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
+	66, // 47: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
+	66, // 48: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	66, // 49: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
 	3,  // 50: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
 	5,  // 51: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
 	7,  // 52: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
@@ -5332,49 +5419,51 @@ var file_podium_agent_v1_agent_proto_depIdxs = []int32{
 	28, // 60: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
 	30, // 61: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
 	33, // 62: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
-	54, // 63: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
-	56, // 64: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
-	58, // 65: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
-	60, // 66: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
-	62, // 67: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
-	65, // 68: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
-	67, // 69: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
-	69, // 70: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
-	71, // 71: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
+	56, // 63: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
+	58, // 64: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
+	60, // 65: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
+	62, // 66: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
+	64, // 67: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
+	67, // 68: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
+	69, // 69: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
+	71, // 70: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
+	73, // 71: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
 	40, // 72: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
 	44, // 73: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
 	42, // 74: podium.agent.v1.AgentService.RenameChat:input_type -> podium.agent.v1.RenameChatRequest
-	46, // 75: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
-	48, // 76: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
-	4,  // 77: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,  // 78: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,  // 79: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	11, // 80: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
-	13, // 81: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
-	16, // 82: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
-	18, // 83: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
-	20, // 84: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
-	24, // 85: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
-	27, // 86: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
-	29, // 87: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
-	31, // 88: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
-	34, // 89: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
-	55, // 90: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
-	57, // 91: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
-	59, // 92: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
-	61, // 93: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
-	63, // 94: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
-	66, // 95: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
-	68, // 96: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
-	70, // 97: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
-	72, // 98: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
-	41, // 99: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
-	45, // 100: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
-	43, // 101: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
-	47, // 102: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
-	39, // 103: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
-	77, // [77:104] is the sub-list for method output_type
-	50, // [50:77] is the sub-list for method input_type
+	46, // 75: podium.agent.v1.AgentService.DeleteChat:input_type -> podium.agent.v1.DeleteChatRequest
+	48, // 76: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
+	50, // 77: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
+	4,  // 78: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,  // 79: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,  // 80: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	11, // 81: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	13, // 82: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	16, // 83: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	18, // 84: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
+	20, // 85: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
+	24, // 86: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
+	27, // 87: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
+	29, // 88: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
+	31, // 89: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
+	34, // 90: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
+	57, // 91: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
+	59, // 92: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
+	61, // 93: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
+	63, // 94: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
+	65, // 95: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
+	68, // 96: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
+	70, // 97: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
+	72, // 98: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
+	74, // 99: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
+	41, // 100: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
+	45, // 101: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
+	43, // 102: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
+	47, // 103: podium.agent.v1.AgentService.DeleteChat:output_type -> podium.agent.v1.DeleteChatResponse
+	49, // 104: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
+	39, // 105: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
+	78, // [78:106] is the sub-list for method output_type
+	50, // [50:78] is the sub-list for method input_type
 	50, // [50:50] is the sub-list for extension type_name
 	50, // [50:50] is the sub-list for extension extendee
 	0,  // [0:50] is the sub-list for field type_name
@@ -5398,7 +5487,7 @@ func file_podium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_agent_proto_rawDesc), len(file_podium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   75,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -4,8 +4,10 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +37,10 @@ type chatFixture struct {
 }
 
 func newChatFixture(t *testing.T) chatFixture {
+	return newChatFixtureWith(t, AgentServiceOptions{})
+}
+
+func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 	t.Helper()
 	st := newStore(t)
 	src, err := chat.New(chat.Options{
@@ -57,13 +63,14 @@ func newChatFixture(t *testing.T) chatFixture {
 		}
 	}()
 
-	svc := NewAgentService(AgentServiceOptions{
-		Store: st,
-		Chat:  src,
-		Profiles: profiles.NewLive(&profiles.Profile{DisplayName: "Podium", DefaultPlaybook: "general", Playbooks: map[string]profiles.Playbook{
+	opts.Store = st
+	opts.Chat = src
+	if opts.Profiles == nil {
+		opts.Profiles = profiles.NewLive(&profiles.Profile{DisplayName: "Podium", DefaultPlaybook: "general", Playbooks: map[string]profiles.Playbook{
 			"general": {Name: "general", Image: "podium-agent-runtime:dev", SystemPrompt: "Answer."},
-		}}),
-	})
+		}})
+	}
+	svc := NewAgentService(opts)
 	path, handler := agentv1connect.NewAgentServiceHandler(svc)
 	mux := http.NewServeMux()
 	mux.Handle(path, RequireBearer(chatToken, handler))
@@ -187,6 +194,164 @@ func TestTwoLoginsSeeDisjointChatsThroughTheService(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(stream.Err()))
 
 	assert.NotEqual(t, alice.Msg.GetChat().GetId(), bobs.Msg.GetChat().GetId())
+}
+
+func TestDeleteChatThroughTheService(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+	bob := f.clientAs("bob")
+
+	alice, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "alice's"}))
+	require.NoError(t, err)
+	chatID := alice.Msg.GetChat().GetId()
+	_, err = f.store.AppendChatMessage(ctx, store.ChatMessage{
+		ChatID: chatID, Role: store.RoleUser, Text: "hello",
+	})
+	require.NoError(t, err)
+	bobs, err := bob.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "bob's"}))
+	require.NoError(t, err)
+
+	// Knowing the id is not access: bob cannot delete alice's chat, and what he is told
+	// is that it does not exist.
+	_, err = bob.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	_, err = f.store.GetChat(ctx, chatID)
+	require.NoError(t, err)
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.NoError(t, err)
+
+	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, listed.Msg.GetChats())
+	msgs, err := f.store.ListChatMessages(ctx, chatID, 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs)
+
+	bobList, err := bob.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, bobList.Msg.GetChats(), 1)
+	assert.Equal(t, bobs.Msg.GetChat().GetId(), bobList.Msg.GetChats()[0].GetId())
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// fakeTasks is CancelTask as DeleteChat sees it: record the call, optionally fail it.
+type fakeTasks struct {
+	mu    sync.Mutex
+	calls []cancelCall
+	err   error
+}
+
+type cancelCall struct {
+	taskID, reason string
+}
+
+func (f *fakeTasks) CancelTask(_ context.Context, taskID, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, cancelCall{taskID: taskID, reason: reason})
+	return f.err
+}
+
+func (f *fakeTasks) seen() []cancelCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]cancelCall(nil), f.calls...)
+}
+
+func TestDeleteChatStopsARunningTask(t *testing.T) {
+	tasks := &fakeTasks{}
+	f := newChatFixtureWith(t, AgentServiceOptions{Tasks: tasks})
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "August numbers"}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	startRunningChatTask(t, f.store, chatID, "task_01xyz")
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.NoError(t, err)
+
+	calls := tasks.seen()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "task_01xyz", calls[0].taskID)
+	assert.Contains(t, calls[0].reason, "deleted")
+	_, err = f.store.GetChat(ctx, chatID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestDeleteChatLeavesTheChatWhenCancelFails(t *testing.T) {
+	tasks := &fakeTasks{err: errors.New("control plane is down")}
+	f := newChatFixtureWith(t, AgentServiceOptions{Tasks: tasks})
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "August numbers"}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	startRunningChatTask(t, f.store, chatID, "task_01xyz")
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+	_, err = f.store.GetChat(ctx, chatID)
+	require.NoError(t, err, "a cancel that failed must leave the chat so the operator can retry")
+}
+
+func TestDeleteChatProceedsWhenTheTaskIsAlreadyTerminal(t *testing.T) {
+	tasks := &fakeTasks{err: connect.NewError(connect.CodeFailedPrecondition, errors.New("already cancelled"))}
+	f := newChatFixtureWith(t, AgentServiceOptions{Tasks: tasks})
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "August numbers"}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	startRunningChatTask(t, f.store, chatID, "task_01xyz")
+
+	_, err = f.client.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.NoError(t, err)
+	_, err = f.store.GetChat(ctx, chatID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestDeleteChatDoesNotCancelAnotherLogin(t *testing.T) {
+	tasks := &fakeTasks{}
+	f := newChatFixtureWith(t, AgentServiceOptions{Tasks: tasks})
+	ctx := context.Background()
+
+	created, err := f.client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{Title: "alice's"}))
+	require.NoError(t, err)
+	chatID := created.Msg.GetChat().GetId()
+	startRunningChatTask(t, f.store, chatID, "task_01xyz")
+
+	bob := f.clientAs("bob")
+	_, err = bob.DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: chatID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	assert.Empty(t, tasks.seen(), "bob must not be able to stop alice's task by knowing the chat id")
+	_, err = f.store.GetChat(ctx, chatID)
+	require.NoError(t, err)
+}
+
+// startRunningChatTask is the conductor's bookkeeping for a turn in flight: a session, a
+// running turn, and the task id CreateTask already returned.
+func startRunningChatTask(t *testing.T, s *store.Store, chatID, taskID string) {
+	t.Helper()
+	ctx := context.Background()
+	sess, err := s.UpsertSession(ctx, store.Session{
+		SourceKind: "chat", SourceKey: store.ChatSourceKey(chatID), Profile: "podium", Playbook: "general",
+	})
+	require.NoError(t, err)
+	turn, err := s.CreateTurn(ctx, sess.ID, chatID)
+	require.NoError(t, err)
+	require.NoError(t, s.SetTurnTask(ctx, turn.ID, taskID))
 }
 
 func TestARequestWithNoLoginIsRefused(t *testing.T) {
@@ -458,6 +623,9 @@ func TestTheChatRPCsWithoutASourceSaySo(t *testing.T) {
 	_, err = svc.RenameChat(loginCtx("alice"), connect.NewRequest(&agentv1.RenameChatRequest{
 		ChatId: "chat_01abc", Title: "nope",
 	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	_, err = svc.DeleteChat(loginCtx("alice"), connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: "chat_01abc"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }

@@ -19,6 +19,7 @@ const listChats = vi.fn();
 const listPlaybooks = vi.fn();
 const createChat = vi.fn();
 const renameChat = vi.fn();
+const deleteChat = vi.fn();
 const sendChatMessage = vi.fn();
 const streamChat = vi.fn();
 
@@ -31,6 +32,7 @@ vi.mock("../../lib/client", async () => {
       listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       createChat: (...a: unknown[]) => createChat(...a),
       renameChat: (...a: unknown[]) => renameChat(...a),
+      deleteChat: (...a: unknown[]) => deleteChat(...a),
       sendChatMessage: (...a: unknown[]) => sendChatMessage(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
     },
@@ -122,6 +124,7 @@ describe("ChatPanel", () => {
     listPlaybooks.mockReset();
     createChat.mockReset();
     renameChat.mockReset();
+    deleteChat.mockReset();
     sendChatMessage.mockReset();
     streamChat.mockReset();
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
@@ -347,6 +350,80 @@ describe("ChatPanel", () => {
     await waitFor(() =>
       expect(renameChat).toHaveBeenCalledWith({ chatId: "chat_01abc", title: "Q3 forecast" }),
     );
+  });
+
+  it("says a missing chat is gone rather than reconnecting the stream", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    streamChat.mockImplementation(() => {
+      throw new ConnectError("agent store: not found: chat chat_nope", Code.NotFound);
+    });
+    mount("/agent/chat/chat_nope");
+    expect(await screen.findByText("This chat is gone")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was lost/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    expect(await screen.findByText("Pick a chat, or start a new one")).toBeInTheDocument();
+  });
+
+  it("asks before deleting, and the chat goes when it is confirmed", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    deleteChat.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+
+    expect(screen.getByText(/The conversation goes with it/)).toBeInTheDocument();
+    expect(deleteChat).not.toHaveBeenCalled();
+
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    await userEvent.click(screen.getByTestId("chat-delete-confirm"));
+
+    await waitFor(() => expect(deleteChat).toHaveBeenCalledWith({ chatId: "chat_01abc" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("August numbers deleted.");
+    await waitFor(() => expect(screen.getByTestId("chat-list")).not.toHaveTextContent("August numbers"));
+  });
+
+  it("warns that a running task will be stopped, and only then deletes", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, turnRunning: true }], nextCursor: "" });
+    deleteChat.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+
+    expect(screen.getByText(/Stop the task and delete August numbers/)).toBeInTheDocument();
+    expect(screen.getByText(/A task is running in this chat/)).toBeInTheDocument();
+    expect(deleteChat).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(deleteChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-list")).toHaveTextContent("August numbers");
+
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    await userEvent.click(screen.getByTestId("chat-delete-confirm"));
+
+    await waitFor(() => expect(deleteChat).toHaveBeenCalledWith({ chatId: "chat_01abc" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("August numbers deleted.");
+  });
+
+  it("keeps the chat when the confirm is declined", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    mount();
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+
+    expect(deleteChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-list")).toHaveTextContent("August numbers");
+  });
+
+  it("leaves the conversation when the open chat is deleted", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    deleteChat.mockResolvedValue({});
+    mount("/agent/chat/chat_01abc");
+    await waitFor(() => expect(streamChat).toHaveBeenCalled());
+
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    await userEvent.click(screen.getByTestId("chat-delete-confirm"));
+
+    expect(await screen.findByText("No chats yet")).toBeInTheDocument();
   });
 
   it("says the conductor is down without breaking the page", async () => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronDown, FileCode2, Undo2 } from "lucide-react";
+import { FileCode2, Undo2 } from "lucide-react";
 import type { AgentBackend, AgentProfile } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { AgentPicker } from "./AgentPicker";
@@ -12,6 +12,13 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 /** The profile.yaml keys a browser may override, as the API names them. */
 export const FIELDS = {
@@ -308,6 +315,9 @@ function Field({
   );
 }
 
+/** Radix Select refuses an empty string as a value, so the file fallback is this sentinel. */
+const FILE_VALUE = "__file__";
+
 function PlaybookSelect({
   id,
   value,
@@ -325,28 +335,20 @@ function PlaybookSelect({
   // silently rewrite the override the moment the form is saved.
   const options = playbooks.includes(value) || value === "" ? playbooks : [value, ...playbooks];
   return (
-    <div className="relative w-full max-w-sm">
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          "h-8 w-full appearance-none rounded-md border border-input bg-bg pr-8 pl-3 font-mono text-xs text-fg shadow-xs",
-          "transition-[border-color,box-shadow] duration-150 ease-out hover:border-muted/45",
-          "outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35",
-        )}
-      >
-        <option value="">{fileValue ? `the file's value (${fileValue})` : "the file's value"}</option>
+    <Select value={value === "" ? FILE_VALUE : value} onValueChange={(v) => onChange(v === FILE_VALUE ? "" : v)}>
+      <SelectTrigger id={id} size="sm" className="w-full max-w-sm font-mono">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={FILE_VALUE}>
+          {fileValue ? `the file's value (${fileValue})` : "the file's value"}
+        </SelectItem>
         {options.map((s) => (
-          <option key={s} value={s}>
+          <SelectItem key={s} value={s}>
             {s}
-          </option>
+          </SelectItem>
         ))}
-      </select>
-      <ChevronDown
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted"
-      />
-    </div>
+      </SelectContent>
+    </Select>
   );
 }

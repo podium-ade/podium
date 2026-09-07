@@ -5,10 +5,13 @@ import "context"
 // EgressPolicy is the hook a future egress allow-list plugs into.
 //
 // Today a task's network is a plain bridge with `internal: false`: the task and its
-// sidecars can reach each other and the internet, and nothing else on the host or the
-// tailnet. Restricting the internet half means programming the node's firewall for the
-// task's subnet, which is host-specific (nftables on Linux, nothing usable on Docker
-// Desktop) and is deliberately not part of this step.
+// sidecars reach each other, the internet, and whatever else the node's host routes. A
+// tailnet is included — a container leaves through the host and inherits its routes, so on
+// a tailnet node a task can open the control plane's own 443, which is how a task drives a
+// browser against a live stack. Nothing here restricts that; what confines a worker today
+// is the Tailscale ACL, not this file. Restricting the internet half means programming the
+// node's firewall for the task's subnet, which is host-specific (nftables on Linux, nothing
+// usable on Docker Desktop) and is deliberately not part of this step.
 //
 // When it arrives, Apply is called after the network is created and before any container
 // joins it, and Revoke during Teardown after the last container is gone. An implementation

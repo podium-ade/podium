@@ -328,7 +328,7 @@ know before you write one.
   handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
   `blob:` URL inherits the app's origin, which is where the dev token lives.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
-  `ListChats`, `RenameChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
+  `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. But every login is fully trusted — there is
   still no RBAC — so this stops an accident and one honest mistake, not an operator who wants to
   read somebody else's conversation: whoever can reach the API can read `podium_agent` directly,
