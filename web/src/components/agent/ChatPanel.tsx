@@ -388,6 +388,7 @@ function Conversation({
   playbooks: Playbook[];
   chatDefaultPlaybook: string;
 }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const stream = useChatStream(chatId);
@@ -439,7 +440,25 @@ function Conversation({
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const busy = stream.running || send.isPending;
-  const connecting = stream.phase === "connecting" && stream.messages.length === 0;
+  const connecting = stream.phase === "connecting" && stream.messages.length === 0 && !stream.gone;
+
+  if (stream.gone) {
+    return (
+      <div className="grid min-h-0 flex-1 place-items-center p-6">
+        <Empty
+          className="max-w-lg"
+          icon={Sparkles}
+          title="This chat is gone"
+          hint="It was deleted, or it was never yours. Pick another, or start a new one."
+          action={
+            <Button size="sm" onClick={() => navigate("/agent/chat")}>
+              Back to chats
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <>

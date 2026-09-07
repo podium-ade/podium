@@ -293,6 +293,18 @@ describe("ChatPanel", () => {
     expect(bubble.textContent).toContain("[x](javascript:alert(1))");
   });
 
+  it("says a missing chat is gone rather than reconnecting the stream", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    streamChat.mockImplementation(() => {
+      throw new ConnectError("agent store: not found: chat chat_nope", Code.NotFound);
+    });
+    mount("/agent/chat/chat_nope");
+    expect(await screen.findByText("This chat is gone")).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was lost/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    expect(await screen.findByText("Pick a chat, or start a new one")).toBeInTheDocument();
+  });
+
   it("asks before deleting, and the chat goes when it is confirmed", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     deleteChat.mockResolvedValue({});
