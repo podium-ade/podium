@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/agent.proto.
  */
 export const file_podium_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLDAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSEAoIcGxheWJvb2sYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IvsBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJYXV0aF9raW5kGAcgASgJEg8KB2FjY291bnQYCCABKAkSLgoKZXhwaXJlc19hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcmVmcmVzaGFibGUYCiABKAgigAEKE0dldFNldHRpbmdzUmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxI0Cglwcm92aWRlcnMYAiADKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncyI2ChVTZXRQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkSCwoDa2V5GAIgASgJIm0KFlNldFByb3ZpZGVyS2V5UmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxIOCgZtb2RlbHMYAiADKAkSDgoGc3RhdHVzGAMgASgJIiwKEFByb3ZpZGVyS2V5RXJyb3ISGAoQcHJvdmlkZXJfbWVzc2FnZRgBIAEoCSIrChdDbGVhclByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSIaChhDbGVhclByb3ZpZGVyS2V5UmVzcG9uc2UiLQoZU3RhcnRQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSK/AQoaU3RhcnRQcm92aWRlck9BdXRoUmVzcG9uc2USDwoHZmxvd19pZBgBIAEoCRIRCgl1c2VyX2NvZGUYAiABKAkSGAoQdmVyaWZpY2F0aW9uX3VyaRgDIAEoCRIhChl2ZXJpZmljYXRpb25fdXJpX2NvbXBsZXRlGAQgASgJEhAKCGludGVydmFsGAUgASgFEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIj0KGFBvbGxQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRIPCgdmbG93X2lkGAIgASgJIoEBChlQb2xsUHJvdmlkZXJPQXV0aFJlc3BvbnNlEg0KBXN0YXRlGAEgASgJEhAKCGludGVydmFsGAIgASgFEjMKCHByb3ZpZGVyGAMgASgLMiEucG9kaXVtLmFnZW50LnYxLlByb3ZpZGVyU2V0dGluZ3MSDgoGZGV0YWlsGAQgASgJImUKCkFnZW50TW9kZWwSCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEgwKBG5vdGUYAyABKAkSFgoOY29udGV4dF90b2tlbnMYBCABKAUSDwoHZWZmb3J0cxgFIAMoCSKjAQoMQWdlbnRCYWNrZW5kEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRub3RlGAQgASgJEhUKDWRlZmF1bHRfbW9kZWwYBSABKAkSKwoGbW9kZWxzGAYgAygLMhsucG9kaXVtLmFnZW50LnYxLkFnZW50TW9kZWwSDQoFcmVhZHkYByABKAgiEwoRTGlzdEFnZW50c1JlcXVlc3QiWgoSTGlzdEFnZW50c1Jlc3BvbnNlEi0KBmFnZW50cxgBIAMoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudEJhY2tlbmQSFQoNZGVmYXVsdF9hZ2VudBgCIAEoCSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlInkKCFBsYXlib29rEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgSDQoFYWdlbnQYBSABKAkSDQoFbW9kZWwYBiABKAkSDgoGZWZmb3J0GAcgASgJIhYKFExpc3RQbGF5Ym9va3NSZXF1ZXN0ImMKFUxpc3RQbGF5Ym9va3NSZXNwb25zZRIsCglwbGF5Ym9va3MYASADKAsyGS5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2sSHAoUcHJvZmlsZV9kaXNwbGF5X25hbWUYAiABKAkirQEKBENoYXQSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoPbGFzdF9tZXNzYWdlX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdwcmV2aWV3GAUgASgJEhQKDHR1cm5fcnVubmluZxgGIAEoCCJdCg5DaGF0QXR0YWNobWVudBITCgthcnRpZmFjdF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGNvbnRlbnRfdHlwZRgDIAEoCRISCgpzaXplX2J5dGVzGAQgASgDIqUBCgtDaGF0TWVzc2FnZRIPCgdjaGF0X2lkGAEgASgJEgsKA3NlcRgCIAEoBBIMCgRyb2xlGAMgASgJEgwKBHRleHQYBCABKAkSNAoLYXR0YWNobWVudHMYBSADKAsyHy5wb2RpdW0uYWdlbnQudjEuQ2hhdEF0dGFjaG1lbnQSJgoCdHMYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIiwKCkNoYXRTdGF0dXMSDQoFc3RhdGUYASABKAkSDwoHdGFza19pZBgCIAEoCSKaAQoJQ2hhdEZyYW1lEi8KB21lc3NhZ2UYASABKAsyHC5wb2RpdW0uYWdlbnQudjEuQ2hhdE1lc3NhZ2VIABISCghwcm9ncmVzcxgCIAEoCUgAEi0KBnN0YXR1cxgDIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5DaGF0U3RhdHVzSAASEAoGcmVzeW5jGAQgASgISABCBwoFZnJhbWUiIgoRQ3JlYXRlQ2hhdFJlcXVlc3QSDQoFdGl0bGUYASABKAkiOQoSQ3JlYXRlQ2hhdFJlc3BvbnNlEiMKBGNoYXQYASABKAsyFS5wb2RpdW0uYWdlbnQudjEuQ2hhdCI3ChBMaXN0Q2hhdHNSZXF1ZXN0EiMKBHBhZ2UYASABKAsyFS5wb2RpdW0uYWdlbnQudjEuUGFnZSJOChFMaXN0Q2hhdHNSZXNwb25zZRIkCgVjaGF0cxgBIAMoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0EhMKC25leHRfY3Vyc29yGAIgASgJIncKFlNlbmRDaGF0TWVzc2FnZVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCHBsYXlib29rGAMgASgJEg0KBWFnZW50GAQgASgJEg0KBW1vZGVsGAUgASgJEg4KBmVmZm9ydBgGIAEoCSJIChdTZW5kQ2hhdE1lc3NhZ2VSZXNwb25zZRItCgdtZXNzYWdlGAEgASgLMhwucG9kaXVtLmFnZW50LnYxLkNoYXRNZXNzYWdlIjYKEVN0cmVhbUNoYXRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAQioQMKDEFnZW50UHJvZmlsZRIMCgRuYW1lGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRINCgVtb2RlbBgDIAEoCRIYChBkZWZhdWx0X3BsYXlib29rGAQgASgJEh0KFWNoYXRfZGVmYXVsdF9wbGF5Ym9vaxgFIAEoCRITCgtwcm9maWxlX2RpchgGIAEoCRIZChFmaWxlX2Rpc3BsYXlfbmFtZRgHIAEoCRISCgpmaWxlX21vZGVsGAggASgJEh0KFWZpbGVfZGVmYXVsdF9wbGF5Ym9vaxgJIAEoCRIiChpmaWxlX2NoYXRfZGVmYXVsdF9wbGF5Ym9vaxgKIAEoCRISCgpvdmVycmlkZGVuGAsgAygJEhIKCnVwZGF0ZWRfYnkYDCABKAkSLgoKdXBkYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDQoFYWdlbnQYDiABKAkSDgoGZWZmb3J0GA8gASgJEhIKCmZpbGVfYWdlbnQYECABKAkSEwoLZmlsZV9lZmZvcnQYESABKAkiQQoRUGxheWJvb2tSZXNvdXJjZXMSCwoDY3B1GAEgASgBEhEKCW1lbW9yeV9tYhgCIAEoBRIMCgRwaWRzGAMgASgFIj4KEVBsYXlib29rU2VjcmV0UmVmEgwKBG5hbWUYASABKAkSDgoGdGFyZ2V0GAIgASgJEgsKA2tleRgDIAEoCSJBCgxQbGF5Ym9va1JlcG8SDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkSFgoOZGVmYXVsdF9icmFuY2gYAyABKAki4gQKElBsYXlib29rRGVmaW5pdGlvbhIMCgRuYW1lGAEgASgJEg0KBWltYWdlGAIgASgJEhUKDXN5c3RlbV9wcm9tcHQYAyABKAkSFQoNYWxsb3dlZF90b29scxgEIAMoCRIRCgltYXhfdHVybnMYBSABKAUSDwoHdGltZW91dBgGIAEoCRINCgVtb2RlbBgHIAEoCRIOCgZsYWJlbHMYCCADKAkSNQoJcmVzb3VyY2VzGAkgASgLMiIucG9kaXVtLmFnZW50LnYxLlBsYXlib29rUmVzb3VyY2VzEjMKB3NlY3JldHMYCiADKAsyIi5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tTZWNyZXRSZWYSLAoFcmVwb3MYCyADKAsyHS5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tSZXBvEhYKDnNsYWNrX2NoYW5uZWxzGAwgAygJEg4KBmxpbmVhchgNIAEoCBI5CgNlbnYYDiADKAsyLC5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tEZWZpbml0aW9uLkVudkVudHJ5Eg4KBm9yaWdpbhgPIAEoCRIQCghlZGl0YWJsZRgQIAEoCBIQCghzaGFkb3dlZBgRIAEoCBISCgp1cGRhdGVkX2J5GBIgASgJEi4KCnVwZGF0ZWRfYXQYEyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWFnZW50GBQgASgJEg4KBmVmZm9ydBgVIAEoCRoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIhMKEUdldFByb2ZpbGVSZXF1ZXN0IpIBChJHZXRQcm9maWxlUmVzcG9uc2USLgoHcHJvZmlsZRgBIAEoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudFByb2ZpbGUSNgoJcGxheWJvb2tzGAIgAygLMiMucG9kaXVtLmFnZW50LnYxLlBsYXlib29rRGVmaW5pdGlvbhIUCgxzdGFsZV9yZWFzb24YAyABKAkikwEKFFVwZGF0ZVByb2ZpbGVSZXF1ZXN0EhQKDGRpc3BsYXlfbmFtZRgBIAEoCRINCgVtb2RlbBgCIAEoCRIYChBkZWZhdWx0X3BsYXlib29rGAMgASgJEh0KFWNoYXRfZGVmYXVsdF9wbGF5Ym9vaxgEIAEoCRINCgVhZ2VudBgFIAEoCRIOCgZlZmZvcnQYBiABKAkiRwoVVXBkYXRlUHJvZmlsZVJlc3BvbnNlEi4KB3Byb2ZpbGUYASABKAsyHS5wb2RpdW0uYWdlbnQudjEuQWdlbnRQcm9maWxlIk4KFUNyZWF0ZVBsYXlib29rUmVxdWVzdBI1CghwbGF5Ym9vaxgBIAEoCzIjLnBvZGl1bS5hZ2VudC52MS5QbGF5Ym9va0RlZmluaXRpb24iTwoWQ3JlYXRlUGxheWJvb2tSZXNwb25zZRI1CghwbGF5Ym9vaxgBIAEoCzIjLnBvZGl1bS5hZ2VudC52MS5QbGF5Ym9va0RlZmluaXRpb24iTgoVVXBkYXRlUGxheWJvb2tSZXF1ZXN0EjUKCHBsYXlib29rGAEgASgLMiMucG9kaXVtLmFnZW50LnYxLlBsYXlib29rRGVmaW5pdGlvbiJPChZVcGRhdGVQbGF5Ym9va1Jlc3BvbnNlEjUKCHBsYXlib29rGAEgASgLMiMucG9kaXVtLmFnZW50LnYxLlBsYXlib29rRGVmaW5pdGlvbiIlChVEZWxldGVQbGF5Ym9va1JlcXVlc3QSDAoEbmFtZRgBIAEoCSIYChZEZWxldGVQbGF5Ym9va1Jlc3BvbnNlMqwQCgxBZ2VudFNlcnZpY2USWwoMTGlzdFNlc3Npb25zEiQucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVQoKR2V0U2Vzc2lvbhIiLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVzcG9uc2USUgoJTGlzdFR1cm5zEiEucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVzcG9uc2USWAoLR2V0U2V0dGluZ3MSIy5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVzcG9uc2USYQoOU2V0UHJvdmlkZXJLZXkSJi5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVzcG9uc2USZwoQQ2xlYXJQcm92aWRlcktleRIoLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVzcG9uc2USbQoSU3RhcnRQcm92aWRlck9BdXRoEioucG9kaXVtLmFnZW50LnYxLlN0YXJ0UHJvdmlkZXJPQXV0aFJlcXVlc3QaKy5wb2RpdW0uYWdlbnQudjEuU3RhcnRQcm92aWRlck9BdXRoUmVzcG9uc2USagoRUG9sbFByb3ZpZGVyT0F1dGgSKS5wb2RpdW0uYWdlbnQudjEuUG9sbFByb3ZpZGVyT0F1dGhSZXF1ZXN0GioucG9kaXVtLmFnZW50LnYxLlBvbGxQcm92aWRlck9BdXRoUmVzcG9uc2USVQoKTGlzdEFnZW50cxIiLnBvZGl1bS5hZ2VudC52MS5MaXN0QWdlbnRzUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5MaXN0QWdlbnRzUmVzcG9uc2USWwoMTGlzdE1lbW9yaWVzEiQucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVzcG9uc2USYQoOU2VhcmNoTWVtb3JpZXMSJi5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USWwoMRGVsZXRlTWVtb3J5EiQucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVzcG9uc2USXgoNTGlzdFBsYXlib29rcxIlLnBvZGl1bS5hZ2VudC52MS5MaXN0UGxheWJvb2tzUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5MaXN0UGxheWJvb2tzUmVzcG9uc2USVQoKR2V0UHJvZmlsZRIiLnBvZGl1bS5hZ2VudC52MS5HZXRQcm9maWxlUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRQcm9maWxlUmVzcG9uc2USXgoNVXBkYXRlUHJvZmlsZRIlLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVQcm9maWxlUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVQcm9maWxlUmVzcG9uc2USYQoOQ3JlYXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLkNyZWF0ZVBsYXlib29rUmVzcG9uc2USYQoOVXBkYXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlVwZGF0ZVBsYXlib29rUmVzcG9uc2USYQoORGVsZXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuRGVsZXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVBsYXlib29rUmVzcG9uc2USVQoKQ3JlYXRlQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVzcG9uc2USUgoJTGlzdENoYXRzEiEucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdENoYXRzUmVzcG9uc2USZAoPU2VuZENoYXRNZXNzYWdlEicucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USTgoKU3RyZWFtQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5TdHJlYW1DaGF0UmVxdWVzdBoaLnBvZGl1bS5hZ2VudC52MS5DaGF0RnJhbWUwAULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chtwb2RpdW0vYWdlbnQvdjEvYWdlbnQucHJvdG8SD3BvZGl1bS5hZ2VudC52MSLDAQoHU2Vzc2lvbhIKCgJpZBgBIAEoCRITCgtzb3VyY2Vfa2luZBgCIAEoCRISCgpzb3VyY2Vfa2V5GAMgASgJEg8KB3Byb2ZpbGUYBCABKAkSEAoIcGxheWJvb2sYBSABKAkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF90dXJuX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKbAgoEVHVybhIKCgJpZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEwoLdHJpZ2dlcl9yZWYYBCABKAkSDgoGc3RhdHVzGAUgASgJEi4KCnN0YXJ0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCgludW1fdHVybnMYCCABKAVIAIgBARIVCghjb3N0X3VzZBgJIAEoAUgBiAEBEhIKCmZpbmFsX3RleHQYCiABKAlCDAoKX251bV90dXJuc0ILCglfY29zdF91c2QiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiOgoTTGlzdFNlc3Npb25zUmVxdWVzdBIjCgRwYWdlGAEgASgLMhUucG9kaXVtLmFnZW50LnYxLlBhZ2UiVwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKgoIc2Vzc2lvbnMYASADKAsyGC5wb2RpdW0uYWdlbnQudjEuU2Vzc2lvbhITCgtuZXh0X2N1cnNvchgCIAEoCSInChFHZXRTZXNzaW9uUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJIj8KEkdldFNlc3Npb25SZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucG9kaXVtLmFnZW50LnYxLlNlc3Npb24iNQoQTGlzdFR1cm5zUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWxpbWl0GAIgASgFIjkKEUxpc3RUdXJuc1Jlc3BvbnNlEiQKBXR1cm5zGAEgAygLMhUucG9kaXVtLmFnZW50LnYxLlR1cm4iFAoSR2V0U2V0dGluZ3NSZXF1ZXN0IvsBChBQcm92aWRlclNldHRpbmdzEhAKCHByb3ZpZGVyGAEgASgJEg8KB2tleV9zZXQYAiABKAgSEAoIa2V5X2hpbnQYAyABKAkSDQoFbW9kZWwYBCABKAkSDgoGc2V0X2J5GAUgASgJEioKBnNldF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJYXV0aF9raW5kGAcgASgJEg8KB2FjY291bnQYCCABKAkSLgoKZXhwaXJlc19hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcmVmcmVzaGFibGUYCiABKAgigAEKE0dldFNldHRpbmdzUmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxI0Cglwcm92aWRlcnMYAiADKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncyI2ChVTZXRQcm92aWRlcktleVJlcXVlc3QSEAoIcHJvdmlkZXIYASABKAkSCwoDa2V5GAIgASgJIm0KFlNldFByb3ZpZGVyS2V5UmVzcG9uc2USMwoIcHJvdmlkZXIYASABKAsyIS5wb2RpdW0uYWdlbnQudjEuUHJvdmlkZXJTZXR0aW5ncxIOCgZtb2RlbHMYAiADKAkSDgoGc3RhdHVzGAMgASgJIiwKEFByb3ZpZGVyS2V5RXJyb3ISGAoQcHJvdmlkZXJfbWVzc2FnZRgBIAEoCSIrChdDbGVhclByb3ZpZGVyS2V5UmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSIaChhDbGVhclByb3ZpZGVyS2V5UmVzcG9uc2UiLQoZU3RhcnRQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCSK/AQoaU3RhcnRQcm92aWRlck9BdXRoUmVzcG9uc2USDwoHZmxvd19pZBgBIAEoCRIRCgl1c2VyX2NvZGUYAiABKAkSGAoQdmVyaWZpY2F0aW9uX3VyaRgDIAEoCRIhChl2ZXJpZmljYXRpb25fdXJpX2NvbXBsZXRlGAQgASgJEhAKCGludGVydmFsGAUgASgFEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIj0KGFBvbGxQcm92aWRlck9BdXRoUmVxdWVzdBIQCghwcm92aWRlchgBIAEoCRIPCgdmbG93X2lkGAIgASgJIoEBChlQb2xsUHJvdmlkZXJPQXV0aFJlc3BvbnNlEg0KBXN0YXRlGAEgASgJEhAKCGludGVydmFsGAIgASgFEjMKCHByb3ZpZGVyGAMgASgLMiEucG9kaXVtLmFnZW50LnYxLlByb3ZpZGVyU2V0dGluZ3MSDgoGZGV0YWlsGAQgASgJImUKCkFnZW50TW9kZWwSCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEgwKBG5vdGUYAyABKAkSFgoOY29udGV4dF90b2tlbnMYBCABKAUSDwoHZWZmb3J0cxgFIAMoCSKjAQoMQWdlbnRCYWNrZW5kEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIMCgRub3RlGAQgASgJEhUKDWRlZmF1bHRfbW9kZWwYBSABKAkSKwoGbW9kZWxzGAYgAygLMhsucG9kaXVtLmFnZW50LnYxLkFnZW50TW9kZWwSDQoFcmVhZHkYByABKAgiEwoRTGlzdEFnZW50c1JlcXVlc3QiWgoSTGlzdEFnZW50c1Jlc3BvbnNlEi0KBmFnZW50cxgBIAMoCzIdLnBvZGl1bS5hZ2VudC52MS5BZ2VudEJhY2tlbmQSFQoNZGVmYXVsdF9hZ2VudBgCIAEoCSKVAgoGTWVtb3J5EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSEQoJZmFjdF90eXBlGAMgASgJEgwKBHRhZ3MYBCADKAkSNwoIbWV0YWRhdGEYBSADKAsyJS5wb2RpdW0uYWdlbnQudjEuTWVtb3J5Lk1ldGFkYXRhRW50cnkSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIZW50aXRpZXMYByADKAkSDwoHY29udGV4dBgIIAEoCRITCgtkb2N1bWVudF9pZBgJIAEoCRovCg1NZXRhZGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiNAoTTGlzdE1lbW9yaWVzUmVxdWVzdBIOCgZjdXJzb3IYASABKAkSDQoFbGltaXQYAiABKAUiUwoUTGlzdE1lbW9yaWVzUmVzcG9uc2USJgoFaXRlbXMYASADKAsyFy5wb2RpdW0uYWdlbnQudjEuTWVtb3J5EhMKC25leHRfY3Vyc29yGAIgASgJIjUKFVNlYXJjaE1lbW9yaWVzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJAChZTZWFyY2hNZW1vcmllc1Jlc3BvbnNlEiYKBWl0ZW1zGAEgAygLMhcucG9kaXVtLmFnZW50LnYxLk1lbW9yeSIhChNEZWxldGVNZW1vcnlSZXF1ZXN0EgoKAmlkGAEgASgJIhYKFERlbGV0ZU1lbW9yeVJlc3BvbnNlInkKCFBsYXlib29rEgwKBG5hbWUYASABKAkSDQoFaW1hZ2UYAiABKAkSDAoEaGludBgDIAEoCRIUCgxjaGF0X2RlZmF1bHQYBCABKAgSDQoFYWdlbnQYBSABKAkSDQoFbW9kZWwYBiABKAkSDgoGZWZmb3J0GAcgASgJIhYKFExpc3RQbGF5Ym9va3NSZXF1ZXN0ImMKFUxpc3RQbGF5Ym9va3NSZXNwb25zZRIsCglwbGF5Ym9va3MYASADKAsyGS5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2sSHAoUcHJvZmlsZV9kaXNwbGF5X25hbWUYAiABKAkirQEKBENoYXQSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSLgoKY3JlYXRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMwoPbGFzdF9tZXNzYWdlX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdwcmV2aWV3GAUgASgJEhQKDHR1cm5fcnVubmluZxgGIAEoCCJdCg5DaGF0QXR0YWNobWVudBITCgthcnRpZmFjdF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGNvbnRlbnRfdHlwZRgDIAEoCRISCgpzaXplX2J5dGVzGAQgASgDIqUBCgtDaGF0TWVzc2FnZRIPCgdjaGF0X2lkGAEgASgJEgsKA3NlcRgCIAEoBBIMCgRyb2xlGAMgASgJEgwKBHRleHQYBCABKAkSNAoLYXR0YWNobWVudHMYBSADKAsyHy5wb2RpdW0uYWdlbnQudjEuQ2hhdEF0dGFjaG1lbnQSJgoCdHMYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIiwKCkNoYXRTdGF0dXMSDQoFc3RhdGUYASABKAkSDwoHdGFza19pZBgCIAEoCSKaAQoJQ2hhdEZyYW1lEi8KB21lc3NhZ2UYASABKAsyHC5wb2RpdW0uYWdlbnQudjEuQ2hhdE1lc3NhZ2VIABISCghwcm9ncmVzcxgCIAEoCUgAEi0KBnN0YXR1cxgDIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5DaGF0U3RhdHVzSAASEAoGcmVzeW5jGAQgASgISABCBwoFZnJhbWUiIgoRQ3JlYXRlQ2hhdFJlcXVlc3QSDQoFdGl0bGUYASABKAkiOQoSQ3JlYXRlQ2hhdFJlc3BvbnNlEiMKBGNoYXQYASABKAsyFS5wb2RpdW0uYWdlbnQudjEuQ2hhdCI3ChBMaXN0Q2hhdHNSZXF1ZXN0EiMKBHBhZ2UYASABKAsyFS5wb2RpdW0uYWdlbnQudjEuUGFnZSJOChFMaXN0Q2hhdHNSZXNwb25zZRIkCgVjaGF0cxgBIAMoCzIVLnBvZGl1bS5hZ2VudC52MS5DaGF0EhMKC25leHRfY3Vyc29yGAIgASgJIncKFlNlbmRDaGF0TWVzc2FnZVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCHBsYXlib29rGAMgASgJEg0KBWFnZW50GAQgASgJEg0KBW1vZGVsGAUgASgJEg4KBmVmZm9ydBgGIAEoCSJIChdTZW5kQ2hhdE1lc3NhZ2VSZXNwb25zZRItCgdtZXNzYWdlGAEgASgLMhwucG9kaXVtLmFnZW50LnYxLkNoYXRNZXNzYWdlIjYKEVN0cmVhbUNoYXRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAQioQMKDEFnZW50UHJvZmlsZRIMCgRuYW1lGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRINCgVtb2RlbBgDIAEoCRIYChBkZWZhdWx0X3BsYXlib29rGAQgASgJEh0KFWNoYXRfZGVmYXVsdF9wbGF5Ym9vaxgFIAEoCRITCgtwcm9maWxlX2RpchgGIAEoCRIZChFmaWxlX2Rpc3BsYXlfbmFtZRgHIAEoCRISCgpmaWxlX21vZGVsGAggASgJEh0KFWZpbGVfZGVmYXVsdF9wbGF5Ym9vaxgJIAEoCRIiChpmaWxlX2NoYXRfZGVmYXVsdF9wbGF5Ym9vaxgKIAEoCRISCgpvdmVycmlkZGVuGAsgAygJEhIKCnVwZGF0ZWRfYnkYDCABKAkSLgoKdXBkYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDQoFYWdlbnQYDiABKAkSDgoGZWZmb3J0GA8gASgJEhIKCmZpbGVfYWdlbnQYECABKAkSEwoLZmlsZV9lZmZvcnQYESABKAkiQQoRUGxheWJvb2tSZXNvdXJjZXMSCwoDY3B1GAEgASgBEhEKCW1lbW9yeV9tYhgCIAEoBRIMCgRwaWRzGAMgASgFIj4KEVBsYXlib29rU2VjcmV0UmVmEgwKBG5hbWUYASABKAkSDgoGdGFyZ2V0GAIgASgJEgsKA2tleRgDIAEoCSJBCgxQbGF5Ym9va1JlcG8SDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkSFgoOZGVmYXVsdF9icmFuY2gYAyABKAki8gQKElBsYXlib29rRGVmaW5pdGlvbhIMCgRuYW1lGAEgASgJEg0KBWltYWdlGAIgASgJEhUKDXN5c3RlbV9wcm9tcHQYAyABKAkSFQoNYWxsb3dlZF90b29scxgEIAMoCRIRCgltYXhfdHVybnMYBSABKAUSDwoHdGltZW91dBgGIAEoCRINCgVtb2RlbBgHIAEoCRIOCgZsYWJlbHMYCCADKAkSNQoJcmVzb3VyY2VzGAkgASgLMiIucG9kaXVtLmFnZW50LnYxLlBsYXlib29rUmVzb3VyY2VzEjMKB3NlY3JldHMYCiADKAsyIi5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tTZWNyZXRSZWYSLAoFcmVwb3MYCyADKAsyHS5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tSZXBvEhYKDnNsYWNrX2NoYW5uZWxzGAwgAygJEg4KBmxpbmVhchgNIAEoCBI5CgNlbnYYDiADKAsyLC5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tEZWZpbml0aW9uLkVudkVudHJ5Eg4KBm9yaWdpbhgPIAEoCRIQCghlZGl0YWJsZRgQIAEoCBIQCghzaGFkb3dlZBgRIAEoCBISCgp1cGRhdGVkX2J5GBIgASgJEi4KCnVwZGF0ZWRfYXQYEyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWFnZW50GBQgASgJEg4KBmVmZm9ydBgVIAEoCRIOCgZza2lsbHMYFiADKAkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASITChFHZXRQcm9maWxlUmVxdWVzdCKSAQoSR2V0UHJvZmlsZVJlc3BvbnNlEi4KB3Byb2ZpbGUYASABKAsyHS5wb2RpdW0uYWdlbnQudjEuQWdlbnRQcm9maWxlEjYKCXBsYXlib29rcxgCIAMoCzIjLnBvZGl1bS5hZ2VudC52MS5QbGF5Ym9va0RlZmluaXRpb24SFAoMc3RhbGVfcmVhc29uGAMgASgJIpMBChRVcGRhdGVQcm9maWxlUmVxdWVzdBIUCgxkaXNwbGF5X25hbWUYASABKAkSDQoFbW9kZWwYAiABKAkSGAoQZGVmYXVsdF9wbGF5Ym9vaxgDIAEoCRIdChVjaGF0X2RlZmF1bHRfcGxheWJvb2sYBCABKAkSDQoFYWdlbnQYBSABKAkSDgoGZWZmb3J0GAYgASgJIkcKFVVwZGF0ZVByb2ZpbGVSZXNwb25zZRIuCgdwcm9maWxlGAEgASgLMh0ucG9kaXVtLmFnZW50LnYxLkFnZW50UHJvZmlsZSJOChVDcmVhdGVQbGF5Ym9va1JlcXVlc3QSNQoIcGxheWJvb2sYASABKAsyIy5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tEZWZpbml0aW9uIk8KFkNyZWF0ZVBsYXlib29rUmVzcG9uc2USNQoIcGxheWJvb2sYASABKAsyIy5wb2RpdW0uYWdlbnQudjEuUGxheWJvb2tEZWZpbml0aW9uIk4KFVVwZGF0ZVBsYXlib29rUmVxdWVzdBI1CghwbGF5Ym9vaxgBIAEoCzIjLnBvZGl1bS5hZ2VudC52MS5QbGF5Ym9va0RlZmluaXRpb24iTwoWVXBkYXRlUGxheWJvb2tSZXNwb25zZRI1CghwbGF5Ym9vaxgBIAEoCzIjLnBvZGl1bS5hZ2VudC52MS5QbGF5Ym9va0RlZmluaXRpb24iJQoVRGVsZXRlUGxheWJvb2tSZXF1ZXN0EgwKBG5hbWUYASABKAkiGAoWRGVsZXRlUGxheWJvb2tSZXNwb25zZSKWAgoKQWdlbnRTa2lsbBIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEg4KBnNoYTI1NhgDIAEoCRISCgpzaXplX2J5dGVzGAQgASgDEhIKCmZpbGVfY291bnQYBSABKAUSDwoHZW5hYmxlZBgGIAEoCBIOCgZvcmlnaW4YByABKAkSEAoIZWRpdGFibGUYCCABKAgSEAoIc2hhZG93ZWQYCSABKAgSEwoLdXBsb2FkZWRfYnkYCiABKAkSLwoLdXBsb2FkZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3Byb2JsZW0YDCABKAkSEQoJcGxheWJvb2tzGA0gAygJIhMKEUxpc3RTa2lsbHNSZXF1ZXN0IpUBChJMaXN0U2tpbGxzUmVzcG9uc2USKwoGc2tpbGxzGAEgAygLMhsucG9kaXVtLmFnZW50LnYxLkFnZW50U2tpbGwSEgoKc2tpbGxzX2RpchgCIAEoCRIRCgltYXhfYnl0ZXMYAyABKAMSEQoJbWF4X2ZpbGVzGAQgASgFEhgKEG1heF9wZXJfcGxheWJvb2sYBSABKAUiSAoSVXBsb2FkU2tpbGxSZXF1ZXN0Eg8KB2NvbnRlbnQYASABKAwSEAoIZmlsZW5hbWUYAiABKAkSDwoHcmVwbGFjZRgDIAEoCCJTChNVcGxvYWRTa2lsbFJlc3BvbnNlEioKBXNraWxsGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkFnZW50U2tpbGwSEAoIcmVwbGFjZWQYAiABKAgiNwoWU2V0U2tpbGxFbmFibGVkUmVxdWVzdBIMCgRuYW1lGAEgASgJEg8KB2VuYWJsZWQYAiABKAgiRQoXU2V0U2tpbGxFbmFibGVkUmVzcG9uc2USKgoFc2tpbGwYASABKAsyGy5wb2RpdW0uYWdlbnQudjEuQWdlbnRTa2lsbCIiChJEZWxldGVTa2lsbFJlcXVlc3QSDAoEbmFtZRgBIAEoCSIVChNEZWxldGVTa2lsbFJlc3BvbnNlMp0TCgxBZ2VudFNlcnZpY2USWwoMTGlzdFNlc3Npb25zEiQucG9kaXVtLmFnZW50LnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVQoKR2V0U2Vzc2lvbhIiLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRTZXNzaW9uUmVzcG9uc2USUgoJTGlzdFR1cm5zEiEucG9kaXVtLmFnZW50LnYxLkxpc3RUdXJuc1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdFR1cm5zUmVzcG9uc2USWAoLR2V0U2V0dGluZ3MSIy5wb2RpdW0uYWdlbnQudjEuR2V0U2V0dGluZ3NSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkdldFNldHRpbmdzUmVzcG9uc2USYQoOU2V0UHJvdmlkZXJLZXkSJi5wb2RpdW0uYWdlbnQudjEuU2V0UHJvdmlkZXJLZXlSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNldFByb3ZpZGVyS2V5UmVzcG9uc2USZwoQQ2xlYXJQcm92aWRlcktleRIoLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DbGVhclByb3ZpZGVyS2V5UmVzcG9uc2USbQoSU3RhcnRQcm92aWRlck9BdXRoEioucG9kaXVtLmFnZW50LnYxLlN0YXJ0UHJvdmlkZXJPQXV0aFJlcXVlc3QaKy5wb2RpdW0uYWdlbnQudjEuU3RhcnRQcm92aWRlck9BdXRoUmVzcG9uc2USagoRUG9sbFByb3ZpZGVyT0F1dGgSKS5wb2RpdW0uYWdlbnQudjEuUG9sbFByb3ZpZGVyT0F1dGhSZXF1ZXN0GioucG9kaXVtLmFnZW50LnYxLlBvbGxQcm92aWRlck9BdXRoUmVzcG9uc2USVQoKTGlzdEFnZW50cxIiLnBvZGl1bS5hZ2VudC52MS5MaXN0QWdlbnRzUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5MaXN0QWdlbnRzUmVzcG9uc2USWwoMTGlzdE1lbW9yaWVzEiQucG9kaXVtLmFnZW50LnYxLkxpc3RNZW1vcmllc1JlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuTGlzdE1lbW9yaWVzUmVzcG9uc2USYQoOU2VhcmNoTWVtb3JpZXMSJi5wb2RpdW0uYWdlbnQudjEuU2VhcmNoTWVtb3JpZXNSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlNlYXJjaE1lbW9yaWVzUmVzcG9uc2USWwoMRGVsZXRlTWVtb3J5EiQucG9kaXVtLmFnZW50LnYxLkRlbGV0ZU1lbW9yeVJlcXVlc3QaJS5wb2RpdW0uYWdlbnQudjEuRGVsZXRlTWVtb3J5UmVzcG9uc2USXgoNTGlzdFBsYXlib29rcxIlLnBvZGl1bS5hZ2VudC52MS5MaXN0UGxheWJvb2tzUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5MaXN0UGxheWJvb2tzUmVzcG9uc2USVQoKR2V0UHJvZmlsZRIiLnBvZGl1bS5hZ2VudC52MS5HZXRQcm9maWxlUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5HZXRQcm9maWxlUmVzcG9uc2USXgoNVXBkYXRlUHJvZmlsZRIlLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVQcm9maWxlUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5VcGRhdGVQcm9maWxlUmVzcG9uc2USYQoOQ3JlYXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuQ3JlYXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLkNyZWF0ZVBsYXlib29rUmVzcG9uc2USYQoOVXBkYXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuVXBkYXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlVwZGF0ZVBsYXlib29rUmVzcG9uc2USYQoORGVsZXRlUGxheWJvb2sSJi5wb2RpdW0uYWdlbnQudjEuRGVsZXRlUGxheWJvb2tSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVBsYXlib29rUmVzcG9uc2USVQoKTGlzdFNraWxscxIiLnBvZGl1bS5hZ2VudC52MS5MaXN0U2tpbGxzUmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5MaXN0U2tpbGxzUmVzcG9uc2USWAoLVXBsb2FkU2tpbGwSIy5wb2RpdW0uYWdlbnQudjEuVXBsb2FkU2tpbGxSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLlVwbG9hZFNraWxsUmVzcG9uc2USZAoPU2V0U2tpbGxFbmFibGVkEicucG9kaXVtLmFnZW50LnYxLlNldFNraWxsRW5hYmxlZFJlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuU2V0U2tpbGxFbmFibGVkUmVzcG9uc2USWAoLRGVsZXRlU2tpbGwSIy5wb2RpdW0uYWdlbnQudjEuRGVsZXRlU2tpbGxSZXF1ZXN0GiQucG9kaXVtLmFnZW50LnYxLkRlbGV0ZVNraWxsUmVzcG9uc2USVQoKQ3JlYXRlQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVxdWVzdBojLnBvZGl1bS5hZ2VudC52MS5DcmVhdGVDaGF0UmVzcG9uc2USUgoJTGlzdENoYXRzEiEucG9kaXVtLmFnZW50LnYxLkxpc3RDaGF0c1JlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTGlzdENoYXRzUmVzcG9uc2USZAoPU2VuZENoYXRNZXNzYWdlEicucG9kaXVtLmFnZW50LnYxLlNlbmRDaGF0TWVzc2FnZVJlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuU2VuZENoYXRNZXNzYWdlUmVzcG9uc2USTgoKU3RyZWFtQ2hhdBIiLnBvZGl1bS5hZ2VudC52MS5TdHJlYW1DaGF0UmVxdWVzdBoaLnBvZGl1bS5hZ2VudC52MS5DaGF0RnJhbWUwAULIAQoTY29tLnBvZGl1bS5hZ2VudC52MUIKQWdlbnRQcm90b1ABWkdnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -1861,6 +1861,20 @@ export type PlaybookDefinition = Message<"podium.agent.v1.PlaybookDefinition"> &
    * @generated from field: string effort = 21;
    */
   effort: string;
+
+  /**
+   * skills is the Agent Skills a turn of this playbook may load, by name. Empty means none,
+   * and none is enforced rather than merely unconfigured: the turn's harness config denies
+   * every skill by pattern, which also removes the skill tool from the agent.
+   *
+   * An Agent Skill is instructions and scripts somebody else wrote, and they run in the
+   * turn's container with the turn's GitHub token and model credential. This list is the
+   * whole of what decides which ones do, and editing it here is a UI action rather than a
+   * file edit — see docs/security.md.
+   *
+   * @generated from field: repeated string skills = 22;
+   */
+  skills: string[];
 };
 
 /**
@@ -2079,10 +2093,318 @@ export const DeletePlaybookResponseSchema: GenMessage<DeletePlaybookResponse> = 
   messageDesc(file_podium_agent_v1_agent, 61);
 
 /**
+ * AgentSkill is one Agent Skill the conductor can hand a turn.
+ *
+ * EVERY FIELD IS CONTENT except origin, enabled and the provenance. name and description come
+ * out of a SKILL.md somebody else wrote; a browser renders them as text and never as markup.
+ *
+ * @generated from message podium.agent.v1.AgentSkill
+ */
+export type AgentSkill = Message<"podium.agent.v1.AgentSkill"> & {
+  /**
+   * name is the skill's own frontmatter name, which is also the directory it is installed
+   * into inside the container and the only name a playbook can allow-list.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * description is the frontmatter's. It is the whole of what the model reads to decide
+   * whether to use the skill, which is why it is shown here.
+   *
+   * @generated from field: string description = 2;
+   */
+  description: string;
+
+  /**
+   * sha256 is the digest of the bundle document. It is what the runtime verifies before it
+   * writes anything into a container — TRANSPORT INTEGRITY, not provenance: it says the
+   * bytes that arrived are the bytes the conductor read, and nothing about who wrote them.
+   *
+   * @generated from field: string sha256 = 3;
+   */
+  sha256: string;
+
+  /**
+   * size_bytes is the bundle document's length, which is what the caps are measured against.
+   *
+   * @generated from field: int64 size_bytes = 4;
+   */
+  sizeBytes: bigint;
+
+  /**
+   * @generated from field: int32 file_count = 5;
+   */
+  fileCount: number;
+
+  /**
+   * enabled is false for a stored skill somebody turned off. Always true for a directory
+   * skill: there is nothing in a directory to turn off.
+   *
+   * @generated from field: bool enabled = 6;
+   */
+  enabled: boolean;
+
+  /**
+   * origin is "dir" for a directory under PODIUM_AGENT_SKILLS_DIR on the conductor's host,
+   * and "stored" for a bundle uploaded through this API.
+   *
+   * @generated from field: string origin = 7;
+   */
+  origin: string;
+
+  /**
+   * editable is false for a directory skill: the files win, and the write RPCs refuse one.
+   *
+   * @generated from field: bool editable = 8;
+   */
+  editable: boolean;
+
+  /**
+   * shadowed is true for a stored skill whose name a directory also holds. The directory
+   * wins, so a shadowed skill never runs; it is reported so it can be deleted.
+   *
+   * @generated from field: bool shadowed = 9;
+   */
+  shadowed: boolean;
+
+  /**
+   * uploaded_by and uploaded_at are set for a stored skill only.
+   *
+   * @generated from field: string uploaded_by = 10;
+   */
+  uploadedBy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp uploaded_at = 11;
+   */
+  uploadedAt?: Timestamp | undefined;
+
+  /**
+   * problem is why this skill would fail a turn that asked for it — a directory with no
+   * SKILL.md, a bundle over a cap, a row whose digest no longer matches. Empty normally. It
+   * is reported rather than the entry being hidden: a skill an operator can see in a shell
+   * and cannot see here is the worst version of this.
+   *
+   * @generated from field: string problem = 12;
+   */
+  problem: string;
+
+  /**
+   * playbooks names the playbooks whose skills: list this skill, so a human can see what a
+   * delete or a disable would change before doing it.
+   *
+   * @generated from field: repeated string playbooks = 13;
+   */
+  playbooks: string[];
+};
+
+/**
+ * Describes the message podium.agent.v1.AgentSkill.
+ * Use `create(AgentSkillSchema)` to create a new message.
+ */
+export const AgentSkillSchema: GenMessage<AgentSkill> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 62);
+
+/**
+ * @generated from message podium.agent.v1.ListSkillsRequest
+ */
+export type ListSkillsRequest = Message<"podium.agent.v1.ListSkillsRequest"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.ListSkillsRequest.
+ * Use `create(ListSkillsRequestSchema)` to create a new message.
+ */
+export const ListSkillsRequestSchema: GenMessage<ListSkillsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 63);
+
+/**
+ * @generated from message podium.agent.v1.ListSkillsResponse
+ */
+export type ListSkillsResponse = Message<"podium.agent.v1.ListSkillsResponse"> & {
+  /**
+   * skills is every skill that could run, sorted by name, followed by any shadowed stored
+   * skill. Two entries can share a name when one is shadowed; they differ in origin.
+   *
+   * @generated from field: repeated podium.agent.v1.AgentSkill skills = 1;
+   */
+  skills: AgentSkill[];
+
+  /**
+   * skills_dir is PODIUM_AGENT_SKILLS_DIR, or "" when this conductor has none. The UI says
+   * which directory it read rather than leaving a reader to guess why one is missing.
+   *
+   * @generated from field: string skills_dir = 2;
+   */
+  skillsDir: string;
+
+  /**
+   * max_bytes and max_files are the caps an upload is held to, so the UI can name the same
+   * number the refusal would.
+   *
+   * @generated from field: int64 max_bytes = 3;
+   */
+  maxBytes: bigint;
+
+  /**
+   * @generated from field: int32 max_files = 4;
+   */
+  maxFiles: number;
+
+  /**
+   * max_per_playbook is how many skills one playbook may name.
+   *
+   * @generated from field: int32 max_per_playbook = 5;
+   */
+  maxPerPlaybook: number;
+};
+
+/**
+ * Describes the message podium.agent.v1.ListSkillsResponse.
+ * Use `create(ListSkillsResponseSchema)` to create a new message.
+ */
+export const ListSkillsResponseSchema: GenMessage<ListSkillsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 64);
+
+/**
+ * @generated from message podium.agent.v1.UploadSkillRequest
+ */
+export type UploadSkillRequest = Message<"podium.agent.v1.UploadSkillRequest"> & {
+  /**
+   * content is a zip of the skill's directory, or a bare SKILL.md. Which one it is comes
+   * from the bytes — a zip is recognised by its own header — so a client does not declare
+   * it and cannot mis-declare it.
+   *
+   * @generated from field: bytes content = 1;
+   */
+  content: Uint8Array;
+
+  /**
+   * filename is what the human called the upload. It appears in error messages and nowhere
+   * else: the skill's NAME comes from its SKILL.md frontmatter, because that is the only
+   * name the harness will load it under.
+   *
+   * @generated from field: string filename = 2;
+   */
+  filename: string;
+
+  /**
+   * replace allows overwriting a stored skill of the same name, and without it an existing
+   * name is refused. A skill is a dependency of every playbook that names it, and a file
+   * picker should not be able to swap one by accident.
+   *
+   * @generated from field: bool replace = 3;
+   */
+  replace: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.UploadSkillRequest.
+ * Use `create(UploadSkillRequestSchema)` to create a new message.
+ */
+export const UploadSkillRequestSchema: GenMessage<UploadSkillRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 65);
+
+/**
+ * @generated from message podium.agent.v1.UploadSkillResponse
+ */
+export type UploadSkillResponse = Message<"podium.agent.v1.UploadSkillResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.AgentSkill skill = 1;
+   */
+  skill?: AgentSkill | undefined;
+
+  /**
+   * replaced is true when this overwrote a stored bundle rather than adding a new skill.
+   *
+   * @generated from field: bool replaced = 2;
+   */
+  replaced: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.UploadSkillResponse.
+ * Use `create(UploadSkillResponseSchema)` to create a new message.
+ */
+export const UploadSkillResponseSchema: GenMessage<UploadSkillResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 66);
+
+/**
+ * @generated from message podium.agent.v1.SetSkillEnabledRequest
+ */
+export type SetSkillEnabledRequest = Message<"podium.agent.v1.SetSkillEnabledRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bool enabled = 2;
+   */
+  enabled: boolean;
+};
+
+/**
+ * Describes the message podium.agent.v1.SetSkillEnabledRequest.
+ * Use `create(SetSkillEnabledRequestSchema)` to create a new message.
+ */
+export const SetSkillEnabledRequestSchema: GenMessage<SetSkillEnabledRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 67);
+
+/**
+ * @generated from message podium.agent.v1.SetSkillEnabledResponse
+ */
+export type SetSkillEnabledResponse = Message<"podium.agent.v1.SetSkillEnabledResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.AgentSkill skill = 1;
+   */
+  skill?: AgentSkill | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.SetSkillEnabledResponse.
+ * Use `create(SetSkillEnabledResponseSchema)` to create a new message.
+ */
+export const SetSkillEnabledResponseSchema: GenMessage<SetSkillEnabledResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 68);
+
+/**
+ * @generated from message podium.agent.v1.DeleteSkillRequest
+ */
+export type DeleteSkillRequest = Message<"podium.agent.v1.DeleteSkillRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteSkillRequest.
+ * Use `create(DeleteSkillRequestSchema)` to create a new message.
+ */
+export const DeleteSkillRequestSchema: GenMessage<DeleteSkillRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 69);
+
+/**
+ * @generated from message podium.agent.v1.DeleteSkillResponse
+ */
+export type DeleteSkillResponse = Message<"podium.agent.v1.DeleteSkillResponse"> & {
+};
+
+/**
+ * Describes the message podium.agent.v1.DeleteSkillResponse.
+ * Use `create(DeleteSkillResponseSchema)` to create a new message.
+ */
+export const DeleteSkillResponseSchema: GenMessage<DeleteSkillResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_agent, 70);
+
+/**
  * AgentService is the conductor's own API. It is served on PODIUM_AGENT_LISTEN behind a
  * bearer token and reached from a browser only through podium-server, which proxies
  * /podium.agent.v1.AgentService/ behind its identity middleware. It grew by step:
- * sessions (17), settings (18), memory (19), playbooks and chat (21).
+ * sessions (17), settings (18), memory (19), playbooks and chat (21), Agent Skills (22).
  *
  * @generated from service podium.agent.v1.AgentService
  */
@@ -2279,6 +2601,53 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof DeletePlaybookRequestSchema;
     output: typeof DeletePlaybookResponseSchema;
+  },
+  /**
+   * ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
+   * uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
+   * The directory wins a name clash, and a stored skill it shadows is reported as such.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.ListSkills
+   */
+  listSkills: {
+    methodKind: "unary";
+    input: typeof ListSkillsRequestSchema;
+    output: typeof ListSkillsResponseSchema;
+  },
+  /**
+   * UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
+   * held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
+   * path it may not, or with a SKILL.md the harness would not load is refused with the rule
+   * it broke.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.UploadSkill
+   */
+  uploadSkill: {
+    methodKind: "unary";
+    input: typeof UploadSkillRequestSchema;
+    output: typeof UploadSkillResponseSchema;
+  },
+  /**
+   * SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
+   * names a disabled skill fails its turns saying so rather than running without it.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.SetSkillEnabled
+   */
+  setSkillEnabled: {
+    methodKind: "unary";
+    input: typeof SetSkillEnabledRequestSchema;
+    output: typeof SetSkillEnabledResponseSchema;
+  },
+  /**
+   * DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
+   * file on the conductor's host and this API does not delete those.
+   *
+   * @generated from rpc podium.agent.v1.AgentService.DeleteSkill
+   */
+  deleteSkill: {
+    methodKind: "unary";
+    input: typeof DeleteSkillRequestSchema;
+    output: typeof DeleteSkillResponseSchema;
   },
   /**
    * CreateChat opens a new web-chat conversation owned by the calling login.
