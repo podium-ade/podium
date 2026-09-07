@@ -41,6 +41,11 @@ var notConfiguration = map[string]string{
 	"PODIUM_AGENT_DRY_RUN":          "test-only; the dev source puts it on a task spec",
 	"PODIUM_AGENT_DRY_RUN_SLEEP_MS": "test-only; the dev source puts it on a task spec",
 	"PODIUM_AGENT_DRY_RUN_EXIT":     "test-only; the dev source puts it on a task spec",
+	// The PREFIX of the variables one turn's Agent Skill bundles travel in. The conductor
+	// writes one per skill it delivers, named after the skill, and the runtime reads it
+	// there. An operator sets PODIUM_AGENT_SKILLS_DIR and never any of these — a playbook
+	// that tries to set one is refused at load.
+	"PODIUM_AGENT_SKILL_": "the prefix of the per-skill bundle variables the conductor writes",
 	// The env var the shared memory's API key lands in INSIDE a task container. The
 	// conductor names it on every turn's spec as the target of the
 	// podium.agent.memory_api_key secret, and the runtime reads it there to authenticate

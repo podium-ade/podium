@@ -18,6 +18,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+	"github.com/alvaroibarguen/podium/internal/agent/skills"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
@@ -67,6 +68,10 @@ type Options struct {
 	// means config.DefaultXAIBaseURL, so a hand-built Conductor still produces a usable
 	// brief.
 	XAIBaseURL string
+	// SkillsDir is the directory on this host that Agent Skills are read from
+	// (PODIUM_AGENT_SKILLS_DIR). Empty means this conductor delivers none, and a playbook
+	// that names one fails its turns saying so.
+	SkillsDir string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -82,6 +87,8 @@ type Conductor struct {
 	memories memory.Client
 	// xaiBaseURL is the endpoint a Grok turn's brief names.
 	xaiBaseURL string
+	// skillsDir is where a turn's Agent Skills are read from.
+	skillsDir string
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -127,6 +134,7 @@ func New(opts Options) (*Conductor, error) {
 		memory:     opts.Memory,
 		memories:   opts.MemoryClient,
 		xaiBaseURL: cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		skillsDir:  opts.SkillsDir,
 		sessions:   map[string]*sessionState{},
 	}, nil
 }
@@ -295,7 +303,24 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, playbook, turn.ID, ev, entries)
+	// The playbook's Agent Skills, read off this host and packed. It happens per turn and
+	// not at start-up so that a skill an operator has just edited is the one the next turn
+	// gets, and so that a broken skill fails the playbook that names it rather than the
+	// whole conductor.
+	bundles, err := c.skillBundles(playbook)
+	if err != nil {
+		// The reason names a path and a cap on the conductor's own host, so it goes to the
+		// log and not to a human, like every other "I could not start".
+		c.logger.ErrorContext(ctx, "the playbook's agent skills could not be prepared",
+			"turn_id", turn.ID, "playbook", playbook.Name, "skills_dir", c.skillsDir, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+			"The `%s` playbook asks for skills I could not prepare, so nothing ran. "+
+				"An operator should check the logs.", playbook.Name)})
+		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
+
+	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles)
 	encoded, err := brief.Encode()
 	if err != nil {
 		c.logger.WarnContext(ctx, "the turn brief does not fit", "turn_id", turn.ID, "error", err)
@@ -304,7 +329,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, playbook, encoded, ev)
+	taskSpec := c.taskSpec(src, playbook, encoded, ev, bundles)
 	task, err := c.podium.CreateTask(ctx, taskSpec)
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
@@ -341,7 +366,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
-	sess store.Session, playbook profiles.Playbook, turnID string, ev InboundEvent, entries []BriefEntry,
+	sess store.Session, playbook profiles.Playbook, turnID string, ev InboundEvent,
+	entries []BriefEntry, bundles []skills.Bundle,
 ) *Brief {
 	kind := ev.BriefKind
 	if kind == "" {
@@ -378,6 +404,11 @@ func (c *Conductor) brief(
 	for _, r := range playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
+	for _, s := range bundles {
+		b.Playbook.Skills = append(b.Playbook.Skills, BriefSkill{
+			Name: s.Name, SHA256: s.SHA256, BundleEnv: s.Env,
+		})
+	}
 	if b.Instruction == "" {
 		// The schema requires a non-empty instruction, and a mention with no words is a
 		// real thing a human does.
@@ -413,7 +444,9 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
 // reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.
-func (c *Conductor) taskSpec(src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent) *spec.TaskSpec {
+func (c *Conductor) taskSpec(
+	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
+) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range playbook.Env {
 		env[k] = v
@@ -427,6 +460,12 @@ func (c *Conductor) taskSpec(src Source, playbook profiles.Playbook, encodedBrie
 		}
 	}
 	env[BriefEnv] = encodedBrief
+	// One variable per skill bundle, written last so a playbook's own env: can never
+	// shadow one. Playbook.validate has already refused the prefix, so this overwrites
+	// nothing an operator wrote.
+	for _, s := range bundles {
+		env[s.Env] = s.Encoded
+	}
 
 	if playbook.Docker {
 		env[profiles.DockerHostEnv] = dockerSidecarHost
@@ -450,6 +489,24 @@ func (c *Conductor) taskSpec(src Source, playbook profiles.Playbook, encodedBrie
 	}
 	s.ApplyDefaults()
 	return s
+}
+
+// skillBundles reads and packs the Agent Skills the playbook names. A playbook that names
+// none reads nothing: the directory does not have to exist, or be configured, for a bot
+// that does not use skills.
+func (c *Conductor) skillBundles(playbook profiles.Playbook) ([]skills.Bundle, error) {
+	if len(playbook.Skills) == 0 {
+		return nil, nil
+	}
+	if c.skillsDir == "" {
+		return nil, fmt.Errorf("playbook %q names %d agent skill(s) and %s is not set on this host",
+			playbook.Name, len(playbook.Skills), skills.DirEnv)
+	}
+	bundles, err := skills.LoadAll(c.skillsDir, playbook.Skills)
+	if err != nil {
+		return nil, fmt.Errorf("playbook %q: %w", playbook.Name, err)
+	}
+	return bundles, nil
 }
 
 // The Docker daemon a `docker: true` playbook gets. It is the conductor's to build rather

@@ -68,6 +68,29 @@ export interface Config {
   baseURL?: string;
   /** memory is the MCP server, when this host has one. */
   memory?: { url: string; apiKeyEnv: string };
+  /** skills is the Agent Skills this turn may use, by name. Everything else is denied. */
+  skills?: string[];
+}
+
+/**
+ * skillPermission is the harness's `permission.skill` map: a wildcard deny, then one allow
+ * per skill the playbook named.
+ *
+ * The order is load-bearing. The harness evaluates the LAST matching rule, so the broad
+ * rule has to come first — `{"pr-review": "allow", "*": "deny"}` denies pr-review. It is
+ * written even when the playbook named nothing, and that is the point: with everything
+ * denied the harness drops the `skill` tool from the agent altogether, so a turn with no
+ * skills cannot load one by any route, including the skills the harness ships with itself.
+ *
+ * `--auto` does not undo it: it auto-approves what is not *explicitly* denied, and `*`
+ * denies explicitly.
+ */
+export function skillPermission(names: string[]): Record<string, "allow" | "deny"> {
+  const out: Record<string, "allow" | "deny"> = { "*": "deny" };
+  for (const name of names) {
+    out[name] = "allow";
+  }
+  return out;
 }
 
 /**
@@ -98,6 +121,7 @@ export function writeConfig(cfg: Config): string {
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
+    permission: { skill: skillPermission(cfg.skills ?? []) },
     agent: {
       [AgentName]: {
         description: "One Podium turn.",
