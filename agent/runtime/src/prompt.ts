@@ -2,7 +2,7 @@
 // brief must always produce the same prompt, which is what makes the snapshot test worth
 // having.
 
-import { ArtifactsDir } from "./artifacts.js";
+import { ArtifactsDir, ChatTitleName } from "./artifacts.js";
 import type { SourceKind, TurnBrief } from "./brief.js";
 import { WorkspaceDir } from "./repos.js";
 
@@ -22,6 +22,9 @@ export function buildSystemPrompt(brief: TurnBrief): string {
     brief.playbook.system_prompt,
     runtimeBlock(brief),
   ];
+  if (brief.source.kind === "chat" && firstChatTurn(brief)) {
+    sections.push(chatTitleBlock());
+  }
   if (brief.memory) {
     sections.push(memoryBlock());
   }
@@ -81,6 +84,16 @@ function reposBlock(brief: TurnBrief): string {
   return `# Repositories
 
 ${lines.join("\n")}`;
+}
+
+function firstChatTurn(brief: TurnBrief): boolean {
+  return !brief.transcript.some((e) => e.role === "assistant");
+}
+
+function chatTitleBlock(): string {
+  return `# This chat
+
+This is the first message of a web chat. Write a 3–6 word title for it to ${ArtifactsDir}/${ChatTitleName} — one line, no quotes, no trailing punctuation. Do not mention the title or that file in your answer.`;
 }
 
 function transcriptBlock(brief: TurnBrief): string {

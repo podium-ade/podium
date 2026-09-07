@@ -14,7 +14,10 @@ export const TranscriptName = "transcript.jsonl";
 /** TurnName holds the turn's summary. */
 export const TurnName = "turn.json";
 
-const runtimeOwned = new Set([TranscriptName, TurnName]);
+/** ChatTitleName is the model-written name of a web chat, first turn only. */
+export const ChatTitleName = "chat-title.txt";
+
+const runtimeOwned = new Set([TranscriptName, TurnName, ChatTitleName]);
 
 /** TurnSummary is turn.json. */
 export interface TurnSummary {

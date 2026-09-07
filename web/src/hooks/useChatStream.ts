@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { ChatMessage } from "../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage } from "../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage } from "../lib/client";
 
 /** MAX_BACKOFF_MS caps the wait between reconnects. */
@@ -18,6 +18,8 @@ export interface ChatStreamState {
   progress?: string;
   /** running is true while a turn of this chat is in flight. */
   running: boolean;
+  /** chat is the latest title/playbook row, when the stream said so. */
+  chat?: Chat;
   /** taskId is the Podium task the running turn is using, when the stream said so. */
   taskId?: string;
   phase: ChatPhase;
@@ -112,6 +114,16 @@ export function useChatStream(chatId: string): ChatStreamState {
                   running: started,
                   taskId: status.taskId === "" ? undefined : status.taskId,
                   progress: started ? prev.progress : undefined,
+                }));
+                break;
+              }
+              case "chat": {
+                const row = frame.frame.value;
+                update((prev) => ({
+                  ...prev,
+                  phase: "streaming",
+                  error: undefined,
+                  chat: row,
                 }));
                 break;
               }

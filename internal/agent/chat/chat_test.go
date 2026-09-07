@@ -38,7 +38,7 @@ func newFakeStore() *fakeStore {
 func (f *fakeStore) add(id, login string) store.Chat {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	c := store.Chat{ID: id, Title: store.DefaultChatTitle, Login: login, CreatedAt: time.Now().UTC()}
+	c := store.Chat{ID: id, Title: store.DefaultChatTitle, Login: login, CreatedAt: time.Now().UTC(), AutoTitle: true}
 	f.chats[id] = c
 	return c
 }
@@ -98,6 +98,34 @@ func (f *fakeStore) ChatTurnRunning(_ context.Context, chatID string) (bool, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.running[chatID], nil
+}
+
+func (f *fakeStore) SetChatPlaybook(_ context.Context, id, playbook string) (store.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[id]
+	if !ok {
+		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
+	}
+	if c.Playbook == "" {
+		c.Playbook = playbook
+		f.chats[id] = c
+	}
+	return c, nil
+}
+
+func (f *fakeStore) SetChatTitle(_ context.Context, id, title string) (store.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.chats[id]
+	if !ok {
+		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
+	}
+	if c.AutoTitle {
+		c.Title = title
+		f.chats[id] = c
+	}
+	return c, nil
 }
 
 func newSource(t *testing.T, st Store) *Source {
@@ -461,6 +489,75 @@ func TestTheTranscriptOfAChatThatIsNotThere(t *testing.T) {
 	src := newSource(t, newFakeStore())
 	_, err := src.FetchTranscript(context.Background(), "chat_nope")
 	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestTheFirstMessageRemembersThePlaybookAndNamesTheChat(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src, err := New(Options{Store: st, DisplayName: "Podium", DefaultPlaybook: func() string { return "general" }})
+	require.NoError(t, err)
+	sub := src.Subscribe(context.Background(), "chat_1")
+	defer sub.Close()
+
+	_, err = src.Send(context.Background(), SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month", Playbook: "analyst",
+	})
+	require.NoError(t, err)
+	drainEvent(t, src)
+	_ = recv(t, sub) // the user message
+	meta := recv(t, sub)
+	assert.Equal(t, FrameChat, meta.Kind)
+	assert.Equal(t, "analyst", meta.Chat.Playbook)
+	assert.Equal(t, "how many active accounts last month", meta.Chat.Title)
+
+	got, err := st.GetChat(context.Background(), "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, "analyst", got.Playbook)
+	assert.Equal(t, "how many active accounts last month", got.Title)
+
+	require.NoError(t, src.React(context.Background(), "chat_1", conductor.ReactionDone))
+	_, err = src.Send(context.Background(), SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "/general something else", Playbook: "general",
+	})
+	require.NoError(t, err)
+	got, err = st.GetChat(context.Background(), "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, "analyst", got.Playbook, "one chat, one playbook — the first message wins")
+	assert.Equal(t, "how many active accounts last month", got.Title, "the title is not rewritten on later messages")
+}
+
+func TestASuppliedTitleIsNotOverwritten(t *testing.T) {
+	st := newFakeStore()
+	st.mu.Lock()
+	st.chats["chat_1"] = store.Chat{
+		ID: "chat_1", Title: "August numbers", Login: "alice", CreatedAt: time.Now().UTC(),
+	}
+	st.mu.Unlock()
+	src := newSource(t, st)
+
+	_, err := src.Send(context.Background(), SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts", Playbook: "analyst",
+	})
+	require.NoError(t, err)
+	got, err := st.GetChat(context.Background(), "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, "August numbers", got.Title)
+	assert.Equal(t, "analyst", got.Playbook)
+}
+
+func TestSetAutoTitleReplacesAQueryTitle(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	_, err := src.Send(context.Background(), SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, src.SetAutoTitle(context.Background(), "chat_1", "August account totals"))
+	got, err := st.GetChat(context.Background(), "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, "August account totals", got.Title)
 }
 
 func TestAnEmptyMessageIsRefused(t *testing.T) {

@@ -426,6 +426,10 @@ message Chat {
   // turn_running is true while a turn of this chat is in flight, which is when the
   // composer is disabled and SendChatMessage answers FailedPrecondition.
   bool turn_running = 6;
+  // playbook is the playbook this chat runs. Empty until the first message; then it is
+  // fixed — one chat, one playbook, the same rule as a Slack thread. Switching it later
+  // is refused: start a new chat.
+  string playbook = 7;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -464,13 +468,15 @@ message ChatStatus {
 // resolved after the fact — a client keyed on seq replaces rather than appends. A progress
 // frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
 // not show it. A resync frame means this subscriber fell behind and dropped something
-// durable: re-read from the last seq seen.
+// durable: re-read from the last seq seen. A chat frame is the conversation's own row
+// after a title or playbook change; a reload re-reads it from ListChats.
 message ChatFrame {
   oneof frame {
     ChatMessage message = 1;
     string progress = 2;
     ChatStatus status = 3;
     bool resync = 4;
+    Chat chat = 5;
   }
 }
 
