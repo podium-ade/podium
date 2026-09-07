@@ -176,6 +176,9 @@ async function main(): Promise<number> {
   // the workspace is a repository the agent may commit and nobody wants a turn's config in
   // a pull request.
   const configDir = mkdtempSync(join(tmpdir(), "podium-turn-"));
+  // Resolved before the config is written, because the config is what the harness reads and
+  // the name only resolves from inside this container. See resolveBrowserURL.
+  const browserCDP = brief.browser ? await oc.resolveBrowserURL(brief.browser.cdp_url) : undefined;
   try {
     oc.writeConfig({
       dir: configDir,
@@ -186,6 +189,7 @@ async function main(): Promise<number> {
       memory: brief.memory
         ? { url: brief.memory.mcp_url, apiKeyEnv: brief.memory.api_key_env }
         : undefined,
+      browser: browserCDP ? { cdpURL: browserCDP } : undefined,
       skills: skillRefs.map((s) => s.name),
     });
   } catch (err) {
