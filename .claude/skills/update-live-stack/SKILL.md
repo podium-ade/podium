@@ -17,7 +17,7 @@ them your change is actually in, and leaving the rest alone.
 | Go under `cmd/` or `internal/` | `make build` | restart the affected services |
 | `web/` | `make build` — the UI is embedded in the server binary | restart `podium-server` |
 | `agent/runtime/src/` or either runtime Dockerfile | the images (§3) | retag the profile (§4), restart `podium-agent` |
-| a skill or profile file in the profile directory | nothing | restart `podium-agent` (§4 says why) |
+| a playbook or profile file in the profile directory | nothing | restart `podium-agent` (§4 says why) |
 | `deploy/run-host.sh`, `deploy/.env` | nothing | it is read on the next `stack-up` |
 
 A remote worker only needs touching when Go changed — see §6.
@@ -61,7 +61,7 @@ already names:
 ```sh
 . deploy/.env
 PROFILE=${PODIUM_AGENT_PROFILE_DIR:?set it in deploy/.env}
-REG=$(sed -n 's|^image: \([^/]*\)/.*|\1|p' "$PROFILE"/skills/*.yaml | sort -u)   # one line, or fix the profile
+REG=$(sed -n 's|^image: \([^/]*\)/.*|\1|p' "$PROFILE"/playbooks/*.yaml | sort -u)   # one line, or fix the profile
 
 docker buildx build --builder podiumx --platform linux/amd64,linux/arm64 \
   --build-arg VERSION=$V --build-arg REVISION=$V \
@@ -89,15 +89,15 @@ curl -s http://$REG/v2/podium-agent-runtime/tags/list
 
 ```sh
 sed -i '' "s|^image: .*/podium-agent-runtime:.*|image: $REG/podium-agent-runtime:$V|" \
-  "$PROFILE"/skills/*.yaml          # GNU sed: -i without the ''
+  "$PROFILE"/playbooks/*.yaml          # GNU sed: -i without the ''
 ```
 
-Then repeat for `podium-agent-runtime-dev` if any skill uses it. Skills that name an image of
+Then repeat for `podium-agent-runtime-dev` if any playbook uses it. Playbooks that name an image of
 their own, built `FROM podium-agent-runtime`, are yours to rebuild on the same tag.
 
 **A running conductor will not see this.** `profiles.Load` reads the profile directory once, at
-boot; the periodic reload rebuilds the profile from that snapshot plus the skills the database
-holds, so a file edit reaches nothing until the process restarts. Skills created in the web UI
+boot; the periodic reload rebuilds the profile from that snapshot plus the playbooks the database
+holds, so a file edit reaches nothing until the process restarts. Playbooks created in the web UI
 are the exception — those live in the database and do reach the next turn.
 
 ## 5. Restart
