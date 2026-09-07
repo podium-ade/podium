@@ -51,7 +51,7 @@ func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 	c := skillsConductor(t, dir, playbook)
 	playbook = c.profiles.Current().Playbooks["coder"]
 
-	bundles, err := c.skillBundles(playbook)
+	bundles, err := c.skillBundles(context.Background(), playbook)
 	require.NoError(t, err)
 	require.Len(t, bundles, 2)
 
@@ -77,7 +77,7 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 	c := skillsConductor(t, "", profiles.Playbook{})
 	playbook := c.profiles.Current().Playbooks["coder"]
 
-	bundles, err := c.skillBundles(playbook)
+	bundles, err := c.skillBundles(context.Background(), playbook)
 	require.NoError(t, err)
 	assert.Empty(t, bundles)
 
@@ -96,15 +96,15 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 func TestASkillThatCannotBeDeliveredFailsTheTurn(t *testing.T) {
 	t.Run("no skills directory on this host", func(t *testing.T) {
 		c := skillsConductor(t, "", profiles.Playbook{Skills: []string{"pr-review"}})
-		_, err := c.skillBundles(c.profiles.Current().Playbooks["coder"])
+		_, err := c.skillBundles(context.Background(), c.profiles.Current().Playbooks["coder"])
 		require.ErrorContains(t, err, skills.DirEnv+" is not set")
 		require.ErrorContains(t, err, `playbook "coder"`)
 	})
 
 	t.Run("a name with nothing behind it", func(t *testing.T) {
 		c := skillsConductor(t, skillsDir(t, "pr-review"), profiles.Playbook{Skills: []string{"missing"}})
-		_, err := c.skillBundles(c.profiles.Current().Playbooks["coder"])
-		require.ErrorContains(t, err, `skill "missing"`)
+		_, err := c.skillBundles(context.Background(), c.profiles.Current().Playbooks["coder"])
+		require.ErrorContains(t, err, `no skill named "missing"`)
 		require.ErrorContains(t, err, `playbook "coder"`)
 	})
 }
