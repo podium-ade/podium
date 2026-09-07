@@ -4,7 +4,17 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AgentName, invocation, KnownTools, MemoryServer, skillPermission, writeConfig } from "./opencode.js";
+import {
+  AgentName,
+  BrowserBinary,
+  BrowserServer,
+  invocation,
+  KnownTools,
+  MemoryServer,
+  resolveBrowserURL,
+  skillPermission,
+  writeConfig,
+} from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "octest-"));
@@ -112,6 +122,50 @@ describe("skillPermission", () => {
   });
 });
 
+describe("writeConfig with a browser", () => {
+  it("drives the sidecar browser with a local server that attaches over CDP", () => {
+    const { config } = write({ browser: { cdpURL: "http://chrome:9222" } });
+    const mcp = config.mcp[BrowserServer];
+    // Local, not remote: the server runs in this container and the browser it drives is
+    // the sidecar. That split is why no Chromium is installed here.
+    expect(mcp.type).toBe("local");
+    expect(mcp.enabled).toBe(true);
+    expect(mcp.command).toEqual([BrowserBinary, "--browserUrl", "http://chrome:9222"]);
+  });
+
+  it("enables the browser tools when the turn has a browser, whatever the playbook listed", () => {
+    const { config } = write({ tools: ["read"], browser: { cdpURL: "http://chrome:9222" } });
+    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBe(true);
+  });
+
+  it("leaves the browser out entirely for a playbook that did not ask for one", () => {
+    const { config } = write();
+    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBeUndefined();
+  });
+
+  it("carries memory and a browser together, each keyed by its own server name", () => {
+    const { config } = write({
+      memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
+      browser: { cdpURL: "http://chrome:9222" },
+    });
+    expect(Object.keys(config.mcp).sort()).toEqual([BrowserServer, MemoryServer].sort());
+  });
+
+  // The combination the QA playbook uses, and the one nothing else covers: a browser puts
+  // an MCP server and a `browser*` tool entry in the config, skills put a `permission.skill`
+  // map in it, and each is written where the other is not looking.
+  it("carries a browser and Agent Skills together, keyed separately", () => {
+    const { config } = write({
+      browser: { cdpURL: "http://chrome:9222" },
+      skills: ["pr-review"],
+    });
+    expect(Object.keys(config.mcp)).toEqual([BrowserServer]);
+    expect(config.mcp[BrowserServer].command).toEqual([BrowserBinary, "--browserUrl", "http://chrome:9222"]);
+    expect(config.agent[AgentName].tools[`${BrowserServer}*`]).toBe(true);
+    expect(config.permission.skill).toEqual({ "*": "deny", "pr-review": "allow" });
+  });
+});
+
 describe("invocation", () => {
   const base = {
     configDir: "/tmp/podium-turn-abc",
@@ -152,5 +206,27 @@ describe("invocation", () => {
     expect(invocation({ ...base, effort: "high" }).argv).toContain("--variant");
     expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
     expect(invocation(base).argv).not.toContain("--variant");
+  });
+});
+
+describe("resolveBrowserURL", () => {
+  const lookup = async (host: string) => (host === "chrome" ? "172.22.0.2" : Promise.reject(new Error("nope")));
+
+  it("turns the sidecar's name into its address, because Chrome refuses a name", async () => {
+    // "Host header is specified and is not an IP address or localhost" is what the DevTools
+    // endpoint answers otherwise, and no client gets as far as a WebSocket.
+    expect(await resolveBrowserURL("http://chrome:9222", lookup)).toBe("http://172.22.0.2:9222");
+  });
+
+  it("leaves an address alone", async () => {
+    expect(await resolveBrowserURL("http://172.22.0.2:9222", lookup)).toBe("http://172.22.0.2:9222");
+    expect(await resolveBrowserURL("http://localhost:9222", lookup)).toBe("http://localhost:9222");
+  });
+
+  it("passes the URL through when the name does not resolve", async () => {
+    // A browser that cannot be found is the harness's error to report, not a reason to
+    // refuse a turn that may never open a page.
+    expect(await resolveBrowserURL("http://nowhere:9222", lookup)).toBe("http://nowhere:9222");
+    expect(await resolveBrowserURL("not a url", lookup)).toBe("not a url");
   });
 });

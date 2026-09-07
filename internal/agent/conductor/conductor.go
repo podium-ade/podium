@@ -402,6 +402,12 @@ func (c *Conductor) brief(
 		Memory:      c.memory,
 	}
 	b.Provider = c.providerFor(choice.Agent)
+	if playbook.Browser {
+		// The same flag that put the sidecar on the task spec puts its address in the
+		// brief. They cannot disagree: a turn with the tools and no browser, or a browser
+		// no tool can reach, is worse than a turn with neither.
+		b.Browser = &BriefBrowser{CDPURL: browserCDPURL}
+	}
 	for _, r := range playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
@@ -485,8 +491,14 @@ func (c *Conductor) taskSpec(
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
 		RetryOnNodeLoss: false,
 	}
+	if playbook.Docker || playbook.Browser {
+		s.Sidecars = map[string]spec.Sidecar{}
+	}
 	if playbook.Docker {
-		s.Sidecars = map[string]spec.Sidecar{dockerSidecarName: dockerSidecar()}
+		s.Sidecars[dockerSidecarName] = dockerSidecar()
+	}
+	if playbook.Browser {
+		s.Sidecars[browserSidecarName] = browserSidecar()
 	}
 	s.ApplyDefaults()
 	return s
@@ -545,6 +557,49 @@ const (
 	// starts without it fails on the agent's first docker command.
 	dockerSidecarReady = 2 * time.Minute
 )
+
+// The headless Chrome a `browser: true` playbook gets, on the same reasoning as the daemon
+// above: the shape that works is one shape, and a playbook file guessing at it produces
+// failures that read as the agent's.
+const (
+	// browserSidecarName is the DNS alias the browser answers to on the task's own private
+	// network, which is why the URL below can be a constant.
+	browserSidecarName = "chrome"
+
+	// browserCDPPort is where headless-shell listens for DevTools clients.
+	browserCDPPort = 9222
+
+	// browserCDPURL is what the runtime hands its MCP server. Plaintext for the same
+	// reason the daemon's port is: the network carries this task and its sidecars alone.
+	browserCDPURL = "http://" + browserSidecarName + ":9222"
+
+	// Pinned by digest, and the digest is the multi-arch index so it resolves on amd64 and
+	// arm64 alike. headless-shell rather than a full Chrome image: no window server, no
+	// extensions, no updater — the browser a turn actually needs is the rendering half.
+	browserSidecarImage = "chromedp/headless-shell:151.0.7922.109@sha256:" +
+		"2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04"
+
+	// browserSidecarReady is short because headless-shell listens in about a second. A
+	// browser that has not opened its port in thirty is not slow, it is broken.
+	browserSidecarReady = 30 * time.Second
+)
+
+func browserSidecar() spec.Sidecar {
+	return spec.Sidecar{
+		Image: browserSidecarImage,
+		// Everything about listening is the image's own doing and must not be repeated
+		// here: its run.sh already puts headless-shell on 9223 behind a socat listener on
+		// 9222, with --no-sandbox and a software GL stack. Passing --remote-debugging-port
+		// again lands on that listener and the browser dies with "Address already in use".
+		//
+		// What is left to say is the one thing a container changes: Chrome sizes its
+		// shared memory from /dev/shm, which is 64 MB in a container and not enough for a
+		// real page, and the tab dies rather than the process — so it reads as a page that
+		// will not load.
+		Command:   []string{"--disable-dev-shm-usage"},
+		Readiness: spec.Readiness{TCPPort: browserCDPPort, Timeout: spec.Duration(browserSidecarReady)},
+	}
+}
 
 func dockerSidecar() spec.Sidecar {
 	return spec.Sidecar{

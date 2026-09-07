@@ -12,10 +12,16 @@
 // bearer token.
 
 import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { lookup as dnsLookupCb } from "node:dns";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
+import { promisify } from "node:util";
+
+/** dnsLookup is the callback API as a promise; node:dns/promises resolves differently. */
+const dnsLookup = promisify(dnsLookupCb) as (host: string) => Promise<{ address: string }>;
 
 /** Binary is the harness. It is on PATH in the runtime image. */
 export const Binary = "opencode";
@@ -28,6 +34,61 @@ export const AgentName = "podium";
  * a playbook's allow-list and the harness agree on what they are called.
  */
 export const MemoryServer = "memory";
+
+/**
+ * BrowserServer is the MCP server that drives the sidecar browser, and the prefix its tools
+ * carry. BrowserBinary is installed in the -dev runtime image; it is not fetched at run
+ * time, so a turn does not depend on a registry being reachable to be able to look at a
+ * page.
+ */
+export const BrowserServer = "browser";
+export const BrowserBinary = "chrome-devtools-mcp";
+
+/**
+ * resolveBrowserURL turns the sidecar's name into its address, because Chrome will not
+ * answer to a name.
+ *
+ * The DevTools HTTP endpoint validates the Host header and serves only an IP or localhost:
+ * anything else comes back as "Host header is specified and is not an IP address or
+ * localhost" and no client gets as far as a WebSocket. The conductor can only name the
+ * sidecar — the address is assigned when the node creates the container — so the name is
+ * resolved here, in the container that can see it.
+ *
+ * A lookup that fails is not fatal. The URL goes through unchanged and the browser tools
+ * fail with the harness's own error, which is a better turn than one that refuses to start
+ * over a browser the agent may never use.
+ */
+export async function resolveBrowserURL(
+  cdpURL: string,
+  lookup: (host: string) => Promise<string> = defaultLookup,
+): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(cdpURL);
+  } catch {
+    return cdpURL;
+  }
+  // Already an address, or the one name Chrome accepts.
+  if (isAddress(url.hostname) || url.hostname === "localhost") {
+    return cdpURL;
+  }
+  try {
+    url.hostname = await lookup(url.hostname);
+  } catch {
+    return cdpURL;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+/** isAddress is true for a literal IPv4 or IPv6 host, which needs no resolving. */
+function isAddress(host: string): boolean {
+  return isIP(host.replace(/^\[|\]$/g, "")) !== 0;
+}
+
+async function defaultLookup(host: string): Promise<string> {
+  const { address } = await dnsLookup(host);
+  return address;
+}
 
 /** ConfigName and PromptName are what is written into the config directory. */
 const ConfigName = "opencode.json";
@@ -68,6 +129,8 @@ export interface Config {
   baseURL?: string;
   /** memory is the MCP server, when this host has one. */
   memory?: { url: string; apiKeyEnv: string };
+  /** browser is the CDP endpoint of the sidecar browser, when the playbook asked for one. */
+  browser?: { cdpURL: string };
   /** skills is the Agent Skills this turn may use, by name. Everything else is denied. */
   skills?: string[];
 }
@@ -118,6 +181,15 @@ export function writeConfig(cfg: Config): string {
   if (cfg.memory) {
     tools[`${MemoryServer}*`] = true;
   }
+  // Same rule for the browser: the conductor decided this turn has one, so the tools that
+  // drive it are on. A playbook that did not ask for a browser has neither the sidecar nor
+  // these tools, so there is nothing to opt out of. This is a `browser*` tool entry and not
+  // a `permission.skill` line: the two grant different things — the browser is a sidecar
+  // the playbook asked for, a skill is content it is allowed to load — and neither map may
+  // be written over the other.
+  if (cfg.browser) {
+    tools[`${BrowserServer}*`] = true;
+  }
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
@@ -134,17 +206,30 @@ export function writeConfig(cfg: Config): string {
   if (cfg.baseURL) {
     doc.provider = { [cfg.providerID]: { options: { baseURL: cfg.baseURL } } };
   }
+  const mcp: Record<string, unknown> = {};
   if (cfg.memory) {
-    doc.mcp = {
-      [MemoryServer]: {
-        type: "remote",
-        url: cfg.memory.url,
-        enabled: true,
-        // {env:...} is resolved by the harness, so the token is never written to disk and
-        // never appears in this config file.
-        headers: { Authorization: `Bearer {env:${cfg.memory.apiKeyEnv}}` },
-      },
+    mcp[MemoryServer] = {
+      type: "remote",
+      url: cfg.memory.url,
+      enabled: true,
+      // {env:...} is resolved by the harness, so the token is never written to disk and
+      // never appears in this config file.
+      headers: { Authorization: `Bearer {env:${cfg.memory.apiKeyEnv}}` },
     };
+  }
+  if (cfg.browser) {
+    // A local server, unlike memory: the thing speaking MCP runs in this container and the
+    // thing it drives is the sidecar. `--browserUrl` is what makes that split work — the
+    // server attaches to a browser it did not launch, so no Chrome is installed here and
+    // the one being driven is isolated in its own container with its own profile.
+    mcp[BrowserServer] = {
+      type: "local",
+      command: [BrowserBinary, "--browserUrl", cfg.browser.cdpURL],
+      enabled: true,
+    };
+  }
+  if (Object.keys(mcp).length > 0) {
+    doc.mcp = mcp;
   }
   writeFileSync(join(cfg.dir, ConfigName), JSON.stringify(doc, null, 2), "utf8");
   return cfg.dir;

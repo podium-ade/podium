@@ -124,6 +124,14 @@ const briefSchema = z.strictObject({
       api_key_env: z.string().min(1),
     })
     .optional(),
+  // The headless browser running beside this turn, when the playbook asked for one. An
+  // address and nothing else: it is reached over the task's own private network, so unlike
+  // memory there is no credential to name.
+  browser: z
+    .strictObject({
+      cdp_url: z.string().min(1),
+    })
+    .optional(),
   // Which model API serves this turn. It is REQUIRED and it names no vendor in this file:
   // `id` is whatever the harness calls that provider, and together with profile.model it is
   // the whole of "what runs this turn".

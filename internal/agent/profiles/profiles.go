@@ -154,6 +154,16 @@ type Playbook struct {
 	// rather than hanging.
 	Docker bool `yaml:"docker" json:"docker,omitempty"`
 
+	// Browser gives the turn a headless Chrome of its own and the tools to drive it: the
+	// conductor adds a browser sidecar and the runtime points an MCP server at it, so the
+	// agent navigates, clicks and screenshots rather than shelling out to curl.
+	//
+	// The browser is a SIDECAR and not something in the image, which is what keeps it
+	// isolated: its own container, its own profile, its own network namespace, thrown away
+	// with the task. It needs no privilege — unlike `docker`, this asks nothing of the node
+	// beyond an ordinary container, so it carries no label requirement.
+	Browser bool `yaml:"browser" json:"browser,omitempty"`
+
 	// Linear marks the one playbook Linear tickets run. Tickets are not chat, so there is no
 	// /playbook prefix to route them and no channel to match: the flag is the routing rule.
 	// At most one playbook may set it; zero means this bot does not take tickets, which is
