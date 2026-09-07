@@ -48,6 +48,13 @@ export function PlaybooksPanel() {
     queryKey: ["secrets"],
     queryFn: () => secrets.listSecrets({}),
   });
+  // The skill library, so the editor can say "no skill of that name is installed" before a
+  // turn does. It is a courtesy and not a gate: the conductor accepts a name with nothing
+  // behind it, exactly as a playbooks/<name>.yaml is accepted on a host that has no skills.
+  const skillList = useQuery({
+    queryKey: ["agent", "skills"],
+    queryFn: () => agent.listSkills({}),
+  });
   const { agents } = useAgents();
 
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
@@ -106,6 +113,11 @@ export function PlaybooksPanel() {
         }}
         secretNames={(secretList.data?.secrets ?? []).map((s) => s.name)}
         secretsUnknown={secretList.isError || secretList.isPending}
+        skillNames={(skillList.data?.skills ?? []).filter((s) => !s.shadowed).map((s) => s.name)}
+        disabledSkillNames={(skillList.data?.skills ?? [])
+          .filter((s) => !s.shadowed && !s.enabled)
+          .map((s) => s.name)}
+        skillsUnknown={skillList.isError || skillList.isPending}
         saving={saving}
         deleting={remove.isPending}
         error={saveError}

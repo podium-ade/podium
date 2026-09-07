@@ -11,6 +11,7 @@ const createPlaybook = vi.fn();
 const updatePlaybook = vi.fn();
 const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
+const listSkills = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -21,6 +22,7 @@ vi.mock("../../lib/client", async () => {
       createPlaybook: (...a: unknown[]) => createPlaybook(...a),
       updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
       deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
+      listSkills: (...a: unknown[]) => listSkills(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
@@ -85,6 +87,7 @@ describe("PlaybooksPanel", () => {
     updatePlaybook.mockReset();
     deletePlaybook.mockReset();
     listSecrets.mockReset();
+    listSkills.mockResolvedValue({ skills: [], skillsDir: "" });
     listSecrets.mockResolvedValue({
       secrets: [{ name: "podium.agent.github_token", version: 1 }],
     });

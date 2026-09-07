@@ -151,6 +151,16 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page.getByText("file · read-only").first()).toBeVisible();
   await expect(page.getByTestId("playbook-new")).toBeVisible();
 
+  // The Skills tab. Whatever this harness holds, two things have to be here: a way in, and
+  // the sentence about what a skill actually is — it runs in the turn's container with the
+  // turn's credentials, and granting one is now a click rather than a file edit.
+  await page.getByRole("link", { name: "Skills" }).click();
+  await expect(page).toHaveURL(/\/agent\/skills$/);
+  await expect(page.getByTestId("skill-new")).toBeVisible();
+  await expect(
+    page.getByText("A skill runs in the turn's container with the turn's credentials"),
+  ).toBeVisible();
+
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
 
