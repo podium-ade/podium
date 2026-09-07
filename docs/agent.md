@@ -31,7 +31,7 @@ somebody says something
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
   ↓  React 👀  +  post "👀 working…"          before any work starts
   ↓  FetchTranscript                          the thread so far
-  ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 256 KiB
+  ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 96 KiB
   ↓  CreateTask                               image + brief + the playbook's secrets + the Anthropic key
   ↓  StreamTaskEvents                         relay every `message` event, exactly once
   ↓  GetTask                                  the terminal status decides what is said last
@@ -1165,7 +1165,7 @@ formatting preference:
 - **Everything in an answer is stored.** A chat answer is a row in `chat_messages` and a Slack
   answer is a message in a channel, both for ever.
 - **The transcript is fed back.** Every later turn of the same conversation reads the whole
-  transcript, so a thousand-row dump eats the 256 KiB brief and crowds out the actual question.
+  transcript, so a thousand-row dump eats the 96 KiB brief and crowds out the actual question.
 - An attachment is a file behind `GET /artifacts/{id}`, which is behind the same identity as
   everything else, and it is not in the transcript.
 
@@ -1222,10 +1222,25 @@ env:
 
 ## The limits that bite
 
-- **The brief is capped at 256 KiB encoded.** The conductor drops the oldest transcript entries
+- **The brief is capped at 96 KiB encoded.** The conductor drops the oldest transcript entries
   until it fits and sets `transcript_truncated: true`, which the runtime tells the model about. A
   brief that does not fit even with an empty transcript fails the turn with "this conversation is
   too large" — start a new thread with just the question.
+
+  The number comes from the same place the 64 KiB skill cap does. A brief travels as **one
+  environment string** on the task spec, and Linux caps a single environment string at
+  `MAX_ARG_STRLEN` — 32 pages, so 128 KiB on any 4 KiB-page kernel. Past it the container cannot
+  `exec` at all, which is the worst failure Podium has: it happens before the runtime's
+  entrypoint, so the transcript is empty, nothing is reported and the task just exits. 96 KiB
+  leaves a quarter of that ceiling unused. It is not smaller because base64 costs a third — 96 KiB
+  encoded is 72 KiB of JSON, and a 32 KiB chat message has to stay answerable beside two system
+  prompts and some history.
+
+  `MAX_ARG_STRLEN` is **per string, not per environment**, which is why eight 64 KiB skill
+  bundles ride beside a full-sized brief. The whole of `argv` plus `environ` is bounded
+  separately, at a quarter of `RLIMIT_STACK` — about 2 MiB at the usual 8 MiB, against the
+  608 KiB a maximal turn spends. A playbook's `env:` is **not** counted against that, and
+  nothing checks it.
 - **One turn per session at a time.** A busy thread queues rather than parallelises; the web
   chat refuses the second message outright, because a browser can be told before it tries.
 - **32 KiB per chat message** from a human. The whole conversation has to fit the brief.

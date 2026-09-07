@@ -10,11 +10,26 @@ import { MaxSkillNameLen, SkillNameRE } from "./skills.js";
 export const BriefEnv = "PODIUM_AGENT_TURN";
 
 /**
+ * MaxArgStrlen is Linux's cap on ONE environment string — MAX_ARG_STRLEN, which the kernel
+ * fixes at 32 * PAGE_SIZE, so 128 KiB wherever the page is 4 KiB. Past it a container cannot
+ * exec at all, which is why the brief's cap is not a matter of taste: the failure happens
+ * before this file ever runs, so nothing reports it. Bisected against a real container, the
+ * largest `PODIUM_AGENT_TURN` a `/bin/sh` will exec with is 131053 bytes — that plus
+ * `"PODIUM_AGENT_TURN=".length` plus the NUL is exactly 131072.
+ */
+export const MaxArgStrlen = 32 * 4096;
+
+/**
  * MaxBriefBytes caps the *encoded* brief. The conductor is what truncates a transcript that
  * does not fit — oldest entries first, `transcript_truncated: true` — and the runtime only
  * refuses, because a runtime that silently dropped context would answer the wrong question.
+ *
+ * It mirrors internal/agent/conductor.MaxBriefBytes and has to: a runtime that accepted more
+ * than the conductor emits, or less, is a bug of its own. That file carries the reasoning for
+ * the number — a quarter of MaxArgStrlen left spare, and still 72 KiB of JSON once base64 is
+ * paid for.
  */
-export const MaxBriefBytes = 256 * 1024;
+export const MaxBriefBytes = 96 * 1024;
 
 /** ExitBriefInvalid is the runtime's exit code for anything wrong with the brief. */
 export const ExitBriefInvalid = 2;

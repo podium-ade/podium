@@ -16,10 +16,38 @@ const BriefVersion = 1
 // spec.
 const BriefEnv = "PODIUM_AGENT_TURN"
 
+// maxArgStrlen is Linux's cap on ONE environment string — MAX_ARG_STRLEN, which the kernel
+// fixes at 32 * PAGE_SIZE. That is 128 KiB wherever the page is 4 KiB, which is every kernel
+// Podium runs on; a bigger page only raises it, and nothing configures it down. So this is a
+// floor rather than an estimate, and it is a floor worth respecting: past it the container
+// cannot exec at all, which is the worst failure available here, because it happens before
+// the runtime's entrypoint. Nothing reports it, the transcript is empty, and the task simply
+// exits. Bisected against a real container, `NAME=value` and its NUL together:
+//
+//	$ docker run --rm -e "PODIUM_AGENT_TURN=$(python3 -c "print('x'*131053)")" alpine:3 /bin/sh -c 'printf ok'
+//	ok
+//	$ docker run --rm -e "PODIUM_AGENT_TURN=$(python3 -c "print('x'*131054)")" alpine:3 /bin/sh -c 'printf ok'
+//	exec /bin/sh: argument list too long
+//
+// 131053 + len("PODIUM_AGENT_TURN=") + 1 for the NUL is exactly 131072.
+//
+// The cap is per string and not per environment: a brief at MaxBriefBytes beside eight skill
+// bundles at skills.MaxEncodedBytes — 608 KiB of environment — execs. What bounds the whole
+// of argv plus environ is a different and much larger limit, a quarter of RLIMIT_STACK, so
+// about 2 MiB at the usual 8 MiB; docs/agent.md carries that measurement and nothing here
+// budgets against it. TestTheBriefCapLeavesRoomToExec is what pins this one.
+const maxArgStrlen = 128 << 10
+
 // MaxBriefBytes caps the *encoded* brief — the base64, as it sits in the env var. The
 // runtime refuses anything larger (exit 2) and never truncates; truncating is this side's
 // job, because only the conductor knows which part of the context is oldest.
-const MaxBriefBytes = 256 * 1024
+//
+// It has to sit under maxArgStrlen with room to spare, or a brief that passes validation
+// makes a task that cannot start. 96 KiB leaves a quarter of the limit unused, and it is not
+// the smaller number it could be for one reason: a brief holds 3/4 of its cap as JSON, so
+// 96 KiB is 72 KiB of document, and a 32 KiB chat message (api.maxChatMessageBytes) has to
+// stay answerable beside two system prompts and some history.
+const MaxBriefBytes = 96 * 1024
 
 // The source kinds the runtime's schema accepts. Nothing else validates.
 const (
