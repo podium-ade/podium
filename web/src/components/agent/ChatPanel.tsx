@@ -186,7 +186,7 @@ function ChatRail({
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
 
   return (
-    <div className="flex w-full shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:border-r sm:border-b-0">
+    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
       <div className="flex items-center gap-2 px-3 py-3">
         <p className="text-2xs font-medium tracking-wider text-faint uppercase">Chats</p>
         {ordered.length > 0 ? (
@@ -225,7 +225,7 @@ function ChatRail({
 
       <ul
         data-testid="chat-list"
-        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block"
+        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
       >
         {loading
           ? Array.from({ length: 4 }, (_, i) => (
