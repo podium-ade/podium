@@ -1,0 +1,19 @@
+# What a mention gets when nothing else routes it: answer the question in the thread. It
+# reads and it runs shell commands; it clones nothing and it holds no credential beyond the
+# model key the conductor attaches to every turn.
+#
+# It exists so that "what does this function do" does not run `podium`, which would need a
+# privileged node, a Docker daemon, a browser and eight gigabytes to answer it. A question is
+# not a change, and the two should not cost the same.
+#
+# It names no agent, model or effort, so it runs on whatever profile.yaml is set to.
+#
+# The tag is the locally built one, because that is what a node's own engine can resolve
+# today: nothing publishes these images yet (a TODO in .goreleaser.yaml), so a fleet needs a
+# registry every node can pull from before this can be a remote reference. See
+# docs/agent.md#extending-the-runtime-image.
+image: podium-agent-runtime:dev
+system_prompt: file:../prompts/general.md
+allowed_tools: [read, grep, glob, webfetch, bash]
+max_turns: 50
+timeout: 15m

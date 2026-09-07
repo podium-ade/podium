@@ -1,0 +1,19 @@
+# Podium's own bot. This directory is what PODIUM_AGENT_PROFILE_DIR points at on the real
+# deployment, and the skills those playbooks name live in ../skills.
+#
+# It is NOT the worked example. examples/agent is that, and it is deliberately somewhere
+# else: this profile clones this repository, holds a GitHub token, wants a privileged node
+# and a browser, and none of that belongs in the first thing a reader copies. See
+# docs/agent.md#the-profile-directory.
+name: podium
+display_name: Podium
+system_prompt: file:./prompts/profile.md
+model: claude-opus-5
+# The backend every playbook runs on unless it names its own. `podium` names grok.
+agent: claude
+# A mention with no /playbook runs `general`, which answers questions and costs a container.
+# `podium` is the dogfood — two hours, 200 turns, a Docker daemon, a browser and a privileged
+# node — and a human asks for it by name.
+default_playbook: general
+# chat_default_playbook is unset, so the web chat falls back to default_playbook. Two values
+# that must agree is one value too many; the fallback is the rule, and docs/agent.md says so.

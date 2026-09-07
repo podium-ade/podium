@@ -198,6 +198,19 @@ playbooks/general.yaml
 prompts/general.md
 ```
 
+There are **two** profiles in this repository and they are different kinds of thing:
+
+| | |
+|---|---|
+| [`../examples/agent`](../examples/agent) | the worked example. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs and what `deploy/run-host.sh` defaults to |
+| [`../playbooks`](../playbooks) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill |
+
+They were one directory until the second one grew all of that, at which point the first stopped
+being an example anybody could copy safely. An operator running the real bot names its two
+directories in `.env`; the default stays the example, so a first `make stack-up` gets a bot that
+comes up and answers rather than one that fails every turn on a node flag. See
+[`../playbooks/README.md`](../playbooks/README.md).
+
 Every file is decoded with unknown keys **rejected**, the same rule `pkg/spec` follows for a task
 spec: a misspelt key is a startup error naming the file, not a field that silently does nothing.
 
@@ -335,7 +348,8 @@ It is also a different kind of field from the two above it. `docker:` and `brows
 **environment** — a container running beside the turn. `skills:` allows **content** the model may
 load into its own context. A playbook wanting an adversarial review of a pull request supplies the
 environment (`browser: true`, `docker: true`, the token, the repository) and names the skill that
-supplies the method.
+supplies the method. [`../playbooks/playbooks/podium.yaml`](../playbooks/playbooks/podium.yaml) is
+exactly that pairing, with [`validate-pr`](../skills/validate-pr/SKILL.md) as the method.
 
 `skills:` is a playbook's allow-list, by name:
 
@@ -371,6 +385,15 @@ $PODIUM_AGENT_SKILLS_DIR/
 
 There is no default for that variable, and it is not required: a conductor with no directory
 serves the uploaded half alone.
+
+[`../skills`](../skills) is this repository's own, and it is the **worked example** of a
+skill the way `-dev` is of an image: [`validate-pr`](../skills/validate-pr/SKILL.md) is the
+adversarial QA procedure the `podium` playbook runs against its own pull requests. Note what
+it is made of — the mechanics of *this* environment (the browser starts with no tab, a server
+must bind `0.0.0.0`, the browser reaches the turn at `http://task:<port>`), an attack list in
+the order that finds bugs, and a rule for what counts as a finding. A turn rediscovering any
+of that spends turns on it, which is the whole argument for writing a procedure down instead
+of putting it in a prompt.
 
 **When a name is in both places, the directory wins.** It is a file, put there by whoever runs
 the process, and it is the escape hatch for the case where the database or the browser is not
@@ -1215,8 +1238,10 @@ counterpart, that rule lives in a prompt and is therefore a courtesy: see
 `podium-agent-runtime-dev` is the one image `make agent-runtime` builds beside the base, and it
 is also the **worked example** of *Extending the runtime image* above: a real image, built the
 way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
-Node and Docker. `examples/agent/playbooks/podium.yaml` is that playbook — it pairs this image with
-`docker: true`, which is what gives the turn the daemon the toolchain expects to find.
+Node and Docker. `playbooks/playbooks/podium.yaml` is that playbook — it pairs this image with
+`docker: true`, which is what gives the turn the daemon the toolchain expects to find, and with
+`browser: true` and `skills: [validate-pr]`, which is what lets the turn look at what it built
+and attack it before saying it is done.
 
 On top of the base runtime it carries the toolchain
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks a human for, at the versions this repository is

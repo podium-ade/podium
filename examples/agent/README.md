@@ -170,9 +170,13 @@ Exit codes, and never any others:
 ## The -dev image, and extending the base yourself
 
 `podium-agent-runtime-dev:dev` is the one image Podium ships beside the base, and it exists to
-build Podium itself: Go, the Docker **client** and golangci-lint, for the `podium` playbook. It
-carries no daemon — the playbook sets `docker: true` and the conductor attaches one as a sidecar,
-which is what lets a turn run `make test-integration` against a daemon that dies with the task.
+build Podium itself: Go, the Docker **client**, golangci-lint and the MCP client that drives a
+browser, for the `podium` playbook in [`../../playbooks`](../../playbooks) — which is a different
+profile directory from this one, because that playbook holds a GitHub token and needs a privileged
+node and neither belongs in an example. It carries no daemon and no Chromium: the playbook sets
+`docker: true` and `browser: true`, and the conductor attaches both as sidecars, which is what
+lets a turn run `make test-integration` against a daemon that dies with the task and then look at
+what it built through a browser that does too.
 
 It is also the **worked example** of everything below. Podium ships no image for somebody else's
 workflow — every workflow differs — so `agent/runtime/Dockerfile.dev` is what a real one looks
