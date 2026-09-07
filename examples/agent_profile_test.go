@@ -13,17 +13,23 @@ import (
 // so a renamed field or a moved prompt fails here rather than in front of somebody
 // following docs/agent.md — which is the same job TestEveryExampleParses does for task
 // specs.
+//
+// This directory is the worked example and nothing else. The profile the real bot runs is
+// ../playbooks, and playbooks/profile_test.go is its equivalent of this test — the two are
+// separate because one of them can afford to need a privileged node and a GitHub token and
+// the other cannot.
 func TestAgentProfileLoads(t *testing.T) {
 	p, err := profiles.Load("agent")
 	require.NoError(t, err, "examples/agent does not load; docs/agent.md and this directory disagree")
 
 	require.Equal(t, "podium", p.Name)
 	require.Equal(t, "general", p.DefaultPlaybook)
-	// Two playbooks: `general` on the base image, and `podium`, the dogfood, on the one image
-	// Podium ships beside it. Any OTHER set of tools is an image a reader builds `FROM
-	// podium-agent-runtime` and names in a playbook of their own; the example does not guess at
-	// which tools that would be.
-	require.Equal(t, []string{"general", "podium"}, p.PlaybookNames())
+	// One playbook, on the base image Podium ships. Any OTHER set of tools is an image a
+	// reader builds `FROM podium-agent-runtime` and names in a playbook of their own; the
+	// example does not guess at which tools that would be, and the dogfood that does — the
+	// `podium` playbook — lives in ../playbooks because it is configuration and not
+	// documentation.
+	require.Equal(t, []string{"general"}, p.PlaybookNames())
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
 
 	general := p.Playbooks["general"]
@@ -48,29 +54,18 @@ func TestAgentProfileLoads(t *testing.T) {
 	// rather than to nothing. That fallback is what the web chat's playbook chip reads.
 	require.Equal(t, "general", p.ChatPlaybook(), "an unset chat_default_playbook falls back to default_playbook")
 
-	// The dogfood playbook is the only one that asks for a Docker daemon, and the only one
-	// that has to land on a node whose operator turned --allow-privileged-sidecars on.
-	// Podium places on labels alone, so the label and the flag are a pair an operator sets
-	// together; the label here is what makes that pairing expressible at all.
-	dogfood := p.Playbooks["podium"]
-	require.True(t, dogfood.Docker, "the playbook exists to run Podium's own container tests")
-	require.Equal(t, "podium-agent-runtime-dev:dev", dogfood.Image)
-	require.Equal(t, []string{"privileged"}, dogfood.Labels)
-	require.NotEmpty(t, dogfood.SystemPrompt, "the playbook prompt must be read from prompts/podium.md")
-	require.False(t, dogfood.Linear, "only one playbook takes tickets")
-	require.Equal(t, "/workspace/tmp", dogfood.Env["PODIUM_TEST_TMPDIR"],
-		"the executor suite's scratch dir must sit on the volume the daemon also sees")
-	require.NotContains(t, dogfood.Env, "DOCKER_HOST", "the conductor writes it, not the file")
-	require.False(t, general.Docker, "general must not ask for a privileged node")
+	// Nothing here may ask for a privileged node, a browser or a skill. This profile is what
+	// the e2e suite runs and what a reader copies first, so it has to come up on an ordinary
+	// node with an empty skill library — the playbook that needs all three is in
+	// ../playbooks.
+	require.False(t, general.Docker, "the example must not ask for a privileged node")
+	require.False(t, general.Browser, "the example must not need a browser sidecar")
+	require.Empty(t, general.Skills, "the example must load with no skill library at all")
 
-	// Routing, on the profile a human actually deploys: the chip wins outright, a typed
-	// /playbook is stripped from what the model is told, an unknown /word is left alone, and a
-	// message naming nothing runs the default.
-	chip := p.Select(profiles.Routing{
-		Playbook: "general", DefaultPlaybook: p.ChatPlaybook(), Text: "/podium run the tests",
-	})
-	require.Equal(t, "general", chip.Playbook.Name)
-	require.True(t, chip.Explicit)
+	// Routing: a typed /playbook is stripped from what the model is told, an unknown /word is
+	// left alone, and a message naming nothing runs the default. The case where a chip beats a
+	// DIFFERENT typed name needs two playbooks to be worth anything, so it is asserted in
+	// ../playbooks/profile_test.go, which has them.
 	typed := p.Select(profiles.Routing{DefaultPlaybook: p.ChatPlaybook(), Text: "/general reply with pong"})
 	require.Equal(t, "general", typed.Playbook.Name)
 	require.True(t, typed.Explicit)
