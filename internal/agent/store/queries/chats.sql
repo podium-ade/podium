@@ -77,3 +77,9 @@ select exists (
    where s.source_key = @source_key
      and t.status = 'running'
 )::bool as running;
+
+-- DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
+-- query so another owner's chat cannot be removed even if the id is known; zero rows
+-- means it was not there or not theirs.
+-- name: DeleteChat :execrows
+delete from chats where id = @id and login = @login;

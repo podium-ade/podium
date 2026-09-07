@@ -97,6 +97,29 @@ func (s *AgentService) ListChats(
 	return connect.NewResponse(&agentv1.ListChatsResponse{Chats: out, NextCursor: next}), nil
 }
 
+// DeleteChat removes one of the caller's chats and every message in it.
+func (s *AgentService) DeleteChat(
+	ctx context.Context, req *connect.Request[agentv1.DeleteChatRequest],
+) (*connect.Response[agentv1.DeleteChatResponse], error) {
+	if err := s.chatEnabled(); err != nil {
+		return nil, err
+	}
+	login, err := requireLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chatID := req.Msg.GetChatId()
+	if chatID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("delete chat: chat_id is required"))
+	}
+	if err := s.store.DeleteChat(ctx, chatID, login); err != nil {
+		return nil, storeError(err)
+	}
+	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
+	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
+}
+
 // SendChatMessage stores one human message and starts a turn on it.
 func (s *AgentService) SendChatMessage(
 	ctx context.Context, req *connect.Request[agentv1.SendChatMessageRequest],
