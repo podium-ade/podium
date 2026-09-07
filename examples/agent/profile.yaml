@@ -1,5 +1,10 @@
 # The bot's identity. One profile per conductor; PODIUM_AGENT_PROFILE_DIR points at the
 # directory this file lives in. See docs/agent.md for every field.
+#
+# This is the WORKED EXAMPLE: one playbook, on the one image Podium ships, holding no
+# credential of its own, and it loads and runs on any node. The profile the real bot runs is
+# ../../playbooks, which is a different directory precisely so that neither has to pretend to
+# be the other.
 name: podium
 display_name: Podium
 system_prompt: file:./prompts/profile.md
@@ -12,5 +17,6 @@ agent: claude
 # effort: high
 default_playbook: general
 # `chat_default_playbook` is deliberately unset, so the web chat falls back to default_playbook.
-# The only other playbook here is `podium`, which develops Podium itself and is a poor thing to
-# start a chat on. Set this once you have a playbook the chat should open on.
+# There is only one playbook here, so there is nothing else it could name. Set it once you have
+# a second playbook the chat should open on rather than the mention default — ../../playbooks
+# has two, and leaves it unset for the same reason.

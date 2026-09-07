@@ -1,10 +1,10 @@
 # The dogfood: the playbook that develops Podium itself.
 #
-# It runs in the -dev runtime image, which carries Go, the docker CLI and golangci-lint, and
-# it sets `docker: true`, so the conductor attaches a real Docker daemon beside the turn.
-# That daemon is the whole point: `make test-integration` and `make e2e` boot real
-# containers — testcontainers Postgres, task containers, sidecars — and without one the
-# agent can run `go build` and nothing else.
+# It runs in the -dev runtime image, which carries Go, the docker CLI, golangci-lint and the
+# MCP client that drives a browser, and it sets `docker: true`, so the conductor attaches a
+# real Docker daemon beside the turn. That daemon is the whole point: `make test-integration`
+# and `make e2e` boot real containers — testcontainers Postgres, task containers, sidecars —
+# and without one the agent can run `go build` and nothing else.
 #
 # It only runs on a node started with --allow-privileged-sidecars. Podium places on labels
 # alone and knows nothing about which nodes allow privilege, so the operator who sets that
@@ -15,6 +15,10 @@
 # docs/security.md before pointing it anywhere else.
 image: podium-agent-runtime-dev:dev
 docker: true
+# A headless Chrome beside the turn, and the browser* tools to drive it. `docker: true` is
+# what gets the stack running; this is what lets the turn look at it. Unlike the daemon it is
+# an ordinary unprivileged container, so it adds no node requirement to the label above.
+browser: true
 system_prompt: file:../prompts/podium.md
 allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
 max_turns: 200
@@ -28,7 +32,17 @@ effort: high
 labels: [privileged]
 # A nested build is heavier than an ordinary turn: the daemon pulls its own images and
 # `go test ./...` compiles the world. docs/agent.md says 8 GB is the floor for this playbook.
+#
+# `browser: true` did not change this number and could not: `resources` is the TASK
+# container's limit, and each sidecar carries its own (the browser's and the daemon's are
+# both unset, which is unlimited). Chrome's gigabyte comes out of what the node has free, not
+# out of this allowance — so raising it would hand the Go build headroom it does not need and
+# Chrome nothing at all.
 resources: { cpu: 4, memory_mb: 8192 }
+# The adversarial QA procedure this playbook's prompt tells a turn to run against its own
+# pull request, out of ../../skills. Naming it here is the whole grant: without this line the
+# turn's harness denies every skill by pattern and has no `skill` tool at all.
+skills: [validate-pr]
 secrets:
   - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
 repos:

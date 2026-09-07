@@ -72,6 +72,20 @@ holding `PODIUM_PG_PASSWORD` rather than a whole `PODIUM_DATABASE_URL` — and d
 derivations the compose files do in YAML. Anything already exported wins over the file, so
 `PODIUM_AGENT_PROFILE_DIR=… make stack-up` works for a one-off.
 
+The conductor comes up on [`../examples/agent`](../examples/agent), the worked example, which
+loads and runs on any node. To run **this repository's own bot** instead, name its profile and
+its skills in `.env` — the two travel together, because its `podium` playbook names a skill
+and a playbook whose skill is missing fails its turns:
+
+```sh
+PODIUM_AGENT_PROFILE_DIR=/srv/podium/playbooks
+PODIUM_AGENT_SKILLS_DIR=/srv/podium/skills
+```
+
+That bot wants a node started with `--allow-privileged-sidecars` and labelled `privileged`, a
+`podium.agent.github_token` secret, and roughly 9 GB free for the turn and its two sidecars.
+See [`../playbooks/README.md`](../playbooks/README.md).
+
 Under `PODIUM_TRANSPORT=tailnet` this is the **only** way to run the conductor: the server
 listens on :443 of its own Tailscale device and has no port on the compose network, so a
 sibling container cannot reach it. `docker-compose.tailnet.yml` says as much where it defines
