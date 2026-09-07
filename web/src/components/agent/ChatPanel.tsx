@@ -126,6 +126,7 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  const deleteStopsTask = pendingDelete?.turnRunning === true;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -188,11 +189,21 @@ export function ChatPanel() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {pendingDelete?.title}?</DialogTitle>
+            <DialogTitle>
+              {deleteStopsTask
+                ? `Stop the task and delete ${pendingDelete.title}?`
+                : `Delete ${pendingDelete?.title}?`}
+            </DialogTitle>
             <DialogDescription>
               The conversation goes with it. There is no undo, and nothing else holds a copy.
             </DialogDescription>
           </DialogHeader>
+          {deleteStopsTask ? (
+            <Alert variant="warn" role="note">
+              A task is running in this chat. Confirming asks the node to stop it — SIGTERM, then
+              up to 30 seconds — and then deletes the conversation.
+            </Alert>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" size="sm" onClick={() => setPendingDelete(null)}>
               Keep
@@ -202,13 +213,25 @@ export function ChatPanel() {
               variant="destructive"
               size="sm"
               data-testid="chat-delete-confirm"
-              aria-label={pendingDelete ? `Confirm deleting ${pendingDelete.title}` : undefined}
+              aria-label={
+                deleteStopsTask
+                  ? `Stop the task and delete ${pendingDelete.title}`
+                  : pendingDelete
+                    ? `Confirm deleting ${pendingDelete.title}`
+                    : undefined
+              }
               disabled={remove.isPending}
               onClick={() => {
                 if (pendingDelete) remove.mutate(pendingDelete);
               }}
             >
-              {remove.isPending ? "Deleting…" : "Delete chat"}
+              {remove.isPending
+                ? deleteStopsTask
+                  ? "Stopping…"
+                  : "Deleting…"
+                : deleteStopsTask
+                  ? "Stop and delete"
+                  : "Delete chat"}
             </Button>
           </DialogFooter>
         </DialogContent>

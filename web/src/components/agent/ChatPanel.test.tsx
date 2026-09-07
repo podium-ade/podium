@@ -322,6 +322,28 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByTestId("chat-list")).not.toHaveTextContent("August numbers"));
   });
 
+  it("warns that a running task will be stopped, and only then deletes", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, turnRunning: true }], nextCursor: "" });
+    deleteChat.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+
+    expect(screen.getByText(/Stop the task and delete August numbers/)).toBeInTheDocument();
+    expect(screen.getByText(/A task is running in this chat/)).toBeInTheDocument();
+    expect(deleteChat).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(deleteChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-list")).toHaveTextContent("August numbers");
+
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+    listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    await userEvent.click(screen.getByTestId("chat-delete-confirm"));
+
+    await waitFor(() => expect(deleteChat).toHaveBeenCalledWith({ chatId: "chat_01abc" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("August numbers deleted.");
+  });
+
   it("keeps the chat when the confirm is declined", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();

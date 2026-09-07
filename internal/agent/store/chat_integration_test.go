@@ -292,6 +292,38 @@ func TestAMessageForAChatThatIsNotThereIsRefused(t *testing.T) {
 	assert.ErrorContains(t, err, "chat_messages_chat_id_fkey")
 }
 
+func TestRunningChatTaskIsTheTurnInFlight(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "August numbers")
+	require.NoError(t, err)
+	id, err := s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "a chat that has never had a turn has no task to cancel")
+
+	turn := runningTurn(t, s, chat.ID)
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "CreateTask has not answered yet, so there is nothing to cancel")
+
+	require.NoError(t, s.SetTurnTask(ctx, turn.ID, "task_01xyz"))
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "task_01xyz", id)
+
+	other, err := s.CreateChat(ctx, "alice", "something else")
+	require.NoError(t, err)
+	id, err = s.RunningChatTask(ctx, other.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "the running task is per chat, not per login")
+
+	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "4,812."))
+	id, err = s.RunningChatTask(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, id, "a finished turn is no longer a task to cancel")
+}
+
 func TestDeleteChatTakesItsMessagesAndNobodyElses(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
