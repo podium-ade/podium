@@ -11,7 +11,7 @@ import { agent } from "../lib/client";
  * checked against, and the first anybody would hear of it is a refusal with no explanation.
  *
  * A conductor that is down leaves the list empty. Every screen that uses it still renders:
- * the picker falls back to whatever the skill or profile already holds, so an operator can
+ * the picker falls back to whatever the playbook or profile already holds, so an operator can
  * still read what is set even when nothing can be chosen.
  */
 export function useAgents(): { agents: AgentBackend[]; loading: boolean } {

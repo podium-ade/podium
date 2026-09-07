@@ -169,8 +169,8 @@ The harness is [opencode](https://opencode.ai), which takes `--model provider/mo
 backend is a flag rather than a dialect, one runtime image serves every provider, and adding a
 third is a catalogue entry.
 
-A profile picks the default backend, model and reasoning effort, and any skill can override all
-three. The picker on **Agent → Skills** is one control for the three, because they are one
+A profile picks the default backend, model and reasoning effort, and any playbook can override all
+three. The picker on **Agent → Playbooks** is one control for the three, because they are one
 decision — a model only runs on one backend, and which effort levels exist depends on the model.
 
 Full reference, including the Slack app manifest and the Linear setup:
@@ -292,7 +292,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Running a turn **on a Grok model** | ✅ | ✅ `xai/grok-4.6` completed a turn through the runtime on the live stack |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
 | Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
-| Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket skill the test defines: Podium ships no skill with `linear: true` |
+| Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket playbook the test defines: Podium ships no playbook with `linear: true` |
 | Shared memory (Hindsight, pgvector) | ✅ | ✅ against a **real Hindsight container**: auth, retain, list, search, tombstone. The SDK's own MCP client is unproven (needs a model) |
 | Web chat | ✅ | ⚠️ chat turns round-trip for real as dry runs, through podium-server's proxy |
 
@@ -324,7 +324,7 @@ commit.
 - [docs/storage.md](docs/storage.md) — Postgres, the object store, a worker's data dir, the image cache
 - [docs/networking.md](docs/networking.md) — the tailnet transport, identity, the ACL, troubleshooting
 - [docs/node-setup.md](docs/node-setup.md) — setting up a worker
-- [docs/agent.md](docs/agent.md) — the conductor (`podium-agent`): the Slack bot, profiles and skills, how a turn works, the agents' shared memory
+- [docs/agent.md](docs/agent.md) — the conductor (`podium-agent`): the Slack bot, profiles and playbooks, how a turn works, the agents' shared memory
 - [deploy/README.md](deploy/README.md) — compose, the installer, the systemd unit
 - [deploy/.env.example](deploy/.env.example) — every `PODIUM_*` variable, commented
 
@@ -443,7 +443,7 @@ Everything here is real, current, and deliberate about being said out loud.
 
 ### The agent layer has never met the services it exists to talk to
 
-The conductor, the runtime image and all three skills are implemented, unit-tested,
+The conductor, the runtime image and all three playbooks are implemented, unit-tested,
 integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
 a real Docker engine. What has **not** happened:
 
@@ -479,7 +479,7 @@ a real Docker engine. What has **not** happened:
   under `PODIUM_TRANSPORT=tailnet` the server has **no port on the compose network**, so a plain
   sidecar cannot reach it. That entry works only where the conductor can itself route into the
   tailnet — the `host` transport, or `podium-agent` run on the host.
-- **An image your fleet cannot pull is a skill your fleet cannot run.** Task images are resolved
+- **An image your fleet cannot pull is a playbook your fleet cannot run.** Task images are resolved
   by the node's own engine, so a local `:dev` tag works only on the host that built it.
   `podium-agent-runtime:dev` is multi-arch on a private registry, so a second worker can pull it.
   `podium-agent-runtime-dev:dev` is not, and neither is an image you build `FROM` the base until
@@ -500,7 +500,7 @@ a real Docker engine. What has **not** happened:
   one of them do everything: submit tasks (and therefore run code as root on every worker),
   drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
   anyone who can mention it in a Slack channel it has joined, or assign it a Linear issue, can
-  make it run code on a worker with that skill's credentials. A skill's `secrets:` list scopes
+  make it run code on a worker with that playbook's credentials. A playbook's `secrets:` list scopes
   what one bot hands one turn — keep it minimal — but it is not a boundary around the secret
   store: `CreateTask` checks only that a named secret exists, so anyone who can reach the API
   can already mount any registered secret into an image of their own. Nothing in the agent track

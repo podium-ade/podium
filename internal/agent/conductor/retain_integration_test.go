@@ -165,7 +165,7 @@ func awaitRetains(t *testing.T, f *fakeHindsight, n int) []retainedItem {
 
 // TestATurnCarriesTheMemoryURLAndTheMemorySecret is the contract with step 16's runtime: a
 // brief with a memory block whose api_key_env is unset is a failed turn, so the secret ref
-// is not optional and no skill file decides whether it is there.
+// is not optional and no playbook file decides whether it is there.
 func TestATurnCarriesTheMemoryURLAndTheMemorySecret(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
@@ -253,8 +253,8 @@ func TestASucceededTurnIsRetained(t *testing.T) {
 		"alice asked: who owns the scheduler?\n\n"+
 			"Podium answered: Bob owns the scheduler, and has since the 12.4 release.",
 		got.Content)
-	assert.Equal(t, "podium agent, skill general", got.Context)
-	assert.Equal(t, []string{"source:slack", "skill:general"}, got.Tags)
+	assert.Equal(t, "podium agent, playbook general", got.Context)
+	assert.Equal(t, []string{"source:slack", "playbook:general"}, got.Tags)
 
 	// document_id = turn_id is the whole idempotency story: retaining the same turn again
 	// replaces what was there rather than adding a duplicate.

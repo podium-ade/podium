@@ -7,7 +7,7 @@ import (
 )
 
 // An agent backend is the harness a turn runs on, together with the credential it spends.
-// A skill names one; the profile supplies the default.
+// A playbook names one; the profile supplies the default.
 //
 // Both backends in this file are the SAME runtime image driving the SAME Claude Agent SDK.
 // What `grok` changes is where the SDK sends its requests: xAI serves an Anthropic-shaped
@@ -93,17 +93,17 @@ var Backends = []Backend{{
 		},
 		{
 			ID: "claude-sonnet-5", DisplayName: "Claude Sonnet 5",
-			Note:          "Cheaper, still strong. A good default for high-volume skills.",
+			Note:          "Cheaper, still strong. A good default for high-volume playbooks.",
 			ContextTokens: 1_000_000, Efforts: anthropicEfforts,
 		},
 		{
 			ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5",
-			Note:          "Fastest and cheapest. For narrow, well-specified skills.",
+			Note:          "Fastest and cheapest. For narrow, well-specified playbooks.",
 			ContextTokens: 200_000, Efforts: anthropicEfforts,
 		},
 		{
 			ID: "claude-opus-4-8", DisplayName: "Claude Opus 4.8",
-			Note:          "The previous Opus. Pin it when a skill is tuned to it.",
+			Note:          "The previous Opus. Pin it when a playbook is tuned to it.",
 			ContextTokens: 1_000_000, Efforts: anthropicEfforts,
 		},
 		{
@@ -142,14 +142,14 @@ var Backends = []Backend{{
 	},
 }}
 
-// Tools is the harness's tool vocabulary, and the set a skill's allowed_tools is held to.
+// Tools is the harness's tool vocabulary, and the set a playbook's allowed_tools is held to.
 // It mirrors KnownTools in agent/runtime/src/opencode.ts.
 //
-// THIS CHANGED VOCABULARY when the harness did. Skills used to name the Claude Agent SDK's
+// THIS CHANGED VOCABULARY when the harness did. Playbooks used to name the Claude Agent SDK's
 // tools — Read, Grep, Bash — and the harness that runs them now calls the same things
 // `read`, `grep`, `bash`. The names are validated rather than case-folded on the way
 // through, because a silent remap would quietly work for the tools whose names happen to
-// match and quietly drop the ones that do not. A skill that names a tool nobody has is
+// match and quietly drop the ones that do not. A playbook that names a tool nobody has is
 // refused when it is loaded or saved, which is the cheapest place to find out.
 var Tools = []string{
 	"bash", "edit", "glob", "grep", "list", "patch",
@@ -228,11 +228,11 @@ type Choice struct {
 }
 
 // Override is a per-turn choice of backend, model and effort. Every field is optional and
-// an empty one means "whatever the level below says" — the skill, then the profile.
+// an empty one means "whatever the level below says" — the playbook, then the profile.
 //
 // It exists so that "which job" and "what runs it" are two decisions rather than one. A
-// skill's model is a default; without an override the only way to run one skill on another
-// model is a second skill that differs by a single field.
+// playbook's model is a default; without an override the only way to run one playbook on another
+// model is a second playbook that differs by a single field.
 type Override struct {
 	Agent  string
 	Model  string
@@ -242,7 +242,7 @@ type Override struct {
 // Empty reports whether this override asks for nothing.
 func (o Override) Empty() bool { return o.Agent == "" && o.Model == "" && o.Effort == "" }
 
-// ValidateOverride holds a per-turn override to the same catalogue a skill is held to. It
+// ValidateOverride holds a per-turn override to the same catalogue a playbook is held to. It
 // is the API boundary's check: a level the chosen model does not accept is refused when it
 // is asked for, not when the turn fails.
 //

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AgentName, invocation, KnownTools, MemoryServer, writeConfig } from "./opencode.js";
+import { AgentName, invocation, KnownTools, MemoryServer, skillPermission, writeConfig } from "./opencode.js";
 
 function write(over: Partial<Parameters<typeof writeConfig>[0]> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "octest-"));
@@ -37,7 +37,7 @@ describe("writeConfig", () => {
     const tools = config.agent[AgentName].tools as Record<string, boolean>;
     expect(tools.read).toBe(true);
     expect(tools.grep).toBe(true);
-    // The ones the skill did not name are explicitly off. Omitting them would leave the
+    // The ones the playbook did not name are explicitly off. Omitting them would leave the
     // harness's own defaults in place, which is the opposite of an allow-list.
     expect(tools.bash).toBe(false);
     expect(tools.write).toBe(false);
@@ -71,8 +71,8 @@ describe("writeConfig", () => {
     expect(JSON.stringify(config)).not.toContain("PODIUM_MEMORY_API_KEY=");
   });
 
-  it("enables the memory tools when the host has memory, whatever the skill listed", () => {
-    // A skill cannot opt out of memory: the conductor decides whether a turn gets one.
+  it("enables the memory tools when the host has memory, whatever the playbook listed", () => {
+    // A playbook cannot opt out of memory: the conductor decides whether a turn gets one.
     const { config } = write({
       tools: ["read"],
       memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
@@ -84,6 +84,31 @@ describe("writeConfig", () => {
     const { config } = write();
     expect(config.mcp).toBeUndefined();
     expect(config.agent[AgentName].tools[`${MemoryServer}*`]).toBeUndefined();
+  });
+
+  it("denies every skill when the playbook named none", () => {
+    // Not an omission: with everything denied the harness drops the `skill` tool from the
+    // agent, so the skills built into the harness itself cannot be loaded either.
+    expect(write().config.permission).toEqual({ skill: { "*": "deny" } });
+  });
+
+  it("denies every skill and allows the ones the playbook named, in that order", () => {
+    const { config } = write({ skills: ["pr-review", "release-notes"] });
+    expect(config.permission.skill).toEqual({
+      "*": "deny",
+      "pr-review": "allow",
+      "release-notes": "allow",
+    });
+    // The harness evaluates the LAST matching rule, so the wildcard has to be written
+    // first or it denies the skills that follow it.
+    expect(Object.keys(config.permission.skill)[0]).toBe("*");
+  });
+});
+
+describe("skillPermission", () => {
+  it("is a deny-by-default map with the wildcard first", () => {
+    expect(skillPermission([])).toEqual({ "*": "deny" });
+    expect(Object.keys(skillPermission(["a", "b"]))).toEqual(["*", "a", "b"]);
   });
 });
 

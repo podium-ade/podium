@@ -3,7 +3,7 @@ import { ArrowDown, Bot, MessageSquarePlus, Sparkles } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, Skill } from "../../gen/podium/agent/v1/agent_pb";
+import type { Chat, ChatMessage, Playbook } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -48,9 +48,9 @@ export function ChatPanel() {
     // changes turn_running and the preview. Nothing else here would notice.
     refetchInterval: 10_000,
   });
-  const skills = useQuery({
-    queryKey: ["agent", "skills"],
-    queryFn: () => agent.listSkills({}),
+  const playbooks = useQuery({
+    queryKey: ["agent", "playbooks"],
+    queryFn: () => agent.listPlaybooks({}),
     staleTime: 5 * 60_000,
   });
 
@@ -135,7 +135,7 @@ export function ChatPanel() {
                 className="max-w-lg"
                 icon={Sparkles}
                 title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
-                hint="A question here runs as a real Podium task on a node, with the tools its skill allows. It answers with what it found, and shows the work."
+                hint="A question here runs as a real Podium task on a node, with the tools its playbook allows. It answers with what it found, and shows the work."
                 action={
                   <Button size="sm" disabled={create.isPending} onClick={() => create.mutate("")}>
                     <MessageSquarePlus />
@@ -145,14 +145,14 @@ export function ChatPanel() {
               />
             </div>
           ) : (
-            // Keyed on the chat: a switch remounts the conversation, so its skill choice
+            // Keyed on the chat: a switch remounts the conversation, so its playbook choice
             // and scroll position start fresh without an effect resetting them.
             <Conversation
               key={active}
               chatId={active}
-              botName={skills.data?.profileDisplayName ?? "Podium"}
-              skills={skills.data?.skills ?? []}
-              chatDefaultSkill={skills.data?.skills.find((s) => s.chatDefault)?.name ?? ""}
+              botName={playbooks.data?.profileDisplayName ?? "Podium"}
+              playbooks={playbooks.data?.playbooks ?? []}
+              chatDefaultPlaybook={playbooks.data?.playbooks.find((s) => s.chatDefault)?.name ?? ""}
             />
           )}
         </div>
@@ -284,27 +284,27 @@ function ChatRail({
 function Conversation({
   chatId,
   botName,
-  skills,
-  chatDefaultSkill,
+  playbooks,
+  chatDefaultPlaybook,
 }: {
   chatId: string;
   botName: string;
-  skills: Skill[];
-  chatDefaultSkill: string;
+  playbooks: Playbook[];
+  chatDefaultPlaybook: string;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
   const stream = useChatStream(chatId);
-  // Undefined means "whatever the profile says", which is not known until ListSkills
+  // Undefined means "whatever the profile says", which is not known until ListPlaybooks
   // answers — so the choice is derived rather than copied into state on arrival.
   const [chosen, setChosen] = useState<string>();
-  const skill = chosen ?? chatDefaultSkill;
+  const playbook = chosen ?? chatDefaultPlaybook;
   const [pinned, setPinned] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
 
   // The choice is sticky across messages, the way every chat that has a model picker
   // behaves: you pick once and keep asking. It is still sent per message, so nothing is
-  // remembered server-side and a reload goes back to the skill's own model.
+  // remembered server-side and a reload goes back to the playbook's own model.
   const [choice, setChoice] = useState<AgentChoice>(INHERIT);
   const { agents } = useAgents();
 
@@ -313,8 +313,8 @@ function Conversation({
       agent.sendChatMessage({
         chatId,
         text: v.text,
-        skill,
-        // Empty fields mean "the skill's", which is exactly what the server does with them.
+        playbook,
+        // Empty fields mean "the playbook's", which is exactly what the server does with them.
         agent: v.choice.agent,
         model: v.choice.model,
         effort: v.choice.effort,
@@ -395,9 +395,9 @@ function Conversation({
       {busy ? <RunningTurn progress={stream.progress} taskId={stream.taskId} /> : null}
 
       <ChatComposer
-        skills={skills}
-        skill={skill}
-        onSkillChange={setChosen}
+        playbooks={playbooks}
+        playbook={playbook}
+        onPlaybookChange={setChosen}
         disabled={busy}
         agents={agents}
         choice={choice}
@@ -446,7 +446,7 @@ function FirstMessage({ botName }: { botName: string }) {
       <p className="text-sm font-medium text-fg">Ask {botName} something</p>
       <p className="max-w-md text-xs leading-relaxed text-muted">
         Each question runs as one Podium task and exits when it has an answer. Try{" "}
-        <span className="text-fg">why did the nightly ETL fail?</span> — or pick a skill below
+        <span className="text-fg">why did the nightly ETL fail?</span> — or pick a playbook below
         to change which image, tools and model the turn runs with.
       </p>
     </div>

@@ -261,10 +261,10 @@ function MemoryCard({
   const [confirming, setConfirming] = useState(false);
   const meta = memory.metadata;
   const source = memory.tags.find((t) => t.startsWith("source:"))?.slice("source:".length);
-  const skill = memory.tags.find((t) => t.startsWith("skill:"))?.slice("skill:".length);
+  const playbook = memory.tags.find((t) => t.startsWith("playbook:"))?.slice("playbook:".length);
   // Whatever is left is a plain subject tag the retain step chose, and it is as much of the
   // provenance as the prefixed ones.
-  const plain = memory.tags.filter((t) => !t.startsWith("source:") && !t.startsWith("skill:"));
+  const plain = memory.tags.filter((t) => !t.startsWith("source:") && !t.startsWith("playbook:"));
   const quiet = memory.entities.length > 0 || memory.context !== "" || meta.task_id;
 
   return (
@@ -307,7 +307,7 @@ function MemoryCard({
             <Chip>{source}</Chip>
           )
         ) : null}
-        {skill ? <Chip>/{skill}</Chip> : null}
+        {playbook ? <Chip>/{playbook}</Chip> : null}
         {plain.map((t) => (
           <Chip key={t}>{t}</Chip>
         ))}

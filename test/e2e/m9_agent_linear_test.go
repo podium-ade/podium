@@ -22,12 +22,12 @@ import (
 )
 
 // githubTokenSecret is the conventional name for a repository credential, and the only
-// secret linearSkill names. It has to exist before one of its turns can be admitted.
+// secret linearPlaybook names. It has to exist before one of its turns can be admitted.
 const githubTokenSecret = "podium.agent.github_token"
 
-// linearSkill is the skill this test defines and gives to the Linear source. It is not a
-// shipped example: Podium ships one skill and it takes no tickets.
-const linearSkill = "coder"
+// linearPlaybook is the playbook this test defines and gives to the Linear source. It is not a
+// shipped example: Podium ships one playbook and it takes no tickets.
+const linearPlaybook = "coder"
 
 // fakeLinearAPIKey is an obvious fixture. Nothing in Podium validates the shape of a Linear
 // key, so a stub is happy with this.
@@ -261,11 +261,11 @@ func firstIndexOf(ops []string, want string) int {
 }
 
 // ---------------------------------------------------------------------------
-// a profile with a ticket skill, defined here, that dry-runs on the plain image
+// a profile with a ticket playbook, defined here, that dry-runs on the plain image
 // ---------------------------------------------------------------------------
 
-// linearProfileDir copies examples/agent and adds the skill Linear tickets run. Podium
-// ships no such skill — the example profile has one skill and it takes no tickets — so a
+// linearProfileDir copies examples/agent and adds the playbook Linear tickets run. Podium
+// ships no such playbook — the example profile has one playbook and it takes no tickets — so a
 // test about Linear defines its own, which is what anybody wiring Linear up has to do too.
 //
 // It runs the plain runtime image in dry run: no model key spent, and the machinery is the
@@ -291,7 +291,7 @@ env:
 	for k, v := range extra {
 		body += fmt.Sprintf("  %s: %q\n", k, v)
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(dst, "skills", linearSkill+".yaml"),
+	require.NoError(t, os.WriteFile(filepath.Join(dst, "playbooks", linearPlaybook+".yaml"),
 		[]byte(body), 0o600))
 	return dst
 }
@@ -377,8 +377,8 @@ func TestLinearAssignmentStartsATurn(t *testing.T) {
 		assert.Equal(t, fakeLinearAPIKey, got, "a personal API key goes in Authorization raw")
 	}
 
-	// The task is the conductor's, on the coder skill, with exactly the credentials that
-	// skill's file names plus the two the conductor reserves.
+	// The task is the conductor's, on the coder playbook, with exactly the credentials that
+	// playbook's file names plus the two the conductor reserves.
 	spec := taskSpecJSON(t, h, taskID)
 	assert.Equal(t, agentRuntimeImage, spec.Spec.Image)
 	assert.NotEmpty(t, spec.RequestedBy, "the task must record who asked for it")
@@ -444,12 +444,12 @@ func TestLinearAssignmentStartsATurn(t *testing.T) {
 	requireNoPodiumResources(t)
 }
 
-// TestOnlyTheCoderSkillGetsTheGitHubToken is the acceptance item, read through the API the
-// step file names: `podium task get --json`. A skill decides what THIS bot hands a turn, so
-// the general skill's turns must not carry a credential it never asked for. (It is not a
+// TestOnlyTheCoderPlaybookGetsTheGitHubToken is the acceptance item, read through the API the
+// step file names: `podium task get --json`. A playbook decides what THIS bot hands a turn, so
+// the general playbook's turns must not carry a credential it never asked for. (It is not a
 // boundary around the secret store — see docs/security.md — but it is still the difference
 // between a public channel's turns holding a GitHub token and not.)
-func TestOnlyTheCoderSkillGetsTheGitHubToken(t *testing.T) {
+func TestOnlyTheCoderPlaybookGetsTheGitHubToken(t *testing.T) {
 	requireAgentRuntimeImage(t)
 
 	h := newHarness(t)
@@ -459,9 +459,9 @@ func TestOnlyTheCoderSkillGetsTheGitHubToken(t *testing.T) {
 
 	fake := startFakeLinear(t)
 	profileDir := linearProfileDir(t, nil)
-	// Both sources at once: the dev source drives the general skill and the Linear source
-	// drives the coder skill, so the two specs are produced by one conductor from one
-	// profile and the difference between them is only the skill file.
+	// Both sources at once: the dev source drives the general playbook and the Linear source
+	// drives the coder playbook, so the two specs are produced by one conductor from one
+	// profile and the difference between them is only the playbook file.
 	agent := startAgentWithLinear(t, h, profileDir, fake.endpoint())
 
 	var coderTask string
@@ -494,7 +494,7 @@ func TestOnlyTheCoderSkillGetsTheGitHubToken(t *testing.T) {
 	assertCoderSecrets(t, coder)
 	for _, ref := range general.Spec.Secrets {
 		assert.NotEqual(t, githubTokenSecret, ref.Name,
-			"the general skill never names the GitHub token, so its turns must not get it")
+			"the general playbook never names the GitHub token, so its turns must not get it")
 		assert.NotEqual(t, "GITHUB_TOKEN", ref.Key)
 	}
 	// And it still gets the one credential the conductor attaches to every turn.
@@ -579,18 +579,18 @@ func secretNames(task taskSpecView) []string {
 // attaches to every turn.
 func assertCoderSecrets(t *testing.T, task taskSpecView) {
 	t.Helper()
-	var fromSkill []string
+	var fromPlaybook []string
 	for _, ref := range task.Spec.Secrets {
 		switch ref.Name {
 		case anthropicKeySecret, "podium.agent.memory_api_key":
-			// Reserved: the conductor adds these itself, whatever a skill file says.
+			// Reserved: the conductor adds these itself, whatever a playbook file says.
 			continue
 		}
-		fromSkill = append(fromSkill, ref.Name)
+		fromPlaybook = append(fromPlaybook, ref.Name)
 		assert.Equal(t, "env", ref.Target)
 	}
-	require.Equal(t, []string{githubTokenSecret}, fromSkill,
-		"the coder skill gets the GitHub token and nothing else: %+v", task.Spec.Secrets)
+	require.Equal(t, []string{githubTokenSecret}, fromPlaybook,
+		"the coder playbook gets the GitHub token and nothing else: %+v", task.Spec.Secrets)
 	for _, ref := range task.Spec.Secrets {
 		if ref.Name == githubTokenSecret {
 			assert.Equal(t, "GITHUB_TOKEN", ref.Key)

@@ -11,35 +11,35 @@ import (
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
 
-// maxSkillHintChars caps the description a skill's prompt contributes to the UI. It is one
+// maxPlaybookHintChars caps the description a playbook's prompt contributes to the UI. It is one
 // line of an operator's own file, not a contract, and a chip's tooltip is all it is for.
-const maxSkillHintChars = 160
+const maxPlaybookHintChars = 160
 
-// ListSkills reports the profile's skills so the chat can offer the choice.
+// ListPlaybooks reports the profile's playbooks so the chat can offer the choice.
 //
 // It is the chat's surface and stays minimal: a name, an image, and the first line of a
 // prompt the operator wrote. The whole definition — tools, secrets, resources — is what
 // GetProfile is for, and a chip does not need it.
-func (s *AgentService) ListSkills(
-	ctx context.Context, _ *connect.Request[agentv1.ListSkillsRequest],
-) (*connect.Response[agentv1.ListSkillsResponse], error) {
+func (s *AgentService) ListPlaybooks(
+	ctx context.Context, _ *connect.Request[agentv1.ListPlaybooksRequest],
+) (*connect.Response[agentv1.ListPlaybooksResponse], error) {
 	profile := s.profiles.Current()
 	if profile == nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("this conductor has no profile loaded"))
 	}
-	chatDefault := profile.ChatSkill()
-	out := make([]*agentv1.Skill, 0, len(profile.Skills))
-	for _, name := range profile.SkillNames() {
-		skill := profile.Skills[name]
-		// Resolved, not the skill's own fields: the composer shows this as what "the
-		// skill's" means, and a skill that inherits everything would otherwise show blanks
+	chatDefault := profile.ChatPlaybook()
+	out := make([]*agentv1.Playbook, 0, len(profile.Playbooks))
+	for _, name := range profile.PlaybookNames() {
+		playbook := profile.Playbooks[name]
+		// Resolved, not the playbook's own fields: the composer shows this as what "the
+		// playbook's" means, and a playbook that inherits everything would otherwise show blanks
 		// where a human expects to read a model name.
-		runs := profile.Resolve(skill, profiles.Override{})
-		out = append(out, &agentv1.Skill{
+		runs := profile.Resolve(playbook, profiles.Override{})
+		out = append(out, &agentv1.Playbook{
 			Name:        name,
-			Image:       skill.Image,
-			Hint:        promptHint(skill.SystemPrompt),
+			Image:       playbook.Image,
+			Hint:        promptHint(playbook.SystemPrompt),
 			ChatDefault: name == chatDefault,
 			Agent:       runs.Agent,
 			Model:       runs.Model,
@@ -47,8 +47,8 @@ func (s *AgentService) ListSkills(
 		})
 	}
 	_ = ctx
-	return connect.NewResponse(&agentv1.ListSkillsResponse{
-		Skills:             out,
+	return connect.NewResponse(&agentv1.ListPlaybooksResponse{
+		Playbooks:          out,
 		ProfileDisplayName: profile.DisplayName,
 	}), nil
 }
@@ -62,8 +62,8 @@ func promptHint(prompt string) string {
 			continue
 		}
 		runes := []rune(line)
-		if len(runes) > maxSkillHintChars {
-			return string(runes[:maxSkillHintChars]) + "…"
+		if len(runes) > maxPlaybookHintChars {
+			return string(runes[:maxPlaybookHintChars]) + "…"
 		}
 		return line
 	}

@@ -25,7 +25,7 @@ GHCR; publishing the images is still a TODO in `.goreleaser.yaml`.
 ## The brief
 
 `examples/agent/brief.sh "instruction"` prints the smallest brief that validates: a `chat` source,
-the `podium` profile, the `general` skill, an empty transcript, no repos and no memory.
+the `podium` profile, the `general` playbook, an empty transcript, no repos and no memory.
 
 ```sh
 examples/agent/brief.sh "hello" | base64 -d | jq .
@@ -164,14 +164,14 @@ Exit codes, and never any others:
 |---|---|
 | `0` | the turn finished — including a turn cancelled by SIGTERM |
 | `2` | the brief was invalid |
-| `3` | the skill's `max_turns` was reached |
+| `3` | the playbook's `max_turns` was reached |
 | `4` | an SDK or API error, a missing key, a failed clone, a network failure |
 
 ## The -dev image, and extending the base yourself
 
 `podium-agent-runtime-dev:dev` is the one image Podium ships beside the base, and it exists to
-build Podium itself: Go, the Docker **client** and golangci-lint, for the `podium` skill. It
-carries no daemon — the skill sets `docker: true` and the conductor attaches one as a sidecar,
+build Podium itself: Go, the Docker **client** and golangci-lint, for the `podium` playbook. It
+carries no daemon — the playbook sets `docker: true` and the conductor attaches one as a sidecar,
 which is what lets a turn run `make test-integration` against a daemon that dies with the task.
 
 It is also the **worked example** of everything below. Podium ships no image for somebody else's
@@ -214,14 +214,14 @@ Debian 12's interpreter is marked `EXTERNALLY-MANAGED` (PEP 668) and ships no pi
 nothing else in your image installs a Python package. `apt-cache depends --recurse` before you
 commit to a package, and check the image size after.
 
-Then point a skill at it:
+Then point a playbook at it:
 
 ```yaml
-# skills/dba.yaml
+# playbooks/dba.yaml
 image: registry.example.com/agent-warehouse:2026-09-05
 ```
 
-A skill's `image:` is **any reference the node's own Docker engine can resolve**. A tag you built
+A playbook's `image:` is **any reference the node's own Docker engine can resolve**. A tag you built
 locally works only on the machine that built it, so a fleet needs a registry every node can pull
 from. Podium has **no registry authentication**: a private registry that requires a login is not
 supported today, and a node either pulls anonymously or already has the image.

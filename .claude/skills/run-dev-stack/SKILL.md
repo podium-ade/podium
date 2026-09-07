@@ -172,17 +172,17 @@ It is the third service `make stack-up` starts, and `deploy/.env` already has it
 still needs is a profile directory — `PODIUM_AGENT_PROFILE_DIR`, default `examples/agent` — and
 a model credential, set in the UI under Agent → Settings:
 
-- **Anthropic** — an API key, for skills on the `claude` backend.
+- **Anthropic** — an API key, for playbooks on the `claude` backend.
 - **xAI** — an API key, *or* a subscription sign-in (SuperGrok, X Premium+) if
   `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` is set. Both end up as the same bearer against the same
   endpoint; the sign-in additionally stores a refresh token that no turn is ever handed.
 
-A skill names its backend with `agent:`, and optionally `model:` and `effort:`. Unset means the
+A playbook names its backend with `agent:`, and optionally `model:` and `effort:`. Unset means the
 profile's, and the profile's default is `claude`.
 
 **The profile directory is read once, at boot.** The periodic reload rebuilds from that snapshot
-plus the skills the database holds, so editing a file under `PODIUM_AGENT_PROFILE_DIR` reaches a
-running conductor never — restart it with `make stack-up S=agent`. Skills created in the web UI
+plus the playbooks the database holds, so editing a file under `PODIUM_AGENT_PROFILE_DIR` reaches a
+running conductor never — restart it with `make stack-up S=agent`. Playbooks created in the web UI
 live in the database and do reach the next turn.
 
 Agent turns run the runtime images, and those are **architecture-specific**: an image built on an

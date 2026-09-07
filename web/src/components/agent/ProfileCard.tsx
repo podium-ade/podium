@@ -19,8 +19,8 @@ export const FIELDS = {
   model: "model",
   agent: "agent",
   effort: "effort",
-  defaultSkill: "default_skill",
-  chatDefaultSkill: "chat_default_skill",
+  defaultPlaybook: "default_playbook",
+  chatDefaultPlaybook: "chat_default_playbook",
 } as const;
 
 export type ProfileFields = {
@@ -28,14 +28,14 @@ export type ProfileFields = {
   model: string;
   agent: string;
   effort: string;
-  defaultSkill: string;
-  chatDefaultSkill: string;
+  defaultPlaybook: string;
+  chatDefaultPlaybook: string;
 };
 
 export type ProfileCardProps = {
   profile?: AgentProfile;
-  /** The skills that are actually loaded, for the two default pickers. */
-  skills: string[];
+  /** The playbooks that are actually loaded, for the two default pickers. */
+  playbooks: string[];
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
   loading?: boolean;
@@ -51,7 +51,7 @@ export type ProfileCardProps = {
  * the file says". That is why each row shows the file's value beside the input — an
  * operator has to be able to see what they are overriding, and get back to it in one click.
  */
-export function ProfileCard({ profile, skills, agents, loading, saving, onSave }: ProfileCardProps) {
+export function ProfileCard({ profile, playbooks, agents, loading, saving, onSave }: ProfileCardProps) {
   const overridden = new Set(profile?.overridden ?? []);
   const held = (key: string, effective: string) => (overridden.has(key) ? effective : "");
 
@@ -67,11 +67,11 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
     model: held(FIELDS.model, profile?.model ?? ""),
     effort: held(FIELDS.effort, profile?.effort ?? ""),
   }));
-  const [defaultSkill, setDefaultSkill] = useState(() =>
-    held(FIELDS.defaultSkill, profile?.defaultSkill ?? ""),
+  const [defaultPlaybook, setDefaultPlaybook] = useState(() =>
+    held(FIELDS.defaultPlaybook, profile?.defaultPlaybook ?? ""),
   );
-  const [chatDefaultSkill, setChatDefaultSkill] = useState(() =>
-    held(FIELDS.chatDefaultSkill, profile?.chatDefaultSkill ?? ""),
+  const [chatDefaultPlaybook, setChatDefaultPlaybook] = useState(() =>
+    held(FIELDS.chatDefaultPlaybook, profile?.chatDefaultPlaybook ?? ""),
   );
 
   if (loading) {
@@ -108,8 +108,8 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
           model: choice.model,
           agent: choice.agent,
           effort: choice.effort,
-          defaultSkill,
-          chatDefaultSkill,
+          defaultPlaybook,
+          chatDefaultPlaybook,
         });
       }}
     >
@@ -170,7 +170,7 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
               overridden.has(FIELDS.effort)
             }
             onUseFile={() => setChoice(INHERIT)}
-            hint="What every skill runs on unless it names its own."
+            hint="What every playbook runs on unless it names its own."
           >
             <AgentPicker
               label="Profile"
@@ -187,36 +187,36 @@ export function ProfileCard({ profile, skills, agents, loading, saving, onSave }
           </Field>
 
           <Field
-            id="profile-default-skill"
-            label="Default skill"
-            fileValue={profile?.fileDefaultSkill ?? ""}
-            overridden={overridden.has(FIELDS.defaultSkill)}
-            onUseFile={() => setDefaultSkill("")}
-            hint="What runs when no chip, no slash prefix and no channel picks a skill."
+            id="profile-default-playbook"
+            label="Default playbook"
+            fileValue={profile?.fileDefaultPlaybook ?? ""}
+            overridden={overridden.has(FIELDS.defaultPlaybook)}
+            onUseFile={() => setDefaultPlaybook("")}
+            hint="What runs when no chip, no slash prefix and no channel picks a playbook."
           >
-            <SkillSelect
-              id="profile-default-skill"
-              value={defaultSkill}
-              skills={skills}
-              fileValue={profile?.fileDefaultSkill ?? ""}
-              onChange={setDefaultSkill}
+            <PlaybookSelect
+              id="profile-default-playbook"
+              value={defaultPlaybook}
+              playbooks={playbooks}
+              fileValue={profile?.fileDefaultPlaybook ?? ""}
+              onChange={setDefaultPlaybook}
             />
           </Field>
 
           <Field
-            id="profile-chat-default-skill"
-            label="Chat default skill"
-            fileValue={profile?.fileChatDefaultSkill ?? ""}
-            overridden={overridden.has(FIELDS.chatDefaultSkill)}
-            onUseFile={() => setChatDefaultSkill("")}
+            id="profile-chat-default-playbook"
+            label="Chat default playbook"
+            fileValue={profile?.fileChatDefaultPlaybook ?? ""}
+            overridden={overridden.has(FIELDS.chatDefaultPlaybook)}
+            onUseFile={() => setChatDefaultPlaybook("")}
             hint="What a web chat starts with. It is a preference: a slash prefix a human types still wins."
           >
-            <SkillSelect
-              id="profile-chat-default-skill"
-              value={chatDefaultSkill}
-              skills={skills}
-              fileValue={profile?.fileChatDefaultSkill ?? ""}
-              onChange={setChatDefaultSkill}
+            <PlaybookSelect
+              id="profile-chat-default-playbook"
+              value={chatDefaultPlaybook}
+              playbooks={playbooks}
+              fileValue={profile?.fileChatDefaultPlaybook ?? ""}
+              onChange={setChatDefaultPlaybook}
             />
           </Field>
         </CardContent>
@@ -308,22 +308,22 @@ function Field({
   );
 }
 
-function SkillSelect({
+function PlaybookSelect({
   id,
   value,
-  skills,
+  playbooks,
   fileValue,
   onChange,
 }: {
   id: string;
   value: string;
-  skills: string[];
+  playbooks: string[];
   fileValue: string;
   onChange: (v: string) => void;
 }) {
-  // A skill that is no longer loaded must still be selectable to be seen; dropping it would
+  // A playbook that is no longer loaded must still be selectable to be seen; dropping it would
   // silently rewrite the override the moment the form is saved.
-  const options = skills.includes(value) || value === "" ? skills : [value, ...skills];
+  const options = playbooks.includes(value) || value === "" ? playbooks : [value, ...playbooks];
   return (
     <div className="relative w-full max-w-sm">
       <select

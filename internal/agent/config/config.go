@@ -12,13 +12,15 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/alvaroibarguen/podium/internal/agent/skills"
 )
 
 // DefaultListen is where the conductor serves its API, health and metrics. Loopback,
 // because podium-server is the only thing that should reach it and it runs on this host.
 const DefaultListen = "127.0.0.1:8090"
 
-// DefaultProfileDir holds profile.yaml, skills/ and prompts/.
+// DefaultProfileDir holds profile.yaml, playbooks/ and prompts/.
 const DefaultProfileDir = "/etc/podium/agent"
 
 // ProfileFile is the one file a profile directory must contain.
@@ -92,6 +94,12 @@ type Config struct {
 	Token string
 	// ProfileDir is PODIUM_AGENT_PROFILE_DIR, default /etc/podium/agent.
 	ProfileDir string
+	// SkillsDir is PODIUM_AGENT_SKILLS_DIR: a directory on THIS host holding one
+	// subdirectory per Agent Skill, each with a SKILL.md. It has no default. Empty means
+	// this conductor delivers no skills at all, and a playbook that names one fails its
+	// turns saying so — which is the right answer for an install that has never heard of
+	// skills, and a loud one for an install that meant to set this.
+	SkillsDir string
 	// SlackAppToken is PODIUM_AGENT_SLACK_APP_TOKEN (xapp-…), the Socket Mode token.
 	// SENSITIVE: never log it.
 	SlackAppToken string
@@ -122,7 +130,7 @@ type Config struct {
 	// TASK CONTAINER, which is a different vantage point. Default DefaultMemoryTaskURL.
 	MemoryTaskURL string
 	// MemoryBank is PODIUM_AGENT_MEMORY_BANK, default podium. One bank, shared by every
-	// turn: there is no per-user or per-skill scoping in this track.
+	// turn: there is no per-user or per-playbook scoping in this track.
 	MemoryBank string
 	// MemoryAPIKey is PODIUM_AGENT_MEMORY_API_KEY, the bearer Hindsight requires for both
 	// REST and MCP. The conductor also writes it into Podium's secret store at startup so
@@ -157,6 +165,7 @@ func FromEnv() Config {
 		Listen:           envOr("PODIUM_AGENT_LISTEN", DefaultListen),
 		Token:            os.Getenv("PODIUM_AGENT_TOKEN"),
 		ProfileDir:       envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
+		SkillsDir:        os.Getenv(skills.DirEnv),
 		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
 		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
@@ -276,6 +285,17 @@ func (c Config) Validate() error {
 	if _, err := os.Stat(filepath.Join(c.ProfileDir, ProfileFile)); err != nil {
 		return fmt.Errorf("PODIUM_AGENT_PROFILE_DIR=%q has no %s: %w", c.ProfileDir, ProfileFile, err)
 	}
+	// A directory that is set and is not there is a typo, and every turn of every playbook
+	// that names a skill would fail on it. It is cheaper to say so at start-up.
+	if c.SkillsDir != "" {
+		info, err := os.Stat(c.SkillsDir)
+		switch {
+		case err != nil:
+			return fmt.Errorf("%s=%q: %w", skills.DirEnv, c.SkillsDir, err)
+		case !info.IsDir():
+			return fmt.Errorf("%s=%q is not a directory", skills.DirEnv, c.SkillsDir)
+		}
+	}
 	return nil
 }
 
@@ -287,6 +307,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("server", c.Server),
 		slog.String("listen", c.Listen),
 		slog.String("profile_dir", c.ProfileDir),
+		slog.String("skills_dir", c.SkillsDir),
 		slog.String("anthropic_base_url", c.AnthropicBaseURL),
 		slog.String("xai_base_url", c.XAIBaseURL),
 		slog.String("xai_oauth_issuer", c.XAIOAuthIssuer),

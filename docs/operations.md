@@ -121,7 +121,7 @@ docker compose exec -T postgres \
 ```
 
 It is the lower-value of the two. It holds session and turn records — which conversation ran
-which skill, which task answered it, what the answer was — and nothing that cannot be
+which playbook, which task answered it, what the answer was — and nothing that cannot be
 reconstructed by asking again: the conversations themselves live in Slack. Losing it costs
 history and the relay's exactly-once ledger, not work.
 

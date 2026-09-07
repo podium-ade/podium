@@ -9,14 +9,14 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ChatFrameSchema,
   ChatMessageSchema,
-  SkillSchema,
+  PlaybookSchema,
   type ChatFrame,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { ToastHost } from "../Toast";
 import { ChatPanel } from "./ChatPanel";
 
 const listChats = vi.fn();
-const listSkills = vi.fn();
+const listPlaybooks = vi.fn();
 const createChat = vi.fn();
 const sendChatMessage = vi.fn();
 const streamChat = vi.fn();
@@ -27,7 +27,7 @@ vi.mock("../../lib/client", async () => {
     ...actual,
     agent: {
       listChats: (...a: unknown[]) => listChats(...a),
-      listSkills: (...a: unknown[]) => listSkills(...a),
+      listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       createChat: (...a: unknown[]) => createChat(...a),
       sendChatMessage: (...a: unknown[]) => sendChatMessage(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
@@ -94,9 +94,9 @@ const chat = {
   turnRunning: false,
 };
 
-const skills = [
-  create(SkillSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse.", chatDefault: true }),
-  create(SkillSchema, { name: "general", image: "runtime:dev", hint: "Answer." }),
+const playbooks = [
+  create(PlaybookSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse.", chatDefault: true }),
+  create(PlaybookSchema, { name: "general", image: "runtime:dev", hint: "Answer." }),
 ];
 
 function mount(path = "/agent/chat") {
@@ -117,12 +117,12 @@ function mount(path = "/agent/chat") {
 describe("ChatPanel", () => {
   beforeEach(() => {
     listChats.mockReset();
-    listSkills.mockReset();
+    listPlaybooks.mockReset();
     createChat.mockReset();
     sendChatMessage.mockReset();
     streamChat.mockReset();
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
-    listSkills.mockResolvedValue({ skills, profileDisplayName: "Podium" });
+    listPlaybooks.mockResolvedValue({ playbooks, profileDisplayName: "Podium" });
     streamChat.mockImplementation(() => live());
   });
 
@@ -219,21 +219,21 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
   });
 
-  it("sends a message with the chip's skill", async () => {
+  it("sends a message with the chip's playbook", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     sendChatMessage.mockResolvedValue({ message: {} });
     mount("/agent/chat/chat_01abc");
 
     const box = await screen.findByTestId("chat-composer");
-    await waitFor(() => expect(screen.getByTestId("chat-skill")).toHaveTextContent("/analyst"));
+    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toHaveTextContent("/analyst"));
     await userEvent.type(box, "how many active accounts{Enter}");
 
     await waitFor(() =>
       expect(sendChatMessage).toHaveBeenCalledWith({
         chatId: "chat_01abc",
         text: "how many active accounts",
-        skill: "analyst",
-        // Empty means "the skill's", which is what the server reads them as.
+        playbook: "analyst",
+        // Empty means "the playbook's", which is what the server reads them as.
         agent: "",
         model: "",
         effort: "",

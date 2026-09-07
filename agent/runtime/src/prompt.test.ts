@@ -58,15 +58,15 @@ describe("buildSystemPrompt", () => {
     );
   });
 
-  it("puts the profile before the skill before the runtime block", () => {
+  it("puts the profile before the playbook before the runtime block", () => {
     const prompt = buildSystemPrompt(golden());
     const profile = prompt.indexOf("You are Podium, the engineering team's agent.");
-    const skill = prompt.indexOf("You write code, verify it");
+    const playbook = prompt.indexOf("You write code, verify it");
     const runtime = prompt.indexOf("# This turn");
     const transcript = prompt.indexOf("# The conversation so far");
     expect(profile).toBe(0);
-    expect(skill).toBeGreaterThan(profile);
-    expect(runtime).toBeGreaterThan(skill);
+    expect(playbook).toBeGreaterThan(profile);
+    expect(runtime).toBeGreaterThan(playbook);
     expect(transcript).toBeGreaterThan(runtime);
   });
 });

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronDown, Loader2 } from "lucide-react";
-import type { AgentBackend, Skill } from "../../gen/podium/agent/v1/agent_pb";
+import type { AgentBackend, Playbook } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
@@ -13,21 +13,21 @@ import { BackendMark } from "./BackendMark";
 const MIN_PX = 44;
 const MAX_PX = 200;
 
-/** SKILL_PREFIX matches a leading /skill, the same rule the conductor applies. */
-const SKILL_PREFIX = /^\/([a-z][a-z0-9-]{0,31})(\s+|$)/;
+/** PLAYBOOK_PREFIX matches a leading /playbook, the same rule the conductor applies. */
+const PLAYBOOK_PREFIX = /^\/([a-z][a-z0-9-]{0,31})(\s+|$)/;
 
 export interface ChatComposerProps {
-  skills: Skill[];
-  /** skill is the skill the next message will use. */
-  skill: string;
-  onSkillChange: (name: string) => void;
+  playbooks: Playbook[];
+  /** playbook is the playbook the next message will use. */
+  playbook: string;
+  onPlaybookChange: (name: string) => void;
   /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
   disabled: boolean;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
   /**
-   * choice is what the next message runs on, overriding the skill's own. INHERIT — the
-   * default — means whatever the skill says, which is what the picker shows.
+   * choice is what the next message runs on, overriding the playbook's own. INHERIT — the
+   * default — means whatever the playbook says, which is what the picker shows.
    */
   choice: AgentChoice;
   onChoiceChange: (next: AgentChoice) => void;
@@ -43,9 +43,9 @@ export interface ChatComposerProps {
  * click is the friendlier half of the same rule.
  */
 export function ChatComposer({
-  skills,
-  skill,
-  onSkillChange,
+  playbooks,
+  playbook,
+  onPlaybookChange,
   disabled,
   agents,
   choice,
@@ -70,8 +70,8 @@ export function ChatComposer({
   // composer twice for every character typed.
   const retype = (next: string) => {
     setText(next);
-    const m = SKILL_PREFIX.exec(next);
-    if (m && m[1] !== skill && skills.some((s) => s.name === m[1])) onSkillChange(m[1]);
+    const m = PLAYBOOK_PREFIX.exec(next);
+    if (m && m[1] !== playbook && playbooks.some((s) => s.name === m[1])) onPlaybookChange(m[1]);
   };
 
   const send = () => {
@@ -108,13 +108,13 @@ export function ChatComposer({
           />
 
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-2 py-2">
-            <SkillChip skills={skills} skill={skill} onChange={onSkillChange} disabled={disabled} />
-            {/* The model is chosen per MESSAGE, beside the skill and not inside it. A skill
+            <PlaybookChip playbooks={playbooks} playbook={playbook} onChange={onPlaybookChange} disabled={disabled} />
+            {/* The model is chosen per MESSAGE, beside the playbook and not inside it. A playbook
                 is "which job"; the model is "what runs it". Folding the second into the
-                first is what makes a profile fill up with skills that differ by one field. */}
+                first is what makes a profile fill up with playbooks that differ by one field. */}
             <RunConfig
-              skills={skills}
-              skill={skill}
+              playbooks={playbooks}
+              playbook={playbook}
               agents={agents}
               choice={choice}
               onChange={onChoiceChange}
@@ -153,26 +153,26 @@ export function ChatComposer({
  * RunConfig is the model half of the decision, folded into a popover.
  *
  * It is a popover rather than a row of controls because the answer is almost always "the
- * skill's own", and a composer that spends three lines saying so is a composer with less
+ * playbook's own", and a composer that spends three lines saying so is a composer with less
  * room to type in. The closed control still names what will actually run, so nothing is
  * hidden — only folded.
  */
 function RunConfig({
-  skills,
-  skill,
+  playbooks,
+  playbook,
   agents,
   choice,
   onChange,
   disabled,
 }: {
-  skills: Skill[];
-  skill: string;
+  playbooks: Playbook[];
+  playbook: string;
   agents: AgentBackend[];
   choice: AgentChoice;
   onChange: (next: AgentChoice) => void;
   disabled: boolean;
 }) {
-  const inherited = skillChoice(skills, skill);
+  const inherited = playbookChoice(playbooks, playbook);
   const effective = choice.model === "" ? inherited : choice;
   const backendID = choice.model === "" ? inherited.agent : choice.agent;
 
@@ -183,7 +183,7 @@ function RunConfig({
           <Button type="button" variant="outline" size="sm" disabled={disabled} data-testid="chat-run-config">
             <BackendMark id={backendID} />
             {effective.model === "" ? (
-              <span className="max-w-40 truncate">The skill&apos;s model</span>
+              <span className="max-w-40 truncate">The playbook&apos;s model</span>
             ) : (
               <span className="max-w-40 truncate font-mono">{effective.model}</span>
             )}
@@ -198,8 +198,8 @@ function RunConfig({
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-fg">What runs this message</p>
           <p className="text-2xs leading-relaxed text-faint">
-            The skill decides the image and the tools; this decides which model reads them. It
-            applies to the messages you send from now on, and is never saved to the skill.
+            The playbook decides the image and the tools; this decides which model reads them. It
+            applies to the messages you send from now on, and is never saved to the playbook.
           </p>
         </div>
         <AgentPicker
@@ -208,7 +208,7 @@ function RunConfig({
           onChange={onChange}
           agents={agents}
           disabled={disabled}
-          inherit={{ label: "The skill's model", hint: skillRuns(skills, skill) }}
+          inherit={{ label: "The playbook's model", hint: playbookRuns(playbooks, playbook) }}
           inherited={inherited}
         />
       </PopoverContent>
@@ -216,38 +216,38 @@ function RunConfig({
   );
 }
 
-/** skillChoice is what the chosen skill runs on with no override, for the inherit row. */
-function skillChoice(skills: Skill[], skill: string): AgentChoice {
-  const s = skills.find((x) => x.name === skill);
+/** playbookChoice is what the chosen playbook runs on with no override, for the inherit row. */
+function playbookChoice(playbooks: Playbook[], playbook: string): AgentChoice {
+  const s = playbooks.find((x) => x.name === playbook);
   return s ? { agent: s.agent, model: s.model, effort: s.effort } : INHERIT;
 }
 
-/** skillRuns is the same, as one line of prose for the closed control. */
-function skillRuns(skills: Skill[], skill: string): string {
-  const c = skillChoice(skills, skill);
-  return c.model === "" ? "whatever the skill says" : c.model;
+/** playbookRuns is the same, as one line of prose for the closed control. */
+function playbookRuns(playbooks: Playbook[], playbook: string): string {
+  const c = playbookChoice(playbooks, playbook);
+  return c.model === "" ? "whatever the playbook says" : c.model;
 }
 
 /**
- * SkillChip shows which skill the next message runs and cycles through them on click. It is
- * a cycle rather than a dropdown because there are two or three skills, and a menu for three
+ * PlaybookChip shows which playbook the next message runs and cycles through them on click. It is
+ * a cycle rather than a dropdown because there are two or three playbooks, and a menu for three
  * items is a menu nobody opens.
  */
-function SkillChip({
-  skills,
-  skill,
+function PlaybookChip({
+  playbooks,
+  playbook,
   onChange,
   disabled,
 }: {
-  skills: Skill[];
-  skill: string;
+  playbooks: Playbook[];
+  playbook: string;
   onChange: (name: string) => void;
   disabled: boolean;
 }) {
-  if (skills.length === 0) return null;
-  const at = skills.findIndex((s) => s.name === skill);
-  const current = at >= 0 ? skills[at] : skills[0];
-  const next = skills[(Math.max(at, 0) + 1) % skills.length];
+  if (playbooks.length === 0) return null;
+  const at = playbooks.findIndex((s) => s.name === playbook);
+  const current = at >= 0 ? playbooks[at] : playbooks[0];
+  const next = playbooks[(Math.max(at, 0) + 1) % playbooks.length];
 
   return (
     <Tooltip label={current.hint ? `${current.hint} · ${current.image}` : current.image}>
@@ -255,9 +255,9 @@ function SkillChip({
         type="button"
         variant="secondary"
         size="sm"
-        data-testid="chat-skill"
-        disabled={disabled || skills.length === 1}
-        aria-label={`Skill: ${current.name}. Click to switch to ${next.name}.`}
+        data-testid="chat-playbook"
+        disabled={disabled || playbooks.length === 1}
+        aria-label={`Playbook: ${current.name}. Click to switch to ${next.name}.`}
         onClick={() => onChange(next.name)}
         className="font-mono"
       >

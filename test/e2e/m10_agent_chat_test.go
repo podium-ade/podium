@@ -26,9 +26,9 @@ import (
 )
 
 // copyExampleProfile copies examples/agent into a temporary directory so a test can add or
-// rewrite a skill without touching the repository's own example. The example is what
+// rewrite a playbook without touching the repository's own example. The example is what
 // docs/agent.md points at and what the plain round trip runs; the copies exist to add the
-// dry-run knobs and the extra skills a test needs, neither of which a shipped example
+// dry-run knobs and the extra playbooks a test needs, neither of which a shipped example
 // should carry.
 func copyExampleProfile(t *testing.T) string {
 	t.Helper()
@@ -58,23 +58,23 @@ func copyExampleProfile(t *testing.T) string {
 	return dst
 }
 
-// chatDefaultSkill is the skill the copied profile makes the web chat's default. Podium
-// ships one skill, so a test about the chat's default has to define a second one itself —
-// which is the honest shape anyway: chat_default_skill only means something when there is
-// more than one skill to choose between.
-const chatDefaultSkill = "analyst"
+// chatDefaultPlaybook is the playbook the copied profile makes the web chat's default. Podium
+// ships one playbook, so a test about the chat's default has to define a second one itself —
+// which is the honest shape anyway: chat_default_playbook only means something when there is
+// more than one playbook to choose between.
+const chatDefaultPlaybook = "analyst"
 
-// chatProfileDir is the example profile plus a second skill, defined here, that the chat
-// starts on: chat_default_skill names it, and it runs the plain runtime image in dry run.
+// chatProfileDir is the example profile plus a second playbook, defined here, that the chat
+// starts on: chat_default_playbook names it, and it runs the plain runtime image in dry run.
 //
-// The skill is written by this test rather than shipped, because a shipped one would be a
-// guess at somebody's workflow. What it exercises is the machinery: ListSkills reports a
-// chat default, and a message naming no skill runs it.
+// The playbook is written by this test rather than shipped, because a shipped one would be a
+// guess at somebody's workflow. What it exercises is the machinery: ListPlaybooks reports a
+// chat default, and a message naming no playbook runs it.
 func chatProfileDir(t *testing.T) string {
 	t.Helper()
 	dst := copyExampleProfile(t)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dst, "skills", chatDefaultSkill+".yaml"),
+	require.NoError(t, os.WriteFile(filepath.Join(dst, "playbooks", chatDefaultPlaybook+".yaml"),
 		[]byte("image: "+agentRuntimeImage+`
 system_prompt: Answer questions about the data warehouse.
 allowed_tools: [bash, read, write]
@@ -85,10 +85,10 @@ env:
 	path := filepath.Join(dst, "profile.yaml")
 	raw, err := os.ReadFile(path) //nolint:gosec // this test's own copy
 	require.NoError(t, err)
-	require.NotContains(t, string(raw), "chat_default_skill:",
+	require.NotContains(t, string(raw), "chat_default_playbook:",
 		"examples/agent/profile.yaml sets a chat default again; this copy would fight it")
 	require.NoError(t, os.WriteFile(path,
-		append(raw, []byte("chat_default_skill: "+chatDefaultSkill+"\n")...), 0o600))
+		append(raw, []byte("chat_default_playbook: "+chatDefaultPlaybook+"\n")...), 0o600))
 	return dst
 }
 
@@ -97,7 +97,7 @@ const (
 	createChatPath      = "/podium.agent.v1.AgentService/CreateChat"
 	listChatsPath       = "/podium.agent.v1.AgentService/ListChats"
 	sendChatMessagePath = "/podium.agent.v1.AgentService/SendChatMessage"
-	listSkillsPath      = "/podium.agent.v1.AgentService/ListSkills"
+	listPlaybooksPath   = "/podium.agent.v1.AgentService/ListPlaybooks"
 )
 
 // agentClientThrough builds the generated AgentService client pointed at podium-server,
@@ -230,19 +230,19 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	client := agentClientThrough(h, "somebody-else")
 	ctx := context.Background()
 
-	// The skill chip's source. chatProfileDir is what makes this profile's chat default the
-	// second skill rather than default_skill.
-	skills, err := client.ListSkills(ctx, connect.NewRequest(&agentv1.ListSkillsRequest{}))
+	// The playbook chip's source. chatProfileDir is what makes this profile's chat default the
+	// second playbook rather than default_playbook.
+	playbooks, err := client.ListPlaybooks(ctx, connect.NewRequest(&agentv1.ListPlaybooksRequest{}))
 	require.NoError(t, err)
-	require.NotEmpty(t, skills.Msg.GetSkills())
-	assert.Equal(t, "Podium", skills.Msg.GetProfileDisplayName())
+	require.NotEmpty(t, playbooks.Msg.GetPlaybooks())
+	assert.Equal(t, "Podium", playbooks.Msg.GetProfileDisplayName())
 	var chatDefault string
-	for _, s := range skills.Msg.GetSkills() {
+	for _, s := range playbooks.Msg.GetPlaybooks() {
 		if s.GetChatDefault() {
 			chatDefault = s.GetName()
 		}
 	}
-	assert.Equal(t, chatDefaultSkill, chatDefault, "profile.yaml: chat_default_skill")
+	assert.Equal(t, chatDefaultPlaybook, chatDefault, "profile.yaml: chat_default_playbook")
 
 	created, err := client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{
 		Title: "August numbers",
@@ -515,14 +515,14 @@ func TestTheChatIsBehindTheProxysIdentity(t *testing.T) {
 
 	code, body := agent.post(createChatPath, "", `{}`)
 	assert.Equal(t, http.StatusUnauthorized, code, body)
-	code, body = agent.post(listSkillsPath, "wrong-token", `{}`)
+	code, body = agent.post(listPlaybooksPath, "wrong-token", `{}`)
 	assert.Equal(t, http.StatusUnauthorized, code, body)
 
 	// Through the proxy the browser's own credential is the dev token, and the conductor
 	// never sees it.
-	code, _, body = connectCall(t, h.url(), listSkillsPath, `{}`, nil)
+	code, _, body = connectCall(t, h.url(), listPlaybooksPath, `{}`, nil)
 	assert.Equal(t, http.StatusOK, code, body)
-	assert.Contains(t, body, chatDefaultSkill)
+	assert.Contains(t, body, chatDefaultPlaybook)
 }
 
 // postAs is a POST against the conductor carrying both the server's bearer and the login

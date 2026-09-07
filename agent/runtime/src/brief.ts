@@ -4,6 +4,8 @@
 
 import { z } from "zod";
 
+import { MaxSkillNameLen, SkillNameRE } from "./skills.js";
+
 /** BriefEnv holds base64(JSON) of one turn brief on the task spec. */
 export const BriefEnv = "PODIUM_AGENT_TURN";
 
@@ -58,8 +60,18 @@ const repoSchema = z.strictObject({
   default_branch: z.string().min(1),
 });
 
-// TODO(step 17+): a skill may want its own MCP servers. That is a `mcp_servers` list on
-// `skill`, mirrored here and merged into the runtime's own memory server in main.ts.
+// One Agent Skill the turn may use. It carries a name and a digest and never the bytes: the
+// bundle rides in its own environment variable, exactly as a credential does. See skills.ts
+// for why, and internal/agent/conductor/brief.go for the other half of the contract.
+const skillRefSchema = z.strictObject({
+  name: z.string().regex(SkillNameRE, `must match ${SkillNameRE.source}`).max(MaxSkillNameLen),
+  // Hex, lower case, 64 characters: sha256 of the bundle document.
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be a hex sha256 digest"),
+  bundle_env: z.string().min(1),
+});
+
+// TODO(step 17+): a playbook may want its own MCP servers. That is a `mcp_servers` list on
+// `playbook`, mirrored here and merged into the runtime's own memory server in main.ts.
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -77,11 +89,15 @@ const briefSchema = z.strictObject({
     // Absent means the model's own default effort, which is the provider's choice.
     effort: z.enum(EffortLevels).optional(),
   }),
-  skill: z.strictObject({
+  playbook: z.strictObject({
     name: z.string().min(1),
     system_prompt: z.string(),
     allowed_tools: z.array(z.string()),
     max_turns: z.number().int().positive(),
+    // The Agent Skills this turn may use. Absent means none — and the harness is handed a
+    // permission map that denies every skill either way, so "no skills" is a decision
+    // this runtime states rather than one it leaves to a default.
+    skills: z.array(skillRefSchema).optional(),
   }),
   transcript: z.array(transcriptEntrySchema),
   transcript_truncated: z.boolean(),
@@ -114,6 +130,7 @@ const briefSchema = z.strictObject({
 export type TurnBrief = z.infer<typeof briefSchema>;
 export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 export type RepoRef = z.infer<typeof repoSchema>;
+export type SkillRef = z.infer<typeof skillRefSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
 export type ProviderRef = TurnBrief["provider"];
 

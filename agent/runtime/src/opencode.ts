@@ -25,7 +25,7 @@ export const AgentName = "podium";
 
 /**
  * MemoryServer is the MCP server memory arrives on. The name is what prefixes its tools, so
- * a skill's allow-list and the harness agree on what they are called.
+ * a playbook's allow-list and the harness agree on what they are called.
  */
 export const MemoryServer = "memory";
 
@@ -61,13 +61,36 @@ export interface Config {
   dir: string;
   /** systemPrompt is the operating contract, verbatim. */
   systemPrompt: string;
-  /** tools is the skill's allow-list, as harness tool names. */
+  /** tools is the playbook's allow-list, as harness tool names. */
   tools: string[];
   /** providerID and baseURL point the harness at one model API. */
   providerID: string;
   baseURL?: string;
   /** memory is the MCP server, when this host has one. */
   memory?: { url: string; apiKeyEnv: string };
+  /** skills is the Agent Skills this turn may use, by name. Everything else is denied. */
+  skills?: string[];
+}
+
+/**
+ * skillPermission is the harness's `permission.skill` map: a wildcard deny, then one allow
+ * per skill the playbook named.
+ *
+ * The order is load-bearing. The harness evaluates the LAST matching rule, so the broad
+ * rule has to come first — `{"pr-review": "allow", "*": "deny"}` denies pr-review. It is
+ * written even when the playbook named nothing, and that is the point: with everything
+ * denied the harness drops the `skill` tool from the agent altogether, so a turn with no
+ * skills cannot load one by any route, including the skills the harness ships with itself.
+ *
+ * `--auto` does not undo it: it auto-approves what is not *explicitly* denied, and `*`
+ * denies explicitly.
+ */
+export function skillPermission(names: string[]): Record<string, "allow" | "deny"> {
+  const out: Record<string, "allow" | "deny"> = { "*": "deny" };
+  for (const name of names) {
+    out[name] = "allow";
+  }
+  return out;
 }
 
 /**
@@ -79,7 +102,7 @@ export interface Config {
  *
  * The tool allow-list is expressed as explicit false for everything not named. An allow-list
  * that only says what is permitted would leave the harness's defaults in place for the rest,
- * which is the opposite of what a skill's `allowed_tools` means.
+ * which is the opposite of what a playbook's `allowed_tools` means.
  */
 export function writeConfig(cfg: Config): string {
   mkdirSync(cfg.dir, { recursive: true });
@@ -91,13 +114,14 @@ export function writeConfig(cfg: Config): string {
   }
   // A memory tool is named by its server prefix and cannot be listed in KnownTools, which is
   // a fixed set. It is enabled wholesale when this host has memory: the conductor decides
-  // whether a turn gets memory at all, and no skill may opt out of it.
+  // whether a turn gets memory at all, and no playbook may opt out of it.
   if (cfg.memory) {
     tools[`${MemoryServer}*`] = true;
   }
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
+    permission: { skill: skillPermission(cfg.skills ?? []) },
     agent: {
       [AgentName]: {
         description: "One Podium turn.",
@@ -127,12 +151,12 @@ export function writeConfig(cfg: Config): string {
 }
 
 /**
- * KnownTools is the harness's own tool vocabulary, and the set a skill's `allowed_tools` is
+ * KnownTools is the harness's own tool vocabulary, and the set a playbook's `allowed_tools` is
  * held to.
  *
- * It is spelled out rather than discovered because it is also the validator: a skill naming
- * a tool that is not here is a skill that would silently run without it, and finding that
- * out from a turn's behaviour is worse than finding it out when the skill is saved.
+ * It is spelled out rather than discovered because it is also the validator: a playbook naming
+ * a tool that is not here is a playbook that would silently run without it, and finding that
+ * out from a turn's behaviour is worse than finding it out when the playbook is saved.
  */
 export const KnownTools = [
   "bash",
@@ -196,7 +220,7 @@ export function start(opts: {
  *     ! agent "podium" not found. Falling back to default agent
  *
  * which is a warning on stderr and a turn that runs anyway, on the harness's own default
- * agent: no system prompt of ours, and no tool allow-list — the skill's `allowed_tools`
+ * agent: no system prompt of ours, and no tool allow-list — the playbook's `allowed_tools`
  * silently stops being a restriction.
  */
 export function invocation(opts: {

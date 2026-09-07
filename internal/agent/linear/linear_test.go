@@ -66,7 +66,7 @@ func newHarness(t *testing.T) *harness {
 		APIKey:       fakeAPIKey,
 		Endpoint:     h.stub.endpoint(),
 		PollInterval: 30 * time.Second,
-		Skill:        func() string { return "coder" },
+		Playbook:     func() string { return "coder" },
 		TaskURL:      func(id string) string { return "https://podium.example/tasks/" + id },
 		Clock:        h.clock.Now,
 		Session: func(_ context.Context, key string) (time.Time, bool) {
@@ -228,12 +228,12 @@ func TestAPollPageYieldsAnAssignmentAndAFollowUp(t *testing.T) {
 	assert.Equal(t, conductor.SourceLinear, assignment.BriefKind)
 	assert.Equal(t, "linear:issue-new", assignment.SourceKey)
 	assert.Equal(t, "issue-new/"+teamID+"/ENG-1", assignment.Ref)
-	assert.Equal(t, "coder", assignment.Skill, "the source names the skill; a ticket has no /prefix")
+	assert.Equal(t, "coder", assignment.Playbook, "the source names the playbook; a ticket has no /prefix")
 	assert.Equal(t, "https://linear.app/acme/issue/ENG-1", assignment.URL)
 	assert.Empty(t, assignment.Env, "a real source may never put environment on a task spec")
 	assert.Empty(t, assignment.Channel, "a ticket has no channel to route on")
 	// The identifier leads the text: the runtime's prompt renders the transcript and the
-	// instruction, never source.ref, and the coder skill is told to branch from it.
+	// instruction, never source.ref, and the coder playbook is told to branch from it.
 	assert.Equal(t, "ENG-1 — Add a button\n\nthe description of ENG-1", assignment.Text)
 
 	followup := events[1]
@@ -929,10 +929,10 @@ func TestSeveralAttachmentsShareOneComment(t *testing.T) {
 // construction
 // ---------------------------------------------------------------------------
 
-// TestASourceWithNoLinearSkillIsRefused is the other half of the zero-skill rule: the
-// profile loader allows a bot with no Linear skill, and this is where a Linear key with
+// TestASourceWithNoLinearPlaybookIsRefused is the other half of the zero-playbook rule: the
+// profile loader allows a bot with no Linear playbook, and this is where a Linear key with
 // nothing to run it in becomes an error naming both.
-func TestASourceWithNoLinearSkillIsRefused(t *testing.T) {
+func TestASourceWithNoLinearPlaybookIsRefused(t *testing.T) {
 	_, err := New(Options{
 		APIKey:       fakeAPIKey,
 		Endpoint:     DefaultLinearEndpointForTest,
