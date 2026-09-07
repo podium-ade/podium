@@ -11,6 +11,7 @@ const onSubmit = vi.fn();
 const onCancel = vi.fn();
 
 const REGISTERED = ["podium.agent.github_token", "podium.agent.warehouse_url"];
+const INSTALLED = ["pr-review", "release-notes"];
 
 function mount(props: Partial<Parameters<typeof PlaybookEditor>[0]> = {}) {
   onSubmit.mockReset();
@@ -21,6 +22,7 @@ function mount(props: Partial<Parameters<typeof PlaybookEditor>[0]> = {}) {
         agents={catalogue()}
         profileDefault={{ agent: "claude", model: "claude-opus-5", effort: "" }}
         secretNames={REGISTERED}
+        skillNames={INSTALLED}
         onSubmit={onSubmit}
         onCancel={onCancel}
         {...props}
@@ -58,15 +60,61 @@ describe("PlaybookEditor", () => {
       secrets: [
         { name: "podium.agent.warehouse_url", target: "env", key: "WAREHOUSE_URL" },
       ],
+      skills: [],
     });
+  });
+
+  // The gap Phase 2 left open: a playbook made in a browser had no way to name a skill, so
+  // the allow-list only existed in a file.
+  it("sends the skills allow-list, and nothing when none is named", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Write the weekly report.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read\nbash");
+    await userEvent.type(screen.getByLabelText("Agent Skills"), "pr-review\nrelease-notes");
+
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit.mock.calls[0][0].skills).toEqual(["pr-review", "release-notes"]);
+  });
+
+  it("offers the installed skill names and warns about one that is not there", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Agent Skills"), "pr-review\nnot-installed");
+
+    const options = Array.from(document.querySelectorAll("#podium-skill-names option")).map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    expect(options).toEqual(INSTALLED);
+    expect(screen.getByTestId("skill-missing")).toHaveTextContent("not-installed");
+    expect(screen.getByTestId("skill-missing")).toHaveTextContent("will fail");
+    // The one that is installed is not complained about.
+    expect(screen.getAllByTestId("skill-missing")).toHaveLength(1);
+  });
+
+  // Disabled is a third state, and it is not the same as absent: the skill is there and the
+  // turn still fails, so the warning has to say which of the two it is.
+  it("warns separately about a skill that is installed and disabled", async () => {
+    mount({ skillNames: INSTALLED, disabledSkillNames: ["release-notes"] });
+    await userEvent.type(screen.getByLabelText("Agent Skills"), "release-notes");
+
+    expect(screen.queryByTestId("skill-missing")).toBeNull();
+    expect(screen.getByTestId("skill-disabled")).toHaveTextContent("installed but disabled");
+  });
+
+  // A skill list that could not be read cannot be used to claim a name is wrong.
+  it("claims nothing about skills when the library could not be read", async () => {
+    mount({ skillNames: [], skillsUnknown: true });
+    await userEvent.type(screen.getByLabelText("Agent Skills"), "pr-review");
+    expect(screen.queryByTestId("skill-missing")).toBeNull();
   });
 
   it("offers the registered secret names and never a value", async () => {
     mount();
     await userEvent.click(screen.getByRole("button", { name: "Add a secret" }));
-    const options = Array.from(document.querySelectorAll("datalist option")).map(
-      (o) => (o as HTMLOptionElement).value,
-    );
+    const options = Array.from(
+      document.querySelectorAll("#podium-secret-names option"),
+    ).map((o) => (o as HTMLOptionElement).value);
     expect(options).toEqual(REGISTERED);
     // There is no read API for a secret, so nothing here can offer one.
     expect(screen.queryByLabelText(/secret value/i)).toBeNull();
