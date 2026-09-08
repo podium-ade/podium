@@ -140,22 +140,32 @@ delete secrets and delete nodes.
 
 `podium-agent` (see [`agent.md`](agent.md)) widens exposure and fixes nothing about the above.
 
-- **A HOST TURN HAS NO CONTAINER AROUND IT.** With `PODIUM_AGENT_HOST_RUNTIME` set, a web chat
+- **THE ASSISTANT HAS NO CONTAINER AROUND IT.** With `PODIUM_AGENT_HOST_RUNTIME` set, a web chat
   is answered by a model running as a child of `podium-agent` — as the user `podium-agent` runs
   as, on the machine holding the master key, the provider credential and the operator's own
   files. Everything in *3. A task container* above buys nothing there: no capability set, no
   seccomp profile, no read-only root, no private network, no memory limit. What stands in its
-  place is a much shorter list, and it is the whole of the fence:
+  place is a much shorter list, and it is the whole of it:
   `webfetch`/`todoread`/`todowrite` and no others — no shell, no filesystem tools and no
   repository to point one at; a `HOME` of its own so the runtime cannot write into the
   operator's harness configuration; and an environment built up from empty, so the Podium API
-  token and the agent database URL are not in a model's reach. A host turn's job is to talk and
-  to delegate; the work happens in a container.
+  token and the agent database URL are not in a model's reach. The assistant's job is to talk
+  and to delegate; the work happens in a container.
+
+  That tool list is **not a playbook's list with things removed**, and no document can widen it:
+  the assistant is not built from a playbook, so there is no `allowed_tools:` anywhere that
+  reaches it. `profile.yaml` decides its prompt, its model, its step cap and its Agent Skills.
+  `skills:` is the one of those worth reading as a privilege: the bundle is unpacked into the
+  assistant's `HOME` **on this machine**, and its instructions become part of what the model is
+  told. With no shell in the tool list it cannot run a script the skill ships — but it is still
+  somebody else's content, written to the conductor's host and steering a model that can
+  delegate. That is why `skills:` and `max_turns:` are file-only and cannot be set from a
+  browser: they belong in a repository, beside a review.
   **Leave `PODIUM_AGENT_HOST_RUNTIME` unset if that trade is not one you want**, and every turn
   is a task as before.
 - **A turn's delegation authority is scoped and short-lived, and it is not the operator's.**
   `TurnService` is a separate service on the conductor's loopback listener, authenticated by a
-  token the conductor mints per host turn — bound to that turn's conversation and to the exact
+  token the conductor mints per assistant turn — bound to that turn's conversation and to the exact
   playbook menu its brief listed, revoked when the turn ends, and never reachable from outside
   the host because `podium-server` proxies `/podium.agent.v1.AgentService/` and nothing else. A
   turn cannot read a session it is not in, cannot reach a playbook it was not offered, and
@@ -783,13 +793,14 @@ Everything below is a real hole, not a hypothetical:
 - **`/metrics` and `/healthz` are unauthenticated** on all three daemons.
 - **Anyone who can tag the bot, or assign it a Linear ticket, can run code on a worker.** The
   conductor has no allowlist and no roles. See *5. The conductor and the bot*.
-- **A host turn runs a model on the conductor's own machine with no container around it.** Its
-  fence is a three-tool allow-list, a `HOME` of its own and an environment built from empty —
-  not a sandbox. Unset `PODIUM_AGENT_HOST_RUNTIME` to keep every turn in a container.
-- **A host turn's model credential is in the conductor's database and in that turn's
+- **The assistant runs a model on the conductor's own machine with no container around it.**
+  What stands in for a sandbox is a three-tool allow-list, a `HOME` of its own and an
+  environment built from empty. Unset `PODIUM_AGENT_HOST_RUNTIME` to keep every turn in a
+  container.
+- **The assistant's model credential is in the conductor's database and in that turn's
   environment**, because the secret store has no read path and a turn running here has no node
   to resolve one for it.
-- **Nothing caps how many host turns run at once.** Every open chat that is answering is another
+- **Nothing caps how many assistant turns run at once.** Every open chat that is answering is another
   `node` and another `opencode` process on the conductor's machine, with no queue and no limit.
 - **Anyone who can reach the control plane can run code with any registered secret**, through a
   task spec or through a playbook: `CreateTask` checks that a named secret exists and never that
