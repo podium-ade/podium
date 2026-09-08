@@ -1609,9 +1609,23 @@ can sit like that for weeks. The usual cause is a model key the provider rejects
 
 So the conductor asks. Every five minutes it reads the engine's failed operations and reports
 them on `podium_agent_memory_extraction_failed`, a gauge of how many accepted retains produced
-nothing. **Anything above zero is memories being lost silently.** Each one is also a `WARN`
-naming its `document_id` — the turn id, so a lost memory traces back to the conversation that
-produced it — and the engine's own error text, which names the cause.
+nothing **since the last look**. Anything above zero is memories being lost silently, right
+now. Each one is also a `WARN` naming its `document_id` — the turn id, so a lost memory traces
+back to the conversation that produced it — and the engine's own error text, which names the
+cause.
+
+The window is what makes that sentence true. `status=failed` has no time bound of its own, so
+without one a single retain that failed on a Tuesday was re-warned every five minutes for ever
+and held the gauge above zero: an install that broke once and recovered read exactly like one
+that is broken now. A first pass measures from one interval back rather than from the beginning
+of time, so restarting the conductor does not replay failures somebody has already fixed. Two
+consequences worth knowing:
+
+- **A failure with no `updated_at` counts as new.** The check exists to catch silent loss, so an
+  engine that stops sending the field has to make it noisy rather than blind.
+- **A broken engine goes quiet while nothing is being retained**, because nothing new is
+  failing. That is honest — no memory is being lost while none is being made — and the first
+  retain after that fails and warns immediately.
 
 The gauge is deliberately not the same signal as a memory outage: if the check itself cannot
 reach the engine, that is a `WARN` and `/readyz`, and the gauge is left alone. An unreachable

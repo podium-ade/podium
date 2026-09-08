@@ -115,6 +115,10 @@ type Conductor struct {
 	memory   *BriefMemory
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
+	// lastExtractionCheck is when the extraction watcher last looked, and what makes a
+	// failure NEWS rather than history. Touched only by that one goroutine, so it needs no
+	// lock; see reconcile.go for why the window exists at all.
+	lastExtractionCheck time.Time
 	// xaiBaseURL is the endpoint a Grok turn's brief names.
 	xaiBaseURL string
 	// skillsDir is where a turn's Agent Skills are read from.
