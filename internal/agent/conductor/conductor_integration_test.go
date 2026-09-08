@@ -313,12 +313,14 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	// The reactions are 👀 then ✅, on the triggering message, and nothing else.
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionDone)}, reactions(records))
 
-	// The placeholder goes up before any work starts, and the progress replaces it by an
-	// edit rather than a second message.
+	// The placeholder goes up before anything else — it is the acknowledgement a human is
+	// waiting for, and a source's write path is rate limited, so every call ahead of it is
+	// a second of silence. The reaction follows, and the progress replaces the placeholder
+	// by an edit rather than a second message.
 	require.NotEmpty(t, records)
-	assert.Equal(t, fakesource.ActionReact, records[0].Action, "the reaction comes first")
-	assert.Equal(t, fakesource.ActionPost, records[1].Action)
-	assert.Equal(t, conductor.Placeholder, records[1].Text)
+	assert.Equal(t, fakesource.ActionPost, records[0].Action, "the placeholder comes first")
+	assert.Equal(t, conductor.Placeholder, records[0].Text)
+	assert.Equal(t, fakesource.ActionReact, records[1].Action)
 
 	var edits []fakesource.Record
 	for _, rec := range records {
@@ -327,7 +329,7 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 		}
 	}
 	require.Len(t, edits, 1, "one progress message is one edit")
-	assert.Equal(t, records[1].MessageID, edits[0].MessageID, "the edit addresses the placeholder")
+	assert.Equal(t, records[0].MessageID, edits[0].MessageID, "the edit addresses the placeholder")
 	assert.Equal(t, "⏳ reading the handler", edits[0].Text)
 
 	// The answer is posted verbatim.

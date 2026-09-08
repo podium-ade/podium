@@ -37,10 +37,18 @@ const repliesPageLimit = 200
 // turns; a few minutes is far longer than the gap between the two deliveries.
 const dedupeTTL = 5 * time.Minute
 
-// callRate is the ceiling on Web API calls from one source instance. Slack's own limits are
-// per method and mostly one per second, so one limiter across everything is the simple
-// version of "do not get rate limited".
-const callRate = 1
+// writeRate is the ceiling on calls that CHANGE the conversation: posting, editing,
+// reacting and uploading. chat.postMessage is Slack's special-tier method at roughly one
+// per second per channel, and it is the one this bot leans on hardest, so the write path
+// stays at one per second.
+const writeRate = 1
+
+// readRate is the ceiling on calls that only READ: conversations.replies and users.info.
+// Slack's tiers put both far above the write path — an internal app reads a thread at 50+
+// requests a minute — and one limiter across everything made a turn's transcript fetch and
+// its author lookups queue behind the placeholder for a second each. Well under the tier,
+// because the point is to stop reads waiting on writes, not to run at the ceiling.
+const readRate = 10
 
 // The reaction names the three turn states show as.
 const (
@@ -60,6 +68,12 @@ type Options struct {
 	// the source knows which threads those are without owning any state of its own.
 	KnownSession func(ctx context.Context, sourceKey string) bool
 	Logger       *slog.Logger
+
+	// apiURL points the Web API at somewhere other than Slack. It is unexported because
+	// the only caller that has any business setting it is this package's own test: every
+	// method below that talks to Slack was, until it existed, covered by nothing at all.
+	// Must end in a slash — the library concatenates the method name onto it.
+	apiURL string
 }
 
 // Source is the Slack integration.
@@ -68,7 +82,10 @@ type Source struct {
 	sm     *socketmode.Client
 	logger *slog.Logger
 	events chan conductor.InboundEvent
-	limit  *rate.Limiter
+	// writes and reads are separate because Slack's limits are per method and the two
+	// paths are an order of magnitude apart. See writeRate and readRate.
+	writes *rate.Limiter
+	reads  *rate.Limiter
 	known  func(ctx context.Context, sourceKey string) bool
 
 	// botUserID and botID identify the bot's own messages, so they are never relayed back
@@ -97,7 +114,11 @@ func New(opts Options) (*Source, error) {
 		logger = slog.Default()
 	}
 	// OptionAppLevelToken lives in the main slack package, not socketmode.
-	api := slack.New(opts.BotToken, slack.OptionAppLevelToken(opts.AppToken))
+	options := []slack.Option{slack.OptionAppLevelToken(opts.AppToken)}
+	if opts.apiURL != "" {
+		options = append(options, slack.OptionAPIURL(opts.apiURL))
+	}
+	api := slack.New(opts.BotToken, options...)
 	known := opts.KnownSession
 	if known == nil {
 		known = func(context.Context, string) bool { return false }
@@ -107,7 +128,8 @@ func New(opts Options) (*Source, error) {
 		sm:     socketmode.New(api),
 		logger: logger,
 		events: make(chan conductor.InboundEvent, 32),
-		limit:  rate.NewLimiter(callRate, 1),
+		writes: rate.NewLimiter(writeRate, 1),
+		reads:  rate.NewLimiter(readRate, 1),
 		known:  known,
 		users:  map[string]string{},
 		seen:   map[string]time.Time{},
@@ -284,7 +306,7 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 			Limit:     repliesPageLimit,
 			Inclusive: true,
 		}
-		msgs, hasMore, next, err := s.call2(ctx, func() ([]slack.Message, bool, string, error) {
+		msgs, hasMore, next, err := s.readPage(ctx, func() ([]slack.Message, bool, string, error) {
 			return s.api.GetConversationRepliesContext(ctx, params)
 		})
 		if err != nil {
@@ -345,7 +367,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	}
 	first := ""
 	for _, part := range Split(out.Text, MaxMessageChars) {
-		ts, err := s.call1(ctx, func() (string, error) {
+		ts, err := s.write(ctx, func() (string, error) {
 			_, ts, err := s.api.PostMessageContext(ctx, channel,
 				slack.MsgOptionTS(thread), slack.MsgOptionText(part, false))
 			return ts, err
@@ -374,7 +396,7 @@ func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outb
 	if parts := Split(text, MaxMessageChars); len(parts) > 0 {
 		text = parts[0]
 	}
-	_, err = s.call1(ctx, func() (string, error) {
+	_, err = s.write(ctx, func() (string, error) {
 		_, ts, _, err := s.api.UpdateMessageContext(ctx, channel, msgID, slack.MsgOptionText(text, false))
 		return ts, err
 	})
@@ -402,7 +424,7 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 	case file.Body == nil:
 		return fmt.Errorf("slack: attachment %q has no body", file.Name)
 	}
-	_, err = s.call1(ctx, func() (string, error) {
+	_, err = s.write(ctx, func() (string, error) {
 		// Blocks is deliberately unset: the library drops it whenever InitialComment is
 		// non-empty, and a comment is what a human reads.
 		summary, err := s.api.UploadFileContext(ctx, slack.UploadFileParameters{
@@ -424,9 +446,16 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 	return nil
 }
 
-// React shows a turn's state on the message that started it. The new reaction replaces the
-// old one — removed, then added — so a thread shows one state rather than a history of
-// them. "Already reacted" and "no reaction" are both fine outcomes and not errors.
+// React shows a turn's state on the message that started it, so a thread shows one state
+// rather than a history of them. "Already reacted" and "no reaction" are both fine
+// outcomes and not errors.
+//
+// Only 👀 is ever removed, and only by the outcome that replaces it. A turn's reactions go
+// on the message that TRIGGERED it — a message a human has just sent, which is a different
+// message every turn — so nothing of this bot's can already be on it, and the state machine
+// is only ever working → done | failed. Removing the two emoji it was not setting on every
+// call meant three requests a turn that Slack answered "no_reaction" to, two of them ahead
+// of the placeholder, where somebody is waiting to see that they were heard.
 func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction) error {
 	channel, _, trigger, err := ParseRef(ref)
 	if err != nil {
@@ -434,25 +463,25 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	}
 	item := slack.NewRefToMessage(channel, trigger)
 	var add string
-	var remove []string
 	switch kind {
 	case conductor.ReactionWorking:
-		add, remove = emojiWorking, []string{emojiDone, emojiFailed}
+		add = emojiWorking
 	case conductor.ReactionDone:
-		add, remove = emojiDone, []string{emojiWorking, emojiFailed}
+		add = emojiDone
 	case conductor.ReactionFailed:
-		add, remove = emojiFailed, []string{emojiWorking, emojiDone}
+		add = emojiFailed
 	default:
 		return fmt.Errorf("slack: %q is not a reaction", kind)
 	}
-	for _, name := range remove {
-		if _, err := s.call1(ctx, func() (string, error) {
-			return "", s.api.RemoveReactionContext(ctx, name, item)
+	if kind != conductor.ReactionWorking {
+		if _, err := s.write(ctx, func() (string, error) {
+			return "", s.api.RemoveReactionContext(ctx, emojiWorking, item)
 		}); err != nil && !isBenignReactionError(err) {
-			s.logger.DebugContext(ctx, "removing a reaction failed", "emoji", name, "error", err)
+			s.logger.DebugContext(ctx, "removing the working reaction failed",
+				"emoji", emojiWorking, "error", err)
 		}
 	}
-	if _, err := s.call1(ctx, func() (string, error) {
+	if _, err := s.write(ctx, func() (string, error) {
 		return "", s.api.AddReactionContext(ctx, add, item)
 	}); err != nil && !isBenignReactionError(err) {
 		return fmt.Errorf("slack: react %s on %s: %w", add, trigger, err)
@@ -481,7 +510,7 @@ func (s *Source) displayName(ctx context.Context, user string) string {
 	if ok {
 		return name
 	}
-	info, err := s.call(ctx, func() (*slack.User, error) { return s.api.GetUserInfoContext(ctx, user) })
+	info, err := s.readUser(ctx, func() (*slack.User, error) { return s.api.GetUserInfoContext(ctx, user) })
 	if err != nil {
 		s.logger.DebugContext(ctx, "resolving a slack display name failed", "user", user, "error", err)
 		return user
@@ -619,16 +648,20 @@ func call[T any](ctx context.Context, limit *rate.Limiter, fn func() (T, error))
 	}
 }
 
-func (s *Source) call(ctx context.Context, fn func() (*slack.User, error)) (*slack.User, error) {
-	return call(ctx, s.limit, fn)
+// write is call on the write limiter: everything that changes the conversation. The three
+// helpers are named for the limiter they use and not for their arity, because which
+// limiter a call belongs on is the only thing about them worth knowing at the call site.
+func (s *Source) write(ctx context.Context, fn func() (string, error)) (string, error) {
+	return call(ctx, s.writes, fn)
 }
 
-func (s *Source) call1(ctx context.Context, fn func() (string, error)) (string, error) {
-	return call(ctx, s.limit, fn)
+// readUser is call on the read limiter, for users.info.
+func (s *Source) readUser(ctx context.Context, fn func() (*slack.User, error)) (*slack.User, error) {
+	return call(ctx, s.reads, fn)
 }
 
-// call2 is call for the one method that returns four values.
-func (s *Source) call2(
+// readPage is call on the read limiter, for the one method that returns four values.
+func (s *Source) readPage(
 	ctx context.Context, fn func() ([]slack.Message, bool, string, error),
 ) ([]slack.Message, bool, string, error) {
 	type page struct {
@@ -636,7 +669,7 @@ func (s *Source) call2(
 		more   bool
 		cursor string
 	}
-	p, err := call(ctx, s.limit, func() (page, error) {
+	p, err := call(ctx, s.reads, func() (page, error) {
 		msgs, more, cursor, err := fn()
 		return page{msgs: msgs, more: more, cursor: cursor}, err
 	})

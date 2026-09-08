@@ -1126,8 +1126,11 @@ Then, in a channel the bot is in:
 @Podium what does this repo do?
 ```
 
-👀 appears on your message, a `👀 working…` reply appears in a thread, it turns into `⏳ …` as the
-agent works, the answer replaces it, and 👀 becomes ✅.
+A `👀 working…` reply appears in a thread, 👀 appears on your message, the reply turns into
+`⏳ …` as the agent works, the answer replaces it, and 👀 becomes ✅.
+
+The reply is deliberately first: it is the acknowledgement you are waiting for, and the write
+path is rate limited, so anything sent ahead of it is a second of silence.
 
 ### What the bot listens to
 
@@ -1146,8 +1149,32 @@ Slack delivers a channel mention twice — once as `app_mention`, once as `messa
 Text is posted as **plain text**. `mrkdwn` conversion and Block Kit are out of scope, so the
 model's Markdown arrives as the model wrote it.
 
-Web API calls go through one limiter at 1/s per conductor, and a 429's `Retry-After` is honoured
-once before the call fails.
+### Rate limits
+
+Web API calls go through **two** limiters per conductor, because Slack's limits are per method
+and the two paths are an order of magnitude apart:
+
+- **Writes** — posting, editing, reacting, uploading — at 1/s. `chat.postMessage` is Slack's
+  special-tier method at roughly one per second per channel, and it is the one the bot leans on
+  hardest.
+- **Reads** — `conversations.replies` and `users.info` — at 10/s, well under their tier. They
+  have their own limiter so that a turn's transcript fetch and its author lookups do not queue
+  behind the placeholder.
+
+A 429's `Retry-After` is honoured once before the call fails.
+
+**Why the read limit can be that high, and the one thing that would change it.** In May 2025
+Slack cut `conversations.history` and `conversations.replies` to **1 request per minute,
+returning at most 15 objects**, for apps distributed outside the Marketplace — new installs
+from 29 May 2025 and everything else from 2 September 2025. **Internal customer-built apps keep
+the old limits** (1,000 messages per request, 50+ requests per minute), and the app you create
+from `deploy/slack-app-manifest.yaml` in your own workspace is one of those.
+
+This is load-bearing and easy to lose by accident. A turn re-reads its whole thread through
+`conversations.replies`, so under the reduced limit a long thread would page at one request a
+minute and `repliesPageLimit` (200) would silently become 15. Podium ships a *manifest*, never
+an installable app, precisely so that every operator creates their own internal app and nobody
+is running a distributed one. **Do not turn distribution on** for the app this manifest makes.
 
 ---
 
