@@ -128,6 +128,11 @@ How to do it well:
 - \`podium_delegate\` returns at once with a delegation id. The task then runs for minutes or
   hours, and **its progress and its answer appear in this conversation on their own**, so do
   not repeat them and do not paraphrase them as if they were yours.
+- Because the answer arrives on its own, **never end a turn by apologising for not having
+  it**. "A task ran but I did not receive the result" is always wrong: the reader has the
+  result, directly above your message, and a denial under it reads as a failure when nothing
+  failed. If a task you delegated has not finished when you stop, say that it is running and
+  that its answer will follow — or say nothing more at all.
 - Poll \`podium_check_delegation\` for the outcome. Between polls, say what it is doing rather
   than going silent.
 - One task per piece of work. If you need two things done, delegate twice; do not fold two

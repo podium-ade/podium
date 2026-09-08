@@ -49,6 +49,13 @@ const (
 	hostRunnerPathEnv = "PODIUM_RUNNER_PATH"
 )
 
+// ErrCredentialStale means a provider has a credential stored but not in a form a host turn
+// can spend. It is exported because the function that reads credentials lives in the api
+// package, on the other side of HostRuntime.Credential, and the two answers need telling
+// apart: nothing stored is an operator who has not finished setting up, and this is one who
+// has and now has to save it again.
+var ErrCredentialStale = errors.New("the stored credential predates host turns and cannot be read back")
+
 // hostKindMessage is the one runner event kind a host turn reads. The others describe a
 // container it does not have.
 const hostKindMessage = "message"
@@ -89,6 +96,14 @@ const (
 	hostFailedToStart = "Something went wrong on my side and I could not run this. An operator should check the logs."
 	hostNoCredential  = "I have no model credential to answer with. An operator needs to set one on the Settings tab."
 	hostSaidNothing   = "I ran this and it ended without saying anything at all. An operator should check the logs."
+	// hostCredentialStale is the case worth telling apart from hostNoCredential: a
+	// credential IS set, so "set one" sends an operator to look at a screen that already
+	// says Connected. It happens to every credential stored before host turns existed —
+	// those live only in Podium's secret store, which has no read endpoint, and a turn
+	// running in this process has no node to resolve one for it. Saving it again writes
+	// the copy this process can spend.
+	hostCredentialStale = "The stored credential predates turns running on this host, so I cannot spend it. " +
+		"An operator needs to save it again on the Settings tab. The value has not changed and only has to be re-entered."
 )
 
 // HostRuntime is what the conductor needs to run a turn itself. Nil in Options means every
@@ -220,7 +235,11 @@ func (h *hostRun) run(ctx context.Context) {
 		// business and not the chat's.
 		c.logger.ErrorContext(ctx, "a host turn has no credential to spend",
 			"turn_id", r.turn.ID, "provider", h.provider.ID, "error", err)
-		h.giveUp(ctx, hostNoCredential)
+		said := hostNoCredential
+		if errors.Is(err, ErrCredentialStale) {
+			said = hostCredentialStale
+		}
+		h.giveUp(ctx, said)
 		return
 	}
 

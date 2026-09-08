@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
@@ -680,17 +681,29 @@ func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (provide
 	return row, true, nil
 }
 
-// HostCredential is the bearer a host turn spends for one provider, or "" when this
-// conductor has none stored for it. It is the same credential the provider's Podium secret
-// holds, which is what makes a host turn and a container turn spend the same thing.
+// HostCredential is the bearer a host turn spends for one provider. It is the same
+// credential the provider's Podium secret holds, which is what makes a host turn and a
+// container turn spend the same thing.
+//
+// The two ways of having nothing are told apart, because they need different actions from an
+// operator. No row at all is somebody who has not set a credential. A row with no readable
+// copy is somebody who HAS — every credential stored before host turns existed is like that,
+// since the secret store it went into has no read endpoint — and the fix is to save it again
+// rather than to go looking for a screen that already says Connected.
 func (s *AgentService) HostCredential(ctx context.Context, provider string) (string, error) {
 	p, err := findProvider(provider)
 	if err != nil {
 		return "", err
 	}
 	row, ok, err := s.providerRow(ctx, p)
-	if err != nil || !ok {
+	if err != nil {
 		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("no credential is stored for %s", p.name)
+	}
+	if row.Credential == "" {
+		return "", fmt.Errorf("%s: %w", p.name, conductor.ErrCredentialStale)
 	}
 	return row.Credential, nil
 }
