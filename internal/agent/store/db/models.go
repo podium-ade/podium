@@ -64,6 +64,12 @@ type Delegation struct {
 	FinalText   *string
 	CreatedAt   time.Time
 	FinishedAt  *time.Time
+	NumTurns    *int32
+	CostUsd     *float64
+	Agent       *string
+	Model       *string
+	Effort      *string
+	Provider    *string
 }
 
 type LinearCursor struct {
