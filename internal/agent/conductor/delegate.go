@@ -254,15 +254,20 @@ func (c *Conductor) startDelegatedTask(
 		BriefKind:  SourceChat,
 		Playbook:   playbook.Name,
 	}
+	// The playbook's own backend, model and effort. A delegated task carries no override:
+	// the turn that asked for it may itself be running on a model somebody picked in the
+	// chat, and that choice is about the conversation, not about how a container should
+	// build and test.
+	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	brief := c.brief(sess, playbook, dlg.ID, ev, entries, bundles)
+	brief := c.brief(sess, playbook, dlg.ID, ev, entries, bundles, choice)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
-	task, err := c.podium.CreateTask(ctx, c.taskSpec(g.src, playbook, encoded, ev, bundles))
+	task, err := c.podium.CreateTask(ctx, c.taskSpec(g.src, playbook, encoded, ev, bundles, choice))
 	if err != nil {
 		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}

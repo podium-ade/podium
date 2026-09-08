@@ -126,6 +126,73 @@ posts the failure line as well. The human should know something was cut short.
 `retry_on_node_loss` is deliberately **false** for every turn: a turn may already have posted an
 answer, and running it again would say it twice. A lost node is surfaced to the human instead.
 
+### A host turn, and delegation
+
+A turn of a **web chat** does not run in a container at all when the conductor has a host
+runtime (`PODIUM_AGENT_HOST_RUNTIME`, `PODIUM_AGENT_RUNNER_BIN`). It runs the same
+`agent/runtime` build, with the same brief, as a child of `podium-agent`:
+
+```
+somebody types something in a chat
+  ↓  brief                                    the same document, plus runs_on: host and delegation
+  ↓  fork                                     node dist/main.js, in a jail, environment built from EMPTY
+  ↓  <jail>/events.sock                       podium-runner dials the conductor, not a node
+  ↓  chat post/edit                           progress and the answer, as they arrive
+  ↓  FinishTurn                                the turn row has NO task_id
+```
+
+Why: a chat message is one exchange in a conversation, and a container per message pays an
+image pull, a clone and a cold start before the first word.
+
+What it gives up is the container, and everything else about a host turn follows from that.
+It runs as the user `podium-agent` runs as, on the machine that holds the master key and the
+provider credential, so it is given:
+
+- **`webfetch`, `todoread`, `todowrite` and nothing else.** No shell, and no filesystem tools:
+  a host turn clones nothing, so `read` has no legitimate target and every path it could reach
+  belongs to somebody else.
+- **A `HOME` of its own**, because the runtime installs a playbook's Agent Skills under
+  `$HOME/.config/opencode/skills` and the operator's own harness configuration lives there.
+- **An environment built from empty.** Inheriting the conductor's would hand a model
+  `PODIUM_API_TOKEN` and the agent database URL.
+- **A prompt that says so.** `runs_on: host` in the brief is what stops the runtime telling a
+  model it has a disposable container, a workspace, and files that will be collected — none of
+  which is true, and all of which sends it looking for things that are not there.
+
+So a host turn can hold a conversation and nothing else. **Everything else it delegates**, and
+that is what the tool list is traded for:
+
+```
+opencode                     the model asks for podium_delegate
+  ↓  MCP over stdio          dist/mcp.js, a second entrypoint of the same runtime
+  ↓  Delegate RPC            127.0.0.1:8090, the turn's own token in X-Podium-Turn
+  ↓  CreateTask              an ORDINARY task: the playbook's image, tools, secrets, repos
+  ↓  StreamTaskEvents        its progress and its answer go into the SAME chat
+  ↓  FinishDelegation        the delegations row records how it ended
+```
+
+The rules that matter:
+
+- **The conversation owns the task, not the turn.** A turn is one exchange and a delegated task
+  can run for hours. The `delegations` row survives the conductor dying, the recovery pass
+  resumes every delegation still running, and the answer is posted into the chat whether or not
+  the turn that asked is still there to summarise it. Deleting the chat ends the work it owns.
+- **A turn's authority is its own.** The conductor mints a token per host turn, scoped to that
+  turn's conversation and to the exact playbook menu its brief listed, and revokes it when the
+  turn ends. It is not the operator bearer: `TurnService` is a separate service on the same
+  loopback listener, and `podium-server` proxies `/podium.agent.v1.AgentService/` and nothing
+  else, so nothing outside this host can reach it.
+- **The menu is the allow-list.** Every playbook in the profile is delegable, the conversation's
+  own included — running it as a task is a container with a repository and a shell, which is the
+  whole point. A name that is not on the menu is refused rather than resolved.
+- **A delegated task cannot delegate.** Only a host turn's brief carries a `delegation` block.
+- **A turn does not wait.** `podium_delegate` returns a delegation id;
+  `podium_check_delegation` is polled. Nothing blocks for hours, and the human watches the
+  container work in the chat rather than staring at a silent poll loop.
+
+Slack and Linear turns are unaffected: they keep running as tasks. Their playbooks are the ones
+that want a repository and a Docker daemon, and neither surface is somebody watching a cursor.
+
 ### Cancelling a turn
 
 From the CLI: `podium task cancel TASK_ID`. There is no reaction-to-cancel. The conductor sees
@@ -154,6 +221,10 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
 | `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
+| `PODIUM_AGENT_HOST_RUNTIME` | for host turns | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and a web chat is answered in this process instead of a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: a host turn has no container around it |
+| `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. A host turn has no node to bind-mount one in, and it is how the runtime says anything at all |
+| `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
+| `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where a host turn's own `HOME`, working directory and event socket are made |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -1571,10 +1642,15 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   `profile.yaml: chat_default_playbook` (falling back to `default_playbook`). Typing `/<playbook> …` works
   too — it moves the chip in the browser, and on the wire a typed `/playbook` beats the chat
   default even when the chip is left unset, as an API client leaves it. The chip itself still
-  wins over a prefix: it is the last thing the human touched. A conversation keeps the playbook it
-  started with — the same one-session-one-playbook rule as a Slack thread — so the chip is locked
-  after the first message, and switching it later is refused with a sentence saying to start a
-  new chat. `Chat.playbook` is that name, empty until the first message.
+  wins over a prefix: it is the last thing the human touched. A chat is **not** pinned to one
+  playbook: the chip may be moved at any point and every message runs what it says. That rule
+  existed while a chat message WAS one playbook's task; a conversation now runs an agent that
+  delegates work to whichever playbooks it needs, as many times as it needs, so pinning the
+  window to one of them restricted nothing and forced a new chat for every change of subject. A
+  Slack thread and a Linear issue are still pinned, because one of those really is one piece of
+  work. `Chat.playbook` is the playbook of the chat's LATEST message, empty until the first one;
+  only an explicit pick moves it, so a source's default never fights what a conversation is
+  running.
 - **A chat carries the pull requests its work produced.** They are a bar above the transcript,
   rendered as `owner/repo#number` and linked, so getting to the work does not mean reading the
   conversation back. A turn that opens one says so in its answer, and the conductor links what
