@@ -30,6 +30,10 @@ var notConfiguration = map[string]string{
 	"PODIUM_LEASE_ID":    "set by the node inside the task container",
 	"PODIUM_WORKDIR":     "set by the node inside the task container",
 	"PODIUM_EVENTS_SOCK": "set by the node inside the task container",
+	// The conductor sets it on a HOST turn's runtime, which has no node to bind-mount a
+	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
+	// this is the name the runtime reads it under.
+	"PODIUM_RUNNER_PATH": "set by the conductor on a host turn's runtime",
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",

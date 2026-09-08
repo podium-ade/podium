@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MaxMessageBytes, emitMessage, messageArgv, splitMessage, type RunnerInvoke } from "./emit.js";
+import {
+  MaxMessageBytes,
+  RunnerPath,
+  defaultRunnerPath,
+  emitMessage,
+  messageArgv,
+  splitMessage,
+  type RunnerInvoke,
+} from "./emit.js";
 
 /** recorder is the mock: no child process and no socket is touched in a unit test. */
 function recorder(): { calls: { argv: string[]; text: string }[]; invoke: RunnerInvoke } {
@@ -128,5 +136,18 @@ describe("splitMessage", () => {
     const text = "é".repeat(MaxMessageBytes / 2 + 1);
     expect(text.length).toBeLessThan(MaxMessageBytes);
     expect(splitMessage(text).length).toBeGreaterThan(1);
+  });
+});
+
+describe("defaultRunnerPath", () => {
+  it("is the node's bind mount when nothing overrides it", () => {
+    expect(defaultRunnerPath({})).toBe(RunnerPath);
+    expect(defaultRunnerPath({ PODIUM_RUNNER_PATH: "" })).toBe(RunnerPath);
+  });
+
+  it("is the override when a host turn names one", () => {
+    expect(defaultRunnerPath({ PODIUM_RUNNER_PATH: "/opt/podium/bin/podium-runner" })).toBe(
+      "/opt/podium/bin/podium-runner",
+    );
   });
 });

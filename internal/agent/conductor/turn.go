@@ -254,11 +254,19 @@ func (r *turnRun) relay(ctx context.Context, e *podiumv1.TaskEvent) {
 	if msg == nil {
 		return
 	}
-	r.c.metrics.RelayedMessages.WithLabelValues(msg.GetType()).Inc()
+	r.deliver(ctx, msg.GetType(), msg.GetText(), msg.GetAttachments())
+}
 
-	if msg.GetType() != OutFinal {
+// deliver says one message. It is the half of the relay that does not care where the
+// message came from: a task's event stream (relay) or the socket of a turn running on this
+// host (host.go). Everything about progress throttling, joining an answer split over 32 KiB
+// and remembering what it asked to attach lives here, once.
+func (r *turnRun) deliver(ctx context.Context, msgType, text string, attachments []string) {
+	r.c.metrics.RelayedMessages.WithLabelValues(msgType).Inc()
+
+	if msgType != OutFinal {
 		// Anything that is not a final is progress, whatever it called itself.
-		r.heldProgress = msg.GetText()
+		r.heldProgress = text
 		r.haveHeld = true
 		r.maybeEdit(ctx)
 		return
@@ -266,9 +274,8 @@ func (r *turnRun) relay(ctx context.Context, e *podiumv1.TaskEvent) {
 	// A held progress edit is flushed before the answer lands, so the thread never shows
 	// a stale "working on it" above the final.
 	r.flushProgress(ctx)
-	text := msg.GetText()
 	r.finals = append(r.finals, text)
-	for _, name := range msg.GetAttachments() {
+	for _, name := range attachments {
 		if !slices.Contains(r.attachments, name) {
 			r.attachments = append(r.attachments, name)
 		}

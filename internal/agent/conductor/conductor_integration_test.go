@@ -44,6 +44,13 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// Before anything else, and before a container is started: with this set the process is
+	// not a test run at all but the runtime of a host turn. See host_integration_test.go.
+	if os.Getenv(hostFakeEnv) != "" {
+		hostFakeRuntime()
+		return
+	}
+
 	ctx := context.Background()
 	ctr, err := postgres.Run(ctx, postgresImage,
 		postgres.WithDatabase("podium_agent"),
