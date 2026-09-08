@@ -524,6 +524,11 @@ echo "forked all 80"`
 // memory hog under a small cap must be reported as an OOM kill, not a generic non-zero
 // exit. `tail /dev/zero` is the classic; python:3-alpine, which the step file suggests,
 // is not on this engine and may not be pulled.
+//
+// This used to fail on CI perhaps one run in twenty, with exit code 137 and the engine's
+// State.OOMKilled false — the flag is racy and on cgroup v2 it can be lost outright. The
+// assertion is unchanged, because it was never the thing that was wrong: what changed is
+// that exitedOOM no longer needs that flag to answer. See run.go.
 func TestMemoryLimitIsReportedAsAnOOMKill(t *testing.T) {
 	e := newTestExecutor(t)
 	taskID := ids.NewTask()
@@ -541,7 +546,7 @@ func TestMemoryLimitIsReportedAsAnOOMKill(t *testing.T) {
 	}, c.ch)
 	require.NoError(t, err)
 	require.True(t, res.OOMKilled, "exit code was %d", res.ExitCode)
-	require.NotEqual(t, 0, res.ExitCode)
+	require.Equal(t, exitSIGKILL, res.ExitCode, "the kernel kills, it does not ask")
 
 	events := c.finish()
 	exited, ok := events[len(events)-2].Payload.(ExitedPayload)
