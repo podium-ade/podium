@@ -118,12 +118,15 @@ func (e *Executor) adopt(ctx context.Context, req AdoptRequest, em *emitter, rs 
 		}
 	}
 
-	exitCode, oom, wallMS := 0, false, int64(0)
+	exitCode, wallMS := 0, int64(0)
 	if insp.State != nil {
 		exitCode = insp.State.ExitCode
-		oom = insp.State.OOMKilled
 		wallMS = wallMillis(insp.State.StartedAt, insp.State.FinishedAt)
 	}
+	// An adopted container's memory limit is on the container itself, so the same reading
+	// of a lost OOM flag applies here as in run.go. `pending` is what this daemon knows
+	// about a kill it sent: a cancel that arrived before the container was found.
+	oom := exitedOOM(&insp, exitCode, pending)
 	usage := Usage{WallMS: wallMS}
 
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})

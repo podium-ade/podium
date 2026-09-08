@@ -11,7 +11,7 @@
 
 | | version | why |
 |---|---|---|
-| Go | **1.26+** | `go.mod` sets the floor. The tsnet dependency raised it from 1.25 |
+| Go | **1.27+** | `go.mod` sets the floor, and the comment above it says why 1.26 will not do |
 | Docker | Engine 24+, **cgroup v2** | the integration and e2e suites drive a real engine |
 | Node | 22+ | the web UI |
 | pnpm | 11.x | the lockfile is `pnpm-lock.yaml` |

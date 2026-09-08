@@ -65,7 +65,7 @@ container is the pipeline.
 
 ## Quickstart
 
-Needs Go 1.26+, Docker (Engine 24+, **cgroup v2**), Node 22+ and pnpm.
+Needs Go 1.27+, Docker (Engine 24+, **cgroup v2**), Node 22+ and pnpm.
 
 ```sh
 git clone https://github.com/alvaroibarguen/podium.git && cd podium

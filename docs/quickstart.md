@@ -18,7 +18,7 @@ supported way to do it: [`networking.md`](networking.md).
 
 | | |
 |---|---|
-| Go | 1.26 or newer (`go.mod` sets the floor; the tsnet dependency raised it) |
+| Go | 1.27 or newer (`go.mod` sets the floor, and says why) |
 | Docker | Engine 24+, **cgroup v2**, and a daemon you can reach |
 | Node + pnpm | 22+ and 11.x, to build the web UI. `go build -tags noui ./...` skips it entirely |
 | make, git | |
