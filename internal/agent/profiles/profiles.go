@@ -18,6 +18,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	yaml "go.yaml.in/yaml/v3"
 
@@ -80,6 +81,18 @@ const (
 	DefaultTimeout  = spec.Duration(30 * 60 * 1e9)
 )
 
+// DefaultAssistantTimeout bounds one assistant turn when profile.yaml names no timeout.
+//
+// It exists because NOTHING else bounds one: the assistant has no container and, unlike a
+// playbook, no step cap by default. A wall clock is the right shape for that gap — a step
+// cap fires mid-answer on a turn that is working, which is the bug that took the cap away,
+// while a clock only fires on a turn that is genuinely stuck.
+//
+// Fifteen minutes is generous by two orders of magnitude: a turn that answers or delegates
+// takes seconds. There is deliberately no way to switch it off, because "off" is the state
+// this constant exists to stop being the default.
+const DefaultAssistantTimeout = spec.Duration(15 * 60 * 1e9)
+
 // filePrefix marks a prompt that lives in its own file, resolved relative to the YAML file
 // that names it.
 const filePrefix = "file:"
@@ -102,6 +115,10 @@ type Profile struct {
 	// that list and not a default for it, because the two turns are nothing alike: one has
 	// a container and a workspace, and this one has a conversation.
 	Skills []string `yaml:"skills"`
+	// Timeout bounds one assistant turn on the wall clock. Zero is DefaultAssistantTimeout;
+	// unlike MaxTurns there is no "off", because a turn with neither bound has no automatic
+	// stop at all.
+	Timeout spec.Duration `yaml:"timeout"`
 	// MaxTurns caps one assistant turn's steps. UNSET MEANS NO CAP, which is the opposite of
 	// a playbook's max_turns and deliberately so: the assistant answers a conversation and
 	// delegates, so what is worth bounding is the container it starts rather than the relay
@@ -133,10 +150,12 @@ type Profile struct {
 type Assistant struct {
 	// Skills is the Agent Skills it may use, by name.
 	Skills []string
-	// MaxTurns caps its steps, and ZERO means no cap. Nothing else bounds an assistant turn
-	// — there is no container and no timeout — so with no cap the only automatic stop is the
-	// provider's own, and the deliberate one is a human cancelling the turn.
+	// MaxTurns caps its steps, and ZERO means no cap: a step cap fires mid-answer on a turn
+	// that is working, which is why it is off unless somebody asks for it.
 	MaxTurns int
+	// Timeout is the wall clock that bounds a turn instead, always positive. It is what
+	// stops a stuck turn running for ever on the conductor's own machine.
+	Timeout time.Duration
 }
 
 // Assistant is what answers a conversation. Every field comes from profile.yaml itself:
@@ -145,7 +164,18 @@ func (p *Profile) Assistant() Assistant {
 	return Assistant{
 		Skills:   append([]string(nil), p.Skills...),
 		MaxTurns: p.MaxTurns,
+		Timeout:  p.assistantTimeout().Std(),
 	}
+}
+
+// assistantTimeout is the wall clock, defaulted. Unlike a playbook's it is not applied at
+// load: a profile is also written by the API's merge, and defaulting in one path and not the
+// other is how two copies of the same document drift.
+func (p *Profile) assistantTimeout() spec.Duration {
+	if p.Timeout > 0 {
+		return p.Timeout
+	}
+	return DefaultAssistantTimeout
 }
 
 // Repo is a repository a playbook's turns get cloned into /workspace.
@@ -558,6 +588,9 @@ func (p *Profile) validate(path string) error {
 	errs = append(errs, validateSkills(p.Skills)...)
 	if p.MaxTurns < 0 {
 		errs = append(errs, fmt.Errorf("max_turns must be at least 1, got %d", p.MaxTurns))
+	}
+	if p.Timeout < 0 {
+		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", p.Timeout))
 	}
 	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — there
 	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.

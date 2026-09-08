@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
 func TestHostJailIsUnderTheStateDirectoryWhenTheSocketFits(t *testing.T) {
@@ -199,4 +201,33 @@ func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "max_turns",
 		"an absent cap is absent from the document, not a zero the schema would refuse")
+}
+
+// TestTheAssistantsTurnIsBoundedByAClock. With no step cap by default and no container, a
+// wall clock is the only automatic stop an assistant turn has — so it must never be absent.
+func TestTheAssistantsTurnIsBoundedByAClock(t *testing.T) {
+	t.Run("profile.yaml's own", func(t *testing.T) {
+		p := &profiles.Profile{Timeout: spec.Duration(90 * time.Second)}
+		assert.Equal(t, 90*time.Second, assistantJob(p.Assistant()).assistantTimeout())
+	})
+
+	t.Run("defaulted when the file names none", func(t *testing.T) {
+		j := assistantJob((&profiles.Profile{}).Assistant())
+		assert.Equal(t, profiles.DefaultAssistantTimeout.Std(), j.assistantTimeout())
+		assert.Positive(t, j.assistantTimeout(), "there is no 'off': it is the only bound left")
+	})
+
+	// Belt and braces on the one that matters. A job that reached here with no timeout — a
+	// zero value from somewhere this test cannot see — must still be bounded rather than
+	// run for ever on the conductor's own machine.
+	t.Run("a zero timeout still bounds the turn", func(t *testing.T) {
+		assert.Equal(t, profiles.DefaultAssistantTimeout.Std(), job{onHost: true}.assistantTimeout())
+	})
+}
+
+// A playbook's job carries no wall clock of its own: a task is bounded by its own timeout on
+// the node, which is a different mechanism in a different process.
+func TestAPlaybooksJobCarriesNoAssistantClock(t *testing.T) {
+	j := playbookJob(profiles.Playbook{Name: "coder", Timeout: spec.Duration(2 * time.Hour)})
+	assert.Zero(t, j.timeout)
 }

@@ -1,6 +1,10 @@
 package conductor
 
-import "github.com/alvaroibarguen/podium/internal/agent/profiles"
+import (
+	"time"
+
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+)
 
 // job is what one turn does, as everything below accept needs it: a prompt, a tool list, a
 // step cap and a set of Agent Skills.
@@ -31,7 +35,10 @@ type job struct {
 	// maxTurns caps the turn's steps, and zero means no cap. A playbook always has one; the
 	// assistant has one only if profile.yaml set it.
 	maxTurns int
-	skills   []string
+	// timeout is the wall clock. It is the ASSISTANT's bound and is zero for a playbook,
+	// whose turn is bounded by its task's own timeout on the node instead.
+	timeout time.Duration
+	skills  []string
 	// playbook is the container half, and the zero Playbook for the assistant. Only the
 	// task path reads it.
 	playbook profiles.Playbook
@@ -70,6 +77,7 @@ func assistantJob(a profiles.Assistant) job {
 		name:         AssistantName,
 		allowedTools: hostTools,
 		maxTurns:     a.MaxTurns,
+		timeout:      a.Timeout,
 		skills:       a.Skills,
 		onHost:       true,
 	}
@@ -102,4 +110,14 @@ func (j job) memoryTags() []string {
 		return nil
 	}
 	return []string{"playbook:" + j.name}
+}
+
+// assistantTimeout is the wall clock this turn gets. A playbook's job carries none — a task
+// is bounded by its own timeout on the node — so this is only ever asked of the assistant,
+// and profiles.Assistant has already defaulted it.
+func (j job) assistantTimeout() time.Duration {
+	if j.timeout > 0 {
+		return j.timeout
+	}
+	return profiles.DefaultAssistantTimeout.Std()
 }

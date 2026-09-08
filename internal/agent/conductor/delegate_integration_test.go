@@ -291,6 +291,75 @@ func TestAHostTurnDelegatesAndTheConversationOwnsTheTask(t *testing.T) {
 	require.NotNil(t, dlgs[0].FinishedAt)
 }
 
+// TestTheAnnouncementFollowsTheAssistantsOwnWords.
+//
+// Reported from a live chat: "Working on this in a `podium` task" arrived 769ms BEFORE the
+// assistant's own sentence about what it was doing, so the container appeared to start
+// talking about work nobody had asked for yet.
+//
+// The cause is in the harness and cannot be fixed there: `opencode --format json` reports a
+// tool only once it has completed, so the runtime is still holding the text the model
+// emitted before the call while the call's side effects are already in the conversation.
+// Holding the announcement instead is what puts the two in the order a person reads them.
+func TestTheAnnouncementFollowsTheAssistantsOwnWords(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutProgress, "reading the sidebar"),
+			messageEvent(taskID, 2, conductor.OutFinal, "moved it"),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	// Delegate and stop, which is what the prompt now asks for.
+	ev := inbound("C1/17.1", "move the agent section above workspace")
+	ev.Env = hostEnv(map[string]string{
+		hostFakeDelegateEnv: "dogfood|move the agent section above workspace",
+	})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 60*time.Second, "the host turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+	waitFor(t, 60*time.Second, "the delegated task to answer", func() bool {
+		return indexOfText(src.Records(), "moved it") >= 0
+	})
+
+	records := src.Records()
+	announced := indexOfText(records, "Working on this in a `dogfood` task")
+	spoke := indexOfText(records, "reading the sidebar")
+	require.GreaterOrEqual(t, announced, 0, "the announcement was never said: %+v", records)
+	require.GreaterOrEqual(t, spoke, 0, "the task said nothing: %+v", records)
+
+	// The invariant, and the only ordering this can promise end to end: the announcement
+	// introduces the task rather than trailing it.
+	assert.Less(t, announced, spoke)
+
+	// The other half — that it follows the assistant's own words — is whichever-comes-first
+	// and cannot be asserted here: this fake synthesises a task's events inside CreateTask,
+	// so the container "speaks" microseconds after being asked for, while a real one takes
+	// seconds to pull an image. Blocking the fake until the turn ends would deadlock it,
+	// because CreateTask is called from inside the turn's own tool call. The turn-ends-first
+	// path is pinned by TestATurnEndingSaysWhatItStarted instead.
+}
+
+// indexOfText is the first record whose text contains want, or -1. Order is the whole point
+// of the test above, so it asserts on positions rather than on presence.
+func indexOfText(records []fakesource.Record, want string) int {
+	for i, rec := range records {
+		if strings.Contains(rec.Text, want) {
+			return i
+		}
+	}
+	return -1
+}
+
 // TestADelegatedTasksPullRequestIsLinkedToTheConversation.
 //
 // This is where a pull request now comes from. The assistant has no repository and no shell,

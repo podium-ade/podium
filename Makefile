@@ -19,7 +19,7 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-test stack-up stack-down stack-status
+.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
@@ -107,6 +107,18 @@ agent-runtime:
 	docker build --build-arg VERSION="$(VERSION)" --build-arg REVISION="$(COMMIT)" \
 		--build-arg RUNTIME_IMAGE=$(AGENT_RUNTIME):dev \
 		-t $(AGENT_RUNTIME)-dev:dev -f agent/runtime/Dockerfile.dev agent/runtime
+
+# The runtime built for THIS HOST, which is what PODIUM_AGENT_HOST_RUNTIME points at: the
+# assistant answers a conversation by running dist/main.js as a child of podium-agent, with
+# no container and therefore no image to get it from.
+#
+# It has a target because dist/ is build output and is NOT committed — it was, by accident,
+# and a stale copy in git is worse than none: the file on disk would silently be older than
+# the source beside it. `build` does not depend on this for the same reason it does not
+# depend on the images: a host that runs no assistant needs neither Node nor opencode.
+agent-runtime-dist:
+	cd agent/runtime && pnpm install --frozen-lockfile && pnpm build
+	@echo "PODIUM_AGENT_HOST_RUNTIME=$(CURDIR)/agent/runtime/dist/main.js"
 
 # The runtime's unit tests, then the image tests. The image tests need Docker and the
 # `make agent-runtime` tags; they SKIP with a message naming that target when either is
