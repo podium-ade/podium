@@ -1,6 +1,6 @@
 /**
- * The vocabulary the agent screens share: what a backend choice is, and which providers the
- * settings tab offers a card for.
+ * The vocabulary the agent screens share: what a backend choice is, and which providers
+ * Settings offers a card for.
  *
  * It lives beside the components rather than in them so that a constant and a component are
  * never exported from the same module — which is what keeps fast refresh working — and so
@@ -13,7 +13,7 @@ export type AgentChoice = { agent: string; model: string; effort: string };
 /** The empty choice, spelled once. */
 export const INHERIT: AgentChoice = { agent: "", model: "", effort: "" };
 
-/** Provider describes one row of the settings tab. It is data, not behaviour. */
+/** Provider describes one row of Settings. It is data, not behaviour. */
 export type Provider = {
   /** id is the wire value SetProviderKey takes. */
   id: string;
@@ -56,5 +56,5 @@ export const XAI: Provider = {
   },
 };
 
-/** The providers the settings tab shows, in order. */
+/** The providers Settings shows, in order. */
 export const PROVIDERS: Provider[] = [ANTHROPIC, XAI];

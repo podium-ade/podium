@@ -13,10 +13,10 @@ const base: Viewer = {
   serverVersion: "dev",
 };
 
-function mount(who: Viewer | undefined) {
+function mount(who: Viewer | undefined, path = "/") {
   return render(
     <ViewerContext value={who}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <Header />
       </MemoryRouter>
     </ViewerContext>,
@@ -36,15 +36,49 @@ describe("Header", () => {
   it("hides the Agent tab when the server has no conductor", () => {
     mount(base);
     expect(screen.queryByRole("link", { name: "Agent" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Skills" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
   });
 
   it("hides it before WhoAmI has answered at all", () => {
     mount(undefined);
     expect(screen.queryByRole("link", { name: "Agent" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
   });
 
-  it("shows the Agent tab when the server proxies a conductor", () => {
+  it("shows Agent, Playbooks and Skills when the server proxies a conductor", () => {
     mount({ ...base, agentEnabled: true });
     expect(screen.getByRole("link", { name: "Agent" })).toHaveAttribute("href", "/agent");
+    expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute(
+      "href",
+      "/agent/playbooks",
+    );
+    expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
+  });
+
+  it("puts Settings under the signed-in identity, not under Agent", () => {
+    mount({ ...base, agentEnabled: true });
+    const settings = screen.getByRole("link", { name: "Settings" });
+    expect(settings).toHaveAttribute("href", "/agent/settings");
+    expect(settings.closest("nav")?.getAttribute("aria-label")).toBe("Profile");
+  });
+
+  it("lights Agent on the talk screens and not on Playbooks", () => {
+    const who = { ...base, agentEnabled: true };
+    const { unmount } = mount(who, "/agent/chat");
+    expect(screen.getByRole("link", { name: "Agent" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Playbooks" })).not.toHaveAttribute("aria-current");
+    unmount();
+
+    mount(who, "/agent/playbooks");
+    expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("lights Settings on its own route without lighting Agent", () => {
+    mount({ ...base, agentEnabled: true }, "/agent/settings");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
   });
 });

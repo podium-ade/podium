@@ -1,45 +1,62 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, KeyRound, ListTodo, Server } from "lucide-react";
-import { NavLink } from "react-router";
+import { Bot, KeyRound, ListTodo, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
+import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer, viewerLabel } from "../lib/identity";
 import { Tooltip } from "./ui/tooltip";
+
+function pathActive(pathname: string, to: string, end?: boolean) {
+  if (end) return pathname === to;
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+/**
+ * Agent in the sidebar is the talk screens (chat, sessions, memory, profile). Playbooks,
+ * Skills and Settings are siblings, not children, so a prefix match on /agent would light
+ * Agent on every one of them.
+ */
+function agentActive(pathname: string) {
+  if (pathname !== "/agent" && !pathname.startsWith("/agent/")) return false;
+  return (
+    !pathname.startsWith("/agent/playbooks") &&
+    !pathname.startsWith("/agent/skills") &&
+    !pathname.startsWith("/agent/settings")
+  );
+}
 
 function Item({
   to,
   end,
   icon: Icon,
   children,
+  match,
 }: {
   to: string;
   end?: boolean;
   icon: LucideIcon;
   children: string;
+  match?: (pathname: string) => boolean;
 }) {
+  const { pathname } = useLocation();
+  const isActive = match ? match(pathname) : pathActive(pathname, to, end);
   return (
-    <NavLink
+    <Link
       to={to}
-      end={end}
-      className={({ isActive }) =>
-        cn(
-          "group relative flex h-8 items-center gap-2.5 rounded-md pr-2.5 pl-3 text-sm transition-colors duration-150",
-          // The active rail is the only chrome that moves, so the eye can find the current
-          // screen without reading the labels.
-          "before:absolute before:top-1.5 before:bottom-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-accent",
-          "before:origin-center before:scale-y-0 before:transition-transform before:duration-200",
-          isActive
-            ? "bg-raised font-medium text-fg before:scale-y-100"
-            : "text-muted hover:bg-raised/55 hover:text-fg",
-        )
-      }
-    >
-      {({ isActive }) => (
-        <>
-          <Icon className={cn("size-4 shrink-0 transition-colors", isActive && "text-accent")} />
-          {children}
-        </>
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "group relative flex h-8 items-center gap-2.5 rounded-md pr-2.5 pl-3 text-sm transition-colors duration-150",
+        // The active rail is the only chrome that moves, so the eye can find the current
+        // screen without reading the labels.
+        "before:absolute before:top-1.5 before:bottom-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-accent",
+        "before:origin-center before:scale-y-0 before:transition-transform before:duration-200",
+        isActive
+          ? "bg-raised font-medium text-fg before:scale-y-100"
+          : "text-muted hover:bg-raised/55 hover:text-fg",
       )}
-    </NavLink>
+    >
+      <Icon className={cn("size-4 shrink-0 transition-colors", isActive && "text-accent")} />
+      {children}
+    </Link>
   );
 }
 
@@ -87,30 +104,45 @@ export function Header() {
           <>
             <div className="pt-4" />
             <SectionLabel>Agent</SectionLabel>
-            <Item to="/agent" icon={Bot}>
+            <Item to="/agent" icon={Bot} match={agentActive}>
               Agent
+            </Item>
+            <Item to="/agent/playbooks" icon={Sparkles}>
+              Playbooks
+            </Item>
+            <Item to="/agent/skills" icon={Puzzle}>
+              Skills
             </Item>
           </>
         ) : null}
       </nav>
 
-      <div className="mt-auto border-t border-sidebar-border px-4 py-3">
-        {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
-            transport, which has no per-user identity at all. */}
-        <Tooltip label={viewer.title} side="right">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              aria-hidden
-              className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
-            >
-              {viewer.text.slice(0, 1)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xs text-fg">{viewer.text}</div>
-              <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
+      <div className="mt-auto border-t border-sidebar-border">
+        {who?.agentEnabled ? (
+          <nav aria-label="Profile" className="px-4 pt-2">
+            <Item to="/agent/settings" icon={Settings2}>
+              Settings
+            </Item>
+          </nav>
+        ) : null}
+        <div className="px-4 py-3">
+          {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
+              transport, which has no per-user identity at all. */}
+          <Tooltip label={viewer.title} side="right">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden
+                className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
+              >
+                {viewer.text.slice(0, 1)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs text-fg">{viewer.text}</div>
+                <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
+              </div>
             </div>
-          </div>
-        </Tooltip>
+          </Tooltip>
+        </div>
       </div>
     </aside>
   );
