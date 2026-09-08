@@ -91,12 +91,29 @@ export function Header() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-2">
+        {/* Only where there is a conductor to talk to. WhoAmI says so, so a control plane
+            without one shows no dead end. */}
+        {who?.agentEnabled ? (
+          <>
+            <SectionLabel>Agent</SectionLabel>
+            <Item to="/agent" icon={Bot} match={agentActive}>
+              Agent
+            </Item>
+            <Item to="/agent/playbooks" icon={Sparkles}>
+              Playbooks
+            </Item>
+            <Item to="/agent/skills" icon={Puzzle}>
+              Skills
+            </Item>
+            <div className="pt-4" />
+          </>
+        ) : null}
         <SectionLabel>Workspace</SectionLabel>
         <Item to="/" end icon={ListTodo}>
           Tasks
         </Item>
         {/* Cost is recorded per agent turn, so without a conductor this screen is a table of
-            dashes. Same gate as the Agent item below. */}
+            dashes. Same gate as the Agent section. */}
         {who?.agentEnabled ? (
           <Item to="/usage" icon={Coins}>
             Usage
@@ -108,23 +125,6 @@ export function Header() {
         <Item to="/secrets" icon={KeyRound}>
           Secrets
         </Item>
-        {/* Only where there is a conductor to talk to. WhoAmI says so, so a control plane
-            without one shows no dead end. */}
-        {who?.agentEnabled ? (
-          <>
-            <div className="pt-4" />
-            <SectionLabel>Agent</SectionLabel>
-            <Item to="/agent" icon={Bot} match={agentActive}>
-              Agent
-            </Item>
-            <Item to="/agent/playbooks" icon={Sparkles}>
-              Playbooks
-            </Item>
-            <Item to="/agent/skills" icon={Puzzle}>
-              Skills
-            </Item>
-          </>
-        ) : null}
       </nav>
 
       <div className="mt-auto border-t border-sidebar-border px-4 py-3">
