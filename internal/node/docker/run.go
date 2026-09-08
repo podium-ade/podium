@@ -40,10 +40,6 @@ const (
 	// exitSIGKILL is the exit status of a process the kernel killed with SIGKILL, which
 	// is how an OOM kill looks from the outside.
 	exitSIGKILL = 137
-	// oomFlagGrace and oomFlagPoll bound the wait for the engine's OOM flag to catch up
-	// with the container's exit. See exitedOOM.
-	oomFlagGrace = time.Second
-	oomFlagPoll  = 50 * time.Millisecond
 )
 
 // Request is one assignment to execute.
@@ -386,7 +382,10 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	usage := <-usageCh
 	usage.WallMS = wallMS
 
-	oom := e.exitedOOM(ctx, cid, exitCode, req.Spec.Resources.MemoryMB > 0)
+	rs.mu.Lock()
+	killedByPodium := rs.cancelled
+	rs.mu.Unlock()
+	oom := exitedOOM(e.inspectAfterExit(ctx, cid), exitCode, killedByPodium)
 
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})
 	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage})
@@ -394,37 +393,48 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	return Result{ExitCode: exitCode, OOMKilled: oom, Usage: usage}, nil
 }
 
-// exitedOOM reports whether the container was killed for exceeding its memory limit.
+// exitedOOM reports whether a container was killed for exceeding its memory limit.
 //
-// The engine learns of the exit and of the cgroup's OOM event on two different paths, and
-// the OOM flag can land a few milliseconds after ContainerWait has already returned. A
-// single inspect therefore reports a plain SIGKILL for a task that really was OOM-killed,
-// which is exactly the difference this step exists to make visible. So a memory-limited
-// task that died of SIGKILL is re-inspected for a moment before the flag is believed to be
-// absent; every other exit is inspected once and answered immediately.
-func (e *Executor) exitedOOM(ctx context.Context, cid string, exitCode int, memoryLimited bool) bool {
-	deadline := time.Now()
-	if memoryLimited && exitCode == exitSIGKILL {
-		deadline = deadline.Add(oomFlagGrace)
+// The engine's own flag is the certain answer, and it is not always there. Docker learns of
+// the exit and of the cgroup's OOM kill on two different paths: the kill can be recorded
+// after the exit has already been written, and on cgroup v2 the notification can be lost
+// with the cgroup it was read from. CI has produced both — a container the kernel killed at
+// its 64 MB limit, reported as exit 137 with State.OOMKilled false — and a task that
+// Podium then calls a plain non-zero exit tells the operator nothing about why it died,
+// which is the whole reason the flag is plumbed through to failure_reason at all.
+//
+// So when the flag is absent the node answers from what it does know: the engine applied a
+// memory limit to this container, the container died of SIGKILL, and Podium did not send
+// that signal — a cancel and a timeout both go through Executor.Cancel, which records it.
+// What is left sending SIGKILL to a memory-limited container is the kernel.
+//
+// It can still be wrong, and the two ways are worth naming. An operator running `docker
+// kill` on a memory-limited task lands here, and so does a host-level OOM kill that had
+// nothing to do with this container's own limit. Both are rarer than the case this exists
+// for, both leave the operator better informed than "exit 137" does, and a task that was
+// also cancelled keeps the cancellation as its failure reason: the control plane prefers
+// the intent it recorded over this verdict.
+func exitedOOM(insp *container.InspectResponse, exitCode int, killedByPodium bool) bool {
+	if insp == nil || insp.ContainerJSONBase == nil || insp.State == nil {
+		return false
 	}
-	for {
-		insp, err := e.cli.ContainerInspect(ctx, cid)
-		if err != nil {
-			e.log.Warn("inspect after exit", "container", cid, "error", err)
-			return false
-		}
-		if insp.State != nil && insp.State.OOMKilled {
-			return true
-		}
-		if !time.Now().Before(deadline) {
-			return false
-		}
-		select {
-		case <-time.After(oomFlagPoll):
-		case <-ctx.Done():
-			return false
-		}
+	if insp.State.OOMKilled {
+		return true
 	}
+	return !killedByPodium && exitCode == exitSIGKILL &&
+		insp.HostConfig != nil && insp.HostConfig.Memory > 0
+}
+
+// inspectAfterExit reads the container's final state. A failure to read it is not fatal to
+// the run — the exit code came from ContainerWait — so it is logged and answered with nil,
+// which exitedOOM reads as "no evidence".
+func (e *Executor) inspectAfterExit(ctx context.Context, cid string) *container.InspectResponse {
+	insp, err := e.cli.ContainerInspect(ctx, cid)
+	if err != nil {
+		e.log.Warn("inspect after exit", "container", cid, "error", err)
+		return nil
+	}
+	return &insp
 }
 
 // zero overwrites a plaintext the executor is finished with. It is the same best-effort

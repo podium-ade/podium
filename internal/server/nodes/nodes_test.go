@@ -859,6 +859,45 @@ func statusOf(t *testing.T, url string) int {
 	return res.StatusCode
 }
 
+// TestANodeStreamOutlivesTheServersHeaderTimeout is the property behind an intermittent
+// failure of TestANodeIsToldToDropAContainerTheControlPlaneHasLost, which died at 10.0s
+// with "unavailable: unexpected EOF" from whichever poll happened to be in flight.
+//
+// ReadHeaderTimeout belongs to the HTTP/1 half of this server. Go 1.26 armed it on the raw
+// connection and left it armed once the connection turned out to be cleartext HTTP/2, so
+// every node stream was cut after exactly that long — and every operator RPC multiplexed
+// onto the same connection took its chances at that instant. Nothing in the harness could
+// have prevented it: the fix is the toolchain floor recorded beside the go directive, and
+// this is what says so out loud.
+func TestANodeStreamOutlivesTheServersHeaderTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-long", nil)
+	node.open(ctx)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	node.awaitHelloAck(10 * time.Second)
+
+	// Idle across the deadline, which is what a node between heartbeats looks like.
+	past := time.After(server.ReadHeaderTimeout + 2*time.Second)
+	for waiting := true; waiting; {
+		select {
+		case _, ok := <-node.in:
+			require.True(t, ok, "the server closed the node's stream after %s", server.ReadHeaderTimeout)
+		case <-past:
+			waiting = false
+		}
+	}
+
+	// Still open is not enough: it must still carry work, which is the whole reason a node
+	// holds one stream instead of reconnecting.
+	task := h.createSpec(&podiumv1.TaskSpec{Image: "alpine:3", Command: []string{"true"}})
+	assign := node.awaitAssign(assignTimeout)
+	require.Equal(t, task.GetId(), assign.GetTaskId())
+}
+
 // TestServerRefusesNonLoopbackDevListen proves the refusal happens in the real start path, not
 // only in the dev package's own unit test.
 func TestServerRefusesNonLoopbackDevListen(t *testing.T) {
