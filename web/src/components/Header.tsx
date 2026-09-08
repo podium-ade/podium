@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, KeyRound, ListTodo, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
+import { Bot, Coins, KeyRound, ListTodo, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer, viewerLabel } from "../lib/identity";
@@ -92,6 +92,13 @@ export function Header() {
         <Item to="/" end icon={ListTodo}>
           Tasks
         </Item>
+        {/* Cost is recorded per agent turn, so without a conductor this screen is a table of
+            dashes. Same gate as the Agent item below. */}
+        {who?.agentEnabled ? (
+          <Item to="/usage" icon={Coins}>
+            Usage
+          </Item>
+        ) : null}
         <Item to="/nodes" icon={Server}>
           Nodes
         </Item>

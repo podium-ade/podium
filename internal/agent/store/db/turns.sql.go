@@ -138,6 +138,74 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 	return items, nil
 }
 
+const listTurnCosts = `-- name: ListTurnCosts :many
+select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
+       t.num_turns, t.cost_usd,
+       s.source_kind, s.source_key, s.playbook, s.profile
+from turns t
+join sessions s on s.id = t.session_id
+where t.started_at >= $1 and t.started_at < $2
+order by t.started_at desc, t.id desc
+limit $3::int
+`
+
+type ListTurnCostsParams struct {
+	FromTime  time.Time
+	ToTime    time.Time
+	PageLimit int32
+}
+
+type ListTurnCostsRow struct {
+	ID         string
+	TaskID     *string
+	SessionID  string
+	Status     string
+	StartedAt  time.Time
+	FinishedAt *time.Time
+	NumTurns   *int32
+	CostUsd    *float64
+	SourceKind string
+	SourceKey  string
+	Playbook   string
+	Profile    string
+}
+
+// ListTurnCosts is one row per turn in the range, with the session fields that say what
+// spent it. The join is to sessions and no further: a task_id is a string this database has
+// no opinion about, and the browser is what puts the two halves together.
+func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([]ListTurnCostsRow, error) {
+	rows, err := q.db.Query(ctx, listTurnCosts, arg.FromTime, arg.ToTime, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnCostsRow{}
+	for rows.Next() {
+		var i ListTurnCostsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.SessionID,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.NumTurns,
+			&i.CostUsd,
+			&i.SourceKind,
+			&i.SourceKey,
+			&i.Playbook,
+			&i.Profile,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurns = `-- name: ListTurns :many
 select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text from turns
 where session_id = $1
@@ -193,4 +261,62 @@ type SetTurnTaskParams struct {
 func (q *Queries) SetTurnTask(ctx context.Context, arg SetTurnTaskParams) error {
 	_, err := q.db.Exec(ctx, setTurnTask, arg.TaskID, arg.ID)
 	return err
+}
+
+const usageByDay = `-- name: UsageByDay :many
+select to_char((t.started_at + make_interval(mins => $1::int))::date,
+               'YYYY-MM-DD')::text                                           as day,
+       coalesce(sum(t.cost_usd), 0)::float8                                  as cost_usd,
+       count(*)::int                                                         as turns,
+       coalesce(sum(t.num_turns), 0)::int                                    as model_turns,
+       count(*) filter (where t.cost_usd is null)::int                       as unpriced
+from turns t
+where t.started_at >= $2 and t.started_at < $3
+group by day
+order by day
+`
+
+type UsageByDayParams struct {
+	TzOffsetMinutes int32
+	FromTime        time.Time
+	ToTime          time.Time
+}
+
+type UsageByDayRow struct {
+	Day        string
+	CostUsd    float64
+	Turns      int32
+	ModelTurns int32
+	Unpriced   int32
+}
+
+// UsageByDay buckets spend into the caller's own days. The offset is added to the stored
+// UTC instant before the date is taken, so a turn at 23:30 in New York lands on the day the
+// operator ran it rather than on the next one.
+// The day leaves as text rather than as a date, because a date would arrive as pgtype.Date
+// and the point of the overrides in sqlc.yaml is that no store signature speaks pgx.
+func (q *Queries) UsageByDay(ctx context.Context, arg UsageByDayParams) ([]UsageByDayRow, error) {
+	rows, err := q.db.Query(ctx, usageByDay, arg.TzOffsetMinutes, arg.FromTime, arg.ToTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByDayRow{}
+	for rows.Next() {
+		var i UsageByDayRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.CostUsd,
+			&i.Turns,
+			&i.ModelTurns,
+			&i.Unpriced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

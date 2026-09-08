@@ -147,6 +147,10 @@ type Filter struct {
 	// Search matches a task whose ID starts with it or whose image contains it,
 	// case-insensitively.
 	Search string
+	// CreatedAfter and CreatedBefore bound the page by creation time — after inclusive,
+	// before exclusive. A nil side is unbounded.
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
 }
 
 // Page controls ListTasks pagination. Cursor is the ID returned as nextCursor by the previous

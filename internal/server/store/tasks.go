@@ -103,12 +103,14 @@ func (s *Store) ListTasks(ctx context.Context, f Filter, p Page) ([]Task, string
 		statuses = append(statuses, string(st))
 	}
 	rows, err := s.q.ListTasks(ctx, db.ListTasksParams{
-		Statuses:    statuses,
-		NodeID:      f.NodeID,
-		RequestedBy: f.RequestedBy,
-		Search:      f.Search,
-		AfterID:     p.Cursor,
-		PageLimit:   int32(limit),
+		Statuses:      statuses,
+		NodeID:        f.NodeID,
+		RequestedBy:   f.RequestedBy,
+		Search:        f.Search,
+		CreatedAfter:  f.CreatedAfter,
+		CreatedBefore: f.CreatedBefore,
+		AfterID:       p.Cursor,
+		PageLimit:     int32(limit),
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list tasks: %w", err)

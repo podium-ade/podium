@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -245,6 +246,87 @@ func (s *AgentService) ListTurns(
 		out = append(out, turnToProto(r))
 	}
 	return connect.NewResponse(&agentv1.ListTurnsResponse{Turns: out}), nil
+}
+
+// DefaultUsageDays is the range GetUsage reads when the request names neither end.
+const DefaultUsageDays = 30
+
+// GetUsage reports what the conductor spent over a range: one row per day for a calendar,
+// and the per-task cost of each turn inside it.
+func (s *AgentService) GetUsage(
+	ctx context.Context, req *connect.Request[agentv1.GetUsageRequest],
+) (*connect.Response[agentv1.GetUsageResponse], error) {
+	to := time.Now().UTC()
+	if ts := req.Msg.GetTo(); ts.IsValid() {
+		to = ts.AsTime()
+	}
+	from := to.AddDate(0, 0, -DefaultUsageDays)
+	if ts := req.Msg.GetFrom(); ts.IsValid() {
+		from = ts.AsTime()
+	}
+	// An offset beyond the real ones on Earth would shift days by an arbitrary amount, so it
+	// is refused rather than clamped: it can only be a bug in the caller.
+	tz := int(req.Msg.GetTzOffsetMinutes())
+	if tz < -12*60 || tz > 14*60 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("get usage: tz_offset_minutes %d is not a real time zone offset", tz))
+	}
+
+	u, err := s.store.Usage(ctx, store.UsageQuery{
+		From:            from,
+		To:              to,
+		TZOffsetMinutes: tz,
+		Limit:           int(req.Msg.GetLimit()),
+	})
+	if err != nil {
+		return nil, storeError(err)
+	}
+
+	days := make([]*agentv1.UsageDay, 0, len(u.Days))
+	for _, d := range u.Days {
+		days = append(days, &agentv1.UsageDay{
+			Date:       d.Date,
+			CostUsd:    d.CostUSD,
+			Turns:      int32(d.Turns),
+			ModelTurns: int32(d.ModelTurns),
+			Unpriced:   int32(d.Unpriced),
+		})
+	}
+	costs := make([]*agentv1.TaskCost, 0, len(u.Costs))
+	for _, c := range u.Costs {
+		costs = append(costs, turnCostToProto(c))
+	}
+	return connect.NewResponse(&agentv1.GetUsageResponse{
+		Days:            days,
+		Costs:           costs,
+		TotalCostUsd:    u.TotalCostUSD,
+		TotalTurns:      int32(u.TotalTurns),
+		TotalModelTurns: int32(u.TotalModelTurns),
+		Unpriced:        int32(u.Unpriced),
+	}), nil
+}
+
+func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
+	out := &agentv1.TaskCost{
+		TaskId:     c.TaskID,
+		TurnId:     c.TurnID,
+		SessionId:  c.SessionID,
+		SourceKind: c.SourceKind,
+		SourceKey:  c.SourceKey,
+		Playbook:   c.Playbook,
+		Profile:    c.Profile,
+		Status:     c.Status,
+		StartedAt:  timestamppb.New(c.StartedAt),
+		CostUsd:    c.CostUSD,
+	}
+	if c.FinishedAt != nil {
+		out.FinishedAt = timestamppb.New(*c.FinishedAt)
+	}
+	if c.NumTurns != nil {
+		n := int32(*c.NumTurns)
+		out.NumTurns = &n
+	}
+	return out
 }
 
 func sessionToProto(s store.Session) *agentv1.Session {

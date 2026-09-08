@@ -134,9 +134,11 @@ func (s *TaskService) ListTasks(
 ) (*connect.Response[podiumv1.ListTasksResponse], error) {
 	f := req.Msg.GetFilter()
 	filter := store.Filter{
-		NodeID:      f.GetNodeId(),
-		RequestedBy: f.GetRequestedBy(),
-		Search:      strings.TrimSpace(f.GetSearch()),
+		NodeID:        f.GetNodeId(),
+		RequestedBy:   f.GetRequestedBy(),
+		Search:        strings.TrimSpace(f.GetSearch()),
+		CreatedAfter:  timeFromProto(f.GetCreatedAfter()),
+		CreatedBefore: timeFromProto(f.GetCreatedBefore()),
 	}
 	for _, st := range f.GetStatus() {
 		if mapped, ok := taskStatusStore[st]; ok {
