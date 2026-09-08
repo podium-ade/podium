@@ -409,6 +409,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
 	if c.host != nil && hostCapable(src.Kind()) {
 		host := &hostRun{r: run, encoded: encoded, bundles: bundles, provider: brief.Provider}
+		if brief.Memory != nil {
+			host.memoryKeyEnv = brief.Memory.APIKeyEnv
+		}
 		if src.Kind() == KindDev {
 			// The same TEST-ONLY escape taskSpec allows, and only for the same source: the
 			// dry-run knobs step 16 defined are how a test drives a turn with no model.

@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,9 +43,11 @@ import (
 // the tree to being either documented in .env.example or listed as something an operator
 // never sets, and a test's own knobs have no business in either list.
 const (
-	hostFakeEnv     = "CONDUCTOR_TEST_FAKE_RUNTIME"
-	hostFakeExitEnv = "CONDUCTOR_TEST_FAKE_EXIT"
-	hostCanaryEnv   = "CONDUCTOR_TEST_LEAK_CANARY"
+	hostFakeEnv       = "CONDUCTOR_TEST_FAKE_RUNTIME"
+	hostFakeExitEnv   = "CONDUCTOR_TEST_FAKE_EXIT"
+	hostCanaryEnv     = "CONDUCTOR_TEST_LEAK_CANARY"
+	hostFakeSilentEnv = "CONDUCTOR_TEST_FAKE_SILENT"
+	hostFakeHangEnv   = "CONDUCTOR_TEST_FAKE_HANG"
 )
 
 // hostReport is what the fake runtime says as its answer: everything about the turn it was
@@ -99,6 +103,29 @@ func hostFakeRuntime() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fake runtime: %v\n", err)
 		os.Exit(4)
+	}
+
+	// A runtime that says nothing at all, which is the case where the placeholder above it
+	// would otherwise read "working on it" for ever.
+	if os.Getenv(hostFakeSilentEnv) != "" {
+		os.Exit(0)
+	}
+
+	// A turn that is still working when somebody stops it. SIGTERM is what the conductor
+	// sends, and the real runtime forwards it to the harness and still reports — so this
+	// does the same, and the turn has an answer to relay even though it was cancelled.
+	if os.Getenv(hostFakeHangEnv) != "" {
+		term := make(chan os.Signal, 1)
+		signal.Notify(term, syscall.SIGTERM)
+		hostSay(sock, "progress", "still working")
+		select {
+		case <-term:
+			hostSay(sock, "final", "cancelled before finishing")
+			os.Exit(0)
+		case <-time.After(60 * time.Second):
+			fmt.Fprintln(os.Stderr, "fake runtime: never told to stop")
+			os.Exit(4)
+		}
 	}
 
 	// One dial per message, as the real one does.
@@ -296,4 +323,114 @@ func TestAHostTurnWithNoCredentialNeverStarts(t *testing.T) {
 	require.Len(t, failures, 1)
 	assert.Contains(t, failures[0].Text, "no model credential")
 	assert.Empty(t, fake.Specs(), "nothing ran")
+}
+
+func TestAHostTurnThatSaysNothingStillLeavesASentence(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+
+	ev := inbound("C1/4.1", "say nothing")
+	ev.Env = hostEnv(map[string]string{hostFakeSilentEnv: "1"})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 30*time.Second, "the silent turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	// The exit code said the turn was fine and the runtime never spoke. Without a sentence
+	// here the chat is left showing the placeholder — "working on it" — for ever.
+	records := src.Records()
+	assert.Empty(t, posts(records, conductor.OutFinal))
+	failures := posts(records, conductor.OutFailure)
+	require.Len(t, failures, 1)
+	assert.Contains(t, failures[0].Text, "without saying anything")
+}
+
+func TestAHostTurnCanBeStoppedMidAnswer(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+
+	ev := inbound("C1/5.1", "take your time")
+	ev.Env = hostEnv(map[string]string{hostFakeHangEnv: "1"})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	// Wait until it is actually working, so the cancel lands mid-turn and not before the
+	// child was forked.
+	waitFor(t, 30*time.Second, "the turn to be working", func() bool {
+		for _, rec := range src.Records() {
+			if rec.Action == fakesource.ActionEdit && strings.Contains(rec.Text, "still working") {
+				return true
+			}
+		}
+		return false
+	})
+
+	assert.True(t, r.cond.CancelHostTurn(ev.Ref), "there is a host turn to cancel")
+
+	waitFor(t, 30*time.Second, "the cancelled turn to be recorded", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnCancelled
+	})
+
+	finals := posts(src.Records(), conductor.OutFinal)
+	require.Len(t, finals, 1, "a cancelled turn still says what it managed")
+	assert.Equal(t, "cancelled before finishing", finals[0].Text)
+
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Equal(t, "cancelled before finishing", turn.FinalText)
+	assert.Empty(t, turn.TaskID)
+}
+
+func TestCancellingAHostTurnThatIsNotRunningSaysSo(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+	assert.False(t, r.cond.CancelHostTurn("C1/nothing-here"),
+		"nothing to cancel is an answer, not an error")
+}
+
+// A host turn dies with the process running it, so the conductor stopping mid-turn is the
+// case that has to write the row: there is no task for the recovery pass to resume from, and
+// the context the turn is unwinding on can no longer write anything — which is why recording
+// it happens on a context of its own. Without that, this row says "running" until a restart
+// finds it and calls it an orphan.
+func TestTheConductorStoppingMidHostTurnStillRecordsIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+
+	ev := inbound("C1/6.1", "keep going")
+	ev.Env = hostEnv(map[string]string{hostFakeHangEnv: "1"})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 30*time.Second, "the turn to be working", func() bool {
+		for _, rec := range src.Records() {
+			if rec.Action == fakesource.ActionEdit && strings.Contains(rec.Text, "still working") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The closest a test gets to killing the process.
+	r.stop()
+
+	assert.Equal(t, store.TurnCancelled, turnStatus(st, ev.SourceKey),
+		"a host turn cannot be resumed, so the turn it was must be written down as it ends")
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.Equal(t, "cancelled before finishing", turn.FinalText)
+	assert.Empty(t, turn.TaskID)
 }
