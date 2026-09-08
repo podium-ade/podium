@@ -1510,9 +1510,15 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.
-- **Progress is not stored.** While a turn runs, the line under the last question is the latest
-  `progress` message the runtime sent, pushed to whoever is watching and then forgotten. Reload
-  and you see the question and the answer, which is what actually happened.
+- **Progress is a message.** Every `progress` message the runtime sends is stored under the
+  role `progress` and rendered in the transcript the way an answer is, under the name **task**
+  rather than the bot's — the words a task said on its way to an answer are the task talking,
+  and a chat is the one conversation Podium holds itself, so there is nowhere else to keep
+  them. Reload and the trail is still there. The one thing that is not a row is the
+  placeholder (`👀 working…`): that is the conductor announcing a turn, and the running pill
+  above the conversation is where it shows. Progress rows are left out of the next turn's
+  brief — a turn's own half-finished thoughts are not history, and the 96 KiB cap is for the
+  questions and answers.
 - **A failure is stored**, so a turn that died leaves words behind rather than a question that
   looks ignored.
 - **Attachments come from the task's artifacts.** An answer that names a file it wrote under
@@ -1546,11 +1552,18 @@ other link scheme renders as literal text**, because an answer is content a task
 material somebody else supplied. Ask for a table and you get a fenced block, which is what a
 prompt should ask the model for.
 
+<<<<<<< HEAD
 A chat can be renamed by its owner. The title is stored on the chat row; an empty title is
 refused rather than becoming "New chat" again, and a rename is the owner's word on the name,
 so Podium stops generating one for that chat. Sharing a chat, uploading a file into the chat,
 and streaming the model's tokens are deliberately not built. The unit of streaming is the
 `progress` message the runtime sends, not a token.
+=======
+What is deliberately not built: renaming or deleting a chat, sharing one, a model-written title,
+uploading a file into the chat, and streaming the model's tokens. The unit of streaming is the
+`progress` message the runtime sends, not a token — and each one arrives as a message in the
+conversation rather than as a line that overwrites the one before it.
+>>>>>>> 7844ca7 (chat: what a task says on the way to an answer is the conversation)
 
 ---
 

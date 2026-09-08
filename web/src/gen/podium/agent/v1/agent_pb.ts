@@ -1234,7 +1234,10 @@ export type ChatMessage = Message<"podium.agent.v1.ChatMessage"> & {
   seq: bigint;
 
   /**
-   * role is "user" or "assistant".
+   * role is "user", "assistant", or "progress" for a line the task said on its way to an
+   * answer. A progress message is stored and rendered like any other; it is a role of its
+   * own so the transcript a turn is briefed with can leave it out, and so an attachment
+   * lands on the answer rather than on the last thought before it.
    *
    * @generated from field: string role = 3;
    */
@@ -1294,11 +1297,13 @@ export const ChatStatusSchema: GenMessage<ChatStatus> = /*@__PURE__*/
  * ChatFrame is one thing that happened in a chat.
  *
  * A message frame is durable and may repeat with the same seq when its attachments are
- * resolved after the fact — a client keyed on seq replaces rather than appends. A progress
- * frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
- * not show it. A resync frame means this subscriber fell behind and dropped something
- * durable: re-read from the last seq seen. A chat frame is the conversation's own row
- * after a title or playbook change; a reload re-reads it from ListChats.
+ * resolved after the fact — a client keyed on seq replaces rather than appends. What a task
+ * says arrives that way, progress included. A progress frame is only the conductor's
+ * placeholder: it is ephemeral, it says a turn has started and has yet to say anything, and
+ * the running indicator is what shows it. A resync frame means this subscriber fell behind
+ * and dropped something durable: re-read from the last seq seen. A chat frame is the
+ * conversation's own row after a title or playbook change; a reload re-reads it from
+ * ListChats.
  *
  * @generated from message podium.agent.v1.ChatFrame
  */
