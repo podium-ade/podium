@@ -4,9 +4,7 @@ import {
   Brain,
   History,
   MessageSquare,
-  Puzzle,
   Settings2,
-  Sparkles,
   UserRound,
 } from "lucide-react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
@@ -31,8 +29,9 @@ import { useViewer } from "../lib/identity";
 import { cn } from "../lib/utils";
 
 /**
- * Tab is one sub-route of /agent. The array below is the whole extension point: a new screen
- * is a line here and nothing else in this file.
+ * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
+ * is the extension point for those; Playbooks, Skills and Settings are in the app sidebar
+ * instead — they are destinations of their own, not something you switch between while talking.
  *
  * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
  * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
@@ -63,16 +62,18 @@ const groups: Group[] = [
   },
   {
     label: "Configure",
-    tabs: [
-      { path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound },
-      { path: "playbooks", label: "Playbooks", element: <PlaybooksPanel />, icon: Sparkles },
-      { path: "skills", label: "Skills", element: <SkillsPanel />, icon: Puzzle },
-      { path: "settings", label: "Settings", element: <SettingsTab />, icon: Settings2 },
-    ],
+    tabs: [{ path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound }],
   },
 ];
 
 const tabs: Tab[] = groups.flatMap((g) => g.tabs);
+
+/** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
+const sidebarScreens: { path: string; element: ReactNode }[] = [
+  { path: "playbooks", element: <PlaybooksPanel /> },
+  { path: "skills", element: <SkillsPanel /> },
+  { path: "settings", element: <SettingsTab /> },
+];
 
 /**
  * The tab bar is horizontal, and it is a row of links rather than `ui/tabs` on purpose: an
@@ -123,37 +124,52 @@ export function AgentPage() {
       {tabs.map((t) => (
         <Route key={t.path} path={t.route ?? t.path} element={t.element} />
       ))}
+      {sidebarScreens.map((s) => (
+        <Route key={s.path} path={s.path} element={s.element} />
+      ))}
       <Route path="*" element={<Navigate to="/agent/chat" replace />} />
     </Routes>
   );
 
+  const showSubnav =
+    pathname === "/agent" ||
+    pathname === "/agent/" ||
+    groups.some((g) =>
+      g.tabs.some((t) => {
+        const prefix = `/agent/${t.path}`;
+        return pathname === prefix || pathname.startsWith(`${prefix}/`);
+      }),
+    );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border bg-panel/50">
-        <nav
-          aria-label="Agent"
-          className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2.5 lg:px-8"
-        >
-          {groups.map((g, i) => (
-            <Fragment key={g.label}>
-              {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
-              <div className="flex items-center gap-2">
-                <span className="text-2xs font-medium tracking-wider text-faint uppercase">
-                  {g.label}
-                </span>
-                <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-                  {g.tabs.map((t) => (
-                    <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-                      <t.icon />
-                      {t.label}
-                    </NavLink>
-                  ))}
+      {showSubnav ? (
+        <div className="shrink-0 border-b border-border bg-panel/50">
+          <nav
+            aria-label="Agent"
+            className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2.5 lg:px-8"
+          >
+            {groups.map((g, i) => (
+              <Fragment key={g.label}>
+                {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
+                <div className="flex items-center gap-2">
+                  <span className="text-2xs font-medium tracking-wider text-faint uppercase">
+                    {g.label}
+                  </span>
+                  <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
+                    {g.tabs.map((t) => (
+                      <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
+                        <t.icon />
+                        {t.label}
+                      </NavLink>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </Fragment>
-          ))}
-        </nav>
-      </div>
+              </Fragment>
+            ))}
+          </nav>
+        </div>
+      ) : null}
 
       {/* Chat is a full-height pane and owns its own scrolling; every other tab is a page. */}
       {chat ? (
