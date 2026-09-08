@@ -117,10 +117,10 @@ func (f *fakeStore) SetChatPlaybook(_ context.Context, id, playbook string) (sto
 	if !ok {
 		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
 	}
-	if c.Playbook == "" {
-		c.Playbook = playbook
-		f.chats[id] = c
-	}
+	// Not first-wins, matching the real query: a chat follows the playbook of its latest
+	// message, because a conversation is no longer one playbook's work.
+	c.Playbook = playbook
+	f.chats[id] = c
 	return c, nil
 }
 
@@ -629,7 +629,8 @@ func TestTheFirstMessageRemembersThePlaybookAndNamesTheChat(t *testing.T) {
 	require.NoError(t, err)
 	got, err = st.GetChat(context.Background(), "chat_1")
 	require.NoError(t, err)
-	assert.Equal(t, "analyst", got.Playbook, "one chat, one playbook — the first message wins")
+	assert.Equal(t, "general", got.Playbook,
+		"a chat follows the playbook of its latest message: a conversation is not one playbook's work")
 	assert.Equal(t, "how many active accounts last month", got.Title, "the title is not rewritten on later messages")
 }
 

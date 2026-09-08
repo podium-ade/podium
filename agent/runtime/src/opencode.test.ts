@@ -166,6 +166,50 @@ describe("writeConfig with a browser", () => {
   });
 });
 
+describe("writeConfig with delegation", () => {
+  const delegation = { url: "http://127.0.0.1:8090", entry: "/opt/podium-agent/dist/mcp.js" };
+
+  it("runs this runtime's own second entrypoint, with the address as an argument", () => {
+    const { config } = write({ delegation });
+    expect(config.mcp.podium.type).toBe("local");
+    // node, the entrypoint, then --url and the address. The TOKEN is not here: an argument
+    // is visible in a process list, so it travels in the environment.
+    expect(config.mcp.podium.command).toEqual([
+      process.execPath,
+      "/opt/podium-agent/dist/mcp.js",
+      "--url",
+      "http://127.0.0.1:8090",
+    ]);
+    expect(config.mcp.podium.enabled).toBe(true);
+    expect(JSON.stringify(config)).not.toContain("PODIUM_TURN_TOKEN");
+  });
+
+  it("turns the podium tools on, because a host turn's short tool list depends on them", () => {
+    const { config } = write({ delegation, tools: ["webfetch"] });
+    expect(config.agent.podium.tools["podium*"]).toBe(true);
+    expect(config.agent.podium.tools.webfetch).toBe(true);
+    expect(config.agent.podium.tools.bash).toBe(false);
+  });
+
+  it("writes no server and no tools when the turn cannot delegate", () => {
+    const { config } = write({});
+    expect(config.mcp).toBeUndefined();
+    expect(config.agent.podium.tools["podium*"]).toBeUndefined();
+  });
+
+  it("sits beside memory and the browser rather than replacing either", () => {
+    const { config } = write({
+      delegation,
+      memory: { url: "http://memory/mcp/", apiKeyEnv: "K" },
+      browser: { cdpURL: "http://127.0.0.1:9222" },
+    });
+    expect(Object.keys(config.mcp).sort()).toEqual(["browser", "memory", "podium"]);
+    expect(config.agent.podium.tools["memory*"]).toBe(true);
+    expect(config.agent.podium.tools["browser*"]).toBe(true);
+    expect(config.agent.podium.tools["podium*"]).toBe(true);
+  });
+});
+
 describe("invocation", () => {
   const base = {
     configDir: "/tmp/podium-turn-abc",

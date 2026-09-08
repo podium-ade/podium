@@ -45,6 +45,16 @@ export const BrowserServer = "browser";
 export const BrowserBinary = "chrome-devtools-mcp";
 
 /**
+ * DelegateServer is the MCP server a host turn delegates through, and the prefix its tools
+ * carry. It matches ServerName in mcp.ts: the harness names a tool `<server>_<tool>`, so
+ * this string is what the conductor's fence and the model's tool list agree to call it.
+ */
+export const DelegateServer = "podium";
+
+/** DelegateURLFlag matches UrlFlag in mcp.ts. */
+export const DelegateURLFlag = "--url";
+
+/**
  * resolveBrowserURL turns the sidecar's name into its address, because Chrome will not
  * answer to a name.
  *
@@ -133,6 +143,13 @@ export interface Config {
   browser?: { cdpURL: string };
   /** skills is the Agent Skills this turn may use, by name. Everything else is denied. */
   skills?: string[];
+  /**
+   * delegation is how a HOST turn reaches a container, when it has one. It becomes a local
+   * MCP server beside the turn (mcp.ts) and the `podium*` tools that go with it — the same
+   * shape as the browser, and for the same reason: what speaks MCP runs here, and what it
+   * drives is somewhere else.
+   */
+  delegation?: { url: string; entry: string };
 }
 
 /**
@@ -190,6 +207,12 @@ export function writeConfig(cfg: Config): string {
   if (cfg.browser) {
     tools[`${BrowserServer}*`] = true;
   }
+  // And the same rule for delegation: the conductor decided this turn may delegate, and a
+  // host turn's short tool list is only defensible because these are on. A playbook cannot
+  // opt out of them any more than it can opt out of memory.
+  if (cfg.delegation) {
+    tools[`${DelegateServer}*`] = true;
+  }
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
@@ -225,6 +248,17 @@ export function writeConfig(cfg: Config): string {
     mcp[BrowserServer] = {
       type: "local",
       command: [BrowserBinary, "--browserUrl", cfg.browser.cdpURL],
+      enabled: true,
+    };
+  }
+  if (cfg.delegation) {
+    // A local server, like the browser's: this runtime's own second entrypoint, run by the
+    // same node that is running the turn. The ADDRESS is an argument and the TOKEN is not —
+    // it is read from the environment by the child, because an argument is visible in a
+    // process list.
+    mcp[DelegateServer] = {
+      type: "local",
+      command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
       enabled: true,
     };
   }

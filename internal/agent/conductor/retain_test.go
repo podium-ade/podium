@@ -55,7 +55,7 @@ func TestRetainMetadataIsTheProvenance(t *testing.T) {
 	r := &turnRun{
 		sess: store.Session{ID: "sess_01", SourceKind: SourceSlack},
 		turn: store.Turn{ID: "turn_01", TaskID: "task_01"},
-		ref:  "C1/1.1/1.2",
+		sink: &sink{ref: "C1/1.1/1.2"},
 		url:  "https://example.slack.com/archives/C1/p11",
 	}
 	assert.Equal(t, map[string]string{
@@ -73,7 +73,7 @@ func TestRetainMetadataOmitsWhatItDoesNotKnow(t *testing.T) {
 	r := &turnRun{
 		sess: store.Session{ID: "sess_01", SourceKind: SourceSlack},
 		turn: store.Turn{ID: "turn_01"},
-		ref:  "C1/1.1/1.2",
+		sink: &sink{ref: "C1/1.1/1.2"},
 	}
 	meta := retainMetadata(r)
 	assert.NotContains(t, meta, "task_id")

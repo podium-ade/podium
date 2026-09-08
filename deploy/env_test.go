@@ -34,6 +34,10 @@ var notConfiguration = map[string]string{
 	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
 	// this is the name the runtime reads it under.
 	"PODIUM_RUNNER_PATH": "set by the conductor on a host turn's runtime",
+	// Minted per host turn by the conductor and read by the MCP server beside it, so that
+	// turn can delegate a task in its own conversation. It lives as long as the turn and
+	// an operator never sets one.
+	"PODIUM_TURN_TOKEN": "minted by the conductor for one host turn",
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",

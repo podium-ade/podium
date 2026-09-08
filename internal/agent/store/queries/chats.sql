@@ -89,11 +89,12 @@ select exists (
      and t.status = 'running'
 )::bool as running;
 
--- SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
--- already set: one chat, one playbook, fixed at the first message.
+-- SetChatPlaybook records the playbook a chat's LATEST message ran. It is not first-wins:
+-- a conversation is no longer one playbook's work, so the person may pick a different one
+-- per message and the agent answering may delegate to any of them.
 -- name: SetChatPlaybook :one
 update chats set playbook = @playbook
-where id = @id and playbook = ''
+where id = @id
 returning *;
 
 -- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create

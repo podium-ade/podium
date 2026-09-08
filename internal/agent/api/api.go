@@ -111,7 +111,11 @@ type AgentServiceOptions struct {
 	// Tasks stops a running Podium task. DeleteChat uses it so a conversation that still
 	// has a turn in flight does not leave a container running after it is gone. Nil is a
 	// supported configuration: tests that never start a turn omit it.
-	Tasks  TaskCanceller
+	Tasks TaskCanceller
+	// Turns stops the work a conversation owns that no task id can reach: the host turn
+	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
+	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
+	Turns  TurnStopper
 	Logger *slog.Logger
 }
 
@@ -131,6 +135,7 @@ type AgentService struct {
 	profiles  *profiles.Live
 	chat      ChatSource
 	tasks     TaskCanceller
+	turns     TurnStopper
 	logger    *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished.
@@ -185,6 +190,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		profiles:   opts.Profiles,
 		chat:       opts.Chat,
 		tasks:      opts.Tasks,
+		turns:      opts.Turns,
 		logger:     opts.Logger,
 	}
 }

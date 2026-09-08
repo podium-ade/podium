@@ -83,6 +83,24 @@ func hostFakeRuntime() {
 		os.Exit(2)
 	}
 
+	// The delegating turn: it talks to TurnService over HTTP and reports what happened,
+	// which is what delegate_integration_test.go asserts on.
+	if os.Getenv(hostFakeDelegateEnv) != "" {
+		var asMap map[string]any
+		if err := json.Unmarshal(raw, &asMap); err != nil {
+			fmt.Fprintf(os.Stderr, "fake runtime: %v\n", err)
+			os.Exit(4)
+		}
+		answer, err := json.Marshal(hostFakeDelegate(asMap))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "fake runtime: %v\n", err)
+			os.Exit(4)
+		}
+		hostSay(sock, "final", string(answer))
+		hostSay(sock, "accounting", `{"num_turns":2,"total_cost_usd":0.001}`)
+		os.Exit(0)
+	}
+
 	cwd, _ := os.Getwd()
 	report := hostReport{
 		Home:        os.Getenv("HOME"),

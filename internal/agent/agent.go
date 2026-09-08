@@ -55,6 +55,7 @@ type Agent struct {
 	podium    *podium.Client
 	profiles  *profiles.Live
 	svc       *api.AgentService
+	turns     *api.TurnService
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
@@ -249,6 +250,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			Credential: func(ctx context.Context, provider string) (string, error) {
 				return a.svc.HostCredential(ctx, provider)
 			},
+			TurnURL: turnURL(cfg.Listen),
 		}
 		if cfg.MemoryEnabled() {
 			// The memory server as THIS PROCESS reaches it. A task is told
@@ -297,8 +299,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Profiles:         live,
 		Chat:             a.chat,
 		Tasks:            a.podium,
+		Turns:            a.conductor,
 		Logger:           a.logger,
 	})
+	// The turn surface. It is the conductor itself: only a conductor that runs host turns
+	// has anything to delegate from, so a conductor without one leaves this nil and every
+	// call to it answers FailedPrecondition.
+	if host != nil {
+		a.turns = api.NewTurnService(a.conductor, logger)
+	}
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -340,6 +349,13 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	root.HandleFunc("/readyz", a.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	root.Handle("/"+agentv1connect.AgentServiceName+"/", api.RequireBearer(a.cfg.Token, rpc))
+	if a.turns != nil {
+		// Deliberately NOT behind RequireBearer: a turn holds a token of its own, minted
+		// for it and checked by the conductor, and it must never be given the operator's.
+		// podium-server proxies the AgentService path only, so this stays on loopback.
+		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
+		root.Handle(turnPath, turnHandler)
+	}
 	if a.dev != nil {
 		dev := api.RequireBearer(a.cfg.Token, a.dev.Handler())
 		root.Handle(api.DevInboundPath, dev)
@@ -398,6 +414,20 @@ func (a *Agent) reconcileProfile(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// turnURL is this listener as a host turn's own child process reaches it. A listener bound
+// to every interface (":8090", "0.0.0.0:8090") is still reached over loopback from here:
+// the turn runs on this machine, and its token is not something to send over a network.
+func turnURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func writePlain(w http.ResponseWriter, code int, body string) {

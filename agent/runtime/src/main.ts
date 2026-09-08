@@ -12,19 +12,38 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
-import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, type TurnBrief } from "./brief.js";
+import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
-import { CloneError, TokenEnv, WorkspaceDir, cloneRepos, redact } from "./repos.js";
+import {
+  CloneError,
+  TokenEnv,
+  artifactsUnder,
+  cloneRepos,
+  redact,
+  workspaceOf,
+} from "./repos.js";
 import { SkillError, installSkills } from "./skills.js";
 
 const ExitOK = 0;
 const ExitMaxTurns = 3;
 const ExitHarnessError = 4;
+
+/**
+ * mcpEntrypoint is this runtime's OTHER entrypoint, beside the one now running: the MCP
+ * server a host turn delegates through (mcp.ts). It is resolved from this module's own
+ * location rather than configured, because the two are built together and shipped together —
+ * a path in the environment would be one more thing to get wrong on a host, and it would be
+ * wrong in exactly the way that leaves a turn with no delegation tools and no explanation.
+ */
+export function mcpEntrypoint(here = import.meta.url): string {
+  return fileURLToPath(new URL("./mcp.js", here));
+}
 
 /** DryRunEnv is the test seam every later step's e2e uses. */
 const DryRunEnv = "PODIUM_AGENT_DRY_RUN";
@@ -55,11 +74,16 @@ async function main(): Promise<number> {
 
   const invoke = runnerInvoke();
 
-  // Before the brief, so that even an unusable brief leaves a summary behind.
+  // Where this turn's files go. It starts as the TASK's directory, because this happens
+  // before the brief is decoded — deliberately, so that even an unusable brief leaves a
+  // summary behind — and a host turn re-points it below once the brief says so. On a host
+  // the attempt here fails and says so on stderr, which is accurate and harmless: nothing
+  // collects a host turn's files, so there is nothing to leave behind.
+  let artifacts = ArtifactsDir;
   try {
-    ensureArtifacts();
+    ensureArtifacts(artifacts);
   } catch (err) {
-    warn(`${ArtifactsDir} is not usable, so this turn will leave nothing behind: ${messageOf(err)}`);
+    warn(`${artifacts} is not usable, so this turn will leave nothing behind: ${messageOf(err)}`);
   }
 
   let brief: TurnBrief;
@@ -85,6 +109,20 @@ async function main(): Promise<number> {
     code: ExitOK,
     startedAt,
   };
+
+  // The workspace, and the artifacts directory inside it. A host turn has no /workspace:
+  // the conductor forked this process in a jail and made that the working directory, and
+  // handing the harness a directory that does not exist kills the turn before its first
+  // request ("Failed to change directory to /workspace").
+  const workspace = workspaceOf(brief);
+  if (onHost(brief)) {
+    artifacts = artifactsUnder(workspace);
+    try {
+      ensureArtifacts(artifacts);
+    } catch (err) {
+      warn(`${artifacts} is not usable: ${messageOf(err)}`);
+    }
+  }
 
   const dry = process.env[DryRunEnv] === "1";
   // One line on stderr, before anything slow: it is a task log chunk, so it is the only
@@ -191,6 +229,9 @@ async function main(): Promise<number> {
         : undefined,
       browser: browserCDP ? { cdpURL: browserCDP } : undefined,
       skills: skillRefs.map((s) => s.name),
+      delegation: brief.delegation
+        ? { url: brief.delegation.url, entry: mcpEntrypoint() }
+        : undefined,
     });
   } catch (err) {
     const why = messageOf(err);
@@ -213,7 +254,7 @@ async function main(): Promise<number> {
   try {
     const run = oc.start({
       configDir,
-      workdir: WorkspaceDir,
+      workdir: workspace,
       providerID: brief.provider.id,
       model: brief.profile.model,
       effort: brief.profile.effort,
@@ -230,7 +271,7 @@ async function main(): Promise<number> {
     run.child.stderr.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
 
     for await (const { event, raw } of oc.events(run.child)) {
-      appendTranscriptSafely(raw);
+      appendTranscriptSafely(raw, artifacts);
 
       switch (event.type) {
         case "step_start":
@@ -304,7 +345,7 @@ async function main(): Promise<number> {
     finalText = "The turn ended without an answer.";
   }
 
-  await reportTurn(invoke, summary, finalText, matchAttachments(finalText));
+  await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
   return summary.code;
 }
 
@@ -341,9 +382,9 @@ async function dryRun(
  * exactly as it arrived rather than re-serialised: the transcript is evidence of what the
  * harness said, and a re-serialisation is evidence of what this runtime understood of it.
  */
-function appendTranscriptSafely(raw: string): void {
+function appendTranscriptSafely(raw: string, dir: string): void {
   try {
-    appendTranscript(raw);
+    appendTranscript(raw, dir);
   } catch (err) {
     warn(`could not record a harness event: ${messageOf(err)}`);
   }

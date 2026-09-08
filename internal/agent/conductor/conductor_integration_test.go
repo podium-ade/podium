@@ -202,6 +202,21 @@ func inbound(ref, text string) conductor.InboundEvent {
 	}
 }
 
+// threadInbound is inbound() for a source that is a THREAD rather than a chat window: a
+// Slack mention. The difference is not cosmetic any more — a conversation may change its
+// playbook per message and a thread may not (Conductor.aConversation) — so a test about
+// thread behaviour has to use a thread's source kind.
+func threadInbound(ref, text string) conductor.InboundEvent {
+	ev := inbound(ref, text)
+	channel, thread, _ := strings.Cut(ref, "/")
+	ev.SourceKind = conductor.SourceSlack
+	ev.SourceKey = conductor.SourceSlack + ":" + channel + ":" + thread
+	ev.BriefKind = conductor.SourceSlack
+	// Only the dev source may ask for task environment, and this one is not it.
+	ev.Env = nil
+	return ev
+}
+
 // decodeBrief reads back what the conductor put on a task spec, which is the only way to
 // see the brief a turn actually ran with.
 func decodeBrief(t *testing.T, s *podiumv1.TaskSpec) conductor.Brief {
@@ -953,19 +968,19 @@ func TestAFailedTurnPostsPlainWordsAndNoRawError(t *testing.T) {
 	assert.Contains(t, reactions(records), string(conductor.ReactionFailed))
 }
 
-// One session, one playbook. A later /other in the same thread is refused politely and starts
-// nothing.
+// One THREAD, one playbook. A later /other in the same Slack thread is refused politely and
+// starts nothing. A chat window is the opposite and has its own test below.
 func TestASecondPlaybookInOneThreadIsRefused(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
 		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
 	}
-	src := fakesource.New(conductor.KindDev)
+	src := fakesource.New(conductor.SourceSlack)
 	t.Cleanup(src.Close)
 
 	ctx := context.Background()
-	ev := inbound("C1/1.1", "what is this")
+	ev := threadInbound("C1/1.1", "what is this")
 	start(t, st, fake, src)
 	require.NoError(t, src.Send(ctx, ev))
 	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
@@ -973,7 +988,7 @@ func TestASecondPlaybookInOneThreadIsRefused(t *testing.T) {
 	})
 	before := len(src.Records())
 
-	require.NoError(t, src.Send(ctx, inbound("C1/1.1", "/coder fix it")))
+	require.NoError(t, src.Send(ctx, threadInbound("C1/1.1", "/coder fix it")))
 	waitFor(t, 30*time.Second, "the refusal", func() bool { return len(src.Records()) > before })
 	time.Sleep(300 * time.Millisecond)
 
@@ -987,6 +1002,43 @@ func TestASecondPlaybookInOneThreadIsRefused(t *testing.T) {
 	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
 	require.NoError(t, err)
 	assert.Equal(t, "general", sess.Playbook, "the session keeps the playbook it started with")
+}
+
+// A CONVERSATION may change its playbook. It used to be pinned the same way a thread is, and
+// that made sense while a chat message was one playbook's task; a chat now runs an agent that
+// delegates work to whichever playbooks it needs, so pinning the window to one of them
+// restricted nothing and forced a new chat for every change of subject.
+func TestAConversationMayRunASecondPlaybook(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	ev := inbound("C1/20.1", "what is this")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+	before := len(src.Records())
+
+	second := inbound("C1/20.1", "/coder fix it")
+	require.NoError(t, src.Send(ctx, second))
+	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
+
+	assert.Empty(t, posts(src.RecordsSince(int64(before)), conductor.OutFailure),
+		"changing playbook in a conversation is not refused")
+	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Playbook.Name,
+		"the second message runs the playbook it asked for")
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "coder", sess.Playbook,
+		"the session records the playbook that actually ran, so a resumed turn is the right one")
 }
 
 // TestATypedPlaybookBeatsTheSourcesDefault is the precedence the web chat depends on. The chat
