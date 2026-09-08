@@ -25,7 +25,7 @@ const KEY_SECRET = "podium.agent.anthropic_api_key";
 const DRY_RUN = process.env.PODIUM_AGENT_DRY_RUN === "1";
 
 /**
- * anthropicCard scopes a query to one provider's card. The settings tab shows a card per
+ * anthropicCard scopes a query to one provider's card. Settings shows a card per
  * provider now, so "Not set" and "Connected" appear more than once on it.
  */
 function anthropicCard(page: Page) {
@@ -136,14 +136,9 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/settings$/);
   await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
 
-  // The Profile tab reads the profile the conductor is actually running, files and stored
-  // playbooks merged, so the directory it was loaded from is the proof it is the real one.
-  await page.getByRole("link", { name: "Profile" }).click();
-  await expect(page).toHaveURL(/\/agent\/profile$/);
-  await expect(page.getByTestId("profile-card")).toBeVisible();
-
-  // The Playbooks tab. This harness's profile comes from files, so every playbook on it must be
-  // read-only: the files are authoritative for the names they hold.
+  // Playbooks and Skills are sidebar destinations, not tabs. This harness's profile comes
+  // from files, so every playbook on it must be read-only: the files are authoritative for
+  // the names they hold.
   await page.getByRole("link", { name: "Playbooks" }).click();
   await expect(page).toHaveURL(/\/agent\/playbooks$/);
   await expect(page.getByTestId("playbook-row").first()).toBeVisible();
@@ -151,15 +146,25 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page.getByText("file · read-only").first()).toBeVisible();
   await expect(page.getByTestId("playbook-new")).toBeVisible();
 
-  // The Skills tab. Whatever this harness holds, two things have to be here: a way in, and
-  // the sentence about what a skill actually is — it runs in the turn's container with the
-  // turn's credentials, and granting one is now a click rather than a file edit.
+  // Whatever this harness holds, two things have to be here: a way in, and the sentence
+  // about what a skill actually is — it runs in the turn's container with the turn's
+  // credentials, and granting one is now a click rather than a file edit.
   await page.getByRole("link", { name: "Skills" }).click();
   await expect(page).toHaveURL(/\/agent\/skills$/);
   await expect(page.getByTestId("skill-new")).toBeVisible();
   await expect(
     page.getByText("A skill runs in the turn's container with the turn's credentials"),
   ).toBeVisible();
+
+  // Back into the talk screens: Agent in the sidebar, then the remaining tabs.
+  await page.getByRole("link", { name: "Agent" }).click();
+  await expect(page).toHaveURL(/\/agent\/chat$/);
+
+  // The Profile tab reads the profile the conductor is actually running, files and stored
+  // playbooks merged, so the directory it was loaded from is the proof it is the real one.
+  await page.getByRole("link", { name: "Profile" }).click();
+  await expect(page).toHaveURL(/\/agent\/profile$/);
+  await expect(page.getByTestId("profile-card")).toBeVisible();
 
   await page.getByRole("link", { name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/agent\/sessions$/);
@@ -197,6 +202,7 @@ test("the agent page makes no third-party requests", async ({ page }) => {
     "/agent/settings",
     "/agent/profile",
     "/agent/playbooks",
+    "/agent/skills",
     "/agent/sessions",
     "/agent/memory",
     "/agent/chat",

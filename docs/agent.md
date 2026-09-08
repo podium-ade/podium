@@ -544,7 +544,7 @@ UI does not — see *Playbooks in the web UI* below.
 
 ### Playbooks in the web UI
 
-A profile does not have to live only on the conductor's host. **Agent → Playbooks** in the web UI
+A profile does not have to live only on the conductor's host. **Playbooks** in the sidebar
 creates, edits and deletes playbooks, and **Agent → Profile** sets the display name, the model and
 the two default playbooks, so a playbook's image, prompt, tools, limits, environment and the secrets
 it names are defined in a browser instead of by editing YAML over SSH.
@@ -712,7 +712,7 @@ left unchecked — the provider gets to be the one that refuses it.
 whether a credential for it is stored. The web UI's picker is built from it, and so is the
 validation a save is held to — one list, so the two cannot drift.
 
-<!-- screenshot: the agent/model picker open on the Playbooks tab, Claude and Grok grouped -->
+<!-- screenshot: the agent/model picker open on Playbooks, Claude and Grok grouped -->
 
 Picking a model picks its backend, because a model only runs on one. The effort strip re-renders
 per model. A backend with no credential is still selectable — an operator may be setting the two
@@ -723,12 +723,13 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Agent → Settings** has one card per provider.
+operator sets it. **Settings**, under the profile picture in the sidebar, has one card per
+provider.
 
-Open the UI, click **Agent** in the header (it is only there when `PODIUM_AGENT_URL` is set on
-the server) and you land on **Agent → Settings**.
+Open the UI and click **Settings** under the signed-in identity at the bottom of the sidebar
+(it is only there when `PODIUM_AGENT_URL` is set on the server).
 
-<!-- screenshot: the Agent → Settings tab, an Anthropic card and an xAI card, neither set -->
+<!-- screenshot: Settings, an Anthropic card and an xAI card, neither set -->
 
 Paste the key and press **Validate & save**. What happens, in order:
 
@@ -1586,7 +1587,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | the Settings tab: one card per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one card per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
@@ -1678,8 +1679,8 @@ bridge gateway. The dev compose publishes it on loopback only, which is fine for
 and **not** for a task — set `PODIUM_MEMORY_BIND=0.0.0.0` if you want a real turn to recall.
 
 Without the Slack tokens and the Linear key it starts and listens to nothing, which is a fine way
-to check the profile loads and the database migrates — and it is enough for the Agent screen in the UI: the
-Settings tab needs no source at all.
+to check the profile loads and the database migrates — and it is enough for the Agent screen in the UI: Settings
+needs no source at all.
 
 To drive one turn with no Slack and no model at all, see
 [`../examples/agent/README.md`](../examples/agent/README.md), which runs the runtime image
