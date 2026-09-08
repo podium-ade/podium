@@ -233,7 +233,7 @@ export function AgentPicker({
       {backend && !backend.ready ? (
         <Alert variant="warn" data-testid="agent-picker-unready">
           No {backend.provider === "xai" ? "xAI" : "Anthropic"} credential is stored, so a turn
-          on {backend.displayName} will fail. Set one on the Settings tab — this choice is
+          on {backend.displayName} will fail. Set one in Settings — this choice is
           saved either way.
         </Alert>
       ) : null}

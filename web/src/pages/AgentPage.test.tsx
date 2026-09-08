@@ -190,35 +190,42 @@ describe("AgentPage", () => {
       "aria-current",
       "page",
     );
-    // The tabs this build ships. This assertion exists so a tab cannot appear without a
-    // test noticing: add the line to the tabs array and this list together.
+    // The tabs this build ships. Playbooks, Skills and Settings live in the app sidebar,
+    // so they must not appear here. Add a line to the tabs array and this list together.
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
       "Chat",
       "Sessions",
       "Memory",
       "Profile",
-      "Playbooks",
-      "Skills",
-      "Settings",
     ]);
 
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("link", { name: "Settings" }));
-    expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: "Profile" }));
+    expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
   });
 
   it("shows the profile and the playbooks on their own routes", async () => {
     mount("/agent/profile");
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
+  });
 
-    await userEvent.click(screen.getByRole("link", { name: "Playbooks" }));
+  it("renders playbooks without the talk tabs", async () => {
+    mount("/agent/playbooks");
     // The image is the headline of a playbook row: it is the unit of capability.
     expect(await screen.findByTestId("playbook-image")).toHaveTextContent(
       "podium-agent-runtime:dev",
     );
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
+  });
+
+  it("renders settings without the talk tabs", async () => {
+    mount("/agent/settings");
+    expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("keeps the Chat tab active on a deep link to one chat", async () => {
