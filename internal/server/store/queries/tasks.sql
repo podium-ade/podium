@@ -19,6 +19,10 @@ where (cardinality(@statuses::text[]) = 0 or status = any (@statuses::text[]))
   and (@search::text = ''
        or starts_with(id, @search::text)
        or strpos(lower(spec ->> 'image'), lower(@search::text)) > 0)
+  and (sqlc.narg('created_after')::timestamptz is null
+       or created_at >= sqlc.narg('created_after')::timestamptz)
+  and (sqlc.narg('created_before')::timestamptz is null
+       or created_at < sqlc.narg('created_before')::timestamptz)
   and (@after_id::text = '' or id < @after_id::text)
 order by id desc
 limit @page_limit::int;

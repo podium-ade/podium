@@ -369,7 +369,13 @@ type TaskFilter struct {
 	RequestedBy string                 `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
 	// search narrows the page to tasks whose id starts with it or whose image contains it,
 	// case-insensitively. It is a substring match, not a query language.
-	Search        string `protobuf:"bytes,4,opt,name=search,proto3" json:"search,omitempty"`
+	Search string `protobuf:"bytes,4,opt,name=search,proto3" json:"search,omitempty"`
+	// created_after and created_before bound the page by creation time — after is inclusive,
+	// before is exclusive. Either one unset leaves that side unbounded. They exist for the
+	// usage screen, which asks a calendar question ("what ran in September?") that an id
+	// cursor alone cannot answer.
+	CreatedAfter  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_after,json=createdAfter,proto3" json:"created_after,omitempty"`
+	CreatedBefore *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_before,json=createdBefore,proto3" json:"created_before,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -430,6 +436,20 @@ func (x *TaskFilter) GetSearch() string {
 		return x.Search
 	}
 	return ""
+}
+
+func (x *TaskFilter) GetCreatedAfter() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAfter
+	}
+	return nil
+}
+
+func (x *TaskFilter) GetCreatedBefore() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedBefore
+	}
+	return nil
 }
 
 type Page struct {
@@ -772,13 +792,15 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\x0eGetTaskRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\"6\n" +
 	"\x0fGetTaskResponse\x12#\n" +
-	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"\x8f\x01\n" +
+	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"\x93\x02\n" +
 	"\n" +
 	"TaskFilter\x12-\n" +
 	"\x06status\x18\x01 \x03(\x0e2\x15.podium.v1.TaskStatusR\x06status\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12!\n" +
 	"\frequested_by\x18\x03 \x01(\tR\vrequestedBy\x12\x16\n" +
-	"\x06search\x18\x04 \x01(\tR\x06search\"4\n" +
+	"\x06search\x18\x04 \x01(\tR\x06search\x12?\n" +
+	"\rcreated_after\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\x12A\n" +
+	"\x0ecreated_before\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore\"4\n" +
 	"\x04Page\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"f\n" +
@@ -852,25 +874,27 @@ var file_podium_v1_task_proto_depIdxs = []int32{
 	0,  // 8: podium.v1.CreateTaskResponse.task:type_name -> podium.v1.Task
 	0,  // 9: podium.v1.GetTaskResponse.task:type_name -> podium.v1.Task
 	13, // 10: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
-	5,  // 11: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
-	6,  // 12: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
-	0,  // 13: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
-	0,  // 14: podium.v1.CancelTaskResponse.task:type_name -> podium.v1.Task
-	1,  // 15: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
-	3,  // 16: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
-	7,  // 17: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
-	9,  // 18: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
-	11, // 19: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
-	2,  // 20: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
-	4,  // 21: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
-	8,  // 22: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
-	10, // 23: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
-	16, // 24: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
-	20, // [20:25] is the sub-list for method output_type
-	15, // [15:20] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	14, // 11: podium.v1.TaskFilter.created_after:type_name -> google.protobuf.Timestamp
+	14, // 12: podium.v1.TaskFilter.created_before:type_name -> google.protobuf.Timestamp
+	5,  // 13: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
+	6,  // 14: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
+	0,  // 15: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
+	0,  // 16: podium.v1.CancelTaskResponse.task:type_name -> podium.v1.Task
+	1,  // 17: podium.v1.TaskService.CreateTask:input_type -> podium.v1.CreateTaskRequest
+	3,  // 18: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
+	7,  // 19: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
+	9,  // 20: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
+	11, // 21: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
+	2,  // 22: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
+	4,  // 23: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
+	8,  // 24: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
+	10, // 25: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
+	16, // 26: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
+	22, // [22:27] is the sub-list for method output_type
+	17, // [17:22] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_task_proto_init() }

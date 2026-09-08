@@ -40,6 +40,8 @@ const (
 	AgentServiceGetSessionProcedure = "/podium.agent.v1.AgentService/GetSession"
 	// AgentServiceListTurnsProcedure is the fully-qualified name of the AgentService's ListTurns RPC.
 	AgentServiceListTurnsProcedure = "/podium.agent.v1.AgentService/ListTurns"
+	// AgentServiceGetUsageProcedure is the fully-qualified name of the AgentService's GetUsage RPC.
+	AgentServiceGetUsageProcedure = "/podium.agent.v1.AgentService/GetUsage"
 	// AgentServiceGetSettingsProcedure is the fully-qualified name of the AgentService's GetSettings
 	// RPC.
 	AgentServiceGetSettingsProcedure = "/podium.agent.v1.AgentService/GetSettings"
@@ -122,6 +124,14 @@ type AgentServiceClient interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// ListTurns returns one session's turns, newest first.
 	ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error)
+	// GetUsage reports what the conductor spent over a range: a total per day for the
+	// calendar, and the cost of each individual turn keyed by the task it ran as.
+	//
+	// It answers only for turns. The tasks themselves live in the control plane's database,
+	// which this one deliberately does not reference, so the browser asks both and joins them
+	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
+	// a cost of zero.
+	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// GetSettings reports what the conductor is configured with. It reads no secret value:
 	// there is no read endpoint on the secret store, by design.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
@@ -239,6 +249,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceListTurnsProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ListTurns")),
+			connect.WithClientOptions(opts...),
+		),
+		getUsage: connect.NewClient[v1.GetUsageRequest, v1.GetUsageResponse](
+			httpClient,
+			baseURL+AgentServiceGetUsageProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
 			connect.WithClientOptions(opts...),
 		),
 		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
@@ -411,6 +427,7 @@ type agentServiceClient struct {
 	listSessions          *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
 	getSession            *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
 	listTurns             *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	getUsage              *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	getSettings           *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	setProviderKey        *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
 	clearProviderKey      *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
@@ -453,6 +470,11 @@ func (c *agentServiceClient) GetSession(ctx context.Context, req *connect.Reques
 // ListTurns calls podium.agent.v1.AgentService.ListTurns.
 func (c *agentServiceClient) ListTurns(ctx context.Context, req *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error) {
 	return c.listTurns.CallUnary(ctx, req)
+}
+
+// GetUsage calls podium.agent.v1.AgentService.GetUsage.
+func (c *agentServiceClient) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
+	return c.getUsage.CallUnary(ctx, req)
 }
 
 // GetSettings calls podium.agent.v1.AgentService.GetSettings.
@@ -597,6 +619,14 @@ type AgentServiceHandler interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// ListTurns returns one session's turns, newest first.
 	ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error)
+	// GetUsage reports what the conductor spent over a range: a total per day for the
+	// calendar, and the cost of each individual turn keyed by the task it ran as.
+	//
+	// It answers only for turns. The tasks themselves live in the control plane's database,
+	// which this one deliberately does not reference, so the browser asks both and joins them
+	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
+	// a cost of zero.
+	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// GetSettings reports what the conductor is configured with. It reads no secret value:
 	// there is no read endpoint on the secret store, by design.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
@@ -710,6 +740,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceListTurnsProcedure,
 		svc.ListTurns,
 		connect.WithSchema(agentServiceMethods.ByName("ListTurns")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetUsageHandler := connect.NewUnaryHandler(
+		AgentServiceGetUsageProcedure,
+		svc.GetUsage,
+		connect.WithSchema(agentServiceMethods.ByName("GetUsage")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetSettingsHandler := connect.NewUnaryHandler(
@@ -882,6 +918,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetSessionHandler.ServeHTTP(w, r)
 		case AgentServiceListTurnsProcedure:
 			agentServiceListTurnsHandler.ServeHTTP(w, r)
+		case AgentServiceGetUsageProcedure:
+			agentServiceGetUsageHandler.ServeHTTP(w, r)
 		case AgentServiceGetSettingsProcedure:
 			agentServiceGetSettingsHandler.ServeHTTP(w, r)
 		case AgentServiceSetProviderKeyProcedure:
@@ -955,6 +993,10 @@ func (UnimplementedAgentServiceHandler) GetSession(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) ListTurns(context.Context, *connect.Request[v1.ListTurnsRequest]) (*connect.Response[v1.ListTurnsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListTurns is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetUsage is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {

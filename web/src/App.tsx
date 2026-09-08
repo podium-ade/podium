@@ -11,6 +11,7 @@ import { SecretsPage } from "./pages/SecretsPage";
 import { SubmitPage } from "./pages/SubmitPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
+import { UsagePage } from "./pages/UsagePage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -52,6 +53,7 @@ export function App() {
                 <Route element={<Shell />}>
                   <Route path="/" element={<TasksPage />} />
                   <Route path="/tasks/:id" element={<TaskDetailPage />} />
+                  <Route path="/usage" element={<UsagePage />} />
                   <Route path="/submit" element={<SubmitPage />} />
                   <Route path="/nodes" element={<NodesPage />} />
                   <Route path="/secrets" element={<SecretsPage />} />

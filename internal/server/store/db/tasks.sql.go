@@ -346,18 +346,24 @@ where (cardinality($1::text[]) = 0 or status = any ($1::text[]))
   and ($4::text = ''
        or starts_with(id, $4::text)
        or strpos(lower(spec ->> 'image'), lower($4::text)) > 0)
-  and ($5::text = '' or id < $5::text)
+  and ($5::timestamptz is null
+       or created_at >= $5::timestamptz)
+  and ($6::timestamptz is null
+       or created_at < $6::timestamptz)
+  and ($7::text = '' or id < $7::text)
 order by id desc
-limit $6::int
+limit $8::int
 `
 
 type ListTasksParams struct {
-	Statuses    []string
-	NodeID      string
-	RequestedBy string
-	Search      string
-	AfterID     string
-	PageLimit   int32
+	Statuses      []string
+	NodeID        string
+	RequestedBy   string
+	Search        string
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+	AfterID       string
+	PageLimit     int32
 }
 
 // The search clause uses starts_with/strpos rather than like, so a user typing % or _ is
@@ -368,6 +374,8 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 		arg.NodeID,
 		arg.RequestedBy,
 		arg.Search,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
 		arg.AfterID,
 		arg.PageLimit,
 	)

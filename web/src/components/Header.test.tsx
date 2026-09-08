@@ -85,4 +85,15 @@ describe("Header", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
   });
+
+  // Cost is recorded per agent turn, so on a control plane with no conductor the Usage
+  // screen has nothing to report and is hidden on the same signal.
+  it("gates Usage on the conductor, like Agent", () => {
+    const { unmount } = mount(base);
+    expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
+    unmount();
+
+    mount({ ...base, agentEnabled: true });
+    expect(screen.getByRole("link", { name: "Usage" })).toHaveAttribute("href", "/usage");
+  });
 });
