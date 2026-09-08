@@ -7,7 +7,7 @@
  * and a day on this screen are the same day — the operator's, not the server's.
  */
 
-import type { TaskCost, UsageDay } from "../gen/podium/agent/v1/agent_pb";
+import type { TaskCost, UsageBackend, UsageDay } from "../gen/podium/agent/v1/agent_pb";
 
 /** The offset the conductor is asked to bucket by: east-positive, unlike the browser's. */
 export function tzOffsetMinutes(d = new Date()): number {
@@ -211,4 +211,26 @@ export function breakdown(costs: TaskCost[], pick: (c: TaskCost) => string): Sli
     totals.set(key, cur);
   }
   return [...totals.values()].sort((a, b) => b.cost - a.cost || b.turns - a.turns);
+}
+
+/**
+ * isUnrecorded marks the bucket for turns that ran before the conductor wrote down what they
+ * ran on. Every field is empty together, which is why one check answers for all of them —
+ * and why it is not the same as a recorded turn whose effort is simply the model's default.
+ */
+export function isUnrecorded(b: UsageBackend): boolean {
+  return b.provider === "" && b.agent === "" && b.model === "";
+}
+
+/** backendSummary is the sentence above the by-model table. It counts only what is attributed. */
+export function backendSummary(backends: UsageBackend[]): string {
+  const known = backends.filter((b) => !isUnrecorded(b));
+  if (known.length === 0) return "Nothing in this range recorded what it ran on.";
+  const models = new Set(known.map((b) => b.model)).size;
+  const providers = new Set(known.map((b) => b.provider)).size;
+  const spent = usdShort(known.reduce((s, b) => s + b.costUsd, 0));
+  return (
+    `${models} ${models === 1 ? "model" : "models"} across ` +
+    `${providers} ${providers === 1 ? "provider" : "providers"}, ${spent} attributed.`
+  );
 }

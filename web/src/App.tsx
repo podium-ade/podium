@@ -53,7 +53,7 @@ export function App() {
                 <Route element={<Shell />}>
                   <Route path="/" element={<TasksPage />} />
                   <Route path="/tasks/:id" element={<TaskDetailPage />} />
-                  <Route path="/usage" element={<UsagePage />} />
+                  <Route path="/usage/*" element={<UsagePage />} />
                   <Route path="/submit" element={<SubmitPage />} />
                   <Route path="/nodes" element={<NodesPage />} />
                   <Route path="/secrets" element={<SecretsPage />} />

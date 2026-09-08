@@ -93,4 +93,8 @@ type Turn struct {
 	NumTurns   *int32
 	CostUsd    *float64
 	FinalText  *string
+	Agent      *string
+	Model      *string
+	Effort     *string
+	Provider   *string
 }

@@ -335,6 +335,12 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 	assert.InDelta(t, 0.0123, *turn.CostUSD, 1e-9)
 	assert.Equal(t, "it dereferences the first label. See out.png.", turn.FinalText)
 
+	// And what it ran on, recorded when it started rather than read back off the playbook —
+	// which a per-turn override or a later edit could both have moved since.
+	assert.NotEmpty(t, turn.Backend.Agent, "the turn records the backend it resolved to")
+	assert.NotEmpty(t, turn.Backend.Model)
+	assert.NotEmpty(t, turn.Backend.Provider, "and the provider that gets billed for it")
+
 	// Two messages were said, so two seqs are claimed. The log chunk is not one of them.
 	relayed, err := st.CountRelayed(ctx, taskID)
 	require.NoError(t, err)
@@ -1138,7 +1144,7 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:1.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	orphan, err := st.CreateTurn(ctx, sess.ID, "C1/1.1")
+	orphan, err := st.CreateTurn(ctx, sess.ID, "C1/1.1", store.Backend{})
 	require.NoError(t, err)
 
 	start(t, st, fake, src)

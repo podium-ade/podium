@@ -78,9 +78,21 @@ the screen's totals are summed from *those* and never from the page: a busy rang
 under-report its own bill.
 
 The screen picks the range: today, the last 2, 7, 30 or 90 days, this month, last month, or two
-dates of the operator's own. Every range is a whole number of local days, and it asks for the
-window *before* the selected one in the same call, which is what the "vs" figure is measured
-against. A trailing range ends at the end of today, so today's spend is in it.
+dates of the operator's own. Every range is a whole number of local days, and a trailing range
+ends at the end of today, so today's spend is in it.
+
+`compare_from` reaches further back for the **day rows and nothing else**, so one call draws the
+range's trend and also totals the window before it for the "vs" figure. Widening `from` instead
+would fold that window into the backend grouping and the totals, and report a week's spend as a
+fortnight's.
+
+**What each turn ran on** — `turns.agent`, `turns.model`, `turns.effort` and `turns.provider` —
+is written when the turn starts, from the same `profile.Resolve(playbook, override)` the brief
+and the task spec are built from, so all three agree by construction. It is never read back off
+the playbook: the chat's picker overrides the model for a single turn, and editing a playbook
+would otherwise relabel every turn that ever ran under it. `GetUsage` groups on those four and
+returns `backends`, most expensive first. Turns from before this was recorded have all four
+empty and group as one unrecorded bucket — their cost is real, only the attribution is missing.
 
 The offset exists because a day is the operator's, not the server's. A turn at 22:00 in New York
 belongs to that evening, and bucketing in UTC would file it under the next morning.
