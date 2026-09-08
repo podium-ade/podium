@@ -33,7 +33,9 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/conductor/fakesource"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
 // hostFakeEnv turns this binary into a host turn's runtime. hostFakeExitEnv is the code it
@@ -457,4 +459,50 @@ func TestTheConductorStoppingMidHostTurnStillRecordsIt(t *testing.T) {
 	turn := turnOf(t, st, ev.SourceKey)
 	assert.Equal(t, "cancelled before finishing", turn.FinalText)
 	assert.Empty(t, turn.TaskID)
+}
+
+// TestAnAssistantTurnThatRunsOutOfTimeIsStopped. It is the only automatic stop an assistant
+// turn has: no container, no node, and no step cap unless profile.yaml asks for one. So the
+// clock has to actually fire, kill the runtime, and leave the conversation told why.
+func TestAnAssistantTurnThatRunsOutOfTimeIsStopped(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	// A profile whose assistant gets two seconds, and a runtime that will not finish.
+	profile := testProfile(t)
+	profile.Timeout = spec.Duration(2 * time.Second)
+	startWith(t, st, fake, src, func(o *conductor.Options) {
+		o.Host = hostRuntime(t, "sk-test")
+		o.Profiles = profiles.NewLive(profile)
+	})
+
+	ev := inbound("C1/18.1", "wait for ever")
+	// The hang mode reports on SIGTERM and never exits on its own, which is what a stuck
+	// turn looks like from here.
+	ev.Env = hostEnv(map[string]string{hostFakeHangEnv: "1"})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 60*time.Second, "the turn to be stopped by its clock", func() bool {
+		return turnStatus(st, ev.SourceKey) != "" && turnStatus(st, ev.SourceKey) != store.TurnRunning
+	})
+
+	// Failed, not cancelled: nobody asked for this turn to end.
+	assert.Equal(t, store.TurnFailed, turnStatus(st, ev.SourceKey))
+	// It still said what it managed — the runtime gets SIGTERM and hostGrace, exactly as a
+	// cancelled turn does — so the clock is a stop and not a gag.
+	joined := strings.Join(textsOf(src.Records()), "\n")
+	assert.Contains(t, joined, "still working", "a stopped turn still relays what it had")
+	// And no task was created: the assistant's clock bounds the assistant.
+	assert.Empty(t, fake.Specs())
+}
+
+// textsOf is every record's text, for asserting on what a conversation was told.
+func textsOf(records []fakesource.Record) []string {
+	out := make([]string, 0, len(records))
+	for _, rec := range records {
+		out = append(out, rec.Text)
+	}
+	return out
 }
