@@ -122,12 +122,6 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			AppToken: cfg.SlackAppToken,
 			BotToken: cfg.SlackBotToken,
 			Logger:   logger,
-			// A reply in a thread the bot is already in continues the conversation without
-			// a mention. The source asks rather than reading the store itself.
-			KnownSession: func(ctx context.Context, sourceKey string) bool {
-				_, err := st.GetSessionByKey(ctx, sourceKey)
-				return err == nil
-			},
 		})
 		if err != nil {
 			st.Close()
