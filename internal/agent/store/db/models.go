@@ -49,6 +49,20 @@ type ChatPullRequest struct {
 	DetachedAt *time.Time
 }
 
+type Delegation struct {
+	ID          string
+	SessionID   string
+	TurnID      string
+	TriggerRef  string
+	Playbook    string
+	Instruction string
+	TaskID      *string
+	Status      string
+	FinalText   *string
+	CreatedAt   time.Time
+	FinishedAt  *time.Time
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time

@@ -238,9 +238,12 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	return msg, nil
 }
 
-// remember records the playbook this chat started with and names it from the first query.
-// Both writes are first-wins: a later message cannot change either, and a title the caller
-// supplied at create is left alone.
+// remember records the playbook this message ran and names the chat from the first query.
+//
+// The playbook is NOT first-wins any more: a chat is a conversation with an agent that
+// delegates, not one playbook's task, so the person may pick a different playbook for every
+// message and this row follows them. The title still is: one is chosen once, and a title the
+// caller supplied at create is left alone.
 func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest) {
 	playbook := req.Playbook
 	if playbook == "" {
@@ -250,7 +253,7 @@ func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest)
 			playbook = s.playbook()
 		}
 	}
-	if chat.Playbook == "" && playbook != "" {
+	if playbook != "" && chat.Playbook != playbook {
 		updated, err := s.store.SetChatPlaybook(ctx, req.ChatID, playbook)
 		if err != nil {
 			s.logger.WarnContext(ctx, "recording the chat's playbook failed",

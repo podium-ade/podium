@@ -5,7 +5,9 @@
 import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** ArtifactsDir is AutoArtifactDir: every regular file under it becomes an artifact. */
+/** ArtifactsDir is AutoArtifactDir: every regular file under it becomes an artifact. It is
+ * the TASK's; a host turn has no node collecting files and works out of a jail, so it passes
+ * its own directory to each function below (artifactsUnder in repos.ts). */
 export const ArtifactsDir = "/workspace/.podium/artifacts";
 
 /** TranscriptName holds one JSON line per SDK message. */

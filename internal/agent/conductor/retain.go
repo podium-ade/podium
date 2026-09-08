@@ -47,7 +47,7 @@ func (r *turnRun) retain(ctx context.Context, status string) {
 	if c.memories == nil {
 		return
 	}
-	answer := strings.TrimSpace(strings.Join(r.finals, "\n\n"))
+	answer := strings.TrimSpace(r.answer())
 	if !retainable(r.src.Kind(), status, answer) {
 		return
 	}

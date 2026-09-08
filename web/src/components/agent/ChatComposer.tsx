@@ -21,11 +21,6 @@ export interface ChatComposerProps {
   /** playbook is the playbook the next message will use. */
   playbook: string;
   onPlaybookChange: (name: string) => void;
-  /**
-   * playbookLocked is true once this conversation has started: one chat, one playbook.
-   * The chip still shows which playbook it is, but switching it is refused — start a new chat.
-   */
-  playbookLocked?: boolean;
   /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
   disabled: boolean;
   /** The backend catalogue, for the model picker. Empty while it loads. */
@@ -51,7 +46,6 @@ export function ChatComposer({
   playbooks,
   playbook,
   onPlaybookChange,
-  playbookLocked = false,
   disabled,
   agents,
   choice,
@@ -77,12 +71,7 @@ export function ChatComposer({
   const retype = (next: string) => {
     setText(next);
     const m = PLAYBOOK_PREFIX.exec(next);
-    if (
-      m &&
-      m[1] !== playbook &&
-      !playbookLocked &&
-      playbooks.some((s) => s.name === m[1])
-    ) {
+    if (m && m[1] !== playbook && playbooks.some((s) => s.name === m[1])) {
       onPlaybookChange(m[1]);
     }
   };
@@ -126,7 +115,6 @@ export function ChatComposer({
               playbook={playbook}
               onChange={onPlaybookChange}
               disabled={disabled}
-              locked={playbookLocked}
             />
             {/* The model is chosen per MESSAGE, beside the playbook and not inside it. A playbook
                 is "which job"; the model is "what runs it". Folding the second into the
@@ -260,32 +248,30 @@ function playbookRuns(playbooks: Playbook[], playbook: string): string {
  *
  * It used to cycle on click, which hid every option but the next one and did not scale past
  * two or three playbooks. The menu is portaled and prefers the side with room — same rule as
- * the model picker — so it cannot open off the bottom of the composer. Once the chat has a
- * playbook the chip is locked: it still names the one running, but there is nothing to open.
+ * the model picker — so it cannot open off the bottom of the composer.
+ *
+ * It used to LOCK once the chat had run a playbook, and no longer does. That made sense while
+ * a chat message was one playbook's task; now a chat is a conversation with an agent that
+ * delegates work to whichever playbooks it needs, so pinning the window to one restricted
+ * nothing and forced a new chat for every change of subject.
  */
 function PlaybookChip({
   playbooks,
   playbook,
   onChange,
   disabled,
-  locked,
 }: {
   playbooks: Playbook[];
   playbook: string;
   onChange: (name: string) => void;
   disabled: boolean;
-  locked: boolean;
 }) {
   const [open, setOpen] = useState(false);
   if (playbooks.length === 0) return null;
   const at = playbooks.findIndex((s) => s.name === playbook);
   const current = at >= 0 ? playbooks[at] : playbooks[0];
   const alone = playbooks.length === 1;
-  const label = locked
-    ? `This chat runs /${current.name}. Start a new chat to use a different playbook.`
-    : current.hint
-      ? `${current.hint} · ${current.image}`
-      : current.image;
+  const label = current.hint ? `${current.hint} · ${current.image}` : current.image;
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
@@ -296,20 +282,14 @@ function PlaybookChip({
             variant="secondary"
             size="sm"
             data-testid="chat-playbook"
-            disabled={disabled || locked || alone}
+            disabled={disabled || alone}
             aria-haspopup="listbox"
             aria-expanded={open}
-            aria-label={
-              locked
-                ? `Playbook: ${current.name}. This chat keeps the playbook it started with.`
-                : alone
-                  ? `Playbook: ${current.name}`
-                  : `Playbook: ${current.name}. Open to switch.`
-            }
+            aria-label={alone ? `Playbook: ${current.name}` : `Playbook: ${current.name}. Open to switch.`}
             className="font-mono"
           >
             /{current.name}
-            {alone || locked ? null : <ChevronDown />}
+            {alone ? null : <ChevronDown />}
           </Button>
         </PopoverTrigger>
       </Tooltip>

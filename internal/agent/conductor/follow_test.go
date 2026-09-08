@@ -262,10 +262,10 @@ func TestGivingUpOnATaskCancelsIt(t *testing.T) {
 			tasks := &scriptedTasks{cancelErr: tc.fail}
 			var logged bytes.Buffer
 			r := &turnRun{
-				c: &Conductor{
+				sink: &sink{c: &Conductor{
 					podium: &podium.Client{Tasks: serveTasks(t, tasks)},
 					logger: slog.New(slog.NewTextHandler(&logged, nil)),
-				},
+				}},
 				turn: store.Turn{ID: "turn_01", TaskID: "task_01"},
 			}
 

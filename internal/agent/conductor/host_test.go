@@ -66,14 +66,18 @@ func TestHostOutcomeReadsTheRuntimesExitCode(t *testing.T) {
 }
 
 func TestFenceForHostTakesAwayEverythingAHostTurnMustNotHave(t *testing.T) {
-	c := &Conductor{host: &HostRuntime{MemoryMCPURL: "http://127.0.0.1:8888/mcp/podium/"}}
+	c := &Conductor{host: &HostRuntime{
+		MemoryMCPURL: "http://127.0.0.1:8888/mcp/podium/",
+		TurnURL:      "http://127.0.0.1:8090",
+	}}
 	b := &Brief{
 		Playbook: BriefPlaybook{AllowedTools: []string{"bash", "read", "write", "edit"}},
 		Repos:    []BriefRepo{{Name: "podium", URL: "https://example.test/podium", DefaultBranch: "main"}},
 		Browser:  &BriefBrowser{CDPURL: "http://chrome:9222"},
 		Memory:   &BriefMemory{MCPURL: "http://host.docker.internal:8888/mcp/podium/", APIKeyEnv: "K"},
 	}
-	c.fenceForHost(b)
+	menu := []DelegablePlaybook{{Name: "podium", Summary: "develops Podium itself", Docker: true}}
+	c.fenceForHost(b, menu)
 
 	assert.Equal(t, hostTools, b.Playbook.AllowedTools, "the playbook's tools are not a host turn's")
 	assert.Nil(t, b.Repos, "a host turn clones nothing")
@@ -82,12 +86,31 @@ func TestFenceForHostTakesAwayEverythingAHostTurnMustNotHave(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:8888/mcp/podium/", b.Memory.MCPURL,
 		"host.docker.internal resolves in a container and nowhere else")
 	assert.Equal(t, "K", b.Memory.APIKeyEnv)
+
+	// The tools were taken away on the understanding that the work goes to a container, so
+	// the menu that makes that possible has to be in the brief.
+	require.NotNil(t, b.Delegation, "a host turn with nowhere to delegate is a turn that can only talk")
+	assert.Equal(t, "http://127.0.0.1:8090", b.Delegation.URL)
+	assert.Equal(t, TurnTokenEnv, b.Delegation.TokenEnv)
+	assert.Equal(t, menu, b.Delegation.Playbooks)
+}
+
+func TestFenceForHostOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
+	c := &Conductor{host: &HostRuntime{}}
+	b := &Brief{Playbook: BriefPlaybook{AllowedTools: []string{"bash"}}}
+	c.fenceForHost(b, []DelegablePlaybook{{Name: "podium"}})
+	assert.Nil(t, b.Delegation, "no address to reach the conductor at is no delegation")
+
+	c = &Conductor{host: &HostRuntime{TurnURL: "http://127.0.0.1:8090"}}
+	b = &Brief{Playbook: BriefPlaybook{AllowedTools: []string{"bash"}}}
+	c.fenceForHost(b, nil)
+	assert.Nil(t, b.Delegation, "an empty menu is not a menu")
 }
 
 func TestFenceForHostDropsMemoryThisHostCannotReach(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Memory: &BriefMemory{MCPURL: "http://host.docker.internal:8888/", APIKeyEnv: "K"}}
-	c.fenceForHost(b)
+	c.fenceForHost(b, nil)
 	assert.Nil(t, b.Memory, "the runtime fails a turn whose memory server it cannot reach")
 }
 

@@ -491,7 +491,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 
 const setChatPlaybook = `-- name: SetChatPlaybook :one
 update chats set playbook = $1
-where id = $2 and playbook = ''
+where id = $2
 returning id, title, login, created_at, playbook, auto_title
 `
 
@@ -500,8 +500,9 @@ type SetChatPlaybookParams struct {
 	ID       string
 }
 
-// SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
-// already set: one chat, one playbook, fixed at the first message.
+// SetChatPlaybook records the playbook a chat's LATEST message ran. It is not first-wins:
+// a conversation is no longer one playbook's work, so the person may pick a different one
+// per message and the agent answering may delegate to any of them.
 func (q *Queries) SetChatPlaybook(ctx context.Context, arg SetChatPlaybookParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, setChatPlaybook, arg.Playbook, arg.ID)
 	var i Chat

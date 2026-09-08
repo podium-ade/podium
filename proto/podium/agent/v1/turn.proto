@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package podium.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TurnService is what a TURN may ask of the conductor, and it is deliberately a service of
+// its own rather than more methods on AgentService.
+//
+// Two reasons. It is authenticated differently: every call presents a per-turn token the
+// conductor minted for one host turn, scoped to that turn's own conversation and revoked
+// when the turn ends — not the operator bearer, which can rewrite a profile and read every
+// session. And it is not proxied: podium-server mounts
+// `/podium.agent.v1.AgentService/` and nothing else, so this surface is reachable only from
+// the conductor's own host, which is where a host turn runs.
+//
+// The caller is agent/runtime/src/mcp.ts, the MCP server beside a host turn. It speaks
+// Connect's JSON protocol with plain fetch rather than generated code, so nothing here may
+// depend on a client stub existing.
+service TurnService {
+  // Delegate starts a Podium task for this turn's conversation and returns immediately. A
+  // task can run for hours; nothing here waits for one.
+  rpc Delegate(DelegateRequest) returns (DelegateResponse);
+
+  // GetDelegation reports where a delegated task has got to, and its answer once it has
+  // one. This is what a turn polls.
+  rpc GetDelegation(GetDelegationRequest) returns (GetDelegationResponse);
+
+  // ListDelegations is everything this turn has delegated, oldest first.
+  rpc ListDelegations(ListDelegationsRequest) returns (ListDelegationsResponse);
+
+  // CancelDelegation stops a delegated task. The same cancel `podium task cancel` performs,
+  // so the node sends the same SIGTERM and honours the same grace.
+  rpc CancelDelegation(CancelDelegationRequest) returns (CancelDelegationResponse);
+}
+
+// Delegation is one task a turn asked for.
+message Delegation {
+  string id = 1;
+  // playbook is the playbook the task runs, which decides its image, its tools, its
+  // credentials and the node it can be placed on.
+  string playbook = 2;
+  // instruction is what the turn asked for, verbatim.
+  string instruction = 3;
+  // task_id is empty only in the moment between the delegation being recorded and the
+  // control plane accepting the task.
+  string task_id = 4;
+  // status is running, succeeded, failed, lost, cancelled or timeout — the turns table's
+  // vocabulary, because one classify() maps a terminal task onto both.
+  string status = 5;
+  // final_text is what the task said as its answer. Empty until it says something, and it
+  // stays empty for a task that never did.
+  string final_text = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+}
+
+message DelegateRequest {
+  // playbook must be one of the playbooks this turn's brief offered. A name that is not on
+  // that list is refused rather than resolved, so a turn cannot reach a playbook by
+  // guessing at its name.
+  string playbook = 1;
+  // instruction is the whole brief for the delegated task: it is the only thing the task is
+  // told beyond the conversation it belongs to, so a turn that writes two words gets a task
+  // that knows two words.
+  string instruction = 2;
+}
+
+message DelegateResponse {
+  Delegation delegation = 1;
+}
+
+message GetDelegationRequest {
+  string id = 1;
+}
+
+message GetDelegationResponse {
+  Delegation delegation = 1;
+  // progress is the last thing the task said on its way to an answer, so a turn polling
+  // this can see movement rather than only "running". It is untrusted content: a task
+  // wrote it.
+  string progress = 2;
+}
+
+message ListDelegationsRequest {}
+
+message ListDelegationsResponse {
+  repeated Delegation delegations = 1;
+}
+
+message CancelDelegationRequest {
+  string id = 1;
+  // reason is recorded on the task and shown to the operator. Optional.
+  string reason = 2;
+}
+
+message CancelDelegationResponse {
+  Delegation delegation = 1;
+}

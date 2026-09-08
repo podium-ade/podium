@@ -127,7 +127,23 @@ type Conductor struct {
 	// hostRuns are the host turns in flight, by the ref of the message that started each,
 	// so one can be cancelled without stopping the conductor.
 	hostRuns map[string]func()
-	wg       sync.WaitGroup
+	// turnTokens is the authority a host turn holds while it runs: one token per turn,
+	// scoped to that turn's conversation and its menu of playbooks, revoked when the turn
+	// ends. Not persisted — a host turn does not survive this process, so neither should
+	// what it may do. See delegate.go.
+	turnTokens map[string]turnGrant
+	// liveDelegations are the delegated tasks this process is following, by delegation id.
+	// The durable half is the delegations table; this is only how a turn asking for
+	// progress finds the last thing its task said.
+	liveDelegations map[string]*delegationRun
+	// baseCtx is the conductor's own lifetime, set by Run.
+	//
+	// It exists because following a delegated task is the conductor's work, not the work of
+	// whatever asked for it. Delegate is an RPC, and an RPC's context is cancelled the
+	// moment its response is written — a background run started on one would stop following
+	// its task before the caller had finished reading the answer.
+	baseCtx context.Context
+	wg      sync.WaitGroup
 }
 
 // sessionState is the in-memory half of a session: whether a turn is in flight and whether
@@ -165,25 +181,30 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:      opts.Store,
-		podium:     opts.Podium,
-		profiles:   opts.Profiles,
-		sources:    opts.Sources,
-		metrics:    metrics,
-		logger:     logger,
-		memory:     opts.Memory,
-		memories:   opts.MemoryClient,
-		xaiBaseURL: cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		skillsDir:  opts.SkillsDir,
-		host:       opts.Host,
-		sessions:   map[string]*sessionState{},
-		hostRuns:   map[string]func(){},
+		store:           opts.Store,
+		podium:          opts.Podium,
+		profiles:        opts.Profiles,
+		sources:         opts.Sources,
+		metrics:         metrics,
+		logger:          logger,
+		memory:          opts.Memory,
+		memories:        opts.MemoryClient,
+		xaiBaseURL:      cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		skillsDir:       opts.SkillsDir,
+		host:            opts.Host,
+		sessions:        map[string]*sessionState{},
+		hostRuns:        map[string]func(){},
+		turnTokens:      map[string]turnGrant{},
+		liveDelegations: map[string]*delegationRun{},
 	}, nil
 }
 
 // Run drains every source until ctx is cancelled, and resumes whatever was in flight when
 // the process last died. It returns once every source channel is closed or ctx is done.
 func (c *Conductor) Run(ctx context.Context) error {
+	c.mu.Lock()
+	c.baseCtx = ctx
+	c.mu.Unlock()
 	c.recover(ctx)
 
 	c.wg.Add(1)
@@ -253,9 +274,30 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		return
 	}
 
-	// One session, one playbook, fixed at creation. A later /other in the same thread is
-	// refused rather than silently ignored: the human asked for something specific.
-	if sel.Explicit && sess.Playbook != sel.Playbook.Name {
+	// A THREAD keeps the playbook it started with: a Slack thread and a Linear issue are one
+	// piece of work, and a later /other in the middle of one is refused rather than silently
+	// ignored, because the human asked for something specific.
+	//
+	// A CONVERSATION does not. A chat used to be pinned the same way, and that made sense
+	// while a chat message WAS a playbook's task. It is not any more: a chat runs an agent
+	// that answers directly and delegates the work to whichever playbooks it needs, as many
+	// times as it needs, so pinning the window to one of them restricted nothing and only
+	// forced a new chat for every change of subject.
+	if aConversation(src.Kind()) {
+		// Only an EXPLICIT pick moves it — the chip the person set, or a /playbook they
+		// typed. A source's default is a preference and must not fight what the
+		// conversation is already running, which is what a chat's own default would do on
+		// every single message.
+		if sel.Explicit && sess.Playbook != sel.Playbook.Name {
+			if err := c.store.SetSessionPlaybook(ctx, sess.ID, sel.Playbook.Name); err != nil {
+				c.logger.WarnContext(ctx, "changing the playbook of a conversation failed; "+
+					"running the one it had", "session_id", sess.ID,
+					"from", sess.Playbook, "to", sel.Playbook.Name, "error", err)
+			} else {
+				sess.Playbook = sel.Playbook.Name
+			}
+		}
+	} else if sel.Explicit && sess.Playbook != sel.Playbook.Name {
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
 			"This thread is running the `%s` playbook and a thread keeps the playbook it started with. "+
 				"Start a new thread to use `%s`.", sess.Playbook, sel.Playbook.Name)})
@@ -374,8 +416,12 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles, choice)
-	if c.host != nil {
-		c.fenceForHost(brief)
+	// The menu is computed once and used twice: the brief shows it to the model and the
+	// turn's token accepts exactly it, so the two cannot disagree.
+	var menu []DelegablePlaybook
+	if c.host != nil && aConversation(src.Kind()) {
+		menu = c.DelegablePlaybooks()
+		c.fenceForHost(brief, menu)
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
@@ -386,16 +432,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	run := &turnRun{
-		c:           c,
-		src:         src,
+		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder},
 		sess:        sess,
 		playbook:    playbook,
 		turn:        turn,
-		ref:         ev.Ref,
 		author:      ev.Author,
 		instruction: ev.Text,
 		url:         ev.URL,
-		placeholder: placeholder,
 		startedAt:   started,
 	}
 
@@ -407,8 +450,10 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// a container per message is what makes that slow. A Slack mention and a Linear
 	// assignment keep running as tasks, because their playbooks are the ones that want a
 	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
-	if c.host != nil && hostCapable(src.Kind()) {
-		host := &hostRun{r: run, encoded: encoded, bundles: bundles, provider: brief.Provider}
+	if c.host != nil && aConversation(src.Kind()) {
+		host := &hostRun{
+			r: run, encoded: encoded, bundles: bundles, provider: brief.Provider, menu: menu,
+		}
 		if brief.Memory != nil {
 			host.memoryKeyEnv = brief.Memory.APIKeyEnv
 		}
@@ -416,6 +461,29 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			// The same TEST-ONLY escape taskSpec allows, and only for the same source: the
 			// dry-run knobs step 16 defined are how a test drives a turn with no model.
 			host.devEnv = ev.Env
+		}
+		if brief.Delegation != nil {
+			token, err := c.mintTurnToken(turnGrant{
+				turnID:    turn.ID,
+				sessionID: sess.ID,
+				ref:       ev.Ref,
+				src:       src,
+				playbooks: playbookNames(menu),
+			})
+			if err != nil {
+				// A turn that cannot delegate is still a turn that can answer, and this is
+				// a failure of crypto/rand rather than of anything the person asked for.
+				c.logger.ErrorContext(ctx, "minting a host turn's delegation token failed; "+
+					"it will run without being able to delegate", "turn_id", turn.ID, "error", err)
+				brief.Delegation = nil
+				if encoded, err = brief.Encode(); err != nil {
+					c.logger.ErrorContext(ctx, "re-encoding a brief without delegation failed",
+						"turn_id", turn.ID, "error", err)
+				}
+				host.encoded = encoded
+			} else {
+				host.token = token
+			}
 		}
 		host.run(ctx)
 		return
@@ -438,15 +506,28 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 	turn.TaskID = task.GetId()
 	run.turn = turn
+	run.taskID = task.GetId()
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
 		"playbook", playbook.Name, "task_id", task.GetId(), "source", src.Kind())
 
 	run.run(ctx)
 }
 
-// hostCapable is which sources a host turn may answer. The dev source is in it because it
-// is how the host path is tested (host_integration_test.go).
-func hostCapable(kind string) bool {
+// playbookNames is the menu as the names a token's grant is checked against.
+func playbookNames(menu []DelegablePlaybook) []string {
+	out := make([]string, 0, len(menu))
+	for _, p := range menu {
+		out = append(out, p.Name)
+	}
+	return out
+}
+
+// aConversation is a source that is a chat window rather than a thread, and two rules follow
+// from it: a turn of one runs on this host when there is a host runtime, and the person may
+// pick a different playbook for every message. A Slack thread and a Linear issue are the
+// opposite on both counts — nobody is watching a cursor, and one session is one piece of
+// work. The dev source is in it because it is how both are tested.
+func aConversation(kind string) bool {
 	return kind == SourceChat || kind == KindDev
 }
 
@@ -794,6 +875,10 @@ func (c *Conductor) finish(ctx context.Context, src Source, ref string, kind Rea
 // messages instead of editing. That is deliberate: an id that outlives the process is a
 // thing to keep in sync, and progress is superseded by the final anyway.
 func (c *Conductor) recover(ctx context.Context) {
+	// Delegated tasks first: they run on a node and are still running right now, whereas
+	// the turns below are being cleaned up after. See delegate.go.
+	c.recoverDelegations(ctx)
+
 	running, err := c.store.ListRunningTurns(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "reading the turns that were in flight failed", "error", err)
@@ -846,12 +931,10 @@ func (c *Conductor) recover(ctx context.Context) {
 		c.mu.Unlock()
 
 		run := &turnRun{
-			c:         c,
-			src:       src,
+			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID},
 			sess:      sess,
 			playbook:  playbook,
 			turn:      turn,
-			ref:       turn.TriggerRef,
 			startedAt: turn.StartedAt,
 			lastSeq:   lastSeq,
 		}
@@ -866,6 +949,31 @@ func (c *Conductor) recover(ctx context.Context) {
 			c.mu.Unlock()
 		}(run, sess.ID)
 	}
+}
+
+// background is the context for work that outlives the call that started it. Before Run it
+// is context.Background(), which is what a test constructing a Conductor by hand gets.
+func (c *Conductor) background() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.baseCtx == nil {
+		return context.Background()
+	}
+	return c.baseCtx
+}
+
+// firstLine is the first line of text, bounded, for a menu entry or an announcement. A
+// system prompt and a model's instruction are both multi-line and both far longer than
+// anything that belongs in one.
+func firstLine(text string, limit int) string {
+	s := strings.TrimSpace(text)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if r := []rune(s); len(r) > limit {
+		return strings.TrimSpace(string(r[:limit])) + "…"
+	}
+	return s
 }
 
 // sourceOf finds the source a session belongs to, or nil when it is not configured in this

@@ -183,6 +183,62 @@ describe("decodeBrief", () => {
     expect(() => decodeBrief({ [BriefEnv]: "bm90IGpzb24=" })).toThrow(/is not base64-encoded JSON/);
   });
 
+  it("accepts a host turn's delegation block", () => {
+    const brief = decodeBrief(
+      encode({
+        ...minimal,
+        runs_on: "host",
+        delegation: {
+          url: "http://127.0.0.1:8090",
+          token_env: "PODIUM_TURN_TOKEN",
+          playbooks: [
+            { name: "podium", summary: "develops Podium itself", docker: true, repos: ["podium"] },
+            { name: "general" },
+          ],
+        },
+      }),
+    );
+    expect(brief.runs_on).toBe("host");
+    expect(brief.delegation?.playbooks).toHaveLength(2);
+    expect(brief.delegation?.playbooks[0]?.docker).toBe(true);
+    expect(brief.delegation?.playbooks[1]?.summary).toBeUndefined();
+  });
+
+  it("has neither on a task's brief, which is what stops a delegated task delegating again", () => {
+    const brief = decodeBrief(encode(minimal));
+    expect(brief.delegation).toBeUndefined();
+    expect(brief.runs_on).toBeUndefined();
+  });
+
+  it("refuses a delegation block with no playbooks, because an empty menu is not a menu", () => {
+    expect(() =>
+      decodeBrief(encode({ ...minimal, delegation: { url: "http://h", token_env: "T", playbooks: [] } })),
+    ).toThrow(BriefError);
+  });
+
+  it("refuses an unknown key inside the delegation block", () => {
+    // The token travels in the environment. A brief that could carry one is a brief that
+    // must never be logged, and this is what keeps that true.
+    expect(() =>
+      decodeBrief(
+        encode({
+          ...minimal,
+          delegation: {
+            url: "http://h",
+            token_env: "T",
+            playbooks: [{ name: "podium" }],
+            token: "leaked-by-accident",
+          },
+        }),
+      ),
+    ).toThrow(BriefError);
+  });
+
+  it("refuses a runs_on it does not know", () => {
+    expect(() => decodeBrief(encode({ ...minimal, runs_on: "somewhere-else" }))).toThrow(BriefError);
+    expect(decodeBrief(encode({ ...minimal, runs_on: "task" })).runs_on).toBe("task");
+  });
+
   it("carries exit code 2 on every failure", () => {
     try {
       decodeBrief({});

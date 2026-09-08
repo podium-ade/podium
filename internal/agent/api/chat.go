@@ -34,6 +34,17 @@ type ChatSource interface {
 	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 }
 
+// TurnStopper is the conductor, as deleting a chat needs it. Neither of these can be
+// reached with a task id: a host turn is a child process of this conductor and has no task,
+// and the tasks it delegated are owned by the CONVERSATION rather than by the turn that
+// asked for them — which is precisely why deleting the conversation has to end them.
+type TurnStopper interface {
+	// CancelHostTurn stops the host turn answering ref, reporting whether there was one.
+	CancelHostTurn(ref string) bool
+	// CancelDelegationsForRef stops every delegated task of one conversation.
+	CancelDelegationsForRef(ctx context.Context, ref, reason string) (int, error)
+}
+
 // TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
 // the node gets SIGTERM and up to 30s, and nothing here waits.
 type TaskCanceller interface {
@@ -166,11 +177,39 @@ func (s *AgentService) DeleteChat(
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
 		return nil, err
 	}
+	s.stopChatTurnWork(ctx, chatID)
 	if err := s.store.DeleteChat(ctx, chatID, login); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
 	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
+}
+
+// stopChatTurnWork ends what this conversation owns beyond a single task: the host turn
+// answering it, and every task that turn delegated.
+//
+// Neither failure stops the delete. The chat is being removed either way, and a delegated
+// task that survives is visible in `podium task ls` and in the log line below — where a
+// refusal to delete the chat would leave the person unable to do the thing they asked for.
+func (s *AgentService) stopChatTurnWork(ctx context.Context, chatID string) {
+	if s.turns == nil {
+		return
+	}
+	if s.turns.CancelHostTurn(chatID) {
+		s.logger.InfoContext(ctx, "stopped the host turn of a chat that is being deleted",
+			"chat_id", chatID)
+	}
+	stopped, err := s.turns.CancelDelegationsForRef(ctx, chatID,
+		"the chat this task was delegated for was deleted")
+	if err != nil {
+		s.logger.WarnContext(ctx, "cancelling the delegated tasks of a deleted chat failed; "+
+			"they may still be running", "chat_id", chatID, "error", err)
+		return
+	}
+	if stopped > 0 {
+		s.logger.InfoContext(ctx, "stopped the delegated tasks of a chat that is being deleted",
+			"chat_id", chatID, "tasks", stopped)
+	}
 }
 
 // stopRunningChatTask asks the node to stop the task currently answering this chat.

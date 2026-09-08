@@ -35,6 +35,11 @@ import (
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
+// TurnTokenEnv holds a host turn's delegation token in its runtime's environment, and its
+// name is what the brief carries so the runtime can find it. Written by the conductor and
+// read by agent/runtime/src/mcp.ts; an operator never sets it.
+const TurnTokenEnv = "PODIUM_TURN_TOKEN"
+
 // The environment a host turn's runtime is given to find its way back here. Both are
 // literals rather than imports: the first is internal/runner.EnvEventsSock and the second is
 // RunnerPathEnv in agent/runtime/src/emit.ts, and this package deliberately depends on
@@ -109,6 +114,11 @@ type HostRuntime struct {
 	// holds. Without it a host turn cannot start, because the runtime refuses a turn whose
 	// provider key is unset.
 	Credential func(ctx context.Context, provider string) (string, error)
+	// TurnURL is the conductor's own address as a host turn reaches it — loopback, the same
+	// listener the operator API is on, with TurnService mounted beside it. Empty means this
+	// conductor offers no delegation: a host turn then answers with what it has and cannot
+	// start a task, which is a working configuration and a poor one.
+	TurnURL string
 }
 
 // validate reports what is missing, naming the environment variable that supplies it.
@@ -135,10 +145,20 @@ func (h *HostRuntime) node() string {
 // fenceForHost is what makes a brief a HOST brief: the short tool list, no repositories, no
 // browser, and memory reached the way this host reaches it. It is applied after
 // Conductor.brief, so one function still builds every brief there is.
-func (c *Conductor) fenceForHost(b *Brief) {
+func (c *Conductor) fenceForHost(b *Brief, menu []DelegablePlaybook) {
+	b.RunsOn = RunsOnHost
 	b.Playbook.AllowedTools = append([]string(nil), hostTools...)
 	b.Repos = nil
 	b.Browser = nil
+	// What it may delegate to. Taking the tools away above is only defensible because this
+	// is here: the work a host turn cannot do itself is work it hands to a container.
+	if c.host.TurnURL != "" && len(menu) > 0 {
+		b.Delegation = &BriefDelegation{
+			URL:       c.host.TurnURL,
+			TokenEnv:  TurnTokenEnv,
+			Playbooks: menu,
+		}
+	}
 	if b.Memory == nil {
 		return
 	}
@@ -167,6 +187,11 @@ type hostRun struct {
 	// devEnv is extra environment the TEST-ONLY dev source asked for. Empty for every real
 	// source, exactly as on a task spec.
 	devEnv map[string]string
+	// menu is the playbooks this turn may delegate to. It is both what the brief showed the
+	// model and what the turn's token will accept, because they are the same list.
+	menu []DelegablePlaybook
+	// token is this turn's authority to delegate, minted on start and revoked when it ends.
+	token string
 }
 
 // run starts the runtime, relays what it says, and records how it ended. Like turnRun.run it
@@ -211,6 +236,13 @@ func (h *hostRun) run(ctx context.Context) {
 	// stopping the conductor: a chat deleted while its agent is still talking.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// The turn's authority to delegate, for exactly as long as the turn. Revoked below
+	// whatever happens: a token that outlived its turn would be a way to start tasks in a
+	// conversation nobody is having.
+	if h.token != "" {
+		defer c.revokeTurnToken(h.token)
+	}
 
 	cmd := exec.CommandContext(runCtx, c.host.node(), c.host.Entry)
 	cmd.Dir = jail.work
@@ -307,7 +339,7 @@ func (h *hostRun) run(ctx context.Context) {
 	// ended without an answer" when it has nothing else. Silence means not even that
 	// arrived — and the placeholder above it reads "working on it", which is what somebody
 	// would otherwise be left looking at for ever.
-	if len(r.finals) == 0 {
+	if !r.said() {
 		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: hostSaidNothing})
 	}
 	r.finish(done, status)
@@ -348,6 +380,11 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 		hostRunnerPathEnv + "=" + c.host.Runner,
 		BriefEnv + "=" + h.encoded,
 		h.provider.APIKeyEnv + "=" + key,
+	}
+	if h.token != "" {
+		// The token, and only the token: the address it is used against is in the brief,
+		// where a document can carry it, and the token is not.
+		env = append(env, TurnTokenEnv+"="+h.token)
 	}
 	if h.memoryKeyEnv != "" && c.host.MemoryAPIKey != "" {
 		env = append(env, h.memoryKeyEnv+"="+c.host.MemoryAPIKey)

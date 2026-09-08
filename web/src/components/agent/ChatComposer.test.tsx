@@ -133,15 +133,15 @@ describe("ChatComposer", () => {
     expect(screen.getByTestId("chat-playbook")).toBeDisabled();
   });
 
-  it("locks the chip once the chat has a playbook, and ignores a typed prefix", async () => {
-    const { onPlaybookChange } = mount({ playbook: "analyst", playbookLocked: true });
+  it("lets a chat that already ran one playbook pick another", async () => {
+    // It used to lock here. A conversation is not one playbook's work any more: the agent
+    // answering delegates to whichever playbooks it needs, so the person may change subject.
+    const { onPlaybookChange } = mount({ playbook: "analyst" });
     const chip = screen.getByTestId("chat-playbook");
-    expect(chip).toBeDisabled();
-    expect(chip).toHaveAccessibleName(/keeps the playbook it started with/);
-    await userEvent.click(chip);
-    expect(onPlaybookChange).not.toHaveBeenCalled();
+    expect(chip).toBeEnabled();
+    expect(chip).toHaveAccessibleName(/Open to switch/);
     await userEvent.type(screen.getByTestId("chat-composer"), "/coder ");
-    expect(onPlaybookChange).not.toHaveBeenCalled();
+    expect(onPlaybookChange).toHaveBeenCalledWith("coder");
   });
 
   it("follows a typed /playbook prefix", async () => {

@@ -304,14 +304,17 @@ func TestAChatRemembersItsPlaybookAndMayBeRenamed(t *testing.T) {
 	named, err := s.SetChatPlaybook(ctx, chat.ID, "analyst")
 	require.NoError(t, err)
 	assert.Equal(t, "analyst", named.Playbook)
+	// The LATEST write wins. A chat used to be pinned to its first playbook; a conversation
+	// is not one playbook's work any more, so the row follows what the person last ran and
+	// the agent answering may delegate to any of them.
 	again, err := s.SetChatPlaybook(ctx, chat.ID, "general")
 	require.NoError(t, err)
-	assert.Equal(t, "analyst", again.Playbook, "one chat, one playbook — the first write wins")
+	assert.Equal(t, "general", again.Playbook)
 
 	titled, err := s.SetChatTitle(ctx, chat.ID, "August numbers")
 	require.NoError(t, err)
 	assert.Equal(t, "August numbers", titled.Title)
-	assert.Equal(t, "analyst", titled.Playbook)
+	assert.Equal(t, "general", titled.Playbook)
 
 	owned, err := s.CreateChat(ctx, "alice", "Keep this")
 	require.NoError(t, err)
@@ -326,14 +329,14 @@ func TestAChatRemembersItsPlaybookAndMayBeRenamed(t *testing.T) {
 	for _, c := range listed {
 		byID[c.ID] = c
 	}
-	assert.Equal(t, "analyst", byID[chat.ID].Playbook)
+	assert.Equal(t, "general", byID[chat.ID].Playbook)
 	assert.Equal(t, "August numbers", byID[chat.ID].Title)
 
 	// A rename is the owner's word on the name, so a later turn must not write over it.
 	human, err := s.RenameChat(ctx, chat.ID, "alice", "Q3 forecast")
 	require.NoError(t, err)
 	assert.False(t, human.AutoTitle)
-	assert.Equal(t, "analyst", human.Playbook, "a rename does not forget the playbook")
+	assert.Equal(t, "general", human.Playbook, "a rename does not forget the playbook")
 	fromTurn, err := s.SetChatTitle(ctx, chat.ID, "a model wrote this")
 	require.NoError(t, err)
 	assert.Equal(t, "Q3 forecast", fromTurn.Title)

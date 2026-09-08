@@ -357,10 +357,13 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
   });
 
-  it("locks the playbook chip of a chat that has already started", async () => {
+  it("leaves the playbook chip open on a chat that has already started", async () => {
+    // A chat used to be pinned to the playbook it started with. It is not any more: the
+    // agent answering a conversation delegates work to whichever playbooks it needs, so
+    // the person may change subject without starting a new chat.
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount("/agent/chat/chat_01abc");
-    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toBeDisabled());
+    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toBeEnabled());
     expect(screen.getByTestId("chat-list")).toHaveTextContent("/analyst");
   });
 

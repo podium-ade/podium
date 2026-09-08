@@ -76,6 +76,71 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(golden())).not.toContain("chat-title.txt");
   });
 
+  it("does not tell a host turn it has a container, because it has not got one", () => {
+    const brief = golden();
+    const task = buildSystemPrompt(brief);
+    const host = buildSystemPrompt({ ...brief, runs_on: "host", repos: undefined });
+
+    expect(task).toContain("disposable Linux container");
+    expect(host).not.toContain("disposable Linux container");
+    expect(host).toContain("NOT in a container");
+    // The three promises a host turn cannot keep: a workspace, files that get collected,
+    // and a shell.
+    expect(host).not.toContain("/workspace/.podium/artifacts");
+    expect(host.replace(/\s+/g, " ")).toContain("a file you write goes nowhere");
+    expect(host).toContain("What you do NOT have");
+  });
+
+  it("renders the delegation menu from the brief, and nothing else", () => {
+    const brief = {
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://127.0.0.1:8090",
+        token_env: "PODIUM_TURN_TOKEN",
+        playbooks: [
+          { name: "podium", summary: "develops Podium itself", docker: true, repos: ["podium"] },
+          { name: "general", browser: true },
+        ],
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("# Delegating work");
+    expect(prompt).toContain("`podium`");
+    expect(prompt).toContain("repositories: podium");
+    expect(prompt).toContain("a Docker daemon");
+    expect(prompt).toContain("develops Podium itself");
+    expect(prompt).toContain("`general`");
+    expect(prompt).toContain("a browser");
+    // The address and the token's variable are the runtime's business, not the model's:
+    // a prompt that names them is a prompt that invites the model to use them directly.
+    expect(prompt).not.toContain("http://127.0.0.1:8090");
+    expect(prompt).not.toContain("PODIUM_TURN_TOKEN");
+  });
+
+  it("tells a delegating turn not to repeat what the task already said", () => {
+    // This is the behaviour that reads worst in a conversation: the task's answer arrives
+    // on its own, and then the agent paraphrases it as if it had done the work.
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://h",
+        token_env: "T",
+        playbooks: [{ name: "podium" }],
+      },
+    });
+    // Whitespace-normalised, because the prompt is wrapped for a human to read and the
+    // sentence being asserted spans a line break.
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("appear in this conversation on their own");
+    expect(flat).toContain("do not repeat them");
+  });
+
+  it("says nothing about delegating on a task's turn, which cannot", () => {
+    expect(buildSystemPrompt(golden())).not.toContain("# Delegating work");
+  });
+
   it("puts the profile before the playbook before the runtime block", () => {
     const prompt = buildSystemPrompt(golden());
     const profile = prompt.indexOf("You are Podium, the engineering team's agent.");

@@ -729,6 +729,16 @@ func (s *Store) AttachToLastAssistantMessage(
 	return chatMessageFromRow(updated)
 }
 
+// SetSessionPlaybook changes which playbook a session runs. It is for a CONVERSATION only:
+// a chat window whose person picks a playbook per message. A thread keeps what it started
+// with, and UpsertSession is what enforces that.
+func (s *Store) SetSessionPlaybook(ctx context.Context, id, playbook string) error {
+	if err := s.q.SetSessionPlaybook(ctx, db.SetSessionPlaybookParams{ID: id, Playbook: playbook}); err != nil {
+		return fmt.Errorf("set playbook %s on session %s: %w", playbook, id, err)
+	}
+	return nil
+}
+
 // SetChatPlaybook records the playbook a chat started with. An already-set playbook is
 // left alone and the current row is returned: one chat, one playbook.
 func (s *Store) SetChatPlaybook(ctx context.Context, id, playbook string) (Chat, error) {

@@ -661,9 +661,11 @@ function Conversation({
   // Undefined means "whatever the profile says", which is not known until ListPlaybooks
   // answers — so the choice is derived rather than copied into state on arrival. A playbook
   // the chat already ran is knowledge, not a preference, and wins.
+  // What the PERSON last picked wins, then what this chat last ran, then the profile's
+  // default. The chat's own playbook used to win outright and lock the chip; it does not any
+  // more — a conversation is not one playbook's work, so changing subject is allowed.
   const [chosen, setChosen] = useState<string | undefined>(storedPlaybook || undefined);
-  const playbook = stream.chat?.playbook || chosen || storedPlaybook || chatDefaultPlaybook;
-  const locked = (stream.chat?.playbook || storedPlaybook) !== "";
+  const playbook = chosen || stream.chat?.playbook || storedPlaybook || chatDefaultPlaybook;
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
   const lastTop = useRef(0);
@@ -825,7 +827,6 @@ function Conversation({
         playbooks={playbooks}
         playbook={playbook}
         onPlaybookChange={setChosen}
-        playbookLocked={locked}
         disabled={busy}
         agents={agents}
         choice={choice}
