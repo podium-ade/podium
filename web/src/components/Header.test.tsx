@@ -57,6 +57,15 @@ describe("Header", () => {
     expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
   });
 
+  it("puts the Agent section above Workspace", () => {
+    mount({ ...base, agentEnabled: true });
+    const agent = screen.getByText("Agent", { selector: "p" });
+    const workspace = screen.getByText("Workspace", { selector: "p" });
+    expect(agent.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   it("puts Settings under the profile picture, not under Agent", () => {
     mount({ ...base, agentEnabled: true });
     const settings = screen.getByRole("link", { name: "Settings" });
