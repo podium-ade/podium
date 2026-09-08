@@ -167,19 +167,31 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 }
 
 // linkPullRequests hands the source the pull requests this turn's answer named.
-//
-// answer is the joined finals — byte for byte what FinishTurn just stored as final_text —
-// and it is the right text to read for two reasons. It is the only thing the turn said in
-// full: progress lines are coalesced and superseded on the way out, so a link found in one
-// would appear or not depending on how fast the runtime was talking, and nothing
-// afterwards could explain where it came from. And it is what a human would have
-// read: a pull request the turn opened is announced in its answer, and one that is only
-// muttered about on the way there is not this turn's result.
-//
-// It never fails a turn. The answer is already posted and the turn is already recorded; a
-// link that did not land costs a log line and a human can attach it.
 func (r *turnRun) linkPullRequests(ctx context.Context, answer string) {
-	linker, ok := r.src.(pullRequestLinker)
+	r.c.linkPullRequests(ctx, r.src, r.ref, answer, "turn_id", r.turn.ID)
+}
+
+// linkPullRequests hands the source the pull requests ONE answer named, whether that answer
+// came from a turn or from a task the turn delegated.
+//
+// Both, and that is the whole reason this is not a method on turnRun any more. A conversation
+// is answered by the assistant, which opens no pull requests — it has no repository and no
+// shell — so every pull request this bot produces now comes out of a delegated task. Reading
+// only the turn's own final_text meant the one place a link could appear was the one place it
+// never did: the assistant announced "the task is running", the task answered with the URL,
+// and the chat's pull-request bar stayed empty while the work sat in review.
+//
+// answer is the joined finals — byte for byte what FinishTurn or FinishDelegation just
+// stored — and it is the right text to read for two reasons. It is the only thing that was
+// said in full: progress lines are coalesced and superseded on the way out, so a link found
+// in one would appear or not depending on how fast the runtime was talking. And it is what a
+// human would have read: a pull request is announced in an answer, and one only muttered
+// about on the way there is not the result.
+//
+// It never fails anything. The answer is already posted and the row is already recorded; a
+// link that did not land costs a log line and a human can attach it by hand.
+func (c *Conductor) linkPullRequests(ctx context.Context, src Source, ref, answer string, logArgs ...any) {
+	linker, ok := src.(pullRequestLinker)
 	if !ok {
 		return
 	}
@@ -188,13 +200,13 @@ func (r *turnRun) linkPullRequests(ctx context.Context, answer string) {
 		return
 	}
 	if len(found) > maxPullRequestsPerTurn {
-		r.c.logger.InfoContext(ctx, "a turn named more pull requests than one turn may link",
-			"turn_id", r.turn.ID, "found", len(found), "linked", maxPullRequestsPerTurn)
+		c.logger.InfoContext(ctx, "more pull requests were named than one answer may link",
+			append(logArgs, "found", len(found), "linked", maxPullRequestsPerTurn)...)
 		found = found[:maxPullRequestsPerTurn]
 	}
-	if err := linker.LinkPullRequests(ctx, r.ref, found); err != nil {
-		r.c.logger.WarnContext(ctx, "linking the turn's pull requests to the conversation failed",
-			"turn_id", r.turn.ID, "ref", r.ref, "error", err)
+	if err := linker.LinkPullRequests(ctx, ref, found); err != nil {
+		c.logger.WarnContext(ctx, "linking pull requests to the conversation failed",
+			append(logArgs, "ref", ref, "error", err)...)
 	}
 }
 

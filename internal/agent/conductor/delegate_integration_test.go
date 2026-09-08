@@ -291,6 +291,53 @@ func TestAHostTurnDelegatesAndTheConversationOwnsTheTask(t *testing.T) {
 	require.NotNil(t, dlgs[0].FinishedAt)
 }
 
+// TestADelegatedTasksPullRequestIsLinkedToTheConversation.
+//
+// This is where a pull request now comes from. The assistant has no repository and no shell,
+// so it opens none; the container it delegates to does. Reading only the TURN's final_text
+// therefore looked in the one place the URL never appears — the assistant's own "the task is
+// running" — and a conversation whose work was sitting in review carried no link at all.
+func TestADelegatedTasksPullRequestIsLinkedToTheConversation(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			// A bare #52 in the progress is deliberately not a link anything resolves, and
+			// progress is not read for links either.
+			messageEvent(taskID, 1, conductor.OutProgress, "opening #52"),
+			messageEvent(taskID, 2, conductor.OutFinal,
+				"Done: https://github.com/acme/api/pull/52/files is up for review."),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	ev := inbound("C1/16.1", "shrink the settings text")
+	ev.Env = hostEnv(map[string]string{
+		hostFakeDelegateEnv: "dogfood|shrink the sidebar Settings label",
+		hostFakePollEnv:     "1",
+	})
+	require.NoError(t, src.Send(context.Background(), ev))
+
+	waitFor(t, 60*time.Second, "the delegated task to be recorded finished", func() bool {
+		dlgs := delegationsOf(t, st, ev.SourceKey)
+		return len(dlgs) == 1 && dlgs[0].FinishedAt != nil
+	})
+
+	prs := src.PullRequests(ev.Ref)
+	require.Len(t, prs, 1, "the pull request the DELEGATED task announced must reach the conversation")
+	// Canonical: /files is dropped, so one pull request is one row however it was written.
+	assert.Equal(t, "https://github.com/acme/api/pull/52", prs[0].URL)
+
+	// And the turn's own answer named none, which is exactly why reading it alone was wrong.
+	turn := turnOf(t, st, ev.SourceKey)
+	assert.NotContains(t, turn.FinalText, "github.com")
+}
+
 func TestATurnMayNotDelegateToAPlaybookItWasNotOffered(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
