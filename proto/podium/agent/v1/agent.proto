@@ -583,6 +583,18 @@ message Chat {
   string agent = 8;
   string model = 9;
   string effort = 10;
+  // origin is where the conversation actually lives: "web" for one Podium owns, "slack" for
+  // a thread it MIRRORS for reading. A mirrored conversation is answered where it lives, so
+  // the UI offers no composer, no rename and no delete for it.
+  string origin = 11;
+  // started_by is the person who asked first, by display name. It is a mirrored
+  // conversation's attribution, because it has no Podium login to own it, and empty for a
+  // web chat — whose owner is the login that made it.
+  string started_by = 12;
+  // participants is everyone who has spoken, first appearance first. Set by GetChat and
+  // left empty by ListChats, which would need a query per row to fill it and only shows
+  // started_by.
+  repeated string participants = 13;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -616,6 +628,11 @@ message ChatMessage {
   // indistinguishable, and the UI credited every progress line to a task — including the
   // assistant's, which is the one thing in a conversation that is never one.
   string task_id = 7;
+  // author is who said it, by display name, and empty in a web chat — where the chat's own
+  // login already says who is typing. A mirrored Slack thread sets it on every message,
+  // including the bot's, because a thread has as many people in it as care to join and
+  // "who said this" is not answerable from the role alone.
+  string author = 8;
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload

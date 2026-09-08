@@ -675,3 +675,15 @@ func (s *Source) readPage(
 	})
 	return p.msgs, p.more, p.cursor, err
 }
+
+// MirrorKey is the session key a ref belongs to, so the conductor can keep a readable copy
+// of this thread in the Podium UI. It is the same key emit builds, out of the same two
+// parts of the ref — the channel and the thread, never the triggering message, because the
+// copy is of the conversation and not of one turn of it.
+func (s *Source) MirrorKey(ref string) (string, bool) {
+	channel, thread, _, err := ParseRef(ref)
+	if err != nil {
+		return "", false
+	}
+	return sourceKey(channel, thread), true
+}

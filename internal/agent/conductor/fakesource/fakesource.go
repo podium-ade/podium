@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,10 @@ type Source struct {
 	// pulls is every pull request linked to a ref, which the web chat would have stored.
 	pulls   map[string][]conductor.PullRequest
 	records []Record
+	// mirror makes this a source whose conversation lives somewhere else, so the conductor
+	// keeps a readable copy of it. Off by default: the web chat must NOT be mirrored,
+	// because it already stores its own messages and a second writer would double them.
+	mirror  bool
 	seq     int64
 	nextMsg int64
 	closed  bool
@@ -208,4 +213,26 @@ func (s *Source) RecordsSince(since int64) []Record {
 		}
 	}
 	return out
+}
+
+// Mirrors makes this source one whose conversation lives elsewhere, the way Slack's does.
+func (s *Source) Mirrors() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mirror = true
+}
+
+// MirrorKey implements the conductor's mirrored-source half: the session key a ref belongs
+// to. False unless Mirrors was called, which is the same "this source is not mirrored"
+// answer the web chat gives by not implementing the method at all.
+func (s *Source) MirrorKey(ref string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.mirror {
+		return "", false
+	}
+	// The same shape a session key has, because that is what the real thing returns: the
+	// channel and the thread, never the triggering message.
+	channel, thread, _ := strings.Cut(ref, "/")
+	return s.kind + ":" + channel + ":" + thread, true
 }

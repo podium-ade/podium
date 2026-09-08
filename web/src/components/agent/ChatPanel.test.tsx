@@ -9,6 +9,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ChatFrameSchema,
   ChatMessageSchema,
+  ChatSchema,
   AssistantSchema,
   PlaybookSchema,
   type ChatFrame,
@@ -91,6 +92,21 @@ function message(
   });
 }
 
+// said is message() for a MIRRORED conversation: the same row with somebody's name on it.
+function said(seq: number, role: string, text: string, author: string) {
+  const frame = message(seq, role, text);
+  if (frame.frame.case === "message") {
+    frame.frame.value.author = author;
+  }
+  return frame;
+}
+
+// chatRow is the frame StreamChat opens with, which is where origin and participants arrive.
+const chatRow = (over: Record<string, unknown>) =>
+  create(ChatFrameSchema, {
+    frame: { case: "chat", value: create(ChatSchema, { ...chat, ...over }) },
+  });
+
 const progress = (text: string) =>
   create(ChatFrameSchema, { frame: { case: "progress", value: text } });
 
@@ -132,6 +148,8 @@ const assistant = create(AssistantSchema, {
   displayName: "Podium",
   agent: "claude",
   model: "claude-opus-5",
+
+
 });
 
 function mount(path = "/agent/chat") {
@@ -711,4 +729,68 @@ describe("ChatPanel", () => {
     mount();
     expect(await screen.findByText(/not available on this conductor/)).toBeInTheDocument();
   });
+
+  // A mirrored conversation has more than one person in it, so a question needs a name over
+  // it. A web chat's do not: the only person who can ask is the person reading.
+  it("says who asked, in a conversation with more than one asker", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"] }));
+    stream.push(said(1, "user", "what does this repo do?", "alice"));
+    stream.push(said(2, "assistant", "It is a task runner.", "Podium"));
+    stream.push(said(3, "user", "and the node?", "bob"));
+
+    const authors = await waitFor(() => {
+      const found = screen.getAllByTestId("chat-author");
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(authors.map((a) => a.textContent)).toEqual(["alice", "bob"]);
+  });
+
+  it("offers no composer for a conversation that lives somewhere else", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice", "bob"] }));
+    stream.push(said(1, "user", "what does this repo do?", "alice"));
+
+    const note = await screen.findByTestId("chat-mirrored-note");
+    expect(note).toHaveTextContent("lives in slack");
+    expect(note).toHaveTextContent("alice, bob");
+    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+  });
+
+  it("keeps the composer for a conversation Podium owns", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(chatRow({ origin: "web" }));
+    stream.push(message(1, "user", "how many active accounts"));
+
+    await screen.findByTestId("chat-message");
+    expect(screen.getByTestId("chat-composer")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-mirrored-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-author")).not.toBeInTheDocument();
+  });
+
+  it("marks a mirrored thread in the list and says who started it", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, origin: "slack", startedBy: "alice" }],
+      nextCursor: "",
+    });
+    mount();
+
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("slack"));
+    expect(list).toHaveTextContent("alice");
+  });
+
 });
