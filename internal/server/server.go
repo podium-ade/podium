@@ -34,6 +34,16 @@ import (
 // ShutdownTimeout is how long Run gives in-flight work to finish after a signal.
 const ShutdownTimeout = 10 * time.Second
 
+// ReadHeaderTimeout bounds how long a connection may take to send its request headers, so a
+// client that opens a socket and says nothing cannot hold a goroutine forever.
+//
+// It is exported because it is not only an HTTP/1 concern. Go 1.26 armed this deadline on
+// the raw connection and left it armed when the connection turned out to be cleartext
+// HTTP/2, which severed every node stream after exactly this long; see the note on the go
+// directive in go.mod. A test asserts that a stream outlives it, and derives the wait from
+// this constant rather than repeating the number.
+const ReadHeaderTimeout = 10 * time.Second
+
 // compressMinBytes is the payload size below which Connect does not bother compressing.
 const compressMinBytes = 1024
 
@@ -127,7 +137,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	s.http = &http.Server{
 		Handler:           s.mux(),
 		Protocols:         plaintextHTTP2(),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: ReadHeaderTimeout,
 	}
 	return s, nil
 }
