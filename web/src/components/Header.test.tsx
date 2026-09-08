@@ -68,6 +68,16 @@ describe("Header", () => {
     );
   });
 
+  // Footer chrome, not a primary dest: text-xs against the workspace items' text-sm. Hit
+  // target stays h-8 with the rest of the rail.
+  it("sets Settings in the smaller type scale", () => {
+    mount({ ...base, agentEnabled: true });
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveClass("text-xs");
+    expect(screen.getByRole("link", { name: "Settings" })).not.toHaveClass("text-sm");
+    expect(screen.getByRole("link", { name: "Tasks" })).toHaveClass("text-sm");
+    expect(screen.getByRole("link", { name: "Agent" })).toHaveClass("text-sm");
+  });
+
   it("lights Agent on the talk screens and not on Playbooks", () => {
     const who = { ...base, agentEnabled: true };
     const { unmount } = mount(who, "/agent/chat");
