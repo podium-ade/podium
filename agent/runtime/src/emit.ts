@@ -7,6 +7,19 @@ import { execFile } from "node:child_process";
 /** RunnerPath is where the node bind-mounts podium-runner (docs/runner-events.md). */
 export const RunnerPath = "/podium/runner";
 
+/**
+ * RunnerPathEnv overrides RunnerPath. A turn the conductor runs on its own host
+ * (internal/agent/conductor/host.go) has no node, so nothing bind-mounts anything: the
+ * runner is an ordinary binary somewhere on that host and only the conductor knows where.
+ */
+export const RunnerPathEnv = "PODIUM_RUNNER_PATH";
+
+/** defaultRunnerPath is the runner this turn should invoke. */
+export function defaultRunnerPath(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[RunnerPathEnv];
+  return override === undefined || override === "" ? RunnerPath : override;
+}
+
 /** MaxMessageBytes is internal/runner.MaxMessageBytes: the runner refuses more. */
 export const MaxMessageBytes = 32 * 1024;
 
@@ -52,7 +65,7 @@ export async function emitMessage(
 }
 
 /** runnerInvoke is the real thing: one short-lived process per message. */
-export function runnerInvoke(runnerPath = RunnerPath): RunnerInvoke {
+export function runnerInvoke(runnerPath = defaultRunnerPath()): RunnerInvoke {
   return (argv, text) =>
     new Promise<void>((resolve, reject) => {
       const child = execFile(runnerPath, argv, (err, _stdout, stderr) => {

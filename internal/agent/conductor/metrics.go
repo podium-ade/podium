@@ -8,6 +8,7 @@ type Metrics struct {
 	Turns                   *prometheus.CounterVec
 	TurnDuration            *prometheus.HistogramVec
 	TurnsWithoutAccounting  prometheus.Counter
+	Delegations             *prometheus.CounterVec
 	RelayedMessages         *prometheus.CounterVec
 	SourceEvents            *prometheus.CounterVec
 	FollowReconnects        prometheus.Counter
@@ -32,6 +33,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Turns that succeeded without reporting num_turns and cost_usd, which are " +
 				"left null. Anything above zero is lost accounting, not a failed turn.",
 		}),
+		Delegations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "podium_agent_delegations_total",
+			Help: "Tasks a host turn delegated that reached a terminal status, by playbook " +
+				"and status.",
+		}, []string{"playbook", "status"}),
 		RelayedMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_relayed_messages_total",
 			Help: "Task messages relayed into a conversation, by message type.",
@@ -60,7 +66,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.RelayedMessages,
+		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.Delegations, m.RelayedMessages,
 			m.SourceEvents, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m

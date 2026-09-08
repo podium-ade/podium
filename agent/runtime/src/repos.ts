@@ -11,6 +11,24 @@ import type { RepoRef } from "./brief.js";
 /** WorkspaceDir is the task's volume: one directory per repo goes under it. */
 export const WorkspaceDir = "/workspace";
 
+/**
+ * workspaceOf is where this turn works.
+ *
+ * For a task it is WorkspaceDir, the volume the node mounted. For a HOST turn there is no
+ * such directory — the conductor forked this process in a jail of its own and made that the
+ * working directory — so it is process.cwd(). Getting this wrong is not subtle: the harness
+ * is given the workspace as `--dir` and refuses to start with "Failed to change directory
+ * to /workspace", which is a turn that dies before its first request.
+ */
+export function workspaceOf(brief: { runs_on?: string }, cwd = process.cwd()): string {
+  return brief.runs_on === "host" ? cwd : WorkspaceDir;
+}
+
+/** artifactsUnder is the artifacts directory of one workspace. */
+export function artifactsUnder(root: string): string {
+  return `${root}/.podium/artifacts`;
+}
+
 /** CloneDepth is how much history a turn gets. Enough to branch, rebase and read blame. */
 export const CloneDepth = 50;
 

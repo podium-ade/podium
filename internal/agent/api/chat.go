@@ -34,6 +34,17 @@ type ChatSource interface {
 	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 }
 
+// TurnStopper is the conductor, as deleting a chat needs it. Neither of these can be
+// reached with a task id: a host turn is a child process of this conductor and has no task,
+// and the tasks it delegated are owned by the CONVERSATION rather than by the turn that
+// asked for them — which is precisely why deleting the conversation has to end them.
+type TurnStopper interface {
+	// CancelHostTurn stops the host turn answering ref, reporting whether there was one.
+	CancelHostTurn(ref string) bool
+	// CancelDelegationsForRef stops every delegated task of one conversation.
+	CancelDelegationsForRef(ctx context.Context, ref, reason string) (int, error)
+}
+
 // TaskCanceller stops a Podium task. It is the same CancelTask `podium task cancel` calls:
 // the node gets SIGTERM and up to 30s, and nothing here waits.
 type TaskCanceller interface {
@@ -166,11 +177,39 @@ func (s *AgentService) DeleteChat(
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
 		return nil, err
 	}
+	s.stopChatTurnWork(ctx, chatID)
 	if err := s.store.DeleteChat(ctx, chatID, login); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
 	return connect.NewResponse(&agentv1.DeleteChatResponse{}), nil
+}
+
+// stopChatTurnWork ends what this conversation owns beyond a single task: the host turn
+// answering it, and every task that turn delegated.
+//
+// Neither failure stops the delete. The chat is being removed either way, and a delegated
+// task that survives is visible in `podium task ls` and in the log line below — where a
+// refusal to delete the chat would leave the person unable to do the thing they asked for.
+func (s *AgentService) stopChatTurnWork(ctx context.Context, chatID string) {
+	if s.turns == nil {
+		return
+	}
+	if s.turns.CancelHostTurn(chatID) {
+		s.logger.InfoContext(ctx, "stopped the host turn of a chat that is being deleted",
+			"chat_id", chatID)
+	}
+	stopped, err := s.turns.CancelDelegationsForRef(ctx, chatID,
+		"the chat this task was delegated for was deleted")
+	if err != nil {
+		s.logger.WarnContext(ctx, "cancelling the delegated tasks of a deleted chat failed; "+
+			"they may still be running", "chat_id", chatID, "error", err)
+		return
+	}
+	if stopped > 0 {
+		s.logger.InfoContext(ctx, "stopped the delegated tasks of a chat that is being deleted",
+			"chat_id", chatID, "tasks", stopped)
+	}
 }
 
 // stopRunningChatTask asks the node to stop the task currently answering this chat.
@@ -232,14 +271,13 @@ func (s *AgentService) SendChatMessage(
 		Model:  strings.TrimSpace(req.Msg.GetModel()),
 		Effort: strings.TrimSpace(req.Msg.GetEffort()),
 	}
-	if err := s.checkOverride(req.Msg.GetPlaybook(), override); err != nil {
+	if err := s.checkOverride(override); err != nil {
 		return nil, err
 	}
 	msg, err := s.chat.Send(ctx, chat.SendRequest{
 		ChatID:   req.Msg.GetChatId(),
 		Login:    login,
 		Text:     req.Msg.GetText(),
-		Playbook: req.Msg.GetPlaybook(),
 		Override: override,
 	})
 	switch {
@@ -334,10 +372,10 @@ func pullRequestError(err error) error {
 // that names only a model has also chosen that model's backend. Validating the fields
 // separately would accept combinations that cannot run.
 //
-// A playbook this conductor does not have is not this function's problem — the routing rules
-// deal with an unknown name — so an unresolvable playbook validates the override against the
-// profile alone rather than refusing.
-func (s *AgentService) checkOverride(playbookName string, o profiles.Override) error {
+// It is resolved against the ASSISTANT, because that is what the override moves: a chat
+// message is answered here, and the tasks the turn delegates keep their own playbooks'
+// models whatever this says.
+func (s *AgentService) checkOverride(o profiles.Override) error {
 	if o.Empty() {
 		return nil
 	}
@@ -348,8 +386,7 @@ func (s *AgentService) checkOverride(playbookName string, o profiles.Override) e
 	if p == nil {
 		return nil
 	}
-	playbook := p.Playbooks[playbookName]
-	if err := profiles.ValidateOverride(p.Resolve(playbook, o)); err != nil {
+	if err := profiles.ValidateOverride(p.ResolveAssistant(o)); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return nil
@@ -510,7 +547,9 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		CreatedAt:   timestamppb.New(c.CreatedAt),
 		Preview:     c.Preview,
 		TurnRunning: c.TurnRunning,
-		Playbook:    c.Playbook,
+		Agent:       c.Agent,
+		Model:       c.Model,
+		Effort:      c.Effort,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
@@ -540,6 +579,7 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		Role:   m.Role,
 		Text:   m.Text,
 		Ts:     timestamppb.New(m.TS),
+		TaskId: m.TaskID,
 	}
 	for _, a := range m.Attachments {
 		out.Attachments = append(out.Attachments, &agentv1.ChatAttachment{

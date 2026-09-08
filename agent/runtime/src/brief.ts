@@ -85,6 +85,17 @@ const skillRefSchema = z.strictObject({
   bundle_env: z.string().min(1),
 });
 
+// One playbook a host turn may delegate to. It says what the playbook can REACH rather than
+// describing it, because that is what a model choosing between playbooks needs: which one
+// has a Docker daemon, which one has the repository checked out.
+const delegablePlaybookSchema = z.strictObject({
+  name: z.string().min(1),
+  summary: z.string().optional(),
+  docker: z.boolean().optional(),
+  browser: z.boolean().optional(),
+  repos: z.array(z.string()).optional(),
+});
+
 // TODO(step 17+): a playbook may want its own MCP servers. That is a `mcp_servers` list on
 // `playbook`, mirrored here and merged into the runtime's own memory server in main.ts.
 const briefSchema = z.strictObject({
@@ -108,7 +119,14 @@ const briefSchema = z.strictObject({
     name: z.string().min(1),
     system_prompt: z.string(),
     allowed_tools: z.array(z.string()),
-    max_turns: z.number().int().positive(),
+    // Absent means NO CAP, which is what the assistant runs with: it answers a conversation
+    // and delegates, so the thing worth bounding is the container it starts and not the
+    // relay that started it. A cap that killed a conversation mid-answer produced "I ran out
+    // of turns" — a failure message for a turn that had not failed.
+    //
+    // A task always carries one: it runs unattended on a node, where nobody is watching a
+    // cursor and the only other bound is the playbook's timeout.
+    max_turns: z.number().int().positive().optional(),
     // The Agent Skills this turn may use. Absent means none — and the harness is handed a
     // permission map that denies every skill either way, so "no skills" is a decision
     // this runtime states rather than one it leaves to a default.
@@ -148,6 +166,25 @@ const briefSchema = z.strictObject({
     // Absent means the harness's own default for the provider.
     base_url: z.string().optional(),
   }),
+  // How this turn reaches a container, present only on a HOST turn: the conductor's own
+  // address, the variable holding the token that authorises this turn to use it, and the
+  // playbooks it may ask for.
+  //
+  // A TASK's brief never carries this, which is what stops a delegated task delegating
+  // again. And `playbooks` is the allow-list as well as the menu: the conductor refuses a
+  // name that is not on it, so the two cannot drift apart.
+  delegation: z
+    .strictObject({
+      url: z.string().min(1),
+      token_env: z.string().min(1),
+      playbooks: z.array(delegablePlaybookSchema).min(1),
+    })
+    .optional(),
+  // Where this turn is running. Absent means a task container, which is what every brief
+  // before host turns described; "host" means a child process of the conductor, with no
+  // container around it, no repository checked out and nothing collecting its files. The
+  // prompt says different things in the two cases and must not have to guess which it is.
+  runs_on: z.enum(["task", "host"]).optional(),
 });
 
 export type TurnBrief = z.infer<typeof briefSchema>;
@@ -156,6 +193,14 @@ export type RepoRef = z.infer<typeof repoSchema>;
 export type SkillRef = z.infer<typeof skillRefSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
 export type ProviderRef = TurnBrief["provider"];
+export type DelegationRef = NonNullable<TurnBrief["delegation"]>;
+
+/** onHost reports whether this turn is a child of the conductor rather than a container. */
+export function onHost(brief: TurnBrief): boolean {
+  return brief.runs_on === "host";
+}
+
+export type DelegablePlaybook = z.infer<typeof delegablePlaybookSchema>;
 
 /**
  * decodeBrief reads, decodes and validates the brief. Every failure is a BriefError, and

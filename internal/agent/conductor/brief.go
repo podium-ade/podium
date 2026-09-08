@@ -77,7 +77,19 @@ type Brief struct {
 	Memory              *BriefMemory   `json:"memory,omitempty"`
 	Browser             *BriefBrowser  `json:"browser,omitempty"`
 	Provider            *BriefProvider `json:"provider,omitempty"`
+	// Delegation is present only on a HOST turn's brief. A task's brief never carries one,
+	// which is what stops a delegated task delegating again.
+	Delegation *BriefDelegation `json:"delegation,omitempty"`
+	// RunsOn is RunsOnHost for a turn running as a child of the conductor and absent for
+	// one running in a task container. The runtime cannot infer it and must not guess: the
+	// prompt tells a container turn it has a disposable filesystem and may leave files to
+	// be attached, and both of those are false on a host.
+	RunsOn string `json:"runs_on,omitempty"`
 }
+
+// RunsOnHost is Brief.RunsOn for a turn the conductor runs itself. The absent value means a
+// task container, which is what every brief before host turns existed described.
+const RunsOnHost = "host"
 
 // BriefSource is where the turn came from and how a human reaches the conversation.
 type BriefSource struct {
@@ -119,7 +131,10 @@ type BriefPlaybook struct {
 	Name         string   `json:"name"`
 	SystemPrompt string   `json:"system_prompt"`
 	AllowedTools []string `json:"allowed_tools"`
-	MaxTurns     int      `json:"max_turns"`
+	// MaxTurns caps the turn's steps. ZERO means no cap and is omitted from the document,
+	// which is what the assistant runs with: the thing worth bounding is the container it
+	// starts, not the relay that started it. A task always has one.
+	MaxTurns int `json:"max_turns,omitempty"`
 	// Skills is the Agent Skills this turn may use. Absent means none, and the runtime
 	// writes a permission map that denies every skill either way.
 	Skills []BriefSkill `json:"skills,omitempty"`
@@ -163,6 +178,24 @@ type BriefRepo struct {
 type BriefMemory struct {
 	MCPURL    string `json:"mcp_url"`
 	APIKeyEnv string `json:"api_key_env"`
+}
+
+// BriefDelegation is how a host turn reaches a container: the conductor's own address, the
+// variable holding the token that authorises this turn to use it, and the playbooks it may
+// ask for.
+//
+// The playbook list is the ALLOW-LIST as well as the menu. It is built from the same profile
+// snapshot as the token's grant, so what the model was shown and what the conductor will
+// accept cannot drift apart between the fork and the call — a name that is not here is
+// refused rather than resolved.
+//
+// TokenEnv is the NAME of a variable, never a value, exactly as memory.api_key_env is: a
+// brief is a document, and one that carried a bearer token would be a document that must
+// never be logged.
+type BriefDelegation struct {
+	URL       string              `json:"url"`
+	TokenEnv  string              `json:"token_env"`
+	Playbooks []DelegablePlaybook `json:"playbooks"`
 }
 
 // BriefBrowser points the runtime at the headless Chrome running beside this turn. It

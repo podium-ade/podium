@@ -13,7 +13,7 @@ const BAD_KEY = "sk-ant-test-bad";
 const KEY_SECRET = "podium.agent.anthropic_api_key";
 
 /**
- * DRY_RUN says the stack's conductor is running a profile whose chat playbook sets
+ * DRY_RUN says the stack's conductor is running a profile whose playbooks set
  * PODIUM_AGENT_DRY_RUN=1 — the test seam step 16 defined, which makes the agent runtime skip
  * the model and answer "dry run: <instruction>".
  *
@@ -160,9 +160,9 @@ test("the agent tabs are real routes", async ({ page }) => {
   await page.getByRole("link", { name: "Agent" }).click();
   await expect(page).toHaveURL(/\/agent\/chat$/);
 
-  // The Profile tab reads the profile the conductor is actually running, files and stored
+  // The Assistant tab reads the profile the conductor is actually running, files and stored
   // playbooks merged, so the directory it was loaded from is the proof it is the real one.
-  await page.getByRole("link", { name: "Profile" }).click();
+  await page.getByRole("link", { name: "Assistant" }).click();
   await expect(page).toHaveURL(/\/agent\/profile$/);
   await expect(page.getByTestId("profile-card")).toBeVisible();
 
@@ -232,8 +232,10 @@ test("a new chat stores the question and disables the composer", async ({ page }
   await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
   const url = page.url();
 
-  // The playbook chip shows what the next message will run: the profile's chat_default_playbook.
-  await expect(page.getByTestId("chat-playbook")).toBeVisible();
+  // One control, and only one: which model answers. A conversation runs no playbook, so
+  // there is nothing here to pick one with.
+  await expect(page.getByTestId("chat-run-config")).toBeVisible();
+  await expect(page.getByTestId("chat-playbook")).toHaveCount(0);
 
   await page.getByTestId("chat-composer").fill("how many active accounts last month");
   await page.getByTestId("chat-send").click();

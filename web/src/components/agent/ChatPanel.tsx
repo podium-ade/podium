@@ -11,7 +11,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, Playbook } from "../../gen/podium/agent/v1/agent_pb";
+import type { Assistant, Chat, ChatMessage } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -151,6 +151,10 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  // What the assistant may delegate to. It is shown, never picked: the turn chooses a
+  // playbook per piece of work, and naming them is how a reader learns the conversation can
+  // reach a machine at all.
+  const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
   const deleteStopsTask = pendingDelete?.turnRunning === true;
 
   return (
@@ -184,7 +188,7 @@ export function ChatPanel() {
                 className="max-w-lg"
                 icon={Sparkles}
                 title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
-                hint="A question here runs as a real Podium task on a node, with the tools its playbook allows. It answers with what it found, and shows the work."
+                hint={assistantHint(playbooks.data?.assistant?.displayName, playbookNames)}
                 action={
                   <Button size="sm" disabled={create.isPending} onClick={() => create.mutate("")}>
                     <MessageSquarePlus />
@@ -194,17 +198,16 @@ export function ChatPanel() {
               />
             </div>
           ) : (
-            // Keyed on the chat: a switch remounts the conversation, so its playbook choice
+            // Keyed on the chat: a switch remounts the conversation, so its model choice
             // and scroll position start fresh without an effect resetting them.
             <Conversation
               key={active}
               chatId={active}
-              storedPlaybook={list.find((c) => c.id === active)?.playbook ?? ""}
               title={list.find((c) => c.id === active)?.title ?? ""}
+              remembered={storedChoice(list.find((c) => c.id === active))}
               onRename={(title) => renameChat(active, title)}
-              botName={playbooks.data?.profileDisplayName ?? "Podium"}
-              playbooks={playbooks.data?.playbooks ?? []}
-              chatDefaultPlaybook={playbooks.data?.playbooks.find((s) => s.chatDefault)?.name ?? ""}
+              assistant={playbooks.data?.assistant}
+              playbookNames={playbookNames}
             />
           )}
         </div>
@@ -507,9 +510,6 @@ function ChatRow({
         </span>
         <span className="mt-1 flex items-center gap-1.5">
           {chat.turnRunning ? <Badge tone="run">running</Badge> : null}
-          {chat.playbook ? (
-            <span className="font-mono shrink-0 text-2xs text-faint">/{chat.playbook}</span>
-          ) : null}
           <span className="min-w-0 flex-1 truncate text-xs text-muted">
             {chat.preview || "nothing said yet"}
           </span>
@@ -639,31 +639,25 @@ function ConversationTitle({
 
 function Conversation({
   chatId,
-  storedPlaybook,
   title,
+  remembered,
   onRename,
-  botName,
-  playbooks,
-  chatDefaultPlaybook,
+  assistant,
+  playbookNames,
 }: {
   chatId: string;
-  storedPlaybook: string;
   title: string;
+  /** remembered is what this chat was last answered on, from the list row. */
+  remembered?: AgentChoice;
   onRename: (title: string) => Promise<void>;
-  botName: string;
-  playbooks: Playbook[];
-  chatDefaultPlaybook: string;
+  assistant?: Assistant;
+  playbookNames: string[];
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const stream = useChatStream(chatId);
-  // Undefined means "whatever the profile says", which is not known until ListPlaybooks
-  // answers — so the choice is derived rather than copied into state on arrival. A playbook
-  // the chat already ran is knowledge, not a preference, and wins.
-  const [chosen, setChosen] = useState<string | undefined>(storedPlaybook || undefined);
-  const playbook = stream.chat?.playbook || chosen || storedPlaybook || chatDefaultPlaybook;
-  const locked = (stream.chat?.playbook || storedPlaybook) !== "";
+  const botName = assistant?.displayName ?? "Podium";
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
   const lastTop = useRef(0);
@@ -687,10 +681,17 @@ function Conversation({
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
   }, [qc, stream.chat]);
 
-  // The choice is sticky across messages, the way every chat that has a model picker
-  // behaves: you pick once and keep asking. It is still sent per message, so nothing is
-  // remembered server-side and a reload goes back to the playbook's own model.
-  const [choice, setChoice] = useState<AgentChoice>(INHERIT);
+  // What answers this conversation. Picked once and then remembered: the chat row stores the
+  // override, so a reload, another tab and coming back tomorrow all open on the model this
+  // chat was last asked for.
+  //
+  // Derived rather than copied into state on arrival, for the same reason the title is: the
+  // row lands asynchronously, and an effect that seeded state from it would either race the
+  // first render or overwrite a choice made while it was in flight. So what the PERSON picked
+  // in this session wins, and the stored choice is what it falls back to.
+  const [picked, setPicked] = useState<AgentChoice | undefined>(undefined);
+  const choice = picked ?? storedChoice(stream.chat) ?? remembered ?? INHERIT;
+  const setChoice = setPicked;
   const { agents } = useAgents();
 
   const send = useMutation({
@@ -698,8 +699,8 @@ function Conversation({
       agent.sendChatMessage({
         chatId,
         text: v.text,
-        playbook,
-        // Empty fields mean "the playbook's", which is exactly what the server does with them.
+        // Empty fields mean "the assistant's own", which is exactly what the server does
+        // with them.
         agent: v.choice.agent,
         model: v.choice.model,
         effort: v.choice.effort,
@@ -778,14 +779,6 @@ function Conversation({
           className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
         >
           <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
-            {/* In the flow rather than floating over it: an overlay at the top of the
-                scroll port reads the transcript's first message straight through. */}
-            {busy ? (
-              <div className="sticky top-2 z-10 flex justify-center">
-                <RunningTurn progress={stream.progress} taskId={stream.taskId} />
-              </div>
-            ) : null}
-
             {connecting ? <TranscriptSkeleton /> : null}
 
             {stream.error ? (
@@ -796,12 +789,21 @@ function Conversation({
             ) : null}
 
             {!connecting && stream.messages.length === 0 ? (
-              <FirstMessage botName={botName} />
+              <FirstMessage botName={botName} playbookNames={playbookNames} />
             ) : null}
 
             {stream.messages.map((m, i) => (
               <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
             ))}
+
+            {/* Last, where the answer itself will land. A turn's state used to be a pill
+                stuck to the top of the transcript, which took its own line in the flow and
+                pushed the whole conversation down the moment a turn started. Here it costs
+                nothing: it grows at the end, which is where new messages arrive and where
+                the view is already pinned. */}
+            {busy ? (
+              <Thinking progress={stream.progress} taskId={stream.taskId} botName={botName} />
+            ) : null}
           </div>
         </div>
 
@@ -822,12 +824,9 @@ function Conversation({
       </div>
 
       <ChatComposer
-        playbooks={playbooks}
-        playbook={playbook}
-        onPlaybookChange={setChosen}
-        playbookLocked={locked}
         disabled={busy}
         agents={agents}
+        assistant={assistant}
         choice={choice}
         onChoiceChange={setChoice}
         onSend={(text, choice) => send.mutate({ text, choice })}
@@ -837,37 +836,76 @@ function Conversation({
 }
 
 /**
- * RunningTurn is that a turn is running, and the task it is running in. Nothing more: what
- * the task is actually doing is in the transcript below, in its own words, so this is a
- * state and not a message — which is why it is a pill that sticks to the top of the
- * conversation rather than a line of prose stealing the newest thing said.
+ * Thinking is the bot's turn before it has words: the same row an answer arrives in, with
+ * an indicator where the text will be.
  *
- * The progress line it does show is the conductor's placeholder, which fills the gap
- * between a turn starting and the task's first words — a container still being pulled has
- * nothing to say yet, and neither does an empty pill.
+ * It reads as part of the conversation rather than as chrome about it, which is what makes
+ * the wait legible — "it is working" belongs in the transcript, next to what it is working
+ * on, and not in a strip above it.
+ *
+ * The line it shows is whatever the turn last said about itself: a task's progress once
+ * there is one, and the conductor's placeholder before that, because a container still
+ * being pulled has nothing to say yet.
  */
-function RunningTurn({ progress, taskId }: { progress?: string; taskId?: string }) {
+function Thinking({
+  progress,
+  taskId,
+  botName,
+}: {
+  progress?: string;
+  taskId?: string;
+  botName: string;
+}) {
   return (
-    <div
-      data-testid="chat-progress"
-      className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-panel/95 py-1 pr-3 pl-1.5 shadow-md backdrop-blur animate-in fade-in-0 slide-in-from-top-1"
-    >
-      <Badge tone="run">running</Badge>
-      <span className="min-w-0 truncate text-xs text-muted">{progress ?? "Working on it…"}</span>
-      {taskId ? (
-        <Link
-          to={`/tasks/${taskId}`}
-          title={taskId}
-          className="shrink-0 border-l border-hairline pl-2 font-mono text-2xs text-accent hover:underline"
-        >
-          {taskId}
-        </Link>
-      ) : null}
+    <div className="flex gap-3" data-testid="chat-progress" role="status" aria-live="polite">
+      <span
+        aria-hidden
+        className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-border bg-panel text-accent"
+      >
+        <Bot className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs font-medium text-fg">{botName}</span>
+          {taskId ? (
+            <Link
+              to={`/tasks/${taskId}`}
+              title={taskId}
+              className="font-mono shrink-0 text-2xs text-accent hover:underline"
+            >
+              {taskId}
+            </Link>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+          <Dots />
+          <span className="min-w-0 truncate">{progress ?? "Thinking"}</span>
+        </div>
+      </div>
     </div>
   );
 }
 
-function FirstMessage({ botName }: { botName: string }) {
+/**
+ * Dots is the three-dot wait. The stagger is what makes it read as activity rather than as
+ * a decoration; index.css flattens every animation under prefers-reduced-motion, so there
+ * is nothing to opt out of here.
+ */
+function Dots() {
+  return (
+    <span aria-hidden className="flex shrink-0 items-center gap-1">
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          style={{ animationDelay: `${delay}ms` }}
+          className="size-1.5 animate-pulse rounded-full bg-muted"
+        />
+      ))}
+    </span>
+  );
+}
+
+function FirstMessage({ botName, playbookNames }: { botName: string; playbookNames: string[] }) {
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
       <span className="grid size-10 place-items-center rounded-xl border border-border bg-panel text-accent">
@@ -875,12 +913,35 @@ function FirstMessage({ botName }: { botName: string }) {
       </span>
       <p className="text-sm font-medium text-fg">Ask {botName} something</p>
       <p className="max-w-md text-xs leading-relaxed text-muted">
-        Each question runs as one Podium task and exits when it has an answer. Try{" "}
-        <span className="text-fg">why did the nightly ETL fail?</span> — or pick a playbook below
-        to change which image, tools and model the turn runs with.
+        {botName} answers here. When something needs a machine it starts a task on your nodes
+        and reports back — you will see each one it runs. Try{" "}
+        <span className="text-fg">why did the nightly ETL fail?</span>
       </p>
+      {playbookNames.length > 0 ? (
+        <p className="max-w-md text-2xs text-faint">
+          It can run{" "}
+          {playbookNames.map((name, i) => (
+            <span key={name}>
+              {i > 0 ? ", " : ""}
+              <span className="font-mono text-muted">{name}</span>
+            </span>
+          ))}
+          .
+        </p>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * assistantHint is the sentence on the no-chat-selected screen. It names the playbooks so
+ * that "it starts tasks" is concrete rather than a promise, and it degrades to the sentence
+ * alone before ListPlaybooks has answered.
+ */
+function assistantHint(botName: string | undefined, playbookNames: string[]): string {
+  const who = botName ?? "Podium";
+  const base = `Ask ${who} anything about your stack. It answers here, and starts a task on your nodes when the work needs a machine.`;
+  return playbookNames.length === 0 ? base : `${base} It can run ${playbookNames.join(", ")}.`;
 }
 
 function TranscriptSkeleton() {
@@ -903,13 +964,38 @@ function TranscriptSkeleton() {
 }
 
 /**
- * runsOf marks the first message of each run by one author, so a name is a label above a
- * run rather than a repeat above every bubble. Role is author here: the task narrating its
- * work and the bot answering are two voices, and which one is speaking is the thing the
- * name is there to say.
+ * storedChoice is what a chat row says it is answered on, or undefined when it says nothing.
+ *
+ * All three fields empty is "the assistant's own", which is what INHERIT already means — so
+ * it reads as *nothing stored* rather than as a choice, and the picker falls through to its
+ * own default. That keeps one meaning for one state instead of two paths to the same place.
  */
+function storedChoice(chat?: Chat): AgentChoice | undefined {
+  if (!chat) return undefined;
+  // Normalised rather than trusted: the fields are strings on the wire, and a caller holding
+  // a partial row must not turn into a choice of three undefineds sent as a model.
+  const agent = chat.agent ?? "";
+  const model = chat.model ?? "";
+  const effort = chat.effort ?? "";
+  if (agent === "" && model === "" && effort === "") return undefined;
+  return { agent, model, effort };
+}
+
+/**
+ * runsOf marks the first message of each run by one speaker, so a name is a label above a
+ * run rather than a repeat above every bubble.
+ *
+ * The speaker is the TASK, or the assistant when there is none — not the role. Role alone
+ * put two different tasks under one heading, which in a conversation that delegated twice
+ * read as one long monologue; and it grouped a task's answer with the assistant's, which are
+ * the two things a reader most needs to tell apart.
+ */
+function speakerOf(m: ChatMessage): string {
+  return `${m.role}|${m.taskId}`;
+}
+
 function runsOf(messages: ChatMessage[]): boolean[] {
-  return messages.map((m, i) => i === 0 || messages[i - 1].role !== m.role);
+  return messages.map((m, i) => i === 0 || speakerOf(messages[i - 1]) !== speakerOf(m));
 }
 
 /**
@@ -919,9 +1005,9 @@ function runsOf(messages: ChatMessage[]): boolean[] {
  * column under a name, where markdown has room to read as markdown rather than as chat.
  *
  * A `progress` message reads exactly like an answer, because that is what it is: the words
- * the task said on its way there. The name above the run is what separates them — the task
- * narrating its work, then the bot with the answer — rather than a quieter typography,
- * which would make the transcript look like it had a margin of asides in it.
+ * said on the way there. The name above the run is what separates them — a task narrating
+ * its work, then the bot with the answer — rather than a quieter typography, which would
+ * make the transcript look like it had a margin of asides in it.
  */
 function Turn({
   message,
@@ -948,17 +1034,25 @@ function Turn({
     );
   }
 
-  // Who is talking. The task is the container doing the work and the bot is what answers
-  // with it; the answer is relayed through the same task, so this is the honest half of the
-  // distinction: a line while the work is still going, or the thing it came back with.
-  const fromTask = message.role === "progress";
+  // Two different questions, and they used to be answered by one flag.
+  //
+  // WHERE it came from is the task id: empty means the assistant, talking in the conductor's
+  // own process. Role alone credited the assistant's own thinking to a container it had not
+  // started yet, which is the one thing in a conversation that is never a task. A row
+  // written before that column existed has no task id and reads as the assistant's.
+  //
+  // WHAT it is, is the role: a line on the way to an answer, or the answer. A task's answer
+  // is still the bot answering — the container is how, not who — so it keeps the bot's name
+  // and carries the task as a link beside it.
+  const fromTask = message.taskId !== "";
+  const thinking = message.role === "progress";
 
   return (
     <div className="flex gap-3">
       <span
         aria-hidden
         className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${
-          firstOfRun ? `border border-border bg-panel ${fromTask ? "text-muted" : "text-accent"}` : ""
+          firstOfRun ? `border border-border bg-panel ${thinking ? "text-muted" : "text-accent"}` : ""
         }`}
       >
         {firstOfRun ? fromTask ? <Terminal className="size-4" /> : <Bot className="size-4" /> : null}
@@ -966,7 +1060,20 @@ function Turn({
       <div className="min-w-0 flex-1 space-y-1.5">
         {firstOfRun ? (
           <div className="flex items-baseline gap-2">
-            <span className="text-xs font-medium text-fg">{fromTask ? "task" : botName}</span>
+            <span className="text-xs font-medium text-fg">
+              {thinking && fromTask ? "task" : botName}
+            </span>
+            {/* Which task, so two of them answering the same conversation are two answers
+                and not one confusing run. */}
+            {fromTask ? (
+              <Link
+                to={`/tasks/${message.taskId}`}
+                title={message.taskId}
+                className="font-mono shrink-0 text-2xs text-accent hover:underline"
+              >
+                {message.taskId}
+              </Link>
+            ) : null}
             <span className="text-2xs text-faint" title={absolute(message.ts)}>
               {relative(message.ts)}
             </span>
@@ -976,7 +1083,7 @@ function Turn({
           <ChatMarkdown
             text={message.text}
             keyPrefix={`m${message.seq}-`}
-            className={fromTask ? "text-muted" : undefined}
+            className={thinking ? "text-muted" : undefined}
           />
           <ChatAttachments attachments={message.attachments} />
         </div>

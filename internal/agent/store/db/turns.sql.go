@@ -166,15 +166,22 @@ select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
        s.source_kind, s.source_key, s.playbook, s.profile
 from turns t
 join sessions s on s.id = t.session_id
-where t.started_at >= $1 and t.started_at < $2
-order by t.started_at desc, t.id desc
-limit $3::int
+where t.started_at >= $2 and t.started_at < $3
+union all
+select d.id, coalesce(d.task_id, '')::text, d.session_id, d.status, d.created_at, d.finished_at,
+       d.num_turns, d.cost_usd, d.agent, d.model, d.effort, d.provider,
+       s.source_kind, s.source_key, d.playbook, s.profile
+from delegations d
+join sessions s on s.id = d.session_id
+where d.created_at >= $2 and d.created_at < $3
+order by started_at desc, id desc
+limit $1::int
 `
 
 type ListTurnCostsParams struct {
+	PageLimit int32
 	FromTime  time.Time
 	ToTime    time.Time
-	PageLimit int32
 }
 
 type ListTurnCostsRow struct {
@@ -196,11 +203,17 @@ type ListTurnCostsRow struct {
 	Profile    string
 }
 
-// ListTurnCosts is one row per turn in the range, with the session fields that say what
-// spent it. The join is to sessions and no further: a task_id is a string this database has
-// no opinion about, and the browser is what puts the two halves together.
+// ListTurnCosts is one row per unit of spend in the range — a turn, or a task a turn
+// delegated — with the session fields that say what spent it. The join is to sessions and no
+// further: a task_id is a string this database has no opinion about, and the browser is what
+// puts the two halves together.
+//
+// The PLAYBOOK comes from different places on purpose. A turn's is the session's, because a
+// thread runs one playbook; a delegation's is its own, because the session it belongs to is a
+// conversation and runs none. That is what makes the breakdown read "assistant" for what the
+// host answered and the playbook's name for what the container did.
 func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([]ListTurnCostsRow, error) {
-	rows, err := q.db.Query(ctx, listTurnCosts, arg.FromTime, arg.ToTime, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listTurnCosts, arg.PageLimit, arg.FromTime, arg.ToTime)
 	if err != nil {
 		return nil, err
 	}
@@ -298,17 +311,22 @@ func (q *Queries) SetTurnTask(ctx context.Context, arg SetTurnTaskParams) error 
 }
 
 const usageByBackend = `-- name: UsageByBackend :many
-select coalesce(provider, '')::text                as provider,
-       coalesce(agent, '')::text                   as agent,
-       coalesce(model, '')::text                   as model,
-       coalesce(effort, '')::text                  as effort,
-       coalesce(sum(cost_usd), 0)::float8          as cost_usd,
-       count(*)::int                               as turns,
-       coalesce(sum(num_turns), 0)::int            as model_turns,
-       count(*) filter (where cost_usd is null)::int as unpriced
-from turns
-where started_at >= $1 and started_at < $2
-group by provider, agent, model, effort
+select coalesce(r.provider, '')::text                as provider,
+       coalesce(r.agent, '')::text                   as agent,
+       coalesce(r.model, '')::text                   as model,
+       coalesce(r.effort, '')::text                  as effort,
+       coalesce(sum(r.cost_usd), 0)::float8          as cost_usd,
+       count(*)::int                                 as turns,
+       coalesce(sum(r.num_turns), 0)::int            as model_turns,
+       count(*) filter (where r.cost_usd is null)::int as unpriced
+from (
+  select provider, agent, model, effort, cost_usd, num_turns from turns
+   where started_at >= $1 and started_at < $2
+  union all
+  select provider, agent, model, effort, cost_usd, num_turns from delegations
+   where created_at >= $1 and created_at < $2
+) r
+group by r.provider, r.agent, r.model, r.effort
 order by cost_usd desc, turns desc
 `
 
@@ -332,8 +350,10 @@ type UsageByBackendRow struct {
 // the same reason the day rows are: the costs page is capped, and grouping a capped page
 // would under-report whichever model happened to fall off the end of it.
 //
-// Turns from before the columns existed group under empty strings, which the API reports as
-// unrecorded rather than as a model named "".
+// Rows from before the columns existed group under empty strings, which the API reports as
+// unrecorded rather than as a model named "". Delegations are in here for the same reason
+// they are in the other two: a conversation's spend is its delegated tasks', and a bill that
+// left them out was not a bill.
 func (q *Queries) UsageByBackend(ctx context.Context, arg UsageByBackendParams) ([]UsageByBackendRow, error) {
 	rows, err := q.db.Query(ctx, usageByBackend, arg.FromTime, arg.ToTime)
 	if err != nil {
@@ -364,14 +384,19 @@ func (q *Queries) UsageByBackend(ctx context.Context, arg UsageByBackendParams) 
 }
 
 const usageByDay = `-- name: UsageByDay :many
-select to_char((t.started_at + make_interval(mins => $1::int))::date,
+select to_char((r.started_at + make_interval(mins => $1::int))::date,
                'YYYY-MM-DD')::text                                           as day,
-       coalesce(sum(t.cost_usd), 0)::float8                                  as cost_usd,
+       coalesce(sum(r.cost_usd), 0)::float8                                  as cost_usd,
        count(*)::int                                                         as turns,
-       coalesce(sum(t.num_turns), 0)::int                                    as model_turns,
-       count(*) filter (where t.cost_usd is null)::int                       as unpriced
-from turns t
-where t.started_at >= $2 and t.started_at < $3
+       coalesce(sum(r.num_turns), 0)::int                                    as model_turns,
+       count(*) filter (where r.cost_usd is null)::int                       as unpriced
+from (
+  select t.started_at, t.cost_usd, t.num_turns from turns t
+   where t.started_at >= $2 and t.started_at < $3
+  union all
+  select d.created_at, d.cost_usd, d.num_turns from delegations d
+   where d.created_at >= $2 and d.created_at < $3
+) r
 group by day
 order by day
 `
@@ -395,6 +420,11 @@ type UsageByDayRow struct {
 // operator ran it rather than on the next one.
 // The day leaves as text rather than as a date, because a date would arrive as pgtype.Date
 // and the point of the overrides in sqlc.yaml is that no store signature speaks pgx.
+//
+// Both halves of what this bot spends, and it has to be both: a turn is what a Slack mention
+// or a Linear ticket costs, and a DELEGATION is what a conversation costs, because the
+// assistant answers on the host and hands the work to a container. Reading turns alone
+// reported the relay's pennies as the whole bill.
 func (q *Queries) UsageByDay(ctx context.Context, arg UsageByDayParams) ([]UsageByDayRow, error) {
 	rows, err := q.db.Query(ctx, usageByDay, arg.TzOffsetMinutes, arg.FromTime, arg.ToTime)
 	if err != nil {

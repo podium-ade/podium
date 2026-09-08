@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
 )
@@ -376,4 +377,36 @@ func TestATokenTheAPIRefusesIsNotStored(t *testing.T) {
 	}
 	require.NotNil(t, detail, "the provider's own words have to reach the operator")
 	assert.Contains(t, detail.GetProviderMessage(), fakeXAIRefusal)
+}
+
+// A credential stored before host turns existed lives only in the secret store, which has no
+// read endpoint — so a host turn cannot spend it. That is a different answer from having no
+// credential at all, and the two get different advice: save it again, versus set one.
+func TestHostCredentialTellsAStaleCredentialFromAMissingOne(t *testing.T) {
+	f := newXAIFixture(t, nil)
+	ctx := loginCtx("alice")
+
+	// Nothing stored at all.
+	_, err := f.svc.HostCredential(ctx, ProviderXAI)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, conductor.ErrCredentialStale)
+	assert.Contains(t, err.Error(), "no credential is stored")
+
+	// A row from before the readable copy existed: the shape every upgrade starts in.
+	require.NoError(t, f.svc.store.PutSetting(ctx, providerSettingKey(ProviderXAI), providerRow{
+		KeyHint: "abcd", AuthKind: AuthAPIKey, SecretVersion: 1,
+	}))
+	_, err = f.svc.HostCredential(ctx, ProviderXAI)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, conductor.ErrCredentialStale,
+		"an operator who has set a credential must not be told to set one")
+
+	// Saving it again is what writes the copy a host turn spends.
+	_, err = f.svc.SetProviderKey(ctx, connect.NewRequest(&agentv1.SetProviderKeyRequest{
+		Provider: ProviderXAI, Key: fakeXAIKey,
+	}))
+	require.NoError(t, err)
+	got, err := f.svc.HostCredential(ctx, ProviderXAI)
+	require.NoError(t, err)
+	assert.Equal(t, fakeXAIKey, got)
 }

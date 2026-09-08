@@ -3,17 +3,12 @@ package conductor
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"slices"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 
-	"github.com/alvaroibarguen/podium/internal/agent/podium"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 )
@@ -37,39 +32,28 @@ const (
 // turnRun is one turn being followed. Everything in it is touched from exactly one
 // goroutine — the one running run — so none of it is locked.
 type turnRun struct {
-	c        *Conductor
-	src      Source
-	sess     store.Session
-	playbook profiles.Playbook
-	turn     store.Turn
-	// ref is the source's reference to the message that started the turn.
-	ref string
+	// sink is where everything this turn says goes. It is embedded rather than held so
+	// that r.src, r.ref, r.finals and the rest read the same as they did when they were
+	// fields of this struct — and so a delegated task, which is not a turn, can relay
+	// through exactly the same code (delegate.go).
+	*sink
+
+	sess store.Session
+	job  job
+	turn store.Turn
 	// author, instruction and url come off the inbound event and exist for the
 	// end-of-turn retain (retain.go). A resumed turn has none of them: they are not
 	// persisted, and only the answer is.
 	author      string
 	instruction string
 	url         string
-	// placeholder is the "working…" message progress edits replace. It is empty for a
-	// resumed turn, whose progress is posted as new messages instead.
-	placeholder string
 	startedAt   time.Time
 
 	lastSeq uint64
-	// finals is every final text this run relayed, in order. The runtime splits an answer
-	// over 32 KiB into several consecutive finals; joined with a blank line they are the
-	// whole answer again.
-	finals []string
-	// attachments are artifact names the finals asked for, in order, deduplicated.
-	attachments []string
 	// acct is what the runtime said this turn cost, nil until it says so. acctFrom names
 	// the route it arrived by.
 	acct     *accounting
 	acctFrom string
-	// heldProgress is a progress text waiting for the throttle to let it through.
-	heldProgress string
-	haveHeld     bool
-	lastEdit     time.Time
 	// errText is the last non-retryable error event. It goes to the log, never to a human.
 	errText string
 }
@@ -114,7 +98,7 @@ func (r *turnRun) run(ctx context.Context) {
 	}
 
 	r.settle(ctx, task)
-	result := classify(task, r.playbook.Timeout.Std())
+	result := classify(task, r.job.playbook.Timeout.Std())
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.
@@ -159,10 +143,10 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		r.c.logger.WarnContext(ctx, "a turn succeeded but reported no accounting, so its "+
 			"num_turns and cost_usd are unrecorded: neither the runtime's accounting message "+
 			"nor its turn.json artifact arrived",
-			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.playbook.Name)
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.job.name)
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
-	answer := strings.Join(r.finals, "\n\n")
+	answer := r.answer()
 	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, answer); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how the turn ended failed",
 			"turn_id", r.turn.ID, "status", status, "error", err)
@@ -173,29 +157,41 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		reaction = ReactionFailed
 	}
 	r.c.finish(ctx, r.src, r.ref, reaction)
-	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.playbook.Name, status).Inc()
-	r.c.metrics.TurnDuration.WithLabelValues(r.playbook.Name).Observe(time.Since(r.startedAt).Seconds())
+	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.job.name, status).Inc()
+	r.c.metrics.TurnDuration.WithLabelValues(r.job.name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
-		"status", status, "playbook", r.playbook.Name)
+		"status", status, "playbook", r.job.name)
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
 	r.retain(ctx, status)
 }
 
 // linkPullRequests hands the source the pull requests this turn's answer named.
-//
-// answer is the joined finals — byte for byte what FinishTurn just stored as final_text —
-// and it is the right text to read for two reasons. It is the only thing the turn said in
-// full: progress lines are coalesced and superseded on the way out, so a link found in one
-// would appear or not depending on how fast the runtime was talking, and nothing
-// afterwards could explain where it came from. And it is what a human would have
-// read: a pull request the turn opened is announced in its answer, and one that is only
-// muttered about on the way there is not this turn's result.
-//
-// It never fails a turn. The answer is already posted and the turn is already recorded; a
-// link that did not land costs a log line and a human can attach it.
 func (r *turnRun) linkPullRequests(ctx context.Context, answer string) {
-	linker, ok := r.src.(pullRequestLinker)
+	r.c.linkPullRequests(ctx, r.src, r.ref, answer, "turn_id", r.turn.ID)
+}
+
+// linkPullRequests hands the source the pull requests ONE answer named, whether that answer
+// came from a turn or from a task the turn delegated.
+//
+// Both, and that is the whole reason this is not a method on turnRun any more. A conversation
+// is answered by the assistant, which opens no pull requests — it has no repository and no
+// shell — so every pull request this bot produces now comes out of a delegated task. Reading
+// only the turn's own final_text meant the one place a link could appear was the one place it
+// never did: the assistant announced "the task is running", the task answered with the URL,
+// and the chat's pull-request bar stayed empty while the work sat in review.
+//
+// answer is the joined finals — byte for byte what FinishTurn or FinishDelegation just
+// stored — and it is the right text to read for two reasons. It is the only thing that was
+// said in full: progress lines are coalesced and superseded on the way out, so a link found
+// in one would appear or not depending on how fast the runtime was talking. And it is what a
+// human would have read: a pull request is announced in an answer, and one only muttered
+// about on the way there is not the result.
+//
+// It never fails anything. The answer is already posted and the row is already recorded; a
+// link that did not land costs a log line and a human can attach it by hand.
+func (c *Conductor) linkPullRequests(ctx context.Context, src Source, ref, answer string, logArgs ...any) {
+	linker, ok := src.(pullRequestLinker)
 	if !ok {
 		return
 	}
@@ -204,13 +200,13 @@ func (r *turnRun) linkPullRequests(ctx context.Context, answer string) {
 		return
 	}
 	if len(found) > maxPullRequestsPerTurn {
-		r.c.logger.InfoContext(ctx, "a turn named more pull requests than one turn may link",
-			"turn_id", r.turn.ID, "found", len(found), "linked", maxPullRequestsPerTurn)
+		c.logger.InfoContext(ctx, "more pull requests were named than one answer may link",
+			append(logArgs, "found", len(found), "linked", maxPullRequestsPerTurn)...)
 		found = found[:maxPullRequestsPerTurn]
 	}
-	if err := linker.LinkPullRequests(ctx, r.ref, found); err != nil {
-		r.c.logger.WarnContext(ctx, "linking the turn's pull requests to the conversation failed",
-			"turn_id", r.turn.ID, "ref", r.ref, "error", err)
+	if err := linker.LinkPullRequests(ctx, ref, found); err != nil {
+		c.logger.WarnContext(ctx, "linking pull requests to the conversation failed",
+			append(logArgs, "ref", ref, "error", err)...)
 	}
 }
 
@@ -233,83 +229,6 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			r.errText = err.GetMessage()
 		}
 	default:
-	}
-}
-
-// relay says one message, exactly once. MarkRelayed is the ledger: the insert either takes
-// (task_id, seq) or finds it taken, and only the run that took it speaks.
-func (r *turnRun) relay(ctx context.Context, e *podiumv1.TaskEvent) {
-	first, err := r.c.store.MarkRelayed(ctx, r.turn.TaskID, e.GetSeq())
-	if err != nil {
-		// Saying nothing is recoverable — the next start resumes from the last seq that
-		// *was* recorded — and saying something twice is not.
-		r.c.logger.ErrorContext(ctx, "claiming a message for relay failed; not posting it",
-			"task_id", r.turn.TaskID, "seq", e.GetSeq(), "error", err)
-		return
-	}
-	if !first {
-		return
-	}
-	msg := e.GetMessage()
-	if msg == nil {
-		return
-	}
-	r.c.metrics.RelayedMessages.WithLabelValues(msg.GetType()).Inc()
-
-	if msg.GetType() != OutFinal {
-		// Anything that is not a final is progress, whatever it called itself.
-		r.heldProgress = msg.GetText()
-		r.haveHeld = true
-		r.maybeEdit(ctx)
-		return
-	}
-	// A held progress edit is flushed before the answer lands, so the thread never shows
-	// a stale "working on it" above the final.
-	r.flushProgress(ctx)
-	text := msg.GetText()
-	r.finals = append(r.finals, text)
-	for _, name := range msg.GetAttachments() {
-		if !slices.Contains(r.attachments, name) {
-			r.attachments = append(r.attachments, name)
-		}
-	}
-	if text == "" {
-		return
-	}
-	r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Text: text})
-}
-
-// maybeEdit shows the held progress if the throttle allows it. There is no timer: the next
-// progress or the final flushes whatever is held, and the runtime coalesces progress to at
-// most one every five seconds anyway (step 16), so the throttle almost never engages.
-func (r *turnRun) maybeEdit(ctx context.Context) {
-	if time.Since(r.lastEdit) < progressThrottle {
-		return
-	}
-	r.flushProgress(ctx)
-}
-
-// flushProgress edits the placeholder to the newest progress text, or posts it as a new
-// message when there is no placeholder to edit (a resumed turn).
-func (r *turnRun) flushProgress(ctx context.Context) {
-	if !r.haveHeld {
-		return
-	}
-	text := r.heldProgress
-	r.haveHeld = false
-	r.heldProgress = ""
-	r.lastEdit = time.Now()
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: ProgressPrefix + text}
-	if r.placeholder == "" {
-		r.placeholder = r.c.post(ctx, r.src, r.ref, out)
-		return
-	}
-	if err := r.src.Edit(ctx, r.ref, r.placeholder, out); err != nil {
-		r.c.logger.WarnContext(ctx, "editing the progress message failed",
-			"ref", r.ref, "error", err)
 	}
 }
 
@@ -361,56 +280,7 @@ func (r *turnRun) settle(ctx context.Context, task *podiumv1.Task) {
 	if art, ok := byName[chatTitleArtifact]; wantTitle && ok {
 		r.applyChatTitle(ctx, art)
 	}
-	for _, name := range r.attachments {
-		if name == chatTitleArtifact {
-			continue
-		}
-		art, ok := byName[name]
-		if !ok {
-			// Normal, not an error: a name that matches nothing is how the runtime says
-			// "I mentioned a file I did not produce".
-			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
-				"no artifact named `%s` was produced", name)})
-			continue
-		}
-		r.attach(ctx, art)
-	}
-}
-
-// attach streams one artifact into the conversation. Nothing is buffered: an artifact may
-// be hundreds of megabytes, and one over the relay limit is refused with a line in the
-// thread rather than proxied.
-func (r *turnRun) attach(ctx context.Context, art *podiumv1.Artifact) {
-	if art.GetSizeBytes() > podium.MaxAttachmentBytes {
-		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
-			"`%s` is %d MB, which is more than I will relay. It is on the task: `podium artifact get %s`.",
-			art.GetName(), art.GetSizeBytes()>>20, art.GetId())})
-		return
-	}
-	body, contentType, err := r.c.podium.Artifact(ctx, art.GetId())
-	if err != nil {
-		if errors.Is(err, podium.ErrTooLarge) {
-			r.c.post(ctx, r.src, r.ref, Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: fmt.Sprintf(
-				"`%s` is too large for me to relay. It is on the task: `podium artifact get %s`.",
-				art.GetName(), art.GetId())})
-			return
-		}
-		r.c.logger.WarnContext(ctx, "downloading an attachment failed",
-			"artifact_id", art.GetId(), "name", art.GetName(), "error", err)
-		return
-	}
-	defer func() { _ = body.Close() }()
-	if err := r.src.Attach(ctx, r.ref, Attachment{
-		Name:        art.GetName(),
-		ContentType: contentType,
-		Size:        art.GetSizeBytes(),
-		Body:        body,
-		TaskID:      r.turn.TaskID,
-		ArtifactID:  art.GetId(),
-	}); err != nil {
-		r.c.logger.WarnContext(ctx, "attaching a file to the conversation failed",
-			"artifact_id", art.GetId(), "name", art.GetName(), "error", err)
-	}
+	r.attachAll(ctx, byName, chatTitleArtifact)
 }
 
 // applyChatTitle reads the model-written name of a web chat. A title the caller supplied

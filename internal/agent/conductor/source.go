@@ -63,17 +63,17 @@ type InboundEvent struct {
 	// URL is a human link to the conversation, copied into brief.source.url. Empty when the
 	// source has none.
 	URL string
-	// Playbook is a playbook the source KNOWS is right (Linear's linear: true playbook, the chat's
-	// playbook chip). It bypasses every routing rule, a typed /playbook included. Empty means
-	// "let the profile's rules decide". Slack always leaves it empty.
+	// Playbook is a playbook the source KNOWS is right — Linear's linear: true playbook. It
+	// bypasses every routing rule, a typed /playbook included. Empty means "let the profile's
+	// rules decide", which is what Slack always leaves it as.
+	//
+	// The web chat leaves it empty too, and cannot do otherwise: a conversation is answered
+	// by the assistant and runs no playbook at all.
 	Playbook string
-	// DefaultPlaybook is what this source falls back to when nothing more specific picks one
-	// (the chat's chat_default_playbook). Unlike Playbook it is only a preference: a human typing
-	// /playbook overrides it, and it beats profile.default_playbook.
-	DefaultPlaybook string
 	// Override is a per-turn choice of backend, model and effort, from a source whose human
-	// can make one — the web chat's picker. Empty everywhere else: Slack and Linear have no
-	// surface to choose on, so their turns run on what the playbook says.
+	// can make one — the web chat's picker, which moves what ANSWERS the conversation. Empty
+	// everywhere else: Slack and Linear have no surface to choose on, so their turns run on
+	// what the playbook says.
 	//
 	// It is the reason a playbook's model is a default rather than a fixture. Without it the
 	// only way to ask one playbook on another model is a second playbook differing by one field.

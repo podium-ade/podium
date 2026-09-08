@@ -19,6 +19,11 @@ node_modules/
 web/dist/*
 !web/dist/.gitkeep
 web/*.tsbuildinfo
+
+# The agent runtime's build output. It used to exist only inside the image; a HOST turn runs
+# it from a working copy (PODIUM_AGENT_HOST_RUNTIME), so it now gets built here too.
+agent/runtime/dist/
+agent/runtime/*.tsbuildinfo
 web/playwright-report/
 web/blob-report/
 web/test-results/

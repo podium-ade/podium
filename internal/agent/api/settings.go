@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/alvaroibarguen/podium/internal/agent/conductor"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
@@ -115,12 +116,13 @@ func providerSettingKey(provider string) string { return "provider." + provider 
 
 // providerRow is the jsonb of the settings row.
 //
-// It holds no part of an API key beyond the hint. It DOES hold the refresh token of an
-// OAuth sign-in, and that is the one credential this conductor's own database contains —
-// see docs/security.md. It is here rather than in Podium's encrypted secret store for a
-// blunt reason: the secret store has no read endpoint, by design, so a value put there
-// cannot be read back to refresh with. Treat podium_agent's database as holding a
-// credential, because it does.
+// It holds CREDENTIALS: the refresh token of an OAuth sign-in, and the bearer a turn
+// spends — an API key as pasted, or the access token minted from that refresh token. See
+// docs/security.md. They are here rather than only in Podium's encrypted secret store for
+// a blunt reason: the secret store has no read endpoint, by design (proto/podium/v1/
+// secret.proto), so a value put there cannot be read back — not to refresh with, and not
+// to spend on a turn this process runs itself. Treat podium_agent's database as holding
+// credentials, because it does.
 type providerRow struct {
 	KeyHint       string    `json:"key_hint"`
 	SetBy         string    `json:"set_by"`
@@ -137,6 +139,11 @@ type providerRow struct {
 	// token endpoint, it is never put in a brief, in a task, or in a log, and it is never
 	// copied into the proto.
 	RefreshToken string `json:"refresh_token,omitempty"`
+	// Credential is SENSITIVE: the bearer a turn spends, the same one the secret store
+	// holds for a task's container. A host turn runs in THIS process (conductor/host.go)
+	// and has no node to resolve a secret for it, so the value it spends has to be
+	// readable here. Never copied into the proto, a brief, or a log.
+	Credential string `json:"credential,omitempty"`
 }
 
 // authKind is the row's kind, defaulting an old row to what it must have been.
@@ -320,6 +327,10 @@ func (s *AgentService) SetProviderKey(
 func (s *AgentService) storeCredential(
 	ctx context.Context, p providerSpec, key []byte, row providerRow,
 ) (providerRow, error) {
+	// The host's own copy, written on the same path as the secret so the two can never
+	// disagree about which credential is current: SetProviderKey and the refresh pass both
+	// come through here.
+	row.Credential = string(key)
 	version, err := s.secrets.SetSecret(ctx, p.secret, key)
 	if err != nil {
 		// Verbatim: the control plane's own words are what an operator needs here — a
@@ -668,6 +679,33 @@ func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (provide
 		return providerRow{}, false, storeError(err)
 	}
 	return row, true, nil
+}
+
+// HostCredential is the bearer a host turn spends for one provider. It is the same
+// credential the provider's Podium secret holds, which is what makes a host turn and a
+// container turn spend the same thing.
+//
+// The two ways of having nothing are told apart, because they need different actions from an
+// operator. No row at all is somebody who has not set a credential. A row with no readable
+// copy is somebody who HAS — every credential stored before host turns existed is like that,
+// since the secret store it went into has no read endpoint — and the fix is to save it again
+// rather than to go looking for a screen that already says Connected.
+func (s *AgentService) HostCredential(ctx context.Context, provider string) (string, error) {
+	p, err := findProvider(provider)
+	if err != nil {
+		return "", err
+	}
+	row, ok, err := s.providerRow(ctx, p)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("no credential is stored for %s", p.name)
+	}
+	if row.Credential == "" {
+		return "", fmt.Errorf("%s: %w", p.name, conductor.ErrCredentialStale)
+	}
+	return row.Credential, nil
 }
 
 // The in-flight sign-in map. It is per process and is deliberately not persisted: a device

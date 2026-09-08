@@ -100,6 +100,22 @@ type Config struct {
 	// turns saying so — which is the right answer for an install that has never heard of
 	// skills, and a loud one for an install that meant to set this.
 	SkillsDir string
+	// HostRuntime is PODIUM_AGENT_HOST_RUNTIME: the built agent runtime's entrypoint on
+	// THIS host (agent/runtime/dist/main.js). It has no default, and empty is what turns
+	// host turns off — every turn is then a task, which is what a conductor whose host has
+	// no Node and no harness must do. Set, it is what answers a conversation, and a
+	// container is what that conversation delegates to. See internal/agent/conductor/host.go.
+	HostRuntime string
+	// HostNode is PODIUM_AGENT_HOST_NODE, the node binary that runs HostRuntime. Default
+	// "node", found on PATH.
+	HostNode string
+	// RunnerBin is PODIUM_AGENT_RUNNER_BIN: podium-runner on this host. A host turn has no
+	// node to bind-mount one in, and it is how the runtime says anything at all, so a host
+	// runtime without it cannot run.
+	RunnerBin string
+	// HostDir is PODIUM_AGENT_HOST_DIR, the directory a host turn's own HOME, working
+	// directory and event socket are made under. Default: the OS temp directory.
+	HostDir string
 	// SlackAppToken is PODIUM_AGENT_SLACK_APP_TOKEN (xapp-…), the Socket Mode token.
 	// SENSITIVE: never log it.
 	SlackAppToken string
@@ -166,6 +182,10 @@ func FromEnv() Config {
 		Token:            os.Getenv("PODIUM_AGENT_TOKEN"),
 		ProfileDir:       envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
 		SkillsDir:        os.Getenv(skills.DirEnv),
+		HostRuntime:      os.Getenv("PODIUM_AGENT_HOST_RUNTIME"),
+		HostNode:         envOr("PODIUM_AGENT_HOST_NODE", "node"),
+		RunnerBin:        os.Getenv("PODIUM_AGENT_RUNNER_BIN"),
+		HostDir:          os.Getenv("PODIUM_AGENT_HOST_DIR"),
 		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
 		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
@@ -296,6 +316,22 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s=%q is not a directory", skills.DirEnv, c.SkillsDir)
 		}
 	}
+	// Same reasoning as the skills directory, and a stronger case for it: with a host
+	// runtime configured, EVERY conversation runs on it, so a path that is not there is
+	// every turn failing rather than some of them.
+	if c.HostRuntime != "" {
+		if _, err := os.Stat(c.HostRuntime); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_HOST_RUNTIME=%q: %w", c.HostRuntime, err)
+		}
+		if c.RunnerBin == "" {
+			return errors.New("PODIUM_AGENT_HOST_RUNTIME needs PODIUM_AGENT_RUNNER_BIN: " +
+				"a host turn has no node to bind-mount podium-runner in, and it is how the " +
+				"runtime says anything at all")
+		}
+		if _, err := os.Stat(c.RunnerBin); err != nil {
+			return fmt.Errorf("PODIUM_AGENT_RUNNER_BIN=%q: %w", c.RunnerBin, err)
+		}
+	}
 	return nil
 }
 
@@ -308,6 +344,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("listen", c.Listen),
 		slog.String("profile_dir", c.ProfileDir),
 		slog.String("skills_dir", c.SkillsDir),
+		slog.String("host_runtime", c.HostRuntime),
 		slog.String("anthropic_base_url", c.AnthropicBaseURL),
 		slog.String("xai_base_url", c.XAIBaseURL),
 		slog.String("xai_oauth_issuer", c.XAIOAuthIssuer),

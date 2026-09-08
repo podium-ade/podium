@@ -27,7 +27,6 @@ export const FIELDS = {
   agent: "agent",
   effort: "effort",
   defaultPlaybook: "default_playbook",
-  chatDefaultPlaybook: "chat_default_playbook",
 } as const;
 
 export type ProfileFields = {
@@ -36,7 +35,6 @@ export type ProfileFields = {
   agent: string;
   effort: string;
   defaultPlaybook: string;
-  chatDefaultPlaybook: string;
 };
 
 export type ProfileCardProps = {
@@ -51,11 +49,13 @@ export type ProfileCardProps = {
 };
 
 /**
- * ProfileCard edits the bot's identity.
+ * ProfileCard edits the ASSISTANT: the thing a conversation talks to, answering in the
+ * conductor's own process. Its name, its model and what it delegates to by default are all
+ * here, and so — read-only — is what it may execute.
  *
- * Every field here is an **override** of profile.yaml, not a replacement for it: the file
- * stays on the conductor's host and stays the default, and an empty field means "use what
- * the file says". That is why each row shows the file's value beside the input — an
+ * Every editable field is an **override** of profile.yaml, not a replacement for it: the
+ * file stays on the conductor's host and stays the default, and an empty field means "use
+ * what the file says". That is why each row shows the file's value beside the input — an
  * operator has to be able to see what they are overriding, and get back to it in one click.
  */
 export function ProfileCard({ profile, playbooks, agents, loading, saving, onSave }: ProfileCardProps) {
@@ -76,9 +76,6 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
   }));
   const [defaultPlaybook, setDefaultPlaybook] = useState(() =>
     held(FIELDS.defaultPlaybook, profile?.defaultPlaybook ?? ""),
-  );
-  const [chatDefaultPlaybook, setChatDefaultPlaybook] = useState(() =>
-    held(FIELDS.chatDefaultPlaybook, profile?.chatDefaultPlaybook ?? ""),
   );
 
   if (loading) {
@@ -116,7 +113,6 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
           agent: choice.agent,
           effort: choice.effort,
           defaultPlaybook,
-          chatDefaultPlaybook,
         });
       }}
     >
@@ -145,10 +141,11 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
 
         <CardContent className="pb-0">
           <p className="max-w-2xl pb-1 text-xs leading-relaxed text-muted">
-            The profile&apos;s name and system prompt come from{" "}
-            <code className="font-mono">profile.yaml</code> and are not editable here — the name
-            labels every session already recorded. The fields below are overrides: clear one and
-            the file&apos;s value applies again.
+            The assistant answers a conversation in the conductor&apos;s own process, and starts
+            a task from one of your playbooks when the work needs a machine. Its name and its
+            prompt come from <code className="font-mono">profile.yaml</code> and are not editable
+            here — the name labels every session already recorded. The fields below are
+            overrides: clear one and the file&apos;s value applies again.
           </p>
 
           <Field
@@ -157,7 +154,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
             fileValue={profile?.fileDisplayName ?? ""}
             overridden={overridden.has(FIELDS.displayName)}
             onUseFile={() => setDisplayName("")}
-            hint="What the bot calls itself in Slack and in a chat header."
+            hint="What it calls itself in a chat header and in Slack."
           >
             <Input
               id="profile-display-name"
@@ -169,7 +166,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
           </Field>
 
           <Field
-            label="Agent and model"
+            label="Model"
             fileValue={fileTriple(profile)}
             overridden={
               overridden.has(FIELDS.model) ||
@@ -177,7 +174,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
               overridden.has(FIELDS.effort)
             }
             onUseFile={() => setChoice(INHERIT)}
-            hint="What every playbook runs on unless it names its own."
+            hint="What the assistant answers on, and what a playbook runs on unless it names its own."
           >
             <AgentPicker
               label="Profile"
@@ -199,7 +196,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
             fileValue={profile?.fileDefaultPlaybook ?? ""}
             overridden={overridden.has(FIELDS.defaultPlaybook)}
             onUseFile={() => setDefaultPlaybook("")}
-            hint="What runs when no chip, no slash prefix and no channel picks a playbook."
+            hint="Which playbook a Slack mention or a Linear ticket runs when no slash prefix and no channel picks one. A conversation runs none: the assistant answers it."
           >
             <PlaybookSelect
               id="profile-default-playbook"
@@ -210,21 +207,32 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
             />
           </Field>
 
+          {/* Read-only, and deliberately: what the thing running beside the master key may
+              execute belongs in a repository, beside a review, rather than behind a form. */}
           <Field
-            id="profile-chat-default-playbook"
-            label="Chat default playbook"
-            fileValue={profile?.fileChatDefaultPlaybook ?? ""}
-            overridden={overridden.has(FIELDS.chatDefaultPlaybook)}
-            onUseFile={() => setChatDefaultPlaybook("")}
-            hint="What a web chat starts with. It is a preference: a slash prefix a human types still wins."
+            label="Skills and turn cap"
+            fileValue=""
+            overridden={false}
+            hint="What the assistant may execute, and how many steps one of its turns gets. profile.yaml only — a browser cannot change either."
           >
-            <PlaybookSelect
-              id="profile-chat-default-playbook"
-              value={chatDefaultPlaybook}
-              playbooks={playbooks}
-              fileValue={profile?.fileChatDefaultPlaybook ?? ""}
-              onChange={setChatDefaultPlaybook}
-            />
+            <p className="text-xs text-fg">
+              {(profile?.skills ?? []).length === 0 ? (
+                <span className="text-muted">no skills</span>
+              ) : (
+                <span className="font-mono">{(profile?.skills ?? []).join(", ")}</span>
+              )}
+              <span className="text-muted"> · </span>
+              {/* Unset is a decision and not a blank: the assistant delegates, so the cap
+                  worth having is on the container it starts. */}
+              {profile?.maxTurns ? (
+                <>
+                  <span className="tabular">{profile.maxTurns}</span>
+                  <span className="text-muted"> turns</span>
+                </>
+              ) : (
+                <span className="text-muted">no turn limit</span>
+              )}
+            </p>
           </Field>
         </CardContent>
 
@@ -267,7 +275,8 @@ function Field({
   fileValue: string;
   overridden: boolean;
   hint?: string;
-  onUseFile: () => void;
+  /** Absent for a row profile.yaml owns outright, which has no override to undo. */
+  onUseFile?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -292,7 +301,11 @@ function Field({
         <div className="flex flex-wrap items-center gap-2">{children}</div>
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-faint">
           <FileCode2 aria-hidden className="size-3.5 shrink-0" />
-          {overridden ? (
+          {onUseFile === undefined ? (
+            <span>
+              from <code className="font-mono">profile.yaml</code>
+            </span>
+          ) : overridden ? (
             <>
               <span>
                 <code className="font-mono">profile.yaml</code> says{" "}

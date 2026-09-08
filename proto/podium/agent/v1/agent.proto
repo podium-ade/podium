@@ -513,11 +513,12 @@ message Playbook {
   // hint is the first line of the playbook's prompt, capped. It is a description, not a
   // contract: the prompt is the operator's own file.
   string hint = 3;
-  // chat_default is true for the playbook a new chat message uses when nothing else picks one.
-  bool chat_default = 4;
+  // 4 was chat_default, the playbook a chat message ran when nothing else picked one. A
+  // conversation runs no playbook at all now: it is answered by the assistant, which
+  // profile.yaml itself describes, and playbooks are what that turn delegates to.
+  reserved 4;
   // agent, model and effort are what a turn of this playbook runs on with no override:
   // RESOLVED, so the playbook's own value or the profile's, never empty for agent and model.
-  // The composer shows them as what "the playbook's" means before anything is picked.
   string agent = 5;
   string model = 6;
   // effort is empty when neither the playbook nor the profile names one, which means the
@@ -527,10 +528,29 @@ message Playbook {
 
 message ListPlaybooksRequest {}
 
+// Assistant is what answers a conversation: a turn in the conductor's own process, described
+// by profile.yaml itself. It runs no playbook — the playbooks are what it delegates work to.
+message Assistant {
+  // display_name labels its messages in the chat.
+  string display_name = 1;
+  // agent, model and effort are what it answers on with no override: RESOLVED, so agent and
+  // model are never empty. effort is empty when the profile names none, which means the
+  // model's own default. The composer shows them as what it is about to override.
+  string agent = 2;
+  string model = 3;
+  string effort = 4;
+}
+
+// ListPlaybooksResponse carries both halves of what a chat window needs, because it needs
+// both to render one message and a second round trip would only be a second round trip.
 message ListPlaybooksResponse {
+  // playbooks is what the assistant may DELEGATE to. It is not a menu the person picks from:
+  // the turn chooses a playbook per piece of work, and the chat shows the list so a reader
+  // knows what the conversation can reach.
   repeated Playbook playbooks = 1;
-  // profile_display_name labels the bot's own messages in the chat.
-  string profile_display_name = 2;
+  // 2 was profile_display_name, now assistant.display_name.
+  reserved 2;
+  Assistant assistant = 3;
 }
 
 // Chat is one web-chat conversation. EVERY message in it is content: a human wrote the user
@@ -546,10 +566,23 @@ message Chat {
   // turn_running is true while a turn of this chat is in flight, which is when the
   // composer is disabled and SendChatMessage answers FailedPrecondition.
   bool turn_running = 6;
-  // playbook is the playbook this chat runs. Empty until the first message; then it is
-  // fixed — one chat, one playbook, the same rule as a Slack thread. Switching it later
-  // is refused: start a new chat.
-  string playbook = 7;
+  // 7 was playbook, the playbook this chat's last message ran. A chat runs no playbook:
+  // the assistant answers it and delegates the work, so there was never one answer to
+  // record and the field only ever named the last thing it happened to start.
+  reserved 7;
+  // agent, model and effort are what this chat is answered on, so the composer opens on the
+  // model it was last asked for instead of making somebody pick again.
+  //
+  // They are the OVERRIDE a person set, and all empty means the assistant's own — which is
+  // why they are not the resolved triple `turns` records: a conversation that asked for
+  // nothing specific follows profile.yaml when it changes, rather than being pinned to
+  // whatever its first turn happened to run.
+  //
+  // A task the conversation delegates is unaffected either way: it runs on its playbook's
+  // model.
+  string agent = 8;
+  string model = 9;
+  string effort = 10;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -567,14 +600,22 @@ message ChatAttachment {
 message ChatMessage {
   string chat_id = 1;
   uint64 seq = 2;
-  // role is "user", "assistant", or "progress" for a line the task said on its way to an
-  // answer. A progress message is stored and rendered like any other; it is a role of its
-  // own so the transcript a turn is briefed with can leave it out, and so an attachment
-  // lands on the answer rather than on the last thought before it.
+  // role is "user", "assistant", or "progress" for a line said on the way to an answer. A
+  // progress message is stored and rendered like any other; it is a role of its own so the
+  // transcript a turn is briefed with can leave it out, and so an attachment lands on the
+  // answer rather than on the last thought before it.
   string role = 3;
   string text = 4;
   repeated ChatAttachment attachments = 5;
   google.protobuf.Timestamp ts = 6;
+  // task_id is the task these words came from, and EMPTY for the assistant's own.
+  //
+  // A conversation carries both, because the assistant answers here and delegates the work:
+  // its own thinking, the conductor announcing a delegation, and the delegated task's
+  // progress and answer all arrive as rows in one transcript. Without this they were
+  // indistinguishable, and the UI credited every progress line to a task — including the
+  // assistant's, which is the one thing in a conversation that is never one.
+  string task_id = 7;
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
@@ -670,22 +711,19 @@ message DeleteChatResponse {}
 message SendChatMessageRequest {
   string chat_id = 1;
   string text = 2;
-  // playbook names the playbook this message runs and wins over everything else, a leading
-  // /playbook in the text included: a human picking the chip after typing is the later
-  // intent. Empty leaves the choice to a leading /playbook in the text, then to
-  // profile.yaml's chat_default_playbook, then to its default_playbook. An unknown /name is
-  // not a playbook selector: it stays in the text.
-  string playbook = 3;
-  // agent, model and effort override what the playbook runs on, for THIS message only.
+  // 3 was playbook, which chose the container this message ran in. Nothing chooses that
+  // any more: the assistant answers the message here and picks the playbook for each piece
+  // of work it delegates, which is a decision per task rather than per message.
+  reserved 3;
+  // agent, model and effort override what ANSWERS this message, for this message only.
   //
-  // They exist so that "which job" and "what runs it" are two choices instead of one. A
-  // playbook's own values are a default, not a fixture: without this, the only way to ask the
-  // same playbook on a different model is a second playbook that differs by one field, and a
-  // profile fills up with near-duplicates.
+  // Empty means the assistant's own, which is profile.yaml's. They are validated together
+  // against the same catalogue a playbook is, so a level the chosen model does not accept
+  // is refused here rather than failing the turn.
   //
-  // Empty means the playbook's, then the profile's. The three are validated together against
-  // the same catalogue a playbook is, so a level the chosen model does not accept is refused
-  // here rather than failing the turn.
+  // A task this turn delegates is NOT affected: it runs on its playbook's model, because
+  // "answer me on Grok" is a statement about the conversation and not about how a container
+  // should do its job.
   string agent = 4;
   string model = 5;
   string effort = 6;
@@ -737,8 +775,8 @@ message AgentProfile {
   string display_name = 2;
   string model = 3;
   string default_playbook = 4;
-  // chat_default_playbook is the playbook a web chat starts with. Empty means default_playbook.
-  string chat_default_playbook = 5;
+  // 5 was chat_default_playbook. See SendChatMessageRequest.
+  reserved 5;
   // profile_dir is where the file half was read from, so an operator editing YAML knows
   // which directory this process actually loaded.
   string profile_dir = 6;
@@ -746,10 +784,9 @@ message AgentProfile {
   string file_display_name = 7;
   string file_model = 8;
   string file_default_playbook = 9;
-  string file_chat_default_playbook = 10;
+  reserved 10;
   // overridden names the fields a stored override is currently supplying, by their
-  // profile.yaml key: display_name, model, default_playbook, chat_default_playbook, agent,
-  // effort.
+  // profile.yaml key: display_name, model, default_playbook, agent, effort.
   repeated string overridden = 11;
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
@@ -761,6 +798,15 @@ message AgentProfile {
   string effort = 15;
   string file_agent = 16;
   string file_effort = 17;
+  // skills and max_turns describe the ASSISTANT — the turn that answers a conversation, in
+  // the conductor's own process. They come from profile.yaml and cannot be overridden from
+  // a browser: what an assistant may execute is a decision that belongs in the repository,
+  // beside a review, and not behind a form.
+  repeated string skills = 18;
+  // max_turns is ZERO when profile.yaml sets none, and zero means no cap. The assistant
+  // answers a conversation and delegates, so what is worth bounding is the container it
+  // starts; an operator who wants a ceiling here sets one.
+  int32 max_turns = 19;
 }
 
 // PlaybookResources caps a turn's container. It is spec.Resources, which is where it ends up.
@@ -857,7 +903,8 @@ message UpdateProfileRequest {
   string display_name = 1;
   string model = 2;
   string default_playbook = 3;
-  string chat_default_playbook = 4;
+  // 4 was chat_default_playbook. See SendChatMessageRequest.
+  reserved 4;
   string agent = 5;
   string effort = 6;
 }
