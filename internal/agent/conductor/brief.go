@@ -131,7 +131,10 @@ type BriefPlaybook struct {
 	Name         string   `json:"name"`
 	SystemPrompt string   `json:"system_prompt"`
 	AllowedTools []string `json:"allowed_tools"`
-	MaxTurns     int      `json:"max_turns"`
+	// MaxTurns caps the turn's steps. ZERO means no cap and is omitted from the document,
+	// which is what the assistant runs with: the thing worth bounding is the container it
+	// starts, not the relay that started it. A task always has one.
+	MaxTurns int `json:"max_turns,omitempty"`
 	// Skills is the Agent Skills this turn may use. Absent means none, and the runtime
 	// writes a permission map that denies every skill either way.
 	Skills []BriefSkill `json:"skills,omitempty"`

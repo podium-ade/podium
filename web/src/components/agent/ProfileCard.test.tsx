@@ -92,8 +92,11 @@ describe("ProfileCard", () => {
     expect(screen.getByText(/profile.yaml only/i)).toBeInTheDocument();
   });
 
-  it("says so when the assistant has no skills", () => {
+  it("says so when the assistant has no skills and no turn cap", () => {
     mount();
     expect(screen.getByText("no skills")).toBeInTheDocument();
+    // Unset is a decision, not a blank: the assistant delegates, so the cap worth having is
+    // on the container it starts.
+    expect(screen.getByText("no turn limit")).toBeInTheDocument();
   });
 });

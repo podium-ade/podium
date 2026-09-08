@@ -351,11 +351,18 @@ func TestTheAssistantComesFromTheProfileAndNotFromAPlaybook(t *testing.T) {
 	assert.Equal(t, 12, a.MaxTurns)
 }
 
-func TestTheAssistantsTurnCapDefaults(t *testing.T) {
+// TestTheAssistantHasNoTurnCapUnlessOneIsSet. The opposite of a playbook, on purpose: the
+// assistant answers a conversation and delegates, so what is worth bounding is the container
+// it starts. A cap firing mid-answer says "I ran out of turns" about a turn that had not
+// failed, which is how a working delegation came to look like a failure.
+func TestTheAssistantHasNoTurnCapUnlessOneIsSet(t *testing.T) {
 	p, err := Load(write(t, base()))
 	require.NoError(t, err)
-	assert.Equal(t, DefaultMaxTurns, p.Assistant().MaxTurns)
+	assert.Zero(t, p.Assistant().MaxTurns, "unset means no cap, not the playbook default")
 	assert.Empty(t, p.Assistant().Skills, "a profile that names no skills gets none")
+
+	// A playbook still gets one, because nobody is watching a task.
+	assert.Equal(t, DefaultMaxTurns, p.Playbooks["general"].MaxTurns)
 }
 
 func TestTheAssistantsFieldsAreValidated(t *testing.T) {

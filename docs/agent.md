@@ -388,8 +388,8 @@ effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
 skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
                              # Unset means none. FILE ONLY — no browser override
-max_turns: 50                # optional; the assistant's step cap. Unset means 50.
-                             # FILE ONLY — no browser override
+max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
+                             # is the opposite of a playbook's. FILE ONLY
 default_playbook: general    # required; must name a loaded playbook. Which playbook a Slack
                              # mention or a Linear ticket runs when nothing more specific
                              # routes it. A conversation runs NONE
@@ -399,6 +399,15 @@ default_playbook: general    # required; must name a loaded playbook. Which play
 key may execute, and for how long, is a decision that belongs in a repository next to a review
 — not behind a form in a browser. Everything above them can be overridden from the Assistant
 screen, which stores the override in the conductor's database and leaves the file alone.
+
+**`max_turns` unset means no cap, and that is not the playbook rule.** A playbook always has
+one (50 by default) because a task runs unattended on a node. The assistant answers a
+conversation and delegates, so the thing worth bounding is the container it starts — and a cap
+firing mid-answer posted "I ran out of turns" about a turn that had not failed, while the task
+it had started went on working. Be clear about what that costs: **nothing else bounds an
+assistant turn.** There is no container and no timeout, so with no cap the only automatic stop
+is the provider's own, and the deliberate one is a human cancelling the turn. Set a number here
+if you want a ceiling.
 
 There is **no `chat_default_playbook`**, and there is nothing to replace it with: a conversation
 is answered by the assistant and runs no playbook. A profile directory still laid out for the

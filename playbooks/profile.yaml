@@ -15,8 +15,10 @@ system_prompt: file:./prompts/profile.md
 model: claude-opus-5
 # The backend it answers on, and the default a playbook inherits. `podium` names grok.
 agent: claude
-# The assistant names no Agent Skills and takes the default step cap: it delegates anything
-# that needs a machine, so a skill installed beside it would have nothing to act on.
+# The assistant names no Agent Skills and no step cap: it delegates anything that needs a
+# machine, so a skill installed beside it would have nothing to act on, and a cap firing
+# mid-answer would cut off a conversation whose task was still working. `max_turns` here
+# would set one; unset is no cap, which is the opposite of a playbook's default.
 #
 # A mention with no /playbook runs `general`, which answers questions and costs a container.
 # `podium` is the dogfood — two hours, 200 turns, a Docker daemon, a browser and a privileged

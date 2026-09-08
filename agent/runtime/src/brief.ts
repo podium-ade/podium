@@ -119,7 +119,14 @@ const briefSchema = z.strictObject({
     name: z.string().min(1),
     system_prompt: z.string(),
     allowed_tools: z.array(z.string()),
-    max_turns: z.number().int().positive(),
+    // Absent means NO CAP, which is what the assistant runs with: it answers a conversation
+    // and delegates, so the thing worth bounding is the container it starts and not the
+    // relay that started it. A cap that killed a conversation mid-answer produced "I ran out
+    // of turns" — a failure message for a turn that had not failed.
+    //
+    // A task always carries one: it runs unattended on a node, where nobody is watching a
+    // cursor and the only other bound is the playbook's timeout.
+    max_turns: z.number().int().positive().optional(),
     // The Agent Skills this turn may use. Absent means none — and the harness is handed a
     // permission map that denies every skill either way, so "no skills" is a decision
     // this runtime states rather than one it leaves to a default.

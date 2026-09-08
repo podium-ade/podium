@@ -4214,8 +4214,11 @@ type AgentProfile struct {
 	// the conductor's own process. They come from profile.yaml and cannot be overridden from
 	// a browser: what an assistant may execute is a decision that belongs in the repository,
 	// beside a review, and not behind a form.
-	Skills        []string `protobuf:"bytes,18,rep,name=skills,proto3" json:"skills,omitempty"`
-	MaxTurns      int32    `protobuf:"varint,19,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
+	Skills []string `protobuf:"bytes,18,rep,name=skills,proto3" json:"skills,omitempty"`
+	// max_turns is ZERO when profile.yaml sets none, and zero means no cap. The assistant
+	// answers a conversation and delegates, so what is worth bounding is the container it
+	// starts; an operator who wants a ceiling here sets one.
+	MaxTurns      int32 `protobuf:"varint,19,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

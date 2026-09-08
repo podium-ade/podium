@@ -790,6 +790,9 @@ message AgentProfile {
   // a browser: what an assistant may execute is a decision that belongs in the repository,
   // beside a review, and not behind a form.
   repeated string skills = 18;
+  // max_turns is ZERO when profile.yaml sets none, and zero means no cap. The assistant
+  // answers a conversation and delegates, so what is worth bounding is the container it
+  // starts; an operator who wants a ceiling here sets one.
   int32 max_turns = 19;
 }
 
