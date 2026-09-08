@@ -370,12 +370,21 @@ func (h *hostRun) run(ctx context.Context) {
 
 	status := hostOutcome(cmd.ProcessState.ExitCode(), cancelled)
 	if timedOut {
-		// Not cancelled: a turn nobody stopped, which did not finish. The sentence goes out
-		// whatever the runtime managed to say, because an answer cut off mid-thought reads
-		// as a complete one otherwise.
+		// Not cancelled: a turn nobody stopped, which did not finish. The row says failed
+		// whether or not it managed an answer, because the process had to be killed.
 		status = store.TurnFailed
-		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			hostTimedOut, r.job.assistantTimeout())})
+		// The sentence, though, only goes out when there is no answer above it. A turn that
+		// answered and then would not exit has a complete answer and a process problem, and
+		// telling the reader "anything above this is incomplete" under a good answer is the
+		// same lie the delegation prompt refuses to tell: it denies something they can see.
+		if r.said() {
+			c.logger.WarnContext(done, "a host turn answered and then ran out of time before "+
+				"its runtime exited; the answer stands and the row says failed",
+				"turn_id", r.turn.ID, "timeout", r.job.assistantTimeout())
+		} else {
+			c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+				hostTimedOut, r.job.assistantTimeout())})
+		}
 	}
 	if status != store.TurnSucceeded {
 		c.logger.WarnContext(done, "a host turn did not succeed", "turn_id", r.turn.ID,
