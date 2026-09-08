@@ -30,12 +30,14 @@ function Item({
   icon: Icon,
   children,
   match,
+  className,
 }: {
   to: string;
   end?: boolean;
   icon: LucideIcon;
   children: string;
   match?: (pathname: string) => boolean;
+  className?: string;
 }) {
   const { pathname } = useLocation();
   const isActive = match ? match(pathname) : pathActive(pathname, to, end);
@@ -52,6 +54,7 @@ function Item({
         isActive
           ? "bg-raised font-medium text-fg before:scale-y-100"
           : "text-muted hover:bg-raised/55 hover:text-fg",
+        className,
       )}
     >
       <Icon className={cn("size-4 shrink-0 transition-colors", isActive && "text-accent")} />
@@ -144,7 +147,7 @@ export function Header() {
         </Tooltip>
         {who?.agentEnabled ? (
           <nav aria-label="Profile" className="pt-1.5">
-            <Item to="/agent/settings" icon={Settings2}>
+            <Item to="/agent/settings" icon={Settings2} className="text-xs">
               Settings
             </Item>
           </nav>
