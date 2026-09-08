@@ -345,7 +345,7 @@ func (c *Conductor) startDelegatedTask(
 		Ref:        g.ref,
 		Text:       dlg.Instruction,
 		TS:         time.Now().UTC(),
-		BriefKind:  SourceChat,
+		BriefKind:  briefKindFor(sess.SourceKind),
 		Playbook:   playbook.Name,
 	}
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,

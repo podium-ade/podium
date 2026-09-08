@@ -427,8 +427,15 @@ func (s *AgentService) StreamChat(
 	if err != nil {
 		return storeError(err)
 	}
-	if row.Login != login {
+	if !readableBy(row, login) {
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
+	}
+	// Who has spoken, for a conversation with more than one person in it. Loaded here and
+	// not in ListChats, which would need a query per row and only shows started_by.
+	if row.Origin != store.OriginWeb {
+		if row.Participants, err = s.store.ChatParticipants(ctx, chatID); err != nil {
+			return storeError(err)
+		}
 	}
 
 	sub := s.chat.Subscribe(ctx, chatID)
@@ -540,16 +547,31 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 	}
 }
 
+// readableBy reports whether login may READ this conversation. A web chat is its owner's
+// alone. A MIRRORED one is readable by every login: it belongs to the workspace rather than
+// to a Podium identity, which is the same reach the Sessions screen has always had over the
+// same conversations.
+//
+// Only reading. Sending, renaming and deleting all filter on `login = @login`, which a
+// mirrored chat's empty owner never matches, so all three refuse it without a line of their
+// own — the conversation is answered where it lives.
+func readableBy(c store.Chat, login string) bool {
+	return c.Login == login || c.Origin != store.OriginWeb
+}
+
 func chatToProto(c store.Chat) *agentv1.Chat {
 	out := &agentv1.Chat{
-		Id:          c.ID,
-		Title:       c.Title,
-		CreatedAt:   timestamppb.New(c.CreatedAt),
-		Preview:     c.Preview,
-		TurnRunning: c.TurnRunning,
-		Agent:       c.Agent,
-		Model:       c.Model,
-		Effort:      c.Effort,
+		Id:           c.ID,
+		Title:        c.Title,
+		CreatedAt:    timestamppb.New(c.CreatedAt),
+		Preview:      c.Preview,
+		TurnRunning:  c.TurnRunning,
+		Agent:        c.Agent,
+		Model:        c.Model,
+		Effort:       c.Effort,
+		Origin:       c.Origin,
+		StartedBy:    c.StartedBy,
+		Participants: c.Participants,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)
@@ -580,6 +602,7 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		Text:   m.Text,
 		Ts:     timestamppb.New(m.TS),
 		TaskId: m.TaskID,
+		Author: m.Author,
 	}
 	for _, a := range m.Attachments {
 		out.Attachments = append(out.Attachments, &agentv1.ChatAttachment{

@@ -5,9 +5,12 @@
 -- chats.login is the partition. There is no RBAC in this track, but a login is a natural
 -- boundary and it is free, so every read is filtered by it.
 
+-- CreateChat takes login as a nullable text: a web chat is owned by the login that made
+-- it, and a mirrored Slack thread is owned by nobody, which is what makes it readable by
+-- every login and writable by none.
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at, auto_title)
-values (@id, @title, @login, @created_at, @auto_title)
+insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
+values (@id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin)
 returning *;
 
 -- name: GetChat :one
@@ -41,7 +44,7 @@ select c.*,
   exists (
     select 1 from turns t
       join sessions s on s.id = t.session_id
-     where s.source_key = @source_key_prefix::text || c.id
+     where s.source_key = c.source_key
        and t.status = 'running'
   ) as turn_running
 from chats c
@@ -50,7 +53,10 @@ left join (
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
 ) m on m.chat_id = c.id and m.rn = 1
-where c.login = @login
+-- A chat with no login is a mirrored Slack thread: it belongs to the workspace, so every
+-- login sees it. There is no RBAC in this track and this is not it — it is the same
+-- "everyone who can reach the bot can see what it did" the Sessions screen already has.
+where (c.login = @login or c.login is null)
   and (@after_id::text = '' or c.id < @after_id::text)
 order by c.id desc
 limit @page_limit::int;
@@ -59,8 +65,8 @@ limit @page_limit::int;
 -- of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
 -- the primary key would refuse a collision anyway.
 -- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id)
-select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts, @task_id
+insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id, author)
+select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts, @task_id, @author
   from chat_messages where chat_id = @chat_id
 returning *;
 
@@ -144,3 +150,19 @@ where chat_id = @chat_id and url = @url and detached_at is null;
 select * from chat_pull_requests
 where chat_id = @chat_id and detached_at is null
 order by created_at, number;
+
+-- GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
+-- seen. One statement rather than a lookup-then-insert, because two messages arriving
+-- together in one Slack thread must not make two chats: the caller upserts on this key.
+-- name: GetChatBySourceKey :one
+select * from chats where source_key = @source_key;
+
+-- ChatParticipants is who has spoken in a conversation, first appearance first. It is the
+-- distinct authors of the human messages, which for a mirrored Slack thread is everyone in
+-- it and for a web chat is nobody — a web chat's messages carry no author, because its
+-- login already says who is typing.
+-- name: ChatParticipants :many
+select author from chat_messages
+where chat_id = @chat_id and role = 'user' and author <> ''
+group by author
+order by min(seq);

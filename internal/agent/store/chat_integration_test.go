@@ -557,3 +557,182 @@ func TestDeletingAChatLeavesNoPullRequestsBehind(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, prs, 1, "bob's chat is not in alice's delete")
 }
+
+// ---------------------------------------------------------------------------
+// mirrored conversations
+// ---------------------------------------------------------------------------
+
+const slackKey = "slack:C1:100.1"
+
+func TestAMirroredChatHasNoOwnerAndSaysWhoStartedIt(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "what does this repo do?")
+	require.NoError(t, err)
+
+	assert.Empty(t, chat.Login, "a mirrored conversation belongs to the workspace, not a login")
+	assert.Equal(t, OriginSlack, chat.Origin)
+	assert.Equal(t, "alice", chat.StartedBy)
+	assert.Equal(t, "what does this repo do?", chat.Title)
+	assert.True(t, chat.AutoTitle, "a later turn may still improve the name")
+
+	same, err := s.ChatBySourceKey(ctx, slackKey)
+	require.NoError(t, err)
+	assert.Equal(t, chat.ID, same.ID)
+}
+
+// One thread is one chat. The source key is unique, so a second attempt is refused rather
+// than quietly splitting a conversation in two.
+func TestOneThreadCannotBecomeTwoMirroredChats(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	_, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "first")
+	require.NoError(t, err)
+	_, err = s.CreateMirrorChat(ctx, slackKey, OriginSlack, "bob", "second")
+	require.Error(t, err)
+}
+
+func TestCreateMirrorChatRefusesAWebOrigin(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	_, err := s.CreateMirrorChat(ctx, slackKey, OriginWeb, "alice", "hello")
+	require.ErrorContains(t, err, "not a mirrored origin")
+	_, err = s.CreateMirrorChat(ctx, "", OriginSlack, "alice", "hello")
+	require.ErrorContains(t, err, "source key is required")
+}
+
+// The participants are the humans, in the order they first spoke — and the bot is not one
+// of them however many times it answered.
+func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "one")
+	require.NoError(t, err)
+	for _, m := range []ChatMessage{
+		{Role: RoleUser, Author: "alice", Text: "one"},
+		{Role: RoleAssistant, Author: "Podium", Text: "answer"},
+		{Role: RoleUser, Author: "bob", Text: "two"},
+		{Role: RoleUser, Author: "alice", Text: "three"},
+		{Role: RoleUser, Author: "", Text: "from nobody in particular"},
+	} {
+		m.ChatID = chat.ID
+		_, err := s.AppendChatMessage(ctx, m)
+		require.NoError(t, err)
+	}
+
+	people, err := s.ChatParticipants(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice", "bob"}, people)
+}
+
+func TestAMessageRemembersWhoSaidIt(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "one")
+	require.NoError(t, err)
+	stored, err := s.AppendChatMessage(ctx, ChatMessage{
+		ChatID: chat.ID, Role: RoleUser, Author: "alice", Text: "one",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alice", stored.Author)
+
+	read, err := s.ListChatMessages(ctx, chat.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, read, 1)
+	assert.Equal(t, "alice", read[0].Author)
+}
+
+// A mirrored conversation is in every login's list, because it belongs to the workspace.
+// A web chat is still its owner's alone.
+func TestTheChatListShowsMirroredConversationsToEveryLogin(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	mine, err := s.CreateChat(ctx, "alice", "my own")
+	require.NoError(t, err)
+	theirs, err := s.CreateChat(ctx, "bob", "not mine")
+	require.NoError(t, err)
+	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "carol", "in slack")
+	require.NoError(t, err)
+
+	ids := func(login string) map[string]Chat {
+		chats, _, err := s.ListChats(ctx, login, 0, "")
+		require.NoError(t, err)
+		out := map[string]Chat{}
+		for _, c := range chats {
+			out[c.ID] = c
+		}
+		return out
+	}
+
+	forAlice := ids("alice")
+	assert.Contains(t, forAlice, mine.ID)
+	assert.Contains(t, forAlice, thread.ID)
+	assert.NotContains(t, forAlice, theirs.ID)
+
+	forBob := ids("bob")
+	assert.Contains(t, forBob, theirs.ID)
+	assert.Contains(t, forBob, thread.ID, "the same thread, in somebody else's list")
+	assert.NotContains(t, forBob, mine.ID)
+
+	assert.Equal(t, "carol", forAlice[thread.ID].StartedBy)
+	assert.Equal(t, OriginSlack, forAlice[thread.ID].Origin)
+	assert.Equal(t, OriginWeb, forAlice[mine.ID].Origin)
+}
+
+// Nobody may rename or delete a conversation that lives somewhere else. Neither query needed
+// a line of its own to say so: both filter on `login = @login`, and a mirrored chat's owner
+// is null.
+func TestAMirroredChatCannotBeRenamedOrDeleted(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "in slack")
+	require.NoError(t, err)
+
+	_, err = s.RenameChat(ctx, thread.ID, "alice", "mine now")
+	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "alice"), ErrNotFound)
+
+	still, err := s.ChatBySourceKey(ctx, slackKey)
+	require.NoError(t, err)
+	assert.Equal(t, "in slack", still.Title)
+}
+
+// The running flag follows the session that owns the conversation, whatever shape its key
+// has: a mirrored thread's key is Slack's, not 'chat:'||id.
+func TestTheChatListReportsARunningTurnForAMirroredThread(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "in slack")
+	require.NoError(t, err)
+	sess, err := s.UpsertSession(ctx, Session{
+		SourceKind: "slack", SourceKey: slackKey, Profile: "podium",
+	})
+	require.NoError(t, err)
+	turn, err := s.CreateTurn(ctx, sess.ID, "C1/100.1/100.1", Backend{})
+	require.NoError(t, err)
+
+	chats, _, err := s.ListChats(ctx, "alice", 0, "")
+	require.NoError(t, err)
+	for _, c := range chats {
+		if c.ID == thread.ID {
+			assert.True(t, c.TurnRunning)
+		}
+	}
+
+	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "done"))
+	chats, _, err = s.ListChats(ctx, "alice", 0, "")
+	require.NoError(t, err)
+	for _, c := range chats {
+		if c.ID == thread.ID {
+			assert.False(t, c.TurnRunning)
+		}
+	}
+}
