@@ -209,6 +209,7 @@ export function ChatPanel() {
               chatId={active}
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
+              listedOrigin={list.find((c) => c.id === active)?.origin}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
               playbookNames={playbookNames}
@@ -653,6 +654,7 @@ function Conversation({
   chatId,
   title,
   remembered,
+  listedOrigin,
   onRename,
   assistant,
   playbookNames,
@@ -661,6 +663,12 @@ function Conversation({
   title: string;
   /** remembered is what this chat was last answered on, from the list row. */
   remembered?: AgentChoice;
+  /**
+   * listedOrigin is where the conversation lives, as the LIST row already said. The stream
+   * says so too, but only once it is open — and deriving "is this read-only" from the stream
+   * alone rendered a composer for a mirrored thread and then took it away again.
+   */
+  listedOrigin?: string;
   onRename: (title: string) => Promise<void>;
   assistant?: Assistant;
   playbookNames: string[];
@@ -673,7 +681,13 @@ function Conversation({
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
   // no composer, and the note in its place says where to reply. The server agrees — a send
   // to a chat with no owning login is refused — so this is the affordance, not the rule.
-  const mirrored = stream.chat !== undefined && stream.chat.origin !== "" && stream.chat.origin !== "web";
+  //
+  // The list row is consulted FIRST because it has already arrived: opening a mirrored thread
+  // used to flash the composer, because the only source of the origin was a stream frame that
+  // lands after the first render. The stream still wins once it speaks, for a deep link that
+  // has no list row yet.
+  const origin = stream.chat?.origin || listedOrigin || "";
+  const mirrored = origin !== "" && origin !== "web";
   const participants = stream.chat?.participants ?? [];
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
@@ -845,8 +859,8 @@ function Conversation({
           data-testid="chat-mirrored-note"
           className="border-t border-border px-4 py-3 text-xs text-muted"
         >
-          This conversation lives in {stream.chat?.origin}. Reply to it there — Podium keeps a
-          copy so it can be read here.
+          This conversation lives in {origin}. Reply to it there — Podium keeps a copy so it
+          can be read here.
           {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
         </div>
       ) : (
