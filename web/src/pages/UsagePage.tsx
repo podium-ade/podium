@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { ChevronLeft, ChevronRight, Coins, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Cpu, LayoutDashboard, TrendingDown, TrendingUp } from "lucide-react";
+import { NavLink, Route, Routes } from "react-router";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { PageHeader } from "../components/PageHeader";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
+import { BackendTable } from "../components/usage/BackendTable";
 import { RangePicker } from "../components/usage/RangePicker";
 import { TaskCostTable } from "../components/usage/TaskCostTable";
 import { UsageBreakdown } from "../components/usage/UsageBreakdown";
@@ -16,6 +18,7 @@ import { Button } from "../components/ui/button";
 import { agent, errorMessage, isAgentUnreachable, tasks } from "../lib/client";
 import { useViewer } from "../lib/identity";
 import {
+  backendSummary,
   byTask,
   previousRange,
   rangeFor,
@@ -34,6 +37,26 @@ const COST_LIMIT = 1000;
 
 /** One page of the table. Tasks are paged by the control plane's own id cursor. */
 const PAGE_SIZE = 50;
+
+/**
+ * The two views. Each is a real route, so the back button and a deep link both work — the
+ * same reason the agent screens are routed rather than held in state.
+ */
+const TABS = [
+  { to: "/usage", end: true, label: "Overview", icon: LayoutDashboard, path: "overview" },
+  { to: "/usage/models", end: false, label: "By model", icon: Cpu, path: "models" },
+];
+
+function tabLink({ isActive }: { isActive: boolean }) {
+  return cn(
+    "inline-flex h-8 items-center gap-1.5 rounded-t-md border-b-2 px-3 text-xs font-medium",
+    "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    "[&_svg]:size-3.5 [&_svg]:shrink-0",
+    isActive
+      ? "border-accent text-fg"
+      : "border-transparent text-muted hover:text-fg",
+  );
+}
 
 /**
  * UsagePage is what everything ran and what it cost, over a range the operator picks.
@@ -61,11 +84,14 @@ export function UsagePage() {
   const enabled = viewer?.agentEnabled !== false;
 
   const usage = useQuery({
-    queryKey: ["usage", previous.from.toISOString(), range.to.toISOString(), tz],
+    queryKey: ["usage", range.from.toISOString(), range.to.toISOString(), tz],
     queryFn: () =>
       agent.getUsage({
-        from: timestampFromDate(previous.from),
+        // The range is the range. compare_from reaches further back for the day rows alone,
+        // so the by-model grouping is not quietly totalling twice the window on screen.
+        from: timestampFromDate(range.from),
         to: timestampFromDate(range.to),
+        compareFrom: timestampFromDate(previous.from),
         tzOffsetMinutes: tz,
         limit: COST_LIMIT,
       }),
@@ -127,6 +153,104 @@ export function UsagePage() {
     );
   }
 
+  const taskSection = (
+    <section aria-label="Tasks" className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-fg">
+          Tasks <span className="font-normal text-muted">· {range.label}</span>
+        </h2>
+        <p className="text-2xs text-faint">
+          Newest first. Cost comes from the conductor and is joined by task id, so a task no
+          agent turn ran shows a dash rather than a zero.
+        </p>
+      </div>
+
+      {truncated ? (
+        <Alert variant="warn" title="Some older costs are not shown">
+          More than {COST_LIMIT.toLocaleString()} turns ran in this range. The newest are
+          joined into the table; older rows may show a dash where a cost exists. The totals
+          above are unaffected — they are summed by the server.
+        </Alert>
+      ) : null}
+
+      {list.isPending ? (
+        <TableSkeleton cols={9} />
+      ) : list.isError ? (
+        <Alert variant="destructive" title="Could not list tasks">
+          {errorMessage(list.error)}
+        </Alert>
+      ) : rows.length === 0 ? (
+        <Empty
+          icon={Coins}
+          title={`Nothing ran in ${range.label.toLowerCase()}`}
+          hint="Pick a wider range. A task appears here as soon as the control plane accepts it, whether or not it cost anything."
+        />
+      ) : (
+        <>
+          <TaskCostTable tasks={rows} costs={costs} />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-2xs text-faint">
+              {rows.length} {rows.length === 1 ? "task" : "tasks"} on this page
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cursors.length === 1}
+                onClick={() => setCursors((c) => c.slice(0, -1))}
+              >
+                <ChevronLeft />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={next === ""}
+                onClick={() => setCursors((c) => [...c, next])}
+              >
+                Next
+                <ChevronRight />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+
+  const overview = (
+    <div className="space-y-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <UsageTrend days={days} range={range} />
+        <UsageBreakdown costs={windowCosts} loading={usage.isFetching && usage.isPlaceholderData} />
+      </div>
+      {taskSection}
+    </div>
+  );
+
+  const models = (
+    <section aria-label="By model" className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-fg">
+          By model <span className="font-normal text-muted">· {range.label}</span>
+        </h2>
+        <p className="text-2xs text-faint">{backendSummary(usage.data?.backends ?? [])}</p>
+      </div>
+      {usage.isPending ? (
+        <TableSkeleton cols={9} />
+      ) : (
+        <BackendTable backends={usage.data?.backends ?? []} />
+      )}
+      <p className="max-w-3xl text-2xs leading-relaxed text-faint">
+        Recorded on each turn as it starts, never inferred from its playbook: the chat can
+        override the model for a single turn, and editing a playbook would otherwise relabel
+        every turn that ever ran under it. Turns from before the conductor recorded this group
+        as <span className="text-muted">unrecorded</span> — their cost is real, only the
+        attribution is missing.
+      </p>
+    </section>
+  );
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -158,6 +282,15 @@ export function UsagePage() {
         </Alert>
       ) : null}
 
+      <nav aria-label="Usage views" className="flex items-center gap-0.5 border-b border-border pb-px">
+        {TABS.map((t) => (
+          <NavLink key={t.path} to={t.to} end={t.end} className={tabLink}>
+            <t.icon />
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
+
       <div role="group" aria-label="Totals" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Spent"
@@ -185,73 +318,11 @@ export function UsagePage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <UsageTrend days={days} range={range} />
-        <UsageBreakdown costs={windowCosts} loading={usage.isFetching && usage.isPlaceholderData} />
-      </div>
-
-      <section aria-label="Tasks" className="space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-medium text-fg">
-            Tasks <span className="font-normal text-muted">· {range.label}</span>
-          </h2>
-          <p className="text-2xs text-faint">
-            Newest first. Cost comes from the conductor and is joined by task id, so a task no
-            agent turn ran shows a dash rather than a zero.
-          </p>
-        </div>
-
-        {truncated ? (
-          <Alert variant="warn" title="Some older costs are not shown">
-            More than {COST_LIMIT.toLocaleString()} turns ran in this range. The newest are
-            joined into the table; older rows may show a dash where a cost exists. The totals
-            above are unaffected — they are summed by the server.
-          </Alert>
-        ) : null}
-
-        {list.isPending ? (
-          <TableSkeleton cols={9} />
-        ) : list.isError ? (
-          <Alert variant="destructive" title="Could not list tasks">
-            {errorMessage(list.error)}
-          </Alert>
-        ) : rows.length === 0 ? (
-          <Empty
-            icon={Coins}
-            title={`Nothing ran in ${range.label.toLowerCase()}`}
-            hint="Pick a wider range. A task appears here as soon as the control plane accepts it, whether or not it cost anything."
-          />
-        ) : (
-          <>
-            <TaskCostTable tasks={rows} costs={costs} />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-2xs text-faint">
-                {rows.length} {rows.length === 1 ? "task" : "tasks"} on this page
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={cursors.length === 1}
-                  onClick={() => setCursors((c) => c.slice(0, -1))}
-                >
-                  <ChevronLeft />
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={next === ""}
-                  onClick={() => setCursors((c) => [...c, next])}
-                >
-                  Next
-                  <ChevronRight />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+      <Routes>
+        <Route index element={overview} />
+        <Route path="models" element={models} />
+        <Route path="*" element={overview} />
+      </Routes>
     </div>
   );
 }

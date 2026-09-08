@@ -11,9 +11,11 @@ import (
 )
 
 const createTurn = `-- name: CreateTurn :one
-insert into turns (id, session_id, task_id, trigger_ref, status, started_at)
-values ($1, $2, $3, $4, $5, $6)
-returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text
+insert into turns (id, session_id, task_id, trigger_ref, status, started_at,
+                   agent, model, effort, provider)
+values ($1, $2, $3, $4, $5, $6,
+        nullif($7::text, ''), nullif($8::text, ''), nullif($9::text, ''), nullif($10::text, ''))
+returning id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider
 `
 
 type CreateTurnParams struct {
@@ -23,6 +25,10 @@ type CreateTurnParams struct {
 	TriggerRef string
 	Status     string
 	StartedAt  time.Time
+	Agent      string
+	Model      string
+	Effort     string
+	Provider   string
 }
 
 func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, error) {
@@ -33,6 +39,10 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, e
 		arg.TriggerRef,
 		arg.Status,
 		arg.StartedAt,
+		arg.Agent,
+		arg.Model,
+		arg.Effort,
+		arg.Provider,
 	)
 	var i Turn
 	err := row.Scan(
@@ -46,6 +56,10 @@ func (q *Queries) CreateTurn(ctx context.Context, arg CreateTurnParams) (Turn, e
 		&i.NumTurns,
 		&i.CostUsd,
 		&i.FinalText,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.Provider,
 	)
 	return i, err
 }
@@ -82,7 +96,7 @@ func (q *Queries) FinishTurn(ctx context.Context, arg FinishTurnParams) error {
 }
 
 const getTurn = `-- name: GetTurn :one
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text from turns where id = $1
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns where id = $1
 `
 
 func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
@@ -99,12 +113,16 @@ func (q *Queries) GetTurn(ctx context.Context, id string) (Turn, error) {
 		&i.NumTurns,
 		&i.CostUsd,
 		&i.FinalText,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.Provider,
 	)
 	return i, err
 }
 
 const listRunningTurns = `-- name: ListRunningTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text from turns where status = 'running' order by started_at
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns where status = 'running' order by started_at
 `
 
 func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
@@ -127,6 +145,10 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 			&i.NumTurns,
 			&i.CostUsd,
 			&i.FinalText,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.Provider,
 		); err != nil {
 			return nil, err
 		}
@@ -140,7 +162,7 @@ func (q *Queries) ListRunningTurns(ctx context.Context) ([]Turn, error) {
 
 const listTurnCosts = `-- name: ListTurnCosts :many
 select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
-       t.num_turns, t.cost_usd,
+       t.num_turns, t.cost_usd, t.agent, t.model, t.effort, t.provider,
        s.source_kind, s.source_key, s.playbook, s.profile
 from turns t
 join sessions s on s.id = t.session_id
@@ -164,6 +186,10 @@ type ListTurnCostsRow struct {
 	FinishedAt *time.Time
 	NumTurns   *int32
 	CostUsd    *float64
+	Agent      *string
+	Model      *string
+	Effort     *string
+	Provider   *string
 	SourceKind string
 	SourceKey  string
 	Playbook   string
@@ -191,6 +217,10 @@ func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([
 			&i.FinishedAt,
 			&i.NumTurns,
 			&i.CostUsd,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.Provider,
 			&i.SourceKind,
 			&i.SourceKey,
 			&i.Playbook,
@@ -207,7 +237,7 @@ func (q *Queries) ListTurnCosts(ctx context.Context, arg ListTurnCostsParams) ([
 }
 
 const listTurns = `-- name: ListTurns :many
-select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text from turns
+select id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text, agent, model, effort, provider from turns
 where session_id = $1
 order by started_at desc, id desc
 limit $2::int
@@ -238,6 +268,10 @@ func (q *Queries) ListTurns(ctx context.Context, arg ListTurnsParams) ([]Turn, e
 			&i.NumTurns,
 			&i.CostUsd,
 			&i.FinalText,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.Provider,
 		); err != nil {
 			return nil, err
 		}
@@ -261,6 +295,72 @@ type SetTurnTaskParams struct {
 func (q *Queries) SetTurnTask(ctx context.Context, arg SetTurnTaskParams) error {
 	_, err := q.db.Exec(ctx, setTurnTask, arg.TaskID, arg.ID)
 	return err
+}
+
+const usageByBackend = `-- name: UsageByBackend :many
+select coalesce(provider, '')::text                as provider,
+       coalesce(agent, '')::text                   as agent,
+       coalesce(model, '')::text                   as model,
+       coalesce(effort, '')::text                  as effort,
+       coalesce(sum(cost_usd), 0)::float8          as cost_usd,
+       count(*)::int                               as turns,
+       coalesce(sum(num_turns), 0)::int            as model_turns,
+       count(*) filter (where cost_usd is null)::int as unpriced
+from turns
+where started_at >= $1 and started_at < $2
+group by provider, agent, model, effort
+order by cost_usd desc, turns desc
+`
+
+type UsageByBackendParams struct {
+	FromTime time.Time
+	ToTime   time.Time
+}
+
+type UsageByBackendRow struct {
+	Provider   string
+	Agent      string
+	Model      string
+	Effort     string
+	CostUsd    float64
+	Turns      int32
+	ModelTurns int32
+	Unpriced   int32
+}
+
+// UsageByBackend is spend grouped by what actually ran it. It is a server-side aggregate for
+// the same reason the day rows are: the costs page is capped, and grouping a capped page
+// would under-report whichever model happened to fall off the end of it.
+//
+// Turns from before the columns existed group under empty strings, which the API reports as
+// unrecorded rather than as a model named "".
+func (q *Queries) UsageByBackend(ctx context.Context, arg UsageByBackendParams) ([]UsageByBackendRow, error) {
+	rows, err := q.db.Query(ctx, usageByBackend, arg.FromTime, arg.ToTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByBackendRow{}
+	for rows.Next() {
+		var i UsageByBackendRow
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.CostUsd,
+			&i.Turns,
+			&i.ModelTurns,
+			&i.Unpriced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const usageByDay = `-- name: UsageByDay :many

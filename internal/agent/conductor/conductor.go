@@ -321,7 +321,17 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			"ref", ev.Ref, "error", err)
 	}
 
-	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref)
+	// Resolved before the turn is recorded so the row says what actually ran, and handed to
+	// the brief and the task spec so all three agree on one answer.
+	choice := c.profiles.Current().Resolve(playbook, ev.Override)
+	backend := store.Backend{
+		Agent:    choice.Agent,
+		Model:    choice.Model,
+		Effort:   choice.Effort,
+		Provider: c.providerFor(choice.Agent).ID,
+	}
+
+	turn, err := c.store.CreateTurn(ctx, sess.ID, ev.Ref, backend)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the turn failed", "session_id", sess.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side before I could start. Nothing ran."})
@@ -347,7 +357,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles)
+	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles, choice)
 	encoded, err := brief.Encode()
 	if err != nil {
 		c.logger.WarnContext(ctx, "the turn brief does not fit", "turn_id", turn.ID, "error", err)
@@ -356,7 +366,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, playbook, encoded, ev, bundles)
+	taskSpec := c.taskSpec(src, playbook, encoded, ev, bundles, choice)
 	task, err := c.podium.CreateTask(ctx, taskSpec)
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
@@ -394,17 +404,16 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
 	sess store.Session, playbook profiles.Playbook, turnID string, ev InboundEvent,
-	entries []BriefEntry, bundles []skills.Bundle,
+	entries []BriefEntry, bundles []skills.Bundle, choice profiles.Choice,
 ) *Brief {
 	kind := ev.BriefKind
 	if kind == "" {
 		kind = ev.SourceKind
 	}
 	profile := c.profiles.Current()
-	// One resolution for the whole brief: the override, then the playbook, then the profile.
-	// taskSpec resolves the same way for the credential, so the two cannot disagree about
-	// which backend this turn is running on.
-	choice := profile.Resolve(playbook, ev.Override)
+	// The choice is resolved once by the caller and handed to the brief, the task spec and
+	// the turn row alike. It used to be resolved separately here and in taskSpec, which left
+	// the credential and the model one profile reload apart from disagreeing.
 	b := &Brief{
 		Version:   BriefVersion,
 		SessionID: sess.ID,
@@ -479,6 +488,7 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 // own file names, and the one the backend it runs on needs.
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
+	choice profiles.Choice,
 ) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range playbook.Env {
@@ -511,7 +521,7 @@ func (c *Conductor) taskSpec(
 		Resources: playbook.Resources,
 		Timeout:   playbook.Timeout,
 		Secrets: append(append([]spec.SecretRef(nil), playbook.Secrets...),
-			c.reservedSecrets(c.profiles.Current().Resolve(playbook, ev.Override).Agent)...),
+			c.reservedSecrets(choice.Agent)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.

@@ -212,17 +212,51 @@ message TaskCost {
   string status = 8;
   google.protobuf.Timestamp started_at = 9;
   google.protobuf.Timestamp finished_at = 10;
+  // agent, model, effort and provider are what this turn actually ran on, recorded when it
+  // started. All four are empty for a turn from before they were written down; none of them
+  // is ever inferred from the playbook, whose model is a default a per-turn override or a
+  // later edit can both have moved.
+  string agent = 13;
+  string model = 14;
+  // effort is empty for the model's own default as well as for an unrecorded turn.
+  string effort = 15;
+  string provider = 16;
   optional int32 num_turns = 11;
   // cost_usd is unset for a turn whose runtime never reported one — one still running, or
   // one whose turn.json never landed. Unset is never the same as zero.
   optional double cost_usd = 12;
 }
 
+// UsageBackend is what one agent, model and effort cost over the range. It is aggregated by
+// the server for the same reason the day rows are: `costs` is a capped page, and grouping
+// that in the browser would under-report whichever model fell off the end of it.
+message UsageBackend {
+  // provider, agent, model and effort are all empty together for turns that ran before the
+  // conductor recorded them. A client shows that bucket as unrecorded rather than as a model
+  // with no name.
+  string provider = 1;
+  string agent = 2;
+  string model = 3;
+  string effort = 4;
+  double cost_usd = 5;
+  int32 turns = 6;
+  int32 model_turns = 7;
+  int32 unpriced = 8;
+}
+
 message GetUsageRequest {
   // from is inclusive and to is exclusive, both against the turn's start. Leaving either
-  // unset is the same as asking for the last 30 days.
+  // unset is the same as asking for the last 30 days. This is THE range: costs, backends and
+  // the totals all cover exactly it.
   google.protobuf.Timestamp from = 1;
   google.protobuf.Timestamp to = 2;
+  // compare_from extends `days` — and only `days` — back to an earlier instant, so one call
+  // can draw the range's trend and also total the window before it for a "vs" figure. Unset,
+  // or later than `from`, means the day rows start at `from` like everything else.
+  //
+  // It exists because the alternative is widening `from`, which would silently fold the
+  // comparison window into the backend grouping and report a week's models as a fortnight's.
+  google.protobuf.Timestamp compare_from = 5;
   // tz_offset_minutes is the caller's offset from UTC in minutes, east-positive — the
   // negation of the browser's getTimezoneOffset(). A day boundary is then the operator's
   // own midnight rather than the server's, which is the only way a calendar reads true.
@@ -232,7 +266,8 @@ message GetUsageRequest {
 }
 
 message GetUsageResponse {
-  // days holds only the days something actually ran, ascending. A caller drawing a calendar
+  // days covers compare_from (when given) through to, and holds only the days something
+  // actually ran, ascending. A caller drawing a calendar
   // fills the gaps itself; sending a zero row for every empty day would be inventing data.
   repeated UsageDay days = 1;
   // costs is newest first, capped at limit.
@@ -244,6 +279,8 @@ message GetUsageResponse {
   // unpriced is how many turns in the range reported no cost. Without it a total reads as
   // complete when it is not.
   int32 unpriced = 6;
+  // backends covers the whole range, most expensive first.
+  repeated UsageBackend backends = 7;
 }
 
 message GetSettingsRequest {}
