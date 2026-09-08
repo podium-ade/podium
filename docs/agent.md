@@ -723,11 +723,11 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings**, under the signed-in identity in the sidebar, has one card per
+operator sets it. **Settings**, under the profile picture in the sidebar, has one card per
 provider.
 
-Open the UI and click **Settings** at the bottom of the sidebar (it is only there when
-`PODIUM_AGENT_URL` is set on the server).
+Open the UI and click **Settings** under the signed-in identity at the bottom of the sidebar
+(it is only there when `PODIUM_AGENT_URL` is set on the server).
 
 <!-- screenshot: Settings, an Anthropic card and an xAI card, neither set -->
 

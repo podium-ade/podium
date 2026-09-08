@@ -117,32 +117,31 @@ export function Header() {
         ) : null}
       </nav>
 
-      <div className="mt-auto border-t border-sidebar-border">
+      <div className="mt-auto border-t border-sidebar-border px-4 py-3">
+        {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
+            transport, which has no per-user identity at all. Settings sits under the picture
+            because it is about this login, not about the agent screens above. */}
+        <Tooltip label={viewer.title} side="right">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden
+              className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
+            >
+              {viewer.text.slice(0, 1)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm text-fg">{viewer.text}</div>
+              <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
+            </div>
+          </div>
+        </Tooltip>
         {who?.agentEnabled ? (
-          <nav aria-label="Profile" className="px-4 pt-2">
+          <nav aria-label="Profile" className="pt-1.5">
             <Item to="/agent/settings" icon={Settings2}>
               Settings
             </Item>
           </nav>
         ) : null}
-        <div className="px-4 py-3">
-          {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
-              transport, which has no per-user identity at all. */}
-          <Tooltip label={viewer.title} side="right">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                aria-hidden
-                className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
-              >
-                {viewer.text.slice(0, 1)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs text-fg">{viewer.text}</div>
-                <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
-              </div>
-            </div>
-          </Tooltip>
-        </div>
       </div>
     </aside>
   );
