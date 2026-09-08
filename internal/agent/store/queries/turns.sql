@@ -1,6 +1,8 @@
 -- name: CreateTurn :one
-insert into turns (id, session_id, task_id, trigger_ref, status, started_at)
-values (@id, @session_id, @task_id, @trigger_ref, @status, @started_at)
+insert into turns (id, session_id, task_id, trigger_ref, status, started_at,
+                   agent, model, effort, provider)
+values (@id, @session_id, @task_id, @trigger_ref, @status, @started_at,
+        nullif(@agent::text, ''), nullif(@model::text, ''), nullif(@effort::text, ''), nullif(@provider::text, ''))
 returning *;
 
 -- name: SetTurnTask :exec
@@ -49,10 +51,30 @@ order by day;
 -- no opinion about, and the browser is what puts the two halves together.
 -- name: ListTurnCosts :many
 select t.id, t.task_id, t.session_id, t.status, t.started_at, t.finished_at,
-       t.num_turns, t.cost_usd,
+       t.num_turns, t.cost_usd, t.agent, t.model, t.effort, t.provider,
        s.source_kind, s.source_key, s.playbook, s.profile
 from turns t
 join sessions s on s.id = t.session_id
 where t.started_at >= @from_time and t.started_at < @to_time
 order by t.started_at desc, t.id desc
 limit @page_limit::int;
+
+-- UsageByBackend is spend grouped by what actually ran it. It is a server-side aggregate for
+-- the same reason the day rows are: the costs page is capped, and grouping a capped page
+-- would under-report whichever model happened to fall off the end of it.
+--
+-- Turns from before the columns existed group under empty strings, which the API reports as
+-- unrecorded rather than as a model named "".
+-- name: UsageByBackend :many
+select coalesce(provider, '')::text                as provider,
+       coalesce(agent, '')::text                   as agent,
+       coalesce(model, '')::text                   as model,
+       coalesce(effort, '')::text                  as effort,
+       coalesce(sum(cost_usd), 0)::float8          as cost_usd,
+       count(*)::int                               as turns,
+       coalesce(sum(num_turns), 0)::int            as model_turns,
+       count(*) filter (where cost_usd is null)::int as unpriced
+from turns
+where started_at >= @from_time and started_at < @to_time
+group by provider, agent, model, effort
+order by cost_usd desc, turns desc;

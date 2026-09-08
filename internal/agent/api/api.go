@@ -272,9 +272,15 @@ func (s *AgentService) GetUsage(
 			fmt.Errorf("get usage: tz_offset_minutes %d is not a real time zone offset", tz))
 	}
 
+	var compareFrom time.Time
+	if ts := req.Msg.GetCompareFrom(); ts.IsValid() {
+		compareFrom = ts.AsTime()
+	}
+
 	u, err := s.store.Usage(ctx, store.UsageQuery{
 		From:            from,
 		To:              to,
+		CompareFrom:     compareFrom,
 		TZOffsetMinutes: tz,
 		Limit:           int(req.Msg.GetLimit()),
 	})
@@ -296,6 +302,19 @@ func (s *AgentService) GetUsage(
 	for _, c := range u.Costs {
 		costs = append(costs, turnCostToProto(c))
 	}
+	backends := make([]*agentv1.UsageBackend, 0, len(u.Backends))
+	for _, b := range u.Backends {
+		backends = append(backends, &agentv1.UsageBackend{
+			Provider:   b.Provider,
+			Agent:      b.Agent,
+			Model:      b.Model,
+			Effort:     b.Effort,
+			CostUsd:    b.CostUSD,
+			Turns:      int32(b.Turns),
+			ModelTurns: int32(b.ModelTurns),
+			Unpriced:   int32(b.Unpriced),
+		})
+	}
 	return connect.NewResponse(&agentv1.GetUsageResponse{
 		Days:            days,
 		Costs:           costs,
@@ -303,6 +322,7 @@ func (s *AgentService) GetUsage(
 		TotalTurns:      int32(u.TotalTurns),
 		TotalModelTurns: int32(u.TotalModelTurns),
 		Unpriced:        int32(u.Unpriced),
+		Backends:        backends,
 	}), nil
 }
 
@@ -318,6 +338,10 @@ func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
 		Status:     c.Status,
 		StartedAt:  timestamppb.New(c.StartedAt),
 		CostUsd:    c.CostUSD,
+		Agent:      c.Backend.Agent,
+		Model:      c.Backend.Model,
+		Effort:     c.Backend.Effort,
+		Provider:   c.Backend.Provider,
 	}
 	if c.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*c.FinishedAt)

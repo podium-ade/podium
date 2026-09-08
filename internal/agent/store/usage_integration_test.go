@@ -15,11 +15,23 @@ import (
 // instants. CreateTurn always stamps now, which is exactly what these tests cannot use.
 func insertTurn(t *testing.T, s *Store, id, sessionID, taskID string, started time.Time, cost *float64, numTurns *int32) {
 	t.Helper()
+	insertTurnOn(t, s, id, sessionID, taskID, started, cost, numTurns, Backend{})
+}
+
+// insertTurnOn is insertTurn with a recorded backend. An empty Backend writes nulls, which
+// is what every turn from before the columns existed looks like.
+func insertTurnOn(
+	t *testing.T, s *Store, id, sessionID, taskID string, started time.Time,
+	cost *float64, numTurns *int32, b Backend,
+) {
+	t.Helper()
 	finished := started.Add(2 * time.Minute)
 	_, err := s.pool.Exec(context.Background(),
-		`insert into turns (id, session_id, task_id, trigger_ref, status, started_at, finished_at, num_turns, cost_usd, final_text)
-		 values ($1, $2, nullif($3, ''), 'ref', 'succeeded', $4, $5, $6, $7, 'done')`,
-		id, sessionID, taskID, started, finished, numTurns, cost)
+		`insert into turns (id, session_id, task_id, trigger_ref, status, started_at, finished_at,
+		                    num_turns, cost_usd, final_text, agent, model, effort, provider)
+		 values ($1, $2, nullif($3, ''), 'ref', 'succeeded', $4, $5, $6, $7, 'done',
+		         nullif($8, ''), nullif($9, ''), nullif($10, ''), nullif($11, ''))`,
+		id, sessionID, taskID, started, finished, numTurns, cost, b.Agent, b.Model, b.Effort, b.Provider)
 	require.NoError(t, err)
 }
 
@@ -208,4 +220,155 @@ func TestUsageClampsAnOverlongRangeFromTheFarEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, u.TotalTurns, "only the clamped window is read")
 	assert.InDelta(t, 1.0, u.TotalCostUSD, 1e-9)
+}
+
+func TestUsageGroupsByWhatActuallyRanTheTurn(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	sess := newUsageSession(t, s, "slack:C1:8.8", "triage")
+
+	day := func(d int) time.Time { return time.Date(2026, 9, d, 12, 0, 0, 0, time.UTC) }
+	opus := Backend{Agent: "claude", Model: "claude-opus-5", Effort: "high", Provider: "anthropic"}
+	sonnet := Backend{Agent: "claude", Model: "claude-sonnet-5", Provider: "anthropic"}
+	grok := Backend{Agent: "grok", Model: "grok-4.6", Provider: "xai"}
+
+	insertTurnOn(t, s, "turn_o1", sess, "task_o1", day(2), usd(3), nil, opus)
+	insertTurnOn(t, s, "turn_o2", sess, "task_o2", day(3), usd(5), nil, opus)
+	insertTurnOn(t, s, "turn_s1", sess, "task_s1", day(4), usd(1), nil, sonnet)
+	insertTurnOn(t, s, "turn_g1", sess, "task_g1", day(5), usd(2), nil, grok)
+	// A turn from before the columns existed, and one whose runtime reported no cost.
+	insertTurn(t, s, "turn_old", sess, "task_old", day(6), usd(9), nil)
+	insertTurnOn(t, s, "turn_g2", sess, "task_g2", day(7), nil, nil, grok)
+
+	u, err := s.Usage(ctx, UsageQuery{
+		From:  time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:    time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC),
+		Limit: 100,
+	})
+	require.NoError(t, err)
+	require.Len(t, u.Backends, 4, "opus, sonnet, grok and the unrecorded bucket")
+
+	by := map[string]UsageBackend{}
+	for _, b := range u.Backends {
+		by[b.Model] = b
+	}
+
+	opusRow := by["claude-opus-5"]
+	assert.InDelta(t, 8.0, opusRow.CostUSD, 1e-9, "both opus turns sum into one row")
+	assert.Equal(t, 2, opusRow.Turns)
+	assert.Equal(t, "high", opusRow.Effort)
+	assert.Equal(t, "anthropic", opusRow.Provider)
+
+	grokRow := by["grok-4.6"]
+	assert.InDelta(t, 2.0, grokRow.CostUSD, 1e-9)
+	assert.Equal(t, 2, grokRow.Turns, "the unpriced turn is still a turn")
+	assert.Equal(t, 1, grokRow.Unpriced)
+	assert.Equal(t, "xai", grokRow.Provider)
+	assert.Empty(t, grokRow.Effort, "no effort recorded means the model's own default")
+
+	// The pre-columns turn groups on its own, with every field empty. Its money is real.
+	unrecorded := by[""]
+	assert.Empty(t, unrecorded.Provider)
+	assert.Empty(t, unrecorded.Agent)
+	assert.InDelta(t, 9.0, unrecorded.CostUSD, 1e-9)
+
+	// Grouping must not lose or invent money: the rows add up to the range's total.
+	var summed float64
+	for _, b := range u.Backends {
+		summed += b.CostUSD
+	}
+	assert.InDelta(t, u.TotalCostUSD, summed, 1e-9)
+}
+
+// The same invariant the day rows have: grouping is a server-side aggregate over the whole
+// range, so capping the costs page cannot change what a model is reported to have cost.
+func TestUsageBackendsSurviveACappedCostsPage(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	sess := newUsageSession(t, s, "slack:C1:9.9", "triage")
+	opus := Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
+
+	base := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	for i := range 10 {
+		insertTurnOn(t, s, "turn_"+string(rune('a'+i)), sess, "task_"+string(rune('a'+i)),
+			base.Add(time.Duration(i)*time.Hour), usd(1), nil, opus)
+	}
+
+	u, err := s.Usage(ctx, UsageQuery{
+		From:  time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:    time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC),
+		Limit: 3,
+	})
+	require.NoError(t, err)
+	assert.Len(t, u.Costs, 3, "the page is capped")
+	require.Len(t, u.Backends, 1)
+	assert.Equal(t, 10, u.Backends[0].Turns, "the grouping is not")
+	assert.InDelta(t, 10.0, u.Backends[0].CostUSD, 1e-9)
+}
+
+// The bug this pins: the screen needs the window before the range to compute a "vs" figure,
+// and widening From to fetch it folded that window into the backend grouping and the totals
+// — a week of models reported as a fortnight's. CompareFrom widens the day rows only.
+func TestUsageCompareFromWidensTheDayRowsAndNothingElse(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	sess := newUsageSession(t, s, "slack:C1:10.10", "triage")
+	opus := Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
+
+	day := func(d int) time.Time { return time.Date(2026, 9, d, 12, 0, 0, 0, time.UTC) }
+	// Two turns inside the range, one in the window before it.
+	insertTurnOn(t, s, "turn_in1", sess, "task_in1", day(10), usd(2), nil, opus)
+	insertTurnOn(t, s, "turn_in2", sess, "task_in2", day(11), usd(3), nil, opus)
+	insertTurnOn(t, s, "turn_before", sess, "task_before", day(4), usd(50), nil, opus)
+
+	u, err := s.Usage(ctx, UsageQuery{
+		From:        day(8),
+		To:          day(14),
+		CompareFrom: day(1),
+		Limit:       100,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, u.Backends, 1)
+	assert.InDelta(t, 5.0, u.Backends[0].CostUSD, 1e-9, "the grouping is the range, not the comparison")
+	assert.Equal(t, 2, u.Backends[0].Turns)
+	assert.InDelta(t, 5.0, u.TotalCostUSD, 1e-9, "and so are the totals")
+	assert.Equal(t, 2, u.TotalTurns)
+	assert.Len(t, u.Costs, 2, "and so is the costs page")
+
+	// The day rows alone reach back, which is what the comparison is computed from.
+	assert.Len(t, u.Days, 3, "two days in the range and one before it")
+	var earliest string
+	for _, d := range u.Days {
+		if earliest == "" || d.Date < earliest {
+			earliest = d.Date
+		}
+	}
+	assert.Equal(t, "2026-09-04", earliest)
+}
+
+// A CompareFrom inside the range, or absent, changes nothing.
+func TestUsageIgnoresACompareFromThatDoesNotReachBack(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	sess := newUsageSession(t, s, "slack:C1:11.11", "triage")
+	day := func(d int) time.Time { return time.Date(2026, 9, d, 12, 0, 0, 0, time.UTC) }
+	insertTurn(t, s, "turn_x", sess, "task_x", day(10), usd(1), nil)
+
+	base := UsageQuery{From: day(8), To: day(14), Limit: 10}
+	for _, tc := range []struct {
+		name string
+		q    UsageQuery
+	}{
+		{"unset", base},
+		{"inside the range", func() UsageQuery { q := base; q.CompareFrom = day(9); return q }()},
+		{"after the range", func() UsageQuery { q := base; q.CompareFrom = day(20); return q }()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := s.Usage(ctx, tc.q)
+			require.NoError(t, err)
+			assert.Len(t, u.Days, 1)
+			assert.InDelta(t, 1.0, u.TotalCostUSD, 1e-9)
+		})
+	}
 }

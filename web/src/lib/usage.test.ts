@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import type { TaskCost, UsageDay } from "../gen/podium/agent/v1/agent_pb";
+import type { TaskCost, UsageBackend, UsageDay } from "../gen/podium/agent/v1/agent_pb";
 import {
+  backendSummary,
   breakdown,
   byTask,
   customRange,
   dayKey,
   eachDay,
+  isUnrecorded,
   previousRange,
   rangeFor,
   spanDays,
@@ -257,5 +259,53 @@ describe("breakdown", () => {
 
   it("labels an empty group rather than keying on the empty string", () => {
     expect(breakdown([cost({ playbook: "" })], (c) => c.playbook)[0].key).toBe("—");
+  });
+});
+
+const backend = (over: Partial<UsageBackend>): UsageBackend =>
+  ({
+    provider: "anthropic",
+    agent: "claude",
+    model: "claude-opus-5",
+    effort: "",
+    costUsd: 0,
+    turns: 0,
+    modelTurns: 0,
+    unpriced: 0,
+    ...over,
+  }) as UsageBackend;
+
+describe("isUnrecorded", () => {
+  it("is true only when nothing at all was recorded", () => {
+    expect(isUnrecorded(backend({ provider: "", agent: "", model: "" }))).toBe(true);
+  });
+
+  it("is false for a recorded turn whose effort is the model's own default", () => {
+    // An empty effort is a real answer — "the model decides" — and must not be mistaken
+    // for the bucket of turns that predate the columns.
+    expect(isUnrecorded(backend({ effort: "" }))).toBe(false);
+  });
+});
+
+describe("backendSummary", () => {
+  it("counts distinct models and providers, and only what is attributed", () => {
+    const s = backendSummary([
+      backend({ model: "claude-opus-5", costUsd: 10 }),
+      backend({ model: "claude-sonnet-5", costUsd: 5 }),
+      backend({ provider: "xai", agent: "grok", model: "grok-4.6", costUsd: 1 }),
+      // Unrecorded spend is real but unattributable, so it is left out of the sentence.
+      backend({ provider: "", agent: "", model: "", costUsd: 99 }),
+    ]);
+    expect(s).toBe("3 models across 2 providers, $16.00 attributed.");
+  });
+
+  it("says so when nothing recorded what it ran on", () => {
+    expect(backendSummary([backend({ provider: "", agent: "", model: "", costUsd: 9 })])).toBe(
+      "Nothing in this range recorded what it ran on.",
+    );
+  });
+
+  it("is singular for one model on one provider", () => {
+    expect(backendSummary([backend({ costUsd: 2 })])).toBe("1 model across 1 provider, $2.00 attributed.");
   });
 });

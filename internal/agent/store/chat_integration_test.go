@@ -23,7 +23,7 @@ func runningTurn(t *testing.T, s *Store, chatID string) Turn {
 		SourceKind: "chat", SourceKey: ChatSourceKey(chatID), Profile: "podium", Playbook: "analyst",
 	})
 	require.NoError(t, err)
-	turn, err := s.CreateTurn(ctx, sess.ID, chatID)
+	turn, err := s.CreateTurn(ctx, sess.ID, chatID, Backend{})
 	require.NoError(t, err)
 	return turn
 }

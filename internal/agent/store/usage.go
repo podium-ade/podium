@@ -40,13 +40,27 @@ type TurnCost struct {
 	FinishedAt *time.Time
 	NumTurns   *int
 	CostUSD    *float64
+	// Backend is what ran it. Zero for a turn recorded before it was written down.
+	Backend Backend
+}
+
+// UsageBackend is one (provider, agent, model, effort) and what it cost over the range.
+// Every field may be empty together, which is the bucket for turns that predate the
+// columns; the API reports that as unrecorded rather than as a model with no name.
+type UsageBackend struct {
+	Backend
+	CostUSD    float64
+	Turns      int
+	ModelTurns int
+	Unpriced   int
 }
 
 // Usage is what the conductor spent over a range: a total per day, and the individual
 // turns behind it.
 type Usage struct {
-	Days  []UsageDay
-	Costs []TurnCost
+	Days     []UsageDay
+	Costs    []TurnCost
+	Backends []UsageBackend
 	// The totals are for the whole range. Costs is capped by limit and may be shorter.
 	TotalCostUSD    float64
 	TotalTurns      int
@@ -59,6 +73,9 @@ type Usage struct {
 type UsageQuery struct {
 	From time.Time
 	To   time.Time
+	// CompareFrom widens the day rows, and nothing else, back to an earlier instant. Zero or
+	// later than From means the days start at From like the rest of the answer.
+	CompareFrom time.Time
 	// TZOffsetMinutes is the caller's offset from UTC, east-positive, and decides where a
 	// day boundary falls.
 	TZOffsetMinutes int
@@ -71,7 +88,7 @@ type UsageQuery struct {
 func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 	from, to := q.From.UTC(), q.To.UTC()
 	if !to.After(from) {
-		return Usage{Days: []UsageDay{}, Costs: []TurnCost{}}, nil
+		return Usage{Days: []UsageDay{}, Costs: []TurnCost{}, Backends: []UsageBackend{}}, nil
 	}
 	// Clamped from the far end, so narrowing a too-wide range keeps the recent days the
 	// caller was almost certainly asking about.
@@ -79,9 +96,20 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 		from = to.Add(-MaxUsageRange)
 	}
 
+	// Only the day rows reach back over the comparison window. Costs, the backend grouping
+	// and the totals are all about the range the caller actually asked for; widening them
+	// here is how a week's spend quietly becomes a fortnight's.
+	dayFrom := from
+	if !q.CompareFrom.IsZero() && q.CompareFrom.UTC().Before(dayFrom) {
+		dayFrom = q.CompareFrom.UTC()
+		if to.Sub(dayFrom) > MaxUsageRange {
+			dayFrom = to.Add(-MaxUsageRange)
+		}
+	}
+
 	dayRows, err := s.q.UsageByDay(ctx, db.UsageByDayParams{
 		TzOffsetMinutes: int32(q.TZOffsetMinutes),
-		FromTime:        from,
+		FromTime:        dayFrom,
 		ToTime:          to,
 	})
 	if err != nil {
@@ -96,12 +124,27 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 		return Usage{}, fmt.Errorf("read turn costs: %w", err)
 	}
 
-	out := Usage{
-		Days:  make([]UsageDay, 0, len(dayRows)),
-		Costs: make([]TurnCost, 0, len(costRows)),
+	backendRows, err := s.q.UsageByBackend(ctx, db.UsageByBackendParams{FromTime: from, ToTime: to})
+	if err != nil {
+		return Usage{}, fmt.Errorf("read usage by backend: %w", err)
 	}
-	// The totals are summed from the day rows rather than from Costs, which is a capped
-	// page: a range with more turns than the cap would otherwise under-report its own total.
+
+	out := Usage{
+		Days:     make([]UsageDay, 0, len(dayRows)),
+		Costs:    make([]TurnCost, 0, len(costRows)),
+		Backends: make([]UsageBackend, 0, len(backendRows)),
+	}
+	for _, r := range backendRows {
+		out.Backends = append(out.Backends, UsageBackend{
+			Backend: Backend{
+				Agent: r.Agent, Model: r.Model, Effort: r.Effort, Provider: r.Provider,
+			},
+			CostUSD:    r.CostUsd,
+			Turns:      int(r.Turns),
+			ModelTurns: int(r.ModelTurns),
+			Unpriced:   int(r.Unpriced),
+		})
+	}
 	for _, r := range dayRows {
 		out.Days = append(out.Days, UsageDay{
 			Date:       r.Day,
@@ -110,10 +153,16 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 			ModelTurns: int(r.ModelTurns),
 			Unpriced:   int(r.Unpriced),
 		})
-		out.TotalCostUSD += r.CostUsd
-		out.TotalTurns += int(r.Turns)
-		out.TotalModelTurns += int(r.ModelTurns)
-		out.Unpriced += int(r.Unpriced)
+	}
+	// The totals are summed from the backend grouping rather than from the day rows, which
+	// may now reach back over a comparison window, and rather than from Costs, which is a
+	// capped page. The grouping is the only aggregate that is both complete and exactly the
+	// requested range.
+	for _, b := range out.Backends {
+		out.TotalCostUSD += b.CostUSD
+		out.TotalTurns += b.Turns
+		out.TotalModelTurns += b.ModelTurns
+		out.Unpriced += b.Unpriced
 	}
 	for _, r := range costRows {
 		c := TurnCost{
@@ -128,6 +177,12 @@ func (s *Store) Usage(ctx context.Context, q UsageQuery) (Usage, error) {
 			StartedAt:  r.StartedAt.UTC(),
 			FinishedAt: utcPtr(r.FinishedAt),
 			CostUSD:    r.CostUsd,
+			Backend: Backend{
+				Agent:    deref(r.Agent),
+				Model:    deref(r.Model),
+				Effort:   deref(r.Effort),
+				Provider: deref(r.Provider),
+			},
 		}
 		if r.NumTurns != nil {
 			n := int(*r.NumTurns)

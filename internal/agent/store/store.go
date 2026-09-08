@@ -103,6 +103,20 @@ type Turn struct {
 	NumTurns   *int
 	CostUSD    *float64
 	FinalText  string
+	// Backend is what this turn actually ran on, recorded at creation. Zero for a turn from
+	// before the columns existed — never guessed from the playbook, whose model is only a
+	// default and may have been edited since.
+	Backend Backend
+}
+
+// Backend is the resolved agent, model and effort a turn ran on, and the provider that was
+// billed for it. Provider is stored rather than derived from Agent so that remapping a
+// backend to another provider later cannot rewrite what past turns cost whom.
+type Backend struct {
+	Agent    string
+	Model    string
+	Effort   string
+	Provider string
 }
 
 // UpsertSession returns the session for want.SourceKey, creating it if it is new. The playbook
@@ -177,7 +191,7 @@ func (s *Store) ListSessions(ctx context.Context, limit int, cursor string) ([]S
 
 // CreateTurn records a turn as running. The task does not exist yet: SetTurnTask fills it
 // in once CreateTask has answered.
-func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string) (Turn, error) {
+func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string, b Backend) (Turn, error) {
 	now := time.Now().UTC()
 	row, err := s.q.CreateTurn(ctx, db.CreateTurnParams{
 		ID:         ids.New("turn"),
@@ -185,6 +199,10 @@ func (s *Store) CreateTurn(ctx context.Context, sessionID, triggerRef string) (T
 		TriggerRef: triggerRef,
 		Status:     TurnRunning,
 		StartedAt:  now,
+		Agent:      b.Agent,
+		Model:      b.Model,
+		Effort:     b.Effort,
+		Provider:   b.Provider,
 	})
 	if err != nil {
 		return Turn{}, fmt.Errorf("create turn for session %s: %w", sessionID, err)
@@ -401,6 +419,12 @@ func turnFromRow(r db.Turn) Turn {
 		FinishedAt: utcPtr(r.FinishedAt),
 		CostUSD:    r.CostUsd,
 		FinalText:  deref(r.FinalText),
+		Backend: Backend{
+			Agent:    deref(r.Agent),
+			Model:    deref(r.Model),
+			Effort:   deref(r.Effort),
+			Provider: deref(r.Provider),
+		},
 	}
 	if r.NumTurns != nil {
 		n := int(*r.NumTurns)

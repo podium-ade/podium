@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { UsagePage } from "./UsagePage";
 import { TaskStatus } from "../gen/podium/v1/common_pb";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
@@ -32,13 +32,17 @@ const VIEWER: Viewer = {
   serverVersion: "v0",
 };
 
-function mount(viewer: Viewer = VIEWER) {
+// Mounted under the same splat route App.tsx uses. The tabs are nested routes, so mounting
+// the page bare would resolve them against "/" and no tab would ever match.
+function mount(viewer: Viewer = VIEWER, path = "/usage") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ViewerContext value={viewer}>
-        <MemoryRouter>
-          <UsagePage />
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/usage/*" element={<UsagePage />} />
+          </Routes>
         </MemoryRouter>
       </ViewerContext>
     </QueryClientProvider>,
@@ -105,6 +109,16 @@ const turnCost = {
   costUsd: 0.0182,
 };
 
+const backends = [
+  { provider: "anthropic", agent: "claude", model: "claude-opus-5", effort: "high",
+    costUsd: 12.5, turns: 8, modelTurns: 120, unpriced: 0 },
+  { provider: "xai", agent: "grok", model: "grok-4.6", effort: "",
+    costUsd: 3.25, turns: 4, modelTurns: 40, unpriced: 1 },
+  // Turns from before the conductor recorded any of this.
+  { provider: "", agent: "", model: "", effort: "",
+    costUsd: 0.75, turns: 2, modelTurns: 6, unpriced: 2 },
+];
+
 const usageResponse = {
   days: [
     // One day inside the window and one before it, so a total that ignored the range would
@@ -118,6 +132,7 @@ const usageResponse = {
   totalTurns: 44,
   totalModelTurns: 105,
   unpriced: 1,
+  backends,
 };
 
 describe("UsagePage", () => {
@@ -212,14 +227,19 @@ describe("UsagePage", () => {
     });
   });
 
-  it("asks the conductor for the comparison window as well, in the viewer's zone", async () => {
+  it("asks for the range itself, and reaches back for the comparison separately", async () => {
     mount();
     await waitFor(() => expect(getUsage).toHaveBeenCalled());
     const req = getUsage.mock.calls[0][0];
     expect(req.tzOffsetMinutes).toBe(-new Date().getTimezoneOffset());
-    // Fourteen days back: the seven shown plus the seven it is compared against.
-    expect(new Date(Number(req.from.seconds) * 1000)).toEqual(addDays(today, -13));
+
+    // from/to is the seven days on screen. The by-model grouping and the totals are scoped
+    // to exactly this, which is what stops a week being reported as a fortnight.
+    expect(new Date(Number(req.from.seconds) * 1000)).toEqual(addDays(today, -6));
     expect(new Date(Number(req.to.seconds) * 1000)).toEqual(addDays(today, 1));
+
+    // Only the day rows reach back over the seven days before it, for the "vs" figure.
+    expect(new Date(Number(req.compareFrom.seconds) * 1000)).toEqual(addDays(today, -13));
   });
 
   it("joins cost onto the task that ran it and dashes the one no turn ran", async () => {
@@ -261,6 +281,57 @@ describe("UsagePage", () => {
     await user.click(panel.getByRole("button", { name: "By source" }));
     await waitFor(() => expect(panel.getByText("slack")).toBeVisible());
     expect(panel.queryByText("triage")).toBeNull();
+  });
+
+  it("keeps the by-model tab on its own route, and shows one row per backend", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+
+    await user.click(screen.getByRole("link", { name: /by model/i }));
+
+    const rows = await screen.findAllByTestId("backend-row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getByText("claude-opus-5")).toBeVisible();
+    expect(within(rows[0]).getByText("Anthropic")).toBeVisible();
+    expect(within(rows[0]).getByText("high")).toBeVisible();
+    expect(within(rows[0]).getByText("$12.5000")).toBeVisible();
+    // Cost per turn, which is the number that makes two models comparable.
+    expect(within(rows[0]).getByText("$1.5625")).toBeVisible();
+
+    // A recorded turn with no effort means the model's default, and says so.
+    expect(within(rows[1]).getByText("default")).toBeVisible();
+    expect(within(rows[1]).getByText("grok-4.6")).toBeVisible();
+
+    // Unrecorded is its own bucket, not a model with an empty name.
+    expect(within(rows[2]).getByText("unrecorded")).toBeVisible();
+
+    // The overview is gone while the models tab is open.
+    expect(screen.queryByTestId("usage-row")).toBeNull();
+  });
+
+  it("summarises only what is attributed, never the unrecorded bucket", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+    await user.click(screen.getByRole("link", { name: /by model/i }));
+    // $12.50 + $3.25; the $0.75 of unrecorded spend is real but cannot be attributed.
+    expect(await screen.findByText("2 models across 2 providers, $15.75 attributed.")).toBeVisible();
+  });
+
+  it("keeps the range picker working across both tabs", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findAllByTestId("usage-row");
+    await user.click(screen.getByRole("link", { name: /by model/i }));
+
+    await user.click(screen.getByRole("button", { name: "30d" }));
+    await waitFor(() => {
+      const req = getUsage.mock.calls[getUsage.mock.calls.length - 1][0];
+      expect(new Date(Number(req.to.seconds) * 1000)).toEqual(addDays(today, 1));
+    });
+    // Still on the models tab, not bounced back to the overview.
+    expect(await screen.findAllByTestId("backend-row")).toHaveLength(3);
   });
 
   it("tells the operator when the conductor is down instead of showing an empty bill", async () => {
