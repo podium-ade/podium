@@ -780,14 +780,6 @@ function Conversation({
           className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
         >
           <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
-            {/* In the flow rather than floating over it: an overlay at the top of the
-                scroll port reads the transcript's first message straight through. */}
-            {busy ? (
-              <div className="sticky top-2 z-10 flex justify-center">
-                <RunningTurn progress={stream.progress} taskId={stream.taskId} />
-              </div>
-            ) : null}
-
             {connecting ? <TranscriptSkeleton /> : null}
 
             {stream.error ? (
@@ -804,6 +796,15 @@ function Conversation({
             {stream.messages.map((m, i) => (
               <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
             ))}
+
+            {/* Last, where the answer itself will land. A turn's state used to be a pill
+                stuck to the top of the transcript, which took its own line in the flow and
+                pushed the whole conversation down the moment a turn started. Here it costs
+                nothing: it grows at the end, which is where new messages arrive and where
+                the view is already pinned. */}
+            {busy ? (
+              <Thinking progress={stream.progress} taskId={stream.taskId} botName={botName} />
+            ) : null}
           </div>
         </div>
 
@@ -838,33 +839,72 @@ function Conversation({
 }
 
 /**
- * RunningTurn is that a turn is running, and the task it is running in. Nothing more: what
- * the task is actually doing is in the transcript below, in its own words, so this is a
- * state and not a message — which is why it is a pill that sticks to the top of the
- * conversation rather than a line of prose stealing the newest thing said.
+ * Thinking is the bot's turn before it has words: the same row an answer arrives in, with
+ * an indicator where the text will be.
  *
- * The progress line it does show is the conductor's placeholder, which fills the gap
- * between a turn starting and the task's first words — a container still being pulled has
- * nothing to say yet, and neither does an empty pill.
+ * It reads as part of the conversation rather than as chrome about it, which is what makes
+ * the wait legible — "it is working" belongs in the transcript, next to what it is working
+ * on, and not in a strip above it.
+ *
+ * The line it shows is whatever the turn last said about itself: a task's progress once
+ * there is one, and the conductor's placeholder before that, because a container still
+ * being pulled has nothing to say yet.
  */
-function RunningTurn({ progress, taskId }: { progress?: string; taskId?: string }) {
+function Thinking({
+  progress,
+  taskId,
+  botName,
+}: {
+  progress?: string;
+  taskId?: string;
+  botName: string;
+}) {
   return (
-    <div
-      data-testid="chat-progress"
-      className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-panel/95 py-1 pr-3 pl-1.5 shadow-md backdrop-blur animate-in fade-in-0 slide-in-from-top-1"
-    >
-      <Badge tone="run">running</Badge>
-      <span className="min-w-0 truncate text-xs text-muted">{progress ?? "Working on it…"}</span>
-      {taskId ? (
-        <Link
-          to={`/tasks/${taskId}`}
-          title={taskId}
-          className="shrink-0 border-l border-hairline pl-2 font-mono text-2xs text-accent hover:underline"
-        >
-          {taskId}
-        </Link>
-      ) : null}
+    <div className="flex gap-3" data-testid="chat-progress" role="status" aria-live="polite">
+      <span
+        aria-hidden
+        className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-border bg-panel text-accent"
+      >
+        <Bot className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs font-medium text-fg">{botName}</span>
+          {taskId ? (
+            <Link
+              to={`/tasks/${taskId}`}
+              title={taskId}
+              className="font-mono shrink-0 text-2xs text-accent hover:underline"
+            >
+              {taskId}
+            </Link>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+          <Dots />
+          <span className="min-w-0 truncate">{progress ?? "Thinking"}</span>
+        </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Dots is the three-dot wait. The stagger is what makes it read as activity rather than as
+ * a decoration; index.css flattens every animation under prefers-reduced-motion, so there
+ * is nothing to opt out of here.
+ */
+function Dots() {
+  return (
+    <span aria-hidden className="flex shrink-0 items-center gap-1">
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          style={{ animationDelay: `${delay}ms` }}
+          className="size-1.5 animate-pulse rounded-full bg-muted"
+        />
+      ))}
+    </span>
   );
 }
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -334,6 +334,44 @@ describe("ChatPanel", () => {
 
     await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
+  });
+
+  it("waits at the end of the transcript, not above it", async () => {
+    // The running state used to be a pill stuck to the top of the transcript. It took its
+    // own line in the flow, so starting a turn pushed the whole conversation down. Ordering
+    // is the assertion because that is the property that regressed: last, where the answer
+    // lands, costs no layout above it.
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+
+    const waiting = await screen.findByTestId("chat-progress");
+    const messages = screen.getAllByTestId("chat-message");
+    const last = messages[messages.length - 1];
+    expect(last.compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("names the bot and links the task it is waiting on", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+
+    const waiting = await screen.findByTestId("chat-progress");
+    // Before a task has said anything there is still something to show, and it is the wait
+    // itself rather than an empty line.
+    expect(waiting).toHaveTextContent("Thinking");
+    expect(within(waiting).getByRole("link", { name: "task_01xyz" })).toHaveAttribute(
+      "href",
+      "/tasks/task_01xyz",
+    );
   });
 
   it("replaces a message when its attachments arrive on the same seq", async () => {
