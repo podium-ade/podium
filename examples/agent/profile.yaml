@@ -33,7 +33,7 @@ agent: claude
 # file-only on purpose — what the thing running beside your master key may execute belongs in
 # a repository, beside a review, and not behind a form in a browser.
 # skills: [validate-pr]
-# max_turns: 50
+# max_turns: 50   # unset means NO cap, unlike a playbook's
 #
 # Which playbook a Slack mention or a Linear ticket runs when nothing more specific routes it.
 default_playbook: general

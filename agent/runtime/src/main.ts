@@ -276,9 +276,10 @@ async function main(): Promise<number> {
       switch (event.type) {
         case "step_start":
           steps += 1;
-          if (steps > brief.playbook.max_turns) {
-            // The harness has no turn cap of its own, so this is the cap: stop it, and say
-            // plainly that the answer is incomplete rather than relaying a half-finished one.
+          // The harness has no turn cap of its own, so this is the cap: stop it, and say
+          // plainly that the answer is incomplete rather than relaying a half-finished one.
+          // No cap in the brief means exactly that — see brief.ts.
+          if (brief.playbook.max_turns !== undefined && steps > brief.playbook.max_turns) {
             summary.code = ExitMaxTurns;
             finalText =
               `I ran out of turns. I am allowed ${brief.playbook.max_turns} and the work was ` +

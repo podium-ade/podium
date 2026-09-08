@@ -1,6 +1,7 @@
 package conductor
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,7 @@ func TestTheAssistantsBriefHasNoContainerInIt(t *testing.T) {
 	assert.Nil(t, b.Browser, "there is no sidecar beside the assistant")
 	assert.Equal(t, AssistantName, b.Playbook.Name)
 	assert.Equal(t, 12, b.Playbook.MaxTurns, "profile.yaml's max_turns, not the playbook's")
+	assert.NotEqual(t, 200, b.Playbook.MaxTurns, "the playbook's cap must not reach the assistant")
 	assert.Empty(t, b.Playbook.SystemPrompt,
 		"the assistant IS the profile, so its prompt is profile.system_prompt and is not sent twice")
 	assert.Equal(t, "you are Podium", b.Profile.SystemPrompt)
@@ -173,4 +175,28 @@ func TestAHostRuntimeSaysWhatItIsMissing(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+// TestTheAssistantsBriefOmitsATurnCapNobodySet. Zero means no cap, and the document has to
+// say that by leaving the field out: the runtime's schema refuses a non-positive number, so
+// emitting 0 would fail every turn of a profile that set no ceiling.
+func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
+		Model: "claude-opus-5", DefaultPlaybook: "coder",
+		Playbooks: map[string]profiles.Playbook{"coder": {Name: "coder", MaxTurns: 200}},
+	})}
+	profile := c.profiles.Current()
+	j := assistantJob(profile.Assistant())
+	require.Zero(t, j.maxTurns)
+
+	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil,
+		j.choose(profile, profiles.Override{}))
+	encoded, err := b.Encode()
+	require.NoError(t, err)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "max_turns",
+		"an absent cap is absent from the document, not a zero the schema would refuse")
 }

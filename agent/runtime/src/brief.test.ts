@@ -179,6 +179,14 @@ describe("decodeBrief", () => {
     expect(() => decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, max_turns: 0 } }))).toThrow(BriefError);
   });
 
+  // The assistant runs with none: it answers a conversation and delegates, so what is worth
+  // bounding is the container it starts. A task always carries one.
+  it("accepts a brief with no max_turns at all", () => {
+    const { max_turns: _dropped, ...playbook } = minimal.playbook;
+    const brief = decodeBrief(encode({ ...minimal, playbook }));
+    expect(brief.playbook.max_turns).toBeUndefined();
+  });
+
   it("refuses something that is not base64 JSON", () => {
     expect(() => decodeBrief({ [BriefEnv]: "bm90IGpzb24=" })).toThrow(/is not base64-encoded JSON/);
   });

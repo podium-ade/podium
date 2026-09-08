@@ -28,8 +28,10 @@ type job struct {
 	name         string
 	systemPrompt string
 	allowedTools []string
-	maxTurns     int
-	skills       []string
+	// maxTurns caps the turn's steps, and zero means no cap. A playbook always has one; the
+	// assistant has one only if profile.yaml set it.
+	maxTurns int
+	skills   []string
 	// playbook is the container half, and the zero Playbook for the assistant. Only the
 	// task path reads it.
 	playbook profiles.Playbook
@@ -55,6 +57,9 @@ func playbookJob(p profiles.Playbook) job {
 }
 
 // assistantJob is the turn that answers a conversation, run here.
+//
+// Its step cap is profile.yaml's verbatim, zero included: unset means no cap, because the
+// assistant is a relay and the thing worth bounding is the container it starts.
 //
 // It carries NO system prompt of its own, and that absence is the point: the assistant is
 // the profile, so its prompt is already the brief's profile.system_prompt. A second copy in

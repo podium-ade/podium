@@ -2246,6 +2246,10 @@ export type AgentProfile = Message<"podium.agent.v1.AgentProfile"> & {
   skills: string[];
 
   /**
+   * max_turns is ZERO when profile.yaml sets none, and zero means no cap. The assistant
+   * answers a conversation and delegates, so what is worth bounding is the container it
+   * starts; an operator who wants a ceiling here sets one.
+   *
    * @generated from field: int32 max_turns = 19;
    */
   maxTurns: number;

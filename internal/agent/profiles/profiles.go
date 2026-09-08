@@ -102,8 +102,11 @@ type Profile struct {
 	// that list and not a default for it, because the two turns are nothing alike: one has
 	// a container and a workspace, and this one has a conversation.
 	Skills []string `yaml:"skills"`
-	// MaxTurns caps one assistant turn's steps, as a playbook's max_turns caps a task's.
-	// Zero is DefaultMaxTurns.
+	// MaxTurns caps one assistant turn's steps. UNSET MEANS NO CAP, which is the opposite of
+	// a playbook's max_turns and deliberately so: the assistant answers a conversation and
+	// delegates, so what is worth bounding is the container it starts rather than the relay
+	// that started it, and a cap that fires mid-answer says "I ran out of turns" about a turn
+	// that had not failed. An operator who wants a ceiling sets one.
 	MaxTurns int `yaml:"max_turns"`
 
 	// Playbooks is every playbooks/*.yaml, keyed by file name without the extension.
@@ -130,7 +133,9 @@ type Profile struct {
 type Assistant struct {
 	// Skills is the Agent Skills it may use, by name.
 	Skills []string
-	// MaxTurns caps its steps.
+	// MaxTurns caps its steps, and ZERO means no cap. Nothing else bounds an assistant turn
+	// — there is no container and no timeout — so with no cap the only automatic stop is the
+	// provider's own, and the deliberate one is a human cancelling the turn.
 	MaxTurns int
 }
 
@@ -139,18 +144,8 @@ type Assistant struct {
 func (p *Profile) Assistant() Assistant {
 	return Assistant{
 		Skills:   append([]string(nil), p.Skills...),
-		MaxTurns: p.maxTurns(),
+		MaxTurns: p.MaxTurns,
 	}
-}
-
-// maxTurns is the assistant's cap, defaulted. It is not applied at load the way a playbook's
-// is, because a profile is also written by the API's merge and defaulting one field there and
-// not the other is how the two copies drift.
-func (p *Profile) maxTurns() int {
-	if p.MaxTurns > 0 {
-		return p.MaxTurns
-	}
-	return DefaultMaxTurns
 }
 
 // Repo is a repository a playbook's turns get cloned into /workspace.
@@ -558,8 +553,8 @@ func (p *Profile) validate(path string) error {
 			p.DefaultPlaybook, strings.Join(p.PlaybookNames(), ", ")))
 	}
 	// The assistant's own two fields. An absent max_turns and a `max_turns: 0` are the same
-	// document to a YAML decoder, so zero has to mean "defaulted"; a negative one is the
-	// only shape that can be refused, and it is.
+	// document to a YAML decoder, and both mean no cap; a negative one is the only shape
+	// that can be refused, and it is.
 	errs = append(errs, validateSkills(p.Skills)...)
 	if p.MaxTurns < 0 {
 		errs = append(errs, fmt.Errorf("max_turns must be at least 1, got %d", p.MaxTurns))

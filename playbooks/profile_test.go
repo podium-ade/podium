@@ -37,8 +37,10 @@ func TestTheBotsOwnProfileLoads(t *testing.T) {
 	require.Equal(t, "general", p.DefaultPlaybook)
 
 	// The web chat runs neither: it is answered by the assistant, in the conductor's own
-	// process, and the two playbooks above are what that turn delegates to.
-	require.Equal(t, profiles.DefaultMaxTurns, p.Assistant().MaxTurns)
+	// process, and the two playbooks above are what that turn delegates to. It has no step
+	// cap; the playbooks it delegates to do.
+	require.Zero(t, p.Assistant().MaxTurns)
+	require.Equal(t, 200, p.Playbooks["podium"].MaxTurns)
 
 	// No playbook takes Linear tickets, so this profile cannot be used with a Linear key as
 	// it stands — the conductor refuses to start when a key is set and nothing claims it.

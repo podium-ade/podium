@@ -802,6 +802,9 @@ Everything below is a real hole, not a hypothetical:
   to resolve one for it.
 - **Nothing caps how many assistant turns run at once.** Every open chat that is answering is another
   `node` and another `opencode` process on the conductor's machine, with no queue and no limit.
+- **An assistant turn has no step cap unless `profile.yaml: max_turns` sets one, and no
+  timeout at all.** A task has both. The only automatic stop is the provider's; the deliberate
+  one is a human cancelling the turn.
 - **Anyone who can reach the control plane can run code with any registered secret**, through a
   task spec or through a playbook: `CreateTask` checks that a named secret exists and never that
   the caller may have it. A playbook's `secrets:` list scopes what one bot hands one turn; it is

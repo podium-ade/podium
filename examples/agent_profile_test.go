@@ -51,10 +51,11 @@ func TestAgentProfileLoads(t *testing.T) {
 	}
 
 	// The assistant — what answers the web chat, in the conductor's own process — names no
-	// Agent Skills and takes the default step cap. A reader's first profile must come up on a
-	// machine with an empty skill library.
+	// Agent Skills and no step cap. A reader's first profile must come up on a machine with
+	// an empty skill library, and an unset max_turns means the conversation is not cut off
+	// mid-answer.
 	require.Empty(t, p.Assistant().Skills)
-	require.Equal(t, profiles.DefaultMaxTurns, p.Assistant().MaxTurns)
+	require.Zero(t, p.Assistant().MaxTurns)
 
 	// Nothing here may ask for a privileged node, a browser or a skill. This profile is what
 	// the e2e suite runs and what a reader copies first, so it has to come up on an ordinary

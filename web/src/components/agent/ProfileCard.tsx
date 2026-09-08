@@ -222,8 +222,16 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
                 <span className="font-mono">{(profile?.skills ?? []).join(", ")}</span>
               )}
               <span className="text-muted"> · </span>
-              <span className="tabular">{profile?.maxTurns || 0}</span>
-              <span className="text-muted"> turns</span>
+              {/* Unset is a decision and not a blank: the assistant delegates, so the cap
+                  worth having is on the container it starts. */}
+              {profile?.maxTurns ? (
+                <>
+                  <span className="tabular">{profile.maxTurns}</span>
+                  <span className="text-muted"> turns</span>
+                </>
+              ) : (
+                <span className="text-muted">no turn limit</span>
+              )}
             </p>
           </Field>
         </CardContent>
