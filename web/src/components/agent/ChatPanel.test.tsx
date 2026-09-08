@@ -67,7 +67,13 @@ function live() {
   };
 }
 
-function message(seq: number, role: string, text: string, attachments: unknown[] = []) {
+function message(
+  seq: number,
+  role: string,
+  text: string,
+  attachments: unknown[] = [],
+  taskId = "",
+) {
   return create(ChatFrameSchema, {
     frame: {
       case: "message",
@@ -77,6 +83,7 @@ function message(seq: number, role: string, text: string, attachments: unknown[]
         role,
         text,
         ts: timestampFromDate(new Date()),
+        taskId,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         attachments: attachments as any,
       }),
@@ -297,9 +304,9 @@ describe("ChatPanel", () => {
 
     stream.push(message(1, "user", "chart it"));
     stream.push(status("started", "task_01xyz"));
-    stream.push(message(2, "progress", "I'll read the schema first."));
-    stream.push(message(3, "progress", "Now the query."));
-    stream.push(message(4, "assistant", "Here it is."));
+    stream.push(message(2, "progress", "I'll read the schema first.", [], "task_01xyz"));
+    stream.push(message(3, "progress", "Now the query.", [], "task_01xyz"));
+    stream.push(message(4, "assistant", "Here it is.", [], "task_01xyz"));
     stream.push(status("finished"));
 
     const bubbles = await waitFor(() => {
@@ -315,10 +322,51 @@ describe("ChatPanel", () => {
     ]);
     // Two voices, two names — and one name per run, not one per message.
     expect(screen.getAllByText("task")).toHaveLength(1);
+    // The answer is the bot's, whatever machine produced it, and carries the task as a link.
     expect(screen.getByText("Podium")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "task_01xyz" })).toHaveLength(2);
     // It stays after the turn ends: it is the conversation, not a live view of one.
     await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
     expect(screen.getByText("I'll read the schema first.")).toBeInTheDocument();
+  });
+
+  // The bug this fixes: the assistant thinks out loud on the host and its lines are stored
+  // under the same `progress` role a task's are, so role alone credited the assistant's own
+  // words to a container it had not started yet.
+  it("credits the assistant's own thinking to the assistant, not to a task", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "shrink the settings text"));
+    stream.push(message(2, "progress", "Delegating this to the podium playbook."));
+    stream.push(message(3, "progress", "Working on this in a `podium` task", [], "task_01aaa"));
+    stream.push(status("finished"));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
+    // One "task" heading — the delegated one — and the assistant's line is the bot's.
+    expect(screen.getAllByText("task")).toHaveLength(1);
+    expect(screen.getByText("Podium")).toBeInTheDocument();
+  });
+
+  // Two tasks answering one conversation are two answers, and used to render as one run
+  // because the grouping was by role.
+  it("tells two tasks apart", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "twice please"));
+    stream.push(message(2, "progress", "first task working", [], "task_01aaa"));
+    stream.push(message(3, "progress", "second task working", [], "task_01bbb"));
+    stream.push(status("finished"));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
+    expect(screen.getAllByText("task")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "task_01aaa" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "task_01bbb" })).toBeInTheDocument();
   });
 
   it("shows the running state while a turn runs and drops it with the answer", async () => {

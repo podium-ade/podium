@@ -953,13 +953,20 @@ function TranscriptSkeleton() {
 }
 
 /**
- * runsOf marks the first message of each run by one author, so a name is a label above a
- * run rather than a repeat above every bubble. Role is author here: the task narrating its
- * work and the bot answering are two voices, and which one is speaking is the thing the
- * name is there to say.
+ * runsOf marks the first message of each run by one speaker, so a name is a label above a
+ * run rather than a repeat above every bubble.
+ *
+ * The speaker is the TASK, or the assistant when there is none — not the role. Role alone
+ * put two different tasks under one heading, which in a conversation that delegated twice
+ * read as one long monologue; and it grouped a task's answer with the assistant's, which are
+ * the two things a reader most needs to tell apart.
  */
+function speakerOf(m: ChatMessage): string {
+  return `${m.role}|${m.taskId}`;
+}
+
 function runsOf(messages: ChatMessage[]): boolean[] {
-  return messages.map((m, i) => i === 0 || messages[i - 1].role !== m.role);
+  return messages.map((m, i) => i === 0 || speakerOf(messages[i - 1]) !== speakerOf(m));
 }
 
 /**
@@ -969,9 +976,9 @@ function runsOf(messages: ChatMessage[]): boolean[] {
  * column under a name, where markdown has room to read as markdown rather than as chat.
  *
  * A `progress` message reads exactly like an answer, because that is what it is: the words
- * the task said on its way there. The name above the run is what separates them — the task
- * narrating its work, then the bot with the answer — rather than a quieter typography,
- * which would make the transcript look like it had a margin of asides in it.
+ * said on the way there. The name above the run is what separates them — a task narrating
+ * its work, then the bot with the answer — rather than a quieter typography, which would
+ * make the transcript look like it had a margin of asides in it.
  */
 function Turn({
   message,
@@ -998,17 +1005,25 @@ function Turn({
     );
   }
 
-  // Who is talking. The task is the container doing the work and the bot is what answers
-  // with it; the answer is relayed through the same task, so this is the honest half of the
-  // distinction: a line while the work is still going, or the thing it came back with.
-  const fromTask = message.role === "progress";
+  // Two different questions, and they used to be answered by one flag.
+  //
+  // WHERE it came from is the task id: empty means the assistant, talking in the conductor's
+  // own process. Role alone credited the assistant's own thinking to a container it had not
+  // started yet, which is the one thing in a conversation that is never a task. A row
+  // written before that column existed has no task id and reads as the assistant's.
+  //
+  // WHAT it is, is the role: a line on the way to an answer, or the answer. A task's answer
+  // is still the bot answering — the container is how, not who — so it keeps the bot's name
+  // and carries the task as a link beside it.
+  const fromTask = message.taskId !== "";
+  const thinking = message.role === "progress";
 
   return (
     <div className="flex gap-3">
       <span
         aria-hidden
         className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${
-          firstOfRun ? `border border-border bg-panel ${fromTask ? "text-muted" : "text-accent"}` : ""
+          firstOfRun ? `border border-border bg-panel ${thinking ? "text-muted" : "text-accent"}` : ""
         }`}
       >
         {firstOfRun ? fromTask ? <Terminal className="size-4" /> : <Bot className="size-4" /> : null}
@@ -1016,7 +1031,20 @@ function Turn({
       <div className="min-w-0 flex-1 space-y-1.5">
         {firstOfRun ? (
           <div className="flex items-baseline gap-2">
-            <span className="text-xs font-medium text-fg">{fromTask ? "task" : botName}</span>
+            <span className="text-xs font-medium text-fg">
+              {thinking && fromTask ? "task" : botName}
+            </span>
+            {/* Which task, so two of them answering the same conversation are two answers
+                and not one confusing run. */}
+            {fromTask ? (
+              <Link
+                to={`/tasks/${message.taskId}`}
+                title={message.taskId}
+                className="font-mono shrink-0 text-2xs text-accent hover:underline"
+              >
+                {message.taskId}
+              </Link>
+            ) : null}
             <span className="text-2xs text-faint" title={absolute(message.ts)}>
               {relative(message.ts)}
             </span>
@@ -1026,7 +1054,7 @@ function Turn({
           <ChatMarkdown
             text={message.text}
             keyPrefix={`m${message.seq}-`}
-            className={fromTask ? "text-muted" : undefined}
+            className={thinking ? "text-muted" : undefined}
           />
           <ChatAttachments attachments={message.attachments} />
         </div>

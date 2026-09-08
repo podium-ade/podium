@@ -347,8 +347,10 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 
 // Post implements conductor.Source.
 //
-// Everything a task says is a row, progress included: it is the task talking, and a
-// conversation Podium holds itself has nowhere else to keep it.
+// Everything said is a row, progress included: a conversation Podium holds itself has
+// nowhere else to keep it. Every row carries out.TaskID, which is empty for the assistant's
+// own words and set for a delegated task's — the only thing that tells them apart once they
+// are both lines in the same transcript.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	if out.Type == conductor.OutProgress {
 		// A progress message has no id, but the turn loop edits whatever Post returned, so
@@ -360,6 +362,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		Role:   store.RoleAssistant,
 		Text:   out.Text,
 		TS:     time.Now().UTC(),
+		TaskID: out.TaskID,
 	})
 	if err != nil {
 		return "", err
@@ -413,6 +416,7 @@ func (s *Source) progress(ctx context.Context, ref string, out conductor.Outboun
 		Role:   store.RoleProgress,
 		Text:   text,
 		TS:     time.Now().UTC(),
+		TaskID: out.TaskID,
 	})
 	if err != nil {
 		return err
