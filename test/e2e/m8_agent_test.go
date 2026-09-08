@@ -386,12 +386,14 @@ func TestAgentTurnRoundTrip(t *testing.T) {
 	// 👀 first, ✅ last, and nothing in between.
 	assert.Equal(t, []string{"working", "done"}, reactionsOf(records))
 
-	// The placeholder goes up before the work starts.
+	// The placeholder goes up before anything else, the reaction second: the placeholder is
+	// the acknowledgement a human is waiting for, and every call ahead of it is a second of
+	// silence on a rate-limited write path.
 	require.NotEmpty(t, records)
-	assert.Equal(t, "react", records[0].Action)
+	assert.Equal(t, "post", records[0].Action)
+	assert.Equal(t, "👀 working…", records[0].Text)
 	require.Greater(t, len(records), 1)
-	assert.Equal(t, "post", records[1].Action)
-	assert.Equal(t, "👀 working…", records[1].Text)
+	assert.Equal(t, "react", records[1].Action)
 
 	// And the runtime's dry-run answer came back verbatim.
 	require.True(t, hasFinal(records, "dry run: hello there"),

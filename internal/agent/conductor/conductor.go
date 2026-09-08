@@ -411,10 +411,13 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j
 func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	started := time.Now()
 
+	// The placeholder goes first and the reaction second, because the placeholder is the
+	// acknowledgement a human is actually waiting for and a source's write path is rate
+	// limited: every call ahead of it is a second of silence after somebody spoke.
+	placeholder := c.post(ctx, src, ev.Ref, Outbound{Type: OutProgress, Text: Placeholder})
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
 		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
 	}
-	placeholder := c.post(ctx, src, ev.Ref, Outbound{Type: OutProgress, Text: Placeholder})
 
 	entries, err := src.FetchTranscript(ctx, ev.Ref)
 	if err != nil {
