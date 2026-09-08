@@ -137,6 +137,25 @@ describe("buildSystemPrompt", () => {
     expect(flat).toContain("do not repeat them");
   });
 
+  it("tells a delegating turn not to deny an answer the reader can already see", () => {
+    // Observed on a live stack: the delegated task answered, its answer was relayed into the
+    // chat, and the host turn's own last message then said it "did not receive the result".
+    // The reader saw the answer and a denial of it, one after the other, with nothing having
+    // actually failed.
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://h",
+        token_env: "T",
+        playbooks: [{ name: "podium" }],
+      },
+    });
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("never end a turn by apologising for not having it");
+    expect(flat).toContain("say that it is running and that its answer will follow");
+  });
+
   it("says nothing about delegating on a task's turn, which cannot", () => {
     expect(buildSystemPrompt(golden())).not.toContain("# Delegating work");
   });
