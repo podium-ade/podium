@@ -31,12 +31,21 @@ build: web runner-embed
 		go build -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
 	done
 
-# podium-runner is PID 1 inside a Linux task container, so every build of it is a Linux
-# cross-compile: a darwin binary would be useless. Both architectures land in $(RUNNERBIN),
-# which internal/node/docker embeds, and the host architecture's copy is also written to
-# bin/podium-runner so it can be inspected and run by hand. The binaries are build output
-# and are gitignored; only the .gitkeep placeholder that keeps //go:embed compiling on a
-# fresh clone is committed.
+# podium-runner is built twice, for two different jobs.
+#
+# Both Linux architectures land in $(RUNNERBIN), which internal/node/docker embeds: inside a
+# task container the runner is PID 1, and that container is always Linux.
+#
+# bin/podium-runner is a NATIVE build, for this host. It used to be a copy of the Linux
+# binary for the host's architecture, which was wrong on a Mac in two ways: it could not be
+# run by hand, which the comment here claimed was its purpose, and a HOST TURN could not
+# spawn it. A host turn runs the agent runtime as a child of the conductor, on this machine,
+# and the runtime emits its events by exec'ing this binary — so on Darwin an ELF binary meant
+# every host turn exited without emitting anything and reported success having said nothing.
+# PODIUM_AGENT_RUNNER_BIN points here.
+#
+# The binaries are build output and are gitignored; only the .gitkeep placeholder that keeps
+# //go:embed compiling on a fresh clone is committed.
 runner-embed:
 	@mkdir -p $(RUNNERBIN) bin
 	@for a in amd64 arm64; do \
@@ -45,7 +54,8 @@ runner-embed:
 		GOOS=linux GOARCH=$$a CGO_ENABLED=0 \
 			go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $$out ./cmd/podium-runner || exit 1; \
 	done
-	@cp $(RUNNERBIN)/runner-linux-$(HOST_GOARCH) bin/podium-runner
+	@echo "go build ./cmd/podium-runner -> bin/podium-runner (native, for host turns)"
+	@go build -trimpath -ldflags "$(LDFLAGS)" -o bin/podium-runner ./cmd/podium-runner
 
 # Cross-compiled worker binaries.
 #
