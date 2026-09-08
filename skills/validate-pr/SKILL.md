@@ -145,15 +145,32 @@ own block instead of overwriting the description somebody wrote:
 <!-- validation:end -->
 ```
 
-Post it with the files attached in the same command. `--attach` uploads each file and rewrites
-the matching `./name.png` reference in the body to the uploaded URL, which is what makes the
-screenshots render in the table rather than hang off the bottom as bare links:
+Post it with the files attached in the same command. `--attach` uploads each file, and where
+the body already references that file it **rewrites the reference** to point at the uploaded
+asset. That rewrite is what puts the screenshots in the table.
+
+**The reference and the attached path have to be the same string.** A body saying
+`./shot.png` while you attach `/tmp/opencode/shot.png` is two different strings, so nothing
+matches: gh uploads the files and appends them to the bottom of the body instead, leaving four
+broken images in your table and four bare ones underneath it. Run `gh` from the directory
+holding the screenshots, with `--repo` so it does not need the checkout, and use the same
+`./name.png` on both sides:
 
 ```sh
-gh pr edit <n> --body-file /tmp/opencode/validation.md \
-  --attach '/tmp/opencode/chat-menu-desktop.png#Model menu open at 1440x900' \
-  --attach '/tmp/opencode/chat-menu-mobile.png#Same menu at 390x844'
+cd /tmp/opencode
+gh pr edit <n> --repo <owner>/<repo> --body-file ./validation.md \
+  --attach './chat-menu-desktop.png#Model menu open at 1440x900' \
+  --attach './chat-menu-mobile.png#Same menu at 390x844'
 ```
+
+Then check it landed, because this fails silently and the result looks fine from here:
+
+```sh
+gh pr view <n> --repo <owner>/<repo> --json body --jq .body | grep -c '](\./'
+```
+
+**Zero, or it did not work.** Any surviving `](./` is a reference gh did not rewrite — a broken
+image on the pull request. Fix the mismatch and post again rather than leaving it.
 
 Build the body by reading the current description, stripping any previous block between the
 markers, and appending the new one. Never replace the description wholesale — the part above
