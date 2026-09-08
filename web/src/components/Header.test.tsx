@@ -57,11 +57,15 @@ describe("Header", () => {
     expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
   });
 
-  it("puts Settings under the signed-in identity, not under Agent", () => {
+  it("puts Settings under the profile picture, not under Agent", () => {
     mount({ ...base, agentEnabled: true });
     const settings = screen.getByRole("link", { name: "Settings" });
     expect(settings).toHaveAttribute("href", "/agent/settings");
     expect(settings.closest("nav")?.getAttribute("aria-label")).toBe("Profile");
+    const identity = screen.getByText("dev");
+    expect(identity.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("lights Agent on the talk screens and not on Playbooks", () => {
