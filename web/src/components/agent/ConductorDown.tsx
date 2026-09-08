@@ -1,4 +1,5 @@
 import { RotateCw } from "lucide-react";
+import { cn } from "../../lib/utils";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 
@@ -15,14 +16,16 @@ export function ConductorDown({
   what,
   onRetry,
   retrying,
+  className,
 }: {
   /** The sentence that names what failed, e.g. "The profile could not be read". */
   what: string;
   onRetry?: () => void;
   retrying?: boolean;
+  className?: string;
 }) {
   return (
-    <Alert variant="warn" title={what} className="max-w-3xl">
+    <Alert variant="warn" title={what} className={cn("max-w-3xl", className)}>
       <p>
         podium-agent is not reachable. That is the normal state for a few seconds after the
         conductor restarts, and it clears on its own. If it does not, check its{" "}
