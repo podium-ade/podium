@@ -162,10 +162,12 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.playbook.Name)
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
-	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, strings.Join(r.finals, "\n\n")); err != nil {
+	answer := strings.Join(r.finals, "\n\n")
+	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, answer); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how the turn ended failed",
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
+	r.linkPullRequests(ctx, answer)
 	reaction := ReactionDone
 	if status != store.TurnSucceeded {
 		reaction = ReactionFailed
@@ -178,6 +180,38 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
 	r.retain(ctx, status)
+}
+
+// linkPullRequests hands the source the pull requests this turn's answer named.
+//
+// answer is the joined finals — byte for byte what FinishTurn just stored as final_text —
+// and it is the right text to read for two reasons. It is the only thing the turn said in
+// full: progress lines are coalesced and superseded on the way out, so a link found in one
+// would appear or not depending on how fast the runtime was talking, and nothing
+// afterwards could explain where it came from. And it is what a human would have
+// read: a pull request the turn opened is announced in its answer, and one that is only
+// muttered about on the way there is not this turn's result.
+//
+// It never fails a turn. The answer is already posted and the turn is already recorded; a
+// link that did not land costs a log line and a human can attach it.
+func (r *turnRun) linkPullRequests(ctx context.Context, answer string) {
+	linker, ok := r.src.(pullRequestLinker)
+	if !ok {
+		return
+	}
+	found := FindPullRequests(answer)
+	if len(found) == 0 {
+		return
+	}
+	if len(found) > maxPullRequestsPerTurn {
+		r.c.logger.InfoContext(ctx, "a turn named more pull requests than one turn may link",
+			"turn_id", r.turn.ID, "found", len(found), "linked", maxPullRequestsPerTurn)
+		found = found[:maxPullRequestsPerTurn]
+	}
+	if err := linker.LinkPullRequests(ctx, r.ref, found); err != nil {
+		r.c.logger.WarnContext(ctx, "linking the turn's pull requests to the conversation failed",
+			"turn_id", r.turn.ID, "ref", r.ref, "error", err)
+	}
 }
 
 // onEvent is the relay. Only MESSAGE events say anything; ERROR is remembered for the log;

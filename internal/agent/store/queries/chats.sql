@@ -108,3 +108,38 @@ returning *;
 -- means it was not there or not theirs.
 -- name: DeleteChat :execrows
 delete from chats where id = @id and login = @login;
+
+-- LinkChatPullRequest is the automatic half of a chat's pull requests (0007): a turn's
+-- answer named this one. It is on-conflict-do-nothing, which is both halves of "one link
+-- per URL per chat" — the same turn saying it three times, and a row a human already
+-- detached. Every read below filters detached_at, so a detached link is gone as far as the
+-- UI is concerned and still there as far as this insert is concerned, which is the whole
+-- point of the tombstone.
+-- name: LinkChatPullRequest :execrows
+insert into chat_pull_requests (chat_id, url, owner, repo, number, source, created_at)
+values (@chat_id, @url, @owner, @repo, @number, 'turn', @created_at)
+on conflict (chat_id, url) do nothing;
+
+-- AttachChatPullRequest is the manual half. Unlike the automatic one it revives a detached
+-- row and takes it over: a person re-attaching what they removed means it, and after that
+-- the link is theirs rather than a turn's.
+-- name: AttachChatPullRequest :one
+insert into chat_pull_requests (chat_id, url, owner, repo, number, source, created_at)
+values (@chat_id, @url, @owner, @repo, @number, 'human', @created_at)
+on conflict (chat_id, url) do update
+  set source = 'human', detached_at = null
+returning *;
+
+-- DetachChatPullRequest tombstones one link. Zero rows means it was not linked, or was
+-- already detached; both are the same answer.
+-- name: DetachChatPullRequest :execrows
+update chat_pull_requests set detached_at = @detached_at
+where chat_id = @chat_id and url = @url and detached_at is null;
+
+-- ListChatPullRequests is oldest first: the order they were linked in is the order the
+-- work happened in, and a bar that appends on the right does not reshuffle itself when a
+-- turn finds another one.
+-- name: ListChatPullRequests :many
+select * from chat_pull_requests
+where chat_id = @chat_id and detached_at is null
+order by created_at, number;

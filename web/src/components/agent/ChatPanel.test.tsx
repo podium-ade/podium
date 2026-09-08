@@ -89,6 +89,23 @@ const progress = (text: string) =>
 const status = (state: string, taskId = "") =>
   create(ChatFrameSchema, { frame: { case: "status", value: { state, taskId } } });
 
+const pullRequests = (...numbers: number[]) =>
+  create(ChatFrameSchema, {
+    frame: {
+      case: "pullRequests",
+      value: {
+        pullRequests: numbers.map((n) => ({
+          url: `https://github.com/acme/api/pull/${n}`,
+          owner: "acme",
+          repo: "api",
+          number: n,
+          source: "turn",
+          createdAt: timestampFromDate(new Date()),
+        })),
+      },
+    },
+  });
+
 const chat = {
   id: "chat_01abc",
   title: "August numbers",
@@ -182,6 +199,22 @@ describe("ChatPanel", () => {
     expect(bubbles[1].querySelector("strong")?.textContent).toBe("4,812");
     // The bot's name labels its run of bubbles.
     expect(screen.getByText("Podium")).toBeInTheDocument();
+  });
+
+  it("shows the pull requests a turn produced without opening anything", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "fix the nil dereference and open a PR"));
+    stream.push(message(2, "assistant", "Opened https://github.com/acme/api/pull/41."));
+    stream.push(pullRequests(41));
+
+    // No click, no tab, no scrolling back through the answer: the link is on the screen.
+    const link = await screen.findByTestId("chat-pull-request");
+    expect(link).toHaveTextContent("acme/api#41");
+    expect(link).toHaveAttribute("href", "https://github.com/acme/api/pull/41");
   });
 
   it("opens an existing conversation at the bottom", async () => {
