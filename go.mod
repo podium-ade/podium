@@ -1,6 +1,13 @@
 module github.com/alvaroibarguen/podium
 
-go 1.26.6
+// The floor is 1.27 because of a defect in 1.26's net/http, not a preference. conn.serve
+// arms Server.ReadHeaderTimeout on the raw connection and then hands a cleartext HTTP/2
+// connection to the HTTP/2 server with that deadline still armed — it is only disarmed for
+// a deadline that came from ReadTimeout, which podium-server does not set. Every h2c
+// connection to the dev transport therefore died exactly ten seconds after it was accepted:
+// a node's control stream, `podium logs -f`, and any RPC in flight at that instant. Go 1.27
+// clears the deadline before serving the connection.
+go 1.27.1
 
 require (
 	connectrpc.com/connect v1.20.0

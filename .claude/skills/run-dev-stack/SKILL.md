@@ -26,7 +26,7 @@ it with a TCP relay.
 
 ## Prerequisites
 
-Go 1.26+, Docker with cgroup v2, Node 22+, pnpm.
+Go 1.27+, Docker with cgroup v2, Node 22+, pnpm.
 
 ```sh
 make build                                   # bin/podium{,-server,-node,-agent}
