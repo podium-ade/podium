@@ -111,9 +111,9 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, sourceKey string) (bool, 
 
 const createChat = `-- name: CreateChat :one
 
-insert into chats (id, title, login, created_at, playbook, auto_title)
-values ($1, $2, $3, $4, $5, $6)
-returning id, title, login, created_at, playbook, auto_title
+insert into chats (id, title, login, created_at, auto_title)
+values ($1, $2, $3, $4, $5)
+returning id, title, login, created_at, auto_title
 `
 
 type CreateChatParams struct {
@@ -121,7 +121,6 @@ type CreateChatParams struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
-	Playbook  string
 	AutoTitle bool
 }
 
@@ -137,7 +136,6 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		arg.Title,
 		arg.Login,
 		arg.CreatedAt,
-		arg.Playbook,
 		arg.AutoTitle,
 	)
 	var i Chat
@@ -146,7 +144,6 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
-		&i.Playbook,
 		&i.AutoTitle,
 	)
 	return i, err
@@ -194,7 +191,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, playbook, auto_title from chats where id = $1
+select id, title, login, created_at, auto_title from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -205,7 +202,6 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
-		&i.Playbook,
 		&i.AutoTitle,
 	)
 	return i, err
@@ -344,7 +340,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.playbook, c.auto_title,
+select c.id, c.title, c.login, c.created_at, c.auto_title,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -378,7 +374,6 @@ type ListChatsRow struct {
 	Title         string
 	Login         string
 	CreatedAt     time.Time
-	Playbook      string
 	AutoTitle     bool
 	HasMessage    bool
 	LastMessageAt time.Time
@@ -414,7 +409,6 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Title,
 			&i.Login,
 			&i.CreatedAt,
-			&i.Playbook,
 			&i.AutoTitle,
 			&i.HasMessage,
 			&i.LastMessageAt,
@@ -434,7 +428,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and login = $3
-returning id, title, login, created_at, playbook, auto_title
+returning id, title, login, created_at, auto_title
 `
 
 type RenameChatParams struct {
@@ -457,7 +451,6 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
-		&i.Playbook,
 		&i.AutoTitle,
 	)
 	return i, err
@@ -489,38 +482,10 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 	return i, err
 }
 
-const setChatPlaybook = `-- name: SetChatPlaybook :one
-update chats set playbook = $1
-where id = $2
-returning id, title, login, created_at, playbook, auto_title
-`
-
-type SetChatPlaybookParams struct {
-	Playbook string
-	ID       string
-}
-
-// SetChatPlaybook records the playbook a chat's LATEST message ran. It is not first-wins:
-// a conversation is no longer one playbook's work, so the person may pick a different one
-// per message and the agent answering may delegate to any of them.
-func (q *Queries) SetChatPlaybook(ctx context.Context, arg SetChatPlaybookParams) (Chat, error) {
-	row := q.db.QueryRow(ctx, setChatPlaybook, arg.Playbook, arg.ID)
-	var i Chat
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Login,
-		&i.CreatedAt,
-		&i.Playbook,
-		&i.AutoTitle,
-	)
-	return i, err
-}
-
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, playbook, auto_title
+returning id, title, login, created_at, auto_title
 `
 
 type SetChatTitleParams struct {
@@ -538,7 +503,6 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.Title,
 		&i.Login,
 		&i.CreatedAt,
-		&i.Playbook,
 		&i.AutoTitle,
 	)
 	return i, err

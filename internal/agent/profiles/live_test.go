@@ -147,11 +147,9 @@ func TestAnOverrideReplacesTheFileValueAndAnEmptyOneClearsIt(t *testing.T) {
 
 func TestAnOverrideMayNameAStoredPlaybookAsTheDefault(t *testing.T) {
 	files := fileProfile(t)
-	got, _, err := Merge(files, Overrides{DefaultPlaybook: "reporter", ChatDefaultPlaybook: "reporter"},
-		[]Playbook{stored("reporter")})
+	got, _, err := Merge(files, Overrides{DefaultPlaybook: "reporter"}, []Playbook{stored("reporter")})
 	require.NoError(t, err)
 	assert.Equal(t, "reporter", got.DefaultPlaybook)
-	assert.Equal(t, "reporter", got.ChatPlaybook())
 }
 
 // The merged profile is validated by exactly the code that validates the directory, so a

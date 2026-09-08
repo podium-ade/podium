@@ -11,7 +11,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Chat, ChatMessage, Playbook } from "../../gen/podium/agent/v1/agent_pb";
+import type { Assistant, Chat, ChatMessage } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -151,6 +151,10 @@ export function ChatPanel() {
   }
 
   const list = chats.data?.chats ?? [];
+  // What the assistant may delegate to. It is shown, never picked: the turn chooses a
+  // playbook per piece of work, and naming them is how a reader learns the conversation can
+  // reach a machine at all.
+  const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
   const deleteStopsTask = pendingDelete?.turnRunning === true;
 
   return (
@@ -184,7 +188,7 @@ export function ChatPanel() {
                 className="max-w-lg"
                 icon={Sparkles}
                 title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
-                hint="A question here runs as a real Podium task on a node, with the tools its playbook allows. It answers with what it found, and shows the work."
+                hint={assistantHint(playbooks.data?.assistant?.displayName, playbookNames)}
                 action={
                   <Button size="sm" disabled={create.isPending} onClick={() => create.mutate("")}>
                     <MessageSquarePlus />
@@ -194,17 +198,15 @@ export function ChatPanel() {
               />
             </div>
           ) : (
-            // Keyed on the chat: a switch remounts the conversation, so its playbook choice
+            // Keyed on the chat: a switch remounts the conversation, so its model choice
             // and scroll position start fresh without an effect resetting them.
             <Conversation
               key={active}
               chatId={active}
-              storedPlaybook={list.find((c) => c.id === active)?.playbook ?? ""}
               title={list.find((c) => c.id === active)?.title ?? ""}
               onRename={(title) => renameChat(active, title)}
-              botName={playbooks.data?.profileDisplayName ?? "Podium"}
-              playbooks={playbooks.data?.playbooks ?? []}
-              chatDefaultPlaybook={playbooks.data?.playbooks.find((s) => s.chatDefault)?.name ?? ""}
+              assistant={playbooks.data?.assistant}
+              playbookNames={playbookNames}
             />
           )}
         </div>
@@ -507,9 +509,6 @@ function ChatRow({
         </span>
         <span className="mt-1 flex items-center gap-1.5">
           {chat.turnRunning ? <Badge tone="run">running</Badge> : null}
-          {chat.playbook ? (
-            <span className="font-mono shrink-0 text-2xs text-faint">/{chat.playbook}</span>
-          ) : null}
           <span className="min-w-0 flex-1 truncate text-xs text-muted">
             {chat.preview || "nothing said yet"}
           </span>
@@ -639,33 +638,22 @@ function ConversationTitle({
 
 function Conversation({
   chatId,
-  storedPlaybook,
   title,
   onRename,
-  botName,
-  playbooks,
-  chatDefaultPlaybook,
+  assistant,
+  playbookNames,
 }: {
   chatId: string;
-  storedPlaybook: string;
   title: string;
   onRename: (title: string) => Promise<void>;
-  botName: string;
-  playbooks: Playbook[];
-  chatDefaultPlaybook: string;
+  assistant?: Assistant;
+  playbookNames: string[];
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const stream = useChatStream(chatId);
-  // Undefined means "whatever the profile says", which is not known until ListPlaybooks
-  // answers — so the choice is derived rather than copied into state on arrival. A playbook
-  // the chat already ran is knowledge, not a preference, and wins.
-  // What the PERSON last picked wins, then what this chat last ran, then the profile's
-  // default. The chat's own playbook used to win outright and lock the chip; it does not any
-  // more — a conversation is not one playbook's work, so changing subject is allowed.
-  const [chosen, setChosen] = useState<string | undefined>(storedPlaybook || undefined);
-  const playbook = chosen || stream.chat?.playbook || storedPlaybook || chatDefaultPlaybook;
+  const botName = assistant?.displayName ?? "Podium";
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
   const lastTop = useRef(0);
@@ -691,7 +679,7 @@ function Conversation({
 
   // The choice is sticky across messages, the way every chat that has a model picker
   // behaves: you pick once and keep asking. It is still sent per message, so nothing is
-  // remembered server-side and a reload goes back to the playbook's own model.
+  // remembered server-side and a reload goes back to the assistant's own model.
   const [choice, setChoice] = useState<AgentChoice>(INHERIT);
   const { agents } = useAgents();
 
@@ -700,8 +688,8 @@ function Conversation({
       agent.sendChatMessage({
         chatId,
         text: v.text,
-        playbook,
-        // Empty fields mean "the playbook's", which is exactly what the server does with them.
+        // Empty fields mean "the assistant's own", which is exactly what the server does
+        // with them.
         agent: v.choice.agent,
         model: v.choice.model,
         effort: v.choice.effort,
@@ -790,7 +778,7 @@ function Conversation({
             ) : null}
 
             {!connecting && stream.messages.length === 0 ? (
-              <FirstMessage botName={botName} />
+              <FirstMessage botName={botName} playbookNames={playbookNames} />
             ) : null}
 
             {stream.messages.map((m, i) => (
@@ -825,11 +813,9 @@ function Conversation({
       </div>
 
       <ChatComposer
-        playbooks={playbooks}
-        playbook={playbook}
-        onPlaybookChange={setChosen}
         disabled={busy}
         agents={agents}
+        assistant={assistant}
         choice={choice}
         onChoiceChange={setChoice}
         onSend={(text, choice) => send.mutate({ text, choice })}
@@ -908,7 +894,7 @@ function Dots() {
   );
 }
 
-function FirstMessage({ botName }: { botName: string }) {
+function FirstMessage({ botName, playbookNames }: { botName: string; playbookNames: string[] }) {
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
       <span className="grid size-10 place-items-center rounded-xl border border-border bg-panel text-accent">
@@ -916,12 +902,35 @@ function FirstMessage({ botName }: { botName: string }) {
       </span>
       <p className="text-sm font-medium text-fg">Ask {botName} something</p>
       <p className="max-w-md text-xs leading-relaxed text-muted">
-        Each question runs as one Podium task and exits when it has an answer. Try{" "}
-        <span className="text-fg">why did the nightly ETL fail?</span> — or pick a playbook below
-        to change which image, tools and model the turn runs with.
+        {botName} answers here. When something needs a machine it starts a task on your nodes
+        and reports back — you will see each one it runs. Try{" "}
+        <span className="text-fg">why did the nightly ETL fail?</span>
       </p>
+      {playbookNames.length > 0 ? (
+        <p className="max-w-md text-2xs text-faint">
+          It can run{" "}
+          {playbookNames.map((name, i) => (
+            <span key={name}>
+              {i > 0 ? ", " : ""}
+              <span className="font-mono text-muted">{name}</span>
+            </span>
+          ))}
+          .
+        </p>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * assistantHint is the sentence on the no-chat-selected screen. It names the playbooks so
+ * that "it starts tasks" is concrete rather than a promise, and it degrades to the sentence
+ * alone before ListPlaybooks has answered.
+ */
+function assistantHint(botName: string | undefined, playbookNames: string[]): string {
+  const who = botName ?? "Podium";
+  const base = `Ask ${who} anything about your stack. It answers here, and starts a task on your nodes when the work needs a machine.`;
+  return playbookNames.length === 0 ? base : `${base} It can run ${playbookNames.join(", ")}.`;
 }
 
 function TranscriptSkeleton() {

@@ -1,16 +1,19 @@
 import { useState } from "react";
 import type { TaskCost } from "../../gen/podium/agent/v1/agent_pb";
-import { breakdown, usd, type Slice } from "../../lib/usage";
+import { breakdown, ranBy, usd, type Slice } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 
 type Dimension = { id: string; label: string; pick: (c: TaskCost) => string };
 
 /**
- * The two questions worth asking of a bill: which playbook spent it, and where the work
- * came from. Both are session fields the conductor already stores, so neither costs a query.
+ * The two questions worth asking of a bill: what spent it, and where the work came from.
+ * Both are session fields the conductor already stores, so neither costs a query.
+ *
+ * "What" is the assistant or a playbook, which is why it is not called "by playbook": a
+ * conversation is answered on the host and runs none.
  */
 const DIMENSIONS: Dimension[] = [
-  { id: "playbook", label: "By playbook", pick: (c) => c.playbook },
+  { id: "playbook", label: "By what ran it", pick: (c) => ranBy(c.playbook) },
   { id: "source", label: "By source", pick: (c) => c.sourceKind },
 ];
 

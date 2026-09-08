@@ -9,6 +9,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ChatFrameSchema,
   ChatMessageSchema,
+  AssistantSchema,
   PlaybookSchema,
   type ChatFrame,
 } from "../../gen/podium/agent/v1/agent_pb";
@@ -113,13 +114,18 @@ const chat = {
   lastMessageAt: timestampFromDate(new Date(Date.now() - 30_000)),
   preview: "how many active accounts",
   turnRunning: false,
-  playbook: "analyst",
 };
 
 const playbooks = [
-  create(PlaybookSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse.", chatDefault: true }),
+  create(PlaybookSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse." }),
   create(PlaybookSchema, { name: "general", image: "runtime:dev", hint: "Answer." }),
 ];
+
+const assistant = create(AssistantSchema, {
+  displayName: "Podium",
+  agent: "claude",
+  model: "claude-opus-5",
+});
 
 function mount(path = "/agent/chat") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -146,7 +152,7 @@ describe("ChatPanel", () => {
     sendChatMessage.mockReset();
     streamChat.mockReset();
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
-    listPlaybooks.mockResolvedValue({ playbooks, profileDisplayName: "Podium" });
+    listPlaybooks.mockResolvedValue({ playbooks, assistant });
     streamChat.mockImplementation(() => live());
   });
 
@@ -395,31 +401,23 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
   });
 
-  it("leaves the playbook chip open on a chat that has already started", async () => {
-    // A chat used to be pinned to the playbook it started with. It is not any more: the
-    // agent answering a conversation delegates work to whichever playbooks it needs, so
-    // the person may change subject without starting a new chat.
-    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
-    mount("/agent/chat/chat_01abc");
-    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toBeEnabled());
-    expect(screen.getByTestId("chat-list")).toHaveTextContent("/analyst");
-  });
-
-  it("sends a message with the chip's playbook", async () => {
+  // A conversation names no playbook, anywhere: not on the composer, not on the wire, and
+  // not on its row in the list. The playbooks are what the turn delegates to.
+  it("sends a message with no playbook and shows none", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     sendChatMessage.mockResolvedValue({ message: {} });
     mount("/agent/chat/chat_01abc");
 
     const box = await screen.findByTestId("chat-composer");
-    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toHaveTextContent("/analyst"));
+    expect(screen.queryByTestId("chat-playbook")).toBeNull();
+    expect(screen.getByTestId("chat-list")).not.toHaveTextContent("/analyst");
     await userEvent.type(box, "how many active accounts{Enter}");
 
     await waitFor(() =>
       expect(sendChatMessage).toHaveBeenCalledWith({
         chatId: "chat_01abc",
         text: "how many active accounts",
-        playbook: "analyst",
-        // Empty means "the playbook's", which is what the server reads them as.
+        // Empty means "the assistant's own", which is what the server reads them as.
         agent: "",
         model: "",
         effort: "",

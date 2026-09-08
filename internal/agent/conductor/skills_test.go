@@ -51,12 +51,12 @@ func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 	c := skillsConductor(t, dir, playbook)
 	playbook = c.profiles.Current().Playbooks["coder"]
 
-	bundles, err := c.skillBundles(context.Background(), playbook)
+	bundles, err := c.skillBundles(context.Background(), playbookJob(playbook))
 	require.NoError(t, err)
 	require.Len(t, bundles, 2)
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
-	b := c.brief(store.Session{ID: "sess_1"}, playbook, "turn_1",
+	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, choice)
 	require.Len(t, b.Playbook.Skills, 2)
 	assert.Equal(t, "pr-review", b.Playbook.Skills[0].Name)
@@ -78,12 +78,12 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 	c := skillsConductor(t, "", profiles.Playbook{})
 	playbook := c.profiles.Current().Playbooks["coder"]
 
-	bundles, err := c.skillBundles(context.Background(), playbook)
+	bundles, err := c.skillBundles(context.Background(), playbookJob(playbook))
 	require.NoError(t, err)
 	assert.Empty(t, bundles)
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
-	b := c.brief(store.Session{ID: "sess_1"}, playbook, "turn_1",
+	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, choice)
 	assert.Nil(t, b.Playbook.Skills)
 
@@ -98,16 +98,16 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 func TestASkillThatCannotBeDeliveredFailsTheTurn(t *testing.T) {
 	t.Run("no skills directory on this host", func(t *testing.T) {
 		c := skillsConductor(t, "", profiles.Playbook{Skills: []string{"pr-review"}})
-		_, err := c.skillBundles(context.Background(), c.profiles.Current().Playbooks["coder"])
+		_, err := c.skillBundles(context.Background(), playbookJob(c.profiles.Current().Playbooks["coder"]))
 		require.ErrorContains(t, err, skills.DirEnv+" is not set")
-		require.ErrorContains(t, err, `playbook "coder"`)
+		require.ErrorContains(t, err, "coder")
 	})
 
 	t.Run("a name with nothing behind it", func(t *testing.T) {
 		c := skillsConductor(t, skillsDir(t, "pr-review"), profiles.Playbook{Skills: []string{"missing"}})
-		_, err := c.skillBundles(context.Background(), c.profiles.Current().Playbooks["coder"])
+		_, err := c.skillBundles(context.Background(), playbookJob(c.profiles.Current().Playbooks["coder"]))
 		require.ErrorContains(t, err, `no skill named "missing"`)
-		require.ErrorContains(t, err, `playbook "coder"`)
+		require.ErrorContains(t, err, "coder")
 	})
 }
 
@@ -124,3 +124,17 @@ func (chatSource) Post(context.Context, string, Outbound) (string, error) { retu
 func (chatSource) Edit(context.Context, string, string, Outbound) error   { return nil }
 func (chatSource) Attach(context.Context, string, Attachment) error       { return nil }
 func (chatSource) React(context.Context, string, Reaction) error          { return nil }
+
+// TestTheAssistantsSkillsComeFromTheProfile. The assistant is not a playbook, so a playbook
+// naming skills does not give it any and profile.yaml's list does.
+func TestTheAssistantsSkillsComeFromTheProfile(t *testing.T) {
+	dir := skillsDir(t, "pr-review", "release-notes")
+	c := skillsConductor(t, dir, profiles.Playbook{Skills: []string{"release-notes"}})
+	profile := c.profiles.Current()
+	profile.Skills = []string{"pr-review"}
+
+	bundles, err := c.skillBundles(context.Background(), assistantJob(profile.Assistant()))
+	require.NoError(t, err)
+	require.Len(t, bundles, 1)
+	assert.Equal(t, "pr-review", bundles[0].Name)
+}

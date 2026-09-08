@@ -54,8 +54,8 @@ func (r *turnRun) retain(ctx context.Context, status string) {
 
 	item := memory.Item{
 		Content:    retainContent(r.author, r.instruction, c.profiles.Current().DisplayName, answer),
-		Context:    "podium agent, playbook " + r.playbook.Name,
-		Tags:       []string{"source:" + r.sess.SourceKind, "playbook:" + r.playbook.Name},
+		Context:    r.job.provenance(),
+		Tags:       append([]string{"source:" + r.sess.SourceKind}, r.job.memoryTags()...),
 		Metadata:   retainMetadata(r),
 		DocumentID: r.turn.ID,
 	}

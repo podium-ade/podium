@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router";
 import type { TaskCost } from "../../gen/podium/agent/v1/agent_pb";
 import type { Task } from "../../gen/podium/v1/task_pb";
 import { absolute, relative, taskDuration, taskStatusLabel, taskStatusTone } from "../../lib/format";
-import { usd } from "../../lib/usage";
+import { ranBy, usd } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Badge, Chip, type Tone } from "../Badge";
 import {
@@ -47,7 +47,7 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
           <TableHead className="w-44">Status</TableHead>
           <TableHead>Task</TableHead>
           <TableHead>Source</TableHead>
-          <TableHead>Playbook</TableHead>
+          <TableHead>Ran by</TableHead>
           <TableHead>Started</TableHead>
           <TableHead className="text-right">Duration</TableHead>
           <TableHead className="text-right">CPU</TableHead>
@@ -96,7 +96,7 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
                 )}
               </TableCell>
               <TableCell>
-                {cost?.playbook ? <Chip>{cost.playbook}</Chip> : <span className="text-xs text-faint">—</span>}
+                {cost ? <Chip>{ranBy(cost.playbook)}</Chip> : <span className="text-xs text-faint">—</span>}
               </TableCell>
               <TableCell
                 className="text-xs whitespace-nowrap text-muted"

@@ -505,9 +505,6 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
-	// Playbook is the playbook this chat runs. Empty until the first message; then it is
-	// fixed — one chat, one playbook.
-	Playbook string
 	// AutoTitle is true when Podium may rewrite Title from the first query. False when
 	// the caller supplied a title at create.
 	AutoTitle bool
@@ -624,7 +621,6 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 			Title:       r.Title,
 			Login:       r.Login,
 			CreatedAt:   r.CreatedAt.UTC(),
-			Playbook:    r.Playbook,
 			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
 		}
@@ -739,23 +735,6 @@ func (s *Store) SetSessionPlaybook(ctx context.Context, id, playbook string) err
 	return nil
 }
 
-// SetChatPlaybook records the playbook a chat started with. An already-set playbook is
-// left alone and the current row is returned: one chat, one playbook.
-func (s *Store) SetChatPlaybook(ctx context.Context, id, playbook string) (Chat, error) {
-	playbook = strings.TrimSpace(playbook)
-	if id == "" || playbook == "" {
-		return Chat{}, errors.New("set chat playbook: an id and a playbook are required")
-	}
-	row, err := s.q.SetChatPlaybook(ctx, db.SetChatPlaybookParams{ID: id, Playbook: playbook})
-	if noRows(err) {
-		return s.GetChat(ctx, id)
-	}
-	if err != nil {
-		return Chat{}, fmt.Errorf("set playbook of chat %s: %w", id, err)
-	}
-	return chatFromRow(row), nil
-}
-
 // SetChatTitle rewrites an auto-named chat. A title supplied at create is left alone and
 // the current row is returned.
 func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error) {
@@ -779,7 +758,6 @@ func chatFromRow(row db.Chat) Chat {
 		Title:     row.Title,
 		Login:     row.Login,
 		CreatedAt: row.CreatedAt.UTC(),
-		Playbook:  row.Playbook,
 		AutoTitle: row.AutoTitle,
 	}
 }

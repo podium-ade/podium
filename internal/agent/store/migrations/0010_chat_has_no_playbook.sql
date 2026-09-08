@@ -1,0 +1,18 @@
+-- A chat runs no playbook. It is answered by the ASSISTANT — a turn in the conductor's own
+-- process, described by profile.yaml itself — and the playbooks are what that turn delegates
+-- work to, one per task, as many times as the work needs.
+--
+-- The column recorded the playbook a chat's latest message ran, which was a real answer only
+-- while a chat message WAS one playbook's task. After host turns it named whichever container
+-- the conversation last happened to start, shown in the UI as if the conversation belonged to
+-- it. Nothing reads it any more, so it goes rather than lingering as a column that lies.
+--
+-- A `chat_default_playbook` left in the settings row's profile.overrides JSON is NOT cleaned
+-- up here, and does not need to be: profiles.Overrides no longer has the field, so the decoder
+-- ignores it, nothing applies it and the UI does not report it as an override. The next save
+-- of the profile rewrites the document without it.
+--
+-- sessions.playbook stays: a Slack thread and a Linear ticket really are one playbook's work.
+-- A conversation's session now stores the empty string there, and the conductor clears the
+-- value on the next message of a chat that predates this.
+alter table chats drop column if exists playbook;

@@ -146,7 +146,6 @@ export function PlaybooksPanel() {
   const running = all.filter((s) => !s.shadowed);
   const shadowed = all.filter((s) => s.shadowed);
   const p = profile.data?.profile;
-  const chatDefault = p?.chatDefaultPlaybook || p?.defaultPlaybook || "";
 
   const open = (playbook: PlaybookDefinition | undefined) => {
     setSaveError(undefined);
@@ -157,7 +156,7 @@ export function PlaybooksPanel() {
     <div className="space-y-5">
       <PageHeader
         title="Playbooks"
-        description="A playbook is one job the bot can do, and its image is the unit of capability: what a turn can reach at all is decided by what is in the image."
+        description="A playbook is a machine job the assistant can start: an image, a workspace and the tools that come with them. It picks one per piece of work — a conversation never runs one directly."
         actions={
           <Button type="button" size="sm" data-testid="playbook-new" onClick={() => open(undefined)}>
             <Plus />
@@ -215,7 +214,6 @@ export function PlaybooksPanel() {
                   <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
                   <Provenance playbook={s} />
                   {s.name === p?.defaultPlaybook ? <Badge tone="ok">default playbook</Badge> : null}
-                  {s.name === chatDefault ? <Chip>chat default</Chip> : null}
                   {s.linear ? <Chip>Linear tickets</Chip> : null}
                 </div>
                 {/* The image is the unit of capability: what a turn of this playbook can do at

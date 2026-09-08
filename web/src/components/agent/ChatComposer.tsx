@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, Loader2 } from "lucide-react";
-import type { AgentBackend, Playbook } from "../../gen/podium/agent/v1/agent_pb";
+import { ArrowUp, ChevronDown, Loader2 } from "lucide-react";
+import type { AgentBackend, Assistant } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
@@ -13,21 +13,16 @@ import { BackendMark } from "./BackendMark";
 const MIN_PX = 44;
 const MAX_PX = 200;
 
-/** PLAYBOOK_PREFIX matches a leading /playbook, the same rule the conductor applies. */
-const PLAYBOOK_PREFIX = /^\/([a-z][a-z0-9-]{0,31})(\s+|$)/;
-
 export interface ChatComposerProps {
-  playbooks: Playbook[];
-  /** playbook is the playbook the next message will use. */
-  playbook: string;
-  onPlaybookChange: (name: string) => void;
   /** disabled is true while a turn runs: turn-based, one in flight per conversation. */
   disabled: boolean;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
+  /** assistant is what answers this conversation, and what choice overrides. */
+  assistant?: Assistant;
   /**
-   * choice is what the next message runs on, overriding the playbook's own. INHERIT — the
-   * default — means whatever the playbook says, which is what the picker shows.
+   * choice is what ANSWERS the next message, overriding the assistant's own model. INHERIT
+   * — the default — means whatever profile.yaml says, which is what the picker shows.
    */
   choice: AgentChoice;
   onChoiceChange: (next: AgentChoice) => void;
@@ -43,11 +38,9 @@ export interface ChatComposerProps {
  * click is the friendlier half of the same rule.
  */
 export function ChatComposer({
-  playbooks,
-  playbook,
-  onPlaybookChange,
   disabled,
   agents,
+  assistant,
   choice,
   onChoiceChange,
   onSend,
@@ -64,17 +57,6 @@ export function ChatComposer({
     el.style.height = "0px";
     el.style.height = `${Math.max(MIN_PX, Math.min(el.scrollHeight, MAX_PX))}px`;
   }, [text]);
-
-  // Typing /analyst … is the same choice as clicking the chip, so the chip follows the text.
-  // It happens on the keystroke rather than in an effect: an effect here would render the
-  // composer twice for every character typed.
-  const retype = (next: string) => {
-    setText(next);
-    const m = PLAYBOOK_PREFIX.exec(next);
-    if (m && m[1] !== playbook && playbooks.some((s) => s.name === m[1])) {
-      onPlaybookChange(m[1]);
-    }
-  };
 
   const send = () => {
     const trimmed = text.trim();
@@ -95,7 +77,7 @@ export function ChatComposer({
             rows={1}
             disabled={disabled}
             placeholder={disabled ? "Working…" : "Ask a question about your stack"}
-            onChange={(e) => retype(e.target.value)}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 box.current?.blur();
@@ -110,19 +92,12 @@ export function ChatComposer({
           />
 
           <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-2 py-2">
-            <PlaybookChip
-              playbooks={playbooks}
-              playbook={playbook}
-              onChange={onPlaybookChange}
-              disabled={disabled}
-            />
-            {/* The model is chosen per MESSAGE, beside the playbook and not inside it. A playbook
-                is "which job"; the model is "what runs it". Folding the second into the
-                first is what makes a profile fill up with playbooks that differ by one field. */}
+            {/* The only choice here is which model answers. Which playbook a piece of work
+                runs in is not a choice a person makes per message any more: the turn picks
+                one per task, and it may pick several. */}
             <RunConfig
-              playbooks={playbooks}
-              playbook={playbook}
               agents={agents}
+              assistant={assistant}
               choice={choice}
               onChange={onChoiceChange}
               disabled={disabled}
@@ -159,45 +134,43 @@ export function ChatComposer({
 }
 
 /**
- * RunConfig is the model half of the decision, folded into a popover.
+ * RunConfig is the one choice this composer offers: which model answers.
  *
  * The catalogue is inlined here rather than nested behind a second trigger: a menu inside
  * a menu is what used to paint the list off the bottom of the window. One click opens a
  * portaled sheet that flips above the composer and scrolls inside the remaining viewport.
  */
 function RunConfig({
-  playbooks,
-  playbook,
   agents,
+  assistant,
   choice,
   onChange,
   disabled,
 }: {
-  playbooks: Playbook[];
-  playbook: string;
   agents: AgentBackend[];
+  assistant?: Assistant;
   choice: AgentChoice;
   onChange: (next: AgentChoice) => void;
   disabled: boolean;
 }) {
-  const inherited = playbookChoice(playbooks, playbook);
+  const inherited: AgentChoice = assistant
+    ? { agent: assistant.agent, model: assistant.model, effort: assistant.effort }
+    : INHERIT;
   const effective = choice.model === "" ? inherited : choice;
   const backendID = choice.model === "" ? inherited.agent : choice.agent;
 
   return (
     <Popover modal={false}>
-      <Tooltip label="What this message runs on">
+      <Tooltip label="Which model answers">
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" size="sm" disabled={disabled} data-testid="chat-run-config">
             <BackendMark id={backendID} />
             {effective.model === "" ? (
-              <span className="max-w-40 truncate">The playbook&apos;s model</span>
+              <span className="max-w-40 truncate">Default model</span>
             ) : (
               <span className="max-w-40 truncate font-mono">{effective.model}</span>
             )}
-            {effective.effort ? (
-              <span className="text-faint">· {effective.effort}</span>
-            ) : null}
+            {effective.effort ? <span className="text-faint">· {effective.effort}</span> : null}
             <ChevronDown />
           </Button>
         </PopoverTrigger>
@@ -208,10 +181,10 @@ function RunConfig({
         className="flex w-80 flex-col gap-2 overflow-hidden p-0"
       >
         <div className="shrink-0 space-y-0.5 px-3 pt-2.5 pb-1">
-          <p className="text-xs font-medium text-fg">What runs this message</p>
+          <p className="text-xs font-medium text-fg">Which model answers</p>
           <p className="text-2xs leading-relaxed text-faint">
-            The playbook decides the image and the tools; this decides which model reads them. It
-            applies to the messages you send from now on, and is never saved to the playbook.
+            It applies to the messages you send from now on and is never saved. Tasks
+            {assistantName(assistant)} starts keep their own playbook&apos;s model.
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -222,7 +195,7 @@ function RunConfig({
             agents={agents}
             disabled={disabled}
             embedded
-            inherit={{ label: "The playbook's model", hint: playbookRuns(playbooks, playbook) }}
+            inherit={{ label: "Default model", hint: inherited.model || "whatever the profile says" }}
             inherited={inherited}
           />
         </div>
@@ -231,98 +204,7 @@ function RunConfig({
   );
 }
 
-/** playbookChoice is what the chosen playbook runs on with no override, for the inherit row. */
-function playbookChoice(playbooks: Playbook[], playbook: string): AgentChoice {
-  const s = playbooks.find((x) => x.name === playbook);
-  return s ? { agent: s.agent, model: s.model, effort: s.effort } : INHERIT;
-}
-
-/** playbookRuns is the same, as one line of prose for the closed control. */
-function playbookRuns(playbooks: Playbook[], playbook: string): string {
-  const c = playbookChoice(playbooks, playbook);
-  return c.model === "" ? "whatever the playbook says" : c.model;
-}
-
-/**
- * PlaybookChip shows which playbook the next message runs and opens a menu of the others.
- *
- * It used to cycle on click, which hid every option but the next one and did not scale past
- * two or three playbooks. The menu is portaled and prefers the side with room — same rule as
- * the model picker — so it cannot open off the bottom of the composer.
- *
- * It used to LOCK once the chat had run a playbook, and no longer does. That made sense while
- * a chat message was one playbook's task; now a chat is a conversation with an agent that
- * delegates work to whichever playbooks it needs, so pinning the window to one restricted
- * nothing and forced a new chat for every change of subject.
- */
-function PlaybookChip({
-  playbooks,
-  playbook,
-  onChange,
-  disabled,
-}: {
-  playbooks: Playbook[];
-  playbook: string;
-  onChange: (name: string) => void;
-  disabled: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  if (playbooks.length === 0) return null;
-  const at = playbooks.findIndex((s) => s.name === playbook);
-  const current = at >= 0 ? playbooks[at] : playbooks[0];
-  const alone = playbooks.length === 1;
-  const label = current.hint ? `${current.hint} · ${current.image}` : current.image;
-
-  return (
-    <Popover open={open} onOpenChange={setOpen} modal={false}>
-      <Tooltip label={label}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            data-testid="chat-playbook"
-            disabled={disabled || alone}
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            aria-label={alone ? `Playbook: ${current.name}` : `Playbook: ${current.name}. Open to switch.`}
-            className="font-mono"
-          >
-            /{current.name}
-            {alone ? null : <ChevronDown />}
-          </Button>
-        </PopoverTrigger>
-      </Tooltip>
-      <PopoverContent align="start" side="top" className="w-72 overflow-hidden p-1">
-        <ul role="listbox" aria-label="Playbook" data-testid="chat-playbook-menu">
-          {playbooks.map((s) => {
-            const selected = s.name === current.name;
-            return (
-              <li key={s.name} role="option" aria-selected={selected}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(s.name);
-                    setOpen(false);
-                  }}
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-raised"
-                >
-                  <Check
-                    aria-hidden
-                    className={`mt-0.5 size-3.5 shrink-0 text-accent ${selected ? "" : "opacity-0"}`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-mono text-fg">/{s.name}</span>
-                    <span className="block truncate text-2xs text-muted">
-                      {s.hint || s.image}
-                    </span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </PopoverContent>
-    </Popover>
-  );
+/** assistantName reads as " Podium" mid-sentence, and as nothing at all before it loads. */
+function assistantName(assistant?: Assistant): string {
+  return assistant?.displayName ? ` ${assistant.displayName}` : "";
 }

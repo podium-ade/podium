@@ -259,7 +259,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	assert.Equal(t, "/usr/bin/true", report.Runner)
 	assert.Equal(t, "why does it 500?", report.Instruction)
 
-	// The fence: the short tool list, and no repository to point a tool at.
+	// The assistant: the short tool list, and no repository to point a tool at.
 	assert.Equal(t, []string{"webfetch", "todoread", "todowrite"}, report.Tools)
 	assert.Zero(t, report.Repos)
 
@@ -282,6 +282,12 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	// reads to mean a turn that died with the process running it.
 	turn := turnOf(t, st, ev.SourceKey)
 	assert.Empty(t, turn.TaskID, "a host turn has no task")
+
+	// And the session records NO playbook, because the assistant is not one. The playbooks
+	// this turn could have delegated to are credited on their own rows, per task.
+	sess, err := st.GetSessionByKey(context.Background(), ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook, "a conversation runs the assistant, not a playbook")
 	require.NotNil(t, turn.NumTurns)
 	assert.Equal(t, 4, *turn.NumTurns)
 	require.NotNil(t, turn.CostUSD)
@@ -289,7 +295,7 @@ func TestAHostTurnAnswersInThisProcessAndCreatesNoTask(t *testing.T) {
 	assert.Equal(t, finals[0].Text, turn.FinalText)
 
 	// And the jail is gone, so a turn leaves nothing on the host it ran on.
-	_, err := os.Stat(filepath.Dir(report.Home))
+	_, err = os.Stat(filepath.Dir(report.Home))
 	assert.True(t, os.IsNotExist(err), "the turn's directory is removed when it ends")
 }
 

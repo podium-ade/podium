@@ -77,13 +77,14 @@ const hostMaxLine = 64 * 1024
 // context of its own because the one it was cancelled with can no longer write anything.
 const hostRecordGrace = 5 * time.Second
 
-// hostTools is every tool a host turn may use.
+// hostTools is every tool the assistant may use, and the only tool list in Podium that no
+// document can change.
 //
-// It is SHORT ON PURPOSE and it is not the playbook's list. A host turn has no container
-// around it, so `bash` here is a shell on the conductor's own machine and `read` is a
-// window onto ~/.podium — the master key, the credential row, the operator's home. It also
-// has no workspace: a host turn clones nothing, so a filesystem tool has nothing legitimate
-// to point at and every path it could reach belongs to somebody else.
+// It is SHORT ON PURPOSE. The assistant has no container around it, so `bash` here would be
+// a shell on the conductor's own machine and `read` a window onto ~/.podium — the master
+// key, the credential row, the operator's home. It also has no workspace: it clones nothing,
+// so a filesystem tool has nothing legitimate to point at and every path it could reach
+// belongs to somebody else.
 //
 // What is left is enough to hold a conversation — the transcript is in the brief, memory and
 // the delegation tools arrive as MCP servers — and anything that needs to touch a disk
@@ -157,16 +158,20 @@ func (h *HostRuntime) node() string {
 	return h.Node
 }
 
-// fenceForHost is what makes a brief a HOST brief: the short tool list, no repositories, no
-// browser, and memory reached the way this host reaches it. It is applied after
-// Conductor.brief, so one function still builds every brief there is.
-func (c *Conductor) fenceForHost(b *Brief, menu []DelegablePlaybook) {
+// hostBrief is what makes a brief a HOST brief: it says where the turn runs, hands it the
+// playbooks it may delegate to, and points memory at the address THIS process reaches it on.
+// It is applied after Conductor.brief, so one function still builds every brief there is.
+//
+// It takes nothing away, and it used to. A conversation once borrowed a playbook, so this
+// function had to undo the borrowing — empty the repository list, drop the browser, replace
+// the tools — and a reader had to hold two documents in their head to know what a turn
+// actually got. The assistant has none of those things to begin with (see job.go), so there
+// is nothing here to strip: what the brief says is what the turn was built with.
+func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook) {
 	b.RunsOn = RunsOnHost
-	b.Playbook.AllowedTools = append([]string(nil), hostTools...)
-	b.Repos = nil
-	b.Browser = nil
-	// What it may delegate to. Taking the tools away above is only defensible because this
-	// is here: the work a host turn cannot do itself is work it hands to a container.
+	// What it may delegate to. The short tool list the assistant runs with is only
+	// defensible because this is here: the work it cannot do itself is work it hands to a
+	// container.
 	if c.host.TurnURL != "" && len(menu) > 0 {
 		b.Delegation = &BriefDelegation{
 			URL:       c.host.TurnURL,
@@ -297,7 +302,7 @@ func (h *hostRun) run(ctx context.Context) {
 		return
 	}
 	c.logger.InfoContext(ctx, "host turn started", "turn_id", r.turn.ID, "session_id", r.sess.ID,
-		"playbook", r.playbook.Name, "pid", cmd.Process.Pid, "source", r.src.Kind())
+		"playbook", r.job.name, "pid", cmd.Process.Pid, "source", r.src.Kind())
 
 	// stderr is drained to EOF before Wait, because Wait closes the pipe; and the link is
 	// closed once the child is gone, because that is what ends the relay loop below.

@@ -192,10 +192,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Store:       st,
 		DisplayName: profile.DisplayName,
 		UIURL:       cfg.WebURL(),
-		// The web chat is what profile.yaml's chat_default_playbook is for, so a message
-		// that names no playbook runs it rather than the profile's general default.
-		DefaultPlaybook: live.Current().ChatPlaybook,
-		Logger:          logger,
+		Logger:      logger,
 	})
 	if err != nil {
 		st.Close()
@@ -319,7 +316,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 	logger.Info("conductor configured", "config", cfg,
 		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
-		"chat_playbook", profile.ChatPlaybook(), "sources", kinds)
+		"assistant_skills", profile.Assistant().Skills, "sources", kinds)
 	if !cfg.SlackEnabled() && !cfg.LinearEnabled() {
 		logger.Info("no Slack or Linear credentials: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +

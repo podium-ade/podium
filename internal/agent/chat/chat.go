@@ -49,7 +49,6 @@ type Store interface {
 		ctx context.Context, chatID string, file store.ChatAttachment,
 	) (store.ChatMessage, error)
 	ChatTurnRunning(ctx context.Context, chatID string) (bool, error)
-	SetChatPlaybook(ctx context.Context, id, playbook string) (store.Chat, error)
 	SetChatTitle(ctx context.Context, id, title string) (store.Chat, error)
 	LinkChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (bool, error)
 	AttachChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (store.ChatPullRequest, error)
@@ -65,18 +64,8 @@ type Options struct {
 	// UIURL is the web UI as a HUMAN reaches it. It becomes the deep link in the brief and
 	// in a retained memory's provenance; a chat memory with no URL is a chip that goes
 	// nowhere.
-	UIURL string
-	// DefaultPlaybook is the profile's chat_default_playbook (falling back to default_playbook),
-	// carried on every event as the source's default. It is injected rather than read from a
-	// profile here because a source knows nothing about profiles — and it matters: without
-	// it the chat would silently run default_playbook, and chat_default_playbook would be a UI
-	// hint rather than the profile decision it is meant to be.
-	//
-	// It is a function rather than a string because the profile decision can change while
-	// this process runs: an operator setting the chat default in the web UI must reach the
-	// next message, not the next restart.
-	DefaultPlaybook func() string
-	Logger          *slog.Logger
+	UIURL  string
+	Logger *slog.Logger
 }
 
 // SendRequest is one human message arriving from the browser.
@@ -86,12 +75,11 @@ type SendRequest struct {
 	// message.
 	Login string
 	Text  string
-	// Playbook is the playbook chip's choice, which wins outright: a human picking a chip after
-	// typing is expressing the later intent. Empty leaves the choice to a leading /playbook in
-	// Text, and then to the profile's chat default.
-	Playbook string
-	// Override is the composer's model picker: what THIS message runs on, whatever the
-	// playbook's own default is. Empty everywhere means the playbook decides.
+	// Override is the composer's model picker: what ANSWERS this message. Empty everywhere
+	// means the assistant's own model, which is the profile's.
+	//
+	// It does not reach a task the turn delegates: that runs on its playbook's model. "Answer
+	// me on Grok" is about the conversation, not about how a container does its job.
 	Override profiles.Override
 }
 
@@ -109,13 +97,12 @@ type live struct {
 
 // Source is the chat as the conductor sees it: a conductor.Source like any other.
 type Source struct {
-	store    Store
-	bcast    *Broadcaster
-	name     string
-	uiURL    string
-	playbook func() string
-	logger   *slog.Logger
-	events   chan conductor.InboundEvent
+	store  Store
+	bcast  *Broadcaster
+	name   string
+	uiURL  string
+	logger *slog.Logger
+	events chan conductor.InboundEvent
 
 	mu   sync.Mutex
 	live map[string]*live
@@ -133,19 +120,14 @@ func New(opts Options) (*Source, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	playbook := opts.DefaultPlaybook
-	if playbook == nil {
-		playbook = func() string { return "" }
-	}
 	return &Source{
-		store:    opts.Store,
-		bcast:    NewBroadcaster(),
-		name:     opts.DisplayName,
-		uiURL:    strings.TrimSuffix(opts.UIURL, "/"),
-		playbook: playbook,
-		logger:   logger,
-		events:   make(chan conductor.InboundEvent, eventBuffer),
-		live:     map[string]*live{},
+		store:  opts.Store,
+		bcast:  NewBroadcaster(),
+		name:   opts.DisplayName,
+		uiURL:  strings.TrimSuffix(opts.UIURL, "/"),
+		logger: logger,
+		events: make(chan conductor.InboundEvent, eventBuffer),
+		live:   map[string]*live{},
 	}, nil
 }
 
@@ -211,21 +193,18 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
 	s.remember(ctx, chat, req)
 
-	// The chip is knowledge and the profile's chat default is only a fallback, so they
-	// travel as different fields: a /playbook the human typed loses to the chip and beats the
-	// default.
+	// No playbook travels with a chat message. The assistant answers it, and the playbooks
+	// are what that turn delegates to — one per piece of work, decided by the turn.
 	ev := conductor.InboundEvent{
-		SourceKind:      conductor.SourceChat,
-		SourceKey:       store.ChatSourceKey(req.ChatID),
-		Ref:             req.ChatID,
-		Author:          req.Login,
-		Text:            req.Text,
-		TS:              msg.TS,
-		URL:             s.URL(req.ChatID),
-		Playbook:        req.Playbook,
-		DefaultPlaybook: s.playbook(),
-		Override:        req.Override,
-		BriefKind:       conductor.SourceChat,
+		SourceKind: conductor.SourceChat,
+		SourceKey:  store.ChatSourceKey(req.ChatID),
+		Ref:        req.ChatID,
+		Author:     req.Login,
+		Text:       req.Text,
+		TS:         msg.TS,
+		URL:        s.URL(req.ChatID),
+		Override:   req.Override,
+		BriefKind:  conductor.SourceChat,
 	}
 	select {
 	case s.events <- ev:
@@ -238,30 +217,9 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	return msg, nil
 }
 
-// remember records the playbook this message ran and names the chat from the first query.
-//
-// The playbook is NOT first-wins any more: a chat is a conversation with an agent that
-// delegates, not one playbook's task, so the person may pick a different playbook for every
-// message and this row follows them. The title still is: one is chosen once, and a title the
-// caller supplied at create is left alone.
+// remember names the chat from its first query. A title is first-wins: one is chosen once,
+// and a title the caller supplied at create is left alone.
 func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest) {
-	playbook := req.Playbook
-	if playbook == "" {
-		if m := profiles.PlaybookPrefixRE.FindStringSubmatch(req.Text); m != nil {
-			playbook = m[1]
-		} else {
-			playbook = s.playbook()
-		}
-	}
-	if playbook != "" && chat.Playbook != playbook {
-		updated, err := s.store.SetChatPlaybook(ctx, req.ChatID, playbook)
-		if err != nil {
-			s.logger.WarnContext(ctx, "recording the chat's playbook failed",
-				"chat_id", req.ChatID, "playbook", playbook, "error", err)
-		} else {
-			chat = updated
-		}
-	}
 	if chat.AutoTitle && chat.Title == store.DefaultChatTitle {
 		if title := TitleFromQuery(req.Text); title != "" {
 			updated, err := s.store.SetChatTitle(ctx, req.ChatID, title)

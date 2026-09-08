@@ -243,76 +243,25 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 	}
 }
 
-// accept does the bookkeeping an event needs before any work starts: pick the playbook, find
-// or create the session, and either start a turn or remember the message for the turn that
-// is already running.
+// accept does the bookkeeping an event needs before any work starts: work out what the
+// event runs, find or create the session, and either start a turn or remember the message
+// for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// One snapshot for the whole of this event. A profile swapped in half way through must
-	// not route the message against one set of playbooks and then start the turn against
-	// another.
+	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
-	sel := profile.Select(profiles.Routing{
-		Playbook:        ev.Playbook,
-		DefaultPlaybook: ev.DefaultPlaybook,
-		Channel:         ev.Channel,
-		Text:            ev.Text,
-	})
-	if sel.Playbook.Name == "" {
-		c.logger.ErrorContext(ctx, "no playbook could be selected; the profile has no default",
-			"source", src.Kind(), "source_key", ev.SourceKey)
-		return
-	}
 
-	sess, err := c.store.UpsertSession(ctx, store.Session{
-		SourceKind: src.Kind(),
-		SourceKey:  ev.SourceKey,
-		Profile:    profile.Name,
-		Playbook:   sel.Playbook.Name,
-	})
-	if err != nil {
-		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
-		return
+	var j job
+	var sess store.Session
+	var ok bool
+	if c.answersHere(src.Kind()) {
+		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
+	} else {
+		j, sess, ok = c.acceptTask(ctx, src, profile, &ev)
 	}
-
-	// A THREAD keeps the playbook it started with: a Slack thread and a Linear issue are one
-	// piece of work, and a later /other in the middle of one is refused rather than silently
-	// ignored, because the human asked for something specific.
-	//
-	// A CONVERSATION does not. A chat used to be pinned the same way, and that made sense
-	// while a chat message WAS a playbook's task. It is not any more: a chat runs an agent
-	// that answers directly and delegates the work to whichever playbooks it needs, as many
-	// times as it needs, so pinning the window to one of them restricted nothing and only
-	// forced a new chat for every change of subject.
-	if aConversation(src.Kind()) {
-		// Only an EXPLICIT pick moves it — the chip the person set, or a /playbook they
-		// typed. A source's default is a preference and must not fight what the
-		// conversation is already running, which is what a chat's own default would do on
-		// every single message.
-		if sel.Explicit && sess.Playbook != sel.Playbook.Name {
-			if err := c.store.SetSessionPlaybook(ctx, sess.ID, sel.Playbook.Name); err != nil {
-				c.logger.WarnContext(ctx, "changing the playbook of a conversation failed; "+
-					"running the one it had", "session_id", sess.ID,
-					"from", sess.Playbook, "to", sel.Playbook.Name, "error", err)
-			} else {
-				sess.Playbook = sel.Playbook.Name
-			}
-		}
-	} else if sel.Explicit && sess.Playbook != sel.Playbook.Name {
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"This thread is running the `%s` playbook and a thread keeps the playbook it started with. "+
-				"Start a new thread to use `%s`.", sess.Playbook, sel.Playbook.Name)})
-		return
-	}
-	playbook, ok := profile.Playbooks[sess.Playbook]
 	if !ok {
-		c.logger.ErrorContext(ctx, "the session's playbook is no longer loaded",
-			"session_id", sess.ID, "playbook", sess.Playbook)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"This thread ran the `%s` playbook, which this bot no longer has. Start a new thread.", sess.Playbook)})
 		return
 	}
-	// Whatever the routing rules said, the instruction is the text minus a /playbook prefix.
-	ev.Text = sel.Instruction
 
 	c.mu.Lock()
 	st := c.sessions[sess.ID]
@@ -336,16 +285,105 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.serve(ctx, src, sess, playbook, ev)
+		c.serve(ctx, src, sess, j, ev)
 	}()
+}
+
+// answersHere reports whether this conductor answers that source itself. It needs both
+// halves: a conversation, because a thread is one piece of work and belongs in a container,
+// and a host runtime, because without one there is nothing here to answer with.
+func (c *Conductor) answersHere(kind string) bool {
+	return c.host != nil && aConversation(kind)
+}
+
+// acceptConversation is a chat window's message. It runs the ASSISTANT — this process, the
+// short tool list, the delegation menu — so there is no playbook to route to, nothing for a
+// human to pick and nothing for the session to be pinned to. The playbooks are what the turn
+// hands work to, chosen per piece of work by the turn itself.
+func (c *Conductor) acceptConversation(
+	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
+) (job, store.Session, bool) {
+	sess, err := c.store.UpsertSession(ctx, store.Session{
+		SourceKind: src.Kind(),
+		SourceKey:  ev.SourceKey,
+		Profile:    profile.Name,
+	})
+	if err != nil {
+		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		return job{}, store.Session{}, false
+	}
+	// A conversation this bot answered before host turns existed has a playbook on its row,
+	// left there by a chip that no longer exists. Clearing it is what stops the sessions
+	// screen crediting this turn to a playbook it will not run.
+	if sess.Playbook != "" {
+		if err := c.store.SetSessionPlaybook(ctx, sess.ID, ""); err != nil {
+			c.logger.WarnContext(ctx, "clearing a conversation's old playbook failed",
+				"session_id", sess.ID, "playbook", sess.Playbook, "error", err)
+		}
+		sess.Playbook = ""
+	}
+	// No prefix is stripped: with no playbook to select, a leading /word is just something
+	// the person typed, and eating it would lose a word out of their question.
+	ev.Text = strings.TrimSpace(ev.Text)
+	return assistantJob(profile.Assistant()), sess, true
+}
+
+// acceptTask is a Slack thread, a Linear ticket, or a conversation on a conductor with no
+// host runtime of its own. All three run one playbook as a task on a node, and the routing
+// rules pick which.
+func (c *Conductor) acceptTask(
+	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
+) (job, store.Session, bool) {
+	sel := profile.Select(profiles.Routing{
+		Playbook: ev.Playbook,
+		Channel:  ev.Channel,
+		Text:     ev.Text,
+	})
+	if sel.Playbook.Name == "" {
+		c.logger.ErrorContext(ctx, "no playbook could be selected; the profile has no default",
+			"source", src.Kind(), "source_key", ev.SourceKey)
+		return job{}, store.Session{}, false
+	}
+
+	sess, err := c.store.UpsertSession(ctx, store.Session{
+		SourceKind: src.Kind(),
+		SourceKey:  ev.SourceKey,
+		Profile:    profile.Name,
+		Playbook:   sel.Playbook.Name,
+	})
+	if err != nil {
+		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		return job{}, store.Session{}, false
+	}
+
+	// A THREAD keeps the playbook it started with: a Slack thread and a Linear issue are one
+	// piece of work, and a later /other in the middle of one is refused rather than silently
+	// ignored, because the human asked for something specific.
+	if sel.Explicit && sess.Playbook != sel.Playbook.Name {
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+			"This thread is running the `%s` playbook and a thread keeps the playbook it started with. "+
+				"Start a new thread to use `%s`.", sess.Playbook, sel.Playbook.Name)})
+		return job{}, store.Session{}, false
+	}
+	playbook, ok := profile.Playbooks[sess.Playbook]
+	if !ok {
+		c.logger.ErrorContext(ctx, "the session's playbook is no longer loaded",
+			"session_id", sess.ID, "playbook", sess.Playbook)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+			"This thread ran the `%s` playbook, which this bot no longer has. Start a new thread.", sess.Playbook)})
+		return job{}, store.Session{}, false
+	}
+	// Whatever the routing rules said, the instruction is the text minus a /playbook prefix.
+	ev.Text = sel.Instruction
+	return playbookJob(playbook), sess, true
 }
 
 // serve runs turns for one session until nothing is pending. It holds the session's
 // "running" flag for its whole life, which is what serialises turns within a session while
 // leaving different sessions free to run at once.
-func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook, ev InboundEvent) {
+func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	for {
-		c.runTurn(ctx, src, sess, playbook, ev)
+		c.runTurn(ctx, src, sess, j, ev)
 
 		c.mu.Lock()
 		st := c.sessions[sess.ID]
@@ -363,7 +401,7 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, p
 }
 
 // runTurn is one inbound message, end to end.
-func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook, ev InboundEvent) {
+func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session, j job, ev InboundEvent) {
 	started := time.Now()
 
 	if err := src.React(ctx, ev.Ref, ReactionWorking); err != nil {
@@ -381,7 +419,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	// Resolved before the turn is recorded so the row says what actually ran, and handed to
 	// the brief and the task spec so all three agree on one answer.
-	choice := c.profiles.Current().Resolve(playbook, ev.Override)
+	choice := j.choose(c.profiles.Current(), ev.Override)
 	backend := store.Backend{
 		Agent:    choice.Agent,
 		Model:    choice.Model,
@@ -401,40 +439,40 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// not at start-up so that a skill an operator has just edited is the one the next turn
 	// gets, and so that a broken skill fails the playbook that names it rather than the
 	// whole conductor.
-	bundles, err := c.skillBundles(ctx, playbook)
+	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
 		// The reason names a path, a database row or a cap on the conductor's own side, so it
 		// goes to the log and not to a human, like every other "I could not start".
-		c.logger.ErrorContext(ctx, "the playbook's agent skills could not be prepared",
-			"turn_id", turn.ID, "playbook", playbook.Name, "skills_dir", c.skillsDir,
-			"skills", playbook.Skills, "error", err)
+		c.logger.ErrorContext(ctx, "the turn's agent skills could not be prepared",
+			"turn_id", turn.ID, "job", j.name, "skills_dir", c.skillsDir,
+			"skills", j.skills, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
-			"The `%s` playbook asks for skills I could not prepare, so nothing ran. "+
-				"An operator should check the logs.", playbook.Name)})
-		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
+			"`%s` asks for skills I could not prepare, so nothing ran. "+
+				"An operator should check the logs.", j.name)})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
 
-	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles, choice)
+	brief := c.brief(sess, j, turn.ID, ev, entries, bundles, choice)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
-	if c.host != nil && aConversation(src.Kind()) {
+	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.fenceForHost(brief, menu)
+		c.hostBrief(brief, menu)
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
 		c.logger.WarnContext(ctx, "the turn brief does not fit", "turn_id", turn.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "This conversation is too large for me to take in at once. Start a new thread with just the question."})
-		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
 
 	run := &turnRun{
 		sink:        &sink{c: c, src: src, ref: ev.Ref, placeholder: placeholder},
 		sess:        sess,
-		playbook:    playbook,
+		job:         j,
 		turn:        turn,
 		author:      ev.Author,
 		instruction: ev.Text,
@@ -450,7 +488,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// a container per message is what makes that slow. A Slack mention and a Linear
 	// assignment keep running as tasks, because their playbooks are the ones that want a
 	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
-	if c.host != nil && aConversation(src.Kind()) {
+	if j.onHost {
 		host := &hostRun{
 			r: run, encoded: encoded, bundles: bundles, provider: brief.Provider, menu: menu,
 		}
@@ -489,15 +527,15 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, playbook, encoded, ev, bundles, choice)
+	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, choice)
 	task, err := c.podium.CreateTask(ctx, taskSpec)
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
 		c.logger.WarnContext(ctx, "creating the turn's task failed",
-			"turn_id", turn.ID, "image", playbook.Image, "error", err)
+			"turn_id", turn.ID, "image", j.playbook.Image, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side and the work never started. An operator should check the logs."})
-		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
 	if err := c.store.SetTurnTask(ctx, turn.ID, task.GetId()); err != nil {
@@ -508,7 +546,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	run.turn = turn
 	run.taskID = task.GetId()
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
-		"playbook", playbook.Name, "task_id", task.GetId(), "source", src.Kind())
+		"playbook", j.name, "task_id", task.GetId(), "source", src.Kind())
 
 	run.run(ctx)
 }
@@ -522,11 +560,11 @@ func playbookNames(menu []DelegablePlaybook) []string {
 	return out
 }
 
-// aConversation is a source that is a chat window rather than a thread, and two rules follow
-// from it: a turn of one runs on this host when there is a host runtime, and the person may
-// pick a different playbook for every message. A Slack thread and a Linear issue are the
-// opposite on both counts — nobody is watching a cursor, and one session is one piece of
-// work. The dev source is in it because it is how both are tested.
+// aConversation is a source that is a chat window rather than a thread. A turn of one is
+// answered by the assistant, in this process, and delegates whatever needs a machine; a
+// Slack thread and a Linear issue are the opposite — nobody is watching a cursor, and one
+// session is one piece of work, so they run a playbook as a task. The dev source is in here
+// because it is how both are tested.
 func aConversation(kind string) bool {
 	return kind == SourceChat || kind == KindDev
 }
@@ -534,7 +572,7 @@ func aConversation(kind string) bool {
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
-	sess store.Session, playbook profiles.Playbook, turnID string, ev InboundEvent,
+	sess store.Session, j job, turnID string, ev InboundEvent,
 	entries []BriefEntry, bundles []skills.Bundle, choice profiles.Choice,
 ) *Brief {
 	kind := ev.BriefKind
@@ -558,23 +596,23 @@ func (c *Conductor) brief(
 			Effort:       choice.Effort,
 		},
 		Playbook: BriefPlaybook{
-			Name:         playbook.Name,
-			SystemPrompt: playbook.SystemPrompt,
-			AllowedTools: append([]string{}, playbook.AllowedTools...),
-			MaxTurns:     playbook.MaxTurns,
+			Name:         j.name,
+			SystemPrompt: j.systemPrompt,
+			AllowedTools: append([]string{}, j.allowedTools...),
+			MaxTurns:     j.maxTurns,
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,
 		Memory:      c.memory,
 	}
 	b.Provider = c.providerFor(choice.Agent)
-	if playbook.Browser {
+	if j.playbook.Browser {
 		// The same flag that put the sidecar on the task spec puts its address in the
 		// brief. They cannot disagree: a turn with the tools and no browser, or a browser
 		// no tool can reach, is worse than a turn with neither.
 		b.Browser = &BriefBrowser{CDPURL: browserCDPURL}
 	}
-	for _, r := range playbook.Repos {
+	for _, r := range j.playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
 	}
 	for _, s := range bundles {
@@ -671,16 +709,16 @@ func (c *Conductor) taskSpec(
 	return s
 }
 
-// skillBundles reads and packs the Agent Skills the playbook names. A playbook that names
-// none reads nothing: neither source has to exist, or be configured, for a bot that does not
-// use skills.
-func (c *Conductor) skillBundles(ctx context.Context, playbook profiles.Playbook) ([]skills.Bundle, error) {
-	if len(playbook.Skills) == 0 {
+// skillBundles reads and packs the Agent Skills this turn's job names. A job that names none
+// reads nothing: neither source has to exist, or be configured, for a bot that does not use
+// skills.
+func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, error) {
+	if len(j.skills) == 0 {
 		return nil, nil
 	}
-	bundles, err := c.skills().Bundles(ctx, playbook.Skills)
+	bundles, err := c.skills().Bundles(ctx, j.skills)
 	if err != nil {
-		return nil, fmt.Errorf("playbook %q: %w", playbook.Name, err)
+		return nil, fmt.Errorf("%s: %w", j.name, err)
 	}
 	return bundles, nil
 }
@@ -833,15 +871,15 @@ func (c *Conductor) reservedSecrets(agent string) []spec.SecretRef {
 // failTurn records a turn that never got as far as a task, or one whose brief was
 // impossible, and shows the failure on the triggering message.
 func (c *Conductor) failTurn(
-	ctx context.Context, src Source, sess store.Session, playbook profiles.Playbook,
+	ctx context.Context, src Source, sess store.Session, j job,
 	turn store.Turn, ref string, started time.Time, status string,
 ) {
 	if err := c.store.FinishTurn(ctx, turn.ID, status, nil, nil, ""); err != nil {
 		c.logger.ErrorContext(ctx, "finishing a failed turn failed", "turn_id", turn.ID, "error", err)
 	}
 	c.finish(ctx, src, ref, ReactionFailed)
-	c.metrics.Turns.WithLabelValues(sess.SourceKind, playbook.Name, status).Inc()
-	c.metrics.TurnDuration.WithLabelValues(playbook.Name).Observe(time.Since(started).Seconds())
+	c.metrics.Turns.WithLabelValues(sess.SourceKind, j.name, status).Inc()
+	c.metrics.TurnDuration.WithLabelValues(j.name).Observe(time.Since(started).Seconds())
 }
 
 // post says one thing and returns the message id, or "" when it could not be said. A
@@ -891,7 +929,6 @@ func (c *Conductor) recover(ctx context.Context) {
 			continue
 		}
 		src := c.sourceOf(sess.SourceKind)
-		playbook := c.profiles.Current().Playbooks[sess.Playbook]
 
 		if turn.TaskID == "" {
 			// Either a turn whose task was never created, or a HOST turn — which runs as a
@@ -930,10 +967,14 @@ func (c *Conductor) recover(ctx context.Context) {
 		c.sessions[sess.ID].running = true
 		c.mu.Unlock()
 
+		// A resumed turn always has a task, because the branch above has already finished
+		// every turn that had none — a host turn included, since one dies with the process
+		// that ran it. So the job here is always a playbook's, and the session's playbook is
+		// always a real one.
 		run := &turnRun{
 			sink:      &sink{c: c, src: src, ref: turn.TriggerRef, taskID: turn.TaskID},
 			sess:      sess,
-			playbook:  playbook,
+			job:       playbookJob(c.profiles.Current().Playbooks[sess.Playbook]),
 			turn:      turn,
 			startedAt: turn.StartedAt,
 			lastSeq:   lastSeq,

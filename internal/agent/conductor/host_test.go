@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
@@ -65,52 +66,92 @@ func TestHostOutcomeReadsTheRuntimesExitCode(t *testing.T) {
 	assert.Equal(t, store.TurnCancelled, hostOutcome(143, true))
 }
 
-func TestFenceForHostTakesAwayEverythingAHostTurnMustNotHave(t *testing.T) {
+// TestTheAssistantsBriefHasNoContainerInIt. This is the whole security argument for running
+// a turn in the conductor's own process, and it is a property of how the brief is BUILT
+// rather than of something undoing it afterwards: the assistant's job carries no image, no
+// repository and no sidecar, so there is nothing to take away.
+func TestTheAssistantsBriefHasNoContainerInIt(t *testing.T) {
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name:            "podium",
+		DisplayName:     "Podium",
+		SystemPrompt:    "you are Podium",
+		Model:           "claude-opus-5",
+		DefaultPlaybook: "coder",
+		MaxTurns:        12,
+		// The playbook is deliberately the greediest one a profile could hold. None of it
+		// may reach the assistant.
+		Playbooks: map[string]profiles.Playbook{"coder": {
+			Name:         "coder",
+			Image:        "podium-agent-runtime-dev:dev",
+			SystemPrompt: "you develop Podium",
+			AllowedTools: []string{"bash", "read", "write", "edit"},
+			MaxTurns:     200,
+			Docker:       true,
+			Browser:      true,
+			Repos:        []profiles.Repo{{Name: "podium", URL: "https://example.test/p", DefaultBranch: "main"}},
+		}},
+	})}
+	profile := c.profiles.Current()
+	j := assistantJob(profile.Assistant())
+
+	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil,
+		j.choose(profile, profiles.Override{}))
+
+	assert.Equal(t, hostTools, b.Playbook.AllowedTools, "a playbook's tools are not the assistant's")
+	assert.Nil(t, b.Repos, "the assistant clones nothing")
+	assert.Nil(t, b.Browser, "there is no sidecar beside the assistant")
+	assert.Equal(t, AssistantName, b.Playbook.Name)
+	assert.Equal(t, 12, b.Playbook.MaxTurns, "profile.yaml's max_turns, not the playbook's")
+	assert.Empty(t, b.Playbook.SystemPrompt,
+		"the assistant IS the profile, so its prompt is profile.system_prompt and is not sent twice")
+	assert.Equal(t, "you are Podium", b.Profile.SystemPrompt)
+}
+
+// TestHostBriefPointsTheTurnAtThisHost: where it runs, what it may delegate to, and memory
+// at the address THIS process reaches it on.
+func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{
 		MemoryMCPURL: "http://127.0.0.1:8888/mcp/podium/",
 		TurnURL:      "http://127.0.0.1:8090",
 	}}
 	b := &Brief{
-		Playbook: BriefPlaybook{AllowedTools: []string{"bash", "read", "write", "edit"}},
-		Repos:    []BriefRepo{{Name: "podium", URL: "https://example.test/podium", DefaultBranch: "main"}},
-		Browser:  &BriefBrowser{CDPURL: "http://chrome:9222"},
+		Playbook: BriefPlaybook{AllowedTools: hostTools},
 		Memory:   &BriefMemory{MCPURL: "http://host.docker.internal:8888/mcp/podium/", APIKeyEnv: "K"},
 	}
 	menu := []DelegablePlaybook{{Name: "podium", Summary: "develops Podium itself", Docker: true}}
-	c.fenceForHost(b, menu)
+	c.hostBrief(b, menu)
 
-	assert.Equal(t, hostTools, b.Playbook.AllowedTools, "the playbook's tools are not a host turn's")
-	assert.Nil(t, b.Repos, "a host turn clones nothing")
-	assert.Nil(t, b.Browser, "there is no sidecar beside a host turn")
+	assert.Equal(t, RunsOnHost, b.RunsOn)
 	require.NotNil(t, b.Memory)
 	assert.Equal(t, "http://127.0.0.1:8888/mcp/podium/", b.Memory.MCPURL,
 		"host.docker.internal resolves in a container and nowhere else")
 	assert.Equal(t, "K", b.Memory.APIKeyEnv)
 
-	// The tools were taken away on the understanding that the work goes to a container, so
-	// the menu that makes that possible has to be in the brief.
-	require.NotNil(t, b.Delegation, "a host turn with nowhere to delegate is a turn that can only talk")
+	// The short tool list is only defensible because the work goes to a container, so the
+	// menu that makes that possible has to be in the brief.
+	require.NotNil(t, b.Delegation, "an assistant with nowhere to delegate is one that can only talk")
 	assert.Equal(t, "http://127.0.0.1:8090", b.Delegation.URL)
 	assert.Equal(t, TurnTokenEnv, b.Delegation.TokenEnv)
 	assert.Equal(t, menu, b.Delegation.Playbooks)
 }
 
-func TestFenceForHostOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
+func TestHostBriefOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
-	b := &Brief{Playbook: BriefPlaybook{AllowedTools: []string{"bash"}}}
-	c.fenceForHost(b, []DelegablePlaybook{{Name: "podium"}})
+	b := &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
+	c.hostBrief(b, []DelegablePlaybook{{Name: "podium"}})
 	assert.Nil(t, b.Delegation, "no address to reach the conductor at is no delegation")
 
 	c = &Conductor{host: &HostRuntime{TurnURL: "http://127.0.0.1:8090"}}
-	b = &Brief{Playbook: BriefPlaybook{AllowedTools: []string{"bash"}}}
-	c.fenceForHost(b, nil)
+	b = &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
+	c.hostBrief(b, nil)
 	assert.Nil(t, b.Delegation, "an empty menu is not a menu")
 }
 
-func TestFenceForHostDropsMemoryThisHostCannotReach(t *testing.T) {
+func TestHostBriefDropsMemoryThisHostCannotReach(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Memory: &BriefMemory{MCPURL: "http://host.docker.internal:8888/", APIKeyEnv: "K"}}
-	c.fenceForHost(b, nil)
+	c.hostBrief(b, nil)
 	assert.Nil(t, b.Memory, "the runtime fails a turn whose memory server it cannot reach")
 }
 

@@ -1004,47 +1004,11 @@ func TestASecondPlaybookInOneThreadIsRefused(t *testing.T) {
 	assert.Equal(t, "general", sess.Playbook, "the session keeps the playbook it started with")
 }
 
-// A CONVERSATION may change its playbook. It used to be pinned the same way a thread is, and
-// that made sense while a chat message was one playbook's task; a chat now runs an agent that
-// delegates work to whichever playbooks it needs, so pinning the window to one of them
-// restricted nothing and forced a new chat for every change of subject.
-func TestAConversationMayRunASecondPlaybook(t *testing.T) {
-	st := newStore(t)
-	fake := newFakePodium(t)
-	fake.events = func(taskID string) []*podiumv1.TaskEvent {
-		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
-	}
-	src := fakesource.New(conductor.KindDev)
-	t.Cleanup(src.Close)
-
-	ctx := context.Background()
-	ev := inbound("C1/20.1", "what is this")
-	start(t, st, fake, src)
-	require.NoError(t, src.Send(ctx, ev))
-	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
-		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
-	})
-	before := len(src.Records())
-
-	second := inbound("C1/20.1", "/coder fix it")
-	require.NoError(t, src.Send(ctx, second))
-	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
-
-	assert.Empty(t, posts(src.RecordsSince(int64(before)), conductor.OutFailure),
-		"changing playbook in a conversation is not refused")
-	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Playbook.Name,
-		"the second message runs the playbook it asked for")
-
-	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
-	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Playbook,
-		"the session records the playbook that actually ran, so a resumed turn is the right one")
-}
-
-// TestATypedPlaybookBeatsTheSourcesDefault is the precedence the web chat depends on. The chat
-// source carries chat_default_playbook on every event, so unless a default is kept apart from
-// a playbook the source actually knows, a /playbook somebody typed could never take effect there.
-func TestATypedPlaybookBeatsTheSourcesDefault(t *testing.T) {
+// A typed /playbook reaches the brief and is stripped from what the model is told, and an
+// unknown /word is left alone. This is a TASK's routing — a Slack thread or a Linear ticket.
+// A conversation has none of it: the assistant answers it and picks the playbook for each
+// piece of work it delegates.
+func TestATypedPlaybookReachesTheBriefWithoutItsPrefix(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	fake.events = func(taskID string) []*podiumv1.TaskEvent {
@@ -1056,71 +1020,29 @@ func TestATypedPlaybookBeatsTheSourcesDefault(t *testing.T) {
 	ctx := context.Background()
 	start(t, st, fake, src)
 
-	// Nothing named a playbook, so the source's default runs rather than profile.default_playbook.
+	// Nothing named a playbook, so profile.default_playbook runs.
 	plain := inbound("C1/1.1", "hello")
-	plain.DefaultPlaybook = "coder"
 	require.NoError(t, src.Send(ctx, plain))
 	waitFor(t, 30*time.Second, "the first task", func() bool { return len(fake.Specs()) == 1 })
-	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[0]).Playbook.Name)
+	assert.Equal(t, "general", decodeBrief(t, fake.Specs()[0]).Playbook.Name)
 
-	// A typed /playbook overrides that default, and is stripped from what the model is told.
-	typed := inbound("C1/2.2", "/general reply with pong")
-	typed.DefaultPlaybook = "coder"
+	typed := inbound("C1/2.2", "/coder fix it")
 	require.NoError(t, src.Send(ctx, typed))
 	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
 	brief := decodeBrief(t, fake.Specs()[1])
-	assert.Equal(t, "general", brief.Playbook.Name)
-	assert.Equal(t, "reply with pong", brief.Instruction)
+	assert.Equal(t, "coder", brief.Playbook.Name)
+	assert.Equal(t, "fix it", brief.Instruction)
 	sess, err := st.GetSessionByKey(ctx, typed.SourceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "general", sess.Playbook, "the session records the playbook that ran")
+	assert.Equal(t, "coder", sess.Playbook, "the session records the playbook that ran")
 
-	// And a playbook the source knows — the chat's chip — beats the prefix, because a human
-	// picking from the chip after typing is expressing the later intent.
-	chip := inbound("C1/3.3", "/general hi")
-	chip.Playbook = "coder"
-	chip.DefaultPlaybook = "general"
-	require.NoError(t, src.Send(ctx, chip))
+	// Somebody typing /shrug must not break the bot, and must not have their text eaten.
+	unknown := inbound("C1/3.3", "/shrug hi")
+	require.NoError(t, src.Send(ctx, unknown))
 	waitFor(t, 30*time.Second, "the third task", func() bool { return len(fake.Specs()) == 3 })
 	brief = decodeBrief(t, fake.Specs()[2])
-	assert.Equal(t, "coder", brief.Playbook.Name)
-	assert.Equal(t, "/general hi", brief.Instruction, "an overridden prefix is left in the text")
-}
-
-// A default is not somebody naming a playbook, so it must not trip the one-session-one-playbook
-// refusal: a chat whose first message chose a playbook goes on working when the next message
-// arrives carrying nothing but the profile's chat default.
-func TestTheSourcesDefaultDoesNotFightTheSessionsPlaybook(t *testing.T) {
-	st := newStore(t)
-	fake := newFakePodium(t)
-	fake.events = func(taskID string) []*podiumv1.TaskEvent {
-		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered")}
-	}
-	src := fakesource.New(conductor.KindDev)
-	t.Cleanup(src.Close)
-
-	ctx := context.Background()
-	start(t, st, fake, src)
-
-	first := inbound("C1/1.1", "/coder fix it")
-	first.DefaultPlaybook = "general"
-	require.NoError(t, src.Send(ctx, first))
-	waitFor(t, 30*time.Second, "the first turn to finish", func() bool {
-		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
-	})
-	before := len(src.Records())
-
-	second := inbound("C1/1.1", "and again")
-	second.DefaultPlaybook = "general"
-	require.NoError(t, src.Send(ctx, second))
-	waitFor(t, 30*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
-
-	assert.Equal(t, "coder", decodeBrief(t, fake.Specs()[1]).Playbook.Name)
-	assert.Empty(t, posts(src.RecordsSince(int64(before)), conductor.OutFailure),
-		"the session's own playbook is not a playbook change to refuse")
-	sess, err := st.GetSessionByKey(ctx, second.SourceKey)
-	require.NoError(t, err)
-	assert.Equal(t, "coder", sess.Playbook)
+	assert.Equal(t, "general", brief.Playbook.Name)
+	assert.Equal(t, "/shrug hi", brief.Instruction, "an unmatched prefix is left in the text")
 }
 
 // An attachment name that matches nothing is normal — the runtime names files it mentioned —

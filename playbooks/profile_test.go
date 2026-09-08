@@ -35,8 +35,10 @@ func TestTheBotsOwnProfileLoads(t *testing.T) {
 	// A mention with no /playbook must NOT run the dogfood. `podium` needs a privileged node,
 	// a Docker daemon, a browser and 8 GB; a question in a thread should cost a container.
 	require.Equal(t, "general", p.DefaultPlaybook)
-	require.Equal(t, "general", p.ChatPlaybook(),
-		"an unset chat_default_playbook falls back to default_playbook")
+
+	// The web chat runs neither: it is answered by the assistant, in the conductor's own
+	// process, and the two playbooks above are what that turn delegates to.
+	require.Equal(t, profiles.DefaultMaxTurns, p.Assistant().MaxTurns)
 
 	// No playbook takes Linear tickets, so this profile cannot be used with a Linear key as
 	// it stands — the conductor refuses to start when a key is set and nothing claims it.
@@ -168,25 +170,23 @@ func TestTheSkillFitsInAnEnvironmentVariable(t *testing.T) {
 }
 
 // Routing on the profile a human actually deploys, and the case the worked example cannot
-// show because it has only one playbook: the web chat's chip is knowledge and beats a
-// /playbook typed in the same message, while an unknown /word is left in the text so that
+// show because it has only one playbook: a playbook the SOURCE knows is knowledge and beats
+// a /playbook typed in the same message, while an unknown /word is left in the text so that
 // somebody typing /shrug does not break the bot.
-func TestTheChipBeatsATypedPlaybook(t *testing.T) {
+func TestASourcesOwnPlaybookBeatsATypedOne(t *testing.T) {
 	p, err := profiles.Load(".")
 	require.NoError(t, err)
 
-	chip := p.Select(profiles.Routing{
-		Playbook: "general", DefaultPlaybook: p.ChatPlaybook(), Text: "/podium run the tests",
-	})
-	require.Equal(t, "general", chip.Playbook.Name)
-	require.True(t, chip.Explicit)
+	known := p.Select(profiles.Routing{Playbook: "general", Text: "/podium run the tests"})
+	require.Equal(t, "general", known.Playbook.Name)
+	require.True(t, known.Explicit)
 
-	typed := p.Select(profiles.Routing{DefaultPlaybook: p.ChatPlaybook(), Text: "/podium run the tests"})
+	typed := p.Select(profiles.Routing{Text: "/podium run the tests"})
 	require.Equal(t, "podium", typed.Playbook.Name)
 	require.True(t, typed.Explicit)
 	require.Equal(t, "run the tests", typed.Instruction)
 
-	unknown := p.Select(profiles.Routing{DefaultPlaybook: p.ChatPlaybook(), Text: "/shrug reply with pong"})
+	unknown := p.Select(profiles.Routing{Text: "/shrug reply with pong"})
 	require.Equal(t, "general", unknown.Playbook.Name)
 	require.False(t, unknown.Explicit)
 	require.Equal(t, "/shrug reply with pong", unknown.Instruction)

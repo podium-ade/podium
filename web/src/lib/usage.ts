@@ -234,3 +234,12 @@ export function backendSummary(backends: UsageBackend[]): string {
     `${providers} ${providers === 1 ? "provider" : "providers"}, ${spent} attributed.`
   );
 }
+
+/**
+ * ranBy names what spent a turn's money. An empty playbook is not missing data: a
+ * conversation is answered by the assistant, which is not a playbook and so never had a
+ * name to record on the row.
+ */
+export function ranBy(playbook: string): string {
+  return playbook === "" ? "assistant" : playbook;
+}
