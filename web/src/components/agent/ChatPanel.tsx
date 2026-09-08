@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Bot, MessageSquarePlus, Pencil, Sparkles, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  Bot,
+  MessageSquarePlus,
+  Pencil,
+  Sparkles,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -737,6 +745,14 @@ function Conversation({
           className="absolute inset-0 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
+            {/* In the flow rather than floating over it: an overlay at the top of the
+                scroll port reads the transcript's first message straight through. */}
+            {busy ? (
+              <div className="sticky top-2 z-10 flex justify-center">
+                <RunningTurn progress={stream.progress} taskId={stream.taskId} />
+              </div>
+            ) : null}
+
             {connecting ? <TranscriptSkeleton /> : null}
 
             {stream.error ? (
@@ -772,8 +788,6 @@ function Conversation({
         ) : null}
       </div>
 
-      {busy ? <RunningTurn progress={stream.progress} taskId={stream.taskId} /> : null}
-
       <ChatComposer
         playbooks={playbooks}
         playbook={playbook}
@@ -790,30 +804,32 @@ function Conversation({
 }
 
 /**
- * RunningTurn is the live state of a turn: what it is doing right now, and the task it is
- * doing it in. The progress line is ephemeral — it is replaced in place and dropped the
- * moment the answer lands — so it belongs here, above the composer, rather than in the
- * transcript where it would leave a trail of things nobody said.
+ * RunningTurn is that a turn is running, and the task it is running in. Nothing more: what
+ * the task is actually doing is in the transcript below, in its own words, so this is a
+ * state and not a message — which is why it is a pill that sticks to the top of the
+ * conversation rather than a line of prose stealing the newest thing said.
+ *
+ * The progress line it does show is the conductor's placeholder, which fills the gap
+ * between a turn starting and the task's first words — a container still being pulled has
+ * nothing to say yet, and neither does an empty pill.
  */
 function RunningTurn({ progress, taskId }: { progress?: string; taskId?: string }) {
   return (
-    <div data-testid="chat-progress" className="border-t border-hairline bg-panel">
-      <div className="h-0.5 w-full animate-shimmer bg-accent/60" aria-hidden />
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 px-5 py-2">
-        <Badge tone="run">running</Badge>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted">
-          {progress ?? "Working on it…"}
-        </span>
-        {taskId ? (
-          <Link
-            to={`/tasks/${taskId}`}
-            title={taskId}
-            className="shrink-0 font-mono text-2xs text-accent hover:underline"
-          >
-            {taskId}
-          </Link>
-        ) : null}
-      </div>
+    <div
+      data-testid="chat-progress"
+      className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-panel/95 py-1 pr-3 pl-1.5 shadow-md backdrop-blur animate-in fade-in-0 slide-in-from-top-1"
+    >
+      <Badge tone="run">running</Badge>
+      <span className="min-w-0 truncate text-xs text-muted">{progress ?? "Working on it…"}</span>
+      {taskId ? (
+        <Link
+          to={`/tasks/${taskId}`}
+          title={taskId}
+          className="shrink-0 border-l border-hairline pl-2 font-mono text-2xs text-accent hover:underline"
+        >
+          {taskId}
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -854,18 +870,25 @@ function TranscriptSkeleton() {
 }
 
 /**
- * runsOf marks the first message of each run by one speaker, so the bot's name is a label
- * above a run rather than a repeat above every bubble.
+ * runsOf marks the first message of each run by one author, so a name is a label above a
+ * run rather than a repeat above every bubble. Role is author here: the task narrating its
+ * work and the bot answering are two voices, and which one is speaking is the thing the
+ * name is there to say.
  */
 function runsOf(messages: ChatMessage[]): boolean[] {
   return messages.map((m, i) => i === 0 || messages[i - 1].role !== m.role);
 }
 
 /**
- * Turn renders one message, and the two roles are built differently on purpose. A question
- * is short and is scanned for, so it is a bubble on the right. An answer is a document —
- * headings, lists, diffs — so it runs the full measure of the column under a name, where
- * markdown has room to read as markdown rather than as chat.
+ * Turn renders one message, and a question is built differently from everything else on
+ * purpose. A question is short and is scanned for, so it is a bubble on the right. Anything
+ * said back is a document — headings, lists, diffs — so it runs the full measure of the
+ * column under a name, where markdown has room to read as markdown rather than as chat.
+ *
+ * A `progress` message reads exactly like an answer, because that is what it is: the words
+ * the task said on its way there. The name above the run is what separates them — the task
+ * narrating its work, then the bot with the answer — rather than a quieter typography,
+ * which would make the transcript look like it had a margin of asides in it.
  */
 function Turn({
   message,
@@ -892,27 +915,36 @@ function Turn({
     );
   }
 
+  // Who is talking. The task is the container doing the work and the bot is what answers
+  // with it; the answer is relayed through the same task, so this is the honest half of the
+  // distinction: a line while the work is still going, or the thing it came back with.
+  const fromTask = message.role === "progress";
+
   return (
     <div className="flex gap-3">
       <span
         aria-hidden
         className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${
-          firstOfRun ? "border border-border bg-panel text-accent" : ""
+          firstOfRun ? `border border-border bg-panel ${fromTask ? "text-muted" : "text-accent"}` : ""
         }`}
       >
-        {firstOfRun ? <Bot className="size-4" /> : null}
+        {firstOfRun ? fromTask ? <Terminal className="size-4" /> : <Bot className="size-4" /> : null}
       </span>
       <div className="min-w-0 flex-1 space-y-1.5">
         {firstOfRun ? (
           <div className="flex items-baseline gap-2">
-            <span className="text-xs font-medium text-fg">{botName}</span>
+            <span className="text-xs font-medium text-fg">{fromTask ? "task" : botName}</span>
             <span className="text-2xs text-faint" title={absolute(message.ts)}>
               {relative(message.ts)}
             </span>
           </div>
         ) : null}
         <div data-testid="chat-message" data-role={message.role} className="min-w-0">
-          <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
+          <ChatMarkdown
+            text={message.text}
+            keyPrefix={`m${message.seq}-`}
+            className={fromTask ? "text-muted" : undefined}
+          />
           <ChatAttachments attachments={message.attachments} />
         </div>
       </div>
