@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
@@ -108,6 +109,21 @@ func (f *fakeStore) ChatTurnRunning(_ context.Context, chatID string) (bool, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.running[chatID], nil
+}
+
+func (f *fakeStore) SetChatChoice(
+	_ context.Context, id string, c store.ChatChoice,
+) (store.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	chat, ok := f.chats[id]
+	if !ok {
+		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
+	}
+	// Whatever it is given, empty included: switching back to the default is a choice.
+	chat.ChatChoice = c
+	f.chats[id] = chat
+	return chat, nil
 }
 
 func (f *fakeStore) SetChatTitle(_ context.Context, id, title string) (store.Chat, error) {
@@ -674,4 +690,36 @@ func TestEveryRowRecordsWhoSaidIt(t *testing.T) {
 	assert.Empty(t, msgs[0].TaskID, "the assistant's own words are not a task's")
 	assert.Equal(t, "task_01", msgs[1].TaskID)
 	assert.Equal(t, "task_01", msgs[2].TaskID, "an answer relayed from a task says which one")
+}
+
+// TestAChatRemembersWhatItIsAnsweredOn. The point is that a person picks a model once. It is
+// the OVERRIDE that is stored, so a conversation that asked for nothing keeps following
+// profile.yaml — and switching back to the default is itself a choice, expressed by sending
+// nothing and recorded by clearing the row.
+func TestAChatRemembersWhatItIsAnsweredOn(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	_, err := src.Send(ctx, SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "on grok please",
+		Override: profiles.Override{Agent: "grok", Model: "grok-4.6", Effort: "high"},
+	})
+	require.NoError(t, err)
+	drainEvent(t, src)
+
+	got, err := st.GetChat(ctx, "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{Agent: "grok", Model: "grok-4.6", Effort: "high"}, got.ChatChoice)
+
+	// Back to the assistant's own, which is a decision and not an absence of one.
+	require.NoError(t, src.React(ctx, "chat_1", conductor.ReactionDone))
+	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "default is fine"})
+	require.NoError(t, err)
+	drainEvent(t, src)
+
+	got, err = st.GetChat(ctx, "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{}, got.ChatChoice, "clearing the override is remembered too")
 }

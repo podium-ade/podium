@@ -570,6 +570,19 @@ message Chat {
   // the assistant answers it and delegates the work, so there was never one answer to
   // record and the field only ever named the last thing it happened to start.
   reserved 7;
+  // agent, model and effort are what this chat is answered on, so the composer opens on the
+  // model it was last asked for instead of making somebody pick again.
+  //
+  // They are the OVERRIDE a person set, and all empty means the assistant's own — which is
+  // why they are not the resolved triple `turns` records: a conversation that asked for
+  // nothing specific follows profile.yaml when it changes, rather than being pinned to
+  // whatever its first turn happened to run.
+  //
+  // A task the conversation delegates is unaffected either way: it runs on its playbook's
+  // model.
+  string agent = 8;
+  string model = 9;
+  string effort = 10;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id

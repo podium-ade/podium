@@ -119,6 +119,20 @@ type Backend struct {
 	Provider string
 }
 
+// ChatChoice is what a chat is answered on: the OVERRIDE a person picked, all empty for the
+// assistant's own model.
+//
+// The override and not the resolution, deliberately. A conversation that never asked for
+// anything specific stays on whatever profile.yaml says and follows it when that changes;
+// storing the resolved triple — which `turns` already records per turn — would pin every
+// chat to the model its first turn happened to run, turning a default into a choice nobody
+// made.
+type ChatChoice struct {
+	Agent  string
+	Model  string
+	Effort string
+}
+
 // UpsertSession returns the session for want.SourceKey, creating it if it is new. The playbook
 // of an existing session is never changed: one session, one playbook, fixed at creation. The
 // returned row is authoritative, so a caller that wanted a different playbook can see it did
@@ -505,6 +519,9 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
+	// ChatChoice is what this chat is answered on, remembered so a model is picked once per
+	// conversation rather than on every message.
+	ChatChoice
 	// AutoTitle is true when Podium may rewrite Title from the first query. False when
 	// the caller supplied a title at create.
 	AutoTitle bool
@@ -740,6 +757,28 @@ func (s *Store) SetSessionPlaybook(ctx context.Context, id, playbook string) err
 	return nil
 }
 
+// SetChatChoice records what a chat is answered on. An all-empty choice is a real value —
+// it means the assistant's own model — so this writes whatever it is given rather than
+// treating empty as "leave it alone": switching back to the default is a choice too.
+func (s *Store) SetChatChoice(ctx context.Context, id string, c ChatChoice) (Chat, error) {
+	if id == "" {
+		return Chat{}, errors.New("set chat choice: an id is required")
+	}
+	row, err := s.q.SetChatChoice(ctx, db.SetChatChoiceParams{
+		ID:     id,
+		Agent:  strings.TrimSpace(c.Agent),
+		Model:  strings.TrimSpace(c.Model),
+		Effort: strings.TrimSpace(c.Effort),
+	})
+	if noRows(err) {
+		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("set choice of chat %s: %w", id, err)
+	}
+	return chatFromRow(row), nil
+}
+
 // SetChatTitle rewrites an auto-named chat. A title supplied at create is left alone and
 // the current row is returned.
 func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error) {
@@ -759,11 +798,12 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error
 
 func chatFromRow(row db.Chat) Chat {
 	return Chat{
-		ID:        row.ID,
-		Title:     row.Title,
-		Login:     row.Login,
-		CreatedAt: row.CreatedAt.UTC(),
-		AutoTitle: row.AutoTitle,
+		ID:         row.ID,
+		Title:      row.Title,
+		Login:      row.Login,
+		CreatedAt:  row.CreatedAt.UTC(),
+		AutoTitle:  row.AutoTitle,
+		ChatChoice: ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
 	}
 }
 

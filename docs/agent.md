@@ -1730,10 +1730,19 @@ task it delegates, and may choose several while answering once.
   records one only when a task calls `podium-runner artifact add --content-type`, and a file
   the agent simply writes into the artifacts directory is collected with none — so the
   chat decides from the file's extension when the store has nothing to say.
-- **Which model answers**: the picker beside the composer. It applies to the messages sent from
-  then on, is never stored, and a reload goes back to `profile.yaml`'s. It moves what *answers*
-  and nothing else — a task the turn delegates runs on its own playbook's model, because
-  "answer me on Grok" is about the conversation and not about how a container does its job.
+- **Which model answers**: the picker beside the composer, and **the chat remembers it**. The
+  choice is stored on the chat row (`chats.agent/model/effort`), so a reload, a second tab and
+  coming back tomorrow all open on the model this conversation was last asked for rather than
+  making somebody pick again. Switching back to the default is a choice too, and clearing the
+  row is how it is recorded.
+
+  What is stored is the OVERRIDE, not the resolved triple `turns` records. A conversation that
+  asked for nothing specific therefore follows `profile.yaml` when it changes, instead of
+  being pinned to whatever model its first turn happened to run.
+
+  It moves what *answers* and nothing else — a task the turn delegates runs on its own
+  playbook's model, because "answer me on Grok" is about the conversation and not about how a
+  container does its job.
 - **No playbook, anywhere.** Not on the composer, not on `SendChatMessage`, not on the chat row,
   not on the session row. A `/word` typed into a chat is text like any other. This used to be a
   chip that chose the container a message ran in, which made sense while a chat message *was*

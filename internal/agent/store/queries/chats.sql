@@ -91,6 +91,14 @@ select exists (
 
 -- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
 -- (auto_title = false) is left alone.
+-- SetChatChoice records what this chat is answered on: the override a person picked, empty
+-- for the assistant's own. Last-write-wins on purpose — switching back to the default is a
+-- choice too, and it is expressed by sending nothing.
+-- name: SetChatChoice :one
+update chats set agent = @agent, model = @model, effort = @effort
+where id = @id
+returning *;
+
 -- name: SetChatTitle :one
 update chats set title = @title
 where id = @id and auto_title

@@ -449,6 +449,45 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
   });
 
+  // A model is picked once per conversation: the chat row remembers it, so a reload and a
+  // second tab both open on what this chat was last asked for.
+  it("opens on the model the chat was last answered on", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, agent: "grok", model: "grok-4.6", effort: "high" }],
+      nextCursor: "",
+    });
+    sendChatMessage.mockResolvedValue({ message: {} });
+    mount("/agent/chat/chat_01abc");
+
+    const trigger = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(trigger).toHaveTextContent("grok-4.6"));
+    expect(trigger).toHaveTextContent("high");
+
+    // And it rides with the next message without anybody touching the picker.
+    await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");
+    await waitFor(() =>
+      expect(sendChatMessage).toHaveBeenCalledWith({
+        chatId: "chat_01abc",
+        text: "again",
+        agent: "grok",
+        model: "grok-4.6",
+        effort: "high",
+      }),
+    );
+  });
+
+  // All three empty is "the assistant's own" and must read as nothing stored, or the picker
+  // would show a pinned model where the profile's default belongs.
+  it("falls back to the assistant's model when the chat remembers none", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, agent: "", model: "", effort: "" }],
+      nextCursor: "",
+    });
+    mount("/agent/chat/chat_01abc");
+    const trigger = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(trigger).toHaveTextContent("claude-opus-5"));
+  });
+
   // A conversation names no playbook, anywhere: not on the composer, not on the wire, and
   // not on its row in the list. The playbooks are what the turn delegates to.
   it("sends a message with no playbook and shows none", async () => {
