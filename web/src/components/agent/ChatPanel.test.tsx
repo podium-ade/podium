@@ -250,7 +250,39 @@ describe("ChatPanel", () => {
     expect(screen.queryByRole("button", { name: /Jump to latest/ })).toBeNull();
   });
 
-  it("shows progress while a turn runs and replaces it with the answer", async () => {
+  it("puts what the task said in the transcript, under its own name", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+    stream.push(message(2, "progress", "I'll read the schema first."));
+    stream.push(message(3, "progress", "Now the query."));
+    stream.push(message(4, "assistant", "Here it is."));
+    stream.push(status("finished"));
+
+    const bubbles = await waitFor(() => {
+      const found = screen.getAllByTestId("chat-message");
+      expect(found).toHaveLength(4);
+      return found;
+    });
+    expect(bubbles.map((b) => b.getAttribute("data-role"))).toEqual([
+      "user",
+      "progress",
+      "progress",
+      "assistant",
+    ]);
+    // Two voices, two names — and one name per run, not one per message.
+    expect(screen.getAllByText("task")).toHaveLength(1);
+    expect(screen.getByText("Podium")).toBeInTheDocument();
+    // It stays after the turn ends: it is the conversation, not a live view of one.
+    await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
+    expect(screen.getByText("I'll read the schema first.")).toBeInTheDocument();
+  });
+
+  it("shows the running state while a turn runs and drops it with the answer", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
