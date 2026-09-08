@@ -27,8 +27,9 @@ import (
 // edits replace it.
 const Placeholder = "👀 working…"
 
-// progressPrefix marks a progress edit as a work-in-progress line rather than the answer.
-const progressPrefix = "⏳ "
+// ProgressPrefix marks a progress edit as a work-in-progress line rather than the answer.
+// A source that can style the difference itself strips it.
+const ProgressPrefix = "⏳ "
 
 // progressThrottle is the shortest gap between two edits of one turn's placeholder. The
 // newest text wins; a held edit is flushed when the final arrives, before the final is

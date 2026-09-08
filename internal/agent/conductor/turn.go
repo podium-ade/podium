@@ -185,10 +185,10 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 // linkPullRequests hands the source the pull requests this turn's answer named.
 //
 // answer is the joined finals — byte for byte what FinishTurn just stored as final_text —
-// and it is the right text to read for two reasons. It is the only thing the turn said
-// that is durable: progress lines are coalesced, superseded and never stored, so a link
-// found in one would appear or not depending on how fast the runtime was talking, and
-// nothing afterwards could explain where it came from. And it is what a human would have
+// and it is the right text to read for two reasons. It is the only thing the turn said in
+// full: progress lines are coalesced and superseded on the way out, so a link found in one
+// would appear or not depending on how fast the runtime was talking, and nothing
+// afterwards could explain where it came from. And it is what a human would have
 // read: a pull request the turn opened is announced in its answer, and one that is only
 // muttered about on the way there is not this turn's result.
 //
@@ -302,7 +302,7 @@ func (r *turnRun) flushProgress(ctx context.Context) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: progressPrefix + text}
+	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: ProgressPrefix + text}
 	if r.placeholder == "" {
 		r.placeholder = r.c.post(ctx, r.src, r.ref, out)
 		return

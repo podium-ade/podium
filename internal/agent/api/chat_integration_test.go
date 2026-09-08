@@ -393,8 +393,8 @@ func TestARequestWithNoLoginIsRefused(t *testing.T) {
 }
 
 // TestStreamChatReplaysThenFollows is the whole streaming contract in one test: what is
-// stored is replayed, what happens next arrives live, progress is ephemeral and an
-// attachment republishes the message it belongs to.
+// stored is replayed, what happens next arrives live, progress is a row like anything else
+// the task said and an attachment republishes the message it belongs to.
 func TestStreamChatReplaysThenFollows(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -458,12 +458,23 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, status)
 	assert.Equal(t, chat.StatusStarted, status.GetState())
 
-	// The relay's progress: a frame, and no row.
+	// The placeholder: a frame, and no row. It is the conductor announcing the turn.
 	_, err = f.source.Post(ctx, chatID, conductor.Outbound{
-		Type: conductor.OutProgress, Text: "⏳ reading the schema", TaskID: "task_01",
+		Type: conductor.OutProgress, Text: conductor.Placeholder, TaskID: "task_01",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "⏳ reading the schema", nextFrame(t, stream).GetProgress())
+	assert.Equal(t, conductor.Placeholder, nextFrame(t, stream).GetProgress())
+
+	// The relay's progress: a message, under its own role and without Slack's prefix.
+	_, err = f.source.Post(ctx, chatID, conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.ProgressPrefix + "reading the schema", TaskID: "task_01",
+	})
+	require.NoError(t, err)
+	thinking := nextFrame(t, stream).GetMessage()
+	require.NotNil(t, thinking)
+	assert.Equal(t, uint64(4), thinking.GetSeq())
+	assert.Equal(t, store.RoleProgress, thinking.GetRole())
+	assert.Equal(t, "reading the schema", thinking.GetText())
 
 	// The relay's answer: a frame AND a row.
 	_, err = f.source.Post(ctx, chatID, conductor.Outbound{
@@ -472,7 +483,7 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NoError(t, err)
 	final := nextFrame(t, stream).GetMessage()
 	require.NotNil(t, final)
-	assert.Equal(t, uint64(4), final.GetSeq())
+	assert.Equal(t, uint64(5), final.GetSeq())
 	assert.Empty(t, final.GetAttachments(), "the final is posted before its attachments resolve")
 
 	// The relay's attachment: the same message again, now with the artifact on it.
@@ -494,12 +505,13 @@ func TestStreamChatReplaysThenFollows(t *testing.T) {
 	require.NotNil(t, done)
 	assert.Equal(t, chat.StatusFinished, done.GetState())
 
-	// A reload shows the four rows and no progress line.
+	// A reload shows all five rows, the thought among them, and no placeholder.
 	stored, err := f.store.ListChatMessages(ctx, chatID, 0)
 	require.NoError(t, err)
-	require.Len(t, stored, 4)
+	require.Len(t, stored, 5)
+	assert.Equal(t, "reading the schema", stored[3].Text)
 	for _, m := range stored {
-		assert.NotContains(t, m.Text, "reading the schema", "progress is never a row")
+		assert.NotContains(t, m.Text, conductor.Placeholder, "the placeholder is never a row")
 	}
 	require.NoError(t, stream.Close())
 }

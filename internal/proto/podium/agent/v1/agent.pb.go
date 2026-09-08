@@ -2370,7 +2370,10 @@ type ChatMessage struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
 	Seq    uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	// role is "user" or "assistant".
+	// role is "user", "assistant", or "progress" for a line the task said on its way to an
+	// answer. A progress message is stored and rendered like any other; it is a role of its
+	// own so the transcript a turn is briefed with can leave it out, and so an attachment
+	// lands on the answer rather than on the last thought before it.
 	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
 	Text          string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	Attachments   []*ChatAttachment      `protobuf:"bytes,5,rep,name=attachments,proto3" json:"attachments,omitempty"`
@@ -2650,12 +2653,14 @@ func (x *ChatPullRequests) GetPullRequests() []*ChatPullRequest {
 // ChatFrame is one thing that happened in a chat.
 //
 // A message frame is durable and may repeat with the same seq when its attachments are
-// resolved after the fact — a client keyed on seq replaces rather than appends. A progress
-// frame is ephemeral: it is shown while a turn runs and is never stored, so a reload does
-// not show it. A resync frame means this subscriber fell behind and dropped something
-// durable: re-read from the last seq seen. A chat frame is the conversation's own row
-// after a title or playbook change; a reload re-reads it from ListChats. A pull_requests
-// frame is the whole set again, sent at the start of the stream and whenever it changes.
+// resolved after the fact — a client keyed on seq replaces rather than appends. What a task
+// says arrives that way, progress included. A progress frame is only the conductor's
+// placeholder: it is ephemeral, it says a turn has started and has yet to say anything, and
+// the running indicator is what shows it. A resync frame means this subscriber fell behind
+// and dropped something durable: re-read from the last seq seen. A chat frame is the
+// conversation's own row after a title or playbook change; a reload re-reads it from
+// ListChats. A pull_requests frame is the whole set again, sent at the start of the stream
+// and whenever it changes.
 type ChatFrame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Frame:

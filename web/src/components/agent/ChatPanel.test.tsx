@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -217,7 +217,105 @@ describe("ChatPanel", () => {
     expect(link).toHaveAttribute("href", "https://github.com/acme/api/pull/41");
   });
 
-  it("shows progress while a turn runs and replaces it with the answer", async () => {
+  it("opens an existing conversation at the bottom", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    // jsdom does no layout; the first message mounts the scroller so the test can
+    // give it a viewport shorter than the transcript before the rest of the replay.
+    stream.push(message(1, "user", "how many active accounts last month"));
+    await screen.findByTestId("chat-scroller");
+    const scroller = screen.getByTestId("chat-scroller");
+    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
+
+    stream.push(message(2, "assistant", "**4,812** in August."));
+    stream.push(message(3, "user", "and before that"));
+    stream.push(message(4, "assistant", "3,901 in July."));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(4));
+    expect(scroller.scrollTop).toBe(8000);
+  });
+
+  it("stops following when the human scrolls up, and the jump control restores it", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "hello"));
+    await screen.findByTestId("chat-scroller");
+    const scroller = screen.getByTestId("chat-scroller");
+    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
+    stream.push(message(2, "assistant", "hi"));
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
+
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(await screen.findByRole("button", { name: /Jump to latest/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Jump to latest/ }));
+    expect(scroller.scrollTop).toBe(8000);
+    expect(screen.queryByRole("button", { name: /Jump to latest/ })).toBeNull();
+  });
+
+  it("does not unpin when the transcript grows in place", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    await screen.findByTestId("chat-scroller");
+    const scroller = screen.getByTestId("chat-scroller");
+    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
+    stream.push(message(2, "assistant", "here"));
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
+    expect(scroller.scrollTop).toBe(8000);
+
+    // An image decoding grows the column without the human moving the scrollbar.
+    Object.defineProperty(scroller, "scrollHeight", { value: 12000, configurable: true });
+    fireEvent.scroll(scroller);
+    expect(screen.queryByRole("button", { name: /Jump to latest/ })).toBeNull();
+  });
+
+  it("puts what the task said in the transcript, under its own name", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+    stream.push(message(2, "progress", "I'll read the schema first."));
+    stream.push(message(3, "progress", "Now the query."));
+    stream.push(message(4, "assistant", "Here it is."));
+    stream.push(status("finished"));
+
+    const bubbles = await waitFor(() => {
+      const found = screen.getAllByTestId("chat-message");
+      expect(found).toHaveLength(4);
+      return found;
+    });
+    expect(bubbles.map((b) => b.getAttribute("data-role"))).toEqual([
+      "user",
+      "progress",
+      "progress",
+      "assistant",
+    ]);
+    // Two voices, two names — and one name per run, not one per message.
+    expect(screen.getAllByText("task")).toHaveLength(1);
+    expect(screen.getByText("Podium")).toBeInTheDocument();
+    // It stays after the turn ends: it is the conversation, not a live view of one.
+    await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
+    expect(screen.getByText("I'll read the schema first.")).toBeInTheDocument();
+  });
+
+  it("shows the running state while a turn runs and drops it with the answer", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
