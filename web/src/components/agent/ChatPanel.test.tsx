@@ -781,6 +781,30 @@ describe("ChatPanel", () => {
     expect(screen.queryByTestId("chat-author")).not.toBeInTheDocument();
   });
 
+  // Opening a mirrored thread used to render the composer and then take it away, because
+  // the only source of the origin was a stream frame that lands after the first render. The
+  // list row already knows, so there is nothing to flash: no composer at any point.
+  it("never flashes the composer when opening a mirrored thread", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, origin: "slack", startedBy: "alice" }],
+      nextCursor: "",
+    });
+    // A stream that opens and says NOTHING, which is the window the flash happened in.
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    const note = await screen.findByTestId("chat-mirrored-note");
+    expect(note).toHaveTextContent("lives in slack");
+    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+
+    // And it stays gone once the stream confirms what the list already said.
+    stream.push(chatRow({ origin: "slack", startedBy: "alice", participants: ["alice"] }));
+    stream.push(said(1, "user", "what does this repo do?", "alice"));
+    await screen.findByTestId("chat-author");
+    expect(screen.queryByTestId("chat-composer")).not.toBeInTheDocument();
+  });
+
   it("marks a mirrored thread in the list and says who started it", async () => {
     listChats.mockResolvedValue({
       chats: [{ ...chat, origin: "slack", startedBy: "alice" }],
