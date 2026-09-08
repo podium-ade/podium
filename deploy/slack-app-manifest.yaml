@@ -48,12 +48,11 @@ oauth_config:
 settings:
   event_subscriptions:
     bot_events:
-      # The mention that starts a turn.
+      # The mention that starts a turn, including a mention inside an existing thread.
       - app_mention
-      # A reply in a thread the bot is already in continues the conversation without a
-      # mention, and a DM is a conversation of its own. Everything else is ignored: anything
-      # from a bot, anything with a subtype, and any channel message that is not a reply in a
-      # known thread.
+      # A DM is a conversation of its own. Channel message events still arrive — Slack
+      # delivers a mention as both app_mention and message — but a thread reply without
+      # an @-mention is not a turn.
       - message.channels
       - message.groups
       - message.im

@@ -63,11 +63,7 @@ type Options struct {
 	AppToken string
 	// BotToken is the xoxb-… bot token. SENSITIVE.
 	BotToken string
-	// KnownSession reports whether a source key already has a session. A reply in a thread
-	// the bot is already in continues the conversation without a mention, and this is how
-	// the source knows which threads those are without owning any state of its own.
-	KnownSession func(ctx context.Context, sourceKey string) bool
-	Logger       *slog.Logger
+	Logger   *slog.Logger
 
 	// apiURL points the Web API at somewhere other than Slack. It is unexported because
 	// the only caller that has any business setting it is this package's own test: every
@@ -86,7 +82,6 @@ type Source struct {
 	// paths are an order of magnitude apart. See writeRate and readRate.
 	writes *rate.Limiter
 	reads  *rate.Limiter
-	known  func(ctx context.Context, sourceKey string) bool
 
 	// botUserID and botID identify the bot's own messages, so they are never relayed back
 	// to it as input and are marked as the assistant in a transcript.
@@ -119,10 +114,6 @@ func New(opts Options) (*Source, error) {
 		options = append(options, slack.OptionAPIURL(opts.apiURL))
 	}
 	api := slack.New(opts.BotToken, options...)
-	known := opts.KnownSession
-	if known == nil {
-		known = func(context.Context, string) bool { return false }
-	}
 	return &Source{
 		api:    api,
 		sm:     socketmode.New(api),
@@ -130,7 +121,6 @@ func New(opts Options) (*Source, error) {
 		events: make(chan conductor.InboundEvent, 32),
 		writes: rate.NewLimiter(writeRate, 1),
 		reads:  rate.NewLimiter(readRate, 1),
-		known:  known,
 		users:  map[string]string{},
 		seen:   map[string]time.Time{},
 	}, nil
@@ -220,11 +210,9 @@ func (s *Source) inner(ctx context.Context, api slackevents.EventsAPIEvent) {
 		if ev.SubType != "" || ev.BotID != "" || ev.User == "" || ev.User == s.botUserID {
 			return
 		}
-		// A reply in a thread the bot is already in continues the conversation; so does
-		// anything said in a DM. Everything else needs a mention, which arrives as an
-		// app_mention above.
-		key := sourceKey(ev.Channel, threadOf(ev.ThreadTimeStamp, ev.TimeStamp))
-		if ev.ChannelType != "im" && (ev.ThreadTimeStamp == "" || !s.known(ctx, key)) {
+		// A DM is always input. A channel message that mentions the bot arrives as
+		// app_mention above; a reply in a thread is not enough on its own.
+		if ev.ChannelType != "im" {
 			return
 		}
 		s.emit(ctx, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, ev.User, ev.Text)
@@ -365,6 +353,13 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	if err != nil {
 		return "", err
 	}
+	// The working acknowledgement is the 👀 reaction, not a chat message. The conductor
+	// still offers the placeholder (every source sees the same Post); Slack drops it so
+	// the thread never shows "working…", and returns no id so later progress cannot edit
+	// a message that was never posted.
+	if out.Text == conductor.Placeholder {
+		return "", nil
+	}
 	first := ""
 	for _, part := range Split(out.Text, MaxMessageChars) {
 		ts, err := s.write(ctx, func() (string, error) {
@@ -383,7 +378,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 }
 
 // Edit replaces a message this source posted. Only the first part of a split message is
-// ever edited, which is what the placeholder always is.
+// ever edited, which is what a progress line is.
 func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outbound) error {
 	channel, _, _, err := ParseRef(ref)
 	if err != nil {
@@ -455,7 +450,7 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 // message every turn — so nothing of this bot's can already be on it, and the state machine
 // is only ever working → done | failed. Removing the two emoji it was not setting on every
 // call meant three requests a turn that Slack answered "no_reaction" to, two of them ahead
-// of the placeholder, where somebody is waiting to see that they were heard.
+// of the working mark, where somebody is waiting to see that they were heard.
 func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction) error {
 	channel, _, trigger, err := ParseRef(ref)
 	if err != nil {

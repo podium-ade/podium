@@ -45,7 +45,7 @@ const (
 
 // SessionLookup reports whether a source key already has a session and, if so, when its
 // last turn started. It is injected rather than read from the store because a source never
-// touches the store: this is the same shape the Slack source's KnownSession has.
+// touches the store.
 //
 // The zero time with ok == true means a session exists that has never run a turn.
 type SessionLookup func(ctx context.Context, sourceKey string) (lastTurnAt time.Time, ok bool)
