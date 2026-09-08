@@ -370,7 +370,11 @@ func startRunningChatTask(t *testing.T, s *store.Store, chatID, taskID string) {
 		SourceKind: "chat", SourceKey: store.ChatSourceKey(chatID), Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	turn, err := s.CreateTurn(ctx, sess.ID, chatID)
+	// The backend a turn ran on. Any of them: this helper exists to give a chat a running
+	// task to cancel, and nothing here reads what it ran on.
+	turn, err := s.CreateTurn(ctx, sess.ID, chatID, store.Backend{
+		Agent: "claude", Model: "claude-opus-5", Provider: "anthropic",
+	})
 	require.NoError(t, err)
 	require.NoError(t, s.SetTurnTask(ctx, turn.ID, taskID))
 }
