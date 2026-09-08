@@ -98,6 +98,10 @@ type Options struct {
 	// (PODIUM_AGENT_SKILLS_DIR). Empty means this conductor delivers none, and a playbook
 	// that names one fails its turns saying so.
 	SkillsDir string
+	// Host is the runtime this process runs a turn on itself. Nil means every turn is a
+	// task, which is what a conductor whose host has no runtime must do; set, it is what
+	// answers a conversation, and a container is what it delegates to. See host.go.
+	Host *HostRuntime
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -115,9 +119,14 @@ type Conductor struct {
 	xaiBaseURL string
 	// skillsDir is where a turn's Agent Skills are read from.
 	skillsDir string
+	// host is the runtime for a turn this process runs itself, nil when it runs none.
+	host *HostRuntime
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
+	// hostRuns are the host turns in flight, by the ref of the message that started each,
+	// so one can be cancelled without stopping the conductor.
+	hostRuns map[string]func()
 	wg       sync.WaitGroup
 }
 
@@ -142,6 +151,11 @@ func New(opts Options) (*Conductor, error) {
 	case opts.Profiles == nil || opts.Profiles.Current() == nil:
 		return nil, errors.New("conductor: a profile is required")
 	}
+	if opts.Host != nil {
+		if err := opts.Host.validate(); err != nil {
+			return nil, err
+		}
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -161,7 +175,9 @@ func New(opts Options) (*Conductor, error) {
 		memories:   opts.MemoryClient,
 		xaiBaseURL: cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
 		skillsDir:  opts.SkillsDir,
+		host:       opts.Host,
 		sessions:   map[string]*sessionState{},
+		hostRuns:   map[string]func(){},
 	}, nil
 }
 
@@ -358,11 +374,47 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(sess, playbook, turn.ID, ev, entries, bundles, choice)
+	if c.host != nil {
+		c.fenceForHost(brief)
+	}
 	encoded, err := brief.Encode()
 	if err != nil {
 		c.logger.WarnContext(ctx, "the turn brief does not fit", "turn_id", turn.ID, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "This conversation is too large for me to take in at once. Start a new thread with just the question."})
 		c.failTurn(ctx, src, sess, playbook, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
+
+	run := &turnRun{
+		c:           c,
+		src:         src,
+		sess:        sess,
+		playbook:    playbook,
+		turn:        turn,
+		ref:         ev.Ref,
+		author:      ev.Author,
+		instruction: ev.Text,
+		url:         ev.URL,
+		placeholder: placeholder,
+		startedAt:   started,
+	}
+
+	// The conversation runs here; a container is what it delegates to. The turn row keeps
+	// its task_id empty, which is what the recovery pass reads to mean "this one died with
+	// the process that was running it".
+	//
+	// A CONVERSATION, and not every turn: the web chat is a person waiting on an answer, and
+	// a container per message is what makes that slow. A Slack mention and a Linear
+	// assignment keep running as tasks, because their playbooks are the ones that want a
+	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
+	if c.host != nil && hostCapable(src.Kind()) {
+		host := &hostRun{r: run, encoded: encoded, bundles: bundles, provider: brief.Provider}
+		if src.Kind() == KindDev {
+			// The same TEST-ONLY escape taskSpec allows, and only for the same source: the
+			// dry-run knobs step 16 defined are how a test drives a turn with no model.
+			host.devEnv = ev.Env
+		}
+		host.run(ctx)
 		return
 	}
 
@@ -382,22 +434,17 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			"turn_id", turn.ID, "task_id", task.GetId(), "error", err)
 	}
 	turn.TaskID = task.GetId()
+	run.turn = turn
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
 		"playbook", playbook.Name, "task_id", task.GetId(), "source", src.Kind())
 
-	(&turnRun{
-		c:           c,
-		src:         src,
-		sess:        sess,
-		playbook:    playbook,
-		turn:        turn,
-		ref:         ev.Ref,
-		author:      ev.Author,
-		instruction: ev.Text,
-		url:         ev.URL,
-		placeholder: placeholder,
-		startedAt:   started,
-	}).run(ctx)
+	run.run(ctx)
+}
+
+// hostCapable is which sources a host turn may answer. The dev source is in it because it
+// is how the host path is tested (host_integration_test.go).
+func hostCapable(kind string) bool {
+	return kind == SourceChat || kind == KindDev
 }
 
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
@@ -759,13 +806,16 @@ func (c *Conductor) recover(ctx context.Context) {
 		playbook := c.profiles.Current().Playbooks[sess.Playbook]
 
 		if turn.TaskID == "" {
-			c.logger.WarnContext(ctx, "a turn was recorded but its task never was; failing it",
+			// Either a turn whose task was never created, or a HOST turn — which runs as a
+			// child of this process and therefore did not survive the restart. Neither can
+			// be resumed and both are already over.
+			c.logger.WarnContext(ctx, "a turn with no task was in flight; failing it",
 				"turn_id", turn.ID)
 			if err := c.store.FinishTurn(ctx, turn.ID, store.TurnFailed, nil, nil, ""); err != nil {
 				c.logger.ErrorContext(ctx, "failing an orphaned turn failed", "turn_id", turn.ID, "error", err)
 			}
 			if src != nil {
-				c.post(ctx, src, turn.TriggerRef, Outbound{Type: OutFailure, Text: "I was restarted before this got going and nothing ran. Ask me again."})
+				c.post(ctx, src, turn.TriggerRef, Outbound{Type: OutFailure, Text: "I was restarted while this was in flight and it did not survive. Nothing is still running. Ask me again."})
 				c.finish(ctx, src, turn.TriggerRef, ReactionFailed)
 			}
 			continue

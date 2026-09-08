@@ -236,6 +236,35 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"Set PODIUM_AGENT_MEMORY_URL and PODIUM_AGENT_MEMORY_API_KEY to enable it.")
 	}
 
+	// The host runtime, when this host has one. It is built before the conductor and reads
+	// the credential through a.svc, which is built after it: the closure resolves when a
+	// turn asks, not now.
+	var host *conductor.HostRuntime
+	if cfg.HostRuntime != "" {
+		host = &conductor.HostRuntime{
+			Node:     cfg.HostNode,
+			Entry:    cfg.HostRuntime,
+			Runner:   cfg.RunnerBin,
+			StateDir: cfg.HostDir,
+			Credential: func(ctx context.Context, provider string) (string, error) {
+				return a.svc.HostCredential(ctx, provider)
+			},
+		}
+		if cfg.MemoryEnabled() {
+			// The memory server as THIS PROCESS reaches it. A task is told
+			// cfg.MemoryTaskURL, which is an address that resolves in a container.
+			host.MemoryMCPURL = memory.MCPURL(cfg.MemoryURL, cfg.MemoryBank)
+			host.MemoryAPIKey = cfg.MemoryAPIKey
+		}
+		logger.Info("host turns: enabled — a conversation is answered by this process and "+
+			"delegates to a task when it needs a container",
+			"runtime", cfg.HostRuntime, "node", cfg.HostNode, "runner", cfg.RunnerBin)
+	} else {
+		logger.Info("host turns: not configured; every turn runs as a task. " +
+			"Set PODIUM_AGENT_HOST_RUNTIME and PODIUM_AGENT_RUNNER_BIN to answer " +
+			"conversations on this host.")
+	}
+
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
@@ -247,6 +276,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		MemoryClient: a.memory,
 		XAIBaseURL:   a.cfg.XAIBaseURL,
 		SkillsDir:    a.cfg.SkillsDir,
+		Host:         host,
 	})
 	if err != nil {
 		st.Close()
