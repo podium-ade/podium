@@ -3,12 +3,13 @@
 //
 // Slack has threads and Linear has issues; a browser has nothing, so the chats and
 // chat_messages tables ARE the conversation. What a turn is handed as history, what a
-// reload renders and what the chat list shows all come out of them. Progress is the one
-// exception: it is fanned out to whoever is watching and never stored, because a
-// half-finished thought is not a record.
+// reload renders and what the chat list shows all come out of them — including what a task
+// said on its way to an answer, which is stored under its own role. The one thing that is
+// not a row is the placeholder: that is the conductor announcing a turn, and the running
+// indicator is where it belongs.
 //
 // Everything in a chat is content. A human wrote the user messages and a task wrote the
-// assistant ones; this package stores and relays both and interprets neither.
+// assistant and progress ones; this package stores and relays them all and interprets none.
 package chat
 
 import (
@@ -350,7 +351,7 @@ func (s *Source) tookSpoke(chatID string) bool {
 	return s.live[chatID] != nil && s.live[chatID].spoke
 }
 
-// FetchTranscript implements conductor.Source: the whole conversation, oldest first. The
+// FetchTranscript implements conductor.Source: the questions and answers, oldest first. The
 // brief's 96 KiB cap is what truncates a long one, oldest entry first (step 17).
 func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error) {
 	chat, err := s.store.GetChat(ctx, ref)
@@ -363,6 +364,12 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 	}
 	out := make([]conductor.BriefEntry, 0, len(msgs))
 	for _, m := range msgs {
+		// A turn's own half-finished thoughts are not history. They are in the transcript a
+		// human reads, and leaving them out of this one keeps the brief's cap for the
+		// questions and answers it is meant to carry.
+		if m.Role == store.RoleProgress {
+			continue
+		}
 		author := chat.Login
 		if m.Role == store.RoleAssistant {
 			author = s.name
@@ -379,15 +386,13 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 
 // Post implements conductor.Source.
 //
-// A final or a failure is a row: it is the answer, and it has to survive a reload. Progress
-// is not: it is pushed to whoever is watching and forgotten, which is why a reloaded chat
-// shows the answer and no trail of thinking.
+// Everything a task says is a row, progress included: it is the task talking, and a
+// conversation Podium holds itself has nowhere else to keep it.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	if out.Type == conductor.OutProgress {
-		s.bcast.Publish(ref, Frame{Kind: FrameProgress, Progress: out.Text, TaskID: out.TaskID})
 		// A progress message has no id, but the turn loop edits whatever Post returned, so
 		// it needs something non-empty to hold on to.
-		return progressMessageID, nil
+		return progressMessageID, s.progress(ctx, ref, out)
 	}
 	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 		ChatID: ref,
@@ -410,14 +415,48 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	return strconv.FormatUint(msg.Seq, 10), nil
 }
 
-// progressMessageID is the id Post returns for a progress line. Progress is not stored, so
-// there is nothing to address; Edit publishes a new frame whatever it is given.
+// progressMessageID is the id Post returns for a progress line. There is nothing to
+// address: an edit appends rather than replaces, so the id is only a handle the turn loop
+// needs to be non-empty.
 const progressMessageID = "progress"
 
-// Edit implements conductor.Source. The turn loop edits its placeholder to show the newest
-// progress; here that is simply another progress frame, because nothing kept the old one.
-func (s *Source) Edit(_ context.Context, ref, _ string, out conductor.Outbound) error {
-	s.bcast.Publish(ref, Frame{Kind: FrameProgress, Progress: out.Text, TaskID: out.TaskID})
+// Edit implements conductor.Source.
+//
+// The turn loop edits its placeholder to show the newest progress. A chat has no
+// placeholder to edit — the running indicator is not a message — so each edit is another
+// line in the transcript, which is what makes the trail readable after the fact instead of
+// only while somebody was watching.
+func (s *Source) Edit(ctx context.Context, ref, _ string, out conductor.Outbound) error {
+	return s.progress(ctx, ref, out)
+}
+
+// progress relays one work-in-progress line, as a message with its own role.
+//
+// The placeholder is the exception: it is the conductor saying it has started, not a word
+// from the task, and React already published the same news as a status frame — so it stays
+// ephemeral and the running indicator is what shows it. The prefix goes too: it marks a
+// work-in-progress line where nothing else can, and this chat styles the difference.
+func (s *Source) progress(ctx context.Context, ref string, out conductor.Outbound) error {
+	if out.Text == conductor.Placeholder {
+		s.bcast.Publish(ref, Frame{Kind: FrameProgress, Progress: out.Text, TaskID: out.TaskID})
+		return nil
+	}
+	text := strings.TrimPrefix(out.Text, conductor.ProgressPrefix)
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	// Deliberately no noteSpoke: a thought is not an answer, so a turn that dies after only
+	// thinking still leaves its plain-words failure behind.
+	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+		ChatID: ref,
+		Role:   store.RoleProgress,
+		Text:   text,
+		TS:     time.Now().UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	s.bcast.Publish(ref, Frame{Kind: FrameMessage, Message: msg})
 	return nil
 }
 
