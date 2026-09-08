@@ -230,10 +230,16 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 	c.logger.InfoContext(ctx, "delegated a task", "delegation_id", dlg.ID, "turn_id", g.turnID,
 		"session_id", g.sessionID, "playbook", playbookName, "task_id", dlg.TaskID)
 
-	// Said out loud, in the conversation, before the work starts. A container doing work
-	// somebody asked a chat for should never be invisible to them.
-	c.post(ctx, g.src, g.ref, Outbound{Type: OutProgress, TaskID: dlg.TaskID, Text: fmt.Sprintf(
-		"Working on this in a `%s` task: %s", playbookName, firstLine(instruction, maxAnnouncedRunes))})
+	// HELD, not said. See holdAnnouncement.
+	c.holdAnnouncement(announcement{
+		dlgID:  dlg.ID,
+		turnID: g.turnID,
+		src:    g.src,
+		ref:    g.ref,
+		taskID: dlg.TaskID,
+		text: fmt.Sprintf("Working on this in a `%s` task: %s",
+			playbookName, firstLine(instruction, maxAnnouncedRunes)),
+	})
 
 	c.followDelegation(ctx, g.src, dlg, playbook, 0)
 	return dlg, nil
@@ -242,6 +248,76 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 // maxAnnouncedRunes bounds the echo of an instruction in the announcement. The instruction
 // is a model's words and can be long; the announcement is one line in a conversation.
 const maxAnnouncedRunes = 120
+
+// announcement is a delegation the conversation has not been told about yet.
+type announcement struct {
+	dlgID  string
+	turnID string
+	src    Source
+	ref    string
+	taskID string
+	text   string
+}
+
+// holdAnnouncement records that a task was started without saying so yet.
+//
+// It used to be said here, synchronously, inside the tool call — and it arrived BEFORE the
+// assistant's own sentence about what it was doing, every time. The reason is in the
+// harness: `opencode --format json` reports a tool only once it has COMPLETED (every
+// tool_use event carries status `completed`; there is no pending one), so the runtime cannot
+// release the text it is holding until after the tool has run. The text was in the runtime's
+// hands before the tool ran and could not be published until after it. Observed as a 769ms
+// inversion, which read as the container talking about work nobody had asked for yet.
+//
+// So the announcement waits for whichever comes first:
+//
+//   - the delegated task's own first word, because the announcement has to precede it — it
+//     is what says which task is talking; or
+//   - the end of the delegating turn, because by then the assistant has said its piece and
+//     the announcement can only follow it.
+//
+// Held after the task exists, so the path where creation failed never holds one. A process
+// that dies in between loses the line: the recovery pass resumes the delegation, and its own
+// progress is what the conversation gets.
+func (c *Conductor) holdAnnouncement(a announcement) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = append(c.pending, a)
+}
+
+// sayAnnouncement posts the held line for one delegation, if it is still held. Called before
+// that task's first relayed word.
+func (c *Conductor) sayAnnouncement(ctx context.Context, dlgID string) {
+	c.sayHeld(ctx, func(a announcement) bool { return a.dlgID == dlgID })
+}
+
+// sayAnnouncementsFor posts whatever one turn started and never announced, in the order it
+// started them. Called when that turn ends.
+func (c *Conductor) sayAnnouncementsFor(ctx context.Context, turnID string) {
+	c.sayHeld(ctx, func(a announcement) bool { return a.turnID == turnID })
+}
+
+// sayHeld takes the matching announcements out under the lock and posts them outside it: a
+// post reaches a source, and holding the conductor's mutex across that would serialise every
+// session behind one slow conversation.
+func (c *Conductor) sayHeld(ctx context.Context, match func(announcement) bool) {
+	c.mu.Lock()
+	kept := c.pending[:0:0]
+	var say []announcement
+	for _, a := range c.pending {
+		if match(a) {
+			say = append(say, a)
+			continue
+		}
+		kept = append(kept, a)
+	}
+	c.pending = kept
+	c.mu.Unlock()
+
+	for _, a := range say {
+		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Text: a.text})
+	}
+}
 
 // startDelegatedTask builds the brief and creates the task. The brief is the ordinary one —
 // the playbook's own image, tools, skills, secrets and repositories — with two deliberate
@@ -494,6 +570,10 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 		r.readAccounting(ctx, []byte(msg.GetText()))
 		return
 	}
+	// Before the task's first word, so "Working on this in a `podium` task" cannot arrive
+	// after the task has already started talking about it.
+	r.c.sayAnnouncement(ctx, r.dlg.ID)
+
 	// The same rule the sink applies: anything that is not a final is progress. It is
 	// recorded here as well as relayed, because a turn polling GetDelegation wants to see
 	// movement rather than only "running".

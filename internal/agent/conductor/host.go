@@ -105,6 +105,10 @@ const (
 	// the copy this process can spend.
 	hostCredentialStale = "The stored credential predates turns running on this host, so I cannot spend it. " +
 		"An operator needs to save it again on the Settings tab. The value has not changed and only has to be re-entered."
+	// hostTimedOut names the limit, because it is the one thing a reader can act on: ask
+	// for less, or have an operator raise profile.yaml's timeout.
+	hostTimedOut = "I ran for %s without finishing, so I stopped. Anything above this is " +
+		"incomplete. A task I started keeps running and will answer on its own."
 )
 
 // HostRuntime is what the conductor needs to run a turn itself. Nil in Options means every
@@ -258,7 +262,12 @@ func (h *hostRun) run(ctx context.Context) {
 
 	// A cancel of its own, so something outside the turn loop can stop this turn without
 	// stopping the conductor: a chat deleted while its agent is still talking.
-	runCtx, cancel := context.WithCancel(ctx)
+	//
+	// And a DEADLINE, because nothing else bounds an assistant turn: there is no container
+	// and, by default, no step cap. It is the same context, so a turn that runs out of time
+	// is stopped exactly as a cancelled one is — SIGTERM, then hostGrace to say what it
+	// managed — and only the sentence afterwards differs.
+	runCtx, cancel := context.WithTimeout(ctx, r.job.assistantTimeout())
 	defer cancel()
 
 	// The turn's authority to delegate, for exactly as long as the turn. Revoked below
@@ -334,7 +343,12 @@ func (h *hostRun) run(ctx context.Context) {
 	}
 
 	waitErr := <-waited
-	cancelled := runCtx.Err() != nil
+	// Why it stopped, when stopping was not its own idea. A deadline is NOT a cancellation:
+	// nobody asked for this turn to end, so it is a failure and the conversation is told
+	// why — whereas a cancel is somebody's own decision and needs no explaining to them.
+	stopped := runCtx.Err() != nil
+	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
+	cancelled := stopped && !timedOut
 	if bad := link.unreadable(); len(bad) > 0 {
 		c.logger.WarnContext(ctx, "a host turn's event socket carried lines this process could not read",
 			"turn_id", r.turn.ID, "errors", bad)
@@ -346,7 +360,7 @@ func (h *hostRun) run(ctx context.Context) {
 	// has no task and died with this process, so if this does not record it, nothing does
 	// until the next start finds an orphan.
 	done := ctx
-	if cancelled {
+	if stopped {
 		var stop context.CancelFunc
 		done, stop = context.WithTimeout(context.WithoutCancel(ctx), hostRecordGrace)
 		defer stop()
@@ -355,6 +369,14 @@ func (h *hostRun) run(ctx context.Context) {
 	r.flushProgress(done)
 
 	status := hostOutcome(cmd.ProcessState.ExitCode(), cancelled)
+	if timedOut {
+		// Not cancelled: a turn nobody stopped, which did not finish. The sentence goes out
+		// whatever the runtime managed to say, because an answer cut off mid-thought reads
+		// as a complete one otherwise.
+		status = store.TurnFailed
+		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: fmt.Sprintf(
+			hostTimedOut, r.job.assistantTimeout())})
+	}
 	if status != store.TurnSucceeded {
 		c.logger.WarnContext(done, "a host turn did not succeed", "turn_id", r.turn.ID,
 			"exit_code", cmd.ProcessState.ExitCode(), "status", status, "error", waitErr)
@@ -366,6 +388,10 @@ func (h *hostRun) run(ctx context.Context) {
 	if !r.said() {
 		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: hostSaidNothing})
 	}
+	// Whatever this turn started and the conversation has not been told about. Last, so it
+	// follows the turn's own words rather than pre-empting them — which is the whole reason
+	// the line is held rather than said inside the tool call.
+	c.sayAnnouncementsFor(done, r.turn.ID)
 	r.finish(done, status)
 }
 

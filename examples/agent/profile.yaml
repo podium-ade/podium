@@ -34,6 +34,8 @@ agent: claude
 # a repository, beside a review, and not behind a form in a browser.
 # skills: [validate-pr]
 # max_turns: 50   # unset means NO cap, unlike a playbook's
+# timeout: 15m     # the wall clock on one turn. Unset is 15m; there is no 'off', because
+#                  # with no step cap it is the only automatic stop the assistant has.
 #
 # Which playbook a Slack mention or a Linear ticket runs when nothing more specific routes it.
 default_playbook: general

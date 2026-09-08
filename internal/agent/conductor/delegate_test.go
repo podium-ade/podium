@@ -2,6 +2,8 @@ package conductor
 
 import (
 	"context"
+	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -171,4 +173,103 @@ func repeat(s string, n int) string {
 		out = append(out, s...)
 	}
 	return string(out)
+}
+
+// sayingSource is chatSource that remembers what was posted to it. fakesource would do the
+// job and cannot be used: it imports this package, so an in-package test importing it back
+// is a cycle — and these tests reach unexported state, so they have to be in-package.
+type sayingSource struct {
+	chatSource
+	mu    sync.Mutex
+	posts []Outbound
+	refs  []string
+}
+
+func (s *sayingSource) Post(_ context.Context, ref string, out Outbound) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.posts = append(s.posts, out)
+	s.refs = append(s.refs, ref)
+	return "1", nil
+}
+
+func (s *sayingSource) said() []Outbound {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Outbound(nil), s.posts...)
+}
+
+// announcingConductor is the smallest conductor the held-announcement paths need: a logger
+// for the post failure path, and nothing else.
+func announcingConductor() *Conductor {
+	return &Conductor{logger: slog.New(slog.DiscardHandler)}
+}
+
+// TestATurnEndingSaysWhatItStarted is the half the integration test cannot pin: a delegated
+// task that has not spoken yet is announced when the turn that started it ends, so the line
+// follows the assistant's own words instead of pre-empting them.
+func TestATurnEndingSaysWhatItStarted(t *testing.T) {
+	src := &sayingSource{}
+	c := announcingConductor()
+
+	c.holdAnnouncement(announcement{
+		dlgID: "dlg_1", turnID: "turn_1", src: src, ref: "C1/1.1", taskID: "task_01",
+		text: "Working on this in a `dogfood` task: go",
+	})
+	c.sayAnnouncementsFor(context.Background(), "turn_1")
+
+	posts := src.said()
+	require.Len(t, posts, 1)
+	assert.Contains(t, posts[0].Text, "Working on this in a `dogfood` task")
+	assert.Equal(t, OutProgress, posts[0].Type, "an announcement is progress, not an answer")
+	assert.Equal(t, "task_01", posts[0].TaskID, "and it names the task it introduces")
+
+	// Exactly once: the task speaking afterwards must not repeat it.
+	c.sayAnnouncement(context.Background(), "dlg_1")
+	assert.Len(t, src.said(), 1)
+}
+
+// And the other order, which is what happens when a container is quick: the task's first
+// word takes the line, and the turn ending afterwards has nothing left to say.
+func TestATaskSpeakingFirstTakesTheAnnouncement(t *testing.T) {
+	src := &sayingSource{}
+	c := announcingConductor()
+
+	c.holdAnnouncement(announcement{
+		dlgID: "dlg_1", turnID: "turn_1", src: src, ref: "C1/1.1", taskID: "task_01", text: "go",
+	})
+	c.sayAnnouncement(context.Background(), "dlg_1")
+	require.Len(t, src.said(), 1)
+
+	c.sayAnnouncementsFor(context.Background(), "turn_1")
+	assert.Len(t, src.said(), 1, "one delegation, one announcement, whichever path got there first")
+}
+
+// Two delegations from one turn are announced in the order they were started, because that
+// is the order the person asked for them in.
+func TestTwoDelegationsAreAnnouncedInOrder(t *testing.T) {
+	src := &sayingSource{}
+	c := announcingConductor()
+
+	c.holdAnnouncement(announcement{dlgID: "dlg_1", turnID: "turn_1", src: src, ref: "C1/1.1", text: "first"})
+	c.holdAnnouncement(announcement{dlgID: "dlg_2", turnID: "turn_1", src: src, ref: "C1/1.1", text: "second"})
+	c.sayAnnouncementsFor(context.Background(), "turn_1")
+
+	posts := src.said()
+	require.Len(t, posts, 2)
+	assert.Equal(t, "first", posts[0].Text)
+	assert.Equal(t, "second", posts[1].Text)
+}
+
+// A held line belongs to ONE turn: another turn ending must not say it.
+func TestAnotherTurnEndingSaysNothing(t *testing.T) {
+	src := &sayingSource{}
+	c := announcingConductor()
+
+	c.holdAnnouncement(announcement{dlgID: "dlg_1", turnID: "turn_1", src: src, ref: "C1/1.1", text: "mine"})
+	c.sayAnnouncementsFor(context.Background(), "turn_2")
+	assert.Empty(t, src.said())
+
+	c.sayAnnouncementsFor(context.Background(), "turn_1")
+	assert.Len(t, src.said(), 1)
 }

@@ -115,6 +115,9 @@ type Conductor struct {
 	memory   *BriefMemory
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
+	// pending is the delegation announcements not said yet, oldest first. Guarded by mu;
+	// see holdAnnouncement for why they wait at all.
+	pending []announcement
 	// lastExtractionCheck is when the extraction watcher last looked, and what makes a
 	// failure NEWS rather than history. Touched only by that one goroutine, so it needs no
 	// lock; see reconcile.go for why the window exists at all.

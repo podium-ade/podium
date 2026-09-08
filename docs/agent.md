@@ -230,6 +230,22 @@ opencode                     the model asks for podium_delegate
 
 The rules that matter:
 
+- **The announcement waits for the assistant to speak.** "Working on this in a `podium`
+  task: …" is held, not said, and goes out on whichever comes first: the task's own first
+  word, or the end of the turn that started it.
+
+  It has to be, because the harness cannot help. `opencode --format json` reports a tool only
+  once it has **completed** — every `tool_use` event carries status `completed`, and there is
+  no pending one — so the runtime is still holding the text the model emitted before the call
+  while the call's side effects are already in the conversation. Said synchronously inside
+  the tool call, the announcement beat the assistant's own sentence by 769ms on a live chat,
+  and read as a container talking about work nobody had asked for yet.
+
+  What that buys is an order: the assistant explains, then the conversation is told what was
+  started, then the task works. The second half is whichever-comes-first rather than a
+  guarantee — a container that answered in under a second would still be introduced before
+  the turn's final — but a container takes seconds to pull an image and a turn that delegates
+  and stops ends in about one.
 - **The conversation owns the task, not the turn.** A turn is one exchange and a delegated task
   can run for hours. The `delegations` row survives the conductor dying, the recovery pass
   resumes every delegation still running, and the answer is posted into the chat whether or not
@@ -404,6 +420,8 @@ skills: []                   # optional; the Agent Skills the ASSISTANT may use,
                              # Unset means none. FILE ONLY — no browser override
 max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
                              # is the opposite of a playbook's. FILE ONLY
+timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
+                             # and there is no "off". FILE ONLY
 default_playbook: general    # required; must name a loaded playbook. Which playbook a Slack
                              # mention or a Linear ticket runs when nothing more specific
                              # routes it. A conversation runs NONE
@@ -418,10 +436,19 @@ screen, which stores the override in the conductor's database and leaves the fil
 one (50 by default) because a task runs unattended on a node. The assistant answers a
 conversation and delegates, so the thing worth bounding is the container it starts — and a cap
 firing mid-answer posted "I ran out of turns" about a turn that had not failed, while the task
-it had started went on working. Be clear about what that costs: **nothing else bounds an
-assistant turn.** There is no container and no timeout, so with no cap the only automatic stop
-is the provider's own, and the deliberate one is a human cancelling the turn. Set a number here
-if you want a ceiling.
+it had started went on working. Set a number here if you want a ceiling.
+
+**`timeout` is the bound that is always on.** A step cap kills a turn that is working; a wall
+clock only fires on one that is stuck, which is why this one has no "off" and the step cap
+does. Unset is fifteen minutes — generous by two orders of magnitude, because a turn that
+answers or delegates takes seconds. When it fires the runtime gets the same SIGTERM and the
+same thirty-second grace a cancelled turn gets, so it still says whatever it managed; the turn
+is recorded **failed** rather than cancelled, because nobody asked for it to end, and the
+conversation is told the limit it hit. A task it had already delegated keeps running and
+answers on its own.
+
+Between the two, an assistant turn always has an automatic stop. It has no container and no
+node behind it, so without this the only stop was a human noticing.
 
 There is **no `chat_default_playbook`**, and there is nothing to replace it with: a conversation
 is answered by the assistant and runs no playbook. A profile directory still laid out for the

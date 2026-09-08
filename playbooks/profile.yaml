@@ -18,7 +18,9 @@ agent: claude
 # The assistant names no Agent Skills and no step cap: it delegates anything that needs a
 # machine, so a skill installed beside it would have nothing to act on, and a cap firing
 # mid-answer would cut off a conversation whose task was still working. `max_turns` here
-# would set one; unset is no cap, which is the opposite of a playbook's default.
+# would set one; unset is no cap, which is the opposite of a playbook's default. `timeout`
+# is the bound that is always on: unset is 15m, and it is what stops a stuck turn running for
+# ever on this machine.
 #
 # A mention with no /playbook runs `general`, which answers questions and costs a container.
 # `podium` is the dogfood — two hours, 200 turns, a Docker daemon, a browser and a privileged
