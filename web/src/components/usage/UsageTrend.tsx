@@ -59,12 +59,21 @@ export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) 
               );
             })}
           </div>
-          <div aria-hidden className="mt-1.5 flex gap-px text-2xs text-faint">
-            {cells.map((d, i) => (
-              <span key={dayKey(d)} className="flex-1 truncate text-center">
-                {i % every === 0 ? dayLabel(d) : ""}
-              </span>
-            ))}
+          {/* Labels are positioned on the bar they name rather than laid out in cells of the
+              same width. A cell is about 29px at thirty days, which clips "Aug 12" to "A…";
+              an absolute label is centred on its bar and free to be wider than one. */}
+          <div aria-hidden className="relative mt-1.5 h-4 text-2xs text-faint">
+            {cells.map((d, i) =>
+              i % every === 0 ? (
+                <span
+                  key={dayKey(d)}
+                  className="absolute -translate-x-1/2 whitespace-nowrap"
+                  style={{ left: `${((i + 0.5) / cells.length) * 100}%` }}
+                >
+                  {dayLabel(d)}
+                </span>
+              ) : null,
+            )}
           </div>
         </>
       )}
