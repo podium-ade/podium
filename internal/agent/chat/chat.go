@@ -38,7 +38,7 @@ const eventBuffer = 32
 
 // Store is the part of the conductor's database this source reads and writes. It is an
 // interface so the source is testable without Postgres, and so it is visible exactly which
-// six operations the chat needs — a source touching the store at all is a departure from
+// operations the chat needs — a source touching the store at all is a departure from
 // the Slack and Linear sources, and it is the point: there is nowhere else for a web
 // conversation to live.
 type Store interface {
@@ -51,6 +51,10 @@ type Store interface {
 	ChatTurnRunning(ctx context.Context, chatID string) (bool, error)
 	SetChatPlaybook(ctx context.Context, id, playbook string) (store.Chat, error)
 	SetChatTitle(ctx context.Context, id, title string) (store.Chat, error)
+	LinkChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (bool, error)
+	AttachChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (store.ChatPullRequest, error)
+	DetachChatPullRequest(ctx context.Context, chatID, url string) error
+	ListChatPullRequests(ctx context.Context, chatID string) ([]store.ChatPullRequest, error)
 }
 
 // Options is what a Source needs.

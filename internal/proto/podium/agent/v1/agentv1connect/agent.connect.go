@@ -107,6 +107,12 @@ const (
 	AgentServiceSendChatMessageProcedure = "/podium.agent.v1.AgentService/SendChatMessage"
 	// AgentServiceStreamChatProcedure is the fully-qualified name of the AgentService's StreamChat RPC.
 	AgentServiceStreamChatProcedure = "/podium.agent.v1.AgentService/StreamChat"
+	// AgentServiceAttachChatPullRequestProcedure is the fully-qualified name of the AgentService's
+	// AttachChatPullRequest RPC.
+	AgentServiceAttachChatPullRequestProcedure = "/podium.agent.v1.AgentService/AttachChatPullRequest"
+	// AgentServiceDetachChatPullRequestProcedure is the fully-qualified name of the AgentService's
+	// DetachChatPullRequest RPC.
+	AgentServiceDetachChatPullRequestProcedure = "/podium.agent.v1.AgentService/DetachChatPullRequest"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -196,6 +202,14 @@ type AgentServiceClient interface {
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest]) (*connect.ServerStreamForClient[v1.ChatFrame], error)
+	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
+	// the one a turn never named or a related one a human wants on the conversation. A URL
+	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
+	AttachChatPullRequest(context.Context, *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error)
+	// DetachChatPullRequest takes one link off. A link a turn found stays off: the next turn
+	// in the same chat will not put it back, because a human removing something means it.
+	// Attaching it again is how it comes back.
+	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -377,39 +391,53 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
 			connect.WithClientOptions(opts...),
 		),
+		attachChatPullRequest: connect.NewClient[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse](
+			httpClient,
+			baseURL+AgentServiceAttachChatPullRequestProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("AttachChatPullRequest")),
+			connect.WithClientOptions(opts...),
+		),
+		detachChatPullRequest: connect.NewClient[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse](
+			httpClient,
+			baseURL+AgentServiceDetachChatPullRequestProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	listSessions       *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession         *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	listTurns          *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
-	getSettings        *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
-	setProviderKey     *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
-	clearProviderKey   *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
-	startProviderOAuth *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
-	pollProviderOAuth  *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
-	listAgents         *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	listMemories       *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
-	searchMemories     *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
-	deleteMemory       *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
-	listPlaybooks      *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
-	getProfile         *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
-	updateProfile      *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	createPlaybook     *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
-	updatePlaybook     *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
-	deletePlaybook     *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
-	listSkills         *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
-	uploadSkill        *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
-	setSkillEnabled    *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
-	deleteSkill        *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
-	createChat         *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
-	listChats          *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
-	renameChat         *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
-	deleteChat         *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
-	sendChatMessage    *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
-	streamChat         *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	listSessions          *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession            *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	listTurns             *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	getSettings           *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
+	setProviderKey        *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
+	clearProviderKey      *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
+	startProviderOAuth    *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
+	pollProviderOAuth     *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
+	listAgents            *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	listMemories          *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
+	searchMemories        *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
+	deleteMemory          *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	listPlaybooks         *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
+	getProfile            *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
+	updateProfile         *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	createPlaybook        *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
+	updatePlaybook        *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
+	deletePlaybook        *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
+	listSkills            *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	uploadSkill           *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
+	setSkillEnabled       *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
+	deleteSkill           *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
+	createChat            *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
+	listChats             *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	renameChat            *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
+	deleteChat            *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
+	sendChatMessage       *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	streamChat            *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	attachChatPullRequest *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
+	detachChatPullRequest *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -552,6 +580,16 @@ func (c *agentServiceClient) StreamChat(ctx context.Context, req *connect.Reques
 	return c.streamChat.CallServerStream(ctx, req)
 }
 
+// AttachChatPullRequest calls podium.agent.v1.AgentService.AttachChatPullRequest.
+func (c *agentServiceClient) AttachChatPullRequest(ctx context.Context, req *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error) {
+	return c.attachChatPullRequest.CallUnary(ctx, req)
+}
+
+// DetachChatPullRequest calls podium.agent.v1.AgentService.DetachChatPullRequest.
+func (c *agentServiceClient) DetachChatPullRequest(ctx context.Context, req *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error) {
+	return c.detachChatPullRequest.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -639,6 +677,14 @@ type AgentServiceHandler interface {
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
 	StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error
+	// AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
+	// the one a turn never named or a related one a human wants on the conversation. A URL
+	// that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
+	AttachChatPullRequest(context.Context, *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error)
+	// DetachChatPullRequest takes one link off. A link a turn found stays off: the next turn
+	// in the same chat will not put it back, because a human removing something means it.
+	// Attaching it again is how it comes back.
+	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -816,6 +862,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("StreamChat")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceAttachChatPullRequestHandler := connect.NewUnaryHandler(
+		AgentServiceAttachChatPullRequestProcedure,
+		svc.AttachChatPullRequest,
+		connect.WithSchema(agentServiceMethods.ByName("AttachChatPullRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDetachChatPullRequestHandler := connect.NewUnaryHandler(
+		AgentServiceDetachChatPullRequestProcedure,
+		svc.DetachChatPullRequest,
+		connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -874,6 +932,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSendChatMessageHandler.ServeHTTP(w, r)
 		case AgentServiceStreamChatProcedure:
 			agentServiceStreamChatHandler.ServeHTTP(w, r)
+		case AgentServiceAttachChatPullRequestProcedure:
+			agentServiceAttachChatPullRequestHandler.ServeHTTP(w, r)
+		case AgentServiceDetachChatPullRequestProcedure:
+			agentServiceDetachChatPullRequestHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -993,4 +1055,12 @@ func (UnimplementedAgentServiceHandler) SendChatMessage(context.Context, *connec
 
 func (UnimplementedAgentServiceHandler) StreamChat(context.Context, *connect.Request[v1.StreamChatRequest], *connect.ServerStream[v1.ChatFrame]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StreamChat is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) AttachChatPullRequest(context.Context, *connect.Request[v1.AttachChatPullRequestRequest]) (*connect.Response[v1.AttachChatPullRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.AttachChatPullRequest is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DetachChatPullRequest is not implemented"))
 }

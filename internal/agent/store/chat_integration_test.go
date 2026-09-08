@@ -449,3 +449,122 @@ func TestRenameChat(t *testing.T) {
 	_, err = s.RenameChat(ctx, chat.ID, "", "no owner")
 	assert.ErrorContains(t, err, "a login is required")
 }
+
+// linkPR is one pull request as the conductor would hand it over.
+func linkPR(chatID, owner, repo string, number int) ChatPullRequest {
+	return ChatPullRequest{
+		ChatID: chatID,
+		URL:    fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repo, number),
+		Owner:  owner,
+		Repo:   repo,
+		Number: number,
+	}
+}
+
+func urlsOf(prs []ChatPullRequest) []string {
+	out := make([]string, 0, len(prs))
+	for _, pr := range prs {
+		out = append(out, pr.URL)
+	}
+	return out
+}
+
+func TestAChatCarriesThePullRequestsItsTurnsProduced(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "the fix")
+	require.NoError(t, err)
+
+	first, err := s.LinkChatPullRequest(ctx, linkPR(chat.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	assert.True(t, first, "the first time is what links it")
+
+	again, err := s.LinkChatPullRequest(ctx, linkPR(chat.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	assert.False(t, again, "a second turn naming the same one links nothing")
+
+	_, err = s.LinkChatPullRequest(ctx, linkPR(chat.ID, "acme", "web", 12))
+	require.NoError(t, err)
+
+	prs, err := s.ListChatPullRequests(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, prs, 2)
+	assert.Equal(t, []string{
+		"https://github.com/acme/api/pull/41",
+		"https://github.com/acme/web/pull/12",
+	}, urlsOf(prs), "oldest first: the order the work happened in")
+	assert.Equal(t, PullRequestFromTurn, prs[0].Source)
+	assert.Equal(t, 41, prs[0].Number)
+	assert.False(t, prs[0].CreatedAt.IsZero())
+}
+
+func TestADetachedPullRequestStaysDetachedUntilAHumanAsksForItBack(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "the fix")
+	require.NoError(t, err)
+	_, err = s.LinkChatPullRequest(ctx, linkPR(chat.ID, "acme", "api", 41))
+	require.NoError(t, err)
+
+	url := "https://github.com/acme/api/pull/41"
+	require.NoError(t, s.DetachChatPullRequest(ctx, chat.ID, url))
+	prs, err := s.ListChatPullRequests(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, prs)
+
+	// The next turn in the same chat mentions it again. It must not come back: a person
+	// removing a link means it.
+	linked, err := s.LinkChatPullRequest(ctx, linkPR(chat.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	assert.False(t, linked)
+	prs, err = s.ListChatPullRequests(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, prs)
+
+	// Attaching it by hand is the person asking for it back, and the link is theirs now.
+	row, err := s.AttachChatPullRequest(ctx, linkPR(chat.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	assert.Equal(t, PullRequestFromHuman, row.Source)
+	prs, err = s.ListChatPullRequests(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, prs, 1)
+	assert.Equal(t, PullRequestFromHuman, prs[0].Source)
+
+	// Detaching twice is not found the second time: it was not there, or it was already
+	// off, and the two are the same answer.
+	require.NoError(t, s.DetachChatPullRequest(ctx, chat.ID, url))
+	assert.ErrorIs(t, s.DetachChatPullRequest(ctx, chat.ID, url), ErrNotFound)
+	assert.ErrorIs(t, s.DetachChatPullRequest(ctx, chat.ID,
+		"https://github.com/acme/api/pull/9"), ErrNotFound)
+}
+
+func TestDeletingAChatLeavesNoPullRequestsBehind(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	alice, err := s.CreateChat(ctx, "alice", "alice's")
+	require.NoError(t, err)
+	bob, err := s.CreateChat(ctx, "bob", "bob's")
+	require.NoError(t, err)
+	_, err = s.LinkChatPullRequest(ctx, linkPR(alice.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	// The same pull request on two chats is two links: a row belongs to a conversation.
+	_, err = s.LinkChatPullRequest(ctx, linkPR(bob.ID, "acme", "api", 41))
+	require.NoError(t, err)
+	// A detached link is still a row, and the cascade has to take those too.
+	require.NoError(t, s.DetachChatPullRequest(ctx, alice.ID,
+		"https://github.com/acme/api/pull/41"))
+
+	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice"))
+
+	var rows int
+	require.NoError(t, s.pool.QueryRow(ctx,
+		"select count(*) from chat_pull_requests where chat_id = $1", alice.ID).Scan(&rows))
+	assert.Zero(t, rows, "the links go with the chat, tombstones included")
+
+	prs, err := s.ListChatPullRequests(ctx, bob.ID)
+	require.NoError(t, err)
+	assert.Len(t, prs, 1, "bob's chat is not in alice's delete")
+}

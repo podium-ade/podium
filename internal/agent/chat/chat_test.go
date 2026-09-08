@@ -22,9 +22,19 @@ type fakeStore struct {
 	chats    map[string]store.Chat
 	messages map[string][]store.ChatMessage
 	running  map[string]bool
+	// pulls is chat_pull_requests, keyed the way its primary key is, with pullOrder
+	// keeping the insertion order the query reads them back in.
+	pulls     map[string]*fakePull
+	pullOrder []string
 	// failAppend makes the next AppendChatMessage fail, to prove the turn slot is given
 	// back when the write does not land.
 	failAppend bool
+}
+
+// fakePull is one row of chat_pull_requests, tombstone and all.
+type fakePull struct {
+	pr       store.ChatPullRequest
+	detached bool
 }
 
 func newFakeStore() *fakeStore {
@@ -126,6 +136,71 @@ func (f *fakeStore) SetChatTitle(_ context.Context, id, title string) (store.Cha
 		f.chats[id] = c
 	}
 	return c, nil
+}
+
+// The pull-request half of the fake keeps the two behaviours the SQL is relied on for: one
+// row per (chat, url), and a detach that tombstones rather than deletes.
+func (f *fakeStore) key(chatID, url string) string { return chatID + "\x00" + url }
+
+func (f *fakeStore) LinkChatPullRequest(_ context.Context, pr store.ChatPullRequest) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pulls == nil {
+		f.pulls = map[string]*fakePull{}
+	}
+	if _, ok := f.pulls[f.key(pr.ChatID, pr.URL)]; ok {
+		return false, nil
+	}
+	pr.Source = store.PullRequestFromTurn
+	pr.CreatedAt = time.Now().UTC()
+	f.pulls[f.key(pr.ChatID, pr.URL)] = &fakePull{pr: pr}
+	f.pullOrder = append(f.pullOrder, f.key(pr.ChatID, pr.URL))
+	return true, nil
+}
+
+func (f *fakeStore) AttachChatPullRequest(
+	_ context.Context, pr store.ChatPullRequest,
+) (store.ChatPullRequest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pulls == nil {
+		f.pulls = map[string]*fakePull{}
+	}
+	pr.Source = store.PullRequestFromHuman
+	if have, ok := f.pulls[f.key(pr.ChatID, pr.URL)]; ok {
+		have.detached = false
+		have.pr.Source = store.PullRequestFromHuman
+		return have.pr, nil
+	}
+	pr.CreatedAt = time.Now().UTC()
+	f.pulls[f.key(pr.ChatID, pr.URL)] = &fakePull{pr: pr}
+	f.pullOrder = append(f.pullOrder, f.key(pr.ChatID, pr.URL))
+	return pr, nil
+}
+
+func (f *fakeStore) DetachChatPullRequest(_ context.Context, chatID, url string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	have, ok := f.pulls[f.key(chatID, url)]
+	if !ok || have.detached {
+		return fmt.Errorf("%w: chat %s has no link to %s", store.ErrNotFound, chatID, url)
+	}
+	have.detached = true
+	return nil
+}
+
+func (f *fakeStore) ListChatPullRequests(_ context.Context, chatID string) ([]store.ChatPullRequest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []store.ChatPullRequest{}
+	for _, k := range f.pullOrder {
+		have := f.pulls[k]
+		if have.detached || have.pr.ChatID != chatID {
+			continue
+		}
+		out = append(out, have.pr)
+	}
+	return out, nil
 }
 
 func newSource(t *testing.T, st Store) *Source {

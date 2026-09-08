@@ -48,6 +48,49 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 	return i, err
 }
 
+const attachChatPullRequest = `-- name: AttachChatPullRequest :one
+insert into chat_pull_requests (chat_id, url, owner, repo, number, source, created_at)
+values ($1, $2, $3, $4, $5, 'human', $6)
+on conflict (chat_id, url) do update
+  set source = 'human', detached_at = null
+returning chat_id, url, owner, repo, number, source, created_at, detached_at
+`
+
+type AttachChatPullRequestParams struct {
+	ChatID    string
+	Url       string
+	Owner     string
+	Repo      string
+	Number    int32
+	CreatedAt time.Time
+}
+
+// AttachChatPullRequest is the manual half. Unlike the automatic one it revives a detached
+// row and takes it over: a person re-attaching what they removed means it, and after that
+// the link is theirs rather than a turn's.
+func (q *Queries) AttachChatPullRequest(ctx context.Context, arg AttachChatPullRequestParams) (ChatPullRequest, error) {
+	row := q.db.QueryRow(ctx, attachChatPullRequest,
+		arg.ChatID,
+		arg.Url,
+		arg.Owner,
+		arg.Repo,
+		arg.Number,
+		arg.CreatedAt,
+	)
+	var i ChatPullRequest
+	err := row.Scan(
+		&i.ChatID,
+		&i.Url,
+		&i.Owner,
+		&i.Repo,
+		&i.Number,
+		&i.Source,
+		&i.CreatedAt,
+		&i.DetachedAt,
+	)
+	return i, err
+}
+
 const chatTurnRunning = `-- name: ChatTurnRunning :one
 select exists (
   select 1 from turns t
@@ -129,6 +172,27 @@ func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const detachChatPullRequest = `-- name: DetachChatPullRequest :execrows
+update chat_pull_requests set detached_at = $1
+where chat_id = $2 and url = $3 and detached_at is null
+`
+
+type DetachChatPullRequestParams struct {
+	DetachedAt *time.Time
+	ChatID     string
+	Url        string
+}
+
+// DetachChatPullRequest tombstones one link. Zero rows means it was not linked, or was
+// already detached; both are the same answer.
+func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, detachChatPullRequest, arg.DetachedAt, arg.ChatID, arg.Url)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getChat = `-- name: GetChat :one
 select id, title, login, created_at, playbook, auto_title from chats where id = $1
 `
@@ -167,6 +231,42 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 	return i, err
 }
 
+const linkChatPullRequest = `-- name: LinkChatPullRequest :execrows
+insert into chat_pull_requests (chat_id, url, owner, repo, number, source, created_at)
+values ($1, $2, $3, $4, $5, 'turn', $6)
+on conflict (chat_id, url) do nothing
+`
+
+type LinkChatPullRequestParams struct {
+	ChatID    string
+	Url       string
+	Owner     string
+	Repo      string
+	Number    int32
+	CreatedAt time.Time
+}
+
+// LinkChatPullRequest is the automatic half of a chat's pull requests (0007): a turn's
+// answer named this one. It is on-conflict-do-nothing, which is both halves of "one link
+// per URL per chat" — the same turn saying it three times, and a row a human already
+// detached. Every read below filters detached_at, so a detached link is gone as far as the
+// UI is concerned and still there as far as this insert is concerned, which is the whole
+// point of the tombstone.
+func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, linkChatPullRequest,
+		arg.ChatID,
+		arg.Url,
+		arg.Owner,
+		arg.Repo,
+		arg.Number,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
 select chat_id, seq, role, text, attachments, ts from chat_messages
 where chat_id = $1 and seq > $2::bigint
@@ -194,6 +294,44 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.Text,
 			&i.Attachments,
 			&i.Ts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChatPullRequests = `-- name: ListChatPullRequests :many
+select chat_id, url, owner, repo, number, source, created_at, detached_at from chat_pull_requests
+where chat_id = $1 and detached_at is null
+order by created_at, number
+`
+
+// ListChatPullRequests is oldest first: the order they were linked in is the order the
+// work happened in, and a bar that appends on the right does not reshuffle itself when a
+// turn finds another one.
+func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]ChatPullRequest, error) {
+	rows, err := q.db.Query(ctx, listChatPullRequests, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatPullRequest{}
+	for rows.Next() {
+		var i ChatPullRequest
+		if err := rows.Scan(
+			&i.ChatID,
+			&i.Url,
+			&i.Owner,
+			&i.Repo,
+			&i.Number,
+			&i.Source,
+			&i.CreatedAt,
+			&i.DetachedAt,
 		); err != nil {
 			return nil, err
 		}

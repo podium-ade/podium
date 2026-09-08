@@ -1537,6 +1537,23 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   started with — the same one-session-one-playbook rule as a Slack thread — so the chip is locked
   after the first message, and switching it later is refused with a sentence saying to start a
   new chat. `Chat.playbook` is that name, empty until the first message.
+- **A chat carries the pull requests its work produced.** They are a bar above the transcript,
+  rendered as `owner/repo#number` and linked, so getting to the work does not mean reading the
+  conversation back. A turn that opens one says so in its answer, and the conductor links what
+  the answer named — the joined finals, which is exactly what `turns.final_text` stores, so a
+  reviewer can see where a link came from. Progress lines are **not** read: they are coalesced
+  and superseded on the way out, so a link found in one would appear or not depending on how
+  fast the runtime was talking. Only the whole URL shape counts —
+  `https://github.com/<owner>/<repo>/pull/<number>` — and it is canonicalised, so `/pull/12/files`
+  and `/pull/12` are one link and one row. A bare `#123` is not a reference this can resolve, an
+  issue is not a pull request, and neither is another host. One turn may link at most 20.
+  **Nothing calls GitHub.** The conductor holds no GitHub credential — `podium.agent.github_token`
+  is a secret attached to *tasks* — so there is no title and no open/merged state, only what the
+  URL itself said. A person can also attach one by hand (`AttachChatPullRequest`) and detach one
+  (`DetachChatPullRequest`); the row records which of the two it was. **A detach sticks against
+  the bot**: a later turn in the same chat that mentions the same pull request does not put it
+  back, because a person removing a link means it. Attaching it again by hand is how it returns.
+  Links go with the chat when the chat is deleted.
 - **The title is generated from the first query.** An untitled chat ("New chat") is named from
   the first message the moment it is sent, then the first turn of that chat may overwrite it
   with a model-written title (`chat-title.txt`). A title a human chose is never rewritten:
@@ -1552,18 +1569,12 @@ other link scheme renders as literal text**, because an answer is content a task
 material somebody else supplied. Ask for a table and you get a fenced block, which is what a
 prompt should ask the model for.
 
-<<<<<<< HEAD
 A chat can be renamed by its owner. The title is stored on the chat row; an empty title is
 refused rather than becoming "New chat" again, and a rename is the owner's word on the name,
 so Podium stops generating one for that chat. Sharing a chat, uploading a file into the chat,
 and streaming the model's tokens are deliberately not built. The unit of streaming is the
-`progress` message the runtime sends, not a token.
-=======
-What is deliberately not built: renaming or deleting a chat, sharing one, a model-written title,
-uploading a file into the chat, and streaming the model's tokens. The unit of streaming is the
 `progress` message the runtime sends, not a token — and each one arrives as a message in the
 conversation rather than as a line that overwrites the one before it.
->>>>>>> 7844ca7 (chat: what a task says on the way to an answer is the conversation)
 
 ---
 
@@ -1582,6 +1593,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `ListPlaybooks` | the chat's playbook chip: name, image, prompt hint, which is the chat default |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
+| `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
 
 **A browser reaches it only through `podium-server`.** With `PODIUM_AGENT_URL` set, the server
 mounts that one prefix behind its own identity middleware and reverse-proxies it, and on the way

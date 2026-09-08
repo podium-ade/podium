@@ -94,6 +94,14 @@ service AgentService {
   // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
   // own; the client cancels. Progress frames are ephemeral and are not replayed.
   rpc StreamChat(StreamChatRequest) returns (stream ChatFrame);
+  // AttachChatPullRequest links a pull request to one of the caller's chats by hand, for
+  // the one a turn never named or a related one a human wants on the conversation. A URL
+  // that is not a GitHub pull request is invalid_argument; the same URL twice is one link.
+  rpc AttachChatPullRequest(AttachChatPullRequestRequest) returns (AttachChatPullRequestResponse);
+  // DetachChatPullRequest takes one link off. A link a turn found stays off: the next turn
+  // in the same chat will not put it back, because a human removing something means it.
+  // Attaching it again is how it comes back.
+  rpc DetachChatPullRequest(DetachChatPullRequestRequest) returns (DetachChatPullRequestResponse);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -465,6 +473,32 @@ message ChatStatus {
   string task_id = 2;
 }
 
+// ChatPullRequest is one pull request the chat's work produced, described by nothing but
+// its own URL.
+//
+// There is no title and no open/merged state, and there will not be: learning either means
+// calling GitHub, and the conductor holds no GitHub credential — podium.agent.github_token
+// is a secret attached to TASKS. owner, repo and number are enough to render
+// owner/repo#number, which is what a human scanning a conversation reads.
+message ChatPullRequest {
+  // url is canonical — https://github.com/<owner>/<repo>/pull/<number> — whatever the text
+  // it was found in actually said, so /pull/12/files and /pull/12 are one link.
+  string url = 1;
+  string owner = 2;
+  string repo = 3;
+  int32 number = 4;
+  // source is "turn" when a turn's own answer named it and "human" when a person attached
+  // it, which is the difference between "this chat did that" and "somebody filed it here".
+  string source = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// ChatPullRequests is a chat's whole set of links, oldest first. It is the set rather than
+// a change because there is nothing to reconcile: the newest one received is the truth.
+message ChatPullRequests {
+  repeated ChatPullRequest pull_requests = 1;
+}
+
 // ChatFrame is one thing that happened in a chat.
 //
 // A message frame is durable and may repeat with the same seq when its attachments are
@@ -474,7 +508,8 @@ message ChatStatus {
 // the running indicator is what shows it. A resync frame means this subscriber fell behind
 // and dropped something durable: re-read from the last seq seen. A chat frame is the
 // conversation's own row after a title or playbook change; a reload re-reads it from
-// ListChats.
+// ListChats. A pull_requests frame is the whole set again, sent at the start of the stream
+// and whenever it changes.
 message ChatFrame {
   oneof frame {
     ChatMessage message = 1;
@@ -482,6 +517,7 @@ message ChatFrame {
     ChatStatus status = 3;
     bool resync = 4;
     Chat chat = 5;
+    ChatPullRequests pull_requests = 6;
   }
 }
 
@@ -553,6 +589,30 @@ message StreamChatRequest {
   // from_seq is exclusive: everything with a higher seq is replayed before the stream
   // starts following. 0 replays the whole conversation.
   uint64 from_seq = 2;
+}
+
+message AttachChatPullRequestRequest {
+  string chat_id = 1;
+  // url is a GitHub pull request. Extra path, a query or a fragment is allowed and
+  // discarded — what is stored is the canonical URL.
+  string url = 2;
+}
+
+// Both write RPCs answer with the chat's whole set rather than the row that changed, so a
+// caller that is not following StreamChat still knows where the list ended up. The web UI
+// is following it and takes the frame instead — there is then one source of truth, and
+// every browser watching the chat sees the same change.
+message AttachChatPullRequestResponse {
+  repeated ChatPullRequest pull_requests = 1;
+}
+
+message DetachChatPullRequestRequest {
+  string chat_id = 1;
+  string url = 2;
+}
+
+message DetachChatPullRequestResponse {
+  repeated ChatPullRequest pull_requests = 1;
 }
 
 // AgentProfile is the bot's identity as the management screen sees it: what is in force
