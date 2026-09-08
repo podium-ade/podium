@@ -1,17 +1,30 @@
 # The conductor (`podium-agent`)
 
-`podium-agent` is a second long-lived process beside `podium-server`. It holds the bot's identity
-in Slack, turns a message into **one Podium task running the agent runtime image**, relays what
-the agent says back into the thread while the task runs, and records the turn.
+`podium-agent` is a second long-lived process beside `podium-server`. It holds the bot's
+identity, answers what is said to it, and records every turn.
+
+**The whole product in one sentence:** you talk to the **assistant**, and when something needs a
+machine it starts a **task** from one of your **playbooks** and reports back.
+
+Those three words each mean exactly one thing, and it is worth fixing them before anything else:
+
+| | What it is | Where it runs |
+|---|---|---|
+| **Assistant** | Who you talk to. One per conductor. A name, a personality, a model, memory, and a short fixed tool list. `profile.yaml` *is* the assistant. | In this process, on your host. No container, no workspace. |
+| **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
+| **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
+
+A conversation runs **no playbook**. A Slack mention and a Linear ticket do, and run as tasks,
+because each of those really is one piece of work.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
 
 ## What it is not
 
-- **Not a resident model session.** Every inbound message becomes one task that reads its
+- **Not a resident model session.** Every inbound message becomes one turn that reads its
   context, works, reports and exits. Nothing about the model is long-lived. Identity, personality
-  and (from step 19) memory are; the model context is not.
+  and memory are; the model context is not.
 - **Not interactive.** A turn ends with an answer, a pull request, or a question for the human.
   There is no stdin, exec, attach or port-forward into a running task — see
   [`concepts.md#what-a-task-is-not`](concepts.md).
@@ -24,19 +37,42 @@ sees the master key, and never touches Docker.
 
 ## How a turn works
 
+There are two shapes, and which one you get is decided by the SOURCE rather than by anything a
+human picks. A conversation — the web chat — is answered here. A thread runs a playbook.
+
 ```
-somebody says something
-  ↓  source (Slack)                          normalises it into an InboundEvent
-  ↓  Select                                  which playbook? the chip, /playbook, the channel, the defaults
+somebody says something in a CONVERSATION
+  ↓  source (chat)                           normalises it into an InboundEvent
+  ↓  Assistant                               profile.yaml: the prompt, the model, the skills, the cap
+  ↓  UpsertSession                            by source key; sessions.playbook is empty — there is none
+  ↓  post "👀 working…"                       before any work starts
+  ↓  FetchTranscript                          the conversation so far
+  ↓  brief + hostBrief                        runs_on: host, plus the playbooks it may delegate to
+  ↓  fork the runtime                         a child of this process, in a jail, with three tools
+  ↓  relay                                    over a unix socket, exactly as a task's events are
+  ↓  FinishTurn                                and turns.task_id stays empty
+
+somebody mentions the bot in a THREAD, or assigns a Linear ticket
+  ↓  source (Slack, Linear)                  normalises it into an InboundEvent
+  ↓  Select                                  which playbook? /playbook, the channel, default_playbook
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
   ↓  React 👀  +  post "👀 working…"          before any work starts
   ↓  FetchTranscript                          the thread so far
   ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 96 KiB
-  ↓  CreateTask                               image + brief + the playbook's secrets + the Anthropic key
+  ↓  CreateTask                               image + brief + the playbook's secrets + the model key
   ↓  StreamTaskEvents                         relay every `message` event, exactly once
   ↓  GetTask                                  the terminal status decides what is said last
   ↓  FinishTurn  +  React ✅ or ❌
 ```
+
+Everything below the brief is the same code in both cases: one function builds every brief there
+is, and the relay, the accounting and the bookkeeping do not know which transport they are on.
+What differs is the job the turn was given — see `internal/agent/conductor/job.go`.
+
+A conductor with no host runtime configured (`PODIUM_AGENT_HOST_RUNTIME` unset) has nothing to
+answer a conversation *with*, so a chat message there takes the second path too and runs
+`default_playbook` as a task. That works, and it is the poorer configuration: every message
+costs a container.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
@@ -126,11 +162,11 @@ posts the failure line as well. The human should know something was cut short.
 `retry_on_node_loss` is deliberately **false** for every turn: a turn may already have posted an
 answer, and running it again would say it twice. A lost node is surfaced to the human instead.
 
-### A host turn, and delegation
+### The assistant, and delegation
 
 A turn of a **web chat** does not run in a container at all when the conductor has a host
-runtime (`PODIUM_AGENT_HOST_RUNTIME`, `PODIUM_AGENT_RUNNER_BIN`). It runs the same
-`agent/runtime` build, with the same brief, as a child of `podium-agent`:
+runtime (`PODIUM_AGENT_HOST_RUNTIME`, `PODIUM_AGENT_RUNNER_BIN`). It is the **assistant**: the
+same `agent/runtime` build, with the same brief, as a child of `podium-agent`:
 
 ```
 somebody types something in a chat
@@ -144,14 +180,21 @@ somebody types something in a chat
 Why: a chat message is one exchange in a conversation, and a container per message pays an
 image pull, a clone and a cold start before the first word.
 
-What it gives up is the container, and everything else about a host turn follows from that.
+What it gives up is the container, and everything else about the assistant follows from that.
 It runs as the user `podium-agent` runs as, on the machine that holds the master key and the
-provider credential, so it is given:
+provider credential, so `profile.yaml` gives it a prompt, a model, a step cap and (rarely) a
+skill list, and the conductor gives it:
 
-- **`webfetch`, `todoread`, `todowrite` and nothing else.** No shell, and no filesystem tools:
-  a host turn clones nothing, so `read` has no legitimate target and every path it could reach
-  belongs to somebody else.
-- **A `HOME` of its own**, because the runtime installs a playbook's Agent Skills under
+- **`webfetch`, `todoread`, `todowrite` and nothing else.** This is the one tool list in
+  Podium that no document can change. No shell, and no filesystem tools: the assistant clones
+  nothing, so `read` has no legitimate target and every path it could reach belongs to somebody
+  else.
+
+  It is not a playbook's list with things taken away. The assistant is not built from a
+  playbook at all: it has no image, no repositories and no sidecars because there are none to
+  have, and not because something stripped them afterwards. That distinction is the whole
+  reason the two are separate types in the code.
+- **A `HOME` of its own**, because the runtime installs Agent Skills under
   `$HOME/.config/opencode/skills` and the operator's own harness configuration lives there.
 - **An environment built from empty.** Inheriting the conductor's would hand a model
   `PODIUM_API_TOKEN` and the agent database URL.
@@ -159,7 +202,7 @@ provider credential, so it is given:
   model it has a disposable container, a workspace, and files that will be collected — none of
   which is true, and all of which sends it looking for things that are not there.
 
-So a host turn can hold a conversation and nothing else. **Everything else it delegates**, and
+So the assistant can hold a conversation and nothing else. **Everything else it delegates**, and
 that is what the tool list is traded for:
 
 ```
@@ -182,10 +225,14 @@ The rules that matter:
   turn ends. It is not the operator bearer: `TurnService` is a separate service on the same
   loopback listener, and `podium-server` proxies `/podium.agent.v1.AgentService/` and nothing
   else, so nothing outside this host can reach it.
-- **The menu is the allow-list.** Every playbook in the profile is delegable, the conversation's
-  own included — running it as a task is a container with a repository and a shell, which is the
-  whole point. A name that is not on the menu is refused rather than resolved.
-- **A delegated task cannot delegate.** Only a host turn's brief carries a `delegation` block.
+- **The menu is the allow-list, and it is the whole profile.** Every playbook is delegable.
+  Nothing narrows it per conversation and nothing ever did: the turn picks a playbook per piece
+  of work, and may pick several in one answer. A name that is not on the menu is refused rather
+  than resolved.
+- **A delegated task keeps its own playbook's model.** The chat's model picker moves what
+  *answers*; it does not reach into a container. "Answer me on Grok" is a statement about the
+  conversation, not about how a container should do its job.
+- **A delegated task cannot delegate.** Only the assistant's brief carries a `delegation` block.
 - **A turn does not wait.** `podium_delegate` returns a delegation id;
   `podium_check_delegation` is polled. Nothing blocks for hours, and the human watches the
   container work in the chat rather than staring at a silent poll loop.
@@ -221,10 +268,10 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
 | `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
-| `PODIUM_AGENT_HOST_RUNTIME` | for host turns | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and a web chat is answered in this process instead of a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: a host turn has no container around it |
-| `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. A host turn has no node to bind-mount one in, and it is how the runtime says anything at all |
+| `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and a web chat is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
+| `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
-| `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where a host turn's own `HOME`, working directory and event socket are made |
+| `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
@@ -324,20 +371,38 @@ spec: a misspelt key is a startup error naming the file, not a field that silent
 
 ### `profile.yaml`
 
+This file is the **assistant** — everything down to `max_turns` describes the turn that answers a
+conversation — plus one routing decision, `default_playbook`, which is about threads and tickets
+instead.
+
 ```yaml
 name: podium                 # required; ^[a-z][a-z0-9-]{0,31}$
 display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
-model: claude-opus-5         # required
+                             # The assistant's prompt. A playbook layers its own on top of it
+                             # for a task; a conversation has this one and no second prompt.
+model: claude-opus-5         # required. What the assistant answers on, and what a playbook
+                             # inherits unless it names its own
 agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
-default_playbook: general       # required; must name a loaded playbook
-chat_default_playbook: dba      # optional; the playbook /agent/chat starts with.
-                             # Must name a loaded playbook; unset means default_playbook.
-                             # Only worth setting once you have a second playbook:
-                             # examples/agent leaves it unset.
+skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
+                             # Unset means none. FILE ONLY — no browser override
+max_turns: 50                # optional; the assistant's step cap. Unset means 50.
+                             # FILE ONLY — no browser override
+default_playbook: general    # required; must name a loaded playbook. Which playbook a Slack
+                             # mention or a Linear ticket runs when nothing more specific
+                             # routes it. A conversation runs NONE
 ```
+
+`skills` and `max_turns` are file-only on purpose. What the process running beside your master
+key may execute, and for how long, is a decision that belongs in a repository next to a review
+— not behind a form in a browser. Everything above them can be overridden from the Assistant
+screen, which stores the override in the conductor's database and leaves the file alone.
+
+There is **no `chat_default_playbook`**, and there is nothing to replace it with: a conversation
+is answered by the assistant and runs no playbook. A profile directory still laid out for the
+pre-rename world is refused at startup with a message saying so.
 
 ### `playbooks/<name>.yaml`
 
@@ -623,29 +688,33 @@ playbook a credential. See `docs/security.md`.
 
 ### Which playbook runs
 
-In order:
+**A conversation runs none.** The rules below are about a Slack thread and a Linear ticket, each
+of which is one piece of work in a container. The assistant reaches a playbook by *delegating* to
+it, one per task, chosen by the turn — there is nothing for a human to select and no default to
+set.
 
-1. **A playbook the source knows** is right, which no rule below may second-guess: the web chat's
-   playbook chip (`SendChatMessage.playbook`) and the `linear: true` playbook a ticket runs. A ticket's
-   text is not a command line, so a `/word` in its description is left alone — and a chip
-   chosen after typing `/other` is the later intent, so it wins.
+For a thread or a ticket, in order:
+
+1. **A playbook the source knows** is right, which no rule below may second-guess: the
+   `linear: true` playbook a ticket runs. A ticket's text is not a command line, so a `/word` in
+   its description is left alone.
 2. The message starts with `/<playbook>` followed by whitespace or the end — that playbook, prefix
    stripped. An **unknown** `/name` is not an error: it is left in the text and falls through, so
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error.
-4. **The source's own default**: the web chat's `profile.yaml: chat_default_playbook`. Every chat
-   message carries it, which is exactly why it is only a default — a `/playbook` a human typed is
-   more specific than a per-source preference, and wins.
-5. `profile.default_playbook`.
+4. `profile.default_playbook`.
 
-Rule 1 is knowledge and rules 4 and 5 are fallbacks, and keeping them apart is the whole of the
-order: Linear names the playbook because it genuinely knows it, while the web chat merely *prefers*
-one. Slack says neither and starts at rule 2.
+Rule 1 is knowledge and rule 4 is a fallback, and keeping them apart is the whole of the order:
+Linear names the playbook because it genuinely knows it. Slack says nothing and starts at rule 2.
 
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
-same thread is refused politely: start a new thread. A default is not somebody naming a playbook,
-so it never triggers that refusal.
+same thread is refused politely: start a new thread. A conversation's session stores no playbook
+at all — `sessions.playbook` is empty, and the Sessions and Usage screens read that as
+*assistant*.
+
+A `/word` typed in a **chat** is just text: nothing strips it, because there is no playbook to
+select and eating the first word of somebody's question would only lose it.
 
 Changing a playbook **file** needs a restart. There is no SIGHUP reload. A playbook made in the web
 UI does not — see *Playbooks in the web UI* below.
@@ -1608,6 +1677,11 @@ engine features Podium does not surface.
 conversation Podium itself holds: Slack has threads and Linear has issues, and a browser has
 nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the conversation.
 
+It is also the only surface answered by the **assistant** rather than by a playbook. The
+composer therefore offers exactly one choice — which model answers — and no way to pick a
+playbook, because there is nothing per message to pick: the turn chooses a playbook for each
+task it delegates, and may choose several while answering once.
+
 - **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
   is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
   another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
@@ -1624,8 +1698,8 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   rather than the bot's — the words a task said on its way to an answer are the task talking,
   and a chat is the one conversation Podium holds itself, so there is nowhere else to keep
   them. Reload and the trail is still there. The one thing that is not a row is the
-  placeholder (`👀 working…`): that is the conductor announcing a turn, and the running pill
-  above the conversation is where it shows. Progress rows are left out of the next turn's
+  placeholder (`👀 working…`): that is the conductor announcing a turn, and the waiting row at
+  the end of the transcript is where it shows. Progress rows are left out of the next turn's
   brief — a turn's own half-finished thoughts are not history, and the 96 KiB cap is for the
   questions and answers.
 - **A failure is stored**, so a turn that died leaves words behind rather than a question that
@@ -1638,19 +1712,15 @@ nothing, so the `chats` and `chat_messages` tables in `podium_agent` **are** the
   records one only when a task calls `podium-runner artifact add --content-type`, and a file
   the agent simply writes into the artifacts directory is collected with none — so the
   chat decides from the file's extension when the store has nothing to say.
-- **Which playbook a message runs**: the playbook chip beside the composer, which starts at
-  `profile.yaml: chat_default_playbook` (falling back to `default_playbook`). Typing `/<playbook> …` works
-  too — it moves the chip in the browser, and on the wire a typed `/playbook` beats the chat
-  default even when the chip is left unset, as an API client leaves it. The chip itself still
-  wins over a prefix: it is the last thing the human touched. A chat is **not** pinned to one
-  playbook: the chip may be moved at any point and every message runs what it says. That rule
-  existed while a chat message WAS one playbook's task; a conversation now runs an agent that
-  delegates work to whichever playbooks it needs, as many times as it needs, so pinning the
-  window to one of them restricted nothing and forced a new chat for every change of subject. A
-  Slack thread and a Linear issue are still pinned, because one of those really is one piece of
-  work. `Chat.playbook` is the playbook of the chat's LATEST message, empty until the first one;
-  only an explicit pick moves it, so a source's default never fights what a conversation is
-  running.
+- **Which model answers**: the picker beside the composer. It applies to the messages sent from
+  then on, is never stored, and a reload goes back to `profile.yaml`'s. It moves what *answers*
+  and nothing else — a task the turn delegates runs on its own playbook's model, because
+  "answer me on Grok" is about the conversation and not about how a container does its job.
+- **No playbook, anywhere.** Not on the composer, not on `SendChatMessage`, not on the chat row,
+  not on the session row. A `/word` typed into a chat is text like any other. This used to be a
+  chip that chose the container a message ran in, which made sense while a chat message *was*
+  one playbook's task; once the assistant started answering conversations, all the chip still
+  decided was a prompt and a model, while reading as though it chose a machine.
 - **A chat carries the pull requests its work produced.** They are a bar above the transcript,
   rendered as `owner/repo#number` and linked, so getting to the work does not mean reading the
   conversation back. A turn that opens one says so in its answer, and the conductor links what
@@ -1704,7 +1774,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
-| `ListPlaybooks` | the chat's playbook chip: name, image, prompt hint, which is the chat default |
+| `ListPlaybooks` | what the chat window needs: the assistant (name and resolved model), and the playbooks it may delegate to |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |
