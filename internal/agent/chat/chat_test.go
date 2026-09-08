@@ -643,3 +643,35 @@ func TestASourceNeedsAStore(t *testing.T) {
 	_, err := New(Options{})
 	assert.ErrorContains(t, err, "a store is required")
 }
+
+// TestEveryRowRecordsWhoSaidIt. A conversation carries three kinds of line — the assistant
+// thinking on this host, the conductor announcing a delegation, and a delegated task's own
+// words — and they are all stored under the same two roles. The task id is the only thing
+// that tells them apart, and dropping it here is what made the UI credit the assistant's own
+// thinking to a container it had not started yet.
+func TestEveryRowRecordsWhoSaidIt(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	// The assistant, in the conductor's own process: no task.
+	require.NoError(t, src.Edit(ctx, "chat_1", "", conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.ProgressPrefix + "delegating this",
+	}))
+	// The conductor announcing a delegation, and then the task talking.
+	require.NoError(t, src.Edit(ctx, "chat_1", "", conductor.Outbound{
+		Type: conductor.OutProgress, Text: "Working on this in a `podium` task", TaskID: "task_01",
+	}))
+	_, err := src.Post(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutFinal, Text: "done", TaskID: "task_01",
+	})
+	require.NoError(t, err)
+
+	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 3)
+	assert.Empty(t, msgs[0].TaskID, "the assistant's own words are not a task's")
+	assert.Equal(t, "task_01", msgs[1].TaskID)
+	assert.Equal(t, "task_01", msgs[2].TaskID, "an answer relayed from a task says which one")
+}

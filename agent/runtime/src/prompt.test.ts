@@ -133,8 +133,32 @@ describe("buildSystemPrompt", () => {
     // Whitespace-normalised, because the prompt is wrapped for a human to read and the
     // sentence being asserted spans a line break.
     const flat = prompt.replace(/\s+/g, " ");
-    expect(flat).toContain("appear in this conversation on their own");
-    expect(flat).toContain("do not repeat them");
+    expect(flat).toContain("appear in this conversation **on their own**");
+    expect(flat).toContain("do not repeat what it says");
+  });
+
+  // Polling is what used to exhaust the turn cap: the prompt told the model to poll for the
+  // outcome, so a turn that delegated once spent the rest of its steps watching and then
+  // died with "I ran out of turns" while the task was still working perfectly well.
+  it("tells a delegating turn to stop rather than poll", () => {
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "podium" }] },
+    });
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("Delegate, then stop");
+    expect(flat).toContain("Do not poll");
+    expect(flat).not.toContain("Poll `podium_check_delegation` for the outcome");
+  });
+
+  // The assistant has no repository and no shell, so working anything out about code here is
+  // a guess that costs a turn and gets redone by the task.
+  it("tells a host turn to delegate rather than investigate", () => {
+    const prompt = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("Do not investigate first");
+    expect(flat).toContain("Hand it the question, not your answer to it");
   });
 
   it("tells a delegating turn not to deny an answer the reader can already see", () => {

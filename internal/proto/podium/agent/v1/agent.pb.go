@@ -2983,14 +2983,22 @@ type ChatMessage struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
 	Seq    uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	// role is "user", "assistant", or "progress" for a line the task said on its way to an
-	// answer. A progress message is stored and rendered like any other; it is a role of its
-	// own so the transcript a turn is briefed with can leave it out, and so an attachment
-	// lands on the answer rather than on the last thought before it.
-	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
-	Text          string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
-	Attachments   []*ChatAttachment      `protobuf:"bytes,5,rep,name=attachments,proto3" json:"attachments,omitempty"`
-	Ts            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ts,proto3" json:"ts,omitempty"`
+	// role is "user", "assistant", or "progress" for a line said on the way to an answer. A
+	// progress message is stored and rendered like any other; it is a role of its own so the
+	// transcript a turn is briefed with can leave it out, and so an attachment lands on the
+	// answer rather than on the last thought before it.
+	Role        string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	Text        string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	Attachments []*ChatAttachment      `protobuf:"bytes,5,rep,name=attachments,proto3" json:"attachments,omitempty"`
+	Ts          *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ts,proto3" json:"ts,omitempty"`
+	// task_id is the task these words came from, and EMPTY for the assistant's own.
+	//
+	// A conversation carries both, because the assistant answers here and delegates the work:
+	// its own thinking, the conductor announcing a delegation, and the delegated task's
+	// progress and answer all arrive as rows in one transcript. Without this they were
+	// indistinguishable, and the UI credited every progress line to a task — including the
+	// assistant's, which is the one thing in a conversation that is never one.
+	TaskId        string `protobuf:"bytes,7,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3065,6 +3073,13 @@ func (x *ChatMessage) GetTs() *timestamppb.Timestamp {
 		return x.Ts
 	}
 	return nil
+}
+
+func (x *ChatMessage) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
@@ -6082,14 +6097,15 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\"\xcf\x01\n" +
+	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\"\xe8\x01\n" +
 	"\vChatMessage\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12\x12\n" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12A\n" +
 	"\vattachments\x18\x05 \x03(\v2\x1f.podium.agent.v1.ChatAttachmentR\vattachments\x12*\n" +
-	"\x02ts\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\";\n" +
+	"\x02ts\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x12\x17\n" +
+	"\atask_id\x18\a \x01(\tR\x06taskId\";\n" +
 	"\n" +
 	"ChatStatus\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x17\n" +

@@ -1693,15 +1693,24 @@ task it delegates, and may choose several while answering once.
 - **One turn at a time per chat.** The composer is disabled while a turn runs and
   `SendChatMessage` answers `failed_precondition` if something tries anyway. It is the same
   turn-based rule as everywhere else: a turn ends with an answer and exits.
-- **Progress is a message.** Every `progress` message the runtime sends is stored under the
-  role `progress` and rendered in the transcript the way an answer is, under the name **task**
-  rather than the bot's — the words a task said on its way to an answer are the task talking,
-  and a chat is the one conversation Podium holds itself, so there is nowhere else to keep
-  them. Reload and the trail is still there. The one thing that is not a row is the
-  placeholder (`👀 working…`): that is the conductor announcing a turn, and the waiting row at
-  the end of the transcript is where it shows. Progress rows are left out of the next turn's
-  brief — a turn's own half-finished thoughts are not history, and the 96 KiB cap is for the
-  questions and answers.
+- **Progress is a message.** Every `progress` message is stored under the role `progress` and
+  rendered in the transcript the way an answer is, because a chat is the one conversation
+  Podium holds itself and there is nowhere else to keep it. Reload and the trail is still
+  there. The one thing that is not a row is the placeholder (`👀 working…`): that is the
+  conductor announcing a turn, and the waiting row at the end of the transcript is where it
+  shows. Progress rows are left out of the next turn's brief — half-finished thoughts are not
+  history, and the 96 KiB cap is for the questions and answers.
+- **`chat_messages.task_id` says who said it**, and it is empty for the assistant. A
+  conversation carries three kinds of line — the assistant thinking here, the conductor
+  announcing a delegation, and a delegated task's own progress and answer — and the role
+  alone cannot tell them apart. So the name above a run comes from the task id, not the role:
+  a task's progress is **task** with a link to it, and the assistant's own thinking is the
+  bot's. An answer keeps the bot's name whichever machine produced it, with the task beside it
+  as a link, so two tasks answering one conversation read as two answers.
+
+  Rows written before this column existed have no task id and therefore read as the
+  assistant's. Nothing backfills them: guessing per row is worse than a wrong default that is
+  at least uniform.
 - **A failure is stored**, so a turn that died leaves words behind rather than a question that
   looks ignored.
 - **Attachments come from the task's artifacts.** An answer that names a file it wrote under

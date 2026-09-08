@@ -534,6 +534,10 @@ type ChatMessage struct {
 	Text        string
 	Attachments []ChatAttachment
 	TS          time.Time
+	// TaskID is the task whose words these are, and empty for the assistant's own. It is
+	// what lets a reader tell the three kinds of progress apart: the assistant thinking on
+	// this host, the conductor announcing a delegation, and a delegated task talking.
+	TaskID string
 }
 
 // CreateChat opens a chat owned by login. An empty title becomes DefaultChatTitle, and
@@ -655,6 +659,7 @@ func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		Text:        msg.Text,
 		Attachments: raw,
 		Ts:          ts,
+		TaskID:      msg.TaskID,
 	})
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("append %s message to chat %s: %w", msg.Role, msg.ChatID, err)
@@ -937,6 +942,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Role:   r.Role,
 		Text:   r.Text,
 		TS:     r.Ts.UTC(),
+		TaskID: r.TaskID,
 	}
 	if len(r.Attachments) > 0 {
 		if err := json.Unmarshal(r.Attachments, &msg.Attachments); err != nil {

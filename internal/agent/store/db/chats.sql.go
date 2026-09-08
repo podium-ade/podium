@@ -11,10 +11,10 @@ import (
 )
 
 const appendChatMessage = `-- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts)
-select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5
+insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id)
+select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6
   from chat_messages where chat_id = $1
-returning chat_id, seq, role, text, attachments, ts
+returning chat_id, seq, role, text, attachments, ts, task_id
 `
 
 type AppendChatMessageParams struct {
@@ -23,6 +23,7 @@ type AppendChatMessageParams struct {
 	Text        string
 	Attachments []byte
 	Ts          time.Time
+	TaskID      string
 }
 
 // AppendChatMessage takes the next seq for the chat. It is a single statement so the read
@@ -35,6 +36,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		arg.Text,
 		arg.Attachments,
 		arg.Ts,
+		arg.TaskID,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -44,6 +46,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Text,
 		&i.Attachments,
 		&i.Ts,
+		&i.TaskID,
 	)
 	return i, err
 }
@@ -208,7 +211,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 }
 
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
-select chat_id, seq, role, text, attachments, ts from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id from chat_messages
 where chat_id = $1 and role = 'assistant'
 order by seq desc limit 1
 `
@@ -223,6 +226,7 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 		&i.Text,
 		&i.Attachments,
 		&i.Ts,
+		&i.TaskID,
 	)
 	return i, err
 }
@@ -264,7 +268,7 @@ func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullReque
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-select chat_id, seq, role, text, attachments, ts from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id from chat_messages
 where chat_id = $1 and seq > $2::bigint
 order by seq
 `
@@ -290,6 +294,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.Text,
 			&i.Attachments,
 			&i.Ts,
+			&i.TaskID,
 		); err != nil {
 			return nil, err
 		}
@@ -459,7 +464,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
-returning chat_id, seq, role, text, attachments, ts
+returning chat_id, seq, role, text, attachments, ts, task_id
 `
 
 type SetChatMessageAttachmentsParams struct {
@@ -478,6 +483,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.Text,
 		&i.Attachments,
 		&i.Ts,
+		&i.TaskID,
 	)
 	return i, err
 }

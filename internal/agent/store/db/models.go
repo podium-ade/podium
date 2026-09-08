@@ -35,6 +35,7 @@ type ChatMessage struct {
 	Text        string
 	Attachments []byte
 	Ts          time.Time
+	TaskID      string
 }
 
 type ChatPullRequest struct {

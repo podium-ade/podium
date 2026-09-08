@@ -587,14 +587,22 @@ message ChatAttachment {
 message ChatMessage {
   string chat_id = 1;
   uint64 seq = 2;
-  // role is "user", "assistant", or "progress" for a line the task said on its way to an
-  // answer. A progress message is stored and rendered like any other; it is a role of its
-  // own so the transcript a turn is briefed with can leave it out, and so an attachment
-  // lands on the answer rather than on the last thought before it.
+  // role is "user", "assistant", or "progress" for a line said on the way to an answer. A
+  // progress message is stored and rendered like any other; it is a role of its own so the
+  // transcript a turn is briefed with can leave it out, and so an attachment lands on the
+  // answer rather than on the last thought before it.
   string role = 3;
   string text = 4;
   repeated ChatAttachment attachments = 5;
   google.protobuf.Timestamp ts = 6;
+  // task_id is the task these words came from, and EMPTY for the assistant's own.
+  //
+  // A conversation carries both, because the assistant answers here and delegates the work:
+  // its own thinking, the conductor announcing a delegation, and the delegated task's
+  // progress and answer all arrive as rows in one transcript. Without this they were
+  // indistinguishable, and the UI credited every progress line to a task — including the
+  // assistant's, which is the one thing in a conversation that is never one.
+  string task_id = 7;
 }
 
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload

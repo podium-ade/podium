@@ -59,8 +59,8 @@ limit @page_limit::int;
 -- of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
 -- the primary key would refuse a collision anyway.
 -- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts)
-select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts
+insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id)
+select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts, @task_id
   from chat_messages where chat_id = @chat_id
 returning *;
 

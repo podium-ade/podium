@@ -576,6 +576,7 @@ func chatMessageToProto(m store.ChatMessage) *agentv1.ChatMessage {
 		Role:   m.Role,
 		Text:   m.Text,
 		Ts:     timestamppb.New(m.TS),
+		TaskId: m.TaskID,
 	}
 	for _, a := range m.Attachments {
 		out.Attachments = append(out.Attachments, &agentv1.ChatAttachment{
