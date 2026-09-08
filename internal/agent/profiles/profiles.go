@@ -97,15 +97,60 @@ type Profile struct {
 	// means the model's own default, which is what the provider picks.
 	Effort          string `yaml:"effort"`
 	DefaultPlaybook string `yaml:"default_playbook"`
-	// ChatDefaultPlaybook is the playbook a web-chat message runs when the human has not chosen
-	// one. It is a profile decision rather than a page constant: the profile owner decides
-	// what the chat is for. Empty falls back to DefaultPlaybook.
-	ChatDefaultPlaybook string `yaml:"chat_default_playbook"`
+	// Skills is the Agent Skills the ASSISTANT may use — the turn the conductor answers a
+	// conversation with, on this host. A playbook names its own; this is the other end of
+	// that list and not a default for it, because the two turns are nothing alike: one has
+	// a container and a workspace, and this one has a conversation.
+	Skills []string `yaml:"skills"`
+	// MaxTurns caps one assistant turn's steps, as a playbook's max_turns caps a task's.
+	// Zero is DefaultMaxTurns.
+	MaxTurns int `yaml:"max_turns"`
 
 	// Playbooks is every playbooks/*.yaml, keyed by file name without the extension.
 	Playbooks map[string]Playbook `yaml:"-"`
 	// Dir is where the profile was loaded from.
 	Dir string `yaml:"-"`
+}
+
+// Assistant is the bot as a CONVERSATION meets it: the turn the conductor runs itself, in
+// its own process, with no container around it.
+//
+// It is NOT a playbook and deliberately has no fields in common with one. A playbook is a
+// machine job — an image, a workspace, a Docker daemon, a repository — and the assistant has
+// none of those and can never be given them: it runs on the operator's own host, beside the
+// master key. What it has is this conversation, a short fixed tool list, memory, and the
+// playbooks it may hand work to.
+//
+// A conversation used to borrow a playbook for its prompt and its model and then have every
+// container-shaped field taken away again by the fence. That left one word meaning two
+// things, and a chat asking a human to choose a container it would never run in.
+// Its prompt is deliberately not here: the assistant IS the profile, so SystemPrompt is
+// already what a turn is told about itself, and a copy in a second field would be one of
+// them going stale.
+type Assistant struct {
+	// Skills is the Agent Skills it may use, by name.
+	Skills []string
+	// MaxTurns caps its steps.
+	MaxTurns int
+}
+
+// Assistant is what answers a conversation. Every field comes from profile.yaml itself:
+// there is no playbook in this path and nothing to select.
+func (p *Profile) Assistant() Assistant {
+	return Assistant{
+		Skills:   append([]string(nil), p.Skills...),
+		MaxTurns: p.maxTurns(),
+	}
+}
+
+// maxTurns is the assistant's cap, defaulted. It is not applied at load the way a playbook's
+// is, because a profile is also written by the API's merge and defaulting one field there and
+// not the other is how the two copies drift.
+func (p *Profile) maxTurns() int {
+	if p.MaxTurns > 0 {
+		return p.MaxTurns
+	}
+	return DefaultMaxTurns
 }
 
 // Repo is a repository a playbook's turns get cloned into /workspace.
@@ -233,8 +278,10 @@ func refusePreRenameLayout(dir string) error {
 	}
 	return fmt.Errorf("%s holds skills/ and no playbooks/: what Podium called a skill is now "+
 		"called a playbook, because an Agent Skill is a different thing entirely. Rename %s to "+
-		"%s, and profile.yaml's default_skill and chat_default_skill to default_playbook and "+
-		"chat_default_playbook", dir, legacy, filepath.Join(dir, "playbooks"))
+		"%s and profile.yaml's default_skill to default_playbook. A chat_default_skill or "+
+		"chat_default_playbook has no replacement: a conversation is answered by the assistant, "+
+		"which profile.yaml itself describes, and it runs no playbook",
+		dir, legacy, filepath.Join(dir, "playbooks"))
 }
 
 func loadProfileFile(path string) (*Profile, error) {
@@ -353,20 +400,22 @@ func (s *Playbook) applyDefaults() {
 	}
 }
 
-// validateSkills checks the Agent Skills allow-list against the harness's own naming rule
-// and the per-playbook cap. It deliberately does NOT check that the named skill exists:
-// the directory it comes from is the conductor's configuration, not the profile's, and a
-// playbook file has to be loadable on a machine that has no skills directory at all — a
-// test, a `podium agent` on a laptop, CI. A name with nothing behind it fails the turn that
-// wants it, naming the directory, and leaves every other playbook running.
-func (s Playbook) validateSkills() []error {
+// validateSkills checks an Agent Skills allow-list against the harness's own naming rule and
+// the cap. Both lists there are go through it: a playbook's and the assistant's.
+//
+// It deliberately does NOT check that the named skill exists: the directory it comes from is
+// the conductor's configuration, not the profile's, and a profile has to be loadable on a
+// machine that has no skills directory at all — a test, a `podium agent` on a laptop, CI. A
+// name with nothing behind it fails the turn that wants it, naming the directory, and leaves
+// everything else running.
+func validateSkills(names []string) []error {
 	var errs []error
-	if len(s.Skills) > skills.MaxSkills {
+	if len(names) > skills.MaxSkills {
 		errs = append(errs, fmt.Errorf("skills names %d skills; the limit is %d",
-			len(s.Skills), skills.MaxSkills))
+			len(names), skills.MaxSkills))
 	}
-	seen := make(map[string]bool, len(s.Skills))
-	for _, name := range s.Skills {
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
 		if err := skills.ValidateName(name); err != nil {
 			errs = append(errs, fmt.Errorf("skills: %w", err))
 			continue
@@ -417,7 +466,7 @@ func (s Playbook) validate(path string) error {
 				"credential a turn gets, from the agent the playbook runs on", ref.Name))
 		}
 	}
-	errs = append(errs, s.validateSkills()...)
+	errs = append(errs, validateSkills(s.Skills)...)
 	for key := range s.Env {
 		if strings.HasPrefix(key, skills.EnvPrefix) {
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
@@ -508,14 +557,12 @@ func (p *Profile) validate(path string) error {
 		errs = append(errs, fmt.Errorf("default_playbook %q names no playbook in playbooks/ (have %s)",
 			p.DefaultPlaybook, strings.Join(p.PlaybookNames(), ", ")))
 	}
-	// An unset chat_default_playbook is fine and means "whatever default_playbook is"; one
-	// naming a playbook that is not there is a silent fall-back to a different playbook than the
-	// operator asked for, which is worse than a refusal at start-up.
-	if p.ChatDefaultPlaybook != "" {
-		if _, ok := p.Playbooks[p.ChatDefaultPlaybook]; !ok {
-			errs = append(errs, fmt.Errorf("chat_default_playbook %q names no playbook in playbooks/ (have %s)",
-				p.ChatDefaultPlaybook, strings.Join(p.PlaybookNames(), ", ")))
-		}
+	// The assistant's own two fields. An absent max_turns and a `max_turns: 0` are the same
+	// document to a YAML decoder, so zero has to mean "defaulted"; a negative one is the
+	// only shape that can be refused, and it is.
+	errs = append(errs, validateSkills(p.Skills)...)
+	if p.MaxTurns < 0 {
+		errs = append(errs, fmt.Errorf("max_turns must be at least 1, got %d", p.MaxTurns))
 	}
 	// Two playbooks claiming Linear is ambiguous routing with no tie-breaker at all — there
 	// is no channel and no prefix to disambiguate a ticket — so it is refused at load.
@@ -559,16 +606,6 @@ func (p *Profile) LinearPlaybook() string {
 	return ""
 }
 
-// ChatPlaybook is the playbook a web-chat message runs when nothing else picks one: the
-// profile's chat_default_playbook, or default_playbook when it is unset. validate has already
-// refused a name that is not there.
-func (p *Profile) ChatPlaybook() string {
-	if p.ChatDefaultPlaybook != "" {
-		return p.ChatDefaultPlaybook
-	}
-	return p.DefaultPlaybook
-}
-
 // PlaybookNames is every loaded playbook, sorted.
 func (p *Profile) PlaybookNames() []string {
 	out := make([]string, 0, len(p.Playbooks))
@@ -591,18 +628,17 @@ type Selection struct {
 	Explicit bool
 }
 
-// Routing is what Select decides from. Playbook and DefaultPlaybook are the two different things
-// a source can say about playbooks, and keeping them apart is the whole of the ordering below:
-// one is knowledge and the other is a fallback.
+// Routing is what Select decides from.
+//
+// It only ever describes a TASK: a Slack thread or a Linear ticket, which are one piece of
+// work and run one playbook in a container. A conversation does not appear here at all — it
+// is answered by the assistant, and the playbooks are what that turn delegates to rather
+// than something a routing rule picks for it.
 type Routing struct {
 	// Playbook is a playbook the source KNOWS is right, and which no routing rule may
-	// second-guess: Linear's linear: true playbook, and the web chat's playbook chip. Empty means
-	// the rules decide. Slack always leaves it empty.
+	// second-guess: Linear's linear: true playbook. Empty means the rules decide. Slack
+	// always leaves it empty.
 	Playbook string
-	// DefaultPlaybook is what the source falls back to when nothing more specific picks one:
-	// the web chat's chat_default_playbook. It is a preference, not knowledge, so a human
-	// typing /playbook overrides it — and it still beats the profile's own default_playbook.
-	DefaultPlaybook string
 	// Channel is the routing key matched against a playbook's slack_channels.
 	Channel string
 	// Text is what the human said, a /playbook prefix included.
@@ -610,10 +646,9 @@ type Routing struct {
 }
 
 // Select applies the routing rules in order: a playbook the source knows, then a leading
-// /playbook the human typed, then the channel's claim, then the source's own default, then
-// profile.default_playbook. An unknown /name is deliberately not an error — somebody typing
-// /shrug must not break the bot — it is left in the text and falls through, and so does a
-// default naming a playbook that is not loaded.
+// /playbook the human typed, then the channel's claim, then profile.default_playbook. An
+// unknown /name is deliberately not an error — somebody typing /shrug must not break the
+// bot — it is left in the text and falls through.
 func (p *Profile) Select(r Routing) Selection {
 	if r.Playbook != "" {
 		if s, ok := p.Playbooks[r.Playbook]; ok {
@@ -639,11 +674,6 @@ func (p *Profile) Select(r Routing) Selection {
 			}
 		}
 	}
-	if r.DefaultPlaybook != "" {
-		if s, ok := p.Playbooks[r.DefaultPlaybook]; ok {
-			return Selection{Playbook: s, Instruction: instruction}
-		}
-	}
 	return Selection{Playbook: p.Playbooks[p.DefaultPlaybook], Instruction: instruction}
 }
 
@@ -655,11 +685,23 @@ func (p *Profile) ModelFor(s Playbook) string {
 	return p.Model
 }
 
-// Resolve is what a turn actually runs on: the override, then the playbook, then the profile,
+// Resolve is what a TASK actually runs on: the override, then the playbook, then the profile,
 // then the built-in default. It is the ONE place that ordering lives, so the conductor, the
 // brief and the credential the turn is handed can never disagree about it.
 func (p *Profile) Resolve(s Playbook, o Override) Choice {
-	c := Choice{Agent: p.AgentFor(s), Model: p.ModelFor(s), Effort: p.EffortFor(s)}
+	return p.resolve(Choice{Agent: p.AgentFor(s), Model: p.ModelFor(s), Effort: p.EffortFor(s)}, o)
+}
+
+// ResolveAssistant is the same for a turn the conductor answers a conversation with. There
+// is no playbook in that path, so the starting point is the profile's own triple — which is
+// what the assistant is — and the override is the composer's model picker.
+func (p *Profile) ResolveAssistant(o Override) Choice {
+	return p.resolve(Choice{Agent: p.AgentFor(Playbook{}), Model: p.Model, Effort: p.Effort}, o)
+}
+
+// resolve applies an override to a starting triple. Both callers above share it so that
+// "picking grok-4.6 means picking Grok" is true of a conversation and of a task alike.
+func (p *Profile) resolve(c Choice, o Override) Choice {
 	if o.Agent != "" {
 		c.Agent = o.Agent
 		// A backend the caller chose without naming a model would otherwise keep the model

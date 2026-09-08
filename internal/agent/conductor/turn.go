@@ -9,7 +9,6 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 )
@@ -39,9 +38,9 @@ type turnRun struct {
 	// through exactly the same code (delegate.go).
 	*sink
 
-	sess     store.Session
-	playbook profiles.Playbook
-	turn     store.Turn
+	sess store.Session
+	job  job
+	turn store.Turn
 	// author, instruction and url come off the inbound event and exist for the
 	// end-of-turn retain (retain.go). A resumed turn has none of them: they are not
 	// persisted, and only the answer is.
@@ -99,7 +98,7 @@ func (r *turnRun) run(ctx context.Context) {
 	}
 
 	r.settle(ctx, task)
-	result := classify(task, r.playbook.Timeout.Std())
+	result := classify(task, r.job.playbook.Timeout.Std())
 	if result.Post != "" {
 		// The raw failure_reason never reaches a human: it can carry a name, a path or a
 		// stack, and none of that is an answer. It goes to the log with the task id.
@@ -144,7 +143,7 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		r.c.logger.WarnContext(ctx, "a turn succeeded but reported no accounting, so its "+
 			"num_turns and cost_usd are unrecorded: neither the runtime's accounting message "+
 			"nor its turn.json artifact arrived",
-			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.playbook.Name)
+			"turn_id", r.turn.ID, "task_id", r.turn.TaskID, "playbook", r.job.name)
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
 	answer := r.answer()
@@ -158,10 +157,10 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 		reaction = ReactionFailed
 	}
 	r.c.finish(ctx, r.src, r.ref, reaction)
-	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.playbook.Name, status).Inc()
-	r.c.metrics.TurnDuration.WithLabelValues(r.playbook.Name).Observe(time.Since(r.startedAt).Seconds())
+	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.job.name, status).Inc()
+	r.c.metrics.TurnDuration.WithLabelValues(r.job.name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
-		"status", status, "playbook", r.playbook.Name)
+		"status", status, "playbook", r.job.name)
 	// Last, deliberately: the answer is posted and the outcome is on the message, so a
 	// memory outage costs a log line and nothing a human is waiting for.
 	r.retain(ctx, status)

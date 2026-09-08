@@ -50,9 +50,11 @@ func TestAgentProfileLoads(t *testing.T) {
 		require.False(t, p.Playbooks[name].Linear, "%s must not claim Linear", name)
 	}
 
-	// profile.yaml leaves chat_default_playbook unset, so the chat falls back to default_playbook
-	// rather than to nothing. That fallback is what the web chat's playbook chip reads.
-	require.Equal(t, "general", p.ChatPlaybook(), "an unset chat_default_playbook falls back to default_playbook")
+	// The assistant — what answers the web chat, in the conductor's own process — names no
+	// Agent Skills and takes the default step cap. A reader's first profile must come up on a
+	// machine with an empty skill library.
+	require.Empty(t, p.Assistant().Skills)
+	require.Equal(t, profiles.DefaultMaxTurns, p.Assistant().MaxTurns)
 
 	// Nothing here may ask for a privileged node, a browser or a skill. This profile is what
 	// the e2e suite runs and what a reader copies first, so it has to come up on an ordinary
@@ -62,16 +64,17 @@ func TestAgentProfileLoads(t *testing.T) {
 	require.False(t, general.Browser, "the example must not need a browser sidecar")
 	require.Empty(t, general.Skills, "the example must load with no skill library at all")
 
-	// Routing: a typed /playbook is stripped from what the model is told, an unknown /word is
-	// left alone, and a message naming nothing runs the default. The case where a chip beats a
-	// DIFFERENT typed name needs two playbooks to be worth anything, so it is asserted in
+	// Routing a TASK — a Slack thread or a Linear ticket. A typed /playbook is stripped from
+	// what the model is told, an unknown /word is left alone, and a message naming nothing
+	// runs the default. The case where a source's own choice beats a DIFFERENT typed name
+	// needs two playbooks to be worth anything, so it is asserted in
 	// ../playbooks/profile_test.go, which has them.
-	typed := p.Select(profiles.Routing{DefaultPlaybook: p.ChatPlaybook(), Text: "/general reply with pong"})
+	typed := p.Select(profiles.Routing{Text: "/general reply with pong"})
 	require.Equal(t, "general", typed.Playbook.Name)
 	require.True(t, typed.Explicit)
 	require.Equal(t, "reply with pong", typed.Instruction)
 
-	unknown := p.Select(profiles.Routing{DefaultPlaybook: p.ChatPlaybook(), Text: "/shrug reply with pong"})
+	unknown := p.Select(profiles.Routing{Text: "/shrug reply with pong"})
 	require.Equal(t, "general", unknown.Playbook.Name)
 	require.False(t, unknown.Explicit)
 	require.Equal(t, "/shrug reply with pong", unknown.Instruction, "an unknown prefix is left in the text")

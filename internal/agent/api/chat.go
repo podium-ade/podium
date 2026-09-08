@@ -271,14 +271,13 @@ func (s *AgentService) SendChatMessage(
 		Model:  strings.TrimSpace(req.Msg.GetModel()),
 		Effort: strings.TrimSpace(req.Msg.GetEffort()),
 	}
-	if err := s.checkOverride(req.Msg.GetPlaybook(), override); err != nil {
+	if err := s.checkOverride(override); err != nil {
 		return nil, err
 	}
 	msg, err := s.chat.Send(ctx, chat.SendRequest{
 		ChatID:   req.Msg.GetChatId(),
 		Login:    login,
 		Text:     req.Msg.GetText(),
-		Playbook: req.Msg.GetPlaybook(),
 		Override: override,
 	})
 	switch {
@@ -373,10 +372,10 @@ func pullRequestError(err error) error {
 // that names only a model has also chosen that model's backend. Validating the fields
 // separately would accept combinations that cannot run.
 //
-// A playbook this conductor does not have is not this function's problem — the routing rules
-// deal with an unknown name — so an unresolvable playbook validates the override against the
-// profile alone rather than refusing.
-func (s *AgentService) checkOverride(playbookName string, o profiles.Override) error {
+// It is resolved against the ASSISTANT, because that is what the override moves: a chat
+// message is answered here, and the tasks the turn delegates keep their own playbooks'
+// models whatever this says.
+func (s *AgentService) checkOverride(o profiles.Override) error {
 	if o.Empty() {
 		return nil
 	}
@@ -387,8 +386,7 @@ func (s *AgentService) checkOverride(playbookName string, o profiles.Override) e
 	if p == nil {
 		return nil
 	}
-	playbook := p.Playbooks[playbookName]
-	if err := profiles.ValidateOverride(p.Resolve(playbook, o)); err != nil {
+	if err := profiles.ValidateOverride(p.ResolveAssistant(o)); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return nil
@@ -549,7 +547,6 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		CreatedAt:   timestamppb.New(c.CreatedAt),
 		Preview:     c.Preview,
 		TurnRunning: c.TurnRunning,
-		Playbook:    c.Playbook,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)

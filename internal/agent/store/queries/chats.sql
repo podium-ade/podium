@@ -6,8 +6,8 @@
 -- boundary and it is free, so every read is filtered by it.
 
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at, playbook, auto_title)
-values (@id, @title, @login, @created_at, @playbook, @auto_title)
+insert into chats (id, title, login, created_at, auto_title)
+values (@id, @title, @login, @created_at, @auto_title)
 returning *;
 
 -- name: GetChat :one
@@ -88,14 +88,6 @@ select exists (
    where s.source_key = @source_key
      and t.status = 'running'
 )::bool as running;
-
--- SetChatPlaybook records the playbook a chat's LATEST message ran. It is not first-wins:
--- a conversation is no longer one playbook's work, so the person may pick a different one
--- per message and the agent answering may delegate to any of them.
--- name: SetChatPlaybook :one
-update chats set playbook = @playbook
-where id = @id
-returning *;
 
 -- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
 -- (auto_title = false) is left alone.

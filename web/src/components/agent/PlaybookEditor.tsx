@@ -366,7 +366,7 @@ export function PlaybookEditor({
               <div className="space-y-1.5">
                 {/* Not a <Label>: the picker is three controls behind one trigger, and each
                     one names itself. */}
-                <span className="block text-xs font-medium text-muted">Agent and model</span>
+                <span className="block text-xs font-medium text-muted">Model</span>
                 <AgentPicker
                   label="Playbook"
                   value={choice}

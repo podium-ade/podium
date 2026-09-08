@@ -86,14 +86,13 @@ func (s *AgentService) UpdateProfile(
 			errors.New("this conductor has no profile loaded"))
 	}
 	ov := profiles.Overrides{
-		DisplayName:         req.Msg.GetDisplayName(),
-		Model:               req.Msg.GetModel(),
-		Agent:               req.Msg.GetAgent(),
-		Effort:              req.Msg.GetEffort(),
-		DefaultPlaybook:     req.Msg.GetDefaultPlaybook(),
-		ChatDefaultPlaybook: req.Msg.GetChatDefaultPlaybook(),
-		UpdatedBy:           Login(ctx),
-		UpdatedAt:           time.Now().UTC(),
+		DisplayName:     req.Msg.GetDisplayName(),
+		Model:           req.Msg.GetModel(),
+		Agent:           req.Msg.GetAgent(),
+		Effort:          req.Msg.GetEffort(),
+		DefaultPlaybook: req.Msg.GetDefaultPlaybook(),
+		UpdatedBy:       Login(ctx),
+		UpdatedAt:       time.Now().UTC(),
 	}.Trim()
 
 	s.writeMu.Lock()
@@ -362,23 +361,26 @@ func secretNames(s profiles.Playbook) []string {
 }
 
 func profileToProto(cur, files *profiles.Profile, ov profiles.Overrides) *agentv1.AgentProfile {
+	assistant := cur.Assistant()
 	out := &agentv1.AgentProfile{
-		Name:                    files.Name,
-		DisplayName:             cur.DisplayName,
-		Model:                   cur.Model,
-		Agent:                   cur.AgentFor(profiles.Playbook{}),
-		Effort:                  cur.Effort,
-		DefaultPlaybook:         cur.DefaultPlaybook,
-		ChatDefaultPlaybook:     cur.ChatDefaultPlaybook,
-		ProfileDir:              files.Dir,
-		FileDisplayName:         files.DisplayName,
-		FileModel:               files.Model,
-		FileAgent:               files.Agent,
-		FileEffort:              files.Effort,
-		FileDefaultPlaybook:     files.DefaultPlaybook,
-		FileChatDefaultPlaybook: files.ChatDefaultPlaybook,
-		Overridden:              ov.Fields(),
-		UpdatedBy:               ov.UpdatedBy,
+		Name:                files.Name,
+		DisplayName:         cur.DisplayName,
+		Model:               cur.Model,
+		Agent:               cur.AgentFor(profiles.Playbook{}),
+		Effort:              cur.Effort,
+		DefaultPlaybook:     cur.DefaultPlaybook,
+		ProfileDir:          files.Dir,
+		FileDisplayName:     files.DisplayName,
+		FileModel:           files.Model,
+		FileAgent:           files.Agent,
+		FileEffort:          files.Effort,
+		FileDefaultPlaybook: files.DefaultPlaybook,
+		Overridden:          ov.Fields(),
+		UpdatedBy:           ov.UpdatedBy,
+		// The assistant's own two fields. There is no file_* pair for them and no override:
+		// they come from profile.yaml and only from there.
+		Skills:   assistant.Skills,
+		MaxTurns: int32(assistant.MaxTurns),
 	}
 	if !ov.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(ov.UpdatedAt)

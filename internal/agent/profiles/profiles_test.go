@@ -282,44 +282,6 @@ func TestSelect(t *testing.T) {
 	})
 }
 
-// TestASourcesDefaultLosesToATypedPlaybookAndBeatsTheProfiles is the web chat's precedence:
-// the chip is knowledge and wins outright, a typed /playbook is the most specific thing a
-// human can say next, and chat_default_playbook is only where a message with neither lands.
-func TestASourcesDefaultLosesToATypedPlaybookAndBeatsTheProfiles(t *testing.T) {
-	files := base()
-	files["playbooks/coder.yaml"] = goodPlaybook
-	files["playbooks/analyst.yaml"] = goodPlaybook
-	p, err := Load(write(t, files))
-	require.NoError(t, err)
-
-	t.Run("the source's default beats profile.default_playbook", func(t *testing.T) {
-		sel := p.Select(Routing{DefaultPlaybook: "analyst", Text: "how many accounts"})
-		assert.Equal(t, "analyst", sel.Playbook.Name)
-		assert.False(t, sel.Explicit, "a default is not somebody naming a playbook")
-	})
-
-	t.Run("a typed /playbook beats the source's default", func(t *testing.T) {
-		sel := p.Select(Routing{DefaultPlaybook: "analyst", Text: "/general reply with pong"})
-		assert.Equal(t, "general", sel.Playbook.Name)
-		assert.Equal(t, "reply with pong", sel.Instruction, "a matched prefix is stripped")
-		assert.True(t, sel.Explicit)
-	})
-
-	t.Run("the chip beats a typed /playbook", func(t *testing.T) {
-		sel := p.Select(Routing{Playbook: "coder", DefaultPlaybook: "analyst", Text: "/general hi"})
-		assert.Equal(t, "coder", sel.Playbook.Name)
-		assert.Equal(t, "/general hi", sel.Instruction)
-		assert.True(t, sel.Explicit)
-	})
-
-	t.Run("an unknown /name still falls through to the source's default", func(t *testing.T) {
-		sel := p.Select(Routing{DefaultPlaybook: "analyst", Text: "/shrug hi"})
-		assert.Equal(t, "analyst", sel.Playbook.Name)
-		assert.Equal(t, "/shrug hi", sel.Instruction)
-		assert.False(t, sel.Explicit)
-	})
-}
-
 func TestPlaybookPrefixRE(t *testing.T) {
 	for _, text := range []string{"/coder fix", "/coder\nfix", "/coder"} {
 		assert.NotNil(t, PlaybookPrefixRE.FindStringSubmatch(text), "%q must match", text)
@@ -373,4 +335,80 @@ func TestASourceChosenPlaybookWinsOverEveryRoutingRule(t *testing.T) {
 	assert.True(t, sel.Explicit)
 	assert.Equal(t, "/general please just answer", sel.Instruction,
 		"a ticket's text is not a command line: no prefix is stripped")
+}
+
+// TestTheAssistantComesFromTheProfileAndNotFromAPlaybook. A conversation is answered on the
+// conductor's own host, so there is no image, no workspace and no playbook in that path: the
+// prompt, the model and the skills are the profile's own.
+func TestTheAssistantComesFromTheProfileAndNotFromAPlaybook(t *testing.T) {
+	files := base()
+	files["profile.yaml"] = goodProfile + "skills: [validate-pr]\nmax_turns: 12\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	a := p.Assistant()
+	assert.Equal(t, []string{"validate-pr"}, a.Skills)
+	assert.Equal(t, 12, a.MaxTurns)
+}
+
+func TestTheAssistantsTurnCapDefaults(t *testing.T) {
+	p, err := Load(write(t, base()))
+	require.NoError(t, err)
+	assert.Equal(t, DefaultMaxTurns, p.Assistant().MaxTurns)
+	assert.Empty(t, p.Assistant().Skills, "a profile that names no skills gets none")
+}
+
+func TestTheAssistantsFieldsAreValidated(t *testing.T) {
+	t.Run("a skill name the harness would refuse", func(t *testing.T) {
+		files := base()
+		files["profile.yaml"] = goodProfile + "skills: [\"Not A Name\"]\n"
+		_, err := Load(write(t, files))
+		require.ErrorContains(t, err, "skills")
+	})
+
+	t.Run("the same skill twice", func(t *testing.T) {
+		files := base()
+		files["profile.yaml"] = goodProfile + "skills: [validate-pr, validate-pr]\n"
+		_, err := Load(write(t, files))
+		require.ErrorContains(t, err, `names "validate-pr" twice`)
+	})
+
+	t.Run("a negative turn cap", func(t *testing.T) {
+		files := base()
+		files["profile.yaml"] = goodProfile + "max_turns: -1\n"
+		_, err := Load(write(t, files))
+		require.ErrorContains(t, err, "max_turns must be at least 1")
+	})
+}
+
+// TestTheAssistantsModelIsTheProfilesAndTheOverrideStillMoves. There is no playbook to
+// inherit from, so the profile's own triple is the starting point — and the composer's
+// picker still moves the whole triple, exactly as it does for a task.
+func TestTheAssistantsModelIsTheProfilesAndTheOverrideStillMoves(t *testing.T) {
+	files := base()
+	files["profile.yaml"] = goodProfile + "agent: claude\neffort: high\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	plain := p.ResolveAssistant(Override{})
+	assert.Equal(t, "claude", plain.Agent)
+	assert.Equal(t, "claude-opus-5", plain.Model)
+	assert.Equal(t, "high", plain.Effort)
+
+	// Picking a model picks its backend, which is the one rule shared with a task's.
+	moved := p.ResolveAssistant(Override{Model: "grok-4.6"})
+	assert.Equal(t, "grok", moved.Agent)
+	assert.Equal(t, "grok-4.6", moved.Model)
+}
+
+// TestAPlaybooksModelNeverReachesTheAssistant. The two are separate on purpose: the podium
+// playbook runs Grok at high effort, and that must not change who answers the chat.
+func TestAPlaybooksModelNeverReachesTheAssistant(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + "agent: grok\nmodel: grok-4.6\neffort: high\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+
+	assert.Equal(t, "grok-4.6", p.Resolve(p.Playbooks["general"], Override{}).Model)
+	assert.Equal(t, "claude-opus-5", p.ResolveAssistant(Override{}).Model)
 }

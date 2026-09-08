@@ -281,8 +281,8 @@ async function main(): Promise<number> {
             // plainly that the answer is incomplete rather than relaying a half-finished one.
             summary.code = ExitMaxTurns;
             finalText =
-              `I ran out of turns. This playbook allows ${brief.playbook.max_turns} and the work ` +
-              `was not finished, so nothing here is a complete answer.`;
+              `I ran out of turns. I am allowed ${brief.playbook.max_turns} and the work was ` +
+              `not finished, so nothing here is a complete answer.`;
             run.child.kill("SIGTERM");
           }
           break;

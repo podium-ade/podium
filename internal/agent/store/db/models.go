@@ -25,7 +25,6 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
-	Playbook  string
 	AutoTitle bool
 }
 

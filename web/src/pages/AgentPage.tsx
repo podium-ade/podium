@@ -62,7 +62,7 @@ const groups: Group[] = [
   },
   {
     label: "Configure",
-    tabs: [{ path: "profile", label: "Profile", element: <ProfileTab />, icon: UserRound }],
+    tabs: [{ path: "profile", label: "Assistant", element: <ProfileTab />, icon: UserRound }],
   },
 ];
 
@@ -320,8 +320,8 @@ function ProfileTab() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Profile"
-        description="Who the bot is, which model it defaults to, and which playbook a new chat starts on. Every field here overrides profile.yaml on the conductor's host."
+        title="Assistant"
+        description="Who answers a conversation, which model it answers on, and which playbook a Slack mention or a Linear ticket runs. Every editable field here overrides profile.yaml on the conductor's host."
       />
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown

@@ -5,15 +5,21 @@
 # else: this profile clones this repository, holds a GitHub token, wants a privileged node
 # and a browser, and none of that belongs in the first thing a reader copies. See
 # docs/agent.md#the-profile-directory.
+#
+# Everything down to `agent` is the ASSISTANT: the turn that answers a conversation, here in
+# the conductor's own process, with three tools and no container. `default_playbook` is a
+# different decision — which playbook a Slack mention or a Linear ticket runs as a task.
 name: podium
 display_name: Podium
 system_prompt: file:./prompts/profile.md
 model: claude-opus-5
-# The backend every playbook runs on unless it names its own. `podium` names grok.
+# The backend it answers on, and the default a playbook inherits. `podium` names grok.
 agent: claude
+# The assistant names no Agent Skills and takes the default step cap: it delegates anything
+# that needs a machine, so a skill installed beside it would have nothing to act on.
+#
 # A mention with no /playbook runs `general`, which answers questions and costs a container.
 # `podium` is the dogfood — two hours, 200 turns, a Docker daemon, a browser and a privileged
-# node — and a human asks for it by name.
+# node — and a human asks for it by name. Neither is what the web chat runs: a conversation
+# is answered above, and these two are what it delegates to.
 default_playbook: general
-# chat_default_playbook is unset, so the web chat falls back to default_playbook. Two values
-# that must agree is one value too many; the fallback is the rule, and docs/agent.md says so.

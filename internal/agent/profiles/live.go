@@ -14,24 +14,22 @@ import (
 // profile's name and system prompt are deliberately absent — the name labels every session
 // row already written, and the prompt is the operator's own file.
 type Overrides struct {
-	DisplayName         string    `json:"display_name,omitempty"`
-	Model               string    `json:"model,omitempty"`
-	Agent               string    `json:"agent,omitempty"`
-	Effort              string    `json:"effort,omitempty"`
-	DefaultPlaybook     string    `json:"default_playbook,omitempty"`
-	ChatDefaultPlaybook string    `json:"chat_default_playbook,omitempty"`
-	UpdatedBy           string    `json:"updated_by,omitempty"`
-	UpdatedAt           time.Time `json:"updated_at,omitzero"`
+	DisplayName     string    `json:"display_name,omitempty"`
+	Model           string    `json:"model,omitempty"`
+	Agent           string    `json:"agent,omitempty"`
+	Effort          string    `json:"effort,omitempty"`
+	DefaultPlaybook string    `json:"default_playbook,omitempty"`
+	UpdatedBy       string    `json:"updated_by,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitzero"`
 }
 
 // The profile.yaml keys Overrides can supply, as Fields reports them.
 const (
-	FieldDisplayName         = "display_name"
-	FieldModel               = "model"
-	FieldAgent               = "agent"
-	FieldEffort              = "effort"
-	FieldDefaultPlaybook     = "default_playbook"
-	FieldChatDefaultPlaybook = "chat_default_playbook"
+	FieldDisplayName     = "display_name"
+	FieldModel           = "model"
+	FieldAgent           = "agent"
+	FieldEffort          = "effort"
+	FieldDefaultPlaybook = "default_playbook"
 )
 
 // Fields names the profile.yaml keys this override is supplying, in file order. The UI
@@ -47,7 +45,6 @@ func (o Overrides) Fields() []string {
 		{FieldModel, o.Model},
 		{FieldEffort, o.Effort},
 		{FieldDefaultPlaybook, o.DefaultPlaybook},
-		{FieldChatDefaultPlaybook, o.ChatDefaultPlaybook},
 	} {
 		if f.value != "" {
 			out = append(out, f.key)
@@ -64,7 +61,6 @@ func (o Overrides) Trim() Overrides {
 	o.Agent = strings.TrimSpace(o.Agent)
 	o.Effort = strings.TrimSpace(o.Effort)
 	o.DefaultPlaybook = strings.TrimSpace(o.DefaultPlaybook)
-	o.ChatDefaultPlaybook = strings.TrimSpace(o.ChatDefaultPlaybook)
 	return o
 }
 
@@ -83,9 +79,6 @@ func (o Overrides) apply(p *Profile) {
 	}
 	if o.DefaultPlaybook != "" {
 		p.DefaultPlaybook = o.DefaultPlaybook
-	}
-	if o.ChatDefaultPlaybook != "" {
-		p.ChatDefaultPlaybook = o.ChatDefaultPlaybook
 	}
 }
 

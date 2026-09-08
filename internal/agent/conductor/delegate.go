@@ -241,7 +241,8 @@ func (c *Conductor) startDelegatedTask(
 		c.logger.WarnContext(ctx, "reading the conversation for a delegated task failed; running it without history",
 			"delegation_id", dlg.ID, "ref", g.ref, "error", err)
 	}
-	bundles, err := c.skillBundles(ctx, playbook)
+	j := playbookJob(playbook)
+	bundles, err := c.skillBundles(ctx, j)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the %s playbook's skills could not be prepared: %w", playbook.Name, err)
 	}
@@ -262,7 +263,7 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	brief := c.brief(sess, playbook, dlg.ID, ev, entries, bundles, choice)
+	brief := c.brief(sess, j, dlg.ID, ev, entries, bundles, choice)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
