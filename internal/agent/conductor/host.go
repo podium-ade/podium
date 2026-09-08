@@ -31,7 +31,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/skills"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
@@ -62,6 +61,10 @@ const hostGrace = 30 * time.Second
 // hostMaxLine caps one line of the event protocol, as the node's reader does.
 const hostMaxLine = 64 * 1024
 
+// hostRecordGrace is how long a cancelled turn gets to record that it was cancelled, on a
+// context of its own because the one it was cancelled with can no longer write anything.
+const hostRecordGrace = 5 * time.Second
+
 // hostTools is every tool a host turn may use.
 //
 // It is SHORT ON PURPOSE and it is not the playbook's list. A host turn has no container
@@ -75,11 +78,12 @@ const hostMaxLine = 64 * 1024
 // becomes a delegated task, which is the whole design.
 var hostTools = []string{"webfetch", "todoread", "todowrite"}
 
-// The three things a host turn ever says about its own failures. Neither names a path, a
+// Everything a host turn ever says about its own failures. None of them names a path, a
 // binary or a provider: that is what the log is for.
 const (
 	hostFailedToStart = "Something went wrong on my side and I could not run this. An operator should check the logs."
 	hostNoCredential  = "I have no model credential to answer with. An operator needs to set one on the Settings tab."
+	hostSaidNothing   = "I ran this and it ended without saying anything at all. An operator should check the logs."
 )
 
 // HostRuntime is what the conductor needs to run a turn itself. Nil in Options means every
@@ -156,6 +160,10 @@ type hostRun struct {
 	bundles []skills.Bundle
 	// provider is where this turn's requests go and which variable its credential lands in.
 	provider *BriefProvider
+	// memoryKeyEnv is the variable the memory server's bearer has to land in, taken from
+	// the brief this turn actually carries rather than from the constant it was built from:
+	// a brief that names one variable and an environment that sets another is a failed turn.
+	memoryKeyEnv string
 	// devEnv is extra environment the TEST-ONLY dev source asked for. Empty for every real
 	// source, exactly as on a task spec.
 	devEnv map[string]string
@@ -223,6 +231,13 @@ func (h *hostRun) run(ctx context.Context) {
 		return
 	}
 
+	// Registered BEFORE the fork, not after it. A cancel that arrives in between — a chat
+	// deleted the moment after it was written to — would otherwise find nothing to stop and
+	// leave a turn running that nobody is waiting for. Cancelling a CommandContext that has
+	// not started yet makes Start fail, which is the outcome we want.
+	c.registerHost(r.ref, cancel)
+	defer c.unregisterHost(r.ref)
+
 	if err := cmd.Start(); err != nil {
 		link.close()
 		c.logger.ErrorContext(ctx, "starting a host turn's runtime failed",
@@ -230,8 +245,6 @@ func (h *hostRun) run(ctx context.Context) {
 		h.giveUp(ctx, hostFailedToStart)
 		return
 	}
-	c.registerHost(r.ref, cancel)
-	defer c.unregisterHost(r.ref)
 	c.logger.InfoContext(ctx, "host turn started", "turn_id", r.turn.ID, "session_id", r.sess.ID,
 		"playbook", r.playbook.Name, "pid", cmd.Process.Pid, "source", r.src.Kind())
 
@@ -265,19 +278,39 @@ func (h *hostRun) run(ctx context.Context) {
 	}
 
 	waitErr := <-waited
-	r.flushProgress(ctx)
-
-	status := hostOutcome(cmd.ProcessState.ExitCode(), runCtx.Err() != nil)
-	if status != store.TurnSucceeded {
-		c.logger.WarnContext(ctx, "a host turn did not succeed", "turn_id", r.turn.ID,
-			"exit_code", cmd.ProcessState.ExitCode(), "status", status, "error", waitErr)
-		if len(r.finals) == 0 {
-			// The runtime says its own piece on every failure it can report. Nothing at all
-			// means it never got that far.
-			c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, Text: hostFailedToStart})
-		}
+	cancelled := runCtx.Err() != nil
+	if bad := link.unreadable(); len(bad) > 0 {
+		c.logger.WarnContext(ctx, "a host turn's event socket carried lines this process could not read",
+			"turn_id", r.turn.ID, "errors", bad)
 	}
-	r.finish(ctx, status)
+
+	// A cancelled turn still has to be written down, and the context it was cancelled with
+	// cannot write anything: every store call and every post on it fails. A task turn can
+	// leave the row alone because the recovery pass resumes it from its task; a HOST turn
+	// has no task and died with this process, so if this does not record it, nothing does
+	// until the next start finds an orphan.
+	done := ctx
+	if cancelled {
+		var stop context.CancelFunc
+		done, stop = context.WithTimeout(context.WithoutCancel(ctx), hostRecordGrace)
+		defer stop()
+	}
+
+	r.flushProgress(done)
+
+	status := hostOutcome(cmd.ProcessState.ExitCode(), cancelled)
+	if status != store.TurnSucceeded {
+		c.logger.WarnContext(done, "a host turn did not succeed", "turn_id", r.turn.ID,
+			"exit_code", cmd.ProcessState.ExitCode(), "status", status, "error", waitErr)
+	}
+	// The runtime says its own piece on every failure it can report, and says "the turn
+	// ended without an answer" when it has nothing else. Silence means not even that
+	// arrived — and the placeholder above it reads "working on it", which is what somebody
+	// would otherwise be left looking at for ever.
+	if len(r.finals) == 0 {
+		c.post(done, r.src, r.ref, Outbound{Type: OutFailure, Text: hostSaidNothing})
+	}
+	r.finish(done, status)
 }
 
 // giveUp posts one sentence and fails the turn. It is for the failures that happen before
@@ -316,8 +349,8 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 		BriefEnv + "=" + h.encoded,
 		h.provider.APIKeyEnv + "=" + key,
 	}
-	if c.host.MemoryAPIKey != "" && c.host.MemoryMCPURL != "" {
-		env = append(env, profiles.MemoryKeyEnv+"="+c.host.MemoryAPIKey)
+	if h.memoryKeyEnv != "" && c.host.MemoryAPIKey != "" {
+		env = append(env, h.memoryKeyEnv+"="+c.host.MemoryAPIKey)
 	}
 	for _, b := range h.bundles {
 		env = append(env, b.Env+"="+b.Encoded)
@@ -414,6 +447,27 @@ type hostLink struct {
 	events chan hostEvent
 	conns  sync.WaitGroup
 	once   sync.Once
+
+	mu   sync.Mutex
+	errs []error
+}
+
+// bad records a line that could not be read. They are reported once, when the turn ends: a
+// reader goroutine has no context and no turn id, and a log line per malformed byte would
+// bury the turn's own messages.
+func (l *hostLink) bad(err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.errs) < 8 {
+		l.errs = append(l.errs, err)
+	}
+}
+
+// unreadable is what the socket could not read, for the log at the end of the turn.
+func (l *hostLink) unreadable() []error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.errs
 }
 
 // hostEvent is the fields of the runner's newline-JSON protocol that a host turn uses.
@@ -456,9 +510,16 @@ func (l *hostLink) serve() {
 				if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
 					// A line this process cannot read is a bug in the runner, not a failed
 					// turn. The turn's own messages are what matter and they keep coming.
+					l.bad(fmt.Errorf("undecodable event: %w", err))
 					continue
 				}
 				l.events <- ev
+			}
+			// A line past hostMaxLine ends the scan silently, which would lose a message
+			// and say nothing about it. podium-runner refuses one that long, so this means
+			// something else is writing to the socket.
+			if err := sc.Err(); err != nil {
+				l.bad(err)
 			}
 		}()
 	}
