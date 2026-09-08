@@ -56,7 +56,8 @@ somebody mentions the bot in a THREAD, or assigns a Linear ticket
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
   ↓  Select                                  which playbook? /playbook, the channel, default_playbook
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
-  ↓  React 👀  +  post "👀 working…"          before any work starts
+  ↓  React 👀                                 before any work starts
+  ↓  post "👀 working…"                       Linear's working comment. Slack skips it: 👀 is the ack
   ↓  FetchTranscript                          the thread so far
   ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 96 KiB
   ↓  CreateTask                               image + brief + the playbook's secrets + the model key
@@ -1126,22 +1127,19 @@ Then, in a channel the bot is in:
 @Podium what does this repo do?
 ```
 
-A `👀 working…` reply appears in a thread, 👀 appears on your message, the reply turns into
-`⏳ …` as the agent works, the answer replaces it, and 👀 becomes ✅.
-
-The reply is deliberately first: it is the acknowledgement you are waiting for, and the write
-path is rate limited, so anything sent ahead of it is a second of silence.
+👀 appears on your message. That is the acknowledgement — there is no `👀 working…` chat
+message. Progress, if any, arrives as `⏳ …` lines; the answer is posted as a new message
+in the thread, and 👀 becomes ✅.
 
 ### What the bot listens to
 
 - **`app_mention`** in a channel: a mention starts a thread at its own message, and the answer
-  goes into that thread.
-- **A reply in a thread the bot is already in** continues the conversation with **no mention
-  needed**.
+  goes into that thread. A mention **inside an existing thread** is the only way a thread
+  reply starts a turn.
 - **A DM** is a conversation of its own, keyed the same way.
 - Everything else is ignored: anything from a bot (this one included), anything with a subtype
-  (`message_changed`, `message_deleted`, `channel_join`, …), and any channel message that is not
-  a reply in a thread the bot knows.
+  (`message_changed`, `message_deleted`, `channel_join`, …), and any channel message that does
+  not mention the bot — including a reply in a thread the bot already participated in.
 
 Slack delivers a channel mention twice — once as `app_mention`, once as `message` — so
 `(channel, ts)` is deduplicated for a few minutes and one message starts one turn.

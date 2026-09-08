@@ -153,6 +153,99 @@ func TestInnerEventsArrivePointerTyped(t *testing.T) {
 	assert.False(t, valueTyped, "a value-typed case would compile and never match")
 }
 
+// A reply in a thread is not a turn unless the bot is @-mentioned. Having already
+// participated is not enough.
+func TestInnerIgnoresAThreadReplyWithoutAMention(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.MessageEvent{
+				Channel:         "C1",
+				User:            "U1",
+				Text:            "and then?",
+				TimeStamp:       "100.2",
+				ThreadTimeStamp: "100.1",
+				ChannelType:     "channel",
+			},
+		},
+	})
+
+	assertNoInbound(t, s)
+}
+
+// The same words with an @-mention are a turn, and the reply goes in that thread.
+func TestInnerEmitsAThreadMention(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:         "C1",
+				User:            "U1",
+				Text:            "<@UBOT> and then?",
+				TimeStamp:       "100.2",
+				ThreadTimeStamp: "100.1",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "C1", ev.Channel)
+	assert.Equal(t, "and then?", ev.Text, "the mention is stripped")
+	assert.Equal(t, Ref("C1", "100.1", "100.2"), ev.Ref)
+}
+
+// A DM is a conversation of its own and does not need a mention.
+func TestInnerEmitsADirectMessage(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.MessageEvent{
+				Channel:     "D1",
+				User:        "U1",
+				Text:        "hello",
+				TimeStamp:   "100.1",
+				ChannelType: "im",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "D1", ev.Channel)
+	assert.Equal(t, "hello", ev.Text)
+	assert.Equal(t, Ref("D1", "100.1", "100.1"), ev.Ref, "a DM starts a thread at its own ts")
+}
+
+// A top-level channel mention still starts a turn. That path is app_mention, not message.
+func TestInnerEmitsATopLevelMention(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> what does this repo do?",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "what does this repo do?", ev.Text)
+	assert.Equal(t, Ref("C1", "100.1", "100.1"), ev.Ref)
+}
+
 // ---------------------------------------------------------------------------
 // the Web API methods
 //
@@ -269,9 +362,26 @@ func testSource(t *testing.T, f *fakeSlack) *Source {
 	return s
 }
 
+// Starting work is a 👀 on the trigger and nothing posted. The conductor still offers the
+// "working…" placeholder (every source sees the same Post); Slack drops it.
+func TestStartingWorkReactsAndPostsNoPlaceholder(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+
+	id, err := s.Post(t.Context(), Ref("C1", "100.1", "100.1"),
+		conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	require.NoError(t, err)
+	assert.Empty(t, id)
+	require.NoError(t, s.React(t.Context(), Ref("C1", "100.1", "100.1"), conductor.ReactionWorking))
+
+	assert.Equal(t, []string{"reactions.add"}, f.methods())
+	assert.Equal(t, emojiWorking, f.form(t, "reactions.add", 0).Get("name"))
+	assert.Equal(t, "100.1", f.form(t, "reactions.add", 0).Get("timestamp"))
+}
+
 // The working mark is the first thing a turn does and it ADDS ONLY. The trigger is a
 // message a human has just sent, so there is nothing of the bot's on it to remove, and the
-// two removals this used to send were a second each of silence in front of the placeholder.
+// two removals this used to send were a second each of silence in front of the working mark.
 func TestReactWorkingOnlyAdds(t *testing.T) {
 	f := newFakeSlack(t)
 	s := testSource(t, f)
@@ -564,5 +674,25 @@ func TestAttachRefusesWhatSlackCannotBeTold(t *testing.T) {
 			require.Error(t, s.Attach(t.Context(), Ref("C1", "100.1", "100.1"), tc.file))
 			assert.Empty(t, f.methods(), "nothing should reach Slack")
 		})
+	}
+}
+
+func takeInbound(t *testing.T, s *Source) conductor.InboundEvent {
+	t.Helper()
+	select {
+	case ev := <-s.Events():
+		return ev
+	default:
+		t.Fatal("expected an inbound event")
+		return conductor.InboundEvent{}
+	}
+}
+
+func assertNoInbound(t *testing.T, s *Source) {
+	t.Helper()
+	select {
+	case ev := <-s.Events():
+		t.Fatalf("unexpected inbound event: %+v", ev)
+	default:
 	}
 }
