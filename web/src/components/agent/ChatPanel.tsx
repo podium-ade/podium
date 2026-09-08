@@ -204,6 +204,7 @@ export function ChatPanel() {
               key={active}
               chatId={active}
               title={list.find((c) => c.id === active)?.title ?? ""}
+              remembered={storedChoice(list.find((c) => c.id === active))}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
               playbookNames={playbookNames}
@@ -639,12 +640,15 @@ function ConversationTitle({
 function Conversation({
   chatId,
   title,
+  remembered,
   onRename,
   assistant,
   playbookNames,
 }: {
   chatId: string;
   title: string;
+  /** remembered is what this chat was last answered on, from the list row. */
+  remembered?: AgentChoice;
   onRename: (title: string) => Promise<void>;
   assistant?: Assistant;
   playbookNames: string[];
@@ -677,10 +681,17 @@ function Conversation({
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
   }, [qc, stream.chat]);
 
-  // The choice is sticky across messages, the way every chat that has a model picker
-  // behaves: you pick once and keep asking. It is still sent per message, so nothing is
-  // remembered server-side and a reload goes back to the assistant's own model.
-  const [choice, setChoice] = useState<AgentChoice>(INHERIT);
+  // What answers this conversation. Picked once and then remembered: the chat row stores the
+  // override, so a reload, another tab and coming back tomorrow all open on the model this
+  // chat was last asked for.
+  //
+  // Derived rather than copied into state on arrival, for the same reason the title is: the
+  // row lands asynchronously, and an effect that seeded state from it would either race the
+  // first render or overwrite a choice made while it was in flight. So what the PERSON picked
+  // in this session wins, and the stored choice is what it falls back to.
+  const [picked, setPicked] = useState<AgentChoice | undefined>(undefined);
+  const choice = picked ?? storedChoice(stream.chat) ?? remembered ?? INHERIT;
+  const setChoice = setPicked;
   const { agents } = useAgents();
 
   const send = useMutation({
@@ -950,6 +961,24 @@ function TranscriptSkeleton() {
       </div>
     </div>
   );
+}
+
+/**
+ * storedChoice is what a chat row says it is answered on, or undefined when it says nothing.
+ *
+ * All three fields empty is "the assistant's own", which is what INHERIT already means — so
+ * it reads as *nothing stored* rather than as a choice, and the picker falls through to its
+ * own default. That keeps one meaning for one state instead of two paths to the same place.
+ */
+function storedChoice(chat?: Chat): AgentChoice | undefined {
+  if (!chat) return undefined;
+  // Normalised rather than trusted: the fields are strings on the wire, and a caller holding
+  // a partial row must not turn into a choice of three undefineds sent as a model.
+  const agent = chat.agent ?? "";
+  const model = chat.model ?? "";
+  const effort = chat.effort ?? "";
+  if (agent === "" && model === "" && effort === "") return undefined;
+  return { agent, model, effort };
 }
 
 /**

@@ -2829,7 +2829,20 @@ type Chat struct {
 	Preview string `protobuf:"bytes,5,opt,name=preview,proto3" json:"preview,omitempty"`
 	// turn_running is true while a turn of this chat is in flight, which is when the
 	// composer is disabled and SendChatMessage answers FailedPrecondition.
-	TurnRunning   bool `protobuf:"varint,6,opt,name=turn_running,json=turnRunning,proto3" json:"turn_running,omitempty"`
+	TurnRunning bool `protobuf:"varint,6,opt,name=turn_running,json=turnRunning,proto3" json:"turn_running,omitempty"`
+	// agent, model and effort are what this chat is answered on, so the composer opens on the
+	// model it was last asked for instead of making somebody pick again.
+	//
+	// They are the OVERRIDE a person set, and all empty means the assistant's own — which is
+	// why they are not the resolved triple `turns` records: a conversation that asked for
+	// nothing specific follows profile.yaml when it changes, rather than being pinned to
+	// whatever its first turn happened to run.
+	//
+	// A task the conversation delegates is unaffected either way: it runs on its playbook's
+	// model.
+	Agent         string `protobuf:"bytes,8,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model         string `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
+	Effort        string `protobuf:"bytes,10,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2904,6 +2917,27 @@ func (x *Chat) GetTurnRunning() bool {
 		return x.TurnRunning
 	}
 	return false
+}
+
+func (x *Chat) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *Chat) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *Chat) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -6085,7 +6119,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\"\x90\x01\n" +
 	"\x15ListPlaybooksResponse\x127\n" +
 	"\tplaybooks\x18\x01 \x03(\v2\x19.podium.agent.v1.PlaybookR\tplaybooks\x128\n" +
-	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xee\x01\n" +
+	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xb2\x02\n" +
 	"\x04Chat\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x129\n" +
@@ -6093,7 +6127,11 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12B\n" +
 	"\x0flast_message_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\rlastMessageAt\x12\x18\n" +
 	"\apreview\x18\x05 \x01(\tR\apreview\x12!\n" +
-	"\fturn_running\x18\x06 \x01(\bR\vturnRunningJ\x04\b\a\x10\b\"\x87\x01\n" +
+	"\fturn_running\x18\x06 \x01(\bR\vturnRunning\x12\x14\n" +
+	"\x05agent\x18\b \x01(\tR\x05agent\x12\x14\n" +
+	"\x05model\x18\t \x01(\tR\x05model\x12\x16\n" +
+	"\x06effort\x18\n" +
+	" \x01(\tR\x06effortJ\x04\b\a\x10\b\"\x87\x01\n" +
 	"\x0eChatAttachment\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12\x12\n" +

@@ -26,6 +26,9 @@ type Chat struct {
 	Login     string
 	CreatedAt time.Time
 	AutoTitle bool
+	Agent     string
+	Model     string
+	Effort    string
 }
 
 type ChatMessage struct {

@@ -49,6 +49,7 @@ type Store interface {
 		ctx context.Context, chatID string, file store.ChatAttachment,
 	) (store.ChatMessage, error)
 	ChatTurnRunning(ctx context.Context, chatID string) (bool, error)
+	SetChatChoice(ctx context.Context, id string, c store.ChatChoice) (store.Chat, error)
 	SetChatTitle(ctx context.Context, id, title string) (store.Chat, error)
 	LinkChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (bool, error)
 	AttachChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (store.ChatPullRequest, error)
@@ -217,9 +218,29 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	return msg, nil
 }
 
-// remember names the chat from its first query. A title is first-wins: one is chosen once,
-// and a title the caller supplied at create is left alone.
+// remember records what this message was answered on and names the chat from its first
+// query.
+//
+// The choice is NOT first-wins: a person may change model mid-conversation, and the row
+// follows the latest message so the composer opens on it next time rather than making them
+// pick again. The title still is: one is chosen once, and a title the caller supplied at
+// create is left alone.
 func (s *Source) remember(ctx context.Context, chat store.Chat, req SendRequest) {
+	choice := store.ChatChoice{
+		Agent:  req.Override.Agent,
+		Model:  req.Override.Model,
+		Effort: req.Override.Effort,
+	}
+	if choice != chat.ChatChoice {
+		updated, err := s.store.SetChatChoice(ctx, req.ChatID, choice)
+		if err != nil {
+			s.logger.WarnContext(ctx, "recording what a chat is answered on failed; "+
+				"the next message will need it picked again",
+				"chat_id", req.ChatID, "error", err)
+		} else {
+			chat = updated
+		}
+	}
 	if chat.AutoTitle && chat.Title == store.DefaultChatTitle {
 		if title := TitleFromQuery(req.Text); title != "" {
 			updated, err := s.store.SetChatTitle(ctx, req.ChatID, title)

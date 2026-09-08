@@ -116,7 +116,7 @@ const createChat = `-- name: CreateChat :one
 
 insert into chats (id, title, login, created_at, auto_title)
 values ($1, $2, $3, $4, $5)
-returning id, title, login, created_at, auto_title
+returning id, title, login, created_at, auto_title, agent, model, effort
 `
 
 type CreateChatParams struct {
@@ -148,6 +148,9 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Login,
 		&i.CreatedAt,
 		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -194,7 +197,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -206,6 +209,9 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Login,
 		&i.CreatedAt,
 		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -345,7 +351,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -380,6 +386,9 @@ type ListChatsRow struct {
 	Login         string
 	CreatedAt     time.Time
 	AutoTitle     bool
+	Agent         string
+	Model         string
+	Effort        string
 	HasMessage    bool
 	LastMessageAt time.Time
 	LastText      string
@@ -415,6 +424,9 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Login,
 			&i.CreatedAt,
 			&i.AutoTitle,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -433,7 +445,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and login = $3
-returning id, title, login, created_at, auto_title
+returning id, title, login, created_at, auto_title, agent, model, effort
 `
 
 type RenameChatParams struct {
@@ -457,6 +469,48 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.Login,
 		&i.CreatedAt,
 		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+	)
+	return i, err
+}
+
+const setChatChoice = `-- name: SetChatChoice :one
+update chats set agent = $1, model = $2, effort = $3
+where id = $4
+returning id, title, login, created_at, auto_title, agent, model, effort
+`
+
+type SetChatChoiceParams struct {
+	Agent  string
+	Model  string
+	Effort string
+	ID     string
+}
+
+// SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
+// (auto_title = false) is left alone.
+// SetChatChoice records what this chat is answered on: the override a person picked, empty
+// for the assistant's own. Last-write-wins on purpose — switching back to the default is a
+// choice too, and it is expressed by sending nothing.
+func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (Chat, error) {
+	row := q.db.QueryRow(ctx, setChatChoice,
+		arg.Agent,
+		arg.Model,
+		arg.Effort,
+		arg.ID,
+	)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -491,7 +545,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title
+returning id, title, login, created_at, auto_title, agent, model, effort
 `
 
 type SetChatTitleParams struct {
@@ -499,8 +553,6 @@ type SetChatTitleParams struct {
 	ID    string
 }
 
-// SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
-// (auto_title = false) is left alone.
 func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, setChatTitle, arg.Title, arg.ID)
 	var i Chat
@@ -510,6 +562,9 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.Login,
 		&i.CreatedAt,
 		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
