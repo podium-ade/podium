@@ -55,6 +55,7 @@ type Agent struct {
 	podium    *podium.Client
 	profiles  *profiles.Live
 	svc       *api.AgentService
+	turns     *api.TurnService
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
@@ -191,10 +192,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Store:       st,
 		DisplayName: profile.DisplayName,
 		UIURL:       cfg.WebURL(),
-		// The web chat is what profile.yaml's chat_default_playbook is for, so a message
-		// that names no playbook runs it rather than the profile's general default.
-		DefaultPlaybook: live.Current().ChatPlaybook,
-		Logger:          logger,
+		Logger:      logger,
 	})
 	if err != nil {
 		st.Close()
@@ -236,6 +234,36 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"Set PODIUM_AGENT_MEMORY_URL and PODIUM_AGENT_MEMORY_API_KEY to enable it.")
 	}
 
+	// The host runtime, when this host has one. It is built before the conductor and reads
+	// the credential through a.svc, which is built after it: the closure resolves when a
+	// turn asks, not now.
+	var host *conductor.HostRuntime
+	if cfg.HostRuntime != "" {
+		host = &conductor.HostRuntime{
+			Node:     cfg.HostNode,
+			Entry:    cfg.HostRuntime,
+			Runner:   cfg.RunnerBin,
+			StateDir: cfg.HostDir,
+			Credential: func(ctx context.Context, provider string) (string, error) {
+				return a.svc.HostCredential(ctx, provider)
+			},
+			TurnURL: turnURL(cfg.Listen),
+		}
+		if cfg.MemoryEnabled() {
+			// The memory server as THIS PROCESS reaches it. A task is told
+			// cfg.MemoryTaskURL, which is an address that resolves in a container.
+			host.MemoryMCPURL = memory.MCPURL(cfg.MemoryURL, cfg.MemoryBank)
+			host.MemoryAPIKey = cfg.MemoryAPIKey
+		}
+		logger.Info("host turns: enabled — a conversation is answered by this process and "+
+			"delegates to a task when it needs a container",
+			"runtime", cfg.HostRuntime, "node", cfg.HostNode, "runner", cfg.RunnerBin)
+	} else {
+		logger.Info("host turns: not configured; every turn runs as a task. " +
+			"Set PODIUM_AGENT_HOST_RUNTIME and PODIUM_AGENT_RUNNER_BIN to answer " +
+			"conversations on this host.")
+	}
+
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
@@ -247,6 +275,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		MemoryClient: a.memory,
 		XAIBaseURL:   a.cfg.XAIBaseURL,
 		SkillsDir:    a.cfg.SkillsDir,
+		Host:         host,
 	})
 	if err != nil {
 		st.Close()
@@ -267,8 +296,15 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Profiles:         live,
 		Chat:             a.chat,
 		Tasks:            a.podium,
+		Turns:            a.conductor,
 		Logger:           a.logger,
 	})
+	// The turn surface. It is the conductor itself: only a conductor that runs host turns
+	// has anything to delegate from, so a conductor without one leaves this nil and every
+	// call to it answers FailedPrecondition.
+	if host != nil {
+		a.turns = api.NewTurnService(a.conductor, logger)
+	}
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -280,7 +316,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 	logger.Info("conductor configured", "config", cfg,
 		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
-		"chat_playbook", profile.ChatPlaybook(), "sources", kinds)
+		"assistant_skills", profile.Assistant().Skills, "sources", kinds)
 	if !cfg.SlackEnabled() && !cfg.LinearEnabled() {
 		logger.Info("no Slack or Linear credentials: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
@@ -310,6 +346,13 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 	root.HandleFunc("/readyz", a.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	root.Handle("/"+agentv1connect.AgentServiceName+"/", api.RequireBearer(a.cfg.Token, rpc))
+	if a.turns != nil {
+		// Deliberately NOT behind RequireBearer: a turn holds a token of its own, minted
+		// for it and checked by the conductor, and it must never be given the operator's.
+		// podium-server proxies the AgentService path only, so this stays on loopback.
+		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
+		root.Handle(turnPath, turnHandler)
+	}
 	if a.dev != nil {
 		dev := api.RequireBearer(a.cfg.Token, a.dev.Handler())
 		root.Handle(api.DevInboundPath, dev)
@@ -368,6 +411,20 @@ func (a *Agent) reconcileProfile(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// turnURL is this listener as a host turn's own child process reaches it. A listener bound
+// to every interface (":8090", "0.0.0.0:8090") is still reached over loopback from here:
+// the turn runs on this machine, and its token is not something to send over a network.
+func turnURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func writePlain(w http.ResponseWriter, code int, body string) {

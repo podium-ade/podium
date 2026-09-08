@@ -25,8 +25,10 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
-	Playbook  string
 	AutoTitle bool
+	Agent     string
+	Model     string
+	Effort    string
 }
 
 type ChatMessage struct {
@@ -36,6 +38,7 @@ type ChatMessage struct {
 	Text        string
 	Attachments []byte
 	Ts          time.Time
+	TaskID      string
 }
 
 type ChatPullRequest struct {
@@ -47,6 +50,26 @@ type ChatPullRequest struct {
 	Source     string
 	CreatedAt  time.Time
 	DetachedAt *time.Time
+}
+
+type Delegation struct {
+	ID          string
+	SessionID   string
+	TurnID      string
+	TriggerRef  string
+	Playbook    string
+	Instruction string
+	TaskID      *string
+	Status      string
+	FinalText   *string
+	CreatedAt   time.Time
+	FinishedAt  *time.Time
+	NumTurns    *int32
+	CostUsd     *float64
+	Agent       *string
+	Model       *string
+	Effort      *string
+	Provider    *string
 }
 
 type LinearCursor struct {

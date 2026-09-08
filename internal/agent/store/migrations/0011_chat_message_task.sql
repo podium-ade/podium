@@ -1,0 +1,13 @@
+-- Which task said it, empty for the assistant's own words.
+--
+-- A chat carries three kinds of progress and had no way to tell them apart: the assistant
+-- thinking out loud on this host, the conductor announcing a delegation, and a delegated
+-- task's own progress relayed in. All three were stored under the role `progress`, so the UI
+-- labelled all three "task" — including the half that was the assistant talking, which is
+-- the one thing in a conversation that is definitely not a task.
+--
+-- The value was already on conductor.Outbound and was dropped here. Nothing backfills: rows
+-- written before this migration keep the empty string, so an old chat labels its progress as
+-- the assistant's. That is the wrong answer for those rows and the right default for the
+-- column, and guessing per row is worse than either.
+alter table chat_messages add column if not exists task_id text not null default '';

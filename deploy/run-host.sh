@@ -87,6 +87,33 @@ pg_host=127.0.0.1:${PODIUM_PG_PORT:-5432}
 : "${PODIUM_NODE_DATA_DIR:=$STATE/node}"
 : "${PODIUM_TS_STATE_DIR:=$STATE/tsnet}"
 
+# THE ASSISTANT. `auto` in the .env means "this checkout's own build", resolved here because
+# only this script knows which checkout is running — a worktree's absolute paths in a shared
+# .env break the moment the worktree moves or is deleted.
+#
+# It stays an OPT-IN. Neither variable is defaulted, because the assistant runs a model as a
+# child of podium-agent with no container around it (docs/security.md#5): turning that on
+# because a build artifact happens to exist would be a security decision made by a Makefile.
+# Unset means every turn is a task, which is what it has always meant.
+#
+# An `auto` that resolves to nothing is a hard error rather than a silent fall-back to
+# container turns. Losing the assistant quietly is the failure this whole block exists to
+# prevent: the stack comes up, answers every chat, and costs a container per message.
+if [ "${PODIUM_AGENT_HOST_RUNTIME:-}" = auto ]; then
+	PODIUM_AGENT_HOST_RUNTIME=$root/agent/runtime/dist/main.js
+	[ -f "$PODIUM_AGENT_HOST_RUNTIME" ] || {
+		echo "PODIUM_AGENT_HOST_RUNTIME=auto found no $PODIUM_AGENT_HOST_RUNTIME — run: make agent-runtime-dist" >&2
+		exit 1
+	}
+fi
+if [ "${PODIUM_AGENT_RUNNER_BIN:-}" = auto ]; then
+	PODIUM_AGENT_RUNNER_BIN=$BIN/podium-runner
+	[ -x "$PODIUM_AGENT_RUNNER_BIN" ] || {
+		echo "PODIUM_AGENT_RUNNER_BIN=auto found no $PODIUM_AGENT_RUNNER_BIN — run: make build" >&2
+		exit 1
+	}
+fi
+
 # Where the server is reached, which differs by transport: a tailnet device name, or the
 # dev transport's loopback listener.
 if [ "$PODIUM_TRANSPORT" = tailnet ]; then
@@ -109,6 +136,10 @@ export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_
 	PODIUM_S3_ENDPOINT PODIUM_S3_BUCKET PODIUM_S3_ACCESS_KEY PODIUM_S3_USE_SSL \
 	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_NODE_DATA_DIR PODIUM_TS_STATE_DIR \
 	PODIUM_SERVER PODIUM_AGENT_SERVER PODIUM_NODE_SERVER PODIUM_NODE_TRANSPORT
+# Exported explicitly rather than relying on the `set -a` that read the file: an `auto` above
+# was reassigned after that, and a variable this script resolved must reach the child whether
+# the .env named it or the operator did.
+export PODIUM_AGENT_HOST_RUNTIME PODIUM_AGENT_RUNNER_BIN
 
 # health_url names where a service says it is ready. The node has no HTTP surface unless it
 # was given a metrics listener, so it is started and not waited on.

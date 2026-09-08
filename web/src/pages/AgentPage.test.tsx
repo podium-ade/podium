@@ -65,12 +65,10 @@ const profileResponse = {
     displayName: "Podium",
     model: "claude-opus-5",
     defaultPlaybook: "general",
-    chatDefaultPlaybook: "",
     profileDir: "/etc/podium/agent",
     fileDisplayName: "Podium",
     fileModel: "claude-opus-5",
     fileDefaultPlaybook: "general",
-    fileChatDefaultPlaybook: "",
     overridden: [] as string[],
     updatedBy: "",
   },
@@ -196,17 +194,17 @@ describe("AgentPage", () => {
       "Chat",
       "Sessions",
       "Memory",
-      "Profile",
+      "Assistant",
     ]);
 
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("link", { name: "Profile" }));
+    await userEvent.click(screen.getByRole("link", { name: "Assistant" }));
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
   });
 
-  it("shows the profile and the playbooks on their own routes", async () => {
+  it("shows the assistant and the playbooks on their own routes", async () => {
     mount("/agent/profile");
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
     expect(screen.getByLabelText("Display name")).toHaveValue("");

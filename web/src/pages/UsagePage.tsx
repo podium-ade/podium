@@ -242,11 +242,11 @@ export function UsagePage() {
         <BackendTable backends={usage.data?.backends ?? []} />
       )}
       <p className="max-w-3xl text-2xs leading-relaxed text-faint">
-        Recorded on each turn as it starts, never inferred from its playbook: the chat can
-        override the model for a single turn, and editing a playbook would otherwise relabel
-        every turn that ever ran under it. Turns from before the conductor recorded this group
-        as <span className="text-muted">unrecorded</span> — their cost is real, only the
-        attribution is missing.
+        Recorded as each turn and each delegated task starts, never inferred from a playbook:
+        the chat can override the model for a single message, and editing a playbook would
+        otherwise relabel everything that ever ran under it. Rows from before the conductor
+        recorded this group as <span className="text-muted">unrecorded</span> — their cost is
+        real, only the attribution is missing.
       </p>
     </section>
   );
@@ -299,7 +299,7 @@ export function UsagePage() {
           delta={<Delta now={spent} before={before} label={comparisonLabel(range)} />}
         />
         <Stat
-          label="Agent tasks"
+          label="Turns and tasks"
           value={turns.toLocaleString()}
           loading={usage.isPending}
           hint={unpriced > 0 ? `${unpriced} reported no cost` : "every one reported a cost"}

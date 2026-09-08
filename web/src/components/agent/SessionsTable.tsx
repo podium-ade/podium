@@ -14,6 +14,7 @@ import {
 import type { Session, Turn } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, conversationLabel, relative, taskDuration, turnCost } from "../../lib/format";
+import { ranBy } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
@@ -129,7 +130,7 @@ export function SessionsTable() {
             <TableRow className="hover:bg-transparent">
               <TableHead>Source</TableHead>
               <TableHead>Conversation</TableHead>
-              <TableHead>Playbook</TableHead>
+              <TableHead>Ran by</TableHead>
               <TableHead>Profile</TableHead>
               <TableHead>Started</TableHead>
               <TableHead>Last turn</TableHead>
@@ -168,7 +169,7 @@ export function SessionsTable() {
                     <div className="truncate font-mono text-2xs text-faint">{s.id}</div>
                   </TableCell>
                   <TableCell>
-                    <Chip>{s.playbook}</Chip>
+                    <Chip>{ranBy(s.playbook)}</Chip>
                   </TableCell>
                   <TableCell className="text-xs text-muted">{s.profile || "—"}</TableCell>
                   <TableCell
@@ -262,7 +263,7 @@ function TurnsDrawer({ session, onClose }: { session: Session; onClose: () => vo
                   <kind.icon aria-hidden className="size-3" />
                   {kind.label}
                 </Badge>
-                <Chip>{session.playbook}</Chip>
+                <Chip>{ranBy(session.playbook)}</Chip>
                 <Chip>{session.profile || "no profile"}</Chip>
               </p>
             </div>

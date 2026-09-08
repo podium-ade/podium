@@ -6,8 +6,8 @@
 -- boundary and it is free, so every read is filtered by it.
 
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at, playbook, auto_title)
-values (@id, @title, @login, @created_at, @playbook, @auto_title)
+insert into chats (id, title, login, created_at, auto_title)
+values (@id, @title, @login, @created_at, @auto_title)
 returning *;
 
 -- name: GetChat :one
@@ -59,8 +59,8 @@ limit @page_limit::int;
 -- of max(seq) and the insert cannot interleave: two concurrent sends produce two seqs, and
 -- the primary key would refuse a collision anyway.
 -- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts)
-select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts
+insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id)
+select @chat_id, coalesce(max(seq), 0) + 1, @role, @text, @attachments, @ts, @task_id
   from chat_messages where chat_id = @chat_id
 returning *;
 
@@ -89,15 +89,16 @@ select exists (
      and t.status = 'running'
 )::bool as running;
 
--- SetChatPlaybook records the playbook a chat started with. It is a no-op when one is
--- already set: one chat, one playbook, fixed at the first message.
--- name: SetChatPlaybook :one
-update chats set playbook = @playbook
-where id = @id and playbook = ''
-returning *;
-
 -- SetChatTitle rewrites an auto-named chat. A title the caller supplied at create
 -- (auto_title = false) is left alone.
+-- SetChatChoice records what this chat is answered on: the override a person picked, empty
+-- for the assistant's own. Last-write-wins on purpose — switching back to the default is a
+-- choice too, and it is expressed by sending nothing.
+-- name: SetChatChoice :one
+update chats set agent = @agent, model = @model, effort = @effort
+where id = @id
+returning *;
+
 -- name: SetChatTitle :one
 update chats set title = @title
 where id = @id and auto_title

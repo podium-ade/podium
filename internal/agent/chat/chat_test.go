@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/alvaroibarguen/podium/internal/agent/profiles"
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
@@ -110,18 +111,19 @@ func (f *fakeStore) ChatTurnRunning(_ context.Context, chatID string) (bool, err
 	return f.running[chatID], nil
 }
 
-func (f *fakeStore) SetChatPlaybook(_ context.Context, id, playbook string) (store.Chat, error) {
+func (f *fakeStore) SetChatChoice(
+	_ context.Context, id string, c store.ChatChoice,
+) (store.Chat, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	c, ok := f.chats[id]
+	chat, ok := f.chats[id]
 	if !ok {
 		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
 	}
-	if c.Playbook == "" {
-		c.Playbook = playbook
-		f.chats[id] = c
-	}
-	return c, nil
+	// Whatever it is given, empty included: switching back to the default is a choice.
+	chat.ChatChoice = c
+	f.chats[id] = chat
+	return chat, nil
 }
 
 func (f *fakeStore) SetChatTitle(_ context.Context, id, title string) (store.Chat, error) {
@@ -230,7 +232,7 @@ func TestSendStoresTheMessageAndStartsATurn(t *testing.T) {
 	defer sub.Close()
 
 	msg, err := src.Send(context.Background(), SendRequest{
-		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month", Playbook: "analyst",
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1), msg.Seq)
@@ -248,38 +250,11 @@ func TestSendStoresTheMessageAndStartsATurn(t *testing.T) {
 	assert.Equal(t, "chat:chat_1", ev.SourceKey)
 	assert.Equal(t, "chat_1", ev.Ref)
 	assert.Equal(t, "alice", ev.Author)
-	assert.Equal(t, "analyst", ev.Playbook, "the playbook chip bypasses the profile's routing rules")
-	assert.Empty(t, ev.DefaultPlaybook, "this source was built with no chat default")
+	assert.Empty(t, ev.Playbook,
+		"a chat names no playbook: the assistant answers it and delegates the work")
 	assert.Equal(t, "https://podium.example/agent/chat/chat_1", ev.URL,
 		"the deep link becomes a memory's provenance chip")
 	assert.Empty(t, ev.Env, "only the dev source asks for task environment")
-}
-
-func TestAMessageWithNoPlaybookRunsTheProfilesChatDefault(t *testing.T) {
-	st := newFakeStore()
-	st.add("chat_1", "alice")
-	src, err := New(Options{Store: st, DisplayName: "Podium", DefaultPlaybook: func() string { return "analyst" }})
-	require.NoError(t, err)
-
-	// This is what makes profile.yaml's chat_default_playbook a profile decision rather than a
-	// UI hint: a message that names no playbook runs it, not the profile's general default. It
-	// travels as the event's DEFAULT, not as its playbook, so a typed /playbook still overrides
-	// it — Select is what applies the precedence.
-	_, err = src.Send(context.Background(), SendRequest{ChatID: "chat_1", Login: "alice", Text: "hello"})
-	require.NoError(t, err)
-	ev := drainEvent(t, src)
-	assert.Equal(t, "analyst", ev.DefaultPlaybook)
-	assert.Empty(t, ev.Playbook, "nobody named a playbook, so nothing may bypass the routing rules")
-
-	require.NoError(t, src.React(context.Background(), "chat_1", conductor.ReactionDone))
-	// And the chip still wins when it names one.
-	_, err = src.Send(context.Background(), SendRequest{
-		ChatID: "chat_1", Login: "alice", Text: "hello", Playbook: "general",
-	})
-	require.NoError(t, err)
-	ev = drainEvent(t, src)
-	assert.Equal(t, "general", ev.Playbook)
-	assert.Equal(t, "analyst", ev.DefaultPlaybook, "the default rides along and loses to the chip")
 }
 
 func TestSeqIsMonotonicPerChat(t *testing.T) {
@@ -598,38 +573,34 @@ func TestTheTranscriptOfAChatThatIsNotThere(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestTheFirstMessageRemembersThePlaybookAndNamesTheChat(t *testing.T) {
+func TestTheFirstMessageNamesTheChat(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
-	src, err := New(Options{Store: st, DisplayName: "Podium", DefaultPlaybook: func() string { return "general" }})
-	require.NoError(t, err)
+	src := newSource(t, st)
 	sub := src.Subscribe(context.Background(), "chat_1")
 	defer sub.Close()
 
-	_, err = src.Send(context.Background(), SendRequest{
-		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month", Playbook: "analyst",
+	_, err := src.Send(context.Background(), SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts last month",
 	})
 	require.NoError(t, err)
 	drainEvent(t, src)
 	_ = recv(t, sub) // the user message
 	meta := recv(t, sub)
 	assert.Equal(t, FrameChat, meta.Kind)
-	assert.Equal(t, "analyst", meta.Chat.Playbook)
 	assert.Equal(t, "how many active accounts last month", meta.Chat.Title)
 
 	got, err := st.GetChat(context.Background(), "chat_1")
 	require.NoError(t, err)
-	assert.Equal(t, "analyst", got.Playbook)
 	assert.Equal(t, "how many active accounts last month", got.Title)
 
 	require.NoError(t, src.React(context.Background(), "chat_1", conductor.ReactionDone))
 	_, err = src.Send(context.Background(), SendRequest{
-		ChatID: "chat_1", Login: "alice", Text: "/general something else", Playbook: "general",
+		ChatID: "chat_1", Login: "alice", Text: "something else",
 	})
 	require.NoError(t, err)
 	got, err = st.GetChat(context.Background(), "chat_1")
 	require.NoError(t, err)
-	assert.Equal(t, "analyst", got.Playbook, "one chat, one playbook — the first message wins")
 	assert.Equal(t, "how many active accounts last month", got.Title, "the title is not rewritten on later messages")
 }
 
@@ -643,13 +614,12 @@ func TestASuppliedTitleIsNotOverwritten(t *testing.T) {
 	src := newSource(t, st)
 
 	_, err := src.Send(context.Background(), SendRequest{
-		ChatID: "chat_1", Login: "alice", Text: "how many active accounts", Playbook: "analyst",
+		ChatID: "chat_1", Login: "alice", Text: "how many active accounts",
 	})
 	require.NoError(t, err)
 	got, err := st.GetChat(context.Background(), "chat_1")
 	require.NoError(t, err)
 	assert.Equal(t, "August numbers", got.Title)
-	assert.Equal(t, "analyst", got.Playbook)
 }
 
 func TestSetAutoTitleReplacesAQueryTitle(t *testing.T) {
@@ -688,4 +658,68 @@ func TestWithNoUIURLThereIsNoDeepLink(t *testing.T) {
 func TestASourceNeedsAStore(t *testing.T) {
 	_, err := New(Options{})
 	assert.ErrorContains(t, err, "a store is required")
+}
+
+// TestEveryRowRecordsWhoSaidIt. A conversation carries three kinds of line — the assistant
+// thinking on this host, the conductor announcing a delegation, and a delegated task's own
+// words — and they are all stored under the same two roles. The task id is the only thing
+// that tells them apart, and dropping it here is what made the UI credit the assistant's own
+// thinking to a container it had not started yet.
+func TestEveryRowRecordsWhoSaidIt(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	// The assistant, in the conductor's own process: no task.
+	require.NoError(t, src.Edit(ctx, "chat_1", "", conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.ProgressPrefix + "delegating this",
+	}))
+	// The conductor announcing a delegation, and then the task talking.
+	require.NoError(t, src.Edit(ctx, "chat_1", "", conductor.Outbound{
+		Type: conductor.OutProgress, Text: "Working on this in a `podium` task", TaskID: "task_01",
+	}))
+	_, err := src.Post(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutFinal, Text: "done", TaskID: "task_01",
+	})
+	require.NoError(t, err)
+
+	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 3)
+	assert.Empty(t, msgs[0].TaskID, "the assistant's own words are not a task's")
+	assert.Equal(t, "task_01", msgs[1].TaskID)
+	assert.Equal(t, "task_01", msgs[2].TaskID, "an answer relayed from a task says which one")
+}
+
+// TestAChatRemembersWhatItIsAnsweredOn. The point is that a person picks a model once. It is
+// the OVERRIDE that is stored, so a conversation that asked for nothing keeps following
+// profile.yaml — and switching back to the default is itself a choice, expressed by sending
+// nothing and recorded by clearing the row.
+func TestAChatRemembersWhatItIsAnsweredOn(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	_, err := src.Send(ctx, SendRequest{
+		ChatID: "chat_1", Login: "alice", Text: "on grok please",
+		Override: profiles.Override{Agent: "grok", Model: "grok-4.6", Effort: "high"},
+	})
+	require.NoError(t, err)
+	drainEvent(t, src)
+
+	got, err := st.GetChat(ctx, "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{Agent: "grok", Model: "grok-4.6", Effort: "high"}, got.ChatChoice)
+
+	// Back to the assistant's own, which is a decision and not an absence of one.
+	require.NoError(t, src.React(ctx, "chat_1", conductor.ReactionDone))
+	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "default is fine"})
+	require.NoError(t, err)
+	drainEvent(t, src)
+
+	got, err = st.GetChat(ctx, "chat_1")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{}, got.ChatChoice, "clearing the override is remembered too")
 }

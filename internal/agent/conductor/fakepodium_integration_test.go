@@ -45,6 +45,10 @@ type fakePodium struct {
 	// what a second conductor following the same task sees. The relayed ledger is then the
 	// only thing stopping the answer being posted twice.
 	replayAll bool
+	// cancels is every CancelTask the conductor asked for, in order. Delegated tasks are
+	// cancelled by their conversation being deleted and by the turn that started them, so
+	// the fake records rather than refuses.
+	cancels []*podiumv1.CancelTaskRequest
 
 	srv *httptest.Server
 }
@@ -225,10 +229,30 @@ func (f *fakePodium) ListTasks(
 	return connect.NewResponse(&podiumv1.ListTasksResponse{}), nil
 }
 
+// CancelTask records the request and ends the task as cancelled, which is what a node does
+// when it gets the SIGTERM: the follower then reads a terminal task back and classifies it.
 func (f *fakePodium) CancelTask(
-	context.Context, *connect.Request[podiumv1.CancelTaskRequest],
+	_ context.Context, req *connect.Request[podiumv1.CancelTaskRequest],
 ) (*connect.Response[podiumv1.CancelTaskResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("not in this fake"))
+	f.mu.Lock()
+	f.cancels = append(f.cancels, req.Msg)
+	ft := f.tasks[req.Msg.GetTaskId()]
+	f.mu.Unlock()
+	if ft == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
+	}
+	f.mu.Lock()
+	ft.task.Status = podiumv1.TaskStatus_TASK_STATUS_CANCELLED
+	f.mu.Unlock()
+	ft.doneOnce.Do(func() { close(ft.done) })
+	return connect.NewResponse(&podiumv1.CancelTaskResponse{}), nil
+}
+
+// Cancels is every CancelTask the conductor asked for.
+func (f *fakePodium) Cancels() []*podiumv1.CancelTaskRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*podiumv1.CancelTaskRequest(nil), f.cancels...)
 }
 
 func (f *fakePodium) ListArtifacts(

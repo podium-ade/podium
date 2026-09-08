@@ -88,6 +88,23 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 	return items, nil
 }
 
+const setSessionPlaybook = `-- name: SetSessionPlaybook :exec
+update sessions set playbook = $1 where id = $2
+`
+
+type SetSessionPlaybookParams struct {
+	Playbook string
+	ID       string
+}
+
+// SetSessionPlaybook changes which playbook a session runs. Only a conversation does this —
+// a chat window, where the person picks per message — and never a Slack thread or a Linear
+// issue, whose one session is one piece of work.
+func (q *Queries) SetSessionPlaybook(ctx context.Context, arg SetSessionPlaybookParams) error {
+	_, err := q.db.Exec(ctx, setSessionPlaybook, arg.Playbook, arg.ID)
+	return err
+}
+
 const touchSession = `-- name: TouchSession :exec
 update sessions set last_turn_at = $1 where id = $2
 `
@@ -119,7 +136,8 @@ type UpsertSessionParams struct {
 }
 
 // UpsertSession is keyed on source_key, which is the conversation's identity. The playbook is
-// deliberately NOT updated: one session, one playbook, fixed at creation.
+// deliberately NOT updated here: a THREAD keeps the playbook it started with, and a chat
+// window that may change its mind says so through SetSessionPlaybook instead.
 func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) (Session, error) {
 	row := q.db.QueryRow(ctx, upsertSession,
 		arg.ID,

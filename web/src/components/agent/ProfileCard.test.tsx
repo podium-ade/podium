@@ -63,7 +63,6 @@ describe("ProfileCard", () => {
       agent: "",
       effort: "",
       defaultPlaybook: "",
-      chatDefaultPlaybook: "",
     });
   });
 
@@ -80,7 +79,24 @@ describe("ProfileCard", () => {
 
   it("says the name and the prompt are not editable here", () => {
     mount();
-    expect(screen.getByText(/name and system prompt come from/i)).toBeInTheDocument();
+    expect(screen.getByText(/name and its prompt come from/i)).toBeInTheDocument();
     expect(screen.queryByLabelText("Name")).toBeNull();
+  });
+
+  // What the thing running beside the master key may execute is a repository decision, so
+  // the card reports it and offers no way to change it.
+  it("shows the assistant's skills and turn cap without letting a browser edit them", () => {
+    mount(profile({ skills: ["validate-pr"], maxTurns: 12 }));
+    expect(screen.getByText("validate-pr")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText(/profile.yaml only/i)).toBeInTheDocument();
+  });
+
+  it("says so when the assistant has no skills and no turn cap", () => {
+    mount();
+    expect(screen.getByText("no skills")).toBeInTheDocument();
+    // Unset is a decision, not a blank: the assistant delegates, so the cap worth having is
+    // on the container it starts.
+    expect(screen.getByText("no turn limit")).toBeInTheDocument();
   });
 });

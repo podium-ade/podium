@@ -57,12 +57,10 @@ const baseProfile = {
   displayName: "Podium",
   model: "claude-opus-5",
   defaultPlaybook: "general",
-  chatDefaultPlaybook: "",
   profileDir: "/etc/podium/agent",
   fileDisplayName: "Podium",
   fileModel: "claude-opus-5",
   fileDefaultPlaybook: "general",
-  fileChatDefaultPlaybook: "",
   overridden: [],
   updatedBy: "",
 };

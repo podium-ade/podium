@@ -131,3 +131,74 @@ func TestWatchExtractionsIsANoOpWithoutMemory(t *testing.T) {
 		t.Fatal("watchExtractions blocked with no memory configured; it must return at once")
 	}
 }
+
+// TestAFailureFromLastWeekIsNotNews. The bug this closed: `status=failed` has no time bound,
+// so one retain that failed on a Tuesday was re-warned every five minutes for ever and held
+// the gauge above zero. Observed on the live stack — two failures from the 5th still being
+// reported on the 8th, with ninety-seven successful retains in between.
+func TestAFailureFromLastWeekIsNotNews(t *testing.T) {
+	old := time.Now().Add(-72 * time.Hour)
+	mem := &stubMemory{failed: []memory.Operation{
+		{ID: "a", Status: memory.OperationFailed, DocumentID: "turn_1", UpdatedAt: old},
+	}}
+	c, reg := newCheckedConductor(mem)
+
+	// A first pass measures from one interval ago, not from the beginning of time, so a
+	// restart does not replay what an operator already fixed.
+	c.checkExtractions(context.Background())
+	assert.Equal(t, 0.0, gaugeValue(t, reg, failedGauge))
+
+	// And it stays quiet, which is the difference between a gauge and a high-water mark.
+	c.checkExtractions(context.Background())
+	assert.Equal(t, 0.0, gaugeValue(t, reg, failedGauge))
+}
+
+// A live outage fails retain after retain, so every pass finds something newer than the
+// last look and the warning keeps coming. Bounding the window must not buy quiet at the
+// price of missing the thing this check exists for.
+func TestAnOutageThatIsStillHappeningKeepsBeingReported(t *testing.T) {
+	mem := &stubMemory{}
+	c, reg := newCheckedConductor(mem)
+
+	for i := 0; i < 3; i++ {
+		mem.failed = []memory.Operation{
+			{ID: "a", Status: memory.OperationFailed, UpdatedAt: time.Now()},
+		}
+		c.checkExtractions(context.Background())
+		assert.Equal(t, 1.0, gaugeValue(t, reg, failedGauge), "pass %d", i)
+	}
+}
+
+// An unknown timestamp counts as new. This check exists to catch memories being lost
+// silently, so a Hindsight that stops sending `updated_at` has to make it noisy rather than
+// blind — treating an unknown time as old would go quiet in exactly the case where something
+// upstream had already changed under us.
+func TestAFailureWithNoTimestampIsTreatedAsNew(t *testing.T) {
+	mem := &stubMemory{failed: []memory.Operation{
+		{ID: "a", Status: memory.OperationFailed}, // zero UpdatedAt
+	}}
+	c, reg := newCheckedConductor(mem)
+
+	c.checkExtractions(context.Background())
+	assert.Equal(t, 1.0, gaugeValue(t, reg, failedGauge))
+	c.checkExtractions(context.Background())
+	assert.Equal(t, 1.0, gaugeValue(t, reg, failedGauge), "still unknown, still news")
+}
+
+// The recovery case, end to end through the window: it broke, it was fixed, and the gauge
+// has to reach zero without anybody restarting the conductor.
+func TestTheGaugeClearsOnceTheFailuresStopBeingRecent(t *testing.T) {
+	mem := &stubMemory{failed: []memory.Operation{
+		{ID: "a", Status: memory.OperationFailed, UpdatedAt: time.Now()},
+	}}
+	c, reg := newCheckedConductor(mem)
+	c.checkExtractions(context.Background())
+	require.Equal(t, 1.0, gaugeValue(t, reg, failedGauge))
+
+	// Hindsight still reports the same failed row — it always will — but nothing has failed
+	// since the last look.
+	c.checkExtractions(context.Background())
+
+	assert.Equal(t, 0.0, gaugeValue(t, reg, failedGauge),
+		"the row is history now, and history is not an outage")
+}

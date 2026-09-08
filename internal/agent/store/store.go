@@ -119,6 +119,20 @@ type Backend struct {
 	Provider string
 }
 
+// ChatChoice is what a chat is answered on: the OVERRIDE a person picked, all empty for the
+// assistant's own model.
+//
+// The override and not the resolution, deliberately. A conversation that never asked for
+// anything specific stays on whatever profile.yaml says and follows it when that changes;
+// storing the resolved triple — which `turns` already records per turn — would pin every
+// chat to the model its first turn happened to run, turning a default into a choice nobody
+// made.
+type ChatChoice struct {
+	Agent  string
+	Model  string
+	Effort string
+}
+
 // UpsertSession returns the session for want.SourceKey, creating it if it is new. The playbook
 // of an existing session is never changed: one session, one playbook, fixed at creation. The
 // returned row is authoritative, so a caller that wanted a different playbook can see it did
@@ -505,9 +519,9 @@ type Chat struct {
 	Title     string
 	Login     string
 	CreatedAt time.Time
-	// Playbook is the playbook this chat runs. Empty until the first message; then it is
-	// fixed — one chat, one playbook.
-	Playbook string
+	// ChatChoice is what this chat is answered on, remembered so a model is picked once per
+	// conversation rather than on every message.
+	ChatChoice
 	// AutoTitle is true when Podium may rewrite Title from the first query. False when
 	// the caller supplied a title at create.
 	AutoTitle bool
@@ -537,6 +551,10 @@ type ChatMessage struct {
 	Text        string
 	Attachments []ChatAttachment
 	TS          time.Time
+	// TaskID is the task whose words these are, and empty for the assistant's own. It is
+	// what lets a reader tell the three kinds of progress apart: the assistant thinking on
+	// this host, the conductor announcing a delegation, and a delegated task talking.
+	TaskID string
 }
 
 // CreateChat opens a chat owned by login. An empty title becomes DefaultChatTitle, and
@@ -624,7 +642,6 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 			Title:       r.Title,
 			Login:       r.Login,
 			CreatedAt:   r.CreatedAt.UTC(),
-			Playbook:    r.Playbook,
 			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
 		}
@@ -659,6 +676,7 @@ func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		Text:        msg.Text,
 		Attachments: raw,
 		Ts:          ts,
+		TaskID:      msg.TaskID,
 	})
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("append %s message to chat %s: %w", msg.Role, msg.ChatID, err)
@@ -729,19 +747,34 @@ func (s *Store) AttachToLastAssistantMessage(
 	return chatMessageFromRow(updated)
 }
 
-// SetChatPlaybook records the playbook a chat started with. An already-set playbook is
-// left alone and the current row is returned: one chat, one playbook.
-func (s *Store) SetChatPlaybook(ctx context.Context, id, playbook string) (Chat, error) {
-	playbook = strings.TrimSpace(playbook)
-	if id == "" || playbook == "" {
-		return Chat{}, errors.New("set chat playbook: an id and a playbook are required")
+// SetSessionPlaybook changes which playbook a session runs. It is for a CONVERSATION only:
+// a chat window whose person picks a playbook per message. A thread keeps what it started
+// with, and UpsertSession is what enforces that.
+func (s *Store) SetSessionPlaybook(ctx context.Context, id, playbook string) error {
+	if err := s.q.SetSessionPlaybook(ctx, db.SetSessionPlaybookParams{ID: id, Playbook: playbook}); err != nil {
+		return fmt.Errorf("set playbook %s on session %s: %w", playbook, id, err)
 	}
-	row, err := s.q.SetChatPlaybook(ctx, db.SetChatPlaybookParams{ID: id, Playbook: playbook})
+	return nil
+}
+
+// SetChatChoice records what a chat is answered on. An all-empty choice is a real value —
+// it means the assistant's own model — so this writes whatever it is given rather than
+// treating empty as "leave it alone": switching back to the default is a choice too.
+func (s *Store) SetChatChoice(ctx context.Context, id string, c ChatChoice) (Chat, error) {
+	if id == "" {
+		return Chat{}, errors.New("set chat choice: an id is required")
+	}
+	row, err := s.q.SetChatChoice(ctx, db.SetChatChoiceParams{
+		ID:     id,
+		Agent:  strings.TrimSpace(c.Agent),
+		Model:  strings.TrimSpace(c.Model),
+		Effort: strings.TrimSpace(c.Effort),
+	})
 	if noRows(err) {
-		return s.GetChat(ctx, id)
+		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, id)
 	}
 	if err != nil {
-		return Chat{}, fmt.Errorf("set playbook of chat %s: %w", id, err)
+		return Chat{}, fmt.Errorf("set choice of chat %s: %w", id, err)
 	}
 	return chatFromRow(row), nil
 }
@@ -765,12 +798,12 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error
 
 func chatFromRow(row db.Chat) Chat {
 	return Chat{
-		ID:        row.ID,
-		Title:     row.Title,
-		Login:     row.Login,
-		CreatedAt: row.CreatedAt.UTC(),
-		Playbook:  row.Playbook,
-		AutoTitle: row.AutoTitle,
+		ID:         row.ID,
+		Title:      row.Title,
+		Login:      row.Login,
+		CreatedAt:  row.CreatedAt.UTC(),
+		AutoTitle:  row.AutoTitle,
+		ChatChoice: ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
 	}
 }
 
@@ -949,6 +982,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Role:   r.Role,
 		Text:   r.Text,
 		TS:     r.Ts.UTC(),
+		TaskID: r.TaskID,
 	}
 	if len(r.Attachments) > 0 {
 		if err := json.Unmarshal(r.Attachments, &msg.Attachments); err != nil {

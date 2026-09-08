@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -9,6 +9,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ChatFrameSchema,
   ChatMessageSchema,
+  AssistantSchema,
   PlaybookSchema,
   type ChatFrame,
 } from "../../gen/podium/agent/v1/agent_pb";
@@ -66,7 +67,13 @@ function live() {
   };
 }
 
-function message(seq: number, role: string, text: string, attachments: unknown[] = []) {
+function message(
+  seq: number,
+  role: string,
+  text: string,
+  attachments: unknown[] = [],
+  taskId = "",
+) {
   return create(ChatFrameSchema, {
     frame: {
       case: "message",
@@ -76,6 +83,7 @@ function message(seq: number, role: string, text: string, attachments: unknown[]
         role,
         text,
         ts: timestampFromDate(new Date()),
+        taskId,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         attachments: attachments as any,
       }),
@@ -113,13 +121,18 @@ const chat = {
   lastMessageAt: timestampFromDate(new Date(Date.now() - 30_000)),
   preview: "how many active accounts",
   turnRunning: false,
-  playbook: "analyst",
 };
 
 const playbooks = [
-  create(PlaybookSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse.", chatDefault: true }),
+  create(PlaybookSchema, { name: "analyst", image: "data:dev", hint: "Ask the warehouse." }),
   create(PlaybookSchema, { name: "general", image: "runtime:dev", hint: "Answer." }),
 ];
+
+const assistant = create(AssistantSchema, {
+  displayName: "Podium",
+  agent: "claude",
+  model: "claude-opus-5",
+});
 
 function mount(path = "/agent/chat") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -146,7 +159,7 @@ describe("ChatPanel", () => {
     sendChatMessage.mockReset();
     streamChat.mockReset();
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
-    listPlaybooks.mockResolvedValue({ playbooks, profileDisplayName: "Podium" });
+    listPlaybooks.mockResolvedValue({ playbooks, assistant });
     streamChat.mockImplementation(() => live());
   });
 
@@ -291,9 +304,9 @@ describe("ChatPanel", () => {
 
     stream.push(message(1, "user", "chart it"));
     stream.push(status("started", "task_01xyz"));
-    stream.push(message(2, "progress", "I'll read the schema first."));
-    stream.push(message(3, "progress", "Now the query."));
-    stream.push(message(4, "assistant", "Here it is."));
+    stream.push(message(2, "progress", "I'll read the schema first.", [], "task_01xyz"));
+    stream.push(message(3, "progress", "Now the query.", [], "task_01xyz"));
+    stream.push(message(4, "assistant", "Here it is.", [], "task_01xyz"));
     stream.push(status("finished"));
 
     const bubbles = await waitFor(() => {
@@ -309,10 +322,51 @@ describe("ChatPanel", () => {
     ]);
     // Two voices, two names — and one name per run, not one per message.
     expect(screen.getAllByText("task")).toHaveLength(1);
+    // The answer is the bot's, whatever machine produced it, and carries the task as a link.
     expect(screen.getByText("Podium")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "task_01xyz" })).toHaveLength(2);
     // It stays after the turn ends: it is the conversation, not a live view of one.
     await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
     expect(screen.getByText("I'll read the schema first.")).toBeInTheDocument();
+  });
+
+  // The bug this fixes: the assistant thinks out loud on the host and its lines are stored
+  // under the same `progress` role a task's are, so role alone credited the assistant's own
+  // words to a container it had not started yet.
+  it("credits the assistant's own thinking to the assistant, not to a task", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "shrink the settings text"));
+    stream.push(message(2, "progress", "Delegating this to the podium playbook."));
+    stream.push(message(3, "progress", "Working on this in a `podium` task", [], "task_01aaa"));
+    stream.push(status("finished"));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
+    // One "task" heading — the delegated one — and the assistant's line is the bot's.
+    expect(screen.getAllByText("task")).toHaveLength(1);
+    expect(screen.getByText("Podium")).toBeInTheDocument();
+  });
+
+  // Two tasks answering one conversation are two answers, and used to render as one run
+  // because the grouping was by role.
+  it("tells two tasks apart", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "twice please"));
+    stream.push(message(2, "progress", "first task working", [], "task_01aaa"));
+    stream.push(message(3, "progress", "second task working", [], "task_01bbb"));
+    stream.push(status("finished"));
+
+    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
+    expect(screen.getAllByText("task")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "task_01aaa" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "task_01bbb" })).toBeInTheDocument();
   });
 
   it("shows the running state while a turn runs and drops it with the answer", async () => {
@@ -336,6 +390,44 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
   });
 
+  it("waits at the end of the transcript, not above it", async () => {
+    // The running state used to be a pill stuck to the top of the transcript. It took its
+    // own line in the flow, so starting a turn pushed the whole conversation down. Ordering
+    // is the assertion because that is the property that regressed: last, where the answer
+    // lands, costs no layout above it.
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+
+    const waiting = await screen.findByTestId("chat-progress");
+    const messages = screen.getAllByTestId("chat-message");
+    const last = messages[messages.length - 1];
+    expect(last.compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("names the bot and links the task it is waiting on", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "user", "chart it"));
+    stream.push(status("started", "task_01xyz"));
+
+    const waiting = await screen.findByTestId("chat-progress");
+    // Before a task has said anything there is still something to show, and it is the wait
+    // itself rather than an empty line.
+    expect(waiting).toHaveTextContent("Thinking");
+    expect(within(waiting).getByRole("link", { name: "task_01xyz" })).toHaveAttribute(
+      "href",
+      "/tasks/task_01xyz",
+    );
+  });
+
   it("replaces a message when its attachments arrive on the same seq", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
@@ -357,28 +449,62 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-attachment")).toHaveTextContent("2.0 KB");
   });
 
-  it("locks the playbook chip of a chat that has already started", async () => {
-    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+  // A model is picked once per conversation: the chat row remembers it, so a reload and a
+  // second tab both open on what this chat was last asked for.
+  it("opens on the model the chat was last answered on", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, agent: "grok", model: "grok-4.6", effort: "high" }],
+      nextCursor: "",
+    });
+    sendChatMessage.mockResolvedValue({ message: {} });
     mount("/agent/chat/chat_01abc");
-    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toBeDisabled());
-    expect(screen.getByTestId("chat-list")).toHaveTextContent("/analyst");
+
+    const trigger = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(trigger).toHaveTextContent("grok-4.6"));
+    expect(trigger).toHaveTextContent("high");
+
+    // And it rides with the next message without anybody touching the picker.
+    await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");
+    await waitFor(() =>
+      expect(sendChatMessage).toHaveBeenCalledWith({
+        chatId: "chat_01abc",
+        text: "again",
+        agent: "grok",
+        model: "grok-4.6",
+        effort: "high",
+      }),
+    );
   });
 
-  it("sends a message with the chip's playbook", async () => {
+  // All three empty is "the assistant's own" and must read as nothing stored, or the picker
+  // would show a pinned model where the profile's default belongs.
+  it("falls back to the assistant's model when the chat remembers none", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, agent: "", model: "", effort: "" }],
+      nextCursor: "",
+    });
+    mount("/agent/chat/chat_01abc");
+    const trigger = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(trigger).toHaveTextContent("claude-opus-5"));
+  });
+
+  // A conversation names no playbook, anywhere: not on the composer, not on the wire, and
+  // not on its row in the list. The playbooks are what the turn delegates to.
+  it("sends a message with no playbook and shows none", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     sendChatMessage.mockResolvedValue({ message: {} });
     mount("/agent/chat/chat_01abc");
 
     const box = await screen.findByTestId("chat-composer");
-    await waitFor(() => expect(screen.getByTestId("chat-playbook")).toHaveTextContent("/analyst"));
+    expect(screen.queryByTestId("chat-playbook")).toBeNull();
+    expect(screen.getByTestId("chat-list")).not.toHaveTextContent("/analyst");
     await userEvent.type(box, "how many active accounts{Enter}");
 
     await waitFor(() =>
       expect(sendChatMessage).toHaveBeenCalledWith({
         chatId: "chat_01abc",
         text: "how many active accounts",
-        playbook: "analyst",
-        // Empty means "the playbook's", which is what the server reads them as.
+        // Empty means "the assistant's own", which is what the server reads them as.
         agent: "",
         model: "",
         effort: "",

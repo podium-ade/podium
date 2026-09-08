@@ -35,12 +35,41 @@ func insertTurnOn(
 	require.NoError(t, err)
 }
 
+// insertDelegation is the other half of what this bot spends. A conversation is answered by
+// the assistant on the host and hands the work to a container, so the delegation row is where
+// a chat's money actually is — and the usage queries have to read it beside a turn's.
+func insertDelegation(
+	t *testing.T, s *Store, id, sessionID, turnID, taskID, playbook string, created time.Time,
+	cost *float64, numTurns *int32, b Backend,
+) {
+	t.Helper()
+	finished := created.Add(9 * time.Minute)
+	_, err := s.pool.Exec(context.Background(),
+		`insert into delegations (id, session_id, turn_id, trigger_ref, playbook, instruction,
+		                          task_id, status, created_at, finished_at, num_turns, cost_usd,
+		                          agent, model, effort, provider)
+		 values ($1, $2, $3, 'ref', $4, 'do it', nullif($5, ''), 'succeeded', $6, $7, $8, $9,
+		         nullif($10, ''), nullif($11, ''), nullif($12, ''), nullif($13, ''))`,
+		id, sessionID, turnID, playbook, taskID, created, finished, numTurns, cost,
+		b.Agent, b.Model, b.Effort, b.Provider)
+	require.NoError(t, err)
+}
+
 func usd(v float64) *float64 { return &v }
+
+func i32(v int32) *int32 { return &v }
 
 func newUsageSession(t *testing.T, s *Store, key, playbook string) string {
 	t.Helper()
+	return newUsageSessionOf(t, s, "slack", key, playbook)
+}
+
+// newUsageSessionOf names the source, because a conversation and a thread are billed
+// differently: a thread's spend is on its turns, and a chat's is on what it delegated.
+func newUsageSessionOf(t *testing.T, s *Store, kind, key, playbook string) string {
+	t.Helper()
 	sess, err := s.UpsertSession(context.Background(), Session{
-		SourceKind: "slack", SourceKey: key, Profile: "podium", Playbook: playbook,
+		SourceKind: kind, SourceKey: key, Profile: "podium", Playbook: playbook,
 	})
 	require.NoError(t, err)
 	return sess.ID
@@ -371,4 +400,56 @@ func TestUsageIgnoresACompareFromThatDoesNotReachBack(t *testing.T) {
 			assert.InDelta(t, 1.0, u.TotalCostUSD, 1e-9)
 		})
 	}
+}
+
+// TestUsageCountsWhatADelegatedTaskSpent is the hole this closed. The conductor received each
+// delegated task's accounting message and dropped it, at Debug level, which is off — so the
+// expensive half of a conversation was not merely unattributed, it was gone. Every usage read
+// has to see both halves.
+func TestUsageCountsWhatADelegatedTaskSpent(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	// A CONVERSATION: its session records no playbook, because the assistant answers it.
+	chat := newUsageSessionOf(t, s, "chat", "chat:chat_1", "")
+	day := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+
+	// What the assistant cost to relay, and what the container it started actually cost.
+	insertTurnOn(t, s, "turn_1", chat, "", day, usd(0.02), i32(1),
+		Backend{Agent: "grok", Model: "grok-4.6", Effort: "low", Provider: "xai"})
+	// A delegation belongs to a real turn — the row has a foreign key to it — which is the
+	// turn the assistant was running when it handed the work over.
+	insertDelegation(t, s, "dlg_1", chat, "turn_1", "task_1", "podium", day.Add(time.Minute), usd(4.50), i32(180),
+		Backend{Agent: "grok", Model: "grok-4.6", Effort: "high", Provider: "xai"})
+
+	u, err := s.Usage(ctx, UsageQuery{From: day.Add(-time.Hour), To: day.Add(time.Hour), Limit: 50})
+	require.NoError(t, err)
+
+	// The total is both, which is the whole point: reading turns alone reported 0.02.
+	assert.InDelta(t, 4.52, u.TotalCostUSD, 1e-9)
+	assert.Equal(t, 2, u.TotalTurns)
+	assert.Equal(t, 181, u.TotalModelTurns)
+
+	// One day row, summing both.
+	require.Len(t, u.Days, 1)
+	assert.InDelta(t, 4.52, u.Days[0].CostUSD, 1e-9)
+
+	// One cost row each, and the delegated one is credited to its OWN playbook rather than to
+	// the conversation's session, which runs none.
+	require.Len(t, u.Costs, 2)
+	byID := map[string]TurnCost{}
+	for _, c := range u.Costs {
+		byID[c.TurnID] = c
+	}
+	assert.Empty(t, byID["turn_1"].Playbook, "the assistant is not a playbook")
+	assert.Equal(t, "podium", byID["dlg_1"].Playbook)
+	assert.Equal(t, "task_1", byID["dlg_1"].TaskID)
+	assert.Equal(t, "chat", byID["dlg_1"].SourceKind, "it belongs to the conversation that asked")
+
+	// And the breakdown groups them apart by effort, because that is what each ran on.
+	byEffort := map[string]UsageBackend{}
+	for _, b := range u.Backends {
+		byEffort[b.Effort] = b
+	}
+	assert.InDelta(t, 0.02, byEffort["low"].CostUSD, 1e-9)
+	assert.InDelta(t, 4.50, byEffort["high"].CostUSD, 1e-9)
 }
