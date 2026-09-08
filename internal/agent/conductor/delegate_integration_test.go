@@ -307,6 +307,9 @@ func TestADelegatedTasksPullRequestIsLinkedToTheConversation(t *testing.T) {
 			messageEvent(taskID, 1, conductor.OutProgress, "opening #52"),
 			messageEvent(taskID, 2, conductor.OutFinal,
 				"Done: https://github.com/acme/api/pull/52/files is up for review."),
+			// What it cost. The conductor used to drop this at Debug level, so a
+			// conversation's whole bill went nowhere.
+			accountingEvent(taskID, 3, 180, 4.5),
 		}
 	}
 	src := fakesource.New(conductor.KindDev)
@@ -316,13 +319,21 @@ func TestADelegatedTasksPullRequestIsLinkedToTheConversation(t *testing.T) {
 	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
 	host.TurnURL = turnAPI(t, r.cond).URL
 
+	// Deliberately NOT polling: the assistant delegates and stops, which is both what the
+	// prompt now tells it to do and what isolates this test. A polling fake echoes the
+	// task's final into its own answer, and then both answers name the same pull request —
+	// harmless in production, because the insert is on-conflict-do-nothing, and noise here.
 	ev := inbound("C1/16.1", "shrink the settings text")
 	ev.Env = hostEnv(map[string]string{
 		hostFakeDelegateEnv: "dogfood|shrink the sidebar Settings label",
-		hostFakePollEnv:     "1",
 	})
 	require.NoError(t, src.Send(context.Background(), ev))
 
+	// The turn first, because delegationsOf reads through the session and the session does
+	// not exist until the turn has been accepted.
+	waitFor(t, 60*time.Second, "the host turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
 	waitFor(t, 60*time.Second, "the delegated task to be recorded finished", func() bool {
 		dlgs := delegationsOf(t, st, ev.SourceKey)
 		return len(dlgs) == 1 && dlgs[0].FinishedAt != nil
@@ -336,6 +347,20 @@ func TestADelegatedTasksPullRequestIsLinkedToTheConversation(t *testing.T) {
 	// And the turn's own answer named none, which is exactly why reading it alone was wrong.
 	turn := turnOf(t, st, ev.SourceKey)
 	assert.NotContains(t, turn.FinalText, "github.com")
+
+	// The same argument for the money. The container is what spent it, so the delegation row
+	// is where it has to land — the turn that asked recorded the assistant's pennies.
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 1)
+	require.NotNil(t, dlgs[0].CostUSD)
+	assert.InDelta(t, 4.5, *dlgs[0].CostUSD, 1e-9)
+	require.NotNil(t, dlgs[0].NumTurns)
+	assert.Equal(t, 180, *dlgs[0].NumTurns)
+	// And what ran it, recorded as the row was written rather than derived from the playbook
+	// later, so editing the playbook cannot relabel what this task already cost.
+	assert.Equal(t, "dogfood", dlgs[0].Playbook)
+	assert.NotEmpty(t, dlgs[0].Backend.Model)
+	assert.NotEmpty(t, dlgs[0].Backend.Provider)
 }
 
 func TestATurnMayNotDelegateToAPlaybookItWasNotOffered(t *testing.T) {

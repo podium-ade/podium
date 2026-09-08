@@ -92,7 +92,8 @@ is terminal, because an artifact named in a message may still have been uploadin
 message arrived. A name that matches nothing gets one line in the thread; anything over
 **25 MB** is not relayed and the thread says where to find it instead.
 
-**Accounting.** `turns.num_turns` and `turns.cost_usd` come from the runtime's own summary, which
+**Accounting.** `turns.num_turns`/`turns.cost_usd` and `delegations.num_turns`/`cost_usd` come
+from the runtime's own summary, which
 leaves the container by **two** routes carrying the same document: an `accounting` message, emitted
 after the final, and the `turn.json` artifact. The message is what the conductor reads; the
 artifact is the fallback, and only fetched when no message arrived. Two routes because the object
@@ -107,11 +108,24 @@ that succeeds having reported neither is logged at `Warn` with the task id and c
 ### Reading the bill
 
 `GetUsage` is what the **Usage** screen asks. It takes a range and the caller's own UTC offset in
-minutes, and answers with one row per day — cost, tasks, model turns, and how many of that day's
-turns reported no cost at all — plus a capped, newest-first page of individual turn costs keyed by
-the task each ran as. The day rows always cover the whole range whatever the cap is, which is why
-the screen's totals are summed from *those* and never from the page: a busy range would otherwise
+minutes, and answers with one row per day — cost, rows, model turns, and how many of that day's
+rows reported no cost at all — plus a capped, newest-first page of individual costs keyed by the
+task each ran as. The day rows always cover the whole range whatever the cap is, which is why the
+screen's totals are summed from *those* and never from the page: a busy range would otherwise
 under-report its own bill.
+
+**A "row" is a turn OR a delegated task, and it has to be both.** A turn is what a Slack mention
+or a Linear ticket costs. A conversation's cost is almost entirely its *delegations*: the
+assistant answers on the host for a fraction of a cent and the container does the expensive work.
+All three usage queries therefore read `turns` union `delegations`. Until they did, the screen
+showed the relay's pennies as the whole bill — and worse, the conductor received each delegated
+task's accounting message and dropped it at `Debug` level, which is off, so the money was not
+merely unattributed, it was gone.
+
+The **playbook** on a cost row comes from different places for the two, on purpose: a turn's from
+its session, because a thread runs one playbook; a delegated task's from the delegation, because
+the session it belongs to is a conversation and runs none. That is what makes the breakdown read
+`assistant` for what the host answered and the playbook's name for what the container did.
 
 The screen picks the range: today, the last 2, 7, 30 or 90 days, this month, last month, or two
 dates of the operator's own. Every range is a whole number of local days, and a trailing range

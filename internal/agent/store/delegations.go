@@ -29,6 +29,14 @@ type Delegation struct {
 	FinalText   string
 	CreatedAt   time.Time
 	FinishedAt  *time.Time
+	// Backend is what ran it, recorded as the row is written. Zero for a delegation from
+	// before the columns existed.
+	Backend Backend
+	// NumTurns and CostUSD are what the task reported spending, nil when its accounting
+	// never arrived. A conversation's spend is almost entirely here rather than on its
+	// turns: the assistant answers on the host and the container does the work.
+	NumTurns *int
+	CostUSD  *float64
 }
 
 // NewDelegation is what a caller has to know to record one.
@@ -38,6 +46,11 @@ type NewDelegation struct {
 	TriggerRef  string
 	Playbook    string
 	Instruction string
+	// Backend is what this task will run on, resolved by the caller from the playbook. It is
+	// recorded now rather than derived later, for the same reason a turn's is: a playbook's
+	// model is a default, and editing it would otherwise relabel every delegation that ever
+	// ran under it.
+	Backend Backend
 }
 
 // CreateDelegation records a delegation before its task exists, so a task the control plane
@@ -52,6 +65,10 @@ func (s *Store) CreateDelegation(ctx context.Context, want NewDelegation) (Deleg
 		Instruction: want.Instruction,
 		Status:      TurnRunning,
 		CreatedAt:   time.Now().UTC(),
+		Agent:       nilIfEmpty(want.Backend.Agent),
+		Model:       nilIfEmpty(want.Backend.Model),
+		Effort:      nilIfEmpty(want.Backend.Effort),
+		Provider:    nilIfEmpty(want.Backend.Provider),
 	})
 	if err != nil {
 		return Delegation{}, fmt.Errorf("create delegation for turn %s: %w", want.TurnID, err)
@@ -68,17 +85,26 @@ func (s *Store) SetDelegationTask(ctx context.Context, id, taskID string) error 
 }
 
 // FinishDelegation records how a delegated task ended. finalText is what the task actually
-// said, which may be empty.
-func (s *Store) FinishDelegation(ctx context.Context, id, status, finalText string) error {
+// said, which may be empty; numTurns and costUSD are nil when its accounting never arrived.
+func (s *Store) FinishDelegation(
+	ctx context.Context, id, status, finalText string, numTurns *int, costUSD *float64,
+) error {
 	now := time.Now().UTC()
 	var text *string
 	if finalText != "" {
 		text = &finalText
 	}
+	var turns *int32
+	if numTurns != nil {
+		v := int32(*numTurns)
+		turns = &v
+	}
 	if err := s.q.FinishDelegation(ctx, db.FinishDelegationParams{
 		Status:     status,
 		FinishedAt: &now,
 		FinalText:  text,
+		NumTurns:   turns,
+		CostUsd:    costUSD,
 		ID:         id,
 	}); err != nil {
 		return fmt.Errorf("finish delegation %s: %w", id, err)
@@ -149,5 +175,30 @@ func delegationFromRow(r db.Delegation) Delegation {
 		FinalText:   deref(r.FinalText),
 		CreatedAt:   r.CreatedAt.UTC(),
 		FinishedAt:  utcPtr(r.FinishedAt),
+		Backend: Backend{
+			Agent:    deref(r.Agent),
+			Model:    deref(r.Model),
+			Effort:   deref(r.Effort),
+			Provider: deref(r.Provider),
+		},
+		NumTurns: intPtr(r.NumTurns),
+		CostUSD:  r.CostUsd,
 	}
+}
+
+// nilIfEmpty keeps an unrecorded backend null rather than storing four empty strings, so
+// "nobody wrote this down" and "this ran on a model with no name" stay different rows.
+func nilIfEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func intPtr(v *int32) *int {
+	if v == nil {
+		return nil
+	}
+	out := int(*v)
+	return &out
 }

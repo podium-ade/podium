@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -182,6 +183,15 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		return store.Delegation{}, fmt.Errorf("conductor: the delegating turn has no session: %w", err)
 	}
 
+	// The playbook's own backend, model and effort. A delegated task carries no override:
+	// the turn that asked for it may itself be running on a model somebody picked in the
+	// chat, and that choice is about the conversation, not about how a container should
+	// build and test.
+	//
+	// Resolved ONCE, here, and used for the row and for the task: two resolutions a profile
+	// reload apart would credit the spend to a model the task did not run on.
+	choice := profile.Resolve(playbook, profiles.Override{})
+
 	// The row first, and before the task: a task the control plane accepts must never be
 	// one this database has never heard of, because the row is what makes it owned.
 	dlg, err := c.store.CreateDelegation(ctx, store.NewDelegation{
@@ -190,14 +200,20 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 		TriggerRef:  g.ref,
 		Playbook:    playbookName,
 		Instruction: instruction,
+		Backend: store.Backend{
+			Agent:    choice.Agent,
+			Model:    choice.Model,
+			Effort:   choice.Effort,
+			Provider: c.providerFor(choice.Agent).ID,
+		},
 	})
 	if err != nil {
 		return store.Delegation{}, err
 	}
 
-	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg)
+	task, err := c.startDelegatedTask(ctx, g, sess, playbook, dlg, choice)
 	if err != nil {
-		if ferr := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, ""); ferr != nil {
+		if ferr := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); ferr != nil {
 			c.logger.ErrorContext(ctx, "recording a delegation that never started failed",
 				"delegation_id", dlg.ID, "error", ferr)
 		}
@@ -232,7 +248,8 @@ const maxAnnouncedRunes = 120
 // differences: the instruction is what the turn asked for, and there is NO delegation block,
 // so a delegated task cannot delegate again.
 func (c *Conductor) startDelegatedTask(
-	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook, dlg store.Delegation,
+	ctx context.Context, g turnGrant, sess store.Session, playbook profiles.Playbook,
+	dlg store.Delegation, choice profiles.Choice,
 ) (*podiumv1.Task, error) {
 	entries, err := g.src.FetchTranscript(ctx, g.ref)
 	if err != nil {
@@ -255,11 +272,6 @@ func (c *Conductor) startDelegatedTask(
 		BriefKind:  SourceChat,
 		Playbook:   playbook.Name,
 	}
-	// The playbook's own backend, model and effort. A delegated task carries no override:
-	// the turn that asked for it may itself be running on a model somebody picked in the
-	// chat, and that choice is about the conversation, not about how a container should
-	// build and test.
-	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
@@ -393,6 +405,22 @@ type delegationRun struct {
 
 	mu       sync.Mutex
 	progress string
+	// acct is what the task said it cost, nil until it says so. Unlike a turn's there is no
+	// turn.json fallback: settle has no artifact to read it from, so the message is the only
+	// route and a task that never sends one is recorded as unpriced.
+	acct *accounting
+}
+
+// readAccounting records what a delegated task said it cost. A document that does not parse
+// is a bug in the runtime, not a failed task, so it is logged and dropped.
+func (r *delegationRun) readAccounting(ctx context.Context, raw []byte) {
+	var a accounting
+	if err := json.Unmarshal(raw, &a); err != nil {
+		r.c.logger.WarnContext(ctx, "a delegated task's accounting does not parse",
+			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "error", err)
+		return
+	}
+	r.acct = &a
 }
 
 func (r *delegationRun) run(ctx context.Context) {
@@ -447,8 +475,13 @@ func (r *delegationRun) run(ctx context.Context) {
 	r.finish(ctx, result.Status)
 }
 
-// onEvent is the relay. Accounting is read and dropped: a delegated task's cost belongs to
-// no turn row, and logging it is what an operator can actually use.
+// onEvent is the relay, and it reads the accounting rather than dropping it.
+//
+// It used to drop it, on the grounds that a delegated task's cost belonged to no turn row.
+// That was true and it was the wrong conclusion: a conversation is answered by the assistant
+// and the container does the work, so a delegation IS the unit of spend for everything a
+// chat asks for. The cost went to a Debug log line — which is off — and from there nowhere.
+// The row carries it now, and the usage screen reads it beside a turn's.
 func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	if e.GetKind() != podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE {
 		return
@@ -458,8 +491,7 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 		return
 	}
 	if msg.GetType() == MsgAccounting {
-		r.c.logger.DebugContext(ctx, "a delegated task reported its accounting",
-			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "accounting", msg.GetText())
+		r.readAccounting(ctx, []byte(msg.GetText()))
 		return
 	}
 	// The same rule the sink applies: anything that is not a final is progress. It is
@@ -492,7 +524,19 @@ func (r *delegationRun) settle(ctx context.Context, task *podiumv1.Task) {
 
 func (r *delegationRun) finish(ctx context.Context, status string) {
 	answer := r.answer()
-	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer); err != nil {
+	var numTurns *int
+	var cost *float64
+	if r.acct != nil {
+		numTurns, cost = r.acct.NumTurns, r.acct.TotalCostUSD
+	} else if status == store.TurnSucceeded {
+		// The same hole a turn reports, for the same reason: a task that ran and spent money
+		// and recorded neither is money the usage screen cannot show.
+		r.c.logger.WarnContext(ctx, "a delegated task succeeded but reported no accounting, "+
+			"so its num_turns and cost_usd are unrecorded",
+			"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook)
+		r.c.metrics.TurnsWithoutAccounting.Inc()
+	}
+	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)
 	}
@@ -540,7 +584,7 @@ func (c *Conductor) recoverDelegations(ctx context.Context) {
 			// Recorded, and its task never was. Nothing is running.
 			c.logger.WarnContext(ctx, "a delegation was recorded but its task never was; failing it",
 				"delegation_id", dlg.ID)
-			if err := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, ""); err != nil {
+			if err := c.store.FinishDelegation(ctx, dlg.ID, store.TurnFailed, "", nil, nil); err != nil {
 				c.logger.ErrorContext(ctx, "failing an orphaned delegation failed",
 					"delegation_id", dlg.ID, "error", err)
 			}
