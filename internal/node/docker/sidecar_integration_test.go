@@ -214,48 +214,79 @@ func TestSidecarThatNeverListensFailsProvisioning(t *testing.T) {
 	requireNoLeaks(t, e, taskID)
 }
 
-// TestSidecarsBecomeReadyConcurrently pins the "≈ max, not sum" property with two
-// sidecars that each take a known three seconds to be usable.
+// TestSidecarsBecomeReadyConcurrently pins the "≈ max, not sum" property, and does it
+// without measuring a clock.
+//
+// The version this replaces started two sidecars that each slept three seconds and
+// asserted the whole Run took less than 4.5s. That number was never about the code: Run
+// also creates a network, a volume, three containers and a runner socket, so on a loaded
+// runner the same correct code took 6.8s and the test called it serial. A ratio against a
+// constant measures the machine.
+//
+// This measures the property. The two probes are a rendezvous: each announces itself in
+// the workspace both sidecars mount and passes only once it can see the other's
+// announcement. Neither can pass unless both waits are in flight at the same time, so a
+// serial wait cannot make this run succeed however fast the machine is, and load cannot
+// make it fail — it only decides which probe tick they meet on.
 func TestSidecarsBecomeReadyConcurrently(t *testing.T) {
-	const delay = 3 * time.Second
-
 	e := newTestExecutor(t)
 	taskID := ids.NewTask()
 	teardownAfter(t, e, taskID)
 
-	slow := func() spec.Sidecar {
+	rendezvous := func(self, other string) spec.Sidecar {
 		return spec.Sidecar{
-			Image:   testImage,
-			Command: []string{"sh", "-c", fmt.Sprintf("sleep %d; touch /tmp/ready; sleep 300", int(delay.Seconds()))},
+			Image:          testImage,
+			Command:        []string{"sleep", "300"},
+			ShareWorkspace: true,
 			Readiness: spec.Readiness{
-				Command: []string{"test", "-f", "/tmp/ready"},
-				Timeout: spec.Duration(60 * time.Second),
+				Command: []string{"sh", "-c", fmt.Sprintf("touch %[1]s/probed-%[2]s; test -f %[1]s/probed-%[3]s",
+					workspacePath, self, other)},
+				Timeout: spec.Duration(30 * time.Second),
 			},
 		}
 	}
 
 	c := newCollector()
-	start := time.Now()
 	res, err := e.Run(context.Background(), Request{
 		TaskID:  taskID,
 		LeaseID: ids.NewLease(),
 		Spec: specWithSidecars(t, spec.TaskSpec{
-			Image:    testImage,
-			Command:  []string{"true"},
-			Sidecars: map[string]spec.Sidecar{"one": slow(), "two": slow()},
+			Image:   testImage,
+			Command: []string{"true"},
+			Sidecars: map[string]spec.Sidecar{
+				"one": rendezvous("one", "two"),
+				"two": rendezvous("two", "one"),
+			},
 		}),
 	}, c.ch)
-	elapsed := time.Since(start)
-	require.NoError(t, err)
+	require.NoError(t, err, "neither sidecar can pass its probe unless both waits overlap")
 	require.Equal(t, 0, res.ExitCode)
 
-	steps := stepsOf(c.finish())
+	events := c.finish()
+	steps := stepsOf(events)
 	require.Contains(t, steps, "sidecar/one="+stepReady)
 	require.Contains(t, steps, "sidecar/two="+stepReady)
 
-	t.Logf("two %s sidecars became ready in %s", delay, elapsed.Round(100*time.Millisecond))
-	assert.Less(t, elapsed, time.Duration(1.5*float64(delay)),
-		"sidecars must be waited for in parallel: %s is closer to the sum than the max", elapsed)
+	// The event stream says the same thing from the other side, recorded rather than
+	// asserted: the two ready events land a probe interval apart because the waits
+	// overlapped, but how many intervals it took is the runner's business, not a promise.
+	one, two := readyAt(t, events, "one"), readyAt(t, events, "two")
+	t.Logf("one became ready at %s and two at %s, %s apart",
+		one.Format(time.RFC3339Nano), two.Format(time.RFC3339Nano),
+		two.Sub(one).Abs().Round(time.Millisecond))
+}
+
+// readyAt is when the collector saw a sidecar's ready step.
+func readyAt(t *testing.T, events []Event, sidecar string) time.Time {
+	t.Helper()
+	for _, ev := range events {
+		p, ok := ev.Payload.(StepPayload)
+		if ok && ev.Kind == KindStep && p.Name == stepSidecarPrefix+sidecar && p.Status == stepReady {
+			return ev.TS
+		}
+	}
+	t.Fatalf("sidecar %s never became ready", sidecar)
+	return time.Time{}
 }
 
 // TestPostgresAndRedisSidecarsShareATaskNetwork runs the two-sidecar environment from the
