@@ -160,7 +160,7 @@ func TestTurnRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	turn, err := s.CreateTurn(ctx, sess.ID, "C1/1.1")
+	turn, err := s.CreateTurn(ctx, sess.ID, "C1/1.1", Backend{})
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(turn.ID, "turn_"), "ids are prefixed ULIDs: %s", turn.ID)
 	assert.Equal(t, TurnRunning, turn.Status)
@@ -208,7 +208,7 @@ func TestTheSchemaRefusesAnInventedTurnStatus(t *testing.T) {
 		SourceKind: "dev", SourceKey: "dev:C1:1.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	turn, err := s.CreateTurn(ctx, sess.ID, "C1/1.1")
+	turn, err := s.CreateTurn(ctx, sess.ID, "C1/1.1", Backend{})
 	require.NoError(t, err)
 
 	err = s.FinishTurn(ctx, turn.ID, "nearly-worked", nil, nil, "")
