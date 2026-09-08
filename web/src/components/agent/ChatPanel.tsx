@@ -155,9 +155,13 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* The pane has no page gutter of its own, so the banner is chrome across the top of
+          it — flush with the rail and the composer — rather than a card floating in from
+          a padding nobody else on this screen uses. */}
       {isAgentUnreachable(chats.error) ? (
-        <div className="px-4 pt-3">
+        <div className="shrink-0 border-b border-border bg-panel px-5 py-3">
           <ConductorDown
+            className="max-w-none"
             what="Your chats could not be read"
             onRetry={() => void chats.refetch()}
             retrying={chats.isFetching}
