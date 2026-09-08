@@ -367,7 +367,7 @@ func TestADelegatedTaskIsPickedUpAgainAfterARestart(t *testing.T) {
 		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:13.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	turn, err := st.CreateTurn(ctx, sess.ID, "C1/13.1")
+	turn, err := st.CreateTurn(ctx, sess.ID, "C1/13.1", testBackend())
 	require.NoError(t, err)
 	task := fakeTaskID(t, fake)
 	dlg, err := st.CreateDelegation(ctx, store.NewDelegation{
@@ -407,7 +407,7 @@ func TestADelegationWhoseTaskNeverStartedIsFailedOnRecovery(t *testing.T) {
 		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:14.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	turn, err := st.CreateTurn(ctx, sess.ID, "C1/14.1")
+	turn, err := st.CreateTurn(ctx, sess.ID, "C1/14.1", testBackend())
 	require.NoError(t, err)
 	// Recorded, and the control plane never accepted the task: the row is all there is.
 	dlg, err := st.CreateDelegation(ctx, store.NewDelegation{
@@ -435,7 +435,7 @@ func TestDeletingAConversationStopsTheTasksItDelegated(t *testing.T) {
 		SourceKind: conductor.KindDev, SourceKey: conductor.KindDev + ":C1:15.1", Profile: "podium", Playbook: "general",
 	})
 	require.NoError(t, err)
-	turn, err := st.CreateTurn(ctx, sess.ID, "C1/15.1")
+	turn, err := st.CreateTurn(ctx, sess.ID, "C1/15.1", testBackend())
 	require.NoError(t, err)
 	task := fakeTaskID(t, fake)
 	dlg, err := st.CreateDelegation(ctx, store.NewDelegation{
@@ -484,4 +484,9 @@ func delegationsOf(t *testing.T, st *store.Store, sourceKey string) []store.Dele
 		out = append(out, got...)
 	}
 	return out
+}
+
+// testBackend is what a turn ran on. These tests are about delegation and read none of it.
+func testBackend() store.Backend {
+	return store.Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
 }
