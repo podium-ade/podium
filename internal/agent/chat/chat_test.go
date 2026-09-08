@@ -316,7 +316,7 @@ func TestConcurrentSendsProduceExactlyOneTurn(t *testing.T) {
 	assert.Len(t, accepted, 1, "one turn at a time per conversation, whatever the race")
 }
 
-func TestProgressIsBroadcastAndNeverStored(t *testing.T) {
+func TestProgressIsStoredAsTheTaskTalking(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
 	src := newSource(t, st)
@@ -324,19 +324,50 @@ func TestProgressIsBroadcastAndNeverStored(t *testing.T) {
 	defer sub.Close()
 	ctx := context.Background()
 
-	id, err := src.Post(ctx, "chat_1", conductor.Outbound{Type: conductor.OutProgress, Text: "reading the schema"})
+	id, err := src.Post(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.ProgressPrefix + "reading the schema",
+	})
 	require.NoError(t, err)
 	require.NotEmpty(t, id, "the turn loop edits whatever Post returned")
+	// An edit appends: a chat has no placeholder to replace.
 	require.NoError(t, src.Edit(ctx, "chat_1", id, conductor.Outbound{
-		Type: conductor.OutProgress, Text: "running the query",
+		Type: conductor.OutProgress, Text: conductor.ProgressPrefix + "running the query",
 	}))
 
-	assert.Equal(t, "reading the schema", recv(t, sub).Progress)
-	assert.Equal(t, "running the query", recv(t, sub).Progress)
+	first := recv(t, sub)
+	require.Equal(t, FrameMessage, first.Kind)
+	assert.Equal(t, store.RoleProgress, first.Message.Role)
+	assert.Equal(t, "reading the schema", first.Message.Text, "the prefix is Slack's, not the chat's")
+	assert.Equal(t, "running the query", recv(t, sub).Message.Text)
 
 	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
 	require.NoError(t, err)
-	assert.Empty(t, msgs, "a reload shows the answer, not the trail of thinking")
+	require.Len(t, msgs, 2, "a reload shows the trail, because the task said it")
+	assert.Equal(t, uint64(1), msgs[0].Seq)
+	assert.Equal(t, uint64(2), msgs[1].Seq)
+}
+
+func TestThePlaceholderIsNotAMessage(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	sub := src.Subscribe(context.Background(), "chat_1")
+	defer sub.Close()
+	ctx := context.Background()
+
+	_, err := src.Post(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutProgress, Text: conductor.Placeholder, TaskID: "task_01",
+	})
+	require.NoError(t, err)
+
+	frame := recv(t, sub)
+	require.Equal(t, FrameProgress, frame.Kind, "the running indicator's line, not the transcript's")
+	assert.Equal(t, conductor.Placeholder, frame.Progress)
+	assert.Equal(t, "task_01", frame.TaskID)
+
+	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "nobody said it")
 }
 
 func TestAFinalIsStoredAndBroadcast(t *testing.T) {
@@ -469,7 +500,8 @@ func TestTheTranscriptIsTheWholeConversation(t *testing.T) {
 	drainEvent(t, src)
 	_, err = src.Post(ctx, "chat_1", conductor.Outbound{Type: conductor.OutFinal, Text: "first answer"})
 	require.NoError(t, err)
-	// Progress is not in the history: it was never stored.
+	// Progress is stored, and still not in the history: a turn's own half-finished thoughts
+	// are not what the next one needs to read.
 	_, err = src.Post(ctx, "chat_1", conductor.Outbound{Type: conductor.OutProgress, Text: "thinking"})
 	require.NoError(t, err)
 
