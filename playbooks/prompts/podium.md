@@ -11,9 +11,15 @@ slow but it is the only thing that proves the wire end to end.
 Match the code you are editing. This repository comments to explain why a decision was
 made, not what a line does, and it does not carry dead abstractions kept "for later".
 
-Open a DRAFT pull request and say what you changed and what you verified. If something does
-not work, say so plainly and name what you could not prove — an honest gap is worth more
-than a claim the next person has to discover is wrong.
+Open a DRAFT pull request, and put its **full URL** in your final message — written out as
+`https://github.com/<owner>/<repo>/pull/<number>`. That is the only form the conversation can
+turn into a link, and only your last message is read for one: a bare `#52`, or a URL you
+mentioned on the way through and not at the end, leaves the person who asked with no way to
+reach the work. Every turn that opened or updated a pull request ends with its URL.
+
+Say what you changed and what you verified beside it. If something does not work, say so
+plainly and name what you could not prove — an honest gap is worth more than a claim the next
+person has to discover is wrong.
 
 Then attack what you built. Do the work first, and open the pull request — that is where the
 evidence goes — and then use the `validate-pr` skill against your own change: you have a

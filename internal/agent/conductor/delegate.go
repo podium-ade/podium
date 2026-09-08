@@ -491,10 +491,16 @@ func (r *delegationRun) settle(ctx context.Context, task *podiumv1.Task) {
 }
 
 func (r *delegationRun) finish(ctx context.Context, status string) {
-	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, r.answer()); err != nil {
+	answer := r.answer()
+	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)
 	}
+	// The pull requests THIS answer named. A delegated task is where a pull request now
+	// comes from — the assistant has no repository to open one from — so a conversation
+	// whose only link was read off the turn's own final never carried one at all.
+	r.c.linkPullRequests(ctx, r.src, r.ref, answer,
+		"delegation_id", r.dlg.ID, "task_id", r.dlg.TaskID)
 	r.c.metrics.Delegations.WithLabelValues(r.dlg.Playbook, status).Inc()
 	r.c.logger.InfoContext(ctx, "a delegated task finished", "delegation_id", r.dlg.ID,
 		"task_id", r.dlg.TaskID, "playbook", r.dlg.Playbook, "status", status)

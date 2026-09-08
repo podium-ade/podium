@@ -1741,9 +1741,15 @@ task it delegates, and may choose several while answering once.
   decided was a prompt and a model, while reading as though it chose a machine.
 - **A chat carries the pull requests its work produced.** They are a bar above the transcript,
   rendered as `owner/repo#number` and linked, so getting to the work does not mean reading the
-  conversation back. A turn that opens one says so in its answer, and the conductor links what
-  the answer named — the joined finals, which is exactly what `turns.final_text` stores, so a
-  reviewer can see where a link came from. Progress lines are **not** read: they are coalesced
+  conversation back. The conductor links what an ANSWER named — the joined finals, byte for
+  byte what `turns.final_text` or `delegations.answer` stores, so a reviewer can see where a
+  link came from.
+
+  **Both answers count, and in a conversation only the second one ever has a URL in it.** The
+  assistant has no repository and no shell, so it opens no pull requests: the container it
+  delegates to does. Reading only the turn's own final looked in the one place the link never
+  appears — the assistant's "the task is running" — and left the bar empty while the work sat
+  in review. Progress lines are **not** read: they are coalesced
   and superseded on the way out, so a link found in one would appear or not depending on how
   fast the runtime was talking. Only the whole URL shape counts —
   `https://github.com/<owner>/<repo>/pull/<number>` — and it is canonicalised, so `/pull/12/files`
