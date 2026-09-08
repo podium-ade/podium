@@ -93,3 +93,13 @@ func timeToProto(t *time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(*t)
 }
+
+// timeFromProto is timeToProto's inverse for an optional filter bound. An unset or invalid
+// timestamp is nil, which every query reads as "unbounded on that side".
+func timeFromProto(ts *timestamppb.Timestamp) *time.Time {
+	if ts == nil || !ts.IsValid() {
+		return nil
+	}
+	t := ts.AsTime()
+	return &t
+}

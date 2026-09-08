@@ -14,6 +14,14 @@ service AgentService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   // ListTurns returns one session's turns, newest first.
   rpc ListTurns(ListTurnsRequest) returns (ListTurnsResponse);
+  // GetUsage reports what the conductor spent over a range: a total per day for the
+  // calendar, and the cost of each individual turn keyed by the task it ran as.
+  //
+  // It answers only for turns. The tasks themselves live in the control plane's database,
+  // which this one deliberately does not reference, so the browser asks both and joins them
+  // on task_id — that is why a task with no turn behind it simply has no cost, rather than
+  // a cost of zero.
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
   // GetSettings reports what the conductor is configured with. It reads no secret value:
   // there is no read endpoint on the secret store, by design.
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
@@ -169,6 +177,73 @@ message ListTurnsRequest {
 
 message ListTurnsResponse {
   repeated Turn turns = 1;
+}
+
+// UsageDay is one calendar day's spend, bucketed in the caller's own time zone.
+message UsageDay {
+  // date is YYYY-MM-DD in the zone the request asked for.
+  string date = 1;
+  double cost_usd = 2;
+  // turns is how many turns started that day. model_turns sums what each one reported,
+  // which is a different number: one turn is many model turns.
+  int32 turns = 3;
+  int32 model_turns = 4;
+  // unpriced is how many of that day's turns reported no cost at all, so a day's total can
+  // be read as the incomplete figure it sometimes is.
+  int32 unpriced = 5;
+}
+
+// TaskCost is what one turn spent, keyed by the Podium task it ran as. It is the
+// conductor's half of the usage screen; the task itself comes from the control plane.
+message TaskCost {
+  // task_id is empty for a turn whose task was never created. Such a turn still counts
+  // towards a day's total — the money was spent — but it joins to nothing.
+  string task_id = 1;
+  string turn_id = 2;
+  string session_id = 3;
+  // source_kind, source_key, playbook and profile come from the turn's session: what kind of
+  // conversation spent this, and which playbook it ran.
+  string source_kind = 4;
+  string source_key = 5;
+  string playbook = 6;
+  string profile = 7;
+  // status is the turn's, not the task's: running, succeeded, failed, lost, cancelled or
+  // timeout.
+  string status = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp finished_at = 10;
+  optional int32 num_turns = 11;
+  // cost_usd is unset for a turn whose runtime never reported one — one still running, or
+  // one whose turn.json never landed. Unset is never the same as zero.
+  optional double cost_usd = 12;
+}
+
+message GetUsageRequest {
+  // from is inclusive and to is exclusive, both against the turn's start. Leaving either
+  // unset is the same as asking for the last 30 days.
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  // tz_offset_minutes is the caller's offset from UTC in minutes, east-positive — the
+  // negation of the browser's getTimezoneOffset(). A day boundary is then the operator's
+  // own midnight rather than the server's, which is the only way a calendar reads true.
+  int32 tz_offset_minutes = 3;
+  // limit caps costs. days always covers the whole range whatever this says.
+  int32 limit = 4;
+}
+
+message GetUsageResponse {
+  // days holds only the days something actually ran, ascending. A caller drawing a calendar
+  // fills the gaps itself; sending a zero row for every empty day would be inventing data.
+  repeated UsageDay days = 1;
+  // costs is newest first, capped at limit.
+  repeated TaskCost costs = 2;
+  // The totals are for the whole range, not for the page of costs above.
+  double total_cost_usd = 3;
+  int32 total_turns = 4;
+  int32 total_model_turns = 5;
+  // unpriced is how many turns in the range reported no cost. Without it a total reads as
+  // complete when it is not.
+  int32 unpriced = 6;
 }
 
 message GetSettingsRequest {}

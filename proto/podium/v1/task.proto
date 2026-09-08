@@ -65,6 +65,12 @@ message TaskFilter {
   // search narrows the page to tasks whose id starts with it or whose image contains it,
   // case-insensitively. It is a substring match, not a query language.
   string search = 4;
+  // created_after and created_before bound the page by creation time — after is inclusive,
+  // before is exclusive. Either one unset leaves that side unbounded. They exist for the
+  // usage screen, which asks a calendar question ("what ran in September?") that an id
+  // cursor alone cannot answer.
+  google.protobuf.Timestamp created_after = 5;
+  google.protobuf.Timestamp created_before = 6;
 }
 
 message Page {

@@ -68,6 +68,31 @@ deliberately not claimed in the `relayed` ledger, because accounting is never sa
 that succeeds having reported neither is logged at `Warn` with the task id and counted in
 `podium_agent_turns_without_accounting_total`.
 
+### Reading the bill
+
+`GetUsage` is what the **Usage** screen asks. It takes a range and the caller's own UTC offset in
+minutes, and answers with one row per day — cost, tasks, model turns, and how many of that day's
+turns reported no cost at all — plus a capped, newest-first page of individual turn costs keyed by
+the task each ran as. The day rows always cover the whole range whatever the cap is, which is why
+the screen's totals are summed from *those* and never from the page: a busy range would otherwise
+under-report its own bill.
+
+The screen picks the range: today, the last 2, 7, 30 or 90 days, this month, last month, or two
+dates of the operator's own. Every range is a whole number of local days, and it asks for the
+window *before* the selected one in the same call, which is what the "vs" figure is measured
+against. A trailing range ends at the end of today, so today's spend is in it.
+
+The offset exists because a day is the operator's, not the server's. A turn at 22:00 in New York
+belongs to that evening, and bucketing in UTC would file it under the next morning.
+
+The screen joins two databases in the browser. Tasks and their compute come from the control
+plane; cost comes from here, keyed by `turns.task_id`. Nothing in this database references a
+Podium table, so the join is the browser's job — and a task that no turn ran has **no** cost
+rather than a cost of zero. The UI draws it as a dash for exactly that reason.
+
+A range wider than a year is narrowed to the most recent year rather than refused, and an offset
+outside ±14h is `invalid_argument`: it can only be a bug in the caller.
+
 ### What is said when a turn does not succeed
 
 The raw `failure_reason` is **never** posted. It goes to the conductor's log at `Warn` with the
