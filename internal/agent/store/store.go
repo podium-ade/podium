@@ -449,6 +449,11 @@ func deref[T any](p *T) T {
 const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
+	// RoleProgress is a line a task said on its way to an answer. It is the task talking,
+	// so it is stored and rendered like anything else it said — but it is not an answer,
+	// which is why it is not RoleAssistant: the brief leaves it out, and an attachment
+	// lands on the answer rather than on the last thought before it.
+	RoleProgress = "progress"
 )
 
 // ChatSourceKeyPrefix is what a chat's session key starts with. The chat source builds it

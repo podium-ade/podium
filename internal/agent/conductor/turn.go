@@ -268,7 +268,7 @@ func (r *turnRun) flushProgress(ctx context.Context) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: progressPrefix + text}
+	out := Outbound{Type: OutProgress, TaskID: r.turn.TaskID, Text: ProgressPrefix + text}
 	if r.placeholder == "" {
 		r.placeholder = r.c.post(ctx, r.src, r.ref, out)
 		return
