@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Lock } from "lucide-react";
 import { useToast } from "../Toast";
@@ -17,7 +17,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import type { Secret } from "../../gen/podium/v1/secret_pb";
 import { errorMessage, secrets } from "../../lib/client";
-import { relative } from "../../lib/format";
+import { humanBytes, relative } from "../../lib/format";
 import { cn } from "../../lib/utils";
 
 /**
@@ -26,6 +26,14 @@ import { cn } from "../../lib/utils";
  * API would, before the value has been typed.
  */
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+/**
+ * The largest file this dialog will read. It is NOT a limit the API has — `SetSecret` caps
+ * nothing and `--from-file` reads whatever it is pointed at — it is a guard against the wrong
+ * file. Every credential worth storing is a few kilobytes; a megabyte means the picker landed
+ * on a disk image, and reading that into the tab helps nobody.
+ */
+const MAX_FILE_BYTES = 1024 * 1024;
 
 /**
  * SetSecret behind a dialog, in one of two moods.
@@ -37,6 +45,12 @@ const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
  *
  * The reveal toggle unmasks the draft in this field and nothing else. There is no stored value
  * to unmask: SetSecret is the only way a value ever moves, and it only moves inwards.
+ *
+ * A value can also come from a **file**, which is the only sane way to put a PEM, an SSH key or
+ * a JSON credential in here — pasting one into a single-line field mangles it. The file is read
+ * in the browser and sent byte for byte, exactly as `podium secret set --from-file` does, so a
+ * key written by ssh-keygen arrives as the bytes ssh-keygen wrote. It wins over anything typed:
+ * two sources for one value would only ever be a way to store the wrong one.
  */
 export function SecretDialog({
   open,
@@ -55,6 +69,9 @@ export function SecretDialog({
   const [name, setName] = useState(lockedName ?? "");
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
+  const [file, setFile] = useState<File>();
+  const [fileError, setFileError] = useState<string>();
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const locked = lockedName !== undefined;
   const trimmed = name.trim();
@@ -62,9 +79,16 @@ export function SecretDialog({
   const malformed = trimmed !== "" && !NAME_RE.test(trimmed);
   const flat = trimmed !== "" && !malformed && !trimmed.includes(".");
 
+  // A file is read here rather than when it is picked: holding a credential in component state
+  // for as long as the dialog is open buys nothing, and the File itself is a handle, not bytes.
   const set = useMutation({
-    mutationFn: () =>
-      secrets.setSecret({ name: trimmed, value: new TextEncoder().encode(value) }),
+    mutationFn: async () =>
+      secrets.setSecret({
+        name: trimmed,
+        value: file
+          ? new Uint8Array(await file.arrayBuffer())
+          : new TextEncoder().encode(value),
+      }),
     onSuccess: (res) => {
       const version = res.secret?.version ?? 0;
       toast(
@@ -79,7 +103,29 @@ export function SecretDialog({
     onError: (err) => toast(`SetSecret: ${errorMessage(err)}`),
   });
 
-  const ready = trimmed !== "" && value !== "" && !malformed;
+  const ready = trimmed !== "" && (value !== "" || file !== undefined) && !malformed;
+
+  /**
+   * Both refusals name the file, and both clear the picker: an input still showing a filename
+   * the dialog has rejected is an input that says a file is selected when none is.
+   */
+  function pick(chosen: File | undefined) {
+    setFileError(undefined);
+    setFile(undefined);
+    if (!chosen) return;
+    if (chosen.size === 0) {
+      setFileError(`${chosen.name} is empty, and a secret with no value is refused.`);
+    } else if (chosen.size > MAX_FILE_BYTES) {
+      setFileError(
+        `${chosen.name} is ${humanBytes(chosen.size)}. A secret is a credential, not a payload — ` +
+          `pick the key file itself.`,
+      );
+    } else {
+      setFile(chosen);
+      return;
+    }
+    if (fileInput.current) fileInput.current.value = "";
+  }
   const label = set.isPending
     ? "Saving…"
     : match
@@ -162,6 +208,7 @@ export function SecretDialog({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 autoFocus={locked}
+                disabled={file !== undefined}
                 spellCheck={false}
                 autoComplete="off"
                 className="pr-10 font-mono text-xs"
@@ -171,6 +218,7 @@ export function SecretDialog({
                 variant="ghost"
                 size="icon-sm"
                 aria-label={reveal ? "Hide value" : "Show value"}
+                disabled={file !== undefined}
                 onClick={() => setReveal((r) => !r)}
                 className="absolute top-0.5 right-0.5"
               >
@@ -178,9 +226,36 @@ export function SecretDialog({
               </Button>
             </div>
             <p className="text-2xs text-faint">
-              Sent verbatim as bytes. A trailing newline is part of the secret — the CLI strips
-              one from stdin, the API strips nothing.
+              {file
+                ? "The file below is the value. Clear it to type one instead."
+                : "Sent verbatim as bytes. A trailing newline is part of the secret — the CLI strips one from stdin, the API strips nothing."}
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="secret-file">Or from a file</Label>
+            <Input
+              id="secret-file"
+              ref={fileInput}
+              type="file"
+              disabled={set.isPending}
+              onChange={(e) => pick(e.target.files?.[0])}
+            />
+            {fileError ? (
+              <p className="text-2xs text-err">{fileError}</p>
+            ) : file ? (
+              <p className="text-2xs leading-relaxed text-faint">
+                <span className="font-mono text-muted">{file.name}</span>,{" "}
+                <span className="tabular">{humanBytes(file.size)}</span>, sent byte for byte. A
+                trailing newline in the file is part of the secret — nothing here strips one.
+              </p>
+            ) : (
+              <p className="text-2xs leading-relaxed text-faint">
+                An SSH key, a PEM or a JSON credential — the shape that does not survive being
+                pasted into the field above. Read in this browser and sent byte for byte, the same
+                as <code className="font-mono">podium secret set --from-file</code>.
+              </p>
+            )}
           </div>
 
           {match && !locked ? (
