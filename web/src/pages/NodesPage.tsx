@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { AlertTriangle, Check, Copy, Server } from "lucide-react";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
@@ -41,6 +42,15 @@ function isDraining(n: Node): boolean {
   return n.draining || n.status === NodeStatus.DRAINING;
 }
 
+/**
+ * The slot count in force: what an operator set from here when they set one, and what the
+ * node's own configuration advertises otherwise. A capped node must not read as a smaller
+ * machine, so both numbers stay visible and this is only the one the arithmetic uses.
+ */
+function slotBudget(n: Node): number {
+  return n.maxTasksOverride ?? n.capacity?.maxTasks ?? 0;
+}
+
 export function NodesPage() {
   const query = useQuery({
     queryKey: ["nodes"],
@@ -60,7 +70,7 @@ export function NodesPage() {
       // running none of your work.
       silent: nodes.filter((n) => !isConnected(n)).length,
       freeSlots: working.reduce((sum, n) => sum + n.freeSlots, 0),
-      maxSlots: working.reduce((sum, n) => sum + (n.capacity?.maxTasks ?? 0), 0),
+      maxSlots: working.reduce((sum, n) => sum + slotBudget(n), 0),
     };
   }, [nodes]);
 
@@ -183,7 +193,8 @@ export function NodesPage() {
           <p className="text-2xs leading-relaxed text-faint">
             Draining is a standing instruction that survives a restart of either daemon, and it is
             separate from status: a node that is drained and has stopped heartbeating reads{" "}
-            <span className="font-mono">offline (draining)</span>.
+            <span className="font-mono">offline (draining)</span>. Open a node to change how many
+            tasks it runs at once.
           </p>
         </>
       )}
@@ -195,7 +206,8 @@ function NodeRow({ node }: { node: Node }) {
   const [copied, setCopied] = useState(false);
   const connected = isConnected(node);
   const draining = isDraining(node);
-  const max = node.capacity?.maxTasks ?? 0;
+  const max = slotBudget(node);
+  const capped = node.maxTasksOverride !== undefined;
   const running = connected ? node.runningTasks : undefined;
   const pct = max > 0 && running !== undefined ? (running / max) * 100 : 0;
 
@@ -208,7 +220,12 @@ function NodeRow({ node }: { node: Node }) {
       className={cn(!connected && "bg-warn/[0.06]")}
     >
       <TableCell>
-        <div className="text-sm leading-tight font-medium text-fg">{node.name}</div>
+        <Link
+          to={`/nodes/${node.id}`}
+          className="text-sm leading-tight font-medium text-fg underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          {node.name}
+        </Link>
         <div className="flex items-center gap-1">
           <span className="font-mono text-2xs text-faint">{node.id}</span>
           <Tooltip label={copied ? "Copied" : `Copy ${node.id}`}>
@@ -243,6 +260,11 @@ function NodeRow({ node }: { node: Node }) {
             {connected ? `${node.freeSlots} free` : "not reporting"}
           </span>
         </div>
+        {capped ? (
+          <div className="text-2xs text-faint">
+            set here · node says {node.capacity?.maxTasks ?? 0}
+          </div>
+        ) : null}
         <Progress
           value={pct}
           aria-label={`${running ?? 0} of ${max} slots in use on ${node.name}`}

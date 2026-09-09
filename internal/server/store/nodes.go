@@ -154,6 +154,21 @@ func (s *Store) SetNodeDraining(ctx context.Context, nodeID string, draining boo
 	return nil
 }
 
+// SetNodeMaxTasks records how many tasks an operator wants a node to run at once, or clears
+// the instruction when maxTasks is nil. Like SetNodeDraining it is a column: the node's own
+// max_tasks arrives in every Hello and would overwrite anything written into capacity, and an
+// operator who caps a machine means it for the machine rather than for one connection.
+func (s *Store) SetNodeMaxTasks(ctx context.Context, nodeID string, maxTasks *int32) error {
+	n, err := s.q.SetNodeMaxTasks(ctx, db.SetNodeMaxTasksParams{MaxTasksOverride: maxTasks, ID: nodeID})
+	if err != nil {
+		return fmt.Errorf("set slots of node %s: %w", nodeID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("node %s: %w", nodeID, ErrNotFound)
+	}
+	return nil
+}
+
 // DeleteNode removes a node. Its finished tasks keep the node id they ran on: that column
 // stopped being a foreign key in 0004_scheduler.sql, because a live inventory and an
 // append-only history do not belong in a referential relationship. Refusing to delete a node
@@ -171,16 +186,17 @@ func (s *Store) DeleteNode(ctx context.Context, nodeID string) error {
 
 func nodeFromRow(row db.Node) (Node, error) {
 	n := Node{
-		ID:              row.ID,
-		Name:            row.Name,
-		Tags:            row.Tags,
-		NodeKeyHash:     row.NodeKeyHash,
-		Status:          NodeStatus(row.Status),
-		Version:         deref(row.Version),
-		LastHeartbeatAt: utcPtr(row.LastHeartbeatAt),
-		CreatedAt:       row.CreatedAt.UTC(),
-		TSStableID:      deref(row.TsStableID),
-		Draining:        row.Draining,
+		ID:               row.ID,
+		Name:             row.Name,
+		Tags:             row.Tags,
+		NodeKeyHash:      row.NodeKeyHash,
+		Status:           NodeStatus(row.Status),
+		Version:          deref(row.Version),
+		LastHeartbeatAt:  utcPtr(row.LastHeartbeatAt),
+		CreatedAt:        row.CreatedAt.UTC(),
+		TSStableID:       deref(row.TsStableID),
+		Draining:         row.Draining,
+		MaxTasksOverride: row.MaxTasksOverride,
 	}
 	if err := json.Unmarshal(row.Labels, &n.Labels); err != nil {
 		return Node{}, fmt.Errorf("decode labels of node %s: %w", row.ID, err)

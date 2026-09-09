@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +55,7 @@ func TestLoadReadsTheProfileAndItsPlaybooks(t *testing.T) {
 
 	general := p.Playbooks["general"]
 	assert.Equal(t, "general", general.Name, "the playbook's name comes from the file name")
+	assert.Equal(t, 0, general.Priority, "a playbook that names no priority queues with everything else")
 	assert.Equal(t, DefaultMaxTurns, general.MaxTurns)
 	assert.Equal(t, 30*time.Minute, general.Timeout.Std())
 	assert.Equal(t, "claude-opus-5", p.ModelFor(general), "a playbook with no model uses the profile's")
@@ -71,6 +73,18 @@ allowed_tools: [read]
 	p, err := Load(write(t, files))
 	require.NoError(t, err)
 	assert.Equal(t, "answer it", p.Playbooks["general"].SystemPrompt)
+}
+
+// A playbook's priority is read off its file, and negative is a legitimate thing to want: a
+// two-hour dogfood run should wait behind whatever somebody is watching.
+func TestAPlaybookCarriesItsQueuePriority(t *testing.T) {
+	for _, priority := range []int{7, -5, MinPriority, MaxPriority} {
+		files := base()
+		files["playbooks/general.yaml"] = goodPlaybook + fmt.Sprintf("priority: %d\n", priority)
+		p, err := Load(write(t, files))
+		require.NoError(t, err)
+		assert.Equal(t, priority, p.Playbooks["general"].Priority)
+	}
 }
 
 func TestEveryLoadFailureNamesTheFile(t *testing.T) {
@@ -102,6 +116,9 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"a docker playbook pointing DOCKER_HOST somewhere else", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "docker: true\nenv: {DOCKER_HOST: tcp://elsewhere:2375}\n"
 		}, []string{"playbooks/general.yaml", "DOCKER_HOST"}},
+		{"a priority nothing could distinguish", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "priority: 5000\n"
+		}, []string{"playbooks/general.yaml", "priority must be between -1000 and 1000"}},
 		{"a missing prompt file", func(f map[string]string) {
 			delete(f, "prompts/profile.md")
 		}, []string{"profile.yaml", "system_prompt"}},

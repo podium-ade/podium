@@ -4687,7 +4687,11 @@ type PlaybookDefinition struct {
 	// turn's container with the turn's GitHub token and model credential. This list is the
 	// whole of what decides which ones do, and editing it here is a UI action rather than a
 	// file edit — see docs/security.md.
-	Skills        []string `protobuf:"bytes,22,rep,name=skills,proto3" json:"skills,omitempty"`
+	Skills []string `protobuf:"bytes,22,rep,name=skills,proto3" json:"skills,omitempty"`
+	// priority is where a turn of this playbook goes in Podium's queue: the scheduler claims
+	// higher first and breaks ties by age. Zero is the default and negative is allowed, so a
+	// background playbook can be told to wait behind everything a person is watching.
+	Priority      int32 `protobuf:"varint,23,opt,name=priority,proto3" json:"priority,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4874,6 +4878,13 @@ func (x *PlaybookDefinition) GetSkills() []string {
 		return x.Skills
 	}
 	return nil
+}
+
+func (x *PlaybookDefinition) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
 }
 
 type GetProfileRequest struct {
@@ -6296,7 +6307,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fPlaybookRepo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12%\n" +
-	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xc9\x06\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xe5\x06\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -6322,7 +6333,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"updated_at\x18\x13 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x14\n" +
 	"\x05agent\x18\x14 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06effort\x18\x15 \x01(\tR\x06effort\x12\x16\n" +
-	"\x06skills\x18\x16 \x03(\tR\x06skills\x1a6\n" +
+	"\x06skills\x18\x16 \x03(\tR\x06skills\x12\x1a\n" +
+	"\bpriority\x18\x17 \x01(\x05R\bpriority\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

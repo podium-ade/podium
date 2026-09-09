@@ -566,7 +566,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, choice)
-	task, err := c.podium.CreateTask(ctx, taskSpec)
+	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.

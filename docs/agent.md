@@ -474,6 +474,7 @@ model: ""                                                    # default: the prof
 agent: ""                                                    # default: the profile's
 effort: ""                                                   # default: the profile's
 labels: []                                                   # node labels, verbatim into the spec
+priority: 0                                                  # queue priority; higher is claimed first
 resources: {cpu: 2, memory_mb: 4096}                         # verbatim into the spec
 secrets:                                                     # verbatim into the spec
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
@@ -510,6 +511,30 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
+
+#### `priority`
+
+Where a turn of this playbook goes in Podium's queue. The scheduler claims higher first and
+breaks ties by age, so `priority` only matters when the fleet is full — which is exactly when
+it matters. It is the **only** thing that sets a turn's priority: the conductor has none of
+its own and asks for whatever the playbook says.
+
+Zero is the default and negative is allowed, which is the useful direction. A playbook that
+grinds for two hours with nobody watching should wait behind a mention somebody is sitting in
+front of:
+
+```yaml
+# playbooks/dogfood.yaml — hours of work, no audience
+priority: -5
+```
+
+The range is `-1000` to `1000`; a playbook outside it is refused when it is loaded or saved.
+That is a guard against a typo rather than a scale with meaning — the queue is sorted, so only
+the order of these numbers does anything.
+
+It is a sort key and **not** a budget. It changes what runs next; it changes nothing about what
+a turn is given, how long it may take, or which node it lands on — `labels` and `resources` are
+what decide those, and a high priority does not conjure a slot that does not exist.
 
 #### `docker: true`
 
@@ -837,7 +862,7 @@ re-reading a file somebody is half way through saving is not an improvement.
 playbook file — same rules, same messages — so nothing is accepted here that a file could not say,
 and nothing is stored that would fail to load at the next restart:
 
-- everything in the table above (`image`, `allowed_tools`, `max_turns`, `timeout`, `resources`,
+- everything in the table above (`image`, `allowed_tools`, `max_turns`, `timeout`, `priority`, `resources`,
   `env`, `labels` and `secrets` are checked by the task-spec validator, because that is where
   they end up);
 - the two reserved secret names and the three reserved env vars, below;

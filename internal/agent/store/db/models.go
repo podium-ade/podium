@@ -26,12 +26,12 @@ type Chat struct {
 	Login     *string
 	CreatedAt time.Time
 	AutoTitle bool
-	SourceKey *string
-	StartedBy string
-	Origin    string
 	Agent     string
 	Model     string
 	Effort    string
+	SourceKey *string
+	StartedBy string
+	Origin    string
 }
 
 type ChatMessage struct {
@@ -41,8 +41,8 @@ type ChatMessage struct {
 	Text        string
 	Attachments []byte
 	Ts          time.Time
-	Author      string
 	TaskID      string
+	Author      string
 }
 
 type ChatPullRequest struct {

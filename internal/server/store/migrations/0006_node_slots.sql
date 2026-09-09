@@ -1,0 +1,12 @@
+-- The operator's slot count for a node.
+--
+-- max_tasks is the node's own configuration — /etc/podium/node.yaml or PODIUM_NODE_MAX_TASKS
+-- — and it arrives in every Hello, which is why it cannot simply be written into
+-- nodes.capacity: the next reconnect would overwrite it. This column is the control plane's
+-- own answer, and it wins while it is set.
+--
+-- NULL means "the node decides", which is the default and what every existing row gets. It
+-- is a column rather than a live instruction for the same reason nodes.draining is: an
+-- operator who caps a machine at two tasks means it for the machine, not for the current
+-- connection, and it has to survive both daemons restarting.
+alter table nodes add column if not exists max_tasks_override int;

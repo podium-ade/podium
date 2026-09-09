@@ -41,18 +41,19 @@ type EnrollmentToken struct {
 }
 
 type Node struct {
-	ID              string
-	Name            string
-	Tags            []string
-	Labels          []byte
-	Capacity        []byte
-	NodeKeyHash     []byte
-	Status          string
-	Version         *string
-	LastHeartbeatAt *time.Time
-	CreatedAt       time.Time
-	TsStableID      *string
-	Draining        bool
+	ID               string
+	Name             string
+	Tags             []string
+	Labels           []byte
+	Capacity         []byte
+	NodeKeyHash      []byte
+	Status           string
+	Version          *string
+	LastHeartbeatAt  *time.Time
+	CreatedAt        time.Time
+	TsStableID       *string
+	Draining         bool
+	MaxTasksOverride *int32
 }
 
 type Secret struct {

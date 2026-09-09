@@ -201,6 +201,16 @@ func (h *harness) createTask(labels []string, command ...string) *podiumv1.Task 
 	return res.Msg.GetTask()
 }
 
+func (h *harness) createTaskWithPriority(priority int32, command ...string) *podiumv1.Task {
+	h.t.Helper()
+	res, err := h.tasks.CreateTask(context.Background(), connect.NewRequest(&podiumv1.CreateTaskRequest{
+		Spec:     &podiumv1.TaskSpec{Image: "alpine:3", Command: command},
+		Priority: priority,
+	}))
+	require.NoError(h.t, err)
+	return res.Msg.GetTask()
+}
+
 func (h *harness) getTask(taskID string) *podiumv1.Task {
 	h.t.Helper()
 	res, err := h.tasks.GetTask(context.Background(), connect.NewRequest(&podiumv1.GetTaskRequest{TaskId: taskID}))

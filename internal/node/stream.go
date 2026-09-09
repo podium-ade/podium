@@ -197,6 +197,9 @@ func (n *Node) hello() *podiumv1.NodeMessage {
 		NodeId:  n.id.NodeID,
 		NodeKey: n.id.NodeKey,
 		Labels:  n.cfg.Labels,
+		// MaxTasks is this machine's OWN configuration and not the number in force: the
+		// control plane holds any override and re-sends it after the HelloAck, and it needs
+		// to be able to show an operator both.
 		Capacity: &podiumv1.NodeCapacity{
 			MaxTasks: int32(n.cfg.MaxTasks),
 			CpuCores: n.facts.CPUCores,
@@ -271,6 +274,12 @@ func (n *Node) handle(
 		// disowning it means tear it down, not signal it.
 		if !n.dropPendingContainer(ctx, c.GetTaskId(), c.GetReason()) {
 			n.exec.Cancel(c.GetTaskId())
+		}
+	case msg.GetSlots() != nil:
+		// Every stream carries one of these, so only a change is worth saying out loud.
+		if inForce, changed := n.setSlots(msg.GetSlots().GetMaxTasks()); changed {
+			n.logger.InfoContext(ctx, "slot count changed by the control plane",
+				"max_tasks", inForce, "configured", n.cfg.MaxTasks, "running_tasks", n.runningCount())
 		}
 	case msg.GetDrain() != nil:
 		d := msg.GetDrain()
