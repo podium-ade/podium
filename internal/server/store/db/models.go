@@ -56,6 +56,16 @@ type Node struct {
 	MaxTasksOverride *int32
 }
 
+type Registry struct {
+	Host       string
+	Username   string
+	Ciphertext []byte
+	Nonce      []byte
+	KeyID      string
+	CreatedBy  string
+	UpdatedAt  time.Time
+}
+
 type Secret struct {
 	Name       string
 	Ciphertext []byte

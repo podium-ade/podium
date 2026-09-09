@@ -343,9 +343,9 @@ PODIUM_DATABASE_URL=… podium-server rotate-master-key \
 # then point PODIUM_MASTER_KEY_FILE at the new file and restart
 ```
 
-Every row is re-encrypted in one transaction, so the table is never half under one key and
-half under the other, and the rows are locked for the duration so a concurrent `secret set`
-waits rather than being clobbered. Afterwards the old key decrypts nothing; `podium secret
+Every row is re-encrypted in one transaction — the secrets table, then the registry logins from
+the Registries screen — so neither is ever half under one key and half under the other, and the
+rows are locked for the duration so a concurrent `secret set` waits rather than being clobbered. Afterwards the old key decrypts nothing; `podium secret
 ls` shows the new key id on every row. Rotation re-encrypts a value, it does not change it,
 so versions do not move.
 

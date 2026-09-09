@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// RegistryService is the operator-facing store of container registry credentials. Like
+// SecretService it has no read endpoint: a password goes in once and only ever comes back
+// out inside an Assign, to the node about to pull an image from that registry.
+service RegistryService {
+  // SetRegistry creates or replaces the credential for one registry host.
+  rpc SetRegistry(SetRegistryRequest) returns (SetRegistryResponse);
+  // ListRegistries returns metadata only: hosts, usernames and who set them.
+  rpc ListRegistries(ListRegistriesRequest) returns (ListRegistriesResponse);
+  rpc DeleteRegistry(DeleteRegistryRequest) returns (DeleteRegistryResponse);
+}
+
+// Registry is the metadata of a stored registry credential. It never carries the password
+// or the ciphertext.
+message Registry {
+  // host is the registry as an image reference names it: us-docker.pkg.dev, ghcr.io,
+  // docker.io. It is the key.
+  string host = 1;
+  string username = 2;
+  // key_id identifies the master key the password is encrypted under.
+  string key_id = 3;
+  string created_by = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message SetRegistryRequest {
+  string host = 1;
+  string username = 2;
+  // SENSITIVE: never log. Bytes because a password may be a whole key file.
+  bytes password = 3;
+}
+
+message SetRegistryResponse {
+  Registry registry = 1;
+}
+
+message ListRegistriesRequest {}
+
+message ListRegistriesResponse {
+  repeated Registry registries = 1;
+}
+
+message DeleteRegistryRequest {
+  string host = 1;
+}
+
+message DeleteRegistryResponse {}
