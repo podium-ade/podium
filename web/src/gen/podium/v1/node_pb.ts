@@ -14,7 +14,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file podium/v1/node.proto.
  */
 export const file_podium_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyLMAQoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAQgUKA21zZyKQAQoFSGVsbG8SDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCRIOCgZsYWJlbHMYAyADKAkSKQoIY2FwYWNpdHkYBCABKAsyFy5wb2RpdW0udjEuTm9kZUNhcGFjaXR5EhgKEHJ1bm5pbmdfdGFza19pZHMYBSADKAkSDwoHdmVyc2lvbhgGIAEoCSI0CghIZWxsb0FjaxIoCgV0YXNrcxgBIAMoCzIZLnBvZGl1bS52MS5UYXNrQ2hlY2twb2ludCJwCg5UYXNrQ2hlY2twb2ludBIPCgd0YXNrX2lkGAEgASgJEg0KBWFkb3B0GAIgASgIEhAKCGhpZ2hfc2VxGAMgASgEEhUKDXN0ZG91dF9vZmZzZXQYBCABKAMSFQoNc3RkZXJyX29mZnNldBgFIAEoAyJDCghOb2RlTG9hZBIVCg1ydW5uaW5nX3Rhc2tzGAEgASgFEg8KB2NwdV9wY3QYAiABKAESDwoHbWVtX3BjdBgDIAEoASKDAQoJSGVhcnRiZWF0EiEKBGxvYWQYASABKAsyEy5wb2RpdW0udjEuTm9kZUxvYWQSEgoKZnJlZV9zbG90cxgCIAEoBRIXCg9kaXNrX2ZyZWVfYnl0ZXMYAyABKAMSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIrEBCgZBc3NpZ24SDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRIhCgRzcGVjGAMgASgLMhMucG9kaXVtLnYxLlRhc2tTcGVjEiwKCGRlYWRsaW5lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzChByZXNvbHZlZF9zZWNyZXRzGAUgAygLMhkucG9kaXVtLnYxLlJlc29sdmVkU2VjcmV0IkoKDlJlc29sdmVkU2VjcmV0EgwKBG5hbWUYASABKAkSDgoGdGFyZ2V0GAIgASgJEgsKA2tleRgDIAEoCRINCgV2YWx1ZRgEIAEoDCIjCgNBY2sSDwoHdGFza19pZBgBIAEoCRILCgNzZXEYAiABKAQiKQoGQ2FuY2VsEg8KB3Rhc2tfaWQYASABKAkSDgoGcmVhc29uGAIgASgJIhUKBURyYWluEgwKBHVuZG8YASABKAgizgEKCExvZ0NodW5rEioKBnN0cmVhbRgBIAEoDjIaLnBvZGl1bS52MS5Mb2dDaHVuay5TdHJlYW0SFAoMc2lkZWNhcl9uYW1lGAIgASgJEg0KBWJ5dGVzGAMgASgMEhUKDXNvdXJjZV9vZmZzZXQYBCABKAMiWgoGU3RyZWFtEhYKElNUUkVBTV9VTlNQRUNJRklFRBAAEhEKDVNUUkVBTV9TVERPVVQQARIRCg1TVFJFQU1fU1RERVJSEAISEgoOU1RSRUFNX1NJREVDQVIQAyJuCgtBcnRpZmFjdFJlZhITCgthcnRpZmFjdF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCm9iamVjdF9rZXkYAyABKAkSEgoKc2l6ZV9ieXRlcxgEIAEoAxIUCgxjb250ZW50X3R5cGUYBSABKAkiOgoHTWVzc2FnZRIMCgR0eXBlGAEgASgJEgwKBHRleHQYAiABKAkSEwoLYXR0YWNobWVudHMYAyADKAkiNwoEU3RlcBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIRCglleGl0X2NvZGUYAyABKAUiLwoGRXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRISCgpvb21fa2lsbGVkGAIgASgIIj4KCEZpbmlzaGVkEhEKCWV4aXRfY29kZRgBIAEoBRIfCgV1c2FnZRgCIAEoCzIQLnBvZGl1bS52MS5Vc2FnZSI/CgVFcnJvchIPCgdtZXNzYWdlGAEgASgJEhEKCXJldHJ5YWJsZRgCIAEoCBISCgphYm9ydHNfcnVuGAMgASgIIp8DCglUYXNrRXZlbnQSDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRILCgNzZXEYAyABKAQSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiYKBGtpbmQYBSABKA4yGC5wb2RpdW0udjEuVGFza0V2ZW50S2luZBIiCgNsb2cYBiABKAsyEy5wb2RpdW0udjEuTG9nQ2h1bmtIABIfCgRzdGVwGAcgASgLMg8ucG9kaXVtLnYxLlN0ZXBIABIjCgZleGl0ZWQYCCABKAsyES5wb2RpdW0udjEuRXhpdGVkSAASJwoIZmluaXNoZWQYCSABKAsyEy5wb2RpdW0udjEuRmluaXNoZWRIABIhCgVlcnJvchgKIAEoCzIQLnBvZGl1bS52MS5FcnJvckgAEioKCGFydGlmYWN0GAsgASgLMhYucG9kaXVtLnYxLkFydGlmYWN0UmVmSAASJQoHbWVzc2FnZRgMIAEoCzISLnBvZGl1bS52MS5NZXNzYWdlSABCCQoHcGF5bG9hZCrPAgoNVGFza0V2ZW50S2luZBIfChtUQVNLX0VWRU5UX0tJTkRfVU5TUEVDSUZJRUQQABIgChxUQVNLX0VWRU5UX0tJTkRfUFJPVklTSU9OSU5HEAESGwoXVEFTS19FVkVOVF9LSU5EX1BVTExJTkcQAhIbChdUQVNLX0VWRU5UX0tJTkRfU1RBUlRFRBADEhcKE1RBU0tfRVZFTlRfS0lORF9MT0cQBBIYChRUQVNLX0VWRU5UX0tJTkRfU1RFUBAFEhwKGFRBU0tfRVZFTlRfS0lORF9BUlRJRkFDVBAGEhoKFlRBU0tfRVZFTlRfS0lORF9FWElURUQQBxIcChhUQVNLX0VWRU5UX0tJTkRfRklOSVNIRUQQCBIZChVUQVNLX0VWRU5UX0tJTkRfRVJST1IQCRIbChdUQVNLX0VWRU5UX0tJTkRfTUVTU0FHRRAKMuUBCgtOb2RlU2VydmljZRI9CgZFbnJvbGwSGC5wb2RpdW0udjEuRW5yb2xsUmVxdWVzdBoZLnBvZGl1bS52MS5FbnJvbGxSZXNwb25zZRI+CgZTdHJlYW0SFi5wb2RpdW0udjEuTm9kZU1lc3NhZ2UaGC5wb2RpdW0udjEuU2VydmVyTWVzc2FnZSgBMAESVwoOVXBsb2FkQXJ0aWZhY3QSIC5wb2RpdW0udjEuVXBsb2FkQXJ0aWZhY3RSZXF1ZXN0GiEucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVzcG9uc2UoAUKjAQoNY29tLnBvZGl1bS52MUIJTm9kZVByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyLvAQoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAEiEKBXNsb3RzGAYgASgLMhAucG9kaXVtLnYxLlNsb3RzSABCBQoDbXNnIpABCgVIZWxsbxIPCgdub2RlX2lkGAEgASgJEhAKCG5vZGVfa2V5GAIgASgJEg4KBmxhYmVscxgDIAMoCRIpCghjYXBhY2l0eRgEIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSGAoQcnVubmluZ190YXNrX2lkcxgFIAMoCRIPCgd2ZXJzaW9uGAYgASgJIjQKCEhlbGxvQWNrEigKBXRhc2tzGAEgAygLMhkucG9kaXVtLnYxLlRhc2tDaGVja3BvaW50InAKDlRhc2tDaGVja3BvaW50Eg8KB3Rhc2tfaWQYASABKAkSDQoFYWRvcHQYAiABKAgSEAoIaGlnaF9zZXEYAyABKAQSFQoNc3Rkb3V0X29mZnNldBgEIAEoAxIVCg1zdGRlcnJfb2Zmc2V0GAUgASgDIkMKCE5vZGVMb2FkEhUKDXJ1bm5pbmdfdGFza3MYASABKAUSDwoHY3B1X3BjdBgCIAEoARIPCgdtZW1fcGN0GAMgASgBIoMBCglIZWFydGJlYXQSIQoEbG9hZBgBIAEoCzITLnBvZGl1bS52MS5Ob2RlTG9hZBISCgpmcmVlX3Nsb3RzGAIgASgFEhcKD2Rpc2tfZnJlZV9ieXRlcxgDIAEoAxImCgJ0cxgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAisQEKBkFzc2lnbhIPCgd0YXNrX2lkGAEgASgJEhAKCGxlYXNlX2lkGAIgASgJEiEKBHNwZWMYAyABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSLAoIZGVhZGxpbmUYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjMKEHJlc29sdmVkX3NlY3JldHMYBSADKAsyGS5wb2RpdW0udjEuUmVzb2x2ZWRTZWNyZXQiSgoOUmVzb2x2ZWRTZWNyZXQSDAoEbmFtZRgBIAEoCRIOCgZ0YXJnZXQYAiABKAkSCwoDa2V5GAMgASgJEg0KBXZhbHVlGAQgASgMIiMKA0FjaxIPCgd0YXNrX2lkGAEgASgJEgsKA3NlcRgCIAEoBCIpCgZDYW5jZWwSDwoHdGFza19pZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiGgoFU2xvdHMSEQoJbWF4X3Rhc2tzGAEgASgFIhUKBURyYWluEgwKBHVuZG8YASABKAgizgEKCExvZ0NodW5rEioKBnN0cmVhbRgBIAEoDjIaLnBvZGl1bS52MS5Mb2dDaHVuay5TdHJlYW0SFAoMc2lkZWNhcl9uYW1lGAIgASgJEg0KBWJ5dGVzGAMgASgMEhUKDXNvdXJjZV9vZmZzZXQYBCABKAMiWgoGU3RyZWFtEhYKElNUUkVBTV9VTlNQRUNJRklFRBAAEhEKDVNUUkVBTV9TVERPVVQQARIRCg1TVFJFQU1fU1RERVJSEAISEgoOU1RSRUFNX1NJREVDQVIQAyJuCgtBcnRpZmFjdFJlZhITCgthcnRpZmFjdF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhIKCm9iamVjdF9rZXkYAyABKAkSEgoKc2l6ZV9ieXRlcxgEIAEoAxIUCgxjb250ZW50X3R5cGUYBSABKAkiOgoHTWVzc2FnZRIMCgR0eXBlGAEgASgJEgwKBHRleHQYAiABKAkSEwoLYXR0YWNobWVudHMYAyADKAkiNwoEU3RlcBIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIRCglleGl0X2NvZGUYAyABKAUiLwoGRXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRISCgpvb21fa2lsbGVkGAIgASgIIj4KCEZpbmlzaGVkEhEKCWV4aXRfY29kZRgBIAEoBRIfCgV1c2FnZRgCIAEoCzIQLnBvZGl1bS52MS5Vc2FnZSI/CgVFcnJvchIPCgdtZXNzYWdlGAEgASgJEhEKCXJldHJ5YWJsZRgCIAEoCBISCgphYm9ydHNfcnVuGAMgASgIIp8DCglUYXNrRXZlbnQSDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRILCgNzZXEYAyABKAQSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiYKBGtpbmQYBSABKA4yGC5wb2RpdW0udjEuVGFza0V2ZW50S2luZBIiCgNsb2cYBiABKAsyEy5wb2RpdW0udjEuTG9nQ2h1bmtIABIfCgRzdGVwGAcgASgLMg8ucG9kaXVtLnYxLlN0ZXBIABIjCgZleGl0ZWQYCCABKAsyES5wb2RpdW0udjEuRXhpdGVkSAASJwoIZmluaXNoZWQYCSABKAsyEy5wb2RpdW0udjEuRmluaXNoZWRIABIhCgVlcnJvchgKIAEoCzIQLnBvZGl1bS52MS5FcnJvckgAEioKCGFydGlmYWN0GAsgASgLMhYucG9kaXVtLnYxLkFydGlmYWN0UmVmSAASJQoHbWVzc2FnZRgMIAEoCzISLnBvZGl1bS52MS5NZXNzYWdlSABCCQoHcGF5bG9hZCrPAgoNVGFza0V2ZW50S2luZBIfChtUQVNLX0VWRU5UX0tJTkRfVU5TUEVDSUZJRUQQABIgChxUQVNLX0VWRU5UX0tJTkRfUFJPVklTSU9OSU5HEAESGwoXVEFTS19FVkVOVF9LSU5EX1BVTExJTkcQAhIbChdUQVNLX0VWRU5UX0tJTkRfU1RBUlRFRBADEhcKE1RBU0tfRVZFTlRfS0lORF9MT0cQBBIYChRUQVNLX0VWRU5UX0tJTkRfU1RFUBAFEhwKGFRBU0tfRVZFTlRfS0lORF9BUlRJRkFDVBAGEhoKFlRBU0tfRVZFTlRfS0lORF9FWElURUQQBxIcChhUQVNLX0VWRU5UX0tJTkRfRklOSVNIRUQQCBIZChVUQVNLX0VWRU5UX0tJTkRfRVJST1IQCRIbChdUQVNLX0VWRU5UX0tJTkRfTUVTU0FHRRAKMuUBCgtOb2RlU2VydmljZRI9CgZFbnJvbGwSGC5wb2RpdW0udjEuRW5yb2xsUmVxdWVzdBoZLnBvZGl1bS52MS5FbnJvbGxSZXNwb25zZRI+CgZTdHJlYW0SFi5wb2RpdW0udjEuTm9kZU1lc3NhZ2UaGC5wb2RpdW0udjEuU2VydmVyTWVzc2FnZSgBMAESVwoOVXBsb2FkQXJ0aWZhY3QSIC5wb2RpdW0udjEuVXBsb2FkQXJ0aWZhY3RSZXF1ZXN0GiEucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVzcG9uc2UoAUKjAQoNY29tLnBvZGl1bS52MUIJTm9kZVByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.EnrollRequest
@@ -298,6 +298,12 @@ export type ServerMessage = Message$1<"podium.v1.ServerMessage"> & {
      */
     value: HelloAck;
     case: "helloAck";
+  } | {
+    /**
+     * @generated from field: podium.v1.Slots slots = 6;
+     */
+    value: Slots;
+    case: "slots";
   } | { case: undefined; value?: undefined };
 };
 
@@ -631,6 +637,34 @@ export const CancelSchema: GenMessage<Cancel> = /*@__PURE__*/
   messageDesc(file_podium_v1_node, 15);
 
 /**
+ * Slots changes how many tasks the node runs at once, overriding the max_tasks in its own
+ * configuration. The node is the only thing that can enforce a concurrency budget — it
+ * rejects an assignment it has no slot for — so raising the number has to reach the node
+ * rather than only the scheduler's arithmetic.
+ *
+ * The override lives in the control plane, not on the node: it is re-sent after every
+ * HelloAck, so a node that restarts picks it up again without holding any state of its own.
+ *
+ * @generated from message podium.v1.Slots
+ */
+export type Slots = Message$1<"podium.v1.Slots"> & {
+  /**
+   * max_tasks is the new concurrency budget. Zero clears the override and returns the node
+   * to the max_tasks its own configuration sets.
+   *
+   * @generated from field: int32 max_tasks = 1;
+   */
+  maxTasks: number;
+};
+
+/**
+ * Describes the message podium.v1.Slots.
+ * Use `create(SlotsSchema)` to create a new message.
+ */
+export const SlotsSchema: GenMessage<Slots> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 16);
+
+/**
  * Drain tells the node to stop accepting work and finish what it is running.
  *
  * @generated from message podium.v1.Drain
@@ -650,7 +684,7 @@ export type Drain = Message$1<"podium.v1.Drain"> & {
  * Use `create(DrainSchema)` to create a new message.
  */
 export const DrainSchema: GenMessage<Drain> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 16);
+  messageDesc(file_podium_v1_node, 17);
 
 /**
  * @generated from message podium.v1.LogChunk
@@ -690,7 +724,7 @@ export type LogChunk = Message$1<"podium.v1.LogChunk"> & {
  * Use `create(LogChunkSchema)` to create a new message.
  */
 export const LogChunkSchema: GenMessage<LogChunk> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 17);
+  messageDesc(file_podium_v1_node, 18);
 
 /**
  * @generated from enum podium.v1.LogChunk.Stream
@@ -721,7 +755,7 @@ export enum LogChunk_Stream {
  * Describes the enum podium.v1.LogChunk.Stream.
  */
 export const LogChunk_StreamSchema: GenEnum<LogChunk_Stream> = /*@__PURE__*/
-  enumDesc(file_podium_v1_node, 17, 0);
+  enumDesc(file_podium_v1_node, 18, 0);
 
 /**
  * ArtifactRef names an artifact the control plane has already stored. The node emits one
@@ -762,7 +796,7 @@ export type ArtifactRef = Message$1<"podium.v1.ArtifactRef"> & {
  * Use `create(ArtifactRefSchema)` to create a new message.
  */
 export const ArtifactRefSchema: GenMessage<ArtifactRef> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 18);
+  messageDesc(file_podium_v1_node, 19);
 
 /**
  * Message is something the task wants a human (or a relay) to read while it runs. `type` is
@@ -795,7 +829,7 @@ export type Message = Message$1<"podium.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 19);
+  messageDesc(file_podium_v1_node, 20);
 
 /**
  * Step is emitted by the runner. Reserved: unused in MVP-0.
@@ -824,7 +858,7 @@ export type Step = Message$1<"podium.v1.Step"> & {
  * Use `create(StepSchema)` to create a new message.
  */
 export const StepSchema: GenMessage<Step> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 20);
+  messageDesc(file_podium_v1_node, 21);
 
 /**
  * @generated from message podium.v1.Exited
@@ -846,7 +880,7 @@ export type Exited = Message$1<"podium.v1.Exited"> & {
  * Use `create(ExitedSchema)` to create a new message.
  */
 export const ExitedSchema: GenMessage<Exited> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 21);
+  messageDesc(file_podium_v1_node, 22);
 
 /**
  * @generated from message podium.v1.Finished
@@ -868,7 +902,7 @@ export type Finished = Message$1<"podium.v1.Finished"> & {
  * Use `create(FinishedSchema)` to create a new message.
  */
 export const FinishedSchema: GenMessage<Finished> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 22);
+  messageDesc(file_podium_v1_node, 23);
 
 /**
  * @generated from message podium.v1.Error
@@ -906,7 +940,7 @@ export type Error = Message$1<"podium.v1.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 23);
+  messageDesc(file_podium_v1_node, 24);
 
 /**
  * TaskEvent is ordered per task by seq, starting at 1. The server deduplicates on
@@ -993,7 +1027,7 @@ export type TaskEvent = Message$1<"podium.v1.TaskEvent"> & {
  * Use `create(TaskEventSchema)` to create a new message.
  */
 export const TaskEventSchema: GenMessage<TaskEvent> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 24);
+  messageDesc(file_podium_v1_node, 25);
 
 /**
  * TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04),

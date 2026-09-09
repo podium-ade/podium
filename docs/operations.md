@@ -232,6 +232,23 @@ podium node rm worker-3         # once it is drained and idle
 reconnects for ever and is told its key is unknown, once per backoff. Stop the daemon yourself.
 There is no revocation push.
 
+### Turning a worker down without taking it out
+
+A drain is all or nothing. When a machine is merely too busy — it is also somebody's desktop,
+or it shares a disk with something that matters — change its slot count instead:
+
+```sh
+podium node slots worker-3 2    # two tasks at once, whatever its max_tasks says
+podium nodes                    # RUNNING/MAX reads 1/2*, the * meaning "set from here"
+podium node slots worker-3 0    # back to its own configuration
+```
+
+Like `draining`, the number is a standing instruction on the node's row: it survives both
+daemons restarting and can be set on a node that is offline right now. Lowering it takes
+nothing down — the tasks already on the node finish, and it accepts no more until enough have.
+It also raises: a node whose file says 4 runs 8 when told to, because the count is sent to the
+node and not merely applied to the scheduler's arithmetic.
+
 ---
 
 ## Upgrading

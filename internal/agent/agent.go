@@ -270,6 +270,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		XAIBaseURL:   a.cfg.XAIBaseURL,
 		SkillsDir:    a.cfg.SkillsDir,
 		Host:         host,
+		HostMaxTurns: a.cfg.HostMaxTurns,
 	})
 	if err != nil {
 		st.Close()

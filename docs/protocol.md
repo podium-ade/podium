@@ -13,7 +13,7 @@ token today, Tailscale `WhoIs` later — and never travels inside a message.
 |---|---|
 | `NodeService` | `Enroll`, `Stream`, `UploadArtifact` |
 | `TaskService` | `CreateTask`, `GetTask`, `ListTasks`, `CancelTask`, `StreamTaskEvents` |
-| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `DeleteNode` |
+| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `SetNodeSlots`, `DeleteNode` |
 | `SecretService` | `SetSecret`, `ListSecrets`, `DeleteSecret` |
 | `ArtifactService` | `ListArtifacts`, `GetArtifactURL` |
 | `IdentityService` | `WhoAmI` |
@@ -68,6 +68,7 @@ operator      podium node                       podium server
    |               | <-- Ack{task_id, seq}            |   high-water mark
    |               | <-- Cancel{task_id, reason}      |   idempotent
    |               | <-- Drain{}                      |   stop accepting new work
+   |               | <-- Slots{max_tasks}             |   one on every stream; 0 = the node's own
 ```
 
 1. **Enroll** happens once. The token is single-use and time-limited; the server stores only
@@ -89,7 +90,14 @@ operator      podium node                       podium server
    grace, SIGKILL, teardown.
 6. **Drain** tells the node to stop accepting work and finish what is running. `Drain{undo:
    true}` lifts it.
-7. A new stream from the same node replaces the old session, which is closed.
+7. **Slots** is how many tasks the node may run at once, overriding the `max_tasks` in its own
+   configuration. The node enforces its own budget — it rejects an assignment it has no slot
+   for — so the number has to reach it and not only the scheduler. Exactly one `Slots` is sent
+   on every stream, straight after the `HelloAck`, and `max_tasks: 0` means "your own
+   configuration": the control plane holds the override in `nodes.max_tasks_override` and the
+   daemon keeps none of it, so an override cleared while a node was disconnected is undone on
+   its next connection rather than left in force.
+8. A new stream from the same node replaces the old session, which is closed.
 
 ## Reconciliation: `Hello` → `HelloAck`
 

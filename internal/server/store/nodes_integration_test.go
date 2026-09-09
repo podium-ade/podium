@@ -86,6 +86,43 @@ func TestNodeLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+// The operator's slot count is a column of its own, so a Hello re-advertising the node's own
+// max_tasks cannot overwrite it. That is the whole reason it is not written into capacity.
+func TestSetNodeMaxTasksSurvivesAHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	node, err := s.CreateNode(ctx, NewNode{
+		Name:        "worker-1",
+		Capacity:    NodeCapacity{MaxTasks: 4, CPUCores: 8, MemoryMB: 16384},
+		NodeKeyHash: HashToken("node-key-slots"),
+	})
+	require.NoError(t, err)
+	require.Nil(t, node.MaxTasksOverride)
+
+	eight := int32(8)
+	require.NoError(t, s.SetNodeMaxTasks(ctx, node.ID, &eight))
+	capped, err := s.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	require.NotNil(t, capped.MaxTasksOverride)
+	require.Equal(t, int32(8), *capped.MaxTasksOverride)
+
+	require.NoError(t, s.UpdateNodeHeartbeat(ctx, node.ID, NodeOnline,
+		&NodeCapacity{MaxTasks: 4, CPUCores: 8, MemoryMB: 16384}, "v0.2.0"))
+	after, err := s.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, int32(4), after.Capacity.MaxTasks, "the node still advertises its own number")
+	require.NotNil(t, after.MaxTasksOverride)
+	require.Equal(t, int32(8), *after.MaxTasksOverride)
+
+	require.NoError(t, s.SetNodeMaxTasks(ctx, node.ID, nil))
+	cleared, err := s.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	require.Nil(t, cleared.MaxTasksOverride)
+
+	require.ErrorIs(t, s.SetNodeMaxTasks(ctx, "node_nope", &eight), ErrNotFound)
+}
+
 func TestCreateNodeRequiresKeyHash(t *testing.T) {
 	s := newStore(t)
 	_, err := s.CreateNode(context.Background(), NewNode{Name: "keyless"})

@@ -223,7 +223,7 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_ENROLL_TOKEN` | `enroll_token` | — | First run only |
 | `PODIUM_NODE_DATA_DIR` | `data_dir` | `/var/lib/podium-node` | Identity + per-task state |
 | `PODIUM_NODE_LABELS` | `labels` | — | Comma-separated in env, a list in YAML |
-| `PODIUM_NODE_MAX_TASKS` | `max_tasks` | `4` | Concurrency budget. **`0` means the node never gets work.** |
+| `PODIUM_NODE_MAX_TASKS` | `max_tasks` | `4` | Concurrency budget. **`0` means the node never gets work.** An operator can override it from the control plane — see [Changing a node's slots](#changing-a-nodes-slots) |
 | `PODIUM_NODE_METRICS_LISTEN` | `metrics_listen` | `127.0.0.1:9091` | Health and metrics |
 | `PODIUM_NODE_DOCKER_HOST` | `docker_host` | — | Engine endpoint; empty uses the normal Docker resolution |
 | `PODIUM_NODE_IMAGE_CACHE_PRUNE` | `image_cache_prune` | `false` | Turns the image cache prune on. **Off by default — read the section below before turning it on.** |
@@ -247,6 +247,36 @@ podium node drain worker-3        # from anywhere with a CLI
 # … wait for `podium nodes` to show 0 running …
 # the daemon exits 0; systemd restarts it on the new binary
 ```
+
+### Changing a node's slots
+
+`max_tasks` above is what this machine is configured for. `podium node slots NODE COUNT`
+overrides it from the control plane, in both directions, without touching the node's file or
+restarting anything:
+
+```sh
+podium node slots worker-3 8      # this box can take more than its file says
+podium node slots worker-3 2      # it is thrashing; give it less
+podium node slots worker-3 0      # back to whatever max_tasks says
+```
+
+The same number is on the node's page in the web UI (**Nodes** → the node's name).
+
+Three things are worth knowing about it:
+
+- **It is stored against the node**, like `draining`. It survives both daemons restarting,
+  and it can be set on a node that is offline right now — every stream is sent the count just
+  after its reconciliation reply, so the node picks it up on its next connection.
+- **The node enforces it, not just the scheduler.** A node rejects an assignment it has no
+  slot for, so a raise that only reached the scheduler would produce work the node refuses.
+  The control plane holds the number and sends it on every stream; the daemon keeps none of
+  it, which is why `max_tasks` in the file is what a node that has never been told anything
+  runs on.
+- **Lowering it takes nothing down.** Tasks already running finish normally, and the node
+  accepts nothing new until enough of them have — the same shape as a drain.
+
+`podium nodes` marks an overridden count with `*`, so a machine configured for 4 and capped
+at 2 never reads as a machine with two slots.
 
 ### The image cache — pruning is off by default, and why
 
@@ -349,5 +379,6 @@ The daemon tries to fail with an actionable message. The common ones:
 | `unauthenticated: stream: unknown node key` | The `data_dir` holds an `identity.json` from a **different control plane**, and a stored identity always wins over a supplied `PODIUM_NODE_ENROLL_TOKEN`. Delete `<data_dir>/identity.json` and start again. The node says `ignoring the supplied enrollment token` at info level when this happens; without that line the only symptom is a reconnect loop with no `node enrolled` in it |
 | cgroup v1 / old API error at startup | Upgrade the Docker engine |
 
-Node shows `online` but never gets tasks: check `max_tasks` is not 0, and that the task's
-`labels` are a subset of the node's (`podium nodes` prints them).
+Node shows `online` but never gets tasks: check `max_tasks` is not 0, that no slot count of
+its own has been set from the control plane (`podium nodes` marks one with `*`), and that the
+task's `labels` are a subset of the node's (`podium nodes` prints them).

@@ -11,10 +11,10 @@ import (
 )
 
 const appendChatMessage = `-- name: AppendChatMessage :one
-insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id)
-select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6
+insert into chat_messages (chat_id, seq, role, text, attachments, ts, task_id, author)
+select $1, coalesce(max(seq), 0) + 1, $2, $3, $4, $5, $6, $7
   from chat_messages where chat_id = $1
-returning chat_id, seq, role, text, attachments, ts, task_id
+returning chat_id, seq, role, text, attachments, ts, task_id, author
 `
 
 type AppendChatMessageParams struct {
@@ -24,6 +24,7 @@ type AppendChatMessageParams struct {
 	Attachments []byte
 	Ts          time.Time
 	TaskID      string
+	Author      string
 }
 
 // AppendChatMessage takes the next seq for the chat. It is a single statement so the read
@@ -37,6 +38,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		arg.Attachments,
 		arg.Ts,
 		arg.TaskID,
+		arg.Author,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -47,6 +49,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Attachments,
 		&i.Ts,
 		&i.TaskID,
+		&i.Author,
 	)
 	return i, err
 }
@@ -94,6 +97,37 @@ func (q *Queries) AttachChatPullRequest(ctx context.Context, arg AttachChatPullR
 	return i, err
 }
 
+const chatParticipants = `-- name: ChatParticipants :many
+select author from chat_messages
+where chat_id = $1 and role = 'user' and author <> ''
+group by author
+order by min(seq)
+`
+
+// ChatParticipants is who has spoken in a conversation, first appearance first. It is the
+// distinct authors of the human messages, which for a mirrored Slack thread is everyone in
+// it and for a web chat is nobody — a web chat's messages carry no author, because its
+// login already says who is typing.
+func (q *Queries) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, chatParticipants, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var author string
+		if err := rows.Scan(&author); err != nil {
+			return nil, err
+		}
+		items = append(items, author)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chatTurnRunning = `-- name: ChatTurnRunning :one
 select exists (
   select 1 from turns t
@@ -114,17 +148,20 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, sourceKey string) (bool, 
 
 const createChat = `-- name: CreateChat :one
 
-insert into chats (id, title, login, created_at, auto_title)
-values ($1, $2, $3, $4, $5)
-returning id, title, login, created_at, auto_title, agent, model, effort
+insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
 `
 
 type CreateChatParams struct {
 	ID        string
 	Title     string
-	Login     string
+	Login     *string
 	CreatedAt time.Time
 	AutoTitle bool
+	SourceKey *string
+	StartedBy string
+	Origin    string
 }
 
 // The web chat. Unlike Slack and Linear there is no external system holding the
@@ -133,6 +170,9 @@ type CreateChatParams struct {
 //
 // chats.login is the partition. There is no RBAC in this track, but a login is a natural
 // boundary and it is free, so every read is filtered by it.
+// CreateChat takes login as a nullable text: a web chat is owned by the login that made
+// it, and a mirrored Slack thread is owned by nobody, which is what makes it readable by
+// every login and writable by none.
 func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, createChat,
 		arg.ID,
@@ -140,6 +180,9 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		arg.Login,
 		arg.CreatedAt,
 		arg.AutoTitle,
+		arg.SourceKey,
+		arg.StartedBy,
+		arg.Origin,
 	)
 	var i Chat
 	err := row.Scan(
@@ -151,6 +194,9 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.Agent,
 		&i.Model,
 		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -161,7 +207,7 @@ delete from chats where id = $1 and login = $2
 
 type DeleteChatParams struct {
 	ID    string
-	Login string
+	Login *string
 }
 
 // DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
@@ -197,7 +243,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -212,12 +258,41 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Agent,
 		&i.Model,
 		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
+	)
+	return i, err
+}
+
+const getChatBySourceKey = `-- name: GetChatBySourceKey :one
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin from chats where source_key = $1
+`
+
+// GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
+// seen. One statement rather than a lookup-then-insert, because two messages arriving
+// together in one Slack thread must not make two chats: the caller upserts on this key.
+func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Chat, error) {
+	row := q.db.QueryRow(ctx, getChatBySourceKey, sourceKey)
+	var i Chat
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Login,
+		&i.CreatedAt,
+		&i.AutoTitle,
+		&i.Agent,
+		&i.Model,
+		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
 	)
 	return i, err
 }
 
 const lastAssistantMessage = `-- name: LastAssistantMessage :one
-select chat_id, seq, role, text, attachments, ts, task_id from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
 where chat_id = $1 and role = 'assistant'
 order by seq desc limit 1
 `
@@ -233,6 +308,7 @@ func (q *Queries) LastAssistantMessage(ctx context.Context, chatID string) (Chat
 		&i.Attachments,
 		&i.Ts,
 		&i.TaskID,
+		&i.Author,
 	)
 	return i, err
 }
@@ -274,7 +350,7 @@ func (q *Queries) LinkChatPullRequest(ctx context.Context, arg LinkChatPullReque
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-select chat_id, seq, role, text, attachments, ts, task_id from chat_messages
+select chat_id, seq, role, text, attachments, ts, task_id, author from chat_messages
 where chat_id = $1 and seq > $2::bigint
 order by seq
 `
@@ -301,6 +377,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.Attachments,
 			&i.Ts,
 			&i.TaskID,
+			&i.Author,
 		); err != nil {
 			return nil, err
 		}
@@ -351,14 +428,14 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
   exists (
     select 1 from turns t
       join sessions s on s.id = t.session_id
-     where s.source_key = $1::text || c.id
+     where s.source_key = c.source_key
        and t.status = 'running'
   ) as turn_running
 from chats c
@@ -367,28 +444,30 @@ left join (
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
 ) m on m.chat_id = c.id and m.rn = 1
-where c.login = $2
-  and ($3::text = '' or c.id < $3::text)
+where (c.login = $1 or c.login is null)
+  and ($2::text = '' or c.id < $2::text)
 order by c.id desc
-limit $4::int
+limit $3::int
 `
 
 type ListChatsParams struct {
-	SourceKeyPrefix string
-	Login           string
-	AfterID         string
-	PageLimit       int32
+	Login     *string
+	AfterID   string
+	PageLimit int32
 }
 
 type ListChatsRow struct {
 	ID            string
 	Title         string
-	Login         string
+	Login         *string
 	CreatedAt     time.Time
 	AutoTitle     bool
 	Agent         string
 	Model         string
 	Effort        string
+	SourceKey     *string
+	StartedBy     string
+	Origin        string
 	HasMessage    bool
 	LastMessageAt time.Time
 	LastText      string
@@ -404,13 +483,11 @@ type ListChatsRow struct {
 // this join, so the two joined columns are coalesced and the boolean is what the store
 // reads to decide "nobody has spoken here yet" — a lie about a timestamp would surface as
 // a chat that claims a message it does not have.
+// A chat with no login is a mirrored Slack thread: it belongs to the workspace, so every
+// login sees it. There is no RBAC in this track and this is not it — it is the same
+// "everyone who can reach the bot can see what it did" the Sessions screen already has.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
-	rows, err := q.db.Query(ctx, listChats,
-		arg.SourceKeyPrefix,
-		arg.Login,
-		arg.AfterID,
-		arg.PageLimit,
-	)
+	rows, err := q.db.Query(ctx, listChats, arg.Login, arg.AfterID, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -427,6 +504,9 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Agent,
 			&i.Model,
 			&i.Effort,
+			&i.SourceKey,
+			&i.StartedBy,
+			&i.Origin,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -445,13 +525,13 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and login = $3
-returning id, title, login, created_at, auto_title, agent, model, effort
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
 `
 
 type RenameChatParams struct {
 	Title string
 	ID    string
-	Login string
+	Login *string
 }
 
 // RenameChat is filtered by login so a rename cannot cross the partition even if
@@ -472,6 +552,9 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.Agent,
 		&i.Model,
 		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -479,7 +562,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
 `
 
 type SetChatChoiceParams struct {
@@ -511,6 +594,9 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.Agent,
 		&i.Model,
 		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -518,7 +604,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 const setChatMessageAttachments = `-- name: SetChatMessageAttachments :one
 update chat_messages set attachments = $1
 where chat_id = $2 and seq = $3
-returning chat_id, seq, role, text, attachments, ts, task_id
+returning chat_id, seq, role, text, attachments, ts, task_id, author
 `
 
 type SetChatMessageAttachmentsParams struct {
@@ -538,6 +624,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 		&i.Attachments,
 		&i.Ts,
 		&i.TaskID,
+		&i.Author,
 	)
 	return i, err
 }
@@ -545,7 +632,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
 `
 
 type SetChatTitleParams struct {
@@ -565,6 +652,9 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.Agent,
 		&i.Model,
 		&i.Effort,
+		&i.SourceKey,
+		&i.StartedBy,
+		&i.Origin,
 	)
 	return i, err
 }

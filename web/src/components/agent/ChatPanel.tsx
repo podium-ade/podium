@@ -209,6 +209,7 @@ export function ChatPanel() {
               chatId={active}
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
+              listedOrigin={list.find((c) => c.id === active)?.origin}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
               playbookNames={playbookNames}
@@ -514,6 +515,14 @@ function ChatRow({
         </span>
         <span className="mt-1 flex items-center gap-1.5">
           {chat.turnRunning ? <Badge tone="run">running</Badge> : null}
+          {/* Where the conversation lives. A mirrored thread is read here and answered
+              there, and the badge is what stops a reader wondering why it has no composer. */}
+          {chat.origin && chat.origin !== "web" ? (
+            <Badge tone="idle">{chat.origin}</Badge>
+          ) : null}
+          {chat.startedBy ? (
+            <span className="shrink-0 text-xs text-muted">{chat.startedBy}</span>
+          ) : null}
           <span className="min-w-0 flex-1 truncate text-xs text-muted">
             {chat.preview || "nothing said yet"}
           </span>
@@ -645,6 +654,7 @@ function Conversation({
   chatId,
   title,
   remembered,
+  listedOrigin,
   onRename,
   assistant,
   playbookNames,
@@ -653,6 +663,12 @@ function Conversation({
   title: string;
   /** remembered is what this chat was last answered on, from the list row. */
   remembered?: AgentChoice;
+  /**
+   * listedOrigin is where the conversation lives, as the LIST row already said. The stream
+   * says so too, but only once it is open — and deriving "is this read-only" from the stream
+   * alone rendered a composer for a mirrored thread and then took it away again.
+   */
+  listedOrigin?: string;
   onRename: (title: string) => Promise<void>;
   assistant?: Assistant;
   playbookNames: string[];
@@ -662,6 +678,17 @@ function Conversation({
   const toast = useToast();
   const stream = useChatStream(chatId);
   const botName = assistant?.displayName ?? "Podium";
+  // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
+  // no composer, and the note in its place says where to reply. The server agrees — a send
+  // to a chat with no owning login is refused — so this is the affordance, not the rule.
+  //
+  // The list row is consulted FIRST because it has already arrived: opening a mirrored thread
+  // used to flash the composer, because the only source of the origin was a stream frame that
+  // lands after the first render. The stream still wins once it speaks, for a deep link that
+  // has no list row yet.
+  const origin = stream.chat?.origin || listedOrigin || "";
+  const mirrored = origin !== "" && origin !== "web";
+  const participants = stream.chat?.participants ?? [];
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
   const lastTop = useRef(0);
@@ -827,14 +854,25 @@ function Conversation({
         ) : null}
       </div>
 
-      <ChatComposer
-        disabled={busy}
-        agents={agents}
-        assistant={assistant}
-        choice={choice}
-        onChoiceChange={setChoice}
-        onSend={(text, choice) => send.mutate({ text, choice })}
-      />
+      {mirrored ? (
+        <div
+          data-testid="chat-mirrored-note"
+          className="border-t border-border px-4 py-3 text-xs text-muted"
+        >
+          This conversation lives in {origin}. Reply to it there — Podium keeps a copy so it
+          can be read here.
+          {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
+        </div>
+      ) : (
+        <ChatComposer
+          disabled={busy}
+          agents={agents}
+          assistant={assistant}
+          choice={choice}
+          onChoiceChange={setChoice}
+          onSend={(text, choice) => send.mutate({ text, choice })}
+        />
+      )}
     </>
   );
 }
@@ -995,7 +1033,10 @@ function storedChoice(chat?: Chat): AgentChoice | undefined {
  * the two things a reader most needs to tell apart.
  */
 function speakerOf(m: ChatMessage): string {
-  return `${m.role}|${m.taskId}`;
+  // The author is in the key because a mirrored Slack thread has more than one person in
+  // it: alice then bob is two runs with two names, not one run that silently changes who
+  // is talking. A web chat's messages carry no author, so this is `role|taskId` there.
+  return `${m.role}|${m.taskId}|${m.author}`;
 }
 
 function runsOf(messages: ChatMessage[]): boolean[] {
@@ -1024,10 +1065,19 @@ function Turn({
 }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
+        {/* Who asked. Only when the message carries an author, which is a MIRRORED
+            conversation: in a web chat the only person who can ask is the person reading,
+            and putting their own name over their own question is noise. */}
+        {message.author && firstOfRun ? (
+          <span data-testid="chat-author" className="pr-1 text-xs font-medium text-muted">
+            {message.author}
+          </span>
+        ) : null}
         <div
           data-testid="chat-message"
           data-role={message.role}
+          data-author={message.author || undefined}
           title={absolute(message.ts)}
           className="min-w-0 max-w-[85%] rounded-xl rounded-br-sm border border-accent/25 bg-accent/12 px-3.5 py-2.5"
         >

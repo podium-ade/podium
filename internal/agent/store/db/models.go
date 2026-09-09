@@ -23,12 +23,15 @@ type AgentSkill struct {
 type Chat struct {
 	ID        string
 	Title     string
-	Login     string
+	Login     *string
 	CreatedAt time.Time
 	AutoTitle bool
 	Agent     string
 	Model     string
 	Effort    string
+	SourceKey *string
+	StartedBy string
+	Origin    string
 }
 
 type ChatMessage struct {
@@ -39,6 +42,7 @@ type ChatMessage struct {
 	Attachments []byte
 	Ts          time.Time
 	TaskID      string
+	Author      string
 }
 
 type ChatPullRequest struct {

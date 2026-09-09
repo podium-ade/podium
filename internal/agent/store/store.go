@@ -502,6 +502,13 @@ const ChatSourceKeyPrefix = "chat:"
 // ChatSourceKey is the session identity of one chat.
 func ChatSourceKey(chatID string) string { return ChatSourceKeyPrefix + chatID }
 
+// The origins a chat can have. OriginWeb is a conversation Podium owns and may be written
+// to; OriginSlack is one it mirrors for reading, which lives in Slack and is answered there.
+const (
+	OriginWeb   = "web"
+	OriginSlack = "slack"
+)
+
 // DefaultChatTitle is what a chat created with no title is called.
 const DefaultChatTitle = "New chat"
 
@@ -515,10 +522,25 @@ const ChatPreviewChars = 80
 
 // Chat is one web-chat conversation, owned by the login that created it.
 type Chat struct {
-	ID        string
-	Title     string
-	Login     string
-	CreatedAt time.Time
+	ID    string
+	Title string
+	// Login owns the chat, and is empty for a MIRRORED conversation: a Slack thread
+	// belongs to the workspace rather than to a Podium identity. Empty is what makes it
+	// readable by every login and renameable and deletable by none, because both of those
+	// queries filter on `login = @login` and no null matches that.
+	Login string
+	// Origin is where the conversation actually lives: OriginWeb for a chat Podium owns,
+	// OriginSlack for a thread it is only mirroring. The UI reads it to decide whether the
+	// composer is offered at all.
+	Origin string
+	// StartedBy is the person who asked first, by display name. It is a mirrored thread's
+	// attribution, in place of the login it has not got, and empty for a web chat.
+	StartedBy string
+	// Participants is everyone who has spoken, first appearance first. Loaded for one chat
+	// and not for a list: it is a second query per conversation and the list only needs
+	// StartedBy.
+	Participants []string
+	CreatedAt    time.Time
 	// ChatChoice is what this chat is answered on, remembered so a model is picked once per
 	// conversation rather than on every message.
 	ChatChoice
@@ -551,6 +573,10 @@ type ChatMessage struct {
 	Text        string
 	Attachments []ChatAttachment
 	TS          time.Time
+	// Author is who said it, by display name. Empty for a web chat, whose login already
+	// says who is typing, and set for every message of a mirrored Slack thread — including
+	// the bot's own, which is what lets the UI show the thread as the people in it saw it.
+	Author string
 	// TaskID is the task whose words these are, and empty for the assistant's own. It is
 	// what lets a reader tell the three kinds of progress apart: the assistant thinking on
 	// this host, the conductor announcing a delegation, and a delegated task talking.
@@ -569,17 +595,75 @@ func (s *Store) CreateChat(ctx context.Context, login, title string) (Chat, erro
 	} else {
 		auto = false
 	}
+	id := ids.New("chat")
+	key := ChatSourceKey(id)
 	row, err := s.q.CreateChat(ctx, db.CreateChatParams{
-		ID:        ids.New("chat"),
+		ID:        id,
 		Title:     title,
-		Login:     login,
+		Login:     &login,
 		CreatedAt: time.Now().UTC(),
 		AutoTitle: auto,
+		SourceKey: &key,
+		Origin:    OriginWeb,
 	})
 	if err != nil {
 		return Chat{}, fmt.Errorf("create chat for %s: %w", login, err)
 	}
 	return chatFromRow(row), nil
+}
+
+// CreateMirrorChat opens the chat that MIRRORS a conversation living somewhere else. It has
+// no login, because nobody in Slack has one; sourceKey is the conductor session's own key,
+// which is both the link the list joins on and the uniqueness that stops one thread
+// becoming two chats.
+//
+// The title comes from the first thing asked, the same rule a web chat follows, and
+// AutoTitle stays true so a later turn may still improve it.
+func (s *Store) CreateMirrorChat(ctx context.Context, sourceKey, origin, startedBy, title string) (Chat, error) {
+	switch {
+	case sourceKey == "":
+		return Chat{}, errors.New("create mirror chat: a source key is required")
+	case origin == "" || origin == OriginWeb:
+		return Chat{}, fmt.Errorf("create mirror chat: %q is not a mirrored origin", origin)
+	}
+	if strings.TrimSpace(title) == "" {
+		title = DefaultChatTitle
+	}
+	row, err := s.q.CreateChat(ctx, db.CreateChatParams{
+		ID:        ids.New("chat"),
+		Title:     title,
+		Login:     nil,
+		CreatedAt: time.Now().UTC(),
+		AutoTitle: true,
+		SourceKey: &sourceKey,
+		StartedBy: startedBy,
+		Origin:    origin,
+	})
+	if err != nil {
+		return Chat{}, fmt.Errorf("create mirror chat for %s: %w", sourceKey, err)
+	}
+	return chatFromRow(row), nil
+}
+
+// ChatBySourceKey reads the chat mirroring one conversation, or ErrNotFound.
+func (s *Store) ChatBySourceKey(ctx context.Context, sourceKey string) (Chat, error) {
+	row, err := s.q.GetChatBySourceKey(ctx, &sourceKey)
+	if noRows(err) {
+		return Chat{}, fmt.Errorf("%w: chat for %s", ErrNotFound, sourceKey)
+	}
+	if err != nil {
+		return Chat{}, fmt.Errorf("get chat for %s: %w", sourceKey, err)
+	}
+	return chatFromRow(row), nil
+}
+
+// ChatParticipants is everyone who has spoken in a chat, first appearance first.
+func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := s.q.ChatParticipants(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("list participants of chat %s: %w", chatID, err)
+	}
+	return rows, nil
 }
 
 // RenameChat sets the title of one of login's chats. Another login's chat is not
@@ -596,7 +680,7 @@ func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, 
 	if err != nil {
 		return Chat{}, err
 	}
-	row, err := s.q.RenameChat(ctx, db.RenameChatParams{ID: id, Login: login, Title: cleaned})
+	row, err := s.q.RenameChat(ctx, db.RenameChatParams{ID: id, Login: &login, Title: cleaned})
 	if noRows(err) {
 		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, id)
 	}
@@ -627,20 +711,25 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 	}
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
-		SourceKeyPrefix: ChatSourceKeyPrefix,
-		Login:           login,
-		AfterID:         cursor,
-		PageLimit:       int32(limit),
+		Login:     &login,
+		AfterID:   cursor,
+		PageLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list chats of %s: %w", login, err)
 	}
 	out := make([]Chat, 0, len(rows))
 	for _, r := range rows {
+		owner := ""
+		if r.Login != nil {
+			owner = *r.Login
+		}
 		c := Chat{
 			ID:          r.ID,
 			Title:       r.Title,
-			Login:       r.Login,
+			Login:       owner,
+			Origin:      r.Origin,
+			StartedBy:   r.StartedBy,
 			CreatedAt:   r.CreatedAt.UTC(),
 			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
@@ -676,6 +765,7 @@ func (s *Store) AppendChatMessage(ctx context.Context, msg ChatMessage) (ChatMes
 		Text:        msg.Text,
 		Attachments: raw,
 		Ts:          ts,
+		Author:      msg.Author,
 		TaskID:      msg.TaskID,
 	})
 	if err != nil {
@@ -797,10 +887,16 @@ func (s *Store) SetChatTitle(ctx context.Context, id, title string) (Chat, error
 }
 
 func chatFromRow(row db.Chat) Chat {
+	login := ""
+	if row.Login != nil {
+		login = *row.Login
+	}
 	return Chat{
 		ID:         row.ID,
 		Title:      row.Title,
-		Login:      row.Login,
+		Login:      login,
+		Origin:     row.Origin,
+		StartedBy:  row.StartedBy,
 		CreatedAt:  row.CreatedAt.UTC(),
 		AutoTitle:  row.AutoTitle,
 		ChatChoice: ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
@@ -850,7 +946,7 @@ func (s *Store) DeleteChat(ctx context.Context, id, login string) error {
 	if id == "" {
 		return errors.New("delete chat: an id is required")
 	}
-	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: login})
+	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: &login})
 	if err != nil {
 		return fmt.Errorf("delete chat %s: %w", id, err)
 	}
@@ -982,6 +1078,7 @@ func chatMessageFromRow(r db.ChatMessage) (ChatMessage, error) {
 		Role:   r.Role,
 		Text:   r.Text,
 		TS:     r.Ts.UTC(),
+		Author: r.Author,
 		TaskID: r.TaskID,
 	}
 	if len(r.Attachments) > 0 {

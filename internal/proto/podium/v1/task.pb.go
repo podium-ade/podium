@@ -46,8 +46,12 @@ type Task struct {
 	// last_schedule_attempt_at is when the scheduler last looked at this task and could not
 	// place it. Unset for a task it has never had to skip.
 	LastScheduleAttemptAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_schedule_attempt_at,json=lastScheduleAttemptAt,proto3" json:"last_schedule_attempt_at,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// priority orders the queue: the scheduler claims higher first, and ties go to whichever
+	// was created first. Zero is the default, and negative is allowed — it is a sort key and
+	// not a budget, so it changes what runs next and nothing about what a task is given.
+	Priority      int32 `protobuf:"varint,15,opt,name=priority,proto3" json:"priority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -176,6 +180,13 @@ func (x *Task) GetLastScheduleAttemptAt() *timestamppb.Timestamp {
 		return x.LastScheduleAttemptAt
 	}
 	return nil
+}
+
+func (x *Task) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
 }
 
 type CreateTaskRequest struct {
@@ -762,7 +773,7 @@ var File_podium_v1_task_proto protoreflect.FileDescriptor
 
 const file_podium_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xf2\x04\n" +
+	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\x8e\x05\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x04spec\x18\x02 \x01(\v2\x13.podium.v1.TaskSpecR\x04spec\x12-\n" +
@@ -781,7 +792,8 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\frequested_by\x18\v \x01(\tR\vrequestedBy\x12%\n" +
 	"\x0efailure_reason\x18\f \x01(\tR\rfailureReason\x12#\n" +
 	"\rqueued_reason\x18\r \x01(\tR\fqueuedReason\x12S\n" +
-	"\x18last_schedule_attempt_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x15lastScheduleAttemptAtB\f\n" +
+	"\x18last_schedule_attempt_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x15lastScheduleAttemptAt\x12\x1a\n" +
+	"\bpriority\x18\x0f \x01(\x05R\bpriorityB\f\n" +
 	"\n" +
 	"_exit_code\"X\n" +
 	"\x11CreateTaskRequest\x12'\n" +

@@ -18,6 +18,9 @@ service NodeAdminService {
   rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
   // UndrainNode puts a drained node back in the pool.
   rpc UndrainNode(UndrainNodeRequest) returns (UndrainNodeResponse);
+  // SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
+  // its own configuration file.
+  rpc SetNodeSlots(SetNodeSlotsRequest) returns (SetNodeSlotsResponse);
   // DeleteNode forgets a node. It refuses a node that is still online and not drained.
   rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
 }
@@ -39,6 +42,11 @@ message Node {
   // draining is the operator's standing instruction that this node takes no new work. It
   // survives a node restart and a server restart; status is DRAINING while it is connected.
   bool draining = 12;
+  // max_tasks_override is the slot count an operator set from the control plane. Unset means
+  // the node's own max_tasks decides, which is what capacity.max_tasks reports; when it IS
+  // set it is the number the scheduler and the node both budget against, and capacity is
+  // still what the node's configuration says.
+  optional int32 max_tasks_override = 13;
 }
 
 message CreateEnrollmentTokenRequest {
@@ -79,6 +87,17 @@ message UndrainNodeRequest {
 }
 
 message UndrainNodeResponse {
+  Node node = 1;
+}
+
+message SetNodeSlotsRequest {
+  string node_id = 1;
+  // max_tasks is how many tasks this node may run at once. Zero clears the override, which
+  // returns the node to the max_tasks in its own configuration file.
+  int32 max_tasks = 2;
+}
+
+message SetNodeSlotsResponse {
   Node node = 1;
 }
 

@@ -8,6 +8,7 @@ type Metrics struct {
 	Turns                   *prometheus.CounterVec
 	TurnDuration            *prometheus.HistogramVec
 	TurnsWithoutAccounting  prometheus.Counter
+	HostTurnsQueued         prometheus.Counter
 	Delegations             *prometheus.CounterVec
 	RelayedMessages         *prometheus.CounterVec
 	SourceEvents            *prometheus.CounterVec
@@ -32,6 +33,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "podium_agent_turns_without_accounting_total",
 			Help: "Turns that succeeded without reporting num_turns and cost_usd, which are " +
 				"left null. Anything above zero is lost accounting, not a failed turn.",
+		}),
+		HostTurnsQueued: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "podium_agent_host_turns_queued_total",
+			Help: "Host turns that had to wait for a concurrency slot. Anything much above " +
+				"zero means this host is the bottleneck, not the fleet.",
 		}),
 		Delegations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "podium_agent_delegations_total",
@@ -66,7 +72,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.Delegations, m.RelayedMessages,
+		reg.MustRegister(m.Turns, m.TurnDuration, m.TurnsWithoutAccounting, m.HostTurnsQueued,
+			m.Delegations, m.RelayedMessages,
 			m.SourceEvents, m.FollowReconnects, m.MemoryRetains, m.MemoryExtractionsFailed)
 	}
 	return m

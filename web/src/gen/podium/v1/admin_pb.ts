@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/admin.proto.
  */
 export const file_podium_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSLNAgoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCRIQCghkcmFpbmluZxgMIAEoCCJWChxDcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0Eg4KBmxhYmVscxgBIAMoCRImCgN0dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iXgodQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiEgoQTGlzdE5vZGVzUmVxdWVzdCIzChFMaXN0Tm9kZXNSZXNwb25zZRIeCgVub2RlcxgBIAMoCzIPLnBvZGl1bS52MS5Ob2RlIiMKEFJla2V5Tm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIyChFSZWtleU5vZGVSZXNwb25zZRIdCgRub2RlGAEgASgLMg8ucG9kaXVtLnYxLk5vZGUiIwoQRHJhaW5Ob2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjIKEURyYWluTm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIlChJVbmRyYWluTm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSI0ChNVbmRyYWluTm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIzChFEZWxldGVOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWZvcmNlGAIgASgIIhQKEkRlbGV0ZU5vZGVSZXNwb25zZTLvAwoQTm9kZUFkbWluU2VydmljZRJqChVDcmVhdGVFbnJvbGxtZW50VG9rZW4SJy5wb2RpdW0udjEuQ3JlYXRlRW5yb2xsbWVudFRva2VuUmVxdWVzdBooLnBvZGl1bS52MS5DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRJGCglMaXN0Tm9kZXMSGy5wb2RpdW0udjEuTGlzdE5vZGVzUmVxdWVzdBocLnBvZGl1bS52MS5MaXN0Tm9kZXNSZXNwb25zZRJGCglSZWtleU5vZGUSGy5wb2RpdW0udjEuUmVrZXlOb2RlUmVxdWVzdBocLnBvZGl1bS52MS5SZWtleU5vZGVSZXNwb25zZRJGCglEcmFpbk5vZGUSGy5wb2RpdW0udjEuRHJhaW5Ob2RlUmVxdWVzdBocLnBvZGl1bS52MS5EcmFpbk5vZGVSZXNwb25zZRJMCgtVbmRyYWluTm9kZRIdLnBvZGl1bS52MS5VbmRyYWluTm9kZVJlcXVlc3QaHi5wb2RpdW0udjEuVW5kcmFpbk5vZGVSZXNwb25zZRJJCgpEZWxldGVOb2RlEhwucG9kaXVtLnYxLkRlbGV0ZU5vZGVSZXF1ZXN0Gh0ucG9kaXVtLnYxLkRlbGV0ZU5vZGVSZXNwb25zZUKkAQoNY29tLnBvZGl1bS52MUIKQWRtaW5Qcm90b1ABWkJnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSKFAwoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCRIQCghkcmFpbmluZxgMIAEoCBIfChJtYXhfdGFza3Nfb3ZlcnJpZGUYDSABKAVIAIgBAUIVChNfbWF4X3Rhc2tzX292ZXJyaWRlIlYKHENyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QSDgoGbGFiZWxzGAEgAygJEiYKA3R0bBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJeCh1DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCISChBMaXN0Tm9kZXNSZXF1ZXN0IjMKEUxpc3ROb2Rlc1Jlc3BvbnNlEh4KBW5vZGVzGAEgAygLMg8ucG9kaXVtLnYxLk5vZGUiIwoQUmVrZXlOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjIKEVJla2V5Tm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIjChBEcmFpbk5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiMgoRRHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIiUKElVuZHJhaW5Ob2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjQKE1VuZHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjkKE1NldE5vZGVTbG90c1JlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCgltYXhfdGFza3MYAiABKAUiNQoUU2V0Tm9kZVNsb3RzUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjMKEURlbGV0ZU5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDQoFZm9yY2UYAiABKAgiFAoSRGVsZXRlTm9kZVJlc3BvbnNlMsAEChBOb2RlQWRtaW5TZXJ2aWNlEmoKFUNyZWF0ZUVucm9sbG1lbnRUb2tlbhInLnBvZGl1bS52MS5DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0GigucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlc3BvbnNlEkYKCUxpc3ROb2RlcxIbLnBvZGl1bS52MS5MaXN0Tm9kZXNSZXF1ZXN0GhwucG9kaXVtLnYxLkxpc3ROb2Rlc1Jlc3BvbnNlEkYKCVJla2V5Tm9kZRIbLnBvZGl1bS52MS5SZWtleU5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLlJla2V5Tm9kZVJlc3BvbnNlEkYKCURyYWluTm9kZRIbLnBvZGl1bS52MS5EcmFpbk5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLkRyYWluTm9kZVJlc3BvbnNlEkwKC1VuZHJhaW5Ob2RlEh0ucG9kaXVtLnYxLlVuZHJhaW5Ob2RlUmVxdWVzdBoeLnBvZGl1bS52MS5VbmRyYWluTm9kZVJlc3BvbnNlEk8KDFNldE5vZGVTbG90cxIeLnBvZGl1bS52MS5TZXROb2RlU2xvdHNSZXF1ZXN0Gh8ucG9kaXVtLnYxLlNldE5vZGVTbG90c1Jlc3BvbnNlEkkKCkRlbGV0ZU5vZGUSHC5wb2RpdW0udjEuRGVsZXRlTm9kZVJlcXVlc3QaHS5wb2RpdW0udjEuRGVsZXRlTm9kZVJlc3BvbnNlQqQBCg1jb20ucG9kaXVtLnYxQgpBZG1pblByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.Node
@@ -85,6 +85,16 @@ export type Node = Message<"podium.v1.Node"> & {
    * @generated from field: bool draining = 12;
    */
   draining: boolean;
+
+  /**
+   * max_tasks_override is the slot count an operator set from the control plane. Unset means
+   * the node's own max_tasks decides, which is what capacity.max_tasks reports; when it IS
+   * set it is the number the scheduler and the node both budget against, and capacity is
+   * still what the node's configuration says.
+   *
+   * @generated from field: optional int32 max_tasks_override = 13;
+   */
+  maxTasksOverride?: number | undefined;
 };
 
 /**
@@ -273,6 +283,48 @@ export const UndrainNodeResponseSchema: GenMessage<UndrainNodeResponse> = /*@__P
   messageDesc(file_podium_v1_admin, 10);
 
 /**
+ * @generated from message podium.v1.SetNodeSlotsRequest
+ */
+export type SetNodeSlotsRequest = Message<"podium.v1.SetNodeSlotsRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * max_tasks is how many tasks this node may run at once. Zero clears the override, which
+   * returns the node to the max_tasks in its own configuration file.
+   *
+   * @generated from field: int32 max_tasks = 2;
+   */
+  maxTasks: number;
+};
+
+/**
+ * Describes the message podium.v1.SetNodeSlotsRequest.
+ * Use `create(SetNodeSlotsRequestSchema)` to create a new message.
+ */
+export const SetNodeSlotsRequestSchema: GenMessage<SetNodeSlotsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 11);
+
+/**
+ * @generated from message podium.v1.SetNodeSlotsResponse
+ */
+export type SetNodeSlotsResponse = Message<"podium.v1.SetNodeSlotsResponse"> & {
+  /**
+   * @generated from field: podium.v1.Node node = 1;
+   */
+  node?: Node | undefined;
+};
+
+/**
+ * Describes the message podium.v1.SetNodeSlotsResponse.
+ * Use `create(SetNodeSlotsResponseSchema)` to create a new message.
+ */
+export const SetNodeSlotsResponseSchema: GenMessage<SetNodeSlotsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 12);
+
+/**
  * @generated from message podium.v1.DeleteNodeRequest
  */
 export type DeleteNodeRequest = Message<"podium.v1.DeleteNodeRequest"> & {
@@ -294,7 +346,7 @@ export type DeleteNodeRequest = Message<"podium.v1.DeleteNodeRequest"> & {
  * Use `create(DeleteNodeRequestSchema)` to create a new message.
  */
 export const DeleteNodeRequestSchema: GenMessage<DeleteNodeRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_admin, 11);
+  messageDesc(file_podium_v1_admin, 13);
 
 /**
  * @generated from message podium.v1.DeleteNodeResponse
@@ -307,7 +359,7 @@ export type DeleteNodeResponse = Message<"podium.v1.DeleteNodeResponse"> & {
  * Use `create(DeleteNodeResponseSchema)` to create a new message.
  */
 export const DeleteNodeResponseSchema: GenMessage<DeleteNodeResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_admin, 12);
+  messageDesc(file_podium_v1_admin, 14);
 
 /**
  * NodeAdminService is the operator-facing node API.
@@ -362,6 +414,17 @@ export const NodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof UndrainNodeRequestSchema;
     output: typeof UndrainNodeResponseSchema;
+  },
+  /**
+   * SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
+   * its own configuration file.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.SetNodeSlots
+   */
+  setNodeSlots: {
+    methodKind: "unary";
+    input: typeof SetNodeSlotsRequestSchema;
+    output: typeof SetNodeSlotsResponseSchema;
   },
   /**
    * DeleteNode forgets a node. It refuses a node that is still online and not drained.

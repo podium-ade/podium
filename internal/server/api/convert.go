@@ -50,6 +50,7 @@ func taskToProto(t store.Task) *podiumv1.Task {
 		RequestedBy:   t.RequestedBy,
 		FailureReason: t.FailureReason,
 		QueuedReason:  t.QueuedReason,
+		Priority:      t.Priority,
 
 		LastScheduleAttemptAt: timeToProto(t.LastScheduleAttemptAt),
 	}
@@ -74,11 +75,12 @@ func nodeToProto(n store.Node, live nodes.Snapshot, connected bool) *podiumv1.No
 			CpuCores: n.Capacity.CPUCores,
 			MemoryMb: n.Capacity.MemoryMB,
 		},
-		Version:         n.Version,
-		LastHeartbeatAt: timeToProto(n.LastHeartbeatAt),
-		CreatedAt:       timestamppb.New(n.CreatedAt),
-		TsStableId:      n.TSStableID,
-		Draining:        n.Draining,
+		Version:          n.Version,
+		LastHeartbeatAt:  timeToProto(n.LastHeartbeatAt),
+		CreatedAt:        timestamppb.New(n.CreatedAt),
+		TsStableId:       n.TSStableID,
+		Draining:         n.Draining,
+		MaxTasksOverride: n.MaxTasksOverride,
 	}
 	if connected {
 		out.RunningTasks = live.RunningTasks

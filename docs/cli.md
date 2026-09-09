@@ -184,7 +184,9 @@ breaks.
 ### `podium nodes`
 
 Table of enrolled nodes: name, ID, status, labels, running/max slots and heartbeat age.
-`RUNNING/MAX` is filled in only for nodes holding a live stream on the server you asked.
+`RUNNING/MAX` is filled in only for nodes holding a live stream on the server you asked. A
+`*` after it means the slot count was set from the control plane rather than by the node's own
+`max_tasks` — see [`podium node slots`](#podium-node-slots-node-count).
 
 Status is derived from the heartbeat: `online`, `unreachable` after 30 seconds of silence,
 `offline` after 120 — at which point the node's tasks are requeued or marked `lost` —
@@ -210,6 +212,26 @@ A node started with `--exit-on-drain` (or `PODIUM_NODE_EXIT_ON_DRAIN=1`) exits 0
 last task finishes, which is how a supervisor replaces the binary. Without that flag a
 drained node stays connected and idle until it is undrained, which is what you want when the
 machine is being worked on rather than upgraded.
+
+### `podium node slots NODE COUNT`
+
+How many tasks the node may run at once. `COUNT` overrides the `max_tasks` in the node's own
+configuration, in both directions; `0` clears the override and hands the node back to its
+file.
+
+```sh
+podium node slots worker-3 8        # take more than the file says
+podium node slots worker-3 2        # it is thrashing; take less
+podium node slots worker-3 0        # back to its own max_tasks
+```
+
+Like a drain, the number is stored against the node: it survives both daemons restarting and
+can be set on a node that is offline right now, which reads it when it reconnects. Lowering
+it below what the node is already running takes nothing down — those tasks finish, and the
+node accepts no more until enough have.
+
+Both numbers stay visible, because they answer different questions: `podium nodes` shows the
+count in force, and the node's own `max_tasks` is what it goes back to.
 
 ### `podium node rm NODE [--force]`
 

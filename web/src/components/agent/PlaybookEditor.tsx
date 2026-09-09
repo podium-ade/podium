@@ -38,6 +38,7 @@ export type PlaybookDraft = {
   agent: string;
   effort: string;
   labels: string[];
+  priority: number;
   resources: { cpu: number; memoryMb: number; pids: number };
   secrets: { name: string; target: string; key: string }[];
   repos: { name: string; url: string; defaultBranch: string }[];
@@ -142,6 +143,7 @@ export function PlaybookEditor({
     playbook ? { agent: playbook.agent, model: playbook.model, effort: playbook.effort } : INHERIT,
   );
   const [labels, setLabels] = useState((playbook?.labels ?? []).join(", "));
+  const [priority, setPriority] = useState(String(playbook?.priority ?? 0));
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
@@ -189,6 +191,7 @@ export function PlaybookEditor({
       agent: choice.agent,
       effort: choice.effort,
       labels: splitList(labels),
+      priority: Number(priority) || 0,
       resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
       secrets: secretRows
         .filter((r) => r.a.trim() !== "")
@@ -408,19 +411,36 @@ export function PlaybookEditor({
             </div>
           </div>
 
-          <Field
-            id={`${uid}-labels`}
-            label="Node labels"
-            hint="Comma separated. A turn only runs on a node with them; leave it empty to run anywhere."
-          >
-            <Input
+          <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+            <Field
               id={`${uid}-labels`}
-              value={labels}
-              onChange={(e) => setLabels(e.target.value)}
-              placeholder="linux, amd64"
-              className="font-mono text-xs"
-            />
-          </Field>
+              label="Node labels"
+              hint="Comma separated. A turn only runs on a node with them; leave it empty to run anywhere."
+            >
+              <Input
+                id={`${uid}-labels`}
+                value={labels}
+                onChange={(e) => setLabels(e.target.value)}
+                placeholder="linux, amd64"
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field
+              id={`${uid}-priority`}
+              label="Queue priority"
+              hint="Higher is claimed first when the fleet is full. 0 is the default; negative waits behind everything else."
+            >
+              <Input
+                id={`${uid}-priority`}
+                type="number"
+                min={-1000}
+                max={1000}
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="tabular"
+              />
+            </Field>
+          </div>
 
           <Disclosure
             label="Resource limits"

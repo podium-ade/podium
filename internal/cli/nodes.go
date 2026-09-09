@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ func newNodesCommand(e *env) *cobra.Command {
 			}
 			w := newTable(e.stdout)
 			fmt.Fprintln(w, "NAME\tID\tSTATUS\tLABELS\tRUNNING/MAX\tHEARTBEAT")
+			overridden := 0
 			for _, n := range res.Msg.GetNodes() {
 				labels := "-"
 				if len(n.GetLabels()) > 0 {
@@ -37,12 +39,24 @@ func newNodesCommand(e *env) *cobra.Command {
 					// they wonder why it takes no work when it comes back.
 					status += " (draining)"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d/%d\t%s\n",
-					n.GetName(), n.GetId(), status, labels,
-					n.GetRunningTasks(), n.GetCapacity().GetMaxTasks(),
-					heartbeatAge(n))
+				// MAX is the budget in force, and an override is marked: a machine
+				// configured for 4 and capped at 2 must not read as a machine with 2 slots.
+				slots := fmt.Sprintf("%d/%d", n.GetRunningTasks(), n.GetCapacity().GetMaxTasks())
+				if n.MaxTasksOverride != nil {
+					slots = fmt.Sprintf("%d/%d*", n.GetRunningTasks(), n.GetMaxTasksOverride())
+					overridden++
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					n.GetName(), n.GetId(), status, labels, slots, heartbeatAge(n))
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if overridden > 0 {
+				e.note("* slot count set from the control plane, not by the node's own max_tasks " +
+					"(`podium node slots NODE 0` hands it back)")
+			}
+			return nil
 		},
 	}
 }
@@ -65,6 +79,7 @@ func newNodeCommand(e *env) *cobra.Command {
 		newRekeyCommand(e),
 		newDrainCommand(e),
 		newUndrainCommand(e),
+		newNodeSlotsCommand(e),
 		newNodeRemoveCommand(e),
 	)
 	return cmd
@@ -149,6 +164,45 @@ func newUndrainCommand(e *env) *cobra.Command {
 			}
 			n := res.Msg.GetNode()
 			fmt.Fprintf(e.stdout, "%s (%s) accepting work again\n", n.GetName(), n.GetId())
+			return nil
+		},
+	}
+}
+
+func newNodeSlotsCommand(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "slots NODE COUNT",
+		Short: "Change how many tasks a node runs at once",
+		Long: "Change how many tasks a node runs at once.\n\n" +
+			"COUNT overrides the max_tasks in the node's own configuration, in both\n" +
+			"directions. `0` clears the override and hands the node back to its file.\n\n" +
+			"The number is stored against the node, so it survives both daemons restarting\n" +
+			"and can be set on a node that is offline right now — it reads it when it\n" +
+			"reconnects. Lowering it below what the node is already running takes nothing\n" +
+			"down: those tasks finish, and the node accepts no more until enough have.",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			count, err := strconv.ParseInt(args[1], 10, 32)
+			if err != nil {
+				return &ExitError{Code: ExitUsage, Err: fmt.Errorf("COUNT %q is not a number", args[1])}
+			}
+			node, err := resolveNode(cmd.Context(), e, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := e.client.admin.SetNodeSlots(cmd.Context(), connect.NewRequest(
+				&podiumv1.SetNodeSlotsRequest{NodeId: node.GetId(), MaxTasks: int32(count)}))
+			if err != nil {
+				return &ExitError{Code: ExitInfra, Err: fmt.Errorf("set node slots: %w", err)}
+			}
+			n := res.Msg.GetNode()
+			if n.MaxTasksOverride == nil {
+				fmt.Fprintf(e.stdout, "%s (%s) back on its own max_tasks of %d\n",
+					n.GetName(), n.GetId(), n.GetCapacity().GetMaxTasks())
+				return nil
+			}
+			fmt.Fprintf(e.stdout, "%s (%s) runs %d task(s) at once; %d running now\n",
+				n.GetName(), n.GetId(), n.GetMaxTasksOverride(), n.GetRunningTasks())
 			return nil
 		},
 	}

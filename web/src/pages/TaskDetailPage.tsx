@@ -206,6 +206,17 @@ function TaskDetail({ id }: { id: string }) {
                 <span className="text-faint"> · retries on node loss</span>
               ) : null}
             </Fact>
+            {/* Only worth a row when somebody set one: 0 is every task, and a fact that is
+                always the same teaches nothing. */}
+            {task.priority !== 0 ? (
+              <Fact label="Priority">
+                <span className="tabular">{task.priority}</span>
+                <span className="text-faint">
+                  {" "}
+                  · claimed {task.priority > 0 ? "before" : "after"} the default
+                </span>
+              </Fact>
+            ) : null}
             <Fact label="Labels">
               {task.spec && task.spec.labels.length > 0 ? (
                 <span className="flex flex-wrap gap-1">

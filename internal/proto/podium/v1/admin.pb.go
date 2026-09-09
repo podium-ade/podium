@@ -40,9 +40,14 @@ type Node struct {
 	TsStableId string `protobuf:"bytes,11,opt,name=ts_stable_id,json=tsStableId,proto3" json:"ts_stable_id,omitempty"`
 	// draining is the operator's standing instruction that this node takes no new work. It
 	// survives a node restart and a server restart; status is DRAINING while it is connected.
-	Draining      bool `protobuf:"varint,12,opt,name=draining,proto3" json:"draining,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Draining bool `protobuf:"varint,12,opt,name=draining,proto3" json:"draining,omitempty"`
+	// max_tasks_override is the slot count an operator set from the control plane. Unset means
+	// the node's own max_tasks decides, which is what capacity.max_tasks reports; when it IS
+	// set it is the number the scheduler and the node both budget against, and capacity is
+	// still what the node's configuration says.
+	MaxTasksOverride *int32 `protobuf:"varint,13,opt,name=max_tasks_override,json=maxTasksOverride,proto3,oneof" json:"max_tasks_override,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Node) Reset() {
@@ -157,6 +162,13 @@ func (x *Node) GetDraining() bool {
 		return x.Draining
 	}
 	return false
+}
+
+func (x *Node) GetMaxTasksOverride() int32 {
+	if x != nil && x.MaxTasksOverride != nil {
+		return *x.MaxTasksOverride
+	}
+	return 0
 }
 
 type CreateEnrollmentTokenRequest struct {
@@ -608,6 +620,104 @@ func (x *UndrainNodeResponse) GetNode() *Node {
 	return nil
 }
 
+type SetNodeSlotsRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// max_tasks is how many tasks this node may run at once. Zero clears the override, which
+	// returns the node to the max_tasks in its own configuration file.
+	MaxTasks      int32 `protobuf:"varint,2,opt,name=max_tasks,json=maxTasks,proto3" json:"max_tasks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetNodeSlotsRequest) Reset() {
+	*x = SetNodeSlotsRequest{}
+	mi := &file_podium_v1_admin_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetNodeSlotsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetNodeSlotsRequest) ProtoMessage() {}
+
+func (x *SetNodeSlotsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_admin_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetNodeSlotsRequest.ProtoReflect.Descriptor instead.
+func (*SetNodeSlotsRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SetNodeSlotsRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SetNodeSlotsRequest) GetMaxTasks() int32 {
+	if x != nil {
+		return x.MaxTasks
+	}
+	return 0
+}
+
+type SetNodeSlotsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetNodeSlotsResponse) Reset() {
+	*x = SetNodeSlotsResponse{}
+	mi := &file_podium_v1_admin_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetNodeSlotsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetNodeSlotsResponse) ProtoMessage() {}
+
+func (x *SetNodeSlotsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_admin_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetNodeSlotsResponse.ProtoReflect.Descriptor instead.
+func (*SetNodeSlotsResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SetNodeSlotsResponse) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
 type DeleteNodeRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -619,7 +729,7 @@ type DeleteNodeRequest struct {
 
 func (x *DeleteNodeRequest) Reset() {
 	*x = DeleteNodeRequest{}
-	mi := &file_podium_v1_admin_proto_msgTypes[11]
+	mi := &file_podium_v1_admin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -631,7 +741,7 @@ func (x *DeleteNodeRequest) String() string {
 func (*DeleteNodeRequest) ProtoMessage() {}
 
 func (x *DeleteNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_admin_proto_msgTypes[11]
+	mi := &file_podium_v1_admin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -644,7 +754,7 @@ func (x *DeleteNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNodeRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNodeRequest) Descriptor() ([]byte, []int) {
-	return file_podium_v1_admin_proto_rawDescGZIP(), []int{11}
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteNodeRequest) GetNodeId() string {
@@ -669,7 +779,7 @@ type DeleteNodeResponse struct {
 
 func (x *DeleteNodeResponse) Reset() {
 	*x = DeleteNodeResponse{}
-	mi := &file_podium_v1_admin_proto_msgTypes[12]
+	mi := &file_podium_v1_admin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +791,7 @@ func (x *DeleteNodeResponse) String() string {
 func (*DeleteNodeResponse) ProtoMessage() {}
 
 func (x *DeleteNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_admin_proto_msgTypes[12]
+	mi := &file_podium_v1_admin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,14 +804,14 @@ func (x *DeleteNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNodeResponse.ProtoReflect.Descriptor instead.
 func (*DeleteNodeResponse) Descriptor() ([]byte, []int) {
-	return file_podium_v1_admin_proto_rawDescGZIP(), []int{12}
+	return file_podium_v1_admin_proto_rawDescGZIP(), []int{14}
 }
 
 var File_podium_v1_admin_proto protoreflect.FileDescriptor
 
 const file_podium_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x15podium/v1/admin.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\"\xc5\x03\n" +
+	"\x15podium/v1/admin.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\"\x8f\x04\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12-\n" +
@@ -718,7 +828,9 @@ const file_podium_v1_admin_proto_rawDesc = "" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12 \n" +
 	"\fts_stable_id\x18\v \x01(\tR\n" +
 	"tsStableId\x12\x1a\n" +
-	"\bdraining\x18\f \x01(\bR\bdraining\"c\n" +
+	"\bdraining\x18\f \x01(\bR\bdraining\x121\n" +
+	"\x12max_tasks_override\x18\r \x01(\x05H\x00R\x10maxTasksOverride\x88\x01\x01B\x15\n" +
+	"\x13_max_tasks_override\"c\n" +
 	"\x1cCreateEnrollmentTokenRequest\x12\x16\n" +
 	"\x06labels\x18\x01 \x03(\tR\x06labels\x12+\n" +
 	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\"p\n" +
@@ -740,17 +852,23 @@ const file_podium_v1_admin_proto_rawDesc = "" +
 	"\x12UndrainNodeRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\":\n" +
 	"\x13UndrainNodeResponse\x12#\n" +
+	"\x04node\x18\x01 \x01(\v2\x0f.podium.v1.NodeR\x04node\"K\n" +
+	"\x13SetNodeSlotsRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
+	"\tmax_tasks\x18\x02 \x01(\x05R\bmaxTasks\";\n" +
+	"\x14SetNodeSlotsResponse\x12#\n" +
 	"\x04node\x18\x01 \x01(\v2\x0f.podium.v1.NodeR\x04node\"B\n" +
 	"\x11DeleteNodeRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x14\n" +
 	"\x05force\x18\x02 \x01(\bR\x05force\"\x14\n" +
-	"\x12DeleteNodeResponse2\xef\x03\n" +
+	"\x12DeleteNodeResponse2\xc0\x04\n" +
 	"\x10NodeAdminService\x12j\n" +
 	"\x15CreateEnrollmentToken\x12'.podium.v1.CreateEnrollmentTokenRequest\x1a(.podium.v1.CreateEnrollmentTokenResponse\x12F\n" +
 	"\tListNodes\x12\x1b.podium.v1.ListNodesRequest\x1a\x1c.podium.v1.ListNodesResponse\x12F\n" +
 	"\tRekeyNode\x12\x1b.podium.v1.RekeyNodeRequest\x1a\x1c.podium.v1.RekeyNodeResponse\x12F\n" +
 	"\tDrainNode\x12\x1b.podium.v1.DrainNodeRequest\x1a\x1c.podium.v1.DrainNodeResponse\x12L\n" +
-	"\vUndrainNode\x12\x1d.podium.v1.UndrainNodeRequest\x1a\x1e.podium.v1.UndrainNodeResponse\x12I\n" +
+	"\vUndrainNode\x12\x1d.podium.v1.UndrainNodeRequest\x1a\x1e.podium.v1.UndrainNodeResponse\x12O\n" +
+	"\fSetNodeSlots\x12\x1e.podium.v1.SetNodeSlotsRequest\x1a\x1f.podium.v1.SetNodeSlotsResponse\x12I\n" +
 	"\n" +
 	"DeleteNode\x12\x1c.podium.v1.DeleteNodeRequest\x1a\x1d.podium.v1.DeleteNodeResponseB\xa4\x01\n" +
 	"\rcom.podium.v1B\n" +
@@ -769,7 +887,7 @@ func file_podium_v1_admin_proto_rawDescGZIP() []byte {
 	return file_podium_v1_admin_proto_rawDescData
 }
 
-var file_podium_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_podium_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_podium_v1_admin_proto_goTypes = []any{
 	(*Node)(nil),                          // 0: podium.v1.Node
 	(*CreateEnrollmentTokenRequest)(nil),  // 1: podium.v1.CreateEnrollmentTokenRequest
@@ -782,41 +900,46 @@ var file_podium_v1_admin_proto_goTypes = []any{
 	(*DrainNodeResponse)(nil),             // 8: podium.v1.DrainNodeResponse
 	(*UndrainNodeRequest)(nil),            // 9: podium.v1.UndrainNodeRequest
 	(*UndrainNodeResponse)(nil),           // 10: podium.v1.UndrainNodeResponse
-	(*DeleteNodeRequest)(nil),             // 11: podium.v1.DeleteNodeRequest
-	(*DeleteNodeResponse)(nil),            // 12: podium.v1.DeleteNodeResponse
-	(NodeStatus)(0),                       // 13: podium.v1.NodeStatus
-	(*NodeCapacity)(nil),                  // 14: podium.v1.NodeCapacity
-	(*timestamppb.Timestamp)(nil),         // 15: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),           // 16: google.protobuf.Duration
+	(*SetNodeSlotsRequest)(nil),           // 11: podium.v1.SetNodeSlotsRequest
+	(*SetNodeSlotsResponse)(nil),          // 12: podium.v1.SetNodeSlotsResponse
+	(*DeleteNodeRequest)(nil),             // 13: podium.v1.DeleteNodeRequest
+	(*DeleteNodeResponse)(nil),            // 14: podium.v1.DeleteNodeResponse
+	(NodeStatus)(0),                       // 15: podium.v1.NodeStatus
+	(*NodeCapacity)(nil),                  // 16: podium.v1.NodeCapacity
+	(*timestamppb.Timestamp)(nil),         // 17: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),           // 18: google.protobuf.Duration
 }
 var file_podium_v1_admin_proto_depIdxs = []int32{
-	13, // 0: podium.v1.Node.status:type_name -> podium.v1.NodeStatus
-	14, // 1: podium.v1.Node.capacity:type_name -> podium.v1.NodeCapacity
-	15, // 2: podium.v1.Node.last_heartbeat_at:type_name -> google.protobuf.Timestamp
-	15, // 3: podium.v1.Node.created_at:type_name -> google.protobuf.Timestamp
-	16, // 4: podium.v1.CreateEnrollmentTokenRequest.ttl:type_name -> google.protobuf.Duration
-	15, // 5: podium.v1.CreateEnrollmentTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	15, // 0: podium.v1.Node.status:type_name -> podium.v1.NodeStatus
+	16, // 1: podium.v1.Node.capacity:type_name -> podium.v1.NodeCapacity
+	17, // 2: podium.v1.Node.last_heartbeat_at:type_name -> google.protobuf.Timestamp
+	17, // 3: podium.v1.Node.created_at:type_name -> google.protobuf.Timestamp
+	18, // 4: podium.v1.CreateEnrollmentTokenRequest.ttl:type_name -> google.protobuf.Duration
+	17, // 5: podium.v1.CreateEnrollmentTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 6: podium.v1.ListNodesResponse.nodes:type_name -> podium.v1.Node
 	0,  // 7: podium.v1.RekeyNodeResponse.node:type_name -> podium.v1.Node
 	0,  // 8: podium.v1.DrainNodeResponse.node:type_name -> podium.v1.Node
 	0,  // 9: podium.v1.UndrainNodeResponse.node:type_name -> podium.v1.Node
-	1,  // 10: podium.v1.NodeAdminService.CreateEnrollmentToken:input_type -> podium.v1.CreateEnrollmentTokenRequest
-	3,  // 11: podium.v1.NodeAdminService.ListNodes:input_type -> podium.v1.ListNodesRequest
-	5,  // 12: podium.v1.NodeAdminService.RekeyNode:input_type -> podium.v1.RekeyNodeRequest
-	7,  // 13: podium.v1.NodeAdminService.DrainNode:input_type -> podium.v1.DrainNodeRequest
-	9,  // 14: podium.v1.NodeAdminService.UndrainNode:input_type -> podium.v1.UndrainNodeRequest
-	11, // 15: podium.v1.NodeAdminService.DeleteNode:input_type -> podium.v1.DeleteNodeRequest
-	2,  // 16: podium.v1.NodeAdminService.CreateEnrollmentToken:output_type -> podium.v1.CreateEnrollmentTokenResponse
-	4,  // 17: podium.v1.NodeAdminService.ListNodes:output_type -> podium.v1.ListNodesResponse
-	6,  // 18: podium.v1.NodeAdminService.RekeyNode:output_type -> podium.v1.RekeyNodeResponse
-	8,  // 19: podium.v1.NodeAdminService.DrainNode:output_type -> podium.v1.DrainNodeResponse
-	10, // 20: podium.v1.NodeAdminService.UndrainNode:output_type -> podium.v1.UndrainNodeResponse
-	12, // 21: podium.v1.NodeAdminService.DeleteNode:output_type -> podium.v1.DeleteNodeResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	0,  // 10: podium.v1.SetNodeSlotsResponse.node:type_name -> podium.v1.Node
+	1,  // 11: podium.v1.NodeAdminService.CreateEnrollmentToken:input_type -> podium.v1.CreateEnrollmentTokenRequest
+	3,  // 12: podium.v1.NodeAdminService.ListNodes:input_type -> podium.v1.ListNodesRequest
+	5,  // 13: podium.v1.NodeAdminService.RekeyNode:input_type -> podium.v1.RekeyNodeRequest
+	7,  // 14: podium.v1.NodeAdminService.DrainNode:input_type -> podium.v1.DrainNodeRequest
+	9,  // 15: podium.v1.NodeAdminService.UndrainNode:input_type -> podium.v1.UndrainNodeRequest
+	11, // 16: podium.v1.NodeAdminService.SetNodeSlots:input_type -> podium.v1.SetNodeSlotsRequest
+	13, // 17: podium.v1.NodeAdminService.DeleteNode:input_type -> podium.v1.DeleteNodeRequest
+	2,  // 18: podium.v1.NodeAdminService.CreateEnrollmentToken:output_type -> podium.v1.CreateEnrollmentTokenResponse
+	4,  // 19: podium.v1.NodeAdminService.ListNodes:output_type -> podium.v1.ListNodesResponse
+	6,  // 20: podium.v1.NodeAdminService.RekeyNode:output_type -> podium.v1.RekeyNodeResponse
+	8,  // 21: podium.v1.NodeAdminService.DrainNode:output_type -> podium.v1.DrainNodeResponse
+	10, // 22: podium.v1.NodeAdminService.UndrainNode:output_type -> podium.v1.UndrainNodeResponse
+	12, // 23: podium.v1.NodeAdminService.SetNodeSlots:output_type -> podium.v1.SetNodeSlotsResponse
+	14, // 24: podium.v1.NodeAdminService.DeleteNode:output_type -> podium.v1.DeleteNodeResponse
+	18, // [18:25] is the sub-list for method output_type
+	11, // [11:18] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_admin_proto_init() }
@@ -825,13 +948,14 @@ func file_podium_v1_admin_proto_init() {
 		return
 	}
 	file_podium_v1_common_proto_init()
+	file_podium_v1_admin_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_admin_proto_rawDesc), len(file_podium_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
