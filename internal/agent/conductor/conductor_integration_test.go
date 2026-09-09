@@ -1185,10 +1185,11 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	src := fakesource.New(conductor.KindDev)
 	src.Mirrors()
 	t.Cleanup(src.Close)
+	watcher := &recordingMirror{}
 
 	ctx := context.Background()
 	ev := inbound("C1/1.1", "what does this repo do?")
-	start(t, st, fake, src)
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Mirror = watcher })
 	require.NoError(t, src.Send(ctx, ev))
 	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
 		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
@@ -1219,6 +1220,10 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	assert.Equal(t, "Podium", msgs[2].Author, "the bot's own display name, so a reader can tell it apart")
 	assert.Equal(t, "it is a task runner.", msgs[2].Text)
 	assert.Equal(t, msgs[1].TaskID, msgs[2].TaskID)
+
+	// Every row was also announced, in order and with its seq, so a screen with the thread
+	// open saw it land rather than finding it on the next reload.
+	require.Equal(t, msgs, watcher.rows(chat.ID), "what was written is what was announced")
 
 	// And it is in the list, for any login, because nobody owns it.
 	chats, _, err := st.ListChats(ctx, "whoever", 0, "")
@@ -1300,4 +1305,25 @@ func TestAConversationPodiumOwnsIsNotMirrored(t *testing.T) {
 
 	_, err := st.ChatBySourceKey(ctx, ev.SourceKey)
 	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// recordingMirror is a conductor.MirrorWatcher that keeps what it was told, per chat.
+type recordingMirror struct {
+	mu   sync.Mutex
+	seen map[string][]store.ChatMessage
+}
+
+func (m *recordingMirror) Mirrored(chatID string, msg store.ChatMessage) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.seen == nil {
+		m.seen = map[string][]store.ChatMessage{}
+	}
+	m.seen[chatID] = append(m.seen[chatID], msg)
+}
+
+func (m *recordingMirror) rows(chatID string) []store.ChatMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.seen[chatID]
 }

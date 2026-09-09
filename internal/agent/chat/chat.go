@@ -148,6 +148,12 @@ func (s *Source) Subscribe(ctx context.Context, chatID string) *Subscriber {
 // Subscribers is how many browsers are watching one chat. Tests read it; nothing else does.
 func (s *Source) Subscribers(chatID string) int { return s.bcast.Subscribers(chatID) }
 
+// Mirrored implements conductor.MirrorWatcher: a row the conductor wrote into a mirrored
+// thread reaches whoever has that chat open, exactly as this source's own rows do.
+func (s *Source) Mirrored(chatID string, msg store.ChatMessage) {
+	s.bcast.Publish(chatID, Frame{Kind: FrameMessage, Message: msg})
+}
+
 // URL is the deep link to one chat, as a human reaches it. Empty when no UI URL is known.
 func (s *Source) URL(chatID string) string {
 	if s.uiURL == "" {
