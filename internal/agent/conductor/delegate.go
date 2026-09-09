@@ -246,8 +246,14 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 }
 
 // maxAnnouncedRunes bounds the echo of an instruction in the announcement. The instruction
-// is a model's words and can be long; the announcement is one line in a conversation.
-const maxAnnouncedRunes = 120
+// is a model's words and can be long; the announcement is a line or two in a conversation.
+//
+// Note what actually decides how much shows: firstLine stops at the first NEWLINE before
+// this cap applies, so raising it only ever reveals more of the first line. A multi-paragraph
+// instruction is bounded by its own first line whatever this says. It is 300 rather than a
+// line's worth because the first line is usually the whole ask, and being cut mid-word two
+// thirds of the way through it reads like something went wrong.
+const maxAnnouncedRunes = 300
 
 // announcement is a delegation the conversation has not been told about yet.
 type announcement struct {
@@ -345,7 +351,7 @@ func (c *Conductor) startDelegatedTask(
 		Ref:        g.ref,
 		Text:       dlg.Instruction,
 		TS:         time.Now().UTC(),
-		BriefKind:  SourceChat,
+		BriefKind:  briefKindFor(sess.SourceKind),
 		Playbook:   playbook.Name,
 	}
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,

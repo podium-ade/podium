@@ -209,7 +209,7 @@ Full reference, including the Slack app manifest and the Linear setup:
 |---|---|
 | `podium-server` | API, scheduler, node registry, secrets, log ingest, embedded web UI. Needs Postgres (`pgvector/pgvector:pg16`); optionally an S3-compatible store |
 | `podium-node` | One per worker. Runs tasks on the local Docker engine. **Root-equivalent on its host** — read [security.md](docs/security.md) |
-| `podium-agent` | The conductor. Turns a Slack mention, a Linear assignment or a web-chat message into one task running an agent runtime image, and relays the answer back. An ordinary API client of `podium-server`: its own database, its own token, never touches Docker. See [docs/agent.md](docs/agent.md) |
+| `podium-agent` | The conductor. Turns a Slack mention, a Linear assignment or a web-chat message into one turn — a conversation answered on its own host, or a task running an agent runtime image — and relays the answer back. An ordinary API client of `podium-server`: its own database, its own token, never touches Docker. See [docs/agent.md](docs/agent.md) |
 | `podium` | The CLI. Talks only to the server, never to Docker, so it runs anywhere |
 | `podium-runner` | PID 1 inside every task container: runs the command, forwards signals, reaps orphans, reports events. Embedded in `podium-node` and bind-mounted in; never installed by hand |
 
@@ -291,7 +291,7 @@ what has actually been observed running. Most of it is macOS/arm64 with Docker D
 | Per-turn agent/model/effort picker | ✅ | ✅ resolution, credential routing and the brief proved on a live stack |
 | Running a turn **on a Grok model** | ✅ | ✅ `xai/grok-4.6` completed a turn through the runtime on the live stack |
 | Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
-| Slack source | ✅ | ❌ **never connected to Slack.** Driven by a fake |
+| Slack source | ✅ | ⚠️ **connected to a real workspace.** Socket Mode dials out and authenticates, and mentions have started turns that ran to completion. Nothing beyond that is proved: the file upload, the 4000-character split, the 429 path and the mirrored copy have only ever run against a fake |
 | Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket playbook the test defines: Podium ships no playbook with `linear: true` |
 | Shared memory (Hindsight, pgvector) | ✅ | ✅ against a **real Hindsight container**: auth, retain, list, search, tombstone. The SDK's own MCP client is unproven (needs a model) |
 | Web chat | ✅ | ⚠️ chat turns round-trip for real as dry runs, through podium-server's proxy |
@@ -459,9 +459,12 @@ a real Docker engine. What has **not** happened:
   and is behaviourally authoritative — verified with a sentinel instruction — but it does not
   replace opencode's own ~5k tokens of tool definitions and base instructions. The previous
   harness did the same thing, so this is not a regression, but it is not nothing either.
-- **No Slack workspace.** Socket Mode, `app_mention`, thread reading, threaded replies, file
-  upload, reactions and the 4000-character split are written against `slack-go v0.29.0` and
-  driven by a fake in tests. Nothing has connected to Slack.
+- **A Slack workspace, and not much of one.** Socket Mode now dials a real workspace,
+  authenticates, and mentions have started turns that finished. Everything else about the
+  integration is still fake-driven: the file upload, the 4000-character split, the `Retry-After`
+  path, and the mirrored copy of a thread that the UI reads. `app_mention`, the thread read, the
+  threaded reply and the reactions have httptest coverage against `slack-go v0.29.0` and a
+  handful of real mentions behind them — which is more than nothing and less than proof.
 - **No Linear workspace.** The poller, the issue and comment reads, the state transition and
   `commentCreate` are driven against a fake GraphQL server through `PODIUM_AGENT_LINEAR_URL`.
   `fileUpload` in particular is implemented from documentation alone and has never run.

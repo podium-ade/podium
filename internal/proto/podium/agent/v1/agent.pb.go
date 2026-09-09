@@ -2840,9 +2840,21 @@ type Chat struct {
 	//
 	// A task the conversation delegates is unaffected either way: it runs on its playbook's
 	// model.
-	Agent         string `protobuf:"bytes,8,opt,name=agent,proto3" json:"agent,omitempty"`
-	Model         string `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
-	Effort        string `protobuf:"bytes,10,opt,name=effort,proto3" json:"effort,omitempty"`
+	Agent  string `protobuf:"bytes,8,opt,name=agent,proto3" json:"agent,omitempty"`
+	Model  string `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
+	Effort string `protobuf:"bytes,10,opt,name=effort,proto3" json:"effort,omitempty"`
+	// origin is where the conversation actually lives: "web" for one Podium owns, "slack" for
+	// a thread it MIRRORS for reading. A mirrored conversation is answered where it lives, so
+	// the UI offers no composer, no rename and no delete for it.
+	Origin string `protobuf:"bytes,11,opt,name=origin,proto3" json:"origin,omitempty"`
+	// started_by is the person who asked first, by display name. It is a mirrored
+	// conversation's attribution, because it has no Podium login to own it, and empty for a
+	// web chat — whose owner is the login that made it.
+	StartedBy string `protobuf:"bytes,12,opt,name=started_by,json=startedBy,proto3" json:"started_by,omitempty"`
+	// participants is everyone who has spoken, first appearance first. Set by GetChat and
+	// left empty by ListChats, which would need a query per row to fill it and only shows
+	// started_by.
+	Participants  []string `protobuf:"bytes,13,rep,name=participants,proto3" json:"participants,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2940,6 +2952,27 @@ func (x *Chat) GetEffort() string {
 	return ""
 }
 
+func (x *Chat) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *Chat) GetStartedBy() string {
+	if x != nil {
+		return x.StartedBy
+	}
+	return ""
+}
+
+func (x *Chat) GetParticipants() []string {
+	if x != nil {
+		return x.Participants
+	}
+	return nil
+}
+
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
 // is what the browser downloads through GET /artifacts/{id}; the name alone would be
 // ambiguous the moment two turns produce a report.csv.
@@ -3032,7 +3065,12 @@ type ChatMessage struct {
 	// progress and answer all arrive as rows in one transcript. Without this they were
 	// indistinguishable, and the UI credited every progress line to a task — including the
 	// assistant's, which is the one thing in a conversation that is never one.
-	TaskId        string `protobuf:"bytes,7,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskId string `protobuf:"bytes,7,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// author is who said it, by display name, and empty in a web chat — where the chat's own
+	// login already says who is typing. A mirrored Slack thread sets it on every message,
+	// including the bot's, because a thread has as many people in it as care to join and
+	// "who said this" is not answerable from the role alone.
+	Author        string `protobuf:"bytes,8,opt,name=author,proto3" json:"author,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3112,6 +3150,13 @@ func (x *ChatMessage) GetTs() *timestamppb.Timestamp {
 func (x *ChatMessage) GetTaskId() string {
 	if x != nil {
 		return x.TaskId
+	}
+	return ""
+}
+
+func (x *ChatMessage) GetAuthor() string {
+	if x != nil {
+		return x.Author
 	}
 	return ""
 }
@@ -6119,7 +6164,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\"\x90\x01\n" +
 	"\x15ListPlaybooksResponse\x127\n" +
 	"\tplaybooks\x18\x01 \x03(\v2\x19.podium.agent.v1.PlaybookR\tplaybooks\x128\n" +
-	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xb2\x02\n" +
+	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\x8d\x03\n" +
 	"\x04Chat\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x129\n" +
@@ -6131,14 +6176,18 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05agent\x18\b \x01(\tR\x05agent\x12\x14\n" +
 	"\x05model\x18\t \x01(\tR\x05model\x12\x16\n" +
 	"\x06effort\x18\n" +
-	" \x01(\tR\x06effortJ\x04\b\a\x10\b\"\x87\x01\n" +
+	" \x01(\tR\x06effort\x12\x16\n" +
+	"\x06origin\x18\v \x01(\tR\x06origin\x12\x1d\n" +
+	"\n" +
+	"started_by\x18\f \x01(\tR\tstartedBy\x12\"\n" +
+	"\fparticipants\x18\r \x03(\tR\fparticipantsJ\x04\b\a\x10\b\"\x87\x01\n" +
 	"\x0eChatAttachment\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\"\xe8\x01\n" +
+	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\"\x80\x02\n" +
 	"\vChatMessage\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x04R\x03seq\x12\x12\n" +
@@ -6146,7 +6195,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12A\n" +
 	"\vattachments\x18\x05 \x03(\v2\x1f.podium.agent.v1.ChatAttachmentR\vattachments\x12*\n" +
 	"\x02ts\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x12\x17\n" +
-	"\atask_id\x18\a \x01(\tR\x06taskId\";\n" +
+	"\atask_id\x18\a \x01(\tR\x06taskId\x12\x16\n" +
+	"\x06author\x18\b \x01(\tR\x06author\";\n" +
 	"\n" +
 	"ChatStatus\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x17\n" +
