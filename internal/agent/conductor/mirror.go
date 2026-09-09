@@ -28,6 +28,13 @@ import (
 // uses for a title taken from a first message.
 const mirrorTitleRunes = 48
 
+// MirrorWatcher is whoever streams a mirrored chat to a screen: the web chat's broadcaster.
+// The mirror writes rows straight into the store — the web source must not, or it would
+// double every one of its own — so the row has to be announced separately, and this is how.
+type MirrorWatcher interface {
+	Mirrored(chatID string, msg store.ChatMessage)
+}
+
 // mirrorSource is the optional half of Source that a conversation living somewhere else
 // implements. It hands back the session key a ref belongs to, which is what lets the
 // conductor mirror a thread without knowing how any particular source shapes a ref.
@@ -119,8 +126,13 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 }
 
 func (c *Conductor) mirrorAppend(ctx context.Context, chatID string, msg store.ChatMessage) {
-	if _, err := c.store.AppendChatMessage(ctx, msg); err != nil {
+	row, err := c.store.AppendChatMessage(ctx, msg)
+	if err != nil {
 		c.logger.WarnContext(ctx, "appending to a mirrored conversation failed",
 			"chat_id", chatID, "role", msg.Role, "error", err)
+		return
+	}
+	if c.mirror != nil {
+		c.mirror.Mirrored(chatID, row)
 	}
 }
