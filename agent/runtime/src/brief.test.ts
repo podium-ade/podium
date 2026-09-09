@@ -171,6 +171,37 @@ describe("decodeBrief", () => {
     }
   });
 
+  it("takes an MCP server as an address and, at most, the name of a variable", () => {
+    const mcp_servers = [
+      { name: "linear", url: "https://mcp.linear.app/mcp", token_env: "PODIUM_MCP_LINEAR_TOKEN" },
+      { name: "wiki", url: "http://wiki:9000/mcp" },
+    ];
+    const brief = decodeBrief(
+      encode({ ...minimal, playbook: { ...minimal.playbook, mcp_servers } }),
+    );
+    expect(brief.playbook.mcp_servers).toEqual(mcp_servers);
+    // Absent, not empty: a playbook that names no servers leaves the key out.
+    expect(decodeBrief(encode(minimal)).playbook.mcp_servers).toBeUndefined();
+  });
+
+  it("refuses an MCP server ref that is not one", () => {
+    const bad = [
+      { name: "Linear", url: "https://x/mcp" },
+      { name: "linear_wiki", url: "https://x/mcp" },
+      { name: "../etc", url: "https://x/mcp" },
+      { name: "linear", url: "" },
+      { name: "linear", url: "https://x/mcp", token_env: "" },
+      // The strict schema is what makes a misspelt key a failed turn rather than a field
+      // that silently does nothing — a `token` here would be a token in the brief.
+      { name: "linear", url: "https://x/mcp", token: "lin_api_secret" },
+    ];
+    for (const server of bad) {
+      expect(() =>
+        decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, mcp_servers: [server] } })),
+      ).toThrow(BriefError);
+    }
+  });
+
   it("refuses a source kind it does not know", () => {
     expect(() => decodeBrief(encode({ ...minimal, source: { kind: "email", ref: "x" } }))).toThrow(BriefError);
   });

@@ -142,6 +142,22 @@ async function main(): Promise<number> {
     return ExitBriefInvalid;
   }
 
+  // A server whose brief promised a token variable and did not deliver one would connect
+  // unauthenticated and fail on its first tool call, several model requests into the turn.
+  // Failing here says which server and which variable, at a cost of nothing.
+  const mcpServers = brief.playbook.mcp_servers ?? [];
+  for (const server of mcpServers) {
+    if (server.token_env && !secretFromEnv(server.token_env)) {
+      const why =
+        `turn brief names mcp server ${server.name} with token env ${server.token_env} ` +
+        `but it is not set`;
+      warn(why);
+      summary.code = ExitBriefInvalid;
+      await reportTurn(invoke, summary, `turn brief is invalid: ${why}`);
+      return ExitBriefInvalid;
+    }
+  }
+
   const keyEnv = brief.provider.api_key_env;
   if (!secretFromEnv(keyEnv)) {
     const why =
@@ -210,7 +226,7 @@ async function main(): Promise<number> {
   };
 
   // The config for this turn: the operating contract, the tool allow-list, the provider and
-  // the memory server. It lives in a temporary directory rather than the workspace, because
+  // every MCP server it may reach. It lives in a temporary directory rather than the workspace, because
   // the workspace is a repository the agent may commit and nobody wants a turn's config in
   // a pull request.
   const configDir = mkdtempSync(join(tmpdir(), "podium-turn-"));
@@ -232,6 +248,7 @@ async function main(): Promise<number> {
       delegation: brief.delegation
         ? { url: brief.delegation.url, entry: mcpEntrypoint() }
         : undefined,
+      mcpServers,
     });
   } catch (err) {
     const why = messageOf(err);

@@ -45,6 +45,7 @@ export type PlaybookDraft = {
   slackChannels: string[];
   linear: boolean;
   skills: string[];
+  mcpServers: string[];
   env: Record<string, string>;
 };
 
@@ -70,6 +71,16 @@ export type PlaybookEditorProps = {
   disabledSkillNames?: string[];
   /** True when the skill list could not be read, so "not installed" cannot be claimed. */
   skillsUnknown?: boolean;
+  /**
+   * The MCP servers registered on this conductor, for the same kind of allow-list. A name
+   * not in here is accepted for the same reason a skill's is — a playbook file has to load
+   * on a machine with no registry — and the form warns instead of refusing.
+   */
+  mcpNames?: string[];
+  /** The names of registered servers that are turned off. Naming one fails the turn. */
+  disabledMcpNames?: string[];
+  /** True when the MCP list could not be read, so "not registered" cannot be claimed. */
+  mcpUnknown?: boolean;
   saving?: boolean;
   deleting?: boolean;
   /**
@@ -118,6 +129,9 @@ export function PlaybookEditor({
   skillNames,
   disabledSkillNames,
   skillsUnknown,
+  mcpNames,
+  disabledMcpNames,
+  mcpUnknown,
   saving,
   deleting,
   error,
@@ -147,6 +161,7 @@ export function PlaybookEditor({
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
+  const [mcpServers, setMcpServers] = useState((playbook?.mcpServers ?? []).join("\n"));
   const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
   const [memoryMb, setMemoryMb] = useState(String(playbook?.resources?.memoryMb ?? ""));
   const [pids, setPids] = useState(String(playbook?.resources?.pids ?? ""));
@@ -165,9 +180,12 @@ export function PlaybookEditor({
   const registered = useMemo(() => new Set(secretNames), [secretNames]);
   const installed = useMemo(() => new Set(skillNames ?? []), [skillNames]);
   const disabled = useMemo(() => new Set(disabledSkillNames ?? []), [disabledSkillNames]);
+  const registeredMcp = useMemo(() => new Set(mcpNames ?? []), [mcpNames]);
+  const disabledMcp = useMemo(() => new Set(disabledMcpNames ?? []), [disabledMcpNames]);
 
   const toolList = splitLines(tools);
   const skillList = splitLines(skills);
+  const mcpList = splitLines(mcpServers);
   const nameOk = PLAYBOOK_NAME_RE.test(name);
   const problems: string[] = [];
   if (!nameOk) problems.push("name");
@@ -202,6 +220,7 @@ export function PlaybookEditor({
       slackChannels: splitList(channels),
       linear,
       skills: skillList,
+      mcpServers: mcpList,
       env: Object.fromEntries(
         envRows.filter((r) => r.a.trim() !== "").map((r) => [r.a.trim(), r.b]),
       ),
@@ -628,6 +647,66 @@ export function PlaybookEditor({
               <p className="text-2xs text-faint">
                 No skills are installed on this conductor yet.{" "}
                 <Link to="/agent/skills" className="text-accent hover:underline">
+                  Add one
+                </Link>{" "}
+                and it will appear here.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <h3 className="text-xs font-medium text-fg">MCP servers</h3>
+              <p className="max-w-2xl text-2xs leading-relaxed text-faint">
+                One name per line, out of the{" "}
+                <Link to="/agent/mcp" className="text-accent hover:underline">
+                  MCP
+                </Link>{" "}
+                registry. Naming one here is what gives a turn of this playbook that
+                server&apos;s tools <em>and</em> its stored token, so name only what this
+                playbook&apos;s work needs. Naming none — the default — means the turn has no
+                MCP tools beyond the ones the conductor wires up itself.
+              </p>
+            </div>
+            <datalist id="podium-mcp-names">
+              {(mcpNames ?? []).map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            <Textarea
+              id={`${uid}-mcp`}
+              aria-label="MCP servers"
+              value={mcpServers}
+              onChange={(e) => setMcpServers(e.target.value)}
+              rows={2}
+              spellCheck={false}
+              placeholder={"linear"}
+              className="max-w-md font-mono text-xs"
+            />
+            {mcpList
+              .filter((n) => !mcpUnknown && !registeredMcp.has(n))
+              .map((n) => (
+                <p key={n} className="text-xs text-warn" data-testid="mcp-missing">
+                  No MCP server named <Mono>{n}</Mono> is registered on this conductor — a turn
+                  of this playbook will fail.{" "}
+                  <Link to="/agent/mcp" className="text-accent hover:underline">
+                    Add it
+                  </Link>
+                  .
+                </p>
+              ))}
+            {mcpList
+              .filter((n) => disabledMcp.has(n))
+              .map((n) => (
+                <p key={n} className="text-xs text-warn" data-testid="mcp-disabled">
+                  <Mono>{n}</Mono> is registered but disabled — a turn of this playbook will
+                  fail rather than run without it.
+                </p>
+              ))}
+            {(mcpNames ?? []).length === 0 && !mcpUnknown ? (
+              <p className="text-2xs text-faint">
+                No MCP servers are registered on this conductor yet.{" "}
+                <Link to="/agent/mcp" className="text-accent hover:underline">
                   Add one
                 </Link>{" "}
                 and it will appear here.

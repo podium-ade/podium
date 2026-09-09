@@ -81,6 +81,22 @@ type LinearCursor struct {
 	UpdatedAt time.Time
 }
 
+type McpServer struct {
+	Name               string
+	Url                string
+	Description        string
+	Enabled            bool
+	TokenHint          string
+	TokenSetBy         string
+	TokenSetAt         *time.Time
+	TokenSecretVersion int32
+	AuthKind           string
+	Oauth              []byte
+	CreatedBy          string
+	UpdatedBy          string
+	UpdatedAt          time.Time
+}
+
 type Playbook struct {
 	Name       string
 	Definition []byte

@@ -55,6 +55,15 @@ describe("Header", () => {
       "/agent/playbooks",
     );
     expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
+    expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("href", "/agent/mcp");
+  });
+
+  // MCP is a sibling of Agent, not one of its talk screens, so it lights itself and leaves
+  // Agent alone — the same rule Playbooks and Skills follow.
+  it("lights MCP on its own route without lighting Agent", () => {
+    mount({ ...base, agentEnabled: true }, "/agent/mcp");
+    expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
   });
 
   it("puts the Agent section above Workspace", () => {
