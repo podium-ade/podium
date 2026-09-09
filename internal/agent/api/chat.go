@@ -171,7 +171,9 @@ func (s *AgentService) DeleteChat(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	if row.Login != login {
+	// A chat with no login is a mirrored thread: it belongs to the workspace, and whoever can
+	// see it may remove the copy.
+	if row.Login != "" && row.Login != login {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
