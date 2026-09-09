@@ -97,7 +97,7 @@ func newRotateMasterKeyCommand() *cobra.Command {
 			}); err != nil {
 				slog.WarnContext(ctx, "audit write failed", "action", store.ActionSecretRotate, "error", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "rotated %d secret(s) from key %s to key %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "rotated %d secret(s) and registry credential(s) from key %s to key %s\n",
 				rotated, oldKey.ID(), newKey.ID())
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"now set PODIUM_MASTER_KEY_FILE=%s and restart podium-server; the old key decrypts nothing\n",

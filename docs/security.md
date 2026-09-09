@@ -680,7 +680,9 @@ There is no revocation push. Stop the daemon yourself.
 
 ### At rest
 
-One 32-byte AES-256 key encrypts every stored secret. `podium-server gen-master-key` mints it.
+One 32-byte AES-256 key encrypts every stored secret, and every registry password: a login
+stored on the Registries screen is a second table under the same key, the same write-only API
+shape and the same rotation. `podium-server gen-master-key` mints it.
 
 - **The file's mode is enforced.** Anything a group or another account can read (`perm&0o077`)
   is refused, before the store is even opened, so the process exits with an actionable message
@@ -696,8 +698,8 @@ One 32-byte AES-256 key encrypts every stored secret. `podium-server gen-master-
   --out` uses `O_EXCL` so it can never silently overwrite a live key. **Back the file up
   somewhere that is not the control plane.**
 - Rotation is offline and atomic: `podium-server rotate-master-key --old FILE --new FILE` takes
-  `select ... for update` over the whole table in one transaction, so it is never half under one
-  key. Afterwards the old key decrypts nothing.
+  `select ... for update` over each whole table — secrets, then registries — in one transaction
+  apiece, so neither is ever half under one key. Afterwards the old key decrypts nothing.
 
 **There is no read endpoint and there must never be one.** `SecretService` is
 `SetSecret`/`ListSecrets`/`DeleteSecret`. `ListSecrets` returns names, versions and key ids —
@@ -758,7 +760,8 @@ podium secret set NAME  ──►  server: AES-256-GCM under the master key  ─
                                                 │
 task is dispatched to a node                    │  resolved once per dispatch,
                                                 ▼  values in server memory for one call
-                                    Assign{resolved_secrets: [{name, target, key, value}]}
+                                    Assign{resolved_secrets: [{name, target, key, value}],
+                                           registry_credentials: [{host, username, password}]}
                                                 │
                                                 ▼  ** plaintext on the wire **
                                          podium-node

@@ -99,8 +99,9 @@ func (e *Executor) startSidecars(ctx context.Context, req Request, netID string,
 
 	// Pull first and in order: two sidecars from the same image would otherwise race for
 	// the same layers, and the pulling events would interleave into nonsense.
+	auths := req.registryAuths()
 	for _, name := range names {
-		if err := e.ensureImage(ctx, req.Spec.Sidecars[name].Image, em); err != nil {
+		if err := e.ensureImage(ctx, req.Spec.Sidecars[name].Image, auths, em); err != nil {
 			return set, fmt.Errorf("sidecar %s: %w", name, err)
 		}
 	}

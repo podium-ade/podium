@@ -231,6 +231,14 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_EXIT_ON_DRAIN` | `exit_on_drain` | `false` | Exit 0 once drained and the last task has finished. `--exit-on-drain` is the flag form |
 | `PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS` | `allow_privileged_sidecars` | `false` | Honour a spec's `privileged: true` on a sidecar, which is **root on this machine's kernel**. `--allow-privileged-sidecars` is the flag form. Pair it with a label and dedicate the node — see [security.md](security.md) |
 
+### Private registries
+
+A node has no registry credentials of its own. A login for a private registry — Google Artifact
+Registry, GHCR, anything `docker login` takes — is stored once on the control plane, on the
+**Registries** screen of the web UI, and arrives on whichever node a task lands on inside that
+task's assignment, for the registries its images actually use. See
+[task-spec.md](task-spec.md#private-registries). Nothing needs configuring here.
+
 ### Draining a node
 
 `podium node drain NODE` stops the control plane giving a node new work; whatever it is
