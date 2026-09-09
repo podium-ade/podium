@@ -1,5 +1,16 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, Coins, KeyRound, ListTodo, Plug, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
+import {
+  Bot,
+  Coins,
+  Container,
+  KeyRound,
+  ListTodo,
+  Plug,
+  Puzzle,
+  Server,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer, viewerLabel } from "../lib/identity";
@@ -125,6 +136,9 @@ export function Header() {
         </Item>
         <Item to="/secrets" icon={KeyRound}>
           Secrets
+        </Item>
+        <Item to="/registries" icon={Container}>
+          Registries
         </Item>
       </nav>
 

@@ -1545,9 +1545,10 @@ first a missing image is known about is the pull failing on the node, which fail
   anything else.
 - A **fleet needs a registry** every node can pull from. Build the image once, push it, and name
   the pushed reference — by digest if you want the turn you debugged to be the turn that runs.
-- **Podium has no registry authentication.** There is nowhere to put a credential for a pull, so
-  a private registry that requires a login is **not supported today**: a node either pulls
-  anonymously or already has the image on its engine.
+- **A private registry is configured once, not per playbook.** A login stored on the
+  **Registries** screen — a Google Artifact Registry service-account key, a GHCR token — travels
+  inside every assignment whose images are pulled from that host, and the playbook's `image:` is
+  written the same way as a public one. See [task-spec.md](task-spec.md#private-registries).
 
 ---
 

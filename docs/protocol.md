@@ -63,7 +63,8 @@ operator      podium node                       podium server
    |               |                                  |   -> reconcile, mark online
    |               |  Heartbeat{load, free_slots, ...}|   every 10s
    |               | <-- Assign{task_id, lease_id, spec, deadline,
-   |               |            resolved_secrets}      |   SENSITIVE: plaintext values
+   |               |            resolved_secrets,      |   SENSITIVE: plaintext values
+   |               |            registry_credentials} |
    |               |  TaskEvent{seq: 1..n} ---------> |   batched ~100ms / 64KB
    |               | <-- Ack{task_id, seq}            |   high-water mark
    |               | <-- Cancel{task_id, reason}      |   idempotent
@@ -82,8 +83,9 @@ operator      podium node                       podium server
    marks it `offline` and expires its leases.
 4. **Assign** hands over a task under a lease. The node must emit a `provisioning` `TaskEvent`
    within 15s or the server revokes the lease and reschedules. `resolved_secrets` carries the
-   plaintext of every secret the task's spec referenced, resolved immediately before the push
-   and sent to nobody else. The transport is what protects them in flight — WireGuard under
+   plaintext of every secret the task's spec referenced, and `registry_credentials` the login
+   for each registry the spec's images are pulled from that the server holds one for; both are
+   resolved immediately before the push and sent to nobody else. The transport is what protects them in flight — WireGuard under
    `tailnet`, and nothing at all under `dev`, which is why `dev` refuses to bind anything but
    loopback and warns at startup when any secret exists.
 5. **Cancel** is idempotent and is also how server-computed timeouts arrive: SIGTERM, 30s
@@ -240,9 +242,10 @@ a node vanishes mid-run and the retry policy says not to requeue.
 
 Two separate things, both required.
 
-**`Assign` must never be logged directly.** It carries `resolved_secrets`, so every log
-statement that touches one goes through `podiumv1.RedactForLog(*Assign) *Assign`
-(`internal/proto/podium/v1/redact.go`), which clones it and clears that field.
+**`Assign` must never be logged directly.** It carries `resolved_secrets` and
+`registry_credentials`, so every log statement that touches one goes through
+`podiumv1.RedactForLog(*Assign) *Assign` (`internal/proto/podium/v1/redact.go`), which clones
+it and clears both fields.
 `internal/server`'s `TestNoAssignIsLoggedUnredacted` walks the tree and fails the build if a
 log statement mentions an `Assign` without it.
 

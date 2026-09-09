@@ -59,6 +59,9 @@ type Dispatcher interface {
 // server memory for as short a time as possible.
 type Resolver interface {
 	Resolve(ctx context.Context, taskID string, refs []spec.SecretRef) ([]secrets.Resolved, error)
+	// ResolveRegistries returns the login for each registry the images are pulled from
+	// that the store holds one for, and nothing for the rest.
+	ResolveRegistries(ctx context.Context, taskID string, images []string) ([]secrets.RegistryCredential, error)
 }
 
 // Service is the scheduler: it places queued work on nodes and keeps the promises that
@@ -208,6 +211,16 @@ func (s *Service) assign(ctx context.Context, task store.Task, nodeID string) bo
 			secrets.Zero(r.Value)
 		}
 	}()
+	registries, err := s.resolveRegistries(ctx, task)
+	if err != nil {
+		s.failUnresolvable(ctx, task, err)
+		return false
+	}
+	defer func() {
+		for _, r := range registries {
+			secrets.Zero(r.Password)
+		}
+	}()
 
 	leaseID := ids.NewLease()
 	now := time.Now().UTC()
@@ -219,11 +232,12 @@ func (s *Service) assign(ctx context.Context, task store.Task, nodeID string) bo
 		return false
 	}
 	assign := &podiumv1.Assign{
-		TaskId:          task.ID,
-		LeaseId:         leaseID,
-		Spec:            task.Spec.ToProto(),
-		Deadline:        timestamppb.New(now.Add(s.timing.ProvisioningDeadline)),
-		ResolvedSecrets: resolvedToProto(resolved),
+		TaskId:              task.ID,
+		LeaseId:             leaseID,
+		Spec:                task.Spec.ToProto(),
+		Deadline:            timestamppb.New(now.Add(s.timing.ProvisioningDeadline)),
+		ResolvedSecrets:     resolvedToProto(resolved),
+		RegistryCredentials: registriesToProto(registries),
 	}
 	if err := s.nodes.Assign(ctx, nodeID, assign, nodes.CostOf(task.Spec)); err != nil {
 		s.logger.WarnContext(ctx, "pushing assignment failed", "task_id", task.ID, "node_id", nodeID, "error", err)
@@ -243,6 +257,16 @@ func (s *Service) resolve(ctx context.Context, task store.Task) ([]secrets.Resol
 		return nil, fmt.Errorf("%w: this server has no secret store", secrets.ErrNoKey)
 	}
 	return s.secrets.Resolve(ctx, task.ID, task.Spec.Secrets)
+}
+
+// resolveRegistries is ResolveRegistries with the same nil-resolver guard. A store error is
+// fatal to the task for the same reason a secret's is: a task that runs without the login it
+// was meant to have does not fail any better on the node.
+func (s *Service) resolveRegistries(ctx context.Context, task store.Task) ([]secrets.RegistryCredential, error) {
+	if s.secrets == nil {
+		return nil, nil
+	}
+	return s.secrets.ResolveRegistries(ctx, task.ID, task.Spec.Images())
 }
 
 // failUnresolvable fails a task whose secrets could not be resolved. It happens while the
@@ -275,6 +299,23 @@ func resolvedToProto(in []secrets.Resolved) []*podiumv1.ResolvedSecret {
 			Target: r.Target,
 			Key:    r.Key,
 			Value:  bytes.Clone(r.Value),
+		})
+	}
+	return out
+}
+
+// registriesToProto copies the registry logins onto the wire, under the same rule as
+// resolvedToProto: the Assign is only ever logged through podiumv1.RedactForLog.
+func registriesToProto(in []secrets.RegistryCredential) []*podiumv1.RegistryCredential {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*podiumv1.RegistryCredential, 0, len(in))
+	for _, r := range in {
+		out = append(out, &podiumv1.RegistryCredential{
+			Host:     r.Host,
+			Username: r.Username,
+			Password: bytes.Clone(r.Password),
 		})
 	}
 	return out

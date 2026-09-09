@@ -7,8 +7,9 @@ import "google.golang.org/protobuf/proto"
 
 // RedactForLog returns a copy of an Assign that is safe to hand to a log statement.
 //
-// Assign.resolved_secrets carries plaintext secret values, so this is the only form of an
-// Assign that may ever reach a logger. The clone keeps the task ID, the lease, the spec
+// Assign.resolved_secrets carries plaintext secret values and Assign.registry_credentials
+// carries registry passwords, so this is the only form of an Assign that may ever reach a
+// logger. The clone keeps the task ID, the lease, the spec
 // and the deadline — everything an operator needs to follow an assignment — and drops the
 // values. The names are dropped with them: a secret name is not a value, but the spec's
 // own SecretRefs already carry the names, so keeping a second copy here buys nothing.
@@ -24,5 +25,6 @@ func RedactForLog(a *Assign) *Assign {
 		return nil
 	}
 	c.ResolvedSecrets = nil
+	c.RegistryCredentials = nil
 	return c
 }

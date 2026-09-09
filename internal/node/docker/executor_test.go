@@ -284,13 +284,15 @@ func TestPullFailuresAreClassifiedByWhatTheRegistrySaid(t *testing.T) {
 			"does-not-exist, repository does not exist or may require 'docker login'",
 		"the tag does not exist": `Error response from daemon: failed to resolve reference ` +
 			`"docker.io/library/alpine:0.0.0-nope": docker.io/library/alpine:0.0.0-nope: not found`,
-		"the manifest is unknown":     "manifest unknown: manifest unknown",
-		"the registry wants a login":  "unauthorized: authentication required",
+		"the manifest is unknown":    "manifest unknown: manifest unknown",
+		"the registry wants a login": "unauthorized: authentication required",
+		"the registry wants a basic-auth login": `Error response from daemon: Head ` +
+			`"http://127.0.0.1:5000/v2/podium-test/alpine/manifests/private": no basic auth credentials`,
 		"the reference is not a name": "invalid reference format",
 	}
 	for name, msg := range permanent {
 		t.Run(name, func(t *testing.T) {
-			err := pullFailed("img:tag", msg)
+			err := pullFailed("img:tag", msg, false)
 			require.ErrorIs(t, err, errImageUnavailable)
 			require.Contains(t, err.Error(), msg, "the registry's own words are what an operator acts on")
 		})
@@ -306,10 +308,23 @@ func TestPullFailuresAreClassifiedByWhatTheRegistrySaid(t *testing.T) {
 	}
 	for name, msg := range transient {
 		t.Run(name, func(t *testing.T) {
-			err := pullFailed("img:tag", msg)
+			err := pullFailed("img:tag", msg, false)
 			require.NotErrorIs(t, err, errImageUnavailable,
 				"failing a task for a registry blip is worse than spending one attempt on it")
 			require.Contains(t, err.Error(), msg)
 		})
 	}
+}
+
+// A private registry refuses an anonymous pull with the same words it uses for a typo, so
+// the error says where a credential would have come from — but only when none was sent.
+func TestDeniedAnonymousPullPointsAtTheRegistriesScreen(t *testing.T) {
+	denied := "pull access denied for us-docker.pkg.dev/acme/images/app, repository does not exist or may require 'docker login'"
+	require.Contains(t, pullFailed("img", denied, true).Error(), "Registries screen")
+	require.NotContains(t, pullFailed("img", denied, false).Error(), "Registries screen",
+		"a credential was sent and refused: the hint would point the wrong way")
+	require.NotContains(t, pullFailed("img", "manifest unknown", true).Error(), "Registries screen",
+		"a missing tag is not an access problem")
+	require.Contains(t, pullFailed("img", "no basic auth credentials", true).Error(), "Registries screen",
+		"a basic-auth registry refuses in its own words")
 }
