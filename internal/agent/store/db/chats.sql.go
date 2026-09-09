@@ -437,7 +437,16 @@ select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.e
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and t.status = 'running'
-  ) as turn_running
+  ) as turn_running,
+  -- A delegated task outlives the turn that started it, and it is the conversation's work
+  -- for as long as it runs.
+  exists (
+    select 1 from delegations d
+      join turns t on t.id = d.turn_id
+      join sessions s on s.id = t.session_id
+     where s.source_key = c.source_key
+       and d.status = 'running'
+  ) as task_running
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,
@@ -472,6 +481,7 @@ type ListChatsRow struct {
 	LastMessageAt time.Time
 	LastText      string
 	TurnRunning   bool
+	TaskRunning   bool
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -511,6 +521,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.LastMessageAt,
 			&i.LastText,
 			&i.TurnRunning,
+			&i.TaskRunning,
 		); err != nil {
 			return nil, err
 		}

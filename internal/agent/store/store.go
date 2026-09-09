@@ -553,6 +553,9 @@ type Chat struct {
 	Preview string
 	// TurnRunning is true while a turn of this chat is in flight.
 	TurnRunning bool
+	// TaskRunning is true while a task this conversation delegated is still running, which
+	// outlasts the turn that delegated it.
+	TaskRunning bool
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -734,6 +737,7 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 			CreatedAt:   r.CreatedAt.UTC(),
 			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
+			TaskRunning: r.TaskRunning,
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()

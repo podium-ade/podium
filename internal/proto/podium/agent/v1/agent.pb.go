@@ -2851,6 +2851,11 @@ type Chat struct {
 	// conversation's attribution, because it has no Podium login to own it, and empty for a
 	// web chat — whose owner is the login that made it.
 	StartedBy string `protobuf:"bytes,12,opt,name=started_by,json=startedBy,proto3" json:"started_by,omitempty"`
+	// task_running is true while a task this conversation delegated is still running. The
+	// assistant's own turn ends as soon as it has delegated, so turn_running goes false long
+	// before the work does; this is what keeps the chat marked as busy, and what a delete
+	// warns about. It does not disable the composer: the conversation may go on meanwhile.
+	TaskRunning bool `protobuf:"varint,14,opt,name=task_running,json=taskRunning,proto3" json:"task_running,omitempty"`
 	// participants is everyone who has spoken, first appearance first. Set by GetChat and
 	// left empty by ListChats, which would need a query per row to fill it and only shows
 	// started_by.
@@ -2964,6 +2969,13 @@ func (x *Chat) GetStartedBy() string {
 		return x.StartedBy
 	}
 	return ""
+}
+
+func (x *Chat) GetTaskRunning() bool {
+	if x != nil {
+		return x.TaskRunning
+	}
+	return false
 }
 
 func (x *Chat) GetParticipants() []string {
@@ -7247,7 +7259,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\"\x90\x01\n" +
 	"\x15ListPlaybooksResponse\x127\n" +
 	"\tplaybooks\x18\x01 \x03(\v2\x19.podium.agent.v1.PlaybookR\tplaybooks\x128\n" +
-	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\x8d\x03\n" +
+	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xb0\x03\n" +
 	"\x04Chat\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x129\n" +
@@ -7262,7 +7274,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	" \x01(\tR\x06effort\x12\x16\n" +
 	"\x06origin\x18\v \x01(\tR\x06origin\x12\x1d\n" +
 	"\n" +
-	"started_by\x18\f \x01(\tR\tstartedBy\x12\"\n" +
+	"started_by\x18\f \x01(\tR\tstartedBy\x12!\n" +
+	"\ftask_running\x18\x0e \x01(\bR\vtaskRunning\x12\"\n" +
 	"\fparticipants\x18\r \x03(\tR\fparticipantsJ\x04\b\a\x10\b\"\x87\x01\n" +
 	"\x0eChatAttachment\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +

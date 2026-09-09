@@ -624,6 +624,11 @@ message Chat {
   // conversation's attribution, because it has no Podium login to own it, and empty for a
   // web chat — whose owner is the login that made it.
   string started_by = 12;
+  // task_running is true while a task this conversation delegated is still running. The
+  // assistant's own turn ends as soon as it has delegated, so turn_running goes false long
+  // before the work does; this is what keeps the chat marked as busy, and what a delete
+  // warns about. It does not disable the composer: the conversation may go on meanwhile.
+  bool task_running = 14;
   // participants is everyone who has spoken, first appearance first. Set by GetChat and
   // left empty by ListChats, which would need a query per row to fill it and only shows
   // started_by.
