@@ -3,6 +3,7 @@ package conductor
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
@@ -13,10 +14,15 @@ import (
 //
 // It is never read back into a brief. FetchTranscript is still what a turn is handed, so
 // Slack remains the one authority on what was said and the mirror cannot drift into
-// disagreeing with the model's own view of the conversation. That also means the mirror is
-// allowed to be lossy: it keeps what a reader of the thread sees, which is the questions and
-// the answers, and drops the placeholder and the ⏳ progress the source itself treats as
-// noise.
+// disagreeing with the model's own view of the conversation.
+//
+// What it keeps is what the web chat keeps for a conversation it owns: the questions, the
+// answers, the failures, and every progress line — including the "working on this in a task"
+// announcement, whose task id is the only link a reader has from the thread to the task. In
+// Slack the progress line is one message that is edited in place, so the thread shows only
+// the newest; the mirror keeps each edit as its own row, as the web chat does, because the
+// trail is what makes a turn readable afterwards. Only the 👀 placeholder is dropped: it is
+// the conductor saying it has started, not a word from the turn.
 
 // mirrorTitleRunes bounds a mirrored conversation's title. It matches the cap the web chat
 // uses for a title taken from a first message.
@@ -70,11 +76,22 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 	})
 }
 
-// mirrorSaid records one thing the bot said out loud. Only what a reader of the thread
-// would keep: an answer or a failure, never the placeholder or the progress edits.
+// mirrorSaid records one thing the bot said out loud, or edited into what it had said. An
+// answer or a failure is an assistant row; a progress line is a progress row with its ⏳
+// stripped, which is exactly what the web chat stores for its own — so the two kinds of
+// conversation read the same way in the UI.
 func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out Outbound) {
-	if out.Type != OutFinal && out.Type != OutFailure {
-		return
+	role := RoleAssistant
+	text := out.Text
+	if out.Type == OutProgress {
+		if text == Placeholder {
+			return
+		}
+		role = store.RoleProgress
+		text = strings.TrimPrefix(text, ProgressPrefix)
+		if strings.TrimSpace(text) == "" {
+			return
+		}
 	}
 	key, ok := c.mirrorKey(src, ref)
 	if !ok {
@@ -94,9 +111,9 @@ func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out 
 	}
 	c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
 		ChatID: chat.ID,
-		Role:   RoleAssistant,
+		Role:   role,
 		Author: author,
-		Text:   out.Text,
+		Text:   text,
 		TaskID: out.TaskID,
 	})
 }

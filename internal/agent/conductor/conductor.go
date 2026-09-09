@@ -1015,8 +1015,7 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 			"ref", ref, "type", out.Type, "error", err)
 		return ""
 	}
-	// Said out loud, so it belongs in the copy a reader sees. Only the answer and the
-	// apology: mirrorSaid drops everything else.
+	// Said out loud, so it belongs in the copy a reader sees.
 	c.mirrorSaid(ctx, src, ref, out)
 	return id
 }

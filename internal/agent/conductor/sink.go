@@ -155,7 +155,11 @@ func (s *sink) flushProgress(ctx context.Context) {
 	if err := s.src.Edit(ctx, s.ref, s.placeholder, out); err != nil {
 		s.c.logger.WarnContext(ctx, "editing the progress message failed",
 			"ref", s.ref, "error", err)
+		return
 	}
+	// An edit is said out loud too, and it is the only progress a Slack thread ever shows
+	// after the first line — so it goes into the copy exactly as a post does.
+	s.c.mirrorSaid(ctx, s.src, s.ref, out)
 }
 
 // attach streams one artifact into the conversation. Nothing is buffered: an artifact may
