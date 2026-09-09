@@ -273,6 +273,9 @@ podium secret set GREETING --value hello        # warns: this is in your shell h
 - Stdin loses **one** trailing newline, because typing or echoing a value adds one.
   `--from-file` and `--value` are taken byte for byte, so a PEM file or a binary key
   survives intact.
+- The **Secrets** screen in the web UI does the same two things: a value typed into the field,
+  or a file picked with *Or from a file*, which is read in the browser and sent byte for byte
+  exactly as `--from-file` does. Nothing there strips a newline either.
 - Setting an existing name replaces the value and bumps its version. Tasks already assigned
   keep the value they were given.
 - `NAME` must match `^[A-Za-z_][A-Za-z0-9_.-]*$`.
