@@ -506,3 +506,57 @@ func textsOf(records []fakesource.Record) []string {
 	}
 	return out
 }
+
+// The change a Slack thread exists for. With a host runtime, a mention is a CONVERSATION
+// answered in this process — so it creates no task, and its session is pinned to no
+// playbook, which is what lets the assistant delegate the work to any of them instead of the
+// channel's routing picking one up front.
+//
+// The turn itself fails here, because only the dev source may drive the fake runtime. That
+// is not what this is about: where the turn WENT is.
+func TestASlackThreadIsAnsweredHereAndPinnedToNoPlaybook(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceSlack)
+	t.Cleanup(src.Close)
+
+	startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = hostRuntime(t, "sk-test") })
+
+	ctx := context.Background()
+	ev := threadInbound("C1/1.1", "what does this repo do?")
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "the turn to reach a terminal status", func() bool {
+		s := turnStatus(st, ev.SourceKey)
+		return s != "" && s != store.TurnRunning
+	})
+
+	assert.Empty(t, fake.Specs(), "a mention is answered on this host now, not run as a task")
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Playbook,
+		"a thread used to be pinned to the playbook its channel routed to, and that is the "+
+			"whole reason a mention could never reach any other one")
+}
+
+// And with no host runtime it still runs a playbook as a task. A conductor whose host has no
+// runtime has nothing to answer with, and answering on a worker beats refusing.
+func TestASlackThreadStillRunsAPlaybookWithNoHostRuntime(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceSlack)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+
+	ctx := context.Background()
+	ev := threadInbound("C1/1.1", "what does this repo do?")
+	require.NoError(t, src.Send(ctx, ev))
+
+	waitFor(t, 30*time.Second, "a task to be created", func() bool { return len(fake.Specs()) == 1 })
+
+	sess, err := st.GetSessionByKey(ctx, ev.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "general", sess.Playbook, "the profile's default, as it always was")
+}

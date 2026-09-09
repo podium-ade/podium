@@ -106,6 +106,11 @@ type Config struct {
 	// no Node and no harness must do. Set, it is what answers a conversation, and a
 	// container is what that conversation delegates to. See internal/agent/conductor/host.go.
 	HostRuntime string
+	// HostMaxTurns is PODIUM_AGENT_HOST_MAX_TURNS: how many turns this host answers at
+	// once. Zero means the conductor's own default. A host turn is a process on this
+	// machine, and with Slack threads answered here too it is a channel's traffic that
+	// decides how many conversations there are.
+	HostMaxTurns int
 	// HostNode is PODIUM_AGENT_HOST_NODE, the node binary that runs HostRuntime. Default
 	// "node", found on PATH.
 	HostNode string
@@ -183,6 +188,7 @@ func FromEnv() Config {
 		ProfileDir:       envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
 		SkillsDir:        os.Getenv(skills.DirEnv),
 		HostRuntime:      os.Getenv("PODIUM_AGENT_HOST_RUNTIME"),
+		HostMaxTurns:     envInt("PODIUM_AGENT_HOST_MAX_TURNS"),
 		HostNode:         envOr("PODIUM_AGENT_HOST_NODE", "node"),
 		RunnerBin:        os.Getenv("PODIUM_AGENT_RUNNER_BIN"),
 		HostDir:          os.Getenv("PODIUM_AGENT_HOST_DIR"),
@@ -319,6 +325,9 @@ func (c Config) Validate() error {
 	// Same reasoning as the skills directory, and a stronger case for it: with a host
 	// runtime configured, EVERY conversation runs on it, so a path that is not there is
 	// every turn failing rather than some of them.
+	if c.HostMaxTurns < 0 {
+		return errors.New("PODIUM_AGENT_HOST_MAX_TURNS must be a whole number of turns")
+	}
 	if c.HostRuntime != "" {
 		if _, err := os.Stat(c.HostRuntime); err != nil {
 			return fmt.Errorf("PODIUM_AGENT_HOST_RUNTIME=%q: %w", c.HostRuntime, err)
@@ -345,6 +354,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("profile_dir", c.ProfileDir),
 		slog.String("skills_dir", c.SkillsDir),
 		slog.String("host_runtime", c.HostRuntime),
+		slog.Int("host_max_turns", c.HostMaxTurns),
 		slog.String("anthropic_base_url", c.AnthropicBaseURL),
 		slog.String("xai_base_url", c.XAIBaseURL),
 		slog.String("xai_oauth_issuer", c.XAIOAuthIssuer),
@@ -470,6 +480,21 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 		return -1
 	}
 	return d
+}
+
+// envInt parses a count, 0 when the variable is absent. An unparseable value becomes -1
+// rather than 0, so Validate names it instead of the process quietly running on a default
+// nobody asked for — the same rule envDuration follows.
+func envInt(key string) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 func envBool(key string) bool {

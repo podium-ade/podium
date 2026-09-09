@@ -1143,3 +1143,129 @@ func TestARecoveredTurnWithNoTaskIsFailed(t *testing.T) {
 }
 
 func exitCodeOf(v int32) *int32 { return &v }
+
+// A conversation that lives somewhere else is MIRRORED into chats/chat_messages so it can be
+// read in the Podium UI: who asked, what they asked, and what came back. The mirror is never
+// read into a brief — Slack stays the one authority on what was said — so this is about what
+// a reader sees afterwards and nothing else.
+func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutProgress, "reading the tree"),
+			messageEvent(taskID, 2, conductor.OutFinal, "it is a task runner."),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	ev := inbound("C1/1.1", "what does this repo do?")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	chat, err := st.ChatBySourceKey(ctx, ev.SourceKey)
+	require.NoError(t, err, "the conversation should have opened a chat to be read in")
+	assert.Empty(t, chat.Login, "a mirrored conversation has no owning login")
+	assert.Equal(t, conductor.KindDev, chat.Origin)
+	assert.Equal(t, "alice", chat.StartedBy, "the person who asked first is the attribution")
+	assert.Equal(t, "what does this repo do?", chat.Title)
+
+	msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2, "the question and the answer; the placeholder and the progress are noise: %+v", msgs)
+
+	assert.Equal(t, store.RoleUser, msgs[0].Role)
+	assert.Equal(t, "alice", msgs[0].Author)
+	assert.Equal(t, "what does this repo do?", msgs[0].Text)
+
+	assert.Equal(t, store.RoleAssistant, msgs[1].Role)
+	assert.Equal(t, "Podium", msgs[1].Author, "the bot's own display name, so a reader can tell it apart")
+	assert.Equal(t, "it is a task runner.", msgs[1].Text)
+
+	// And it is in the list, for any login, because nobody owns it.
+	chats, _, err := st.ListChats(ctx, "whoever", 0, "")
+	require.NoError(t, err)
+	var found bool
+	for _, c := range chats {
+		if c.ID == chat.ID {
+			found = true
+			assert.Equal(t, "alice", c.StartedBy)
+		}
+	}
+	assert.True(t, found, "a mirrored conversation belongs to the workspace, so every login lists it")
+
+	people, err := st.ChatParticipants(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice"}, people, "the humans, and not the bot")
+}
+
+// A second person in the thread is a second participant, and the copy says who said what.
+func TestAMirroredConversationRemembersEveryoneInIt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{
+			messageEvent(taskID, 1, conductor.OutFinal, "answered."),
+		}
+	}
+	src := fakesource.New(conductor.KindDev)
+	src.Mirrors()
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	first := inbound("C1/1.1", "what does this repo do?")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, first))
+	waitFor(t, 30*time.Second, "the first turn", func() bool {
+		return turnStatus(st, first.SourceKey) == store.TurnSucceeded
+	})
+
+	second := inbound("C1/1.1", "and the node?")
+	second.Author = "bob"
+	require.NoError(t, src.Send(ctx, second))
+	waitFor(t, 30*time.Second, "the second answer", func() bool {
+		chat, err := st.ChatBySourceKey(ctx, second.SourceKey)
+		if err != nil {
+			return false
+		}
+		msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
+		return err == nil && len(msgs) >= 4
+	})
+
+	chat, err := st.ChatBySourceKey(ctx, second.SourceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "alice", chat.StartedBy, "the FIRST asker, not the latest one")
+
+	people, err := st.ChatParticipants(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice", "bob"}, people)
+}
+
+// The web chat must not be mirrored: it already stores its own messages, and a second
+// writer would double every one of them.
+func TestAConversationPodiumOwnsIsNotMirrored(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "answered.")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	ev := inbound("C1/1.1", "what does this repo do?")
+	start(t, st, fake, src)
+	require.NoError(t, src.Send(ctx, ev))
+	waitFor(t, 30*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	_, err := st.ChatBySourceKey(ctx, ev.SourceKey)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}

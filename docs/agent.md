@@ -299,7 +299,8 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
 | `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
-| `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and a web chat is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
+| `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and every CONVERSATION — a web chat and a Slack thread alike — is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
+| `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn, showing `👀 working…` for longer; `podium_agent_host_turns_queued_total` counts how often that happens |
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
@@ -477,7 +478,7 @@ resources: {cpu: 2, memory_mb: 4096}                         # verbatim into the
 secrets:                                                     # verbatim into the spec
   - {name: podium.agent.github_token, target: env, key: GITHUB_TOKEN}
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
-slack_channels: []                                           # channel IDs this playbook is the default for
+slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
@@ -744,7 +745,18 @@ of which is one piece of work in a container. The assistant reaches a playbook b
 it, one per task, chosen by the turn — there is nothing for a human to select and no default to
 set.
 
-For a thread or a ticket, in order:
+**A Slack thread is a conversation too.** With a host runtime configured, a mention is answered
+by the assistant on the conductor's own host, exactly as a web chat is, and it reaches a playbook
+by delegating to it. That is what makes every playbook reachable from Slack: routing could only
+ever pick one, and in practice it picked the default. The routing rules below therefore apply to
+Slack **only on a conductor with no host runtime**, which answers a mention by running a playbook
+as a task because it has nothing else to answer with.
+
+So `slack_channels` is **deprecated**. It still routes a thread on a conductor without a host
+runtime, and it does nothing at all on one with it. Do not reach for it: say which playbook you
+want in the thread and let the turn delegate.
+
+For a ticket — and for a thread on a conductor with no host runtime — in order:
 
 1. **A playbook the source knows** is right, which no rule below may second-guess: the
    `linear: true` playbook a ticket runs. A ticket's text is not a command line, so a `/word` in
@@ -753,7 +765,7 @@ For a thread or a ticket, in order:
    stripped. An **unknown** `/name` is not an error: it is left in the text and falls through, so
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
-   error.
+   error. **Deprecated** — see above.
 4. `profile.default_playbook`.
 
 Rule 1 is knowledge and rule 4 is a fallback, and keeping them apart is the whole of the order:
@@ -1130,6 +1142,32 @@ Then, in a channel the bot is in:
 👀 appears on your message. That is the acknowledgement — there is no `👀 working…` chat
 message. Progress, if any, arrives as `⏳ …` lines; the answer is posted as a new message
 in the thread, and 👀 becomes ✅.
+
+### A thread is readable in the Podium UI
+
+A Slack thread is **mirrored** into the same tables the web chat uses, so it shows up in the chat
+list beside them — with the names of the people in it, which is the thing `turns` has never held:
+that table records the bot's answers and a pointer back to Slack, never the questions or who
+asked them.
+
+What the copy holds is what a reader of the thread sees: the questions and the answers. The
+placeholder and the `⏳` progress edits are left out, the same way the source itself treats them
+as noise. Each message carries its author, the conversation is attributed to **whoever asked
+first**, and the participants are everyone who has spoken.
+
+It is **read-only, and it is a copy**. Two consequences worth being clear about:
+
+- **You cannot reply from Podium.** The conversation lives in Slack and is answered there, so a
+  mirrored chat has no composer, and no rename or delete. That is not a missing feature of the UI:
+  a mirrored chat has no owning login, and every write filters on one.
+- **Slack is still the only authority on what was said.** A turn is briefed from
+  `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
+  leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
+  lossy because nothing depends on it being complete.
+
+A mirrored thread belongs to the workspace rather than to a login, so **every login sees it**. That
+is the same reach the Sessions screen has always had over the same conversations, and it is not
+RBAC — there is none in this track. See [`security.md`](security.md).
 
 ### What the bot listens to
 
