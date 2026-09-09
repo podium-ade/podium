@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alvaroibarguen/podium/internal/agent/config"
+	"github.com/alvaroibarguen/podium/internal/agent/mcp"
 	"github.com/alvaroibarguen/podium/internal/agent/memory"
 	"github.com/alvaroibarguen/podium/internal/agent/podium"
 	"github.com/alvaroibarguen/podium/internal/agent/profiles"
@@ -491,7 +492,24 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, j, turn.ID, ev, entries, bundles, choice)
+	// The job's MCP servers, resolved against the registry. Per turn for the same reason the
+	// skills are: a server an operator has just disabled must not be handed to the next
+	// turn, and a name that no longer resolves fails the job that names it rather than the
+	// whole conductor.
+	servers, err := c.mcpServers(ctx, j)
+	if err != nil {
+		// The name is the operator's own and is safe to say, and saying it is the point: a
+		// playbook naming a server nobody registered is a five-second fix for whoever can
+		// see which name it is.
+		c.logger.ErrorContext(ctx, "the turn's mcp servers could not be resolved",
+			"turn_id", turn.ID, "job", j.name, "mcp_servers", j.mcpServers, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, TaskID: "", Text: fmt.Sprintf(
+			"`%s` asks for an MCP server I do not have, so nothing ran: %v", j.name, err)})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
+
+	brief := c.brief(sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -565,7 +583,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, choice)
+	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
@@ -611,7 +629,7 @@ func aConversation(kind string) bool {
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
 	sess store.Session, j job, turnID string, ev InboundEvent,
-	entries []BriefEntry, bundles []skills.Bundle, choice profiles.Choice,
+	entries []BriefEntry, bundles []skills.Bundle, servers []mcp.Server, choice profiles.Choice,
 ) *Brief {
 	kind := ev.BriefKind
 	if kind == "" {
@@ -658,6 +676,16 @@ func (c *Conductor) brief(
 			Name: s.Name, SHA256: s.SHA256, BundleEnv: s.Env,
 		})
 	}
+	for _, srv := range servers {
+		entry := BriefMCPServer{Name: srv.Name, URL: srv.URL}
+		// A server with no stored credential is named without one. The env var is only
+		// promised where a secret is actually attached below, because a brief naming a
+		// variable the container does not have is a turn that fails on its harness config.
+		if srv.TokenSecretVersion > 0 {
+			entry.TokenEnv = mcp.TokenEnv(srv.Name)
+		}
+		b.Playbook.MCPServers = append(b.Playbook.MCPServers, entry)
+	}
 	if b.Instruction == "" {
 		// The schema requires a non-empty instruction, and a mention with no words is a
 		// real thing a human does.
@@ -695,7 +723,7 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 // own file names, and the one the backend it runs on needs.
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
-	choice profiles.Choice,
+	servers []mcp.Server, choice profiles.Choice,
 ) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range playbook.Env {
@@ -728,7 +756,7 @@ func (c *Conductor) taskSpec(
 		Resources: playbook.Resources,
 		Timeout:   playbook.Timeout,
 		Secrets: append(append([]spec.SecretRef(nil), playbook.Secrets...),
-			c.reservedSecrets(choice.Agent)...),
+			c.reservedSecrets(choice.Agent, servers)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
@@ -759,6 +787,50 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 		return nil, fmt.Errorf("%s: %w", j.name, err)
 	}
 	return bundles, nil
+}
+
+// mcpServers resolves the playbook's mcp_servers list against the registry, in the order the
+// playbook named them. A playbook that names none reads nothing, so a bot that does not use
+// MCP needs no database for this.
+//
+// An unknown or disabled name fails the turn. It is the same rule a disabled skill follows,
+// and for the same reason: a turn that quietly ran with fewer tools than its playbook
+// describes is the one outcome nobody can diagnose afterwards. The error is shown to the
+// human because a server name is the operator's own text, and it is the only part of this
+// failure anybody can act on.
+func (c *Conductor) mcpServers(ctx context.Context, j job) ([]mcp.Server, error) {
+	if len(j.mcpServers) == 0 {
+		return nil, nil
+	}
+	if c.store == nil {
+		return nil, fmt.Errorf("this conductor has no database, so it has no MCP server registry")
+	}
+	rows, err := c.store.ListMcpServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return resolveMCPServers(j.mcpServers, rows)
+}
+
+// resolveMCPServers picks the named servers out of the registry, in the order they were
+// named. Separated from the read so it can be asserted without a database.
+func resolveMCPServers(names []string, rows []mcp.Server) ([]mcp.Server, error) {
+	byName := make(map[string]mcp.Server, len(rows))
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	out := make([]mcp.Server, 0, len(names))
+	for _, name := range names {
+		srv, ok := byName[name]
+		switch {
+		case !ok:
+			return nil, fmt.Errorf("no MCP server named %q is registered", name)
+		case !srv.Enabled:
+			return nil, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		out = append(out, srv)
+	}
+	return out, nil
 }
 
 // skills is the library one turn resolves its names against: the directory on this host
@@ -882,7 +954,7 @@ func dockerSidecar() spec.Sidecar {
 // The memory key is on every turn of a host that has memory, because a brief with a memory
 // block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
 // optional.
-func (c *Conductor) reservedSecrets(agent string) []spec.SecretRef {
+func (c *Conductor) reservedSecrets(agent string, servers []mcp.Server) []spec.SecretRef {
 	model := spec.SecretRef{
 		Name:   profiles.AnthropicKeySecret,
 		Target: spec.SecretTargetEnv,
@@ -901,6 +973,19 @@ func (c *Conductor) reservedSecrets(agent string) []spec.SecretRef {
 			Name:   profiles.MemoryKeySecret,
 			Target: spec.SecretTargetEnv,
 			Key:    profiles.MemoryKeyEnv,
+		})
+	}
+	// One secret per MCP server the playbook was granted, and only for the ones that have a
+	// credential stored. The playbook cannot name these secrets itself — profiles refuses
+	// the prefix — so being in this list is the whole of how a turn gets one.
+	for _, srv := range servers {
+		if srv.TokenSecretVersion == 0 {
+			continue
+		}
+		refs = append(refs, spec.SecretRef{
+			Name:   mcp.TokenSecret(srv.Name),
+			Target: spec.SecretTargetEnv,
+			Key:    mcp.TokenEnv(srv.Name),
 		})
 	}
 	return refs

@@ -138,6 +138,28 @@ type BriefPlaybook struct {
 	// Skills is the Agent Skills this turn may use. Absent means none, and the runtime
 	// writes a permission map that denies every skill either way.
 	Skills []BriefSkill `json:"skills,omitempty"`
+	// MCPServers is the MCP servers this turn may use. Absent means none, and the runtime
+	// writes the harness one entry per server here and no others — so a playbook that names
+	// none has no MCP tools beyond the ones the conductor wires up itself.
+	MCPServers []BriefMCPServer `json:"mcp_servers,omitempty"`
+}
+
+// BriefMCPServer points the runtime at one MCP server. It carries an address and the NAME of
+// a credential, never a value — the same split memory and the model providers follow, for the
+// same reason: the brief is an environment variable on a task spec and is readable by
+// anything that can read the spec.
+//
+// How the credential is presented is not in here. `Authorization: Bearer <token>` is what
+// the MCP authorization specification says and what the runtime writes; there is nothing
+// per-server to carry.
+type BriefMCPServer struct {
+	// Name is the server's registered name, and the prefix the harness gives its tools.
+	Name string `json:"name"`
+	// URL is the server's endpoint.
+	URL string `json:"url"`
+	// TokenEnv names the environment variable holding the bearer token. Absent for a server
+	// registered without one, which reaches its turns unauthenticated.
+	TokenEnv string `json:"token_env,omitempty"`
 }
 
 // BriefSkill points the runtime at one Agent Skill bundle. It carries a NAME and a DIGEST,

@@ -96,6 +96,30 @@ const (
 	// AgentServiceDeleteSkillProcedure is the fully-qualified name of the AgentService's DeleteSkill
 	// RPC.
 	AgentServiceDeleteSkillProcedure = "/podium.agent.v1.AgentService/DeleteSkill"
+	// AgentServiceListMcpServersProcedure is the fully-qualified name of the AgentService's
+	// ListMcpServers RPC.
+	AgentServiceListMcpServersProcedure = "/podium.agent.v1.AgentService/ListMcpServers"
+	// AgentServiceCreateMcpServerProcedure is the fully-qualified name of the AgentService's
+	// CreateMcpServer RPC.
+	AgentServiceCreateMcpServerProcedure = "/podium.agent.v1.AgentService/CreateMcpServer"
+	// AgentServiceUpdateMcpServerProcedure is the fully-qualified name of the AgentService's
+	// UpdateMcpServer RPC.
+	AgentServiceUpdateMcpServerProcedure = "/podium.agent.v1.AgentService/UpdateMcpServer"
+	// AgentServiceDeleteMcpServerProcedure is the fully-qualified name of the AgentService's
+	// DeleteMcpServer RPC.
+	AgentServiceDeleteMcpServerProcedure = "/podium.agent.v1.AgentService/DeleteMcpServer"
+	// AgentServiceSetMcpServerTokenProcedure is the fully-qualified name of the AgentService's
+	// SetMcpServerToken RPC.
+	AgentServiceSetMcpServerTokenProcedure = "/podium.agent.v1.AgentService/SetMcpServerToken"
+	// AgentServiceClearMcpServerTokenProcedure is the fully-qualified name of the AgentService's
+	// ClearMcpServerToken RPC.
+	AgentServiceClearMcpServerTokenProcedure = "/podium.agent.v1.AgentService/ClearMcpServerToken"
+	// AgentServiceStartMcpOAuthProcedure is the fully-qualified name of the AgentService's
+	// StartMcpOAuth RPC.
+	AgentServiceStartMcpOAuthProcedure = "/podium.agent.v1.AgentService/StartMcpOAuth"
+	// AgentServiceCompleteMcpOAuthProcedure is the fully-qualified name of the AgentService's
+	// CompleteMcpOAuth RPC.
+	AgentServiceCompleteMcpOAuthProcedure = "/podium.agent.v1.AgentService/CompleteMcpOAuth"
 	// AgentServiceCreateChatProcedure is the fully-qualified name of the AgentService's CreateChat RPC.
 	AgentServiceCreateChatProcedure = "/podium.agent.v1.AgentService/CreateChat"
 	// AgentServiceListChatsProcedure is the fully-qualified name of the AgentService's ListChats RPC.
@@ -192,6 +216,39 @@ type AgentServiceClient interface {
 	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
 	// file on the conductor's host and this API does not delete those.
 	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
+	// ListMcpServers reports every MCP server registered on this conductor, with which
+	// playbooks name each one. It never carries a token: a server's credential is a Podium
+	// secret and the last four characters kept at save time are all any client ever sees.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// CreateMcpServer registers a new one. The URL is validated as an absolute http(s) URL and
+	// nothing else about it is assumed: whether the server answers is found out by a turn.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// UpdateMcpServer replaces a registered server's definition, leaving its token alone.
+	UpdateMcpServer(context.Context, *connect.Request[v1.UpdateMcpServerRequest]) (*connect.Response[v1.UpdateMcpServerResponse], error)
+	// DeleteMcpServer removes one and its stored token. A playbook that still names it fails
+	// its turns saying so, which is why ListMcpServers reports who names what.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// SetMcpServerToken stores the credential this server authenticates with, as a Podium
+	// secret. It is never read back and never written into a turn's config file — the config
+	// names the environment variable the conductor delivers it in.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// ClearMcpServerToken removes it. The server stays registered and reaches its turns with
+	// no authorization header at all, which is what an unauthenticated server wants.
+	ClearMcpServerToken(context.Context, *connect.Request[v1.ClearMcpServerTokenRequest]) (*connect.Response[v1.ClearMcpServerTokenResponse], error)
+	// StartMcpOAuth begins an OAuth sign-in against an MCP server that wants one, and answers
+	// with the URL to send the operator's browser to. Everything about the server's OAuth is
+	// DISCOVERED — the protected-resource metadata names its authorization server, and that
+	// server's own metadata names its endpoints — and the client is registered dynamically, so
+	// no part of it is configuration an operator has to supply.
+	//
+	// The PKCE verifier stays on the conductor. A browser is handed a flow id and a URL, which
+	// name a sign-in rather than bearing one.
+	StartMcpOAuth(context.Context, *connect.Request[v1.StartMcpOAuthRequest]) (*connect.Response[v1.StartMcpOAuthResponse], error)
+	// CompleteMcpOAuth trades the authorization code the browser came back with for a token,
+	// and stores it exactly as a pasted one is stored. The code arrives over this API rather
+	// than on a redirect the server would have to serve unauthenticated — see
+	// docs/agent.md#signing-in-to-an-mcp-server.
+	CompleteMcpOAuth(context.Context, *connect.Request[v1.CompleteMcpOAuthRequest]) (*connect.Response[v1.CompleteMcpOAuthResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -371,6 +428,54 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
 			connect.WithClientOptions(opts...),
 		),
+		listMcpServers: connect.NewClient[v1.ListMcpServersRequest, v1.ListMcpServersResponse](
+			httpClient,
+			baseURL+AgentServiceListMcpServersProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListMcpServers")),
+			connect.WithClientOptions(opts...),
+		),
+		createMcpServer: connect.NewClient[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse](
+			httpClient,
+			baseURL+AgentServiceCreateMcpServerProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreateMcpServer")),
+			connect.WithClientOptions(opts...),
+		),
+		updateMcpServer: connect.NewClient[v1.UpdateMcpServerRequest, v1.UpdateMcpServerResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateMcpServerProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateMcpServer")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteMcpServer: connect.NewClient[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteMcpServerProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteMcpServer")),
+			connect.WithClientOptions(opts...),
+		),
+		setMcpServerToken: connect.NewClient[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse](
+			httpClient,
+			baseURL+AgentServiceSetMcpServerTokenProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetMcpServerToken")),
+			connect.WithClientOptions(opts...),
+		),
+		clearMcpServerToken: connect.NewClient[v1.ClearMcpServerTokenRequest, v1.ClearMcpServerTokenResponse](
+			httpClient,
+			baseURL+AgentServiceClearMcpServerTokenProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearMcpServerToken")),
+			connect.WithClientOptions(opts...),
+		),
+		startMcpOAuth: connect.NewClient[v1.StartMcpOAuthRequest, v1.StartMcpOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceStartMcpOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StartMcpOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		completeMcpOAuth: connect.NewClient[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceCompleteMcpOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CompleteMcpOAuth")),
+			connect.WithClientOptions(opts...),
+		),
 		createChat: connect.NewClient[v1.CreateChatRequest, v1.CreateChatResponse](
 			httpClient,
 			baseURL+AgentServiceCreateChatProcedure,
@@ -447,6 +552,14 @@ type agentServiceClient struct {
 	uploadSkill           *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
 	setSkillEnabled       *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
 	deleteSkill           *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
+	listMcpServers        *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
+	createMcpServer       *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
+	updateMcpServer       *connect.Client[v1.UpdateMcpServerRequest, v1.UpdateMcpServerResponse]
+	deleteMcpServer       *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
+	setMcpServerToken     *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
+	clearMcpServerToken   *connect.Client[v1.ClearMcpServerTokenRequest, v1.ClearMcpServerTokenResponse]
+	startMcpOAuth         *connect.Client[v1.StartMcpOAuthRequest, v1.StartMcpOAuthResponse]
+	completeMcpOAuth      *connect.Client[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse]
 	createChat            *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
 	listChats             *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
 	renameChat            *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
@@ -572,6 +685,46 @@ func (c *agentServiceClient) DeleteSkill(ctx context.Context, req *connect.Reque
 	return c.deleteSkill.CallUnary(ctx, req)
 }
 
+// ListMcpServers calls podium.agent.v1.AgentService.ListMcpServers.
+func (c *agentServiceClient) ListMcpServers(ctx context.Context, req *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return c.listMcpServers.CallUnary(ctx, req)
+}
+
+// CreateMcpServer calls podium.agent.v1.AgentService.CreateMcpServer.
+func (c *agentServiceClient) CreateMcpServer(ctx context.Context, req *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return c.createMcpServer.CallUnary(ctx, req)
+}
+
+// UpdateMcpServer calls podium.agent.v1.AgentService.UpdateMcpServer.
+func (c *agentServiceClient) UpdateMcpServer(ctx context.Context, req *connect.Request[v1.UpdateMcpServerRequest]) (*connect.Response[v1.UpdateMcpServerResponse], error) {
+	return c.updateMcpServer.CallUnary(ctx, req)
+}
+
+// DeleteMcpServer calls podium.agent.v1.AgentService.DeleteMcpServer.
+func (c *agentServiceClient) DeleteMcpServer(ctx context.Context, req *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return c.deleteMcpServer.CallUnary(ctx, req)
+}
+
+// SetMcpServerToken calls podium.agent.v1.AgentService.SetMcpServerToken.
+func (c *agentServiceClient) SetMcpServerToken(ctx context.Context, req *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return c.setMcpServerToken.CallUnary(ctx, req)
+}
+
+// ClearMcpServerToken calls podium.agent.v1.AgentService.ClearMcpServerToken.
+func (c *agentServiceClient) ClearMcpServerToken(ctx context.Context, req *connect.Request[v1.ClearMcpServerTokenRequest]) (*connect.Response[v1.ClearMcpServerTokenResponse], error) {
+	return c.clearMcpServerToken.CallUnary(ctx, req)
+}
+
+// StartMcpOAuth calls podium.agent.v1.AgentService.StartMcpOAuth.
+func (c *agentServiceClient) StartMcpOAuth(ctx context.Context, req *connect.Request[v1.StartMcpOAuthRequest]) (*connect.Response[v1.StartMcpOAuthResponse], error) {
+	return c.startMcpOAuth.CallUnary(ctx, req)
+}
+
+// CompleteMcpOAuth calls podium.agent.v1.AgentService.CompleteMcpOAuth.
+func (c *agentServiceClient) CompleteMcpOAuth(ctx context.Context, req *connect.Request[v1.CompleteMcpOAuthRequest]) (*connect.Response[v1.CompleteMcpOAuthResponse], error) {
+	return c.completeMcpOAuth.CallUnary(ctx, req)
+}
+
 // CreateChat calls podium.agent.v1.AgentService.CreateChat.
 func (c *agentServiceClient) CreateChat(ctx context.Context, req *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {
 	return c.createChat.CallUnary(ctx, req)
@@ -687,6 +840,39 @@ type AgentServiceHandler interface {
 	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
 	// file on the conductor's host and this API does not delete those.
 	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
+	// ListMcpServers reports every MCP server registered on this conductor, with which
+	// playbooks name each one. It never carries a token: a server's credential is a Podium
+	// secret and the last four characters kept at save time are all any client ever sees.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// CreateMcpServer registers a new one. The URL is validated as an absolute http(s) URL and
+	// nothing else about it is assumed: whether the server answers is found out by a turn.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// UpdateMcpServer replaces a registered server's definition, leaving its token alone.
+	UpdateMcpServer(context.Context, *connect.Request[v1.UpdateMcpServerRequest]) (*connect.Response[v1.UpdateMcpServerResponse], error)
+	// DeleteMcpServer removes one and its stored token. A playbook that still names it fails
+	// its turns saying so, which is why ListMcpServers reports who names what.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// SetMcpServerToken stores the credential this server authenticates with, as a Podium
+	// secret. It is never read back and never written into a turn's config file — the config
+	// names the environment variable the conductor delivers it in.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// ClearMcpServerToken removes it. The server stays registered and reaches its turns with
+	// no authorization header at all, which is what an unauthenticated server wants.
+	ClearMcpServerToken(context.Context, *connect.Request[v1.ClearMcpServerTokenRequest]) (*connect.Response[v1.ClearMcpServerTokenResponse], error)
+	// StartMcpOAuth begins an OAuth sign-in against an MCP server that wants one, and answers
+	// with the URL to send the operator's browser to. Everything about the server's OAuth is
+	// DISCOVERED — the protected-resource metadata names its authorization server, and that
+	// server's own metadata names its endpoints — and the client is registered dynamically, so
+	// no part of it is configuration an operator has to supply.
+	//
+	// The PKCE verifier stays on the conductor. A browser is handed a flow id and a URL, which
+	// name a sign-in rather than bearing one.
+	StartMcpOAuth(context.Context, *connect.Request[v1.StartMcpOAuthRequest]) (*connect.Response[v1.StartMcpOAuthResponse], error)
+	// CompleteMcpOAuth trades the authorization code the browser came back with for a token,
+	// and stores it exactly as a pasted one is stored. The code arrives over this API rather
+	// than on a redirect the server would have to serve unauthenticated — see
+	// docs/agent.md#signing-in-to-an-mcp-server.
+	CompleteMcpOAuth(context.Context, *connect.Request[v1.CompleteMcpOAuthRequest]) (*connect.Response[v1.CompleteMcpOAuthResponse], error)
 	// CreateChat opens a new web-chat conversation owned by the calling login.
 	CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error)
 	// ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -862,6 +1048,54 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListMcpServersHandler := connect.NewUnaryHandler(
+		AgentServiceListMcpServersProcedure,
+		svc.ListMcpServers,
+		connect.WithSchema(agentServiceMethods.ByName("ListMcpServers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreateMcpServerHandler := connect.NewUnaryHandler(
+		AgentServiceCreateMcpServerProcedure,
+		svc.CreateMcpServer,
+		connect.WithSchema(agentServiceMethods.ByName("CreateMcpServer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateMcpServerHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateMcpServerProcedure,
+		svc.UpdateMcpServer,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateMcpServer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteMcpServerHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteMcpServerProcedure,
+		svc.DeleteMcpServer,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteMcpServer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetMcpServerTokenHandler := connect.NewUnaryHandler(
+		AgentServiceSetMcpServerTokenProcedure,
+		svc.SetMcpServerToken,
+		connect.WithSchema(agentServiceMethods.ByName("SetMcpServerToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearMcpServerTokenHandler := connect.NewUnaryHandler(
+		AgentServiceClearMcpServerTokenProcedure,
+		svc.ClearMcpServerToken,
+		connect.WithSchema(agentServiceMethods.ByName("ClearMcpServerToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStartMcpOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceStartMcpOAuthProcedure,
+		svc.StartMcpOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("StartMcpOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCompleteMcpOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceCompleteMcpOAuthProcedure,
+		svc.CompleteMcpOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("CompleteMcpOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceCreateChatHandler := connect.NewUnaryHandler(
 		AgentServiceCreateChatProcedure,
 		svc.CreateChat,
@@ -958,6 +1192,22 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetSkillEnabledHandler.ServeHTTP(w, r)
 		case AgentServiceDeleteSkillProcedure:
 			agentServiceDeleteSkillHandler.ServeHTTP(w, r)
+		case AgentServiceListMcpServersProcedure:
+			agentServiceListMcpServersHandler.ServeHTTP(w, r)
+		case AgentServiceCreateMcpServerProcedure:
+			agentServiceCreateMcpServerHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateMcpServerProcedure:
+			agentServiceUpdateMcpServerHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteMcpServerProcedure:
+			agentServiceDeleteMcpServerHandler.ServeHTTP(w, r)
+		case AgentServiceSetMcpServerTokenProcedure:
+			agentServiceSetMcpServerTokenHandler.ServeHTTP(w, r)
+		case AgentServiceClearMcpServerTokenProcedure:
+			agentServiceClearMcpServerTokenHandler.ServeHTTP(w, r)
+		case AgentServiceStartMcpOAuthProcedure:
+			agentServiceStartMcpOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceCompleteMcpOAuthProcedure:
+			agentServiceCompleteMcpOAuthHandler.ServeHTTP(w, r)
 		case AgentServiceCreateChatProcedure:
 			agentServiceCreateChatHandler.ServeHTTP(w, r)
 		case AgentServiceListChatsProcedure:
@@ -1073,6 +1323,38 @@ func (UnimplementedAgentServiceHandler) SetSkillEnabled(context.Context, *connec
 
 func (UnimplementedAgentServiceHandler) DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteSkill is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListMcpServers is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreateMcpServer is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateMcpServer(context.Context, *connect.Request[v1.UpdateMcpServerRequest]) (*connect.Response[v1.UpdateMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateMcpServer is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteMcpServer is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetMcpServerToken is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearMcpServerToken(context.Context, *connect.Request[v1.ClearMcpServerTokenRequest]) (*connect.Response[v1.ClearMcpServerTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearMcpServerToken is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StartMcpOAuth(context.Context, *connect.Request[v1.StartMcpOAuthRequest]) (*connect.Response[v1.StartMcpOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StartMcpOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CompleteMcpOAuth(context.Context, *connect.Request[v1.CompleteMcpOAuthRequest]) (*connect.Response[v1.CompleteMcpOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CompleteMcpOAuth is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateChat(context.Context, *connect.Request[v1.CreateChatRequest]) (*connect.Response[v1.CreateChatResponse], error) {

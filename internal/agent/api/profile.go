@@ -403,6 +403,7 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		SlackChannels: s.SlackChannels,
 		Linear:        s.Linear,
 		Skills:        s.Skills,
+		McpServers:    s.MCPServers,
 		Env:           s.Env,
 		Origin:        s.Origin,
 		Editable:      s.Origin == profiles.OriginStored,
@@ -445,6 +446,7 @@ func playbookFromProto(in *agentv1.PlaybookDefinition) (profiles.Playbook, error
 		SlackChannels: in.GetSlackChannels(),
 		Linear:        in.GetLinear(),
 		Skills:        in.GetSkills(),
+		MCPServers:    in.GetMcpServers(),
 		Env:           in.GetEnv(),
 	}
 	if t := strings.TrimSpace(in.GetTimeout()); t != "" {

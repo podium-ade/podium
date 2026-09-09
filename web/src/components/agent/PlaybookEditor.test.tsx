@@ -12,6 +12,7 @@ const onCancel = vi.fn();
 
 const REGISTERED = ["podium.agent.github_token", "podium.agent.warehouse_url"];
 const INSTALLED = ["pr-review", "release-notes"];
+const MCP = ["linear", "wiki"];
 
 function mount(props: Partial<Parameters<typeof PlaybookEditor>[0]> = {}) {
   onSubmit.mockReset();
@@ -23,6 +24,7 @@ function mount(props: Partial<Parameters<typeof PlaybookEditor>[0]> = {}) {
         profileDefault={{ agent: "claude", model: "claude-opus-5", effort: "" }}
         secretNames={REGISTERED}
         skillNames={INSTALLED}
+        mcpNames={MCP}
         onSubmit={onSubmit}
         onCancel={onCancel}
         {...props}
@@ -76,6 +78,41 @@ describe("PlaybookEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
     expect(onSubmit.mock.calls[0][0].skills).toEqual(["pr-review", "release-notes"]);
+  });
+
+  it("sends the MCP allow-list, and nothing when none is named", async () => {
+    async function fill(servers?: string) {
+      await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
+      await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
+      await userEvent.type(screen.getByLabelText("System prompt"), "Write the weekly report.");
+      await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+      if (servers) await userEvent.type(screen.getByLabelText("MCP servers"), servers);
+      await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    }
+
+    const { unmount } = mount();
+    await fill("linear");
+    expect(onSubmit.mock.calls[0][0].mcpServers).toEqual(["linear"]);
+    unmount();
+
+    mount();
+    await fill();
+    expect(onSubmit.mock.calls[0][0].mcpServers).toEqual([]);
+  });
+
+  // Same three states a skill has, because the turn fails the same way in two of them: a
+  // name nobody registered, and one that is registered and turned off.
+  it("warns about an MCP server that is not registered, or is disabled", async () => {
+    mount({ mcpNames: MCP, disabledMcpNames: ["wiki"] });
+    await userEvent.type(screen.getByLabelText("MCP servers"), "linear\nwiki\nnope");
+
+    const options = Array.from(document.querySelectorAll("#podium-mcp-names option")).map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    expect(options).toEqual(MCP);
+    expect(screen.getByTestId("mcp-missing")).toHaveTextContent("nope");
+    expect(screen.getAllByTestId("mcp-missing")).toHaveLength(1);
+    expect(screen.getByTestId("mcp-disabled")).toHaveTextContent("wiki");
   });
 
   it("offers the installed skill names and warns about one that is not there", async () => {

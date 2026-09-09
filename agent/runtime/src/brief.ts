@@ -37,6 +37,14 @@ export const ExitBriefInvalid = 2;
 /** ReservedRepoName is the workspace directory Podium itself owns. */
 export const ReservedRepoName = ".podium";
 
+/**
+ * McpNameRE constrains an MCP server's name. It is the conductor's own rule
+ * (internal/agent/mcp.NameRE) and it is re-stated rather than trusted, because the name is
+ * written into the harness config as a key and as a tool prefix — `linear` is what
+ * `mcp__linear__*` comes from.
+ */
+export const McpNameRE = /^[a-z][a-z0-9-]{0,31}$/;
+
 /** RepoNameRE constrains repos[].name: it becomes a directory under /workspace. */
 export const RepoNameRE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -96,8 +104,16 @@ const delegablePlaybookSchema = z.strictObject({
   repos: z.array(z.string()).optional(),
 });
 
-// TODO(step 17+): a playbook may want its own MCP servers. That is a `mcp_servers` list on
-// `playbook`, mirrored here and merged into the runtime's own memory server in main.ts.
+// One MCP server the turn may use. An address and, when the server needs one, the NAME of
+// the environment variable its bearer token arrives in — never the token. How it is
+// presented is not carried: the MCP authorization specification says `Authorization: Bearer`
+// and that is what writeConfig writes, so there is nothing per-server to describe.
+const mcpServerSchema = z.strictObject({
+  name: z.string().regex(McpNameRE, `must match ${McpNameRE.source}`),
+  url: z.string().min(1),
+  token_env: z.string().min(1).optional(),
+});
+
 const briefSchema = z.strictObject({
   version: z.literal(1),
   session_id: z.string().min(1),
@@ -131,6 +147,10 @@ const briefSchema = z.strictObject({
     // permission map that denies every skill either way, so "no skills" is a decision
     // this runtime states rather than one it leaves to a default.
     skills: z.array(skillRefSchema).optional(),
+    // The MCP servers this turn may use. Absent means none, and none is what the harness
+    // gets: writeConfig writes one entry per server here beside the ones the conductor
+    // wires up itself, and no others.
+    mcp_servers: z.array(mcpServerSchema).optional(),
   }),
   transcript: z.array(transcriptEntrySchema),
   transcript_truncated: z.boolean(),
@@ -191,6 +211,7 @@ export type TurnBrief = z.infer<typeof briefSchema>;
 export type TranscriptEntry = z.infer<typeof transcriptEntrySchema>;
 export type RepoRef = z.infer<typeof repoSchema>;
 export type SkillRef = z.infer<typeof skillRefSchema>;
+export type McpServerRef = z.infer<typeof mcpServerSchema>;
 export type SourceKind = TurnBrief["source"]["kind"];
 export type ProviderRef = TurnBrief["provider"];
 export type DelegationRef = NonNullable<TurnBrief["delegation"]>;

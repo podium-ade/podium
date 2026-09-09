@@ -57,13 +57,13 @@ func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
-		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, choice)
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	require.Len(t, b.Playbook.Skills, 2)
 	assert.Equal(t, "pr-review", b.Playbook.Skills[0].Name)
 	assert.Equal(t, skills.EnvPrefix+"PR_REVIEW", b.Playbook.Skills[0].BundleEnv)
 	assert.Len(t, b.Playbook.Skills[0].SHA256, 64)
 
-	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, choice)
+	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, nil, choice)
 	assert.Equal(t, bundles[0].Encoded, spec.Env[skills.EnvPrefix+"PR_REVIEW"])
 	assert.Equal(t, bundles[1].Encoded, spec.Env[skills.EnvPrefix+"RELEASE_NOTES"])
 	// The brief itself is untouched by any of this.
@@ -84,10 +84,10 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
-		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, choice)
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	assert.Nil(t, b.Playbook.Skills)
 
-	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, choice)
+	spec := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, bundles, nil, choice)
 	for k := range spec.Env {
 		assert.NotContains(t, k, skills.EnvPrefix)
 	}
