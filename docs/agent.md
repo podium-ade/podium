@@ -484,6 +484,7 @@ linear: false                                                # this is the playb
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
 skills: []                                                   # Agent Skills this playbook may use
+mcp_servers: []                                              # MCP servers this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
 ```
 
@@ -504,8 +505,12 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   decides what credential a turn gets, from the agent the playbook runs on — see *Which agent,
   which model, how hard it thinks*.
 - **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY` or anything
-  starting `PODIUM_AGENT_SKILL_`.** The first is the brief, the next two come from the secrets,
-  and the last is where a skill's bundle travels.
+  starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is the brief, the next two come
+  from the secrets, and the last two are where a skill's bundle and an MCP server's token
+  travel.
+- **No MCP server token may appear in `secrets:`.** Anything starting `podium.agent.mcp.` is
+  refused. `mcp_servers` is what grants a server to a playbook, and naming its secret directly
+  would be a turn holding the credential of a server it was never granted.
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
@@ -762,6 +767,131 @@ it is a decision rather than a surprise.
 Who may do any of this: whoever can reach the web UI. There is no per-skill or per-playbook
 permission, and granting a skill to a playbook is exactly as consequential as giving that
 playbook a credential. See `docs/security.md`.
+
+#### `mcp_servers:` — tools that are somebody else's API
+
+An **MCP server** is a set of tools the model calls over HTTP: Linear's issues, a wiki, an
+internal service somebody wrapped. Two of them are already there and are not configurable — the
+shared `memory` (below) and the `browser` a `browser: true` playbook gets. `mcp_servers:` is
+every other one.
+
+It is a third kind of field again. `docker:` and `browser:` ask for an environment; `skills:`
+allows content the model may load; `mcp_servers:` grants **reach** — a tool that acts on a
+system outside the task, with a credential attached.
+
+There are two halves, and the split is the whole of the security model:
+
+- **The registry** is an operator's list of servers this conductor *can* reach: a name, a URL,
+  a note, and a token. It lives in the conductor's database and it is managed on the **MCP**
+  screen in the web UI. Registering a server grants nothing.
+- **`mcp_servers:` on a playbook** is what decides which turns *do* reach one. It is an
+  allow-list by name, exactly like `skills:`:
+
+```yaml
+mcp_servers: [linear]
+```
+
+A turn of that playbook gets the server's tools as `mcp__linear__*`, and the token stored for
+it. A playbook that names none gets none — the harness is written a config with only the
+servers the brief carried.
+
+**The token never travels in the brief.** It is a Podium secret,
+`podium.agent.mcp.<name>_token`, which the conductor attaches to the task as
+`PODIUM_MCP_<NAME>_TOKEN`; the brief names the variable and the harness config resolves it at
+run time, so no config file on disk and no task spec ever holds the value. It is the same
+split the model credentials and memory's key follow, for the same reason: a brief is an
+environment variable on a task spec, readable by anything that can read the spec.
+
+**Every server is `Authorization: Bearer <token>`.** That is what the MCP authorization
+specification says, so there is no header to configure and no way to get it wrong. A server
+registered with no credential reaches its turns with no authorization header, which is what an
+unauthenticated server wants.
+
+**There are two ways to get that token into the registry** and they end in the same place —
+the same secret, the same variable, the same header — so nothing downstream of the conductor
+can tell them apart:
+
+- **Paste one.** An API key or a personal access token, for a server that takes one.
+- **Sign in.** For a server that speaks OAuth, which is what the MCP specification actually
+  requires of a hosted one. See below.
+
+**A name that does not resolve fails the turn.** An unregistered name and a registered-but-
+disabled one both fail before the task is created, with the name in the message, for the same
+reason a disabled skill does: a turn that quietly ran with fewer tools than its playbook
+describes is the one outcome nobody can diagnose afterwards.
+
+**Only remote servers can be registered.** A local MCP server is a command line, and a command
+line typed into a browser form is a process running inside the turn container with that turn's
+GitHub token and model credential. The two local servers a turn can get are the conductor's own
+decision and stay that way.
+
+#### Signing in to an MCP server
+
+Linear's hosted MCP, and every other one that follows the specification, wants OAuth rather
+than a pasted key. **Sign in** on the MCP screen does the whole dance, and none of it is
+configuration:
+
+```
+Sign in
+  ↓  GET  <server>/.well-known/oauth-protected-resource[/path]   RFC 9728: which AS guards this?
+  ↓  GET  <issuer>/.well-known/oauth-authorization-server        RFC 8414: where are its endpoints?
+  ↓  POST <registration_endpoint>                                RFC 7591: register THIS install's callback
+  ↓  browser → <authorization_endpoint>                          + state, S256 challenge, resource
+  ↓  browser ← /agent/mcp/callback?code=…&state=…                a route in the web UI
+  ↓  CompleteMcpOAuth{flow_id, code, state}                      over the authenticated API
+  ↓  POST <token_endpoint>                                       + PKCE verifier, resource
+  ↓  the access token → the same Podium secret a pasted one goes in
+```
+
+Four things about that are worth knowing, because each of them is a decision:
+
+**The callback is a route in the web UI, not an endpoint on `podium-server`.** An OAuth redirect
+is a plain browser GET carrying no bearer token, so a callback served by the control plane would
+have to sit outside the identity middleware — an unauthenticated route that makes the conductor
+go and fetch a credential. Landing in the SPA instead means the code reaches the conductor over
+the ordinary authenticated Connect API, it works the same on the dev and tailnet transports, and
+**`podium-server` needs no new route at all**.
+
+**The browser supplies the callback URL.** It is the only party that knows the address this
+control plane is actually reached at — a tailnet name, a reverse proxy, `localhost`. That is
+what makes a redirect flow workable here, and it is exactly the objection the subscription
+sign-in avoided by using a device code instead (see `internal/agent/api/oauth.go`): dynamic
+client registration answers it, by registering whatever this install uses at sign-in time. The
+conductor still holds it to a shape — https, or http on loopback, no query, no fragment, and
+the one path `/agent/mcp/callback`.
+
+**The PKCE verifier never leaves the conductor**, so the authorization code passing through a
+browser is not a code that browser can spend. The `state` is compared on the conductor in
+constant time; the copy the browser keeps is only so it can tell one tab from another. A flow
+is spent on its first completion whatever the outcome — an authorization code is single-use, so
+a retry could only ever be refused.
+
+**The refresh is the conductor's job.** An access token good for an hour would otherwise become
+a turn failing an hour later. The same background pass that keeps the subscription sign-in alive
+walks the registry every 5 minutes and refreshes anything inside 45 minutes of expiry, keeping a
+rotated refresh token when the server issues one. A refresh that fails is logged and retried —
+the stored token is left alone, because one with thirty minutes on it is more use than none.
+A sign-in whose server issued **no** refresh token is shown as such, because it will need a
+human again when it expires.
+
+`scope` is the one thing an operator can narrow. Empty asks for what the server advertises,
+which is the right default and not always the tightest one — a server offering a write scope is
+a server whose tools can write.
+
+Pasting a token over a sign-in clears the sign-in, and signing out removes the refresh token as
+well as the access token. Either way there is one credential and one story about where it came
+from.
+
+The name matches `^[a-z][a-z0-9-]{0,31}$` and may not be `memory` or `browser`. It is what
+playbooks name, what the tools are prefixed with, and what the secret is called — which is why
+it cannot be changed after registration. A playbook may name at most **8**.
+
+**What an operator should know before storing a token.** The model decides when to call these
+tools, from the description the server itself advertises, and a turn of any playbook that names
+the server can call any of them. Give a server the narrowest token that works — read-only where
+read-only will do — and name it only in playbooks you would trust with that token. A playbook a
+public Slack channel routes to is a playbook that channel can spend the token through. See
+`docs/security.md`.
 
 ### Which playbook runs
 
@@ -1951,6 +2081,9 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
 | `ListPlaybooks` | what the chat window needs: the assistant (name and resolved model), and the playbooks it may delegate to |
+| `ListMcpServers`, `CreateMcpServer`, `UpdateMcpServer`, `DeleteMcpServer` | the MCP screen: the registry a playbook's `mcp_servers` names, and which playbooks name each server |
+| `SetMcpServerToken`, `ClearMcpServerToken` | one server's bearer token, written to the control plane's secret store and never read back |
+| `StartMcpOAuth`, `CompleteMcpOAuth` | signing in to a server that speaks OAuth: discovery, dynamic client registration and the code exchange. The verifier stays on the conductor; the browser carries a flow id |
 | `CreateChat`, `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` | the Chat tab: the caller's own conversations |
 | `StreamChat` (server-streaming) | one chat, replayed from a seq and then followed live |
 | `AttachChatPullRequest`, `DetachChatPullRequest` | the pull-request bar: linking one a turn missed, and taking one off |

@@ -26,7 +26,7 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.agent, func(t *testing.T) {
 			c := &Conductor{}
-			refs := c.reservedSecrets(tc.agent)
+			refs := c.reservedSecrets(tc.agent, nil)
 			require.Len(t, refs, 1, "no memory on this host, so the model credential is the only one")
 			assert.Equal(t, tc.wantSecret, refs[0].Name)
 			assert.Equal(t, tc.wantEnv, refs[0].Key)
@@ -43,7 +43,7 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 func TestNoTurnIsEverHandedARefreshToken(t *testing.T) {
 	c := &Conductor{memory: &BriefMemory{MCPURL: "http://x/mcp", APIKeyEnv: profiles.MemoryKeyEnv}}
 	for _, agent := range []string{profiles.AgentClaude, profiles.AgentGrok} {
-		for _, ref := range c.reservedSecrets(agent) {
+		for _, ref := range c.reservedSecrets(agent, nil) {
 			assert.NotEqual(t, profiles.XAIRefreshSecret, ref.Name)
 		}
 	}
@@ -51,7 +51,7 @@ func TestNoTurnIsEverHandedARefreshToken(t *testing.T) {
 
 func TestMemoryIsAttachedOnTopOfWhicheverCredential(t *testing.T) {
 	c := &Conductor{memory: &BriefMemory{MCPURL: "http://x/mcp", APIKeyEnv: profiles.MemoryKeyEnv}}
-	refs := c.reservedSecrets(profiles.AgentGrok)
+	refs := c.reservedSecrets(profiles.AgentGrok, nil)
 	require.Len(t, refs, 2)
 	assert.Equal(t, profiles.XAIKeySecret, refs[0].Name)
 	assert.Equal(t, profiles.MemoryKeySecret, refs[1].Name)

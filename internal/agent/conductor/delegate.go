@@ -357,13 +357,20 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	brief := c.brief(sess, j, dlg.ID, ev, entries, bundles, choice)
+	// The delegated playbook's own MCP servers, resolved the same way a turn's are. The
+	// host turn that asked for this has none of its own — it delegates to a playbook that
+	// has what it needs, which is exactly what this line is.
+	servers, err := c.mcpServers(ctx, j)
+	if err != nil {
+		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
+	}
+	brief := c.brief(sess, j, dlg.ID, ev, entries, bundles, servers, choice)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
 	task, err := c.podium.CreateTask(ctx,
-		c.taskSpec(g.src, playbook, encoded, ev, bundles, choice), int32(playbook.Priority))
+		c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice), int32(playbook.Priority))
 	if err != nil {
 		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}

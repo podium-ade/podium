@@ -517,6 +517,85 @@ Said plainly: pointing a playbook at a skill is the same class of decision as gi
 token — and it is now a click. Do it for skills you wrote or read, from a control plane whose web
 UI only your operators can reach, and do not do it for a playbook a public channel can reach.
 
+### A playbook that carries MCP servers
+
+`mcp_servers:` is the other thing on a playbook that grants something a browser can change. It is
+not content, as `skills:` is, and not an environment, as `docker:` and `browser:` are: it is
+**reach**, a tool that acts on a system outside the task with a credential attached. A turn that
+has Linear's server can read and write whatever the stored Linear token can.
+
+What it gives you:
+
+- **Registering is not granting.** The MCP screen holds an operator's list of servers this
+  conductor *can* reach; only a playbook's `mcp_servers:` decides which turns do. A token stored
+  and named by no playbook is spent by nothing.
+- **The token is a Podium secret and is never in a document.** It is stored as
+  `podium.agent.mcp.<name>_token`, attached to the task as `PODIUM_MCP_<NAME>_TOKEN`, and the
+  brief and the harness config carry only the variable's name. No config file on disk and no
+  task spec holds the value, and nothing — including the conductor — can read it back out of the
+  secret store. What the UI shows is four characters kept at save time, and for a sign-in not
+  even that: an access token is not a thing to show four characters of.
+- **A sign-in is the same credential by a better route.** An OAuth sign-in ends in the same
+  secret a pasted token does, so nothing downstream can tell them apart — but the operator
+  never handles the credential, the grant can be scoped, and it expires. The authorization code
+  travels through the browser and is useless there: the PKCE verifier stays on the conductor,
+  the `state` is compared there in constant time, and a flow is spent on its first completion.
+- **The callback is authenticated.** It is a route in the web UI, not an endpoint on
+  `podium-server`, so there is no unauthenticated HTTP route anywhere in the sign-in — the code
+  reaches the conductor over the same Connect API everything else does. See
+  *docs/agent.md#signing-in-to-an-mcp-server*.
+- **A playbook cannot help itself to one.** `secrets:` may not name anything starting
+  `podium.agent.mcp.`, and `env:` may not set anything starting `PODIUM_MCP_`, so the registry
+  and the allow-list are the only route from a token to a container.
+- **Remote only.** A local MCP server is a command line, and a command line typed into a browser
+  form is a process in the turn's container with the turn's credentials. The two local servers a
+  turn can get — memory's client and the browser's — are the conductor's own, and neither name
+  can be registered.
+- **A failure fails the turn.** An unregistered name, or a registered one somebody disabled,
+  fails before the task is created and says which name. There is no path where a turn runs with
+  fewer tools than its playbook describes.
+
+And what it does not give you:
+
+- **The token's scope is the only real bound on what the tools do.** Podium grants a server
+  whole; it does not filter which of that server's tools a turn may call, because the tool list
+  only exists once the server has been connected to. A write-capable token means write-capable
+  tools, and the model decides when to use them from the description the server itself
+  advertises.
+- **That description is untrusted input.** It comes from the server over the network and lands in
+  the model's context beside the ticket and the cloned README — every one of them untrusted, as
+  *5. The conductor and the bot* says. A server whose tool descriptions change is a prompt that
+  changes.
+- **Anyone who can reach the web UI can register a server, store its token and grant it to a
+  playbook**, with no second pair of eyes. There is no per-server permission, and the only record
+  of who stored a token is `token_set_by` on the current one.
+- **Nothing validates a pasted token, or the address.** There is no way to ask an MCP server
+  "are you there" that does not also hand it the credential, so a registration is accepted as
+  written and a wrong URL or a bad token is found out by the first turn that uses it — which
+  also means a mistyped host is a host that gets sent the token. A sign-in is the exception in
+  one direction only: the authorization server does validate it, but a mistyped host is still a
+  host whose discovery document decides where the browser is sent.
+- **A sign-in puts two more credentials in the conductor's own database, in clear.** The refresh
+  token, and a client secret where the authorization server issued one. That is the same trade
+  the subscription sign-in already makes and for the same blunt reason — the secret store has no
+  read endpoint by design, so a value put there cannot be read back to refresh with. It means
+  `podium_agent`'s database holds credentials for every signed-in server, and a backup of it
+  does too. See *The credentials that are not only in the secret store*.
+- **A signed-in server's grant is only as narrow as the scope asked for.** Empty asks for what
+  the server advertises, which is frequently everything it has. The operator's own `scope` is
+  the only control, and nothing checks that what came back is what was asked for beyond
+  recording it.
+- **The browser nominates the callback URL.** It is held to https-or-loopback and to one fixed
+  path, so it cannot be pointed at an arbitrary endpoint — but a caller who can reach this API
+  can still nominate a different *host* on that path. The code delivered there is not redeemable
+  without the verifier the conductor kept, and the caller is already an authenticated operator
+  who can store credentials by hand; it is nonetheless the one part of the flow whose
+  destination is not the conductor's own decision.
+
+Said plainly: naming an MCP server in a playbook is giving every turn of that playbook the
+credential behind it. Use the narrowest credential that works — a scoped sign-in over a pasted
+key where the server offers one — and name it only in playbooks you would trust with it.
+
 ---
 
 ## Transports, and what crosses the wire
@@ -627,10 +706,15 @@ added later without changing the threat model.
 
 ### The credentials that are not only in the secret store
 
-A subscription sign-in to xAI (see [`agent.md`](agent.md#signing-in-with-a-subscription)) issues
-an access token **and** a refresh token. The access token is a Podium secret like any other. The
-refresh token is not: it lives in the conductor's own Postgres, `podium_agent`, in the
-`provider.xai` settings row, in clear.
+Every OAuth sign-in this conductor does issues an access token **and** a refresh token. The
+access token is a Podium secret like any other. The refresh token is not: it lives in the
+conductor's own Postgres, `podium_agent`, in clear. There is one per sign-in:
+
+- A subscription sign-in to xAI (see [`agent.md`](agent.md#signing-in-with-a-subscription)),
+  in the `provider.xai` settings row.
+- Every signed-in MCP server (see [`agent.md`](agent.md#signing-in-to-an-mcp-server)), in the
+  `oauth` column of its `mcp_servers` row — **and, where the authorization server issued one on
+  dynamic registration, a client secret beside it**.
 
 It is there because of the rule directly above. The secret store has no read endpoint by design,
 so a value put in it cannot be read back — and refreshing an hourly token without a human means
@@ -639,12 +723,14 @@ endpoint to the secret store is the worse trade.
 
 What bounds it:
 
-- It **never leaves the host**. It is not attached to any turn, it is in no brief and no task
-  spec, it is in no log line, and it is never copied into an API response — `ProviderSettings`
-  carries a boolean saying a refresh token exists and nothing more.
-- It is spent only against the token endpoint discovered from `PODIUM_AGENT_XAI_OAUTH_ISSUER`,
-  which is checked against that issuer's own host before anything is sent to it.
-- Signing out, or pasting an API key over the sign-in, deletes it.
+- They **never leave the host**. Nothing here is attached to a turn, put in a brief or a task
+  spec, written to a log line, or copied into an API response — `ProviderSettings` and
+  `McpServer` each carry a boolean saying a refresh token exists, and nothing more.
+- Each is spent only against the token endpoint it was discovered with, which was checked
+  against its own issuer's host before anything was sent to it. An MCP server's endpoint is
+  stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later by
+  a discovery document that has since changed.
+- Signing out deletes them, and so does pasting a key or a token over the sign-in.
 
 The **model credential itself** is in that row too, for the same reason, on an install that
 runs host turns: the bearer a turn spends — an API key as pasted, or the access token minted
@@ -662,8 +748,8 @@ host turn's node is the conductor's own machine.
 
 **So treat `podium_agent`'s database as holding credentials, because it does.** Back it up the
 way you would back up a secret, and give it the same access controls as the control plane's
-own database. An install with `PODIUM_AGENT_HOST_RUNTIME` unset and no subscription sign-in has
-nothing here.
+own database. An install with `PODIUM_AGENT_HOST_RUNTIME` unset, no subscription sign-in and no
+signed-in MCP server has nothing here.
 
 ### In flight
 
@@ -824,14 +910,22 @@ Everything below is a real hole, not a hypothetical:
   is no signing and no review step, and **anyone who can reach the web UI can both upload a
   skill and grant it to a playbook**, with no second pair of eyes and no version history. See
   *A playbook that carries Agent Skills*.
+- **A playbook's `mcp_servers:` hand every turn of that playbook the stored token of each
+  server named.** Podium grants a server whole and does not filter its tools, the server's own
+  tool descriptions are untrusted input in the model's context, and **anyone who can reach the
+  web UI can register a server, store or sign in for its token and grant it to a playbook**.
+  Nothing validates a pasted token or the address, and a sign-in leaves a refresh token and
+  possibly a client secret in the conductor's own database in clear. See
+  *A playbook that carries MCP servers*.
 - **A web chat is partitioned by login, not protected by it.** Another login's chat answers
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **A provider credential can be replaced or removed by anyone who can reach the web UI**, and
   the only record of who did it is `set_by` on the current one. That includes signing the bot in
   to somebody's Grok subscription, and signing it out again.
-- **A subscription refresh token is stored in clear in the conductor's own database**, because
-  the secret store deliberately has no read endpoint and refreshing needs one. See *The one
-  credential that is not in the secret store*.
+- **Every OAuth refresh token is stored in clear in the conductor's own database** — the
+  subscription sign-in's, and one per signed-in MCP server, with a dynamically issued client
+  secret beside it where there is one — because the secret store deliberately has no read
+  endpoint and refreshing needs one. See *The credentials that are not only in the secret store*.
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.

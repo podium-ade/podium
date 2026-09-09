@@ -10,6 +10,8 @@ import {
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
+import { McpCallback } from "../components/agent/McpCallback";
+import { McpPanel } from "../components/agent/McpPanel";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
@@ -30,7 +32,7 @@ import { cn } from "../lib/utils";
 
 /**
  * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
- * is the extension point for those; Playbooks, Skills and Settings are in the app sidebar
+ * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app sidebar
  * instead — they are destinations of their own, not something you switch between while talking.
  *
  * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
@@ -72,6 +74,11 @@ const tabs: Tab[] = groups.flatMap((g) => g.tabs);
 const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "playbooks", element: <PlaybooksPanel /> },
   { path: "skills", element: <SkillsPanel /> },
+  { path: "mcp", element: <McpPanel /> },
+  // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
+  // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
+  // a server route would have to sit outside the identity middleware. See lib/mcp.ts.
+  { path: "mcp/callback", element: <McpCallback /> },
   { path: "settings", element: <SettingsTab /> },
 ];
 

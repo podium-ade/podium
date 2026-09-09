@@ -82,6 +82,39 @@ service AgentService {
   // DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
   // file on the conductor's host and this API does not delete those.
   rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
+  // ListMcpServers reports every MCP server registered on this conductor, with which
+  // playbooks name each one. It never carries a token: a server's credential is a Podium
+  // secret and the last four characters kept at save time are all any client ever sees.
+  rpc ListMcpServers(ListMcpServersRequest) returns (ListMcpServersResponse);
+  // CreateMcpServer registers a new one. The URL is validated as an absolute http(s) URL and
+  // nothing else about it is assumed: whether the server answers is found out by a turn.
+  rpc CreateMcpServer(CreateMcpServerRequest) returns (CreateMcpServerResponse);
+  // UpdateMcpServer replaces a registered server's definition, leaving its token alone.
+  rpc UpdateMcpServer(UpdateMcpServerRequest) returns (UpdateMcpServerResponse);
+  // DeleteMcpServer removes one and its stored token. A playbook that still names it fails
+  // its turns saying so, which is why ListMcpServers reports who names what.
+  rpc DeleteMcpServer(DeleteMcpServerRequest) returns (DeleteMcpServerResponse);
+  // SetMcpServerToken stores the credential this server authenticates with, as a Podium
+  // secret. It is never read back and never written into a turn's config file — the config
+  // names the environment variable the conductor delivers it in.
+  rpc SetMcpServerToken(SetMcpServerTokenRequest) returns (SetMcpServerTokenResponse);
+  // ClearMcpServerToken removes it. The server stays registered and reaches its turns with
+  // no authorization header at all, which is what an unauthenticated server wants.
+  rpc ClearMcpServerToken(ClearMcpServerTokenRequest) returns (ClearMcpServerTokenResponse);
+  // StartMcpOAuth begins an OAuth sign-in against an MCP server that wants one, and answers
+  // with the URL to send the operator's browser to. Everything about the server's OAuth is
+  // DISCOVERED — the protected-resource metadata names its authorization server, and that
+  // server's own metadata names its endpoints — and the client is registered dynamically, so
+  // no part of it is configuration an operator has to supply.
+  //
+  // The PKCE verifier stays on the conductor. A browser is handed a flow id and a URL, which
+  // name a sign-in rather than bearing one.
+  rpc StartMcpOAuth(StartMcpOAuthRequest) returns (StartMcpOAuthResponse);
+  // CompleteMcpOAuth trades the authorization code the browser came back with for a token,
+  // and stores it exactly as a pasted one is stored. The code arrives over this API rather
+  // than on a redirect the server would have to serve unauthenticated — see
+  // docs/agent.md#signing-in-to-an-mcp-server.
+  rpc CompleteMcpOAuth(CompleteMcpOAuthRequest) returns (CompleteMcpOAuthResponse);
   // CreateChat opens a new web-chat conversation owned by the calling login.
   rpc CreateChat(CreateChatRequest) returns (CreateChatResponse);
   // ListChats returns the caller's own chats, newest first. Another login's chats are
@@ -904,6 +937,14 @@ message PlaybookDefinition {
   // higher first and breaks ties by age. Zero is the default and negative is allowed, so a
   // background playbook can be told to wait behind everything a person is watching.
   int32 priority = 23;
+  // mcp_servers is the MCP servers a turn of this playbook may use, by name, out of the
+  // registry ListMcpServers reports. Empty means none, and none is what the turn gets: the
+  // runtime writes the harness one MCP entry per name here and no others.
+  //
+  // A server is somebody else's API with a credential attached, and a turn that has it can
+  // read and write whatever that credential can. This list is the whole of what decides
+  // which turns do — see docs/security.md.
+  repeated string mcp_servers = 24;
 }
 
 message GetProfileRequest {}
@@ -1051,3 +1092,182 @@ message DeleteSkillRequest {
 }
 
 message DeleteSkillResponse {}
+
+// McpServer is one MCP server this conductor can hand a turn: an address, the header its
+// credential travels in, and who a playbook has to name to get it.
+//
+// It is REMOTE and only remote. A local server is a command line, and a command line typed
+// into a browser form is a process running inside the turn container with that turn's GitHub
+// token and model credential — the two local servers a turn can get, memory's client and the
+// browser's, are the conductor's own decision and stay that way.
+//
+// EVERY FIELD HERE IS AN OPERATOR'S OWN TEXT except the provenance and the token metadata. It
+// names a credential and never carries one: the token is a Podium secret, and token_hint is
+// the last four characters kept at save time, which is the only form any part of it is read
+// back in.
+message McpServer {
+  // name is what a playbook names, and it is also the prefix the harness gives this
+  // server's tools — so `linear` is what `mcp__linear__*` comes from. It matches
+  // ^[a-z][a-z0-9-]{0,31}$ and may not be `memory` or `browser`, which the conductor and
+  // the runtime already own.
+  string name = 1;
+  // url is the server's endpoint, an absolute http or https URL.
+  string url = 2;
+  // description is the operator's own note about what this server is for. It is shown in
+  // the UI and never sent anywhere.
+  string description = 3;
+  // enabled is false for a server somebody turned off. A playbook that names a disabled
+  // server fails its turns saying so rather than running without it, for the same reason a
+  // disabled skill does: a turn with fewer tools than its playbook describes is the one
+  // outcome nobody can diagnose afterwards.
+  bool enabled = 4;
+  // token_set is whether the control plane actually holds this server's secret. It is asked
+  // of the control plane rather than inferred from the row: `podium secret rm` is a thing an
+  // operator can do without this conductor hearing about it.
+  bool token_set = 5;
+  // token_hint is the last four characters of the token, or "" when none is set.
+  string token_hint = 6;
+  // token_set_by is the X-Podium-Login that stored it, and token_set_at when.
+  string token_set_by = 7;
+  google.protobuf.Timestamp token_set_at = 8;
+  // playbooks names the playbooks whose mcp_servers list this one, so a human can see what
+  // a disable or a delete would change before doing it.
+  repeated string playbooks = 9;
+  // created_by, updated_by and updated_at are the row's provenance.
+  string created_by = 10;
+  string updated_by = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  // token_env is the environment variable the conductor delivers the token in, and
+  // token_secret the Podium secret it is stored as. Both are derived from the name and are
+  // reported so an operator can find the secret with the CLI.
+  string token_env = 13;
+  string token_secret = 14;
+  // auth_kind is "token" for a credential somebody pasted, "oauth" for one this conductor
+  // signed in for, and "" when the server has none. It is what the UI shows instead of a
+  // hint for a sign-in: an access token is not a thing to show four characters of.
+  string auth_kind = 15;
+  // account is who the authorization server says is signed in — an email or a subject — for
+  // an OAuth credential, and "" otherwise. It comes from the token response's own id_token.
+  string account = 16;
+  // expires_at is when the stored access token stops working. Unset for a pasted token,
+  // which does not expire. The conductor refreshes an OAuth token in the background well
+  // before this, so a time in the past means refreshing has been failing.
+  google.protobuf.Timestamp expires_at = 17;
+  // refreshable is true when a refresh token was issued, which is what makes a sign-in
+  // survive its first hour without a human.
+  bool refreshable = 18;
+  // oauth_supported is true when this server advertises an authorization server, so the UI
+  // offers the sign-in rather than only the paste field. It is discovered on demand and is
+  // false until something has looked; a server that answers nothing is not a server that
+  // cannot be used, only one whose credential has to be pasted.
+  bool oauth_supported = 19;
+}
+
+message ListMcpServersRequest {}
+
+message ListMcpServersResponse {
+  // servers is every registered server, sorted by name.
+  repeated McpServer servers = 1;
+  // max_per_playbook is how many servers one playbook may name.
+  int32 max_per_playbook = 2;
+}
+
+message CreateMcpServerRequest {
+  // server.name, server.url, server.description and server.enabled are read; the token
+  // metadata and the provenance are the conductor's and are ignored.
+  //
+  // server.enabled has to be set: proto3 gives a bool no field presence, so an omitted one
+  // is `false` and registers a server that is turned off. That is the safe direction — a
+  // playbook naming it fails loudly rather than silently getting nothing — but it is not
+  // what a caller who left the field out meant.
+  McpServer server = 1;
+  // token is the credential to store with the registration, or empty for a server that
+  // needs none. SENSITIVE: never log this field.
+  string token = 2;
+}
+
+message CreateMcpServerResponse {
+  McpServer server = 1;
+}
+
+message UpdateMcpServerRequest {
+  // server.name names the registration to replace. The stored token is left alone —
+  // SetMcpServerToken and ClearMcpServerToken are the only things that touch it.
+  McpServer server = 1;
+}
+
+message UpdateMcpServerResponse {
+  McpServer server = 1;
+}
+
+message DeleteMcpServerRequest {
+  string name = 1;
+}
+
+message DeleteMcpServerResponse {}
+
+message SetMcpServerTokenRequest {
+  string name = 1;
+  // SENSITIVE: never log this field. The handler wraps the request in a redacting
+  // slog.LogValuer so no log site has to remember.
+  string token = 2;
+}
+
+message SetMcpServerTokenResponse {
+  McpServer server = 1;
+}
+
+message ClearMcpServerTokenRequest {
+  string name = 1;
+}
+
+message ClearMcpServerTokenResponse {
+  McpServer server = 1;
+}
+
+message StartMcpOAuthRequest {
+  string name = 1;
+  // redirect_uri is where the authorization server sends the operator's browser back to. It
+  // is supplied by the BROWSER, because the browser is the only party that knows the address
+  // this control plane is actually reached at — a tailnet name, a reverse proxy, localhost.
+  // That is what makes a redirect flow work here at all without every one of those being
+  // registered in advance: the client is registered dynamically, with this value.
+  //
+  // The conductor holds it to a shape: https (or http on loopback, for a dev install), no
+  // query and no fragment, and the one path the web UI serves the callback on.
+  string redirect_uri = 2;
+  // scope narrows the grant. Empty asks for what the server itself advertises, which is the
+  // right default and not always the narrowest one — a server offering a write scope is a
+  // server whose tools can write.
+  string scope = 3;
+}
+
+message StartMcpOAuthResponse {
+  // flow_id names this sign-in. It is not a credential: the PKCE verifier and the client
+  // registration stay on the conductor, so a browser holding this cannot complete a sign-in
+  // by itself.
+  string flow_id = 1;
+  // authorize_url is where to send the browser. It carries the state and the PKCE challenge.
+  string authorize_url = 2;
+  // state is what the callback must come back with. The browser gets it so it can tell a
+  // callback for this sign-in from a stale one in another tab; the conductor compares its
+  // own copy, in constant time, and that comparison is the one that counts.
+  string state = 3;
+  // issuer and scope are what discovery settled on, so an operator can see which
+  // authorization server they are about to sign in to and what they are granting.
+  string issuer = 4;
+  string scope = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message CompleteMcpOAuthRequest {
+  string flow_id = 1;
+  // code is the authorization code the browser was redirected back with. SENSITIVE: never
+  // log this field. It is single-use and useless without the verifier the conductor kept.
+  string code = 2;
+  string state = 3;
+}
+
+message CompleteMcpOAuthResponse {
+  McpServer server = 1;
+}

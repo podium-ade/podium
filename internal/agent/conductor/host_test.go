@@ -98,7 +98,7 @@ func TestTheAssistantsBriefHasNoContainerInIt(t *testing.T) {
 	j := assistantJob(profile.Assistant())
 
 	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
-		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil,
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
 		j.choose(profile, profiles.Override{}))
 
 	assert.Equal(t, hostTools, b.Playbook.AllowedTools, "a playbook's tools are not the assistant's")
@@ -193,7 +193,7 @@ func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 	require.Zero(t, j.maxTurns)
 
 	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
-		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil,
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
 		j.choose(profile, profiles.Override{}))
 	encoded, err := b.Encode()
 	require.NoError(t, err)

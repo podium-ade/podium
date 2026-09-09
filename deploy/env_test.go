@@ -54,6 +54,12 @@ var notConfiguration = map[string]string{
 	// there. An operator sets PODIUM_AGENT_SKILLS_DIR and never any of these — a playbook
 	// that tries to set one is refused at load.
 	"PODIUM_AGENT_SKILL_": "the prefix of the per-skill bundle variables the conductor writes",
+	// The PREFIX of the variables one turn's MCP server tokens travel in. The conductor
+	// writes one per server it delivers, named after the server, as the target of that
+	// server's podium.agent.mcp.<name>_token secret. An operator registers a server and its
+	// token in the web UI and never sets any of these — a playbook that tries to set one is
+	// refused at load.
+	"PODIUM_MCP_": "the prefix of the per-server MCP token variables the conductor writes",
 	// The env var the shared memory's API key lands in INSIDE a task container. The
 	// conductor names it on every turn's spec as the target of the
 	// podium.agent.memory_api_key secret, and the runtime reads it there to authenticate

@@ -138,12 +138,23 @@ type AgentService struct {
 	turns     TurnStopper
 	logger    *slog.Logger
 
-	// flows are the subscription sign-ins this process has started and not finished.
-	flowMu sync.Mutex
-	flows  map[string]*oauthFlow
+	// flows are the subscription sign-ins this process has started and not finished, and
+	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
+	// — a device code and an authorization code — and nothing ever looks a sign-in up
+	// without already knowing which kind it wanted.
+	//
+	// Both are process memory on purpose. A flow is a few hundred bytes with a PKCE
+	// verifier in it, it is worthless thirty minutes later, and a restart mid-sign-in
+	// should invalidate it rather than resume it.
+	flowMu   sync.Mutex
+	flows    map[string]*oauthFlow
+	mcpFlows map[string]*mcpFlow
 
-	// writeMu serialises the read-validate-write of a playbook or an override, so two
-	// browsers saving at once cannot each validate against a set the other is changing.
+	// writeMu serialises the read-validate-write of a playbook, an override or an MCP
+	// registration, so two browsers saving at once cannot each validate against a set the
+	// other is changing. An MCP write holds it across the call that stores the token in the
+	// control plane, which is what keeps "is this name taken" and "write this secret" one
+	// decision rather than two.
 	writeMu sync.Mutex
 	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
 	// a conductor running a profile older than its database has to say so.
