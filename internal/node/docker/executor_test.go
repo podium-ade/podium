@@ -284,8 +284,10 @@ func TestPullFailuresAreClassifiedByWhatTheRegistrySaid(t *testing.T) {
 			"does-not-exist, repository does not exist or may require 'docker login'",
 		"the tag does not exist": `Error response from daemon: failed to resolve reference ` +
 			`"docker.io/library/alpine:0.0.0-nope": docker.io/library/alpine:0.0.0-nope: not found`,
-		"the manifest is unknown":     "manifest unknown: manifest unknown",
-		"the registry wants a login":  "unauthorized: authentication required",
+		"the manifest is unknown":    "manifest unknown: manifest unknown",
+		"the registry wants a login": "unauthorized: authentication required",
+		"the registry wants a basic-auth login": `Error response from daemon: Head ` +
+			`"http://127.0.0.1:5000/v2/podium-test/alpine/manifests/private": no basic auth credentials`,
 		"the reference is not a name": "invalid reference format",
 	}
 	for name, msg := range permanent {
@@ -323,4 +325,6 @@ func TestDeniedAnonymousPullPointsAtTheRegistriesScreen(t *testing.T) {
 		"a credential was sent and refused: the hint would point the wrong way")
 	require.NotContains(t, pullFailed("img", "manifest unknown", true).Error(), "Registries screen",
 		"a missing tag is not an access problem")
+	require.Contains(t, pullFailed("img", "no basic auth credentials", true).Error(), "Registries screen",
+		"a basic-auth registry refuses in its own words")
 }

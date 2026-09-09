@@ -134,6 +134,7 @@ var permanentPullMessages = []string{
 	"manifest unknown",
 	": not found",
 	"unauthorized",
+	"no basic auth credentials",
 	"requested access to the resource is denied",
 	"invalid reference format",
 	"no such image",
@@ -170,7 +171,7 @@ func pullFailed(ref, msg string, anonymous bool) error {
 func deniedPull(msg string) bool {
 	msg = strings.ToLower(msg)
 	return strings.Contains(msg, "denied") || strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "authentication required")
+		strings.Contains(msg, "authentication required") || strings.Contains(msg, "no basic auth credentials")
 }
 
 func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runState) (Result, error) {
