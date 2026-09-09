@@ -685,23 +685,26 @@ func TestTheChatListShowsMirroredConversationsToEveryLogin(t *testing.T) {
 	assert.Equal(t, OriginWeb, forAlice[mine.ID].Origin)
 }
 
-// Nobody may rename or delete a conversation that lives somewhere else. Neither query needed
-// a line of its own to say so: both filter on `login = @login`, and a mirrored chat's owner
-// is null.
-func TestAMirroredChatCannotBeRenamedOrDeleted(t *testing.T) {
+// A mirrored thread belongs to the workspace: every login lists it, so any login may rename
+// it or delete the copy — the same rule ListChats applies, and the only one that lets a
+// reader clear a thread out of the sidebar. The thread itself lives in Slack; its next
+// message mirrors it again.
+func TestAMirroredChatMayBeRenamedAndDeletedByWhoeverSeesIt(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
 	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "in slack")
 	require.NoError(t, err)
 
-	_, err = s.RenameChat(ctx, thread.ID, "alice", "mine now")
-	require.ErrorIs(t, err, ErrNotFound)
-	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "alice"), ErrNotFound)
-
-	still, err := s.ChatBySourceKey(ctx, slackKey)
+	renamed, err := s.RenameChat(ctx, thread.ID, "bob", "mine now")
 	require.NoError(t, err)
-	assert.Equal(t, "in slack", still.Title)
+	assert.Equal(t, "mine now", renamed.Title)
+	assert.Empty(t, renamed.Login, "renaming does not adopt it")
+
+	require.NoError(t, s.DeleteChat(ctx, thread.ID, "bob"))
+	_, err = s.ChatBySourceKey(ctx, slackKey)
+	require.ErrorIs(t, err, ErrNotFound, "the key is free for the thread's next message to reopen")
+	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "bob"), ErrNotFound)
 }
 
 // The running flag follows the session that owns the conversation, whatever shape its key

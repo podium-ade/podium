@@ -202,7 +202,7 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 }
 
 const deleteChat = `-- name: DeleteChat :execrows
-delete from chats where id = $1 and login = $2
+delete from chats where id = $1 and (login = $2 or login is null)
 `
 
 type DeleteChatParams struct {
@@ -524,7 +524,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
- where id = $2 and login = $3
+ where id = $2 and (login = $3 or login is null)
 returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
 `
 
@@ -536,7 +536,9 @@ type RenameChatParams struct {
 
 // RenameChat is filtered by login so a rename cannot cross the partition even if
 // the caller forgot to check. No row is not found, whether the chat is missing or
-// belongs to somebody else — the same answer every other chat read gives.
+// belongs to somebody else — the same answer every other chat read gives. A chat with no
+// login is a mirrored thread, which belongs to the workspace: whoever can see it (ListChats)
+// can rename it, and delete it below.
 //
 // It clears auto_title: a name a human typed is theirs, the same rule as a title
 // supplied at create, so no later turn renames the chat over the top of it.
