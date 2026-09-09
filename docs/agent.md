@@ -1601,7 +1601,7 @@ loss of.
 ### Repositories
 
 `repos:` is copied into the brief and the runtime shallow-clones each one into
-`/workspace/repos/<name>` at the start of the turn, on its `default_branch`, with `user.name
+`/workspace/<name>` at the start of the turn, on its `default_branch`, with `user.name
 podium-agent` and `user.email podium-agent@users.noreply.github.com`. Only `https` with a token is
 supported: no SSH, no GitHub App, no GitLab.
 
