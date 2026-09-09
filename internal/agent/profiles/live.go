@@ -151,33 +151,49 @@ func Merge(files *Profile, ov Overrides, stored []Playbook) (merged *Profile, sh
 	return &p, shadowed, nil
 }
 
-// Live is the profile a running conductor reads. The file half is loaded once at start;
-// the stored half is swapped in whole, atomically, whenever the database changes — which
-// is what makes a playbook created in the browser reach a turn without a restart.
+// Live is the profile a running conductor reads. The stored half is swapped in whole,
+// atomically, whenever the database changes — which is what makes a playbook created in the
+// browser reach a turn without a restart. The file half is loaded at start and swapped only
+// when an operator asks for it, because a directory somebody is halfway through saving is
+// not a profile and a timer cannot tell the difference.
 //
 // Every reader takes Current() once and works from the value it got. A turn therefore runs
 // the playbook it started with even if that playbook is edited while it is in flight: Playbook is a
 // value, and swapping the profile behind it changes nothing about the copy already taken.
 type Live struct {
-	files *Profile
+	files atomic.Pointer[Profile]
 	cur   atomic.Pointer[Profile]
 }
 
 // NewLive holds files as both the file half and, until the first Set, the current profile.
 // A conductor that cannot reach its database still runs the directory it was given.
 func NewLive(files *Profile) *Live {
-	l := &Live{files: files}
+	l := &Live{}
+	l.files.Store(files)
 	l.cur.Store(files)
 	return l
 }
 
-// Files is profile.yaml and playbooks/*.yaml as they were read at start, with nothing merged
-// in. It is what the UI shows beside an override.
+// Files is profile.yaml and playbooks/*.yaml as they were last read off disk, with nothing
+// merged in. It is what the UI shows beside an override.
 func (l *Live) Files() *Profile {
 	if l == nil {
 		return nil
 	}
-	return l.files
+	return l.files.Load()
+}
+
+// SetFiles replaces the file half with what a re-read of the profile directory found.
+//
+// It is separate from Set because the two halves are read apart — Files() is the file's
+// value the UI shows beside an override, Current() is what a turn runs — and a caller that
+// re-reads the directory has to write both. Write this one first: a merged profile built
+// from files nobody can see would leave the UI explaining an override against the wrong file.
+func (l *Live) SetFiles(p *Profile) {
+	if l == nil || p == nil {
+		return
+	}
+	l.files.Store(p)
 }
 
 // Current is the profile in force. Nil only when there is no profile at all.

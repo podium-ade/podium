@@ -16,6 +16,7 @@ import { ConductorDown } from "../components/agent/ConductorDown";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButton";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
@@ -329,6 +330,7 @@ function ProfileTab() {
       <PageHeader
         title="Assistant"
         description="Who answers a conversation, which model it answers on, and which playbook a Slack mention or a Linear ticket runs. Every editable field here overrides profile.yaml on the conductor's host."
+        actions={<ReloadProfileDirButton />}
       />
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown

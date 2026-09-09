@@ -59,6 +59,15 @@ service AgentService {
   // UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
   // empty field clears the override and returns that field to the file's value.
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  // ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
+  // playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
+  // running profile.
+  //
+  // It is what an operator who has just edited that YAML does instead of restarting the
+  // process. Only an operator asks: a directory halfway through being saved does not load,
+  // and a load failure is refused here and changes nothing, so a conductor is never left
+  // running half a profile.
+  rpc ReloadProfileDir(ReloadProfileDirRequest) returns (ReloadProfileDirResponse);
   // CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
   // already defines is refused: the files are authoritative for the names they hold.
   rpc CreatePlaybook(CreatePlaybookRequest) returns (CreatePlaybookResponse);
@@ -979,6 +988,12 @@ message UpdateProfileRequest {
 message UpdateProfileResponse {
   AgentProfile profile = 1;
 }
+
+message ReloadProfileDirRequest {}
+
+// Empty: the reloaded profile is whatever GetProfile now reports, and a caller that reloads
+// is a caller that is about to read it again.
+message ReloadProfileDirResponse {}
 
 message CreatePlaybookRequest {
   PlaybookDefinition playbook = 1;

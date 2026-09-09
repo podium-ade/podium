@@ -111,7 +111,7 @@ func (s *AgentService) UpdateProfile(
 	if err := s.store.PutSetting(ctx, overridesSettingKey, ov); err != nil {
 		return nil, storeError(err)
 	}
-	if err := s.ReloadProfile(ctx); err != nil {
+	if err := s.reloadProfile(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "the agent profile was changed", "login", ov.UpdatedBy,
@@ -239,7 +239,7 @@ func (s *AgentService) DeletePlaybook(
 	if err := s.store.DeleteStoredPlaybook(ctx, name); err != nil {
 		return nil, storeError(err)
 	}
-	if err := s.ReloadProfile(ctx); err != nil {
+	if err := s.reloadProfile(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "a playbook was deleted", "playbook", name, "login", Login(ctx))
@@ -321,7 +321,7 @@ func (s *AgentService) checkMerges(ctx context.Context, playbook profiles.Playbo
 // write failed would be a lie, and the next reconcile picks it up.
 func (s *AgentService) storedResponse(ctx context.Context, playbook profiles.Playbook, what string) *agentv1.PlaybookDefinition {
 	login := Login(ctx)
-	if err := s.ReloadProfile(ctx); err != nil {
+	if err := s.reloadProfile(ctx); err != nil {
 		s.logger.ErrorContext(ctx, "a playbook was stored but the running profile could not be rebuilt; "+
 			"the conductor is still on the previous one", "playbook", playbook.Name, "error", err)
 	} else {
