@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,6 +20,7 @@ import (
 // Sessions is the live-session half of the node registry.
 type Sessions interface {
 	SnapshotOf(nodeID string) (nodes.Snapshot, bool)
+	SetLabels(nodeID string, labels []string) bool
 }
 
 // Drainer pushes an operator's standing instructions at a connected node: what it may not
@@ -208,6 +211,67 @@ func (s *NodeAdminService) SetNodeSlots(
 	}
 	live, connected := s.sessions.SnapshotOf(nodeID)
 	return connect.NewResponse(&podiumv1.SetNodeSlotsResponse{Node: nodeToProto(after, live, connected)}), nil
+}
+
+// SetNodeLabels changes what a node is eligible for after it has enrolled. Until this
+// existed the labels a node was given at enrollment were the labels it had for good, and
+// tagging a machine meant editing nodes.labels by hand and restarting the daemon so its
+// session re-read the row.
+//
+// It adds and removes rather than replacing, because a whole-list write is a race between
+// two operators who each meant to change one label. The live session is retagged too, so
+// the scheduler routes on the new set immediately rather than at the next reconnect.
+func (s *NodeAdminService) SetNodeLabels(
+	ctx context.Context,
+	req *connect.Request[podiumv1.SetNodeLabelsRequest],
+) (*connect.Response[podiumv1.SetNodeLabelsResponse], error) {
+	nodeID := req.Msg.GetNodeId()
+	add, remove := req.Msg.GetAdd(), req.Msg.GetRemove()
+	if nodeID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("set labels: node_id is required"))
+	}
+	if len(add)+len(remove) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("set labels: name at least one label to add or remove"))
+	}
+	for _, l := range slices.Concat(add, remove) {
+		if strings.TrimSpace(l) == "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("set labels: a label must not be empty"))
+		}
+	}
+	before, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	after, err := s.store.SetNodeLabels(ctx, nodeID, mergeLabels(before.Labels, add, remove))
+	if err != nil {
+		return nil, storeError(err)
+	}
+	s.sessions.SetLabels(nodeID, after.Labels)
+	s.logger.InfoContext(ctx, "node labels changed",
+		"node_id", nodeID, "labels", after.Labels, "was", before.Labels, "by", login(ctx))
+
+	live, connected := s.sessions.SnapshotOf(nodeID)
+	return connect.NewResponse(&podiumv1.SetNodeLabelsResponse{Node: nodeToProto(after, live, connected)}), nil
+}
+
+// mergeLabels applies an operator's additions and removals to the labels a node already has.
+// The result is sorted and deduplicated, which is the same shape enrollment's unionLabels
+// produces — a node's labels read the same however they were set.
+func mergeLabels(current, add, remove []string) []string {
+	set := make(map[string]struct{}, len(current)+len(add))
+	for _, l := range slices.Concat(current, add) {
+		set[l] = struct{}{}
+	}
+	for _, l := range remove {
+		delete(set, l)
+	}
+	out := make([]string, 0, len(set))
+	for l := range set {
+		out = append(out, l)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (s *NodeAdminService) setDraining(ctx context.Context, nodeID string, draining bool) (*podiumv1.Node, error) {

@@ -213,6 +213,15 @@ func (s *Session) setMaxTasks(maxTasks int32) {
 	s.freeSlots = max(s.budget()-int32(len(s.running)), 0)
 }
 
+// setLabels replaces what this session advertises to the scheduler. The labels were copied
+// off the node's row when the stream opened, so without this a relabelled node would keep
+// matching the old set until it reconnected.
+func (s *Session) setLabels(labels []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.labels = append([]string(nil), labels...)
+}
+
 // release gives back the slot booked for taskID and reports whether this session held one.
 // freeSlots is deliberately left alone: the node's heartbeat is authoritative for it, and
 // reserve's local decrement is what stops the scheduler over-assigning between heartbeats.
@@ -356,6 +365,17 @@ func (r *Registry) Drain(nodeID string, draining bool) bool {
 		return false
 	}
 	s.setDraining(draining)
+	return true
+}
+
+// SetLabels replaces a node's live labels and reports whether it had a session. A node that
+// is not connected needs nothing: the next stream reads the labels off its row.
+func (r *Registry) SetLabels(nodeID string, labels []string) bool {
+	s, ok := r.Get(nodeID)
+	if !ok {
+		return false
+	}
+	s.setLabels(labels)
 	return true
 }
 

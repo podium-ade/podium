@@ -169,6 +169,25 @@ func (s *Store) SetNodeMaxTasks(ctx context.Context, nodeID string, maxTasks *in
 	return nil
 }
 
+// SetNodeLabels replaces a node's labels and returns the row it wrote. Labels decide what
+// work a node is eligible for, and they are set at enrollment — this is how an operator
+// changes them afterwards without a re-enrollment. The caller decides what the new set is;
+// the column holds exactly what it is given.
+func (s *Store) SetNodeLabels(ctx context.Context, nodeID string, labels []string) (Node, error) {
+	labelsJSON, err := json.Marshal(nonNilStrings(labels))
+	if err != nil {
+		return Node{}, fmt.Errorf("marshal node labels: %w", err)
+	}
+	row, err := s.q.SetNodeLabels(ctx, db.SetNodeLabelsParams{Labels: labelsJSON, ID: nodeID})
+	if noRows(err) {
+		return Node{}, fmt.Errorf("node %s: %w", nodeID, ErrNotFound)
+	}
+	if err != nil {
+		return Node{}, fmt.Errorf("set labels of node %s: %w", nodeID, err)
+	}
+	return nodeFromRow(row)
+}
+
 // DeleteNode removes a node. Its finished tasks keep the node id they ran on: that column
 // stopped being a foreign key in 0004_scheduler.sql, because a live inventory and an
 // append-only history do not belong in a referential relationship. Refusing to delete a node

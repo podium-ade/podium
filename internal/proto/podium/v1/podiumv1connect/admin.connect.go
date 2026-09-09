@@ -51,6 +51,9 @@ const (
 	// NodeAdminServiceSetNodeSlotsProcedure is the fully-qualified name of the NodeAdminService's
 	// SetNodeSlots RPC.
 	NodeAdminServiceSetNodeSlotsProcedure = "/podium.v1.NodeAdminService/SetNodeSlots"
+	// NodeAdminServiceSetNodeLabelsProcedure is the fully-qualified name of the NodeAdminService's
+	// SetNodeLabels RPC.
+	NodeAdminServiceSetNodeLabelsProcedure = "/podium.v1.NodeAdminService/SetNodeLabels"
 	// NodeAdminServiceDeleteNodeProcedure is the fully-qualified name of the NodeAdminService's
 	// DeleteNode RPC.
 	NodeAdminServiceDeleteNodeProcedure = "/podium.v1.NodeAdminService/DeleteNode"
@@ -71,6 +74,10 @@ type NodeAdminServiceClient interface {
 	// SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
 	// its own configuration file.
 	SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error)
+	// SetNodeLabels changes what a node is eligible for after it has enrolled. Labels are
+	// added and removed rather than replaced, so two operators tagging different things
+	// cannot clobber each other.
+	SetNodeLabels(context.Context, *connect.Request[v1.SetNodeLabelsRequest]) (*connect.Response[v1.SetNodeLabelsResponse], error)
 	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
 	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
@@ -122,6 +129,12 @@ func NewNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeSlots")),
 			connect.WithClientOptions(opts...),
 		),
+		setNodeLabels: connect.NewClient[v1.SetNodeLabelsRequest, v1.SetNodeLabelsResponse](
+			httpClient,
+			baseURL+NodeAdminServiceSetNodeLabelsProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeLabels")),
+			connect.WithClientOptions(opts...),
+		),
 		deleteNode: connect.NewClient[v1.DeleteNodeRequest, v1.DeleteNodeResponse](
 			httpClient,
 			baseURL+NodeAdminServiceDeleteNodeProcedure,
@@ -139,6 +152,7 @@ type nodeAdminServiceClient struct {
 	drainNode             *connect.Client[v1.DrainNodeRequest, v1.DrainNodeResponse]
 	undrainNode           *connect.Client[v1.UndrainNodeRequest, v1.UndrainNodeResponse]
 	setNodeSlots          *connect.Client[v1.SetNodeSlotsRequest, v1.SetNodeSlotsResponse]
+	setNodeLabels         *connect.Client[v1.SetNodeLabelsRequest, v1.SetNodeLabelsResponse]
 	deleteNode            *connect.Client[v1.DeleteNodeRequest, v1.DeleteNodeResponse]
 }
 
@@ -172,6 +186,11 @@ func (c *nodeAdminServiceClient) SetNodeSlots(ctx context.Context, req *connect.
 	return c.setNodeSlots.CallUnary(ctx, req)
 }
 
+// SetNodeLabels calls podium.v1.NodeAdminService.SetNodeLabels.
+func (c *nodeAdminServiceClient) SetNodeLabels(ctx context.Context, req *connect.Request[v1.SetNodeLabelsRequest]) (*connect.Response[v1.SetNodeLabelsResponse], error) {
+	return c.setNodeLabels.CallUnary(ctx, req)
+}
+
 // DeleteNode calls podium.v1.NodeAdminService.DeleteNode.
 func (c *nodeAdminServiceClient) DeleteNode(ctx context.Context, req *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
 	return c.deleteNode.CallUnary(ctx, req)
@@ -192,6 +211,10 @@ type NodeAdminServiceHandler interface {
 	// SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
 	// its own configuration file.
 	SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error)
+	// SetNodeLabels changes what a node is eligible for after it has enrolled. Labels are
+	// added and removed rather than replaced, so two operators tagging different things
+	// cannot clobber each other.
+	SetNodeLabels(context.Context, *connect.Request[v1.SetNodeLabelsRequest]) (*connect.Response[v1.SetNodeLabelsResponse], error)
 	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
 	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
@@ -239,6 +262,12 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 		connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeSlots")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeAdminServiceSetNodeLabelsHandler := connect.NewUnaryHandler(
+		NodeAdminServiceSetNodeLabelsProcedure,
+		svc.SetNodeLabels,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeLabels")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nodeAdminServiceDeleteNodeHandler := connect.NewUnaryHandler(
 		NodeAdminServiceDeleteNodeProcedure,
 		svc.DeleteNode,
@@ -259,6 +288,8 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 			nodeAdminServiceUndrainNodeHandler.ServeHTTP(w, r)
 		case NodeAdminServiceSetNodeSlotsProcedure:
 			nodeAdminServiceSetNodeSlotsHandler.ServeHTTP(w, r)
+		case NodeAdminServiceSetNodeLabelsProcedure:
+			nodeAdminServiceSetNodeLabelsHandler.ServeHTTP(w, r)
 		case NodeAdminServiceDeleteNodeProcedure:
 			nodeAdminServiceDeleteNodeHandler.ServeHTTP(w, r)
 		default:
@@ -292,6 +323,10 @@ func (UnimplementedNodeAdminServiceHandler) UndrainNode(context.Context, *connec
 
 func (UnimplementedNodeAdminServiceHandler) SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.SetNodeSlots is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) SetNodeLabels(context.Context, *connect.Request[v1.SetNodeLabelsRequest]) (*connect.Response[v1.SetNodeLabelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.SetNodeLabels is not implemented"))
 }
 
 func (UnimplementedNodeAdminServiceHandler) DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {

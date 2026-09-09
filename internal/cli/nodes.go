@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -80,6 +81,7 @@ func newNodeCommand(e *env) *cobra.Command {
 		newDrainCommand(e),
 		newUndrainCommand(e),
 		newNodeSlotsCommand(e),
+		newNodeLabelCommand(e),
 		newNodeRemoveCommand(e),
 	)
 	return cmd
@@ -206,6 +208,47 @@ func newNodeSlotsCommand(e *env) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newNodeLabelCommand(e *env) *cobra.Command {
+	var add, remove []string
+	cmd := &cobra.Command{
+		Use:   "label NODE --add L [--remove L]",
+		Short: "Change a node's labels",
+		Long: "Change a node's labels.\n\n" +
+			"Labels decide what a node is eligible for: a task whose spec lists\n" +
+			"`labels: [browser]` only ever goes to a node advertising `browser`. They are set\n" +
+			"at enrollment, and this is how they are changed afterwards — no re-enrollment and\n" +
+			"no restart.\n\n" +
+			"--add and --remove are applied to the labels the node already has, so two\n" +
+			"operators tagging different things cannot clobber each other. A connected node is\n" +
+			"retagged immediately; the scheduler routes on the new set from its next tick.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(add)+len(remove) == 0 {
+				return &ExitError{Code: ExitUsage, Err: errors.New("name at least one --add or --remove label")}
+			}
+			node, err := resolveNode(cmd.Context(), e, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := e.client.admin.SetNodeLabels(cmd.Context(), connect.NewRequest(
+				&podiumv1.SetNodeLabelsRequest{NodeId: node.GetId(), Add: add, Remove: remove}))
+			if err != nil {
+				return &ExitError{Code: ExitInfra, Err: fmt.Errorf("set node labels: %w", err)}
+			}
+			n := res.Msg.GetNode()
+			if len(n.GetLabels()) == 0 {
+				fmt.Fprintf(e.stdout, "%s (%s) has no labels\n", n.GetName(), n.GetId())
+				return nil
+			}
+			fmt.Fprintf(e.stdout, "%s (%s) labels: %s\n", n.GetName(), n.GetId(), strings.Join(n.GetLabels(), ","))
+			return nil
+		},
+	}
+	cmd.Flags().StringArrayVar(&add, "add", nil, "label to give the node (repeatable)")
+	cmd.Flags().StringArrayVar(&remove, "remove", nil, "label to take off the node (repeatable)")
+	return cmd
 }
 
 func newNodeRemoveCommand(e *env) *cobra.Command {
