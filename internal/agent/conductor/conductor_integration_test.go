@@ -311,7 +311,9 @@ func TestATurnRelaysEverythingAndRecordsIt(t *testing.T) {
 
 	records := src.Records()
 
-	// The reactions are 👀 then ✅, on the triggering message, and nothing else.
+	// The reactions are working then done, on the triggering message, and nothing else.
+	// Which emoji those are is the source's business, not the conductor's — Slack shows
+	// ⏳ then ✅.
 	assert.Equal(t, []string{string(conductor.ReactionWorking), string(conductor.ReactionDone)}, reactions(records))
 
 	// The placeholder goes up before anything else — it is the acknowledgement a human is

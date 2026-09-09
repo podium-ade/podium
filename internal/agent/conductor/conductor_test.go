@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvaroibarguen/podium/internal/agent/store"
 )
 
 // A Slack thread is a CONVERSATION now: the assistant answers it on this host and delegates
@@ -87,4 +89,18 @@ func TestHostSlotsGiveUpWhenTheConductorStops(t *testing.T) {
 	assert.False(t, ok)
 	assert.NotNil(t, release, "the caller may still defer it")
 	release()
+}
+
+// Every way a turn can end, and the mark it leaves. ✅ only for a turn that worked; ❌ for
+// every other ending, cancellation included.
+func TestReactionForEveryEnding(t *testing.T) {
+	for status, want := range map[string]Reaction{
+		store.TurnSucceeded: ReactionDone,
+		store.TurnFailed:    ReactionFailed,
+		store.TurnLost:      ReactionFailed,
+		store.TurnCancelled: ReactionFailed,
+		store.TurnTimeout:   ReactionFailed,
+	} {
+		assert.Equal(t, want, reactionFor(status), status)
+	}
 }
