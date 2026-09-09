@@ -44,6 +44,12 @@ build: web runner-embed
 # every host turn exited without emitting anything and reported success having said nothing.
 # PODIUM_AGENT_RUNNER_BIN points here.
 #
+# "Native" is pinned to GOHOSTOS/GOHOSTARCH rather than left to the environment because
+# `make dist-node GOOS=linux GOARCH=amd64` — the documented way to build a worker binary —
+# exports both variables into every recipe line, this one included. Without the pin that
+# command quietly replaced the Mac's runner with an ELF binary, and every host turn after
+# it ended without a word (2026-09-09).
+#
 # The binaries are build output and are gitignored; only the .gitkeep placeholder that keeps
 # //go:embed compiling on a fresh clone is committed.
 runner-embed:
@@ -55,7 +61,8 @@ runner-embed:
 			go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $$out ./cmd/podium-runner || exit 1; \
 	done
 	@echo "go build ./cmd/podium-runner -> bin/podium-runner (native, for host turns)"
-	@go build -trimpath -ldflags "$(LDFLAGS)" -o bin/podium-runner ./cmd/podium-runner
+	@GOOS=$$(go env GOHOSTOS) GOARCH=$$(go env GOHOSTARCH) \
+		go build -trimpath -ldflags "$(LDFLAGS)" -o bin/podium-runner ./cmd/podium-runner
 
 # Cross-compiled worker binaries.
 #
