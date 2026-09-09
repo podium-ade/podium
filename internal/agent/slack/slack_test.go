@@ -362,7 +362,7 @@ func testSource(t *testing.T, f *fakeSlack) *Source {
 	return s
 }
 
-// Starting work is a 👀 on the trigger and nothing posted. The conductor still offers the
+// Starting work is a ⏳ on the trigger and nothing posted. The conductor still offers the
 // "working…" placeholder (every source sees the same Post); Slack drops it.
 func TestStartingWorkReactsAndPostsNoPlaceholder(t *testing.T) {
 	f := newFakeSlack(t)
@@ -377,6 +377,16 @@ func TestStartingWorkReactsAndPostsNoPlaceholder(t *testing.T) {
 	assert.Equal(t, []string{"reactions.add"}, f.methods())
 	assert.Equal(t, emojiWorking, f.form(t, "reactions.add", 0).Get("name"))
 	assert.Equal(t, "100.1", f.form(t, "reactions.add", 0).Get("timestamp"))
+}
+
+// The three emoji, pinned by name. They are the whole of what a reader sees about a turn's
+// state — Slack posts no placeholder, so the running mark is the ONLY thing that says work
+// has started — and the assertions above are symbolic, so nothing else would notice if one
+// of them changed.
+func TestTheThreeStatesAreHourglassCheckAndCross(t *testing.T) {
+	assert.Equal(t, "hourglass_flowing_sand", emojiWorking, "running: ⏳")
+	assert.Equal(t, "white_check_mark", emojiDone, "succeeded: ✅")
+	assert.Equal(t, "x", emojiFailed, "failed: ❌")
 }
 
 // The working mark is the first thing a turn does and it ADDS ONLY. The trigger is a

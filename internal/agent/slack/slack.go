@@ -50,9 +50,12 @@ const writeRate = 1
 // because the point is to stop reads waiting on writes, not to run at the ceiling.
 const readRate = 10
 
-// The reaction names the three turn states show as.
+// The reaction names the three turn states show as. Since Slack posts no placeholder, the
+// running one is the ONLY thing that says work has started, so it says it in the shape a
+// reader already knows from the progress prefix: ⏳ while it runs, ✅ when it worked, ❌
+// when it did not.
 const (
-	emojiWorking = "eyes"
+	emojiWorking = "hourglass_flowing_sand"
 	emojiDone    = "white_check_mark"
 	emojiFailed  = "x"
 )
@@ -353,7 +356,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	if err != nil {
 		return "", err
 	}
-	// The working acknowledgement is the 👀 reaction, not a chat message. The conductor
+	// The working acknowledgement is the ⏳ reaction, not a chat message. The conductor
 	// still offers the placeholder (every source sees the same Post); Slack drops it so
 	// the thread never shows "working…", and returns no id so later progress cannot edit
 	// a message that was never posted.
@@ -445,9 +448,9 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 // rather than a history of them. "Already reacted" and "no reaction" are both fine
 // outcomes and not errors.
 //
-// Only 👀 is ever removed, and only by the outcome that replaces it. A turn's reactions go
-// on the message that TRIGGERED it — a message a human has just sent, which is a different
-// message every turn — so nothing of this bot's can already be on it, and the state machine
+// Only the running mark is ever removed, and only by the outcome that replaces it. A turn's
+// reactions go on the message that TRIGGERED it — a message a human has just sent, which is
+// a different message every turn — so nothing of this bot's can already be on it, and the state machine
 // is only ever working → done | failed. Removing the two emoji it was not setting on every
 // call meant three requests a turn that Slack answered "no_reaction" to, two of them ahead
 // of the working mark, where somebody is waiting to see that they were heard.
