@@ -152,11 +152,7 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 			"turn_id", r.turn.ID, "status", status, "error", err)
 	}
 	r.linkPullRequests(ctx, answer)
-	reaction := ReactionDone
-	if status != store.TurnSucceeded {
-		reaction = ReactionFailed
-	}
-	r.c.finish(ctx, r.src, r.ref, reaction)
+	r.c.finish(ctx, r.src, r.ref, reactionFor(status))
 	r.c.metrics.Turns.WithLabelValues(r.sess.SourceKind, r.job.name, status).Inc()
 	r.c.metrics.TurnDuration.WithLabelValues(r.job.name).Observe(time.Since(r.startedAt).Seconds())
 	r.c.logger.InfoContext(ctx, "turn finished", "turn_id", r.turn.ID, "task_id", r.turn.TaskID,
@@ -326,4 +322,19 @@ func (r *turnRun) readSummary(ctx context.Context, art *podiumv1.Artifact) {
 		return
 	}
 	r.readAccounting(ctx, acctFromArtifact, raw)
+}
+
+// reactionFor is the mark a finished turn leaves on the message that started it: ✅ when it
+// worked and ❌ when it did not, for every way it can not work — failed, lost, CANCELLED and
+// timed out alike.
+//
+// Cancelled is ❌ on purpose and not a third state. A turn somebody stopped produced no
+// answer, which is the only thing the mark is telling a reader; that they stopped it
+// themselves is something they already know, and the words posted alongside say so anyway
+// ("This was cancelled. Task ...").
+func reactionFor(status string) Reaction {
+	if status == store.TurnSucceeded {
+		return ReactionDone
+	}
+	return ReactionFailed
 }
