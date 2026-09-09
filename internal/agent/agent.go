@@ -271,6 +271,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		SkillsDir:    a.cfg.SkillsDir,
 		Host:         host,
 		HostMaxTurns: a.cfg.HostMaxTurns,
+		Mirror:       a.chat,
 	})
 	if err != nil {
 		st.Close()

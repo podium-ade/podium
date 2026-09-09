@@ -103,6 +103,9 @@ type Options struct {
 	// task, which is what a conductor whose host has no runtime must do; set, it is what
 	// answers a conversation, and a container is what it delegates to. See host.go.
 	Host *HostRuntime
+	// Mirror is told about every row the mirror writes, so a web client watching a mirrored
+	// thread sees it appear. Nil means nobody is watching; the rows are still written.
+	Mirror MirrorWatcher
 	// HostMaxTurns is how many host turns may run at once. Zero means
 	// DefaultHostMaxTurns. It exists because a host turn is a process on this machine and
 	// Slack decides how many conversations there are: see acquireHostSlot.
@@ -132,7 +135,8 @@ type Conductor struct {
 	// skillsDir is where a turn's Agent Skills are read from.
 	skillsDir string
 	// host is the runtime for a turn this process runs itself, nil when it runs none.
-	host *HostRuntime
+	host   *HostRuntime
+	mirror MirrorWatcher
 	// hostSlots is the cap on concurrent host turns, one token per slot. Buffered and not
 	// a mutex because a queued turn waits on ctx as well.
 	hostSlots chan struct{}
@@ -207,6 +211,7 @@ func New(opts Options) (*Conductor, error) {
 		xaiBaseURL:      cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
 		skillsDir:       opts.SkillsDir,
 		host:            opts.Host,
+		mirror:          opts.Mirror,
 		hostSlots:       make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
 		sessions:        map[string]*sessionState{},
 		hostRuns:        map[string]func(){},
