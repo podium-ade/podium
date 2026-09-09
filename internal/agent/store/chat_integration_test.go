@@ -739,3 +739,42 @@ func TestTheChatListReportsARunningTurnForAMirroredThread(t *testing.T) {
 		}
 	}
 }
+
+// The assistant's turn ends the moment it has delegated; the work it delegated does not. The
+// list says so with a second flag, so the chat stays marked busy for as long as the task runs
+// — and that flag is not the composer's: the conversation may go on meanwhile.
+func TestTheChatListReportsARunningDelegatedTask(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateChat(ctx, "alice", "August numbers")
+	require.NoError(t, err)
+	turn := runningTurn(t, s, chat.ID)
+	dlg, err := s.CreateDelegation(ctx, NewDelegation{
+		SessionID: turn.SessionID, TurnID: turn.ID, TriggerRef: chat.ID,
+		Playbook: "analyst", Instruction: "count the accounts",
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "started a task"))
+
+	listed := func() Chat {
+		chats, _, err := s.ListChats(ctx, "alice", 0, "")
+		require.NoError(t, err)
+		for _, c := range chats {
+			if c.ID == chat.ID {
+				return c
+			}
+		}
+		t.Fatalf("chat %s not listed", chat.ID)
+		return Chat{}
+	}
+	c := listed()
+	assert.False(t, c.TurnRunning, "the turn is over")
+	assert.True(t, c.TaskRunning, "the task it delegated is not")
+	running, err := s.ChatTurnRunning(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.False(t, running, "a delegated task does not hold the composer")
+
+	require.NoError(t, s.FinishDelegation(ctx, dlg.ID, TurnSucceeded, "4,812.", nil, nil))
+	assert.False(t, listed().TaskRunning)
+}

@@ -568,6 +568,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		CreatedAt:    timestamppb.New(c.CreatedAt),
 		Preview:      c.Preview,
 		TurnRunning:  c.TurnRunning,
+		TaskRunning:  c.TaskRunning,
 		Agent:        c.Agent,
 		Model:        c.Model,
 		Effort:       c.Effort,

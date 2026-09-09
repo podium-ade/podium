@@ -48,7 +48,16 @@ select c.*,
       join sessions s on s.id = t.session_id
      where s.source_key = c.source_key
        and t.status = 'running'
-  ) as turn_running
+  ) as turn_running,
+  -- A delegated task outlives the turn that started it, and it is the conversation's work
+  -- for as long as it runs.
+  exists (
+    select 1 from delegations d
+      join turns t on t.id = d.turn_id
+      join sessions s on s.id = t.session_id
+     where s.source_key = c.source_key
+       and d.status = 'running'
+  ) as task_running
 from chats c
 left join (
   select cm.chat_id, cm.ts, cm.text,

@@ -155,7 +155,7 @@ export function ChatPanel() {
   // playbook per piece of work, and naming them is how a reader learns the conversation can
   // reach a machine at all.
   const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
-  const deleteStopsTask = pendingDelete?.turnRunning === true;
+  const deleteStopsTask = pendingDelete?.turnRunning === true || pendingDelete?.taskRunning === true;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -514,7 +514,9 @@ function ChatRow({
           </span>
         </span>
         <span className="mt-1 flex items-center gap-1.5">
-          {chat.turnRunning ? <Badge tone="run">running</Badge> : null}
+          {/* Busy while the assistant is answering OR a task it delegated is still going:
+              the turn ends the moment it has delegated, the work does not. */}
+          {chat.turnRunning || chat.taskRunning ? <Badge tone="run">running</Badge> : null}
           {/* Where the conversation lives. A mirrored thread is read here and answered
               there, and the badge is what stops a reader wondering why it has no composer. */}
           {chat.origin && chat.origin !== "web" ? (
