@@ -35,3 +35,7 @@ update nodes set draining = @draining where id = @id;
 
 -- name: SetNodeMaxTasks :execrows
 update nodes set max_tasks_override = sqlc.narg(max_tasks_override)::int where id = @id;
+
+-- name: SetNodeLabels :one
+update nodes set labels = @labels where id = @id
+returning *;
