@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// registryImage must already be on this engine, like every other image the suite uses.
+// registryImage is the registry that stands in for a private one. Unlike the suite's task
+// images, which the executor pulls as part of a run, it is started by hand, so the test pulls
+// it by hand too — anonymously, which is the ordinary Docker Hub case.
 const registryImage = "registry:2"
 
 // registryHtpasswd is `htpasswd -nbB podium secret`: the one user the private registry knows.
@@ -31,6 +33,7 @@ const registryHtpasswd = "podium:$2y$05$XiAQUhRqtubn9OqQPTZ0muGjz9wrga6inSBfBQqq
 func startPrivateRegistry(t *testing.T, e *Executor) string {
 	t.Helper()
 	ctx := context.Background()
+	require.NoError(t, e.ensureImage(ctx, registryImage, nil, newEmitter(ctx, newCollector().ch)))
 	authDir := shortTempDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(authDir, "htpasswd"), []byte(registryHtpasswd), 0o644))
 
