@@ -664,6 +664,18 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(screen.getByTestId("chat-list")).not.toHaveTextContent("August numbers"));
   });
 
+  it("stays marked running while a delegated task outlives the turn", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, turnRunning: false, taskRunning: true }],
+      nextCursor: "",
+    });
+    mount();
+    expect(await screen.findByText("running")).toBeInTheDocument();
+    // And a delete warns about the task, exactly as it does for a running turn.
+    await userEvent.click(await screen.findByTestId("chat-delete"));
+    expect(screen.getByText(/A task is running in this chat/)).toBeInTheDocument();
+  });
+
   it("warns that a running task will be stopped, and only then deletes", async () => {
     listChats.mockResolvedValue({ chats: [{ ...chat, turnRunning: true }], nextCursor: "" });
     deleteChat.mockResolvedValue({});
