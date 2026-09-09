@@ -56,8 +56,8 @@ somebody mentions the bot in a THREAD, or assigns a Linear ticket
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
   ↓  Select                                  which playbook? /playbook, the channel, default_playbook
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
-  ↓  React 👀                                 before any work starts
-  ↓  post "👀 working…"                       Linear's working comment. Slack skips it: 👀 is the ack
+  ↓  React ⏳                                 before any work starts
+  ↓  post "👀 working…"                       Linear's working comment. Slack skips it: ⏳ is the ack
   ↓  FetchTranscript                          the thread so far
   ↓  brief                                    base64 JSON on PODIUM_AGENT_TURN, capped at 96 KiB
   ↓  CreateTask                               image + brief + the playbook's secrets + the model key
@@ -300,7 +300,7 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
 | `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
 | `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and every CONVERSATION — a web chat and a Slack thread alike — is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
-| `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn, showing `👀 working…` for longer; `podium_agent_host_turns_queued_total` counts how often that happens |
+| `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn — a Slack thread sits on its ⏳ for longer, a web chat on its `👀 working…` — and `podium_agent_host_turns_queued_total` counts how often that happens |
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
@@ -1294,9 +1294,9 @@ Then, in a channel the bot is in:
 @Podium what does this repo do?
 ```
 
-👀 appears on your message. That is the acknowledgement — there is no `👀 working…` chat
+⏳ appears on your message. That is the acknowledgement — there is no `👀 working…` chat
 message. Progress, if any, arrives as `⏳ …` lines; the answer is posted as a new message
-in the thread, and 👀 becomes ✅.
+in the thread, and ⏳ becomes ✅.
 
 ### A thread is readable in the Podium UI
 
