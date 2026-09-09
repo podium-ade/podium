@@ -309,6 +309,8 @@ func (s *Server) mux() http.Handler {
 		api.NewIdentityService(s.cfg.AgentEnabled()), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
+		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
 
@@ -333,6 +335,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
 		podiumv1connect.SecretServiceName,
+		podiumv1connect.RegistryServiceName,
 		podiumv1connect.ArtifactServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)

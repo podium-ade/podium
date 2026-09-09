@@ -50,6 +50,9 @@ type Request struct {
 	// Secrets are the resolved values of Spec.Secrets. SENSITIVE: they are plaintext,
 	// they are never logged, and Run zeroes them once the container has started.
 	Secrets []Secret
+	// Registries are the logins for the registries Spec's images are pulled from, as the
+	// Assign delivered them. SENSITIVE: plaintext, never logged, zeroed with Secrets.
+	Registries []RegistryCredential
 	// Artifacts is how files the task produces reach the control plane. A nil one means
 	// this node stores no artifacts: the task still runs, and anything it asks to keep
 	// becomes a retryable error event.
@@ -148,12 +151,26 @@ func permanentPull(msg string) bool {
 }
 
 // pullFailed is the error a failed pull reports, classified. The registry's own words are
-// kept verbatim: they are what an operator acts on.
-func pullFailed(ref, msg string) error {
+// kept verbatim: they are what an operator acts on. A refusal of an anonymous pull says
+// where a credential would have come from, because "pull access denied" reads as a typo in
+// the image name until you know the registry is private.
+func pullFailed(ref, msg string, anonymous bool) error {
 	if permanentPull(msg) {
+		if anonymous && deniedPull(msg) {
+			return fmt.Errorf("pull image %s: %w: %s (Podium holds no login for this registry; "+
+				"add one on the Registries screen)", ref, errImageUnavailable, msg)
+		}
 		return fmt.Errorf("pull image %s: %w: %s", ref, errImageUnavailable, msg)
 	}
 	return fmt.Errorf("pull image %s: %s", ref, msg)
+}
+
+// deniedPull reports whether a registry's answer was about access rather than existence.
+// Registries deliberately blur the two for private images, so "denied" is read broadly.
+func deniedPull(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "denied") || strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "authentication required")
 }
 
 func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runState) (Result, error) {
@@ -161,7 +178,7 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		return Result{}, fmt.Errorf("%w: image is required", errSpec)
 	}
 
-	if err := e.ensureImage(ctx, req.Spec.Image, em); err != nil {
+	if err := e.ensureImage(ctx, req.Spec.Image, req.registryAuths(), em); err != nil {
 		return Result{}, err
 	}
 
@@ -225,6 +242,9 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	defer func() {
 		for i := range req.Secrets {
 			zero(req.Secrets[i].Value)
+		}
+		for i := range req.Registries {
+			zero(req.Registries[i].Password)
 		}
 	}()
 
@@ -494,7 +514,7 @@ func (e *Executor) resolveCommand(ctx context.Context, s spec.TaskSpec) ([]strin
 
 // ensureImage pulls the image unless the engine already has it, emitting
 // throttled pulling events while it does.
-func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) error {
+func (e *Executor) ensureImage(ctx context.Context, ref string, auths registryAuths, em *emitter) error {
 	if _, err := e.cli.ImageInspect(ctx, ref); err == nil {
 		// Already here. It may or may not be one Podium pulled; either way, using it
 		// only refreshes the LRU order of an image already in the cache.
@@ -502,9 +522,10 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 		return nil
 	}
 
-	rc, err := e.cli.ImagePull(ctx, ref, image.PullOptions{})
+	auth := auths.forImage(ref)
+	rc, err := e.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
-		return pullFailed(ref, err.Error())
+		return pullFailed(ref, err.Error(), auth == "")
 	}
 	defer func() { _ = rc.Close() }()
 
@@ -530,7 +551,7 @@ func (e *Executor) ensureImage(ctx context.Context, ref string, em *emitter) err
 			return fmt.Errorf("pull image %s: read progress: %w", ref, err)
 		}
 		if msg.Error != "" {
-			return pullFailed(ref, msg.Error)
+			return pullFailed(ref, msg.Error, auth == "")
 		}
 		if now := time.Now(); last.IsZero() || now.Sub(last) >= pullProgressInterval {
 			last = now

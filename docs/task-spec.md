@@ -39,6 +39,44 @@ decoder, and every one using only `alpine:3`, `pgvector/pgvector:pg16` or `redis
 | [`examples/limits.yaml`](../examples/limits.yaml) | limits and hardening, from inside the container — including an OOM kill |
 | [`examples/artifacts.yaml`](../examples/artifacts.yaml) | both ways to keep a file |
 
+## Private registries
+
+`image:` — the task's and every sidecar's — is written the same way whether the registry is
+public or private:
+
+```yaml
+image: us-docker.pkg.dev/acme/images/app:1.2.3
+```
+
+What makes the private one pull is a **registry login** stored on the control plane: the
+**Registries** screen of the web UI (or `RegistryService` over the API) takes a host, a username
+and a password, encrypts the password under the master key exactly as a secret is, and never
+reads it back. When a task is assigned, the server looks at the registry each of its images
+names — the part before the first slash, `docker.io` for a bare `alpine:3` — and puts the login
+for every host it holds one for into that task's `Assign`, and no other. The node sends it with
+the pull. A registry with no stored login is pulled anonymously, as before.
+
+- **One login per host.** `us-docker.pkg.dev` and `europe-docker.pkg.dev` are two registries;
+  so are `gcr.io` and `us.gcr.io`. Docker Hub is `docker.io`, however the login was spelled.
+- **Google Artifact Registry.** The org that owns the registry creates a service account,
+  grants it *Artifact Registry Reader* (`roles/artifactregistry.reader`) on the repository or
+  project, and hands over a JSON key. The username is `_json_key` and the password is the whole
+  key file — the screen's *Google Artifact Registry* preset fixes the username and takes the file
+  in a text area. The key is a static credential, which is what makes it usable here: an
+  `oauth2accesstoken` expires within the hour and nothing would refresh it.
+- **GHCR** takes a personal access token with `read:packages` as the password; **any other
+  registry** takes whatever `docker login` would.
+- **It is not a spec field.** Which registries a fleet may log in to is an operator's decision,
+  not a task author's, and the spec carries no reference to it. A task's only sign a login was
+  used is that the pull succeeded.
+- **Deleting a login does not fail anything at admission.** The next pull from that host is
+  anonymous, and fails on the node with `pull access denied` if the registry is private. That
+  error names the Registries screen when no login was sent, and repeats the registry's own words
+  when one was and it was refused.
+- **Nodes need nothing.** The login arrives with the assignment, on whichever node the
+  scheduler picked, and the node's log redactor treats it as a secret. Nothing is written to the
+  node's disk and no `docker login` happens on its engine.
+
 ## Timeout, attempts and losing a node
 
 `timeout` is enforced by the control plane, not by the node: past it the server asks the node

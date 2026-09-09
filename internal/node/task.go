@@ -38,21 +38,28 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 		"image", a.GetSpec().GetImage(), "secrets", len(a.GetResolvedSecrets()))
 
 	// The redactor and the executor each take their own copy of the values, so the
-	// Assign's own plaintext can be scrubbed here and never outlive this call.
-	red := newRedactor(a.GetResolvedSecrets())
+	// Assign's own plaintext can be scrubbed here and never outlive this call. A registry
+	// password is redacted like any secret: a task that prints its docker config leaks it
+	// the same way.
+	red := newRedactor(append(a.GetResolvedSecrets(), registriesAsSecrets(a.GetRegistryCredentials())...))
 	injected := requestSecrets(a.GetResolvedSecrets())
+	registries := requestRegistries(a.GetRegistryCredentials())
 	for _, rs := range a.GetResolvedSecrets() {
 		zeroBytes(rs.GetValue())
+	}
+	for _, rc := range a.GetRegistryCredentials() {
+		zeroBytes(rc.GetPassword())
 	}
 
 	taskSpec := spec.FromProto(a.GetSpec())
 	go n.execute(buf, red, func(events chan<- docker.Event) error {
 		_, err := n.exec.Run(n.runCtx, docker.Request{
-			TaskID:    taskID,
-			LeaseID:   a.GetLeaseId(),
-			Spec:      *taskSpec,
-			Secrets:   injected,
-			Artifacts: artifactUploader{n},
+			TaskID:     taskID,
+			LeaseID:    a.GetLeaseId(),
+			Spec:       *taskSpec,
+			Secrets:    injected,
+			Registries: registries,
+			Artifacts:  artifactUploader{n},
 		}, events)
 		return err
 	})
@@ -82,6 +89,33 @@ func requestSecrets(resolved []*podiumv1.ResolvedSecret) []docker.Secret {
 			Key:    s.GetKey(),
 			Value:  bytes.Clone(s.GetValue()),
 		})
+	}
+	return out
+}
+
+// requestRegistries copies the registry logins onto the executor's own type, with their
+// own copy of every password.
+func requestRegistries(creds []*podiumv1.RegistryCredential) []docker.RegistryCredential {
+	if len(creds) == 0 {
+		return nil
+	}
+	out := make([]docker.RegistryCredential, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, docker.RegistryCredential{
+			Host:     c.GetHost(),
+			Username: c.GetUsername(),
+			Password: bytes.Clone(c.GetPassword()),
+		})
+	}
+	return out
+}
+
+// registriesAsSecrets presents registry passwords to the redactor in the shape it matches
+// on, named so a redacted line says which registry's password it was.
+func registriesAsSecrets(creds []*podiumv1.RegistryCredential) []*podiumv1.ResolvedSecret {
+	out := make([]*podiumv1.ResolvedSecret, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, &podiumv1.ResolvedSecret{Name: "registry:" + c.GetHost(), Value: c.GetPassword()})
 	}
 	return out
 }

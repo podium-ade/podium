@@ -8,6 +8,7 @@ import { cn } from "./lib/utils";
 import { AgentPage } from "./pages/AgentPage";
 import { NodeEditPage } from "./pages/NodeEditPage";
 import { NodesPage } from "./pages/NodesPage";
+import { RegistriesPage } from "./pages/RegistriesPage";
 import { SecretsPage } from "./pages/SecretsPage";
 import { SubmitPage } from "./pages/SubmitPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -59,6 +60,7 @@ export function App() {
                   <Route path="/nodes" element={<NodesPage />} />
                   <Route path="/nodes/:id" element={<NodeEditPage />} />
                   <Route path="/secrets" element={<SecretsPage />} />
+                  <Route path="/registries" element={<RegistriesPage />} />
                   {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
                   <Route path="/agent/*" element={<AgentPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />

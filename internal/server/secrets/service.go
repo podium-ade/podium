@@ -205,9 +205,10 @@ func (s *Service) CheckRefs(ctx context.Context, refs []spec.SecretRef) error {
 	return nil
 }
 
-// Rotate re-encrypts every stored secret from oldKey to newKey in one transaction. It is
-// the offline `podium-server rotate-master-key` path: the server is not running, or is
-// still running under the old key and will be restarted with the new one.
+// Rotate re-encrypts every stored secret and registry password from oldKey to newKey, each
+// table in one transaction. It is the offline `podium-server rotate-master-key` path: the
+// server is not running, or is still running under the old key and will be restarted with
+// the new one. The count is secrets plus registries.
 func Rotate(ctx context.Context, st *store.Store, oldKey, newKey *Key) (int, error) {
 	if oldKey == nil || newKey == nil {
 		return 0, ErrNoKey
@@ -215,18 +216,31 @@ func Rotate(ctx context.Context, st *store.Store, oldKey, newKey *Key) (int, err
 	if oldKey.Equal(newKey) {
 		return 0, errors.New("secrets: the new master key is the old one; rotation would be a no-op")
 	}
-	return st.RotateSecrets(ctx, func(row store.Secret) ([]byte, []byte, string, error) {
-		value, err := oldKey.Decrypt(row.Name, row.Ciphertext, row.Nonce)
+	reencrypt := func(aad string, ciphertext, nonce []byte) ([]byte, []byte, string, error) {
+		value, err := oldKey.Decrypt(aad, ciphertext, nonce)
 		if err != nil {
 			return nil, nil, "", err
 		}
 		defer Zero(value)
-		ciphertext, nonce, err := newKey.Encrypt(row.Name, value)
+		ciphertext, nonce, err = newKey.Encrypt(aad, value)
 		if err != nil {
 			return nil, nil, "", err
 		}
 		return ciphertext, nonce, newKey.ID(), nil
+	}
+	secretsRotated, err := st.RotateSecrets(ctx, func(row store.Secret) ([]byte, []byte, string, error) {
+		return reencrypt(row.Name, row.Ciphertext, row.Nonce)
 	})
+	if err != nil {
+		return 0, err
+	}
+	registriesRotated, err := st.RotateRegistries(ctx, func(row store.Registry) ([]byte, []byte, string, error) {
+		return reencrypt(row.Host, row.Ciphertext, row.Nonce)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return secretsRotated + registriesRotated, nil
 }
 
 // audit records an action, logging rather than failing when the write does not land: an
