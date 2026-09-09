@@ -253,11 +253,14 @@ After that it keeps the promises placement made:
 ```sh
 podium node drain worker-3      # finishes what it has, takes nothing new
 podium node undrain worker-3
+podium node slots worker-3 2    # or just turn it down: 2 tasks at once, 0 to undo
 podium node rm worker-3         # once it is drained and idle
 ```
 
 A node started with `--exit-on-drain` exits 0 when its last task finishes, which is the upgrade
-path.
+path. A slot count is the softer version of a drain: like draining it is stored against the node
+and survives both daemons restarting, and it goes up as well as down — the number is sent to the
+node, because a node enforces its own budget and rejects work it has no slot for.
 
 ---
 

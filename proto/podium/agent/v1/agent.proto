@@ -900,6 +900,10 @@ message PlaybookDefinition {
   // whole of what decides which ones do, and editing it here is a UI action rather than a
   // file edit — see docs/security.md.
   repeated string skills = 22;
+  // priority is where a turn of this playbook goes in Podium's queue: the scheduler claims
+  // higher first and breaks ties by age. Zero is the default and negative is allowed, so a
+  // background playbook can be told to wait behind everything a person is watching.
+  int32 priority = 23;
 }
 
 message GetProfileRequest {}

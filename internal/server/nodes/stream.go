@@ -58,7 +58,8 @@ func (s *Service) Stream(
 		return err
 	}
 
-	sess := newSession(node.ID, node.Labels, capacityOf(hello, node), hello.GetRunningTaskIds(), node.Draining)
+	sess := newSession(node.ID, node.Labels, capacityOf(hello, node), overrideOf(node),
+		hello.GetRunningTaskIds(), node.Draining)
 	s.reg.add(sess)
 	defer s.endSession(ctx, sess)
 
@@ -99,6 +100,17 @@ func (s *Service) Stream(
 		}}); err != nil {
 			s.logger.WarnContext(ctx, "re-sending drain to a draining node failed", "node_id", node.ID, "error", err)
 		}
+	}
+	// The slot count is the control plane's to remember, so every stream is told it — and
+	// unconditionally, including the 0 that means "your own max_tasks". A daemon whose
+	// stream merely reconnected still holds the last number it was sent, so sending only
+	// when there is an override would leave one that was cleared in the meantime in force
+	// for ever. Zero is the whole of how a node is handed back to its own configuration.
+	if err := sess.Send(ctx, &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Slots{
+		Slots: &podiumv1.Slots{MaxTasks: overrideOf(node)},
+	}}); err != nil {
+		s.logger.WarnContext(ctx, "sending the slot count to a node failed",
+			"node_id", node.ID, "error", err)
 	}
 
 	err = s.readLoop(ctx, sess, incoming)
@@ -364,6 +376,14 @@ func capacityOf(hello *podiumv1.Hello, node store.Node) store.NodeCapacity {
 		return node.Capacity
 	}
 	return *c
+}
+
+// overrideOf is the operator's slot count for a node, 0 when they have set none.
+func overrideOf(node store.Node) int32 {
+	if node.MaxTasksOverride == nil {
+		return 0
+	}
+	return *node.MaxTasksOverride
 }
 
 func ptrCapacity(hello *podiumv1.Hello) *store.NodeCapacity {

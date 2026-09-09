@@ -25,6 +25,7 @@ var expectedTables = []string{
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
 var migrationFiles = []string{
 	"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql", "0005_artifacts.sql",
+	"0006_node_slots.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

@@ -76,9 +76,13 @@ func (c *Client) WhoAmI(ctx context.Context) (*podiumv1.WhoAmIResponse, error) {
 	return res.Msg, nil
 }
 
-// CreateTask queues one turn.
-func (c *Client) CreateTask(ctx context.Context, s *spec.TaskSpec) (*podiumv1.Task, error) {
-	res, err := c.Tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{Spec: s.ToProto()}))
+// CreateTask queues one turn at the given queue priority — the playbook's, which is the only
+// thing that decides one. Higher is claimed first; 0 is the default.
+func (c *Client) CreateTask(ctx context.Context, s *spec.TaskSpec, priority int32) (*podiumv1.Task, error) {
+	res, err := c.Tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
+		Spec:     s.ToProto(),
+		Priority: priority,
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("create task: %w", err)
 	}

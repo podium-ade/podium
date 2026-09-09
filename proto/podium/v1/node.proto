@@ -91,6 +91,7 @@ message ServerMessage {
     Cancel cancel = 3;
     Drain drain = 4;
     HelloAck hello_ack = 5;
+    Slots slots = 6;
   }
 }
 
@@ -188,6 +189,19 @@ message Ack {
 message Cancel {
   string task_id = 1;
   string reason = 2;
+}
+
+// Slots changes how many tasks the node runs at once, overriding the max_tasks in its own
+// configuration. The node is the only thing that can enforce a concurrency budget — it
+// rejects an assignment it has no slot for — so raising the number has to reach the node
+// rather than only the scheduler's arithmetic.
+//
+// The override lives in the control plane, not on the node: it is re-sent after every
+// HelloAck, so a node that restarts picks it up again without holding any state of its own.
+message Slots {
+  // max_tasks is the new concurrency budget. Zero clears the override and returns the node
+  // to the max_tasks its own configuration sets.
+  int32 max_tasks = 1;
 }
 
 // Drain tells the node to stop accepting work and finish what it is running.

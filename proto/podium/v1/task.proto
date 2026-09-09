@@ -39,6 +39,10 @@ message Task {
   // last_schedule_attempt_at is when the scheduler last looked at this task and could not
   // place it. Unset for a task it has never had to skip.
   google.protobuf.Timestamp last_schedule_attempt_at = 14;
+  // priority orders the queue: the scheduler claims higher first, and ties go to whichever
+  // was created first. Zero is the default, and negative is allowed — it is a sort key and
+  // not a budget, so it changes what runs next and nothing about what a task is given.
+  int32 priority = 15;
 }
 
 message CreateTaskRequest {

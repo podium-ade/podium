@@ -122,6 +122,7 @@ allowed_tools: [read, edit, bash]
 system_prompt: build podium
 allowed_tools: [read, edit, bash]
 docker: true
+priority: -3
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/playbooks/looker.yaml", []byte(`image: podium-agent-runtime-dev:dev
 system_prompt: look at the page
@@ -681,6 +682,30 @@ func TestADockerPlaybookGetsADaemonBesideIt(t *testing.T) {
 
 	assert.Equal(t, "tcp://dind:2375", got.GetEnv()["DOCKER_HOST"],
 		"the agent runs plain `docker` and it reaches the sidecar")
+}
+
+// A playbook's priority is where its turns go in Podium's queue, and it is the only thing
+// that decides one: the conductor sets no priority of its own.
+func TestAPlaybooksPriorityIsWhatTheTaskIsQueuedAt(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "done")}
+	}
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	start(t, st, fake, src)
+
+	// dogfood asks to wait behind everything: it grinds for hours and nobody watches it.
+	require.NoError(t, src.Send(context.Background(), inbound("C1/1.1", "/dogfood build it")))
+	waitFor(t, 30*time.Second, "the dogfood task", func() bool { return len(fake.Priorities()) == 1 })
+	assert.EqualValues(t, -3, fake.Priorities()[0])
+
+	// general names none, so it queues with everything else.
+	require.NoError(t, src.Send(context.Background(), inbound("C2/1.1", "hello")))
+	waitFor(t, 30*time.Second, "the general task", func() bool { return len(fake.Priorities()) == 2 })
+	assert.EqualValues(t, 0, fake.Priorities()[1])
 }
 
 // A `browser: true` playbook gets a headless Chrome beside it, and the address of that

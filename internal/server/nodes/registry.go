@@ -40,6 +40,10 @@ type Session struct {
 	// draining is the operator's standing "no new work", mirrored from nodes.draining so
 	// the scheduler need not read the row on every tick.
 	draining bool
+	// override is nodes.max_tasks_override: the slot count an operator set from the control
+	// plane, or 0 for "the node's own max_tasks decides". It is held apart from capacity
+	// because capacity is what the node advertised, and both numbers are worth reporting.
+	override int32
 	// lastAssignedAt breaks ties between equally free nodes, so a fleet fills evenly
 	// instead of the lowest node ID taking everything.
 	lastAssignedAt time.Time
@@ -52,20 +56,24 @@ type TaskCost struct {
 	MemoryMB int64
 }
 
-func newSession(nodeID string, labels []string, capacity store.NodeCapacity, running []string, draining bool) *Session {
+func newSession(
+	nodeID string, labels []string, capacity store.NodeCapacity, override int32,
+	running []string, draining bool,
+) *Session {
 	s := &Session{
 		nodeID:   nodeID,
 		send:     make(chan *podiumv1.ServerMessage, sendBuffer),
 		done:     make(chan struct{}),
 		labels:   append([]string(nil), labels...),
 		capacity: capacity,
+		override: override,
 		running:  make(map[string]TaskCost, len(running)),
 		draining: draining,
 	}
 	for _, id := range running {
 		s.running[id] = TaskCost{}
 	}
-	s.freeSlots = capacity.MaxTasks - int32(len(s.running))
+	s.freeSlots = s.budget() - int32(len(s.running))
 	if s.freeSlots < 0 {
 		s.freeSlots = 0
 	}
@@ -74,6 +82,15 @@ func newSession(nodeID string, labels []string, capacity store.NodeCapacity, run
 	}
 	s.lastHeartbeat = time.Now().UTC()
 	return s
+}
+
+// budget is how many tasks this node may run at once: the operator's override when there is
+// one, and what the node advertised otherwise. Callers hold s.mu.
+func (s *Session) budget() int32 {
+	if s.override > 0 {
+		return s.override
+	}
+	return s.capacity.MaxTasks
 }
 
 // NodeID is the node this session belongs to.
@@ -112,7 +129,18 @@ func (s *Session) observeHeartbeat(hb *podiumv1.Heartbeat) {
 	defer s.mu.Unlock()
 	s.lastHeartbeat = time.Now().UTC()
 	s.freeSlots = hb.GetFreeSlots()
-	if n := hb.GetLoad().GetRunningTasks(); n >= 0 {
+	if s.override > 0 {
+		// A heartbeat already in flight when the cap was lowered was computed against the
+		// old number, and taking it at face value would let the scheduler assign above the
+		// cap for one interval. The node would reject that assignment and the task would be
+		// requeued — correct, but a revoke nobody asked for. Only ever downwards, so a cap
+		// cannot starve a node of the slots it was actually given.
+		s.freeSlots = min(s.freeSlots, max(s.budget()-int32(len(s.running)), 0))
+	}
+	if n := hb.GetLoad().GetRunningTasks(); n >= 0 && s.override == 0 {
+		// A node running more than it said it could hold has told us its advertised number
+		// is wrong. An override is not wrong, it is an instruction — a node capped at two
+		// while four tasks finish must not have the cap raised back out from under it.
 		s.capacity.MaxTasks = max(s.capacity.MaxTasks, n)
 	}
 	if s.draining {
@@ -167,7 +195,22 @@ func (s *Session) setDraining(v bool) {
 	}
 	// Undraining has to give the slots back now rather than at the next heartbeat, or a
 	// node put back in the pool sits idle for up to ten seconds looking broken.
-	s.freeSlots = max(s.capacity.MaxTasks-int32(len(s.running)), 0)
+	s.freeSlots = max(s.budget()-int32(len(s.running)), 0)
+}
+
+// setMaxTasks records the operator's slot count on the live session, 0 for "no override".
+// The node is told separately (Service.SetSlots) and its next heartbeat carries the new free
+// count; this is what stops the scheduler waiting up to ten seconds for it, in both
+// directions — a raise that nothing acts on looks broken, and a cut that the next tick
+// ignores over-assigns the machine it was meant to protect.
+func (s *Session) setMaxTasks(maxTasks int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.override = maxTasks
+	if s.draining {
+		return
+	}
+	s.freeSlots = max(s.budget()-int32(len(s.running)), 0)
 }
 
 // release gives back the slot booked for taskID and reports whether this session held one.
@@ -223,6 +266,9 @@ func (s *Session) snapshot() Snapshot {
 		Capacity:       s.capacity,
 		LastAssignedAt: s.lastAssignedAt,
 	}
+	// MaxTasks on a snapshot is the budget, not the advertisement: everything that reads one
+	// is asking how much work this node takes.
+	snap.Capacity.MaxTasks = s.budget()
 	if s.capacity.CPUCores > 0 {
 		snap.FreeCPU = float64(s.capacity.CPUCores) - usedCPU
 	}

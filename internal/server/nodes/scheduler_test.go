@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/alvaroibarguen/podium/internal/server/api"
 	"github.com/alvaroibarguen/podium/internal/server/scheduler"
 )
 
@@ -64,6 +65,16 @@ func (n *fakeNode) awaitDrain(timeout time.Duration) *podiumv1.Drain {
 	for {
 		if d := n.recv(time.Until(deadline)).GetDrain(); d != nil {
 			return d
+		}
+	}
+}
+
+func (n *fakeNode) awaitSlots(timeout time.Duration) *podiumv1.Slots {
+	n.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if sl := n.recv(time.Until(deadline)).GetSlots(); sl != nil {
+			return sl
 		}
 	}
 }
@@ -548,6 +559,208 @@ func TestDrainSurvivesAReconnect(t *testing.T) {
 
 	h.createTask(nil, "true")
 	node.expectNoAssign(3 * time.Second)
+}
+
+// A slot count set from the control plane reaches the node and bounds what the scheduler
+// gives it, above what the node's own max_tasks says as well as below.
+func TestSetNodeSlotsOverridesTheNodesOwnMaxTasks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 1, CpuCores: 8, MemoryMb: 16384}, nil)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	// Every stream is told its slot count, and this node has none set: 0 hands it its own.
+	assert.EqualValues(t, 0, node.awaitSlots(10*time.Second).GetMaxTasks())
+
+	res, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 3}))
+	require.NoError(t, err)
+	require.NotNil(t, res.Msg.GetNode().MaxTasksOverride)
+	assert.EqualValues(t, 3, res.Msg.GetNode().GetMaxTasksOverride())
+	assert.EqualValues(t, 1, res.Msg.GetNode().GetCapacity().GetMaxTasks(),
+		"the node's own max_tasks is still reported: an override is not an amendment of it")
+	assert.EqualValues(t, 3, node.awaitSlots(10*time.Second).GetMaxTasks())
+
+	// Three tasks fit a node that advertised one, because the scheduler budgets against the
+	// override and not the advertisement.
+	h.createTask(nil, "true")
+	h.createTask(nil, "true")
+	h.createTask(nil, "true")
+	seen := map[string]bool{}
+	for range 3 {
+		seen[node.awaitAssign(assignTimeout).GetTaskId()] = true
+	}
+	assert.Len(t, seen, 3)
+	node.expectNoAssign(2 * time.Second)
+
+	// And back: 0 is the whole of how a node is handed to its own configuration again.
+	cleared, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 0}))
+	require.NoError(t, err)
+	assert.Nil(t, cleared.Msg.GetNode().MaxTasksOverride)
+	assert.EqualValues(t, 0, node.awaitSlots(10*time.Second).GetMaxTasks())
+}
+
+// A slot count survives a reconnect, and one cleared while the node was away does not come
+// back with it: the control plane holds the number and says it on every stream.
+func TestSetNodeSlotsSurvivesAReconnectAndIsClearedOnOne(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384}, nil)
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	// Every stream opens with one, so it has to be read before the next one means anything.
+	require.EqualValues(t, 0, node.awaitSlots(10*time.Second).GetMaxTasks())
+
+	_, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 2}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, node.awaitSlots(10*time.Second).GetMaxTasks())
+	node.disconnect()
+
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384}, nil)
+	assert.EqualValues(t, 2, node.awaitSlots(10*time.Second).GetMaxTasks(),
+		"a reconnecting node is told its slot count again; it holds none of it itself")
+	node.disconnect()
+
+	// Cleared while it is away. The next stream has to be told 0, or the node would still be
+	// running on a number nobody can see any more.
+	_, err = h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 0}))
+	require.NoError(t, err)
+
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384}, nil)
+	defer node.disconnect()
+	assert.EqualValues(t, 0, node.awaitSlots(10*time.Second).GetMaxTasks())
+	assert.Nil(t, h.node(node.id).MaxTasksOverride)
+}
+
+// Lowering a slot count below what a node is already running takes nothing down. It is the
+// same promise a drain makes, and the one an operator is most likely to test on a machine
+// that matters: the running tasks finish normally, and only new work is refused.
+func TestLoweringSlotsTakesNothingDown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 4, CpuCores: 8, MemoryMb: 16384}, nil)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	require.EqualValues(t, 0, node.awaitSlots(10*time.Second).GetMaxTasks())
+
+	h.createTask(nil, "true")
+	h.createTask(nil, "true")
+	first := node.awaitAssign(assignTimeout)
+	second := node.awaitAssign(assignTimeout)
+	node.running(first)
+	node.running(second)
+	node.heartbeat(2, 2)
+
+	// Down to one, with two already on the machine.
+	_, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 1}))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, node.awaitSlots(10*time.Second).GetMaxTasks())
+
+	// New work is refused, and the scheduler says why rather than leaving it unexplained.
+	third := h.createTask(nil, "true")
+	waitFor(t, 15*time.Second, "the scheduler to record why it cannot place the task", func() bool {
+		return h.getTask(third.GetId()).GetQueuedReason() != ""
+	})
+	assert.Equal(t, scheduler.ReasonFull, h.getTask(third.GetId()).GetQueuedReason())
+	node.expectNoAssign(2 * time.Second)
+
+	// Neither running task was cancelled: both still finish on their own terms. This is the
+	// whole claim — a cut budget is not a stop.
+	node.finish(first, 0)
+	node.finish(second, 0)
+	h.awaitTaskStatus(first.GetTaskId(), podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 20*time.Second)
+	h.awaitTaskStatus(second.GetTaskId(), podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 20*time.Second)
+
+	// And the machine is usable again at its new size once it has room.
+	node.heartbeat(1, 0)
+	assert.Equal(t, third.GetId(), node.awaitAssign(assignTimeout).GetTaskId())
+}
+
+// The API refuses a count it cannot mean, and says which number it was given.
+func TestSetNodeSlotsRefusesACountOutsideTheRange(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.open(ctx)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	_, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: -1}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	_, err = h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: api.MaxNodeSlots + 1}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "the most this API accepts")
+
+	assert.Nil(t, h.node(node.id).MaxTasksOverride, "a refused count changes nothing")
+}
+
+// A slot count can be set on a node that is not connected: it is stored against the node and
+// delivered when it comes back.
+func TestSetNodeSlotsWorksOnAnOfflineNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+
+	res, err := h.admin.SetNodeSlots(ctx, connect.NewRequest(
+		&podiumv1.SetNodeSlotsRequest{NodeId: node.id, MaxTasks: 6}))
+	require.NoError(t, err)
+	assert.EqualValues(t, 6, res.Msg.GetNode().GetMaxTasksOverride())
+
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 1, CpuCores: 8, MemoryMb: 16384}, nil)
+	defer node.disconnect()
+	assert.EqualValues(t, 6, node.awaitSlots(10*time.Second).GetMaxTasks())
+}
+
+// Priority is what decides which queued task is claimed first.
+func TestAHigherPriorityTaskIsClaimedFirst(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-a", nil)
+	node.openWith(ctx, &podiumv1.NodeCapacity{MaxTasks: 1, CpuCores: 8, MemoryMb: 16384}, nil)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	// One slot, and it is taken, so everything after this queues up behind it.
+	held := h.createTask(nil, "true")
+	first := node.awaitAssign(assignTimeout)
+	require.Equal(t, held.GetId(), first.GetTaskId())
+	node.heartbeat(0, 1)
+
+	background := h.createTaskWithPriority(-5, "true")
+	urgent := h.createTaskWithPriority(10, "true")
+	assert.EqualValues(t, -5, h.getTask(background.GetId()).GetPriority())
+	assert.EqualValues(t, 10, h.getTask(urgent.GetId()).GetPriority())
+
+	node.running(first)
+	node.finish(first, 0)
+	h.awaitTaskStatus(first.GetTaskId(), podiumv1.TaskStatus_TASK_STATUS_SUCCEEDED, 20*time.Second)
+	node.heartbeat(1, 0)
+
+	next := node.awaitAssign(assignTimeout)
+	assert.Equal(t, urgent.GetId(), next.GetTaskId(),
+		"the urgent task was queued last and is claimed first")
 }
 
 // Deleting a node is refused while it is online and undrained, and allowed once it is not.

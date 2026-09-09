@@ -362,7 +362,8 @@ func (c *Conductor) startDelegatedTask(
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
-	task, err := c.podium.CreateTask(ctx, c.taskSpec(g.src, playbook, encoded, ev, bundles, choice))
+	task, err := c.podium.CreateTask(ctx,
+		c.taskSpec(g.src, playbook, encoded, ev, bundles, choice), int32(playbook.Priority))
 	if err != nil {
 		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}

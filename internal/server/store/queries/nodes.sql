@@ -32,3 +32,6 @@ update nodes set ts_stable_id = sqlc.narg(ts_stable_id)::text where id = @id;
 
 -- name: SetNodeDraining :execrows
 update nodes set draining = @draining where id = @id;
+
+-- name: SetNodeMaxTasks :execrows
+update nodes set max_tasks_override = sqlc.narg(max_tasks_override)::int where id = @id;

@@ -221,6 +221,10 @@ type Node struct {
 	// is a column rather than a status because it must survive both daemons restarting,
 	// and because a draining node that disconnects is still draining when it comes back.
 	Draining bool
+	// MaxTasksOverride is the slot count an operator set from the control plane, nil when
+	// they have set none. It is separate from Capacity.MaxTasks because that field is
+	// whatever the node last advertised, and every Hello overwrites it.
+	MaxTasksOverride *int32
 }
 
 // User is a person the tailnet transport has seen. Podium never stores a credential for one:
