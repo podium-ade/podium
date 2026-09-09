@@ -657,3 +657,33 @@ func (c *Conductor) CancelHostTurn(ref string) bool {
 	cancel()
 	return true
 }
+
+// DefaultHostMaxTurns is how many host turns run at once when nothing says otherwise.
+//
+// A host turn is a `node` process on the conductor's own machine, so the ceiling is this
+// host's, not the fleet's. It mattered less when only the web chat was answered here —
+// that is bounded by people at keyboards — and matters now that a Slack thread is too,
+// where a busy channel decides how many conversations exist.
+const DefaultHostMaxTurns = 4
+
+// acquireHostSlot waits for one of the concurrency slots and returns the function that
+// gives it back. ok is false only when the conductor is stopping, in which case nothing was
+// taken and there is nothing to release.
+//
+// A conversation that waits here has already had its placeholder posted, so what a human
+// sees is 👀 working… for longer rather than silence — and the wait costs no source API
+// calls and no model tokens, because the slot is taken before either is spent.
+func (c *Conductor) acquireHostSlot(ctx context.Context) (func(), bool) {
+	select {
+	case c.hostSlots <- struct{}{}:
+		return func() { <-c.hostSlots }, true
+	default:
+	}
+	c.metrics.HostTurnsQueued.Inc()
+	select {
+	case c.hostSlots <- struct{}{}:
+		return func() { <-c.hostSlots }, true
+	case <-ctx.Done():
+		return func() {}, false
+	}
+}

@@ -239,6 +239,31 @@ func (s *Service) SetDrain(ctx context.Context, nodeID string, draining bool) er
 	return nil
 }
 
+// SetSlots tells a connected node how many tasks it may run at once, 0 for "back to your own
+// max_tasks". The durable half is nodes.max_tasks_override, written by the caller: this is
+// only the live half, and a node with no session picks the number up from its next HelloAck.
+//
+// Both halves are needed and neither is enough. The node is the only thing that can enforce
+// a budget — it rejects an assignment it has no slot for — so a raise that never reaches it
+// would leave the scheduler assigning work the node refuses. The session is what the
+// scheduler reads, so a cut that only reached the node would keep over-assigning until the
+// next heartbeat.
+func (s *Service) SetSlots(ctx context.Context, nodeID string, maxTasks int32) error {
+	sess, ok := s.reg.Get(nodeID)
+	if !ok {
+		return fmt.Errorf("set slots of node %s: %w", nodeID, ErrNoSession)
+	}
+	sess.setMaxTasks(maxTasks)
+	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Slots{
+		Slots: &podiumv1.Slots{MaxTasks: maxTasks},
+	}}
+	if err := sess.Send(ctx, msg); err != nil {
+		return fmt.Errorf("set slots of node %s: %w", nodeID, err)
+	}
+	s.logger.InfoContext(ctx, "node slot count sent", "node_id", nodeID, "max_tasks", maxTasks)
+	return nil
+}
+
 // Cancel asks a node to stop a task. It does not wait: the container only dies once the node
 // has run its SIGTERM grace period, and the terminal status lands with the exited/finished
 // events.

@@ -272,3 +272,18 @@ func (b *Brief) encodeOnce() (string, error) {
 	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.TrimSuffix(buf.String(), "\n"))), nil
 }
+
+// briefKindFor is the source.kind the runtime's schema will accept for a session's source.
+// The schema allows slack, linear and chat and nothing else, and the test-only dev source
+// presents itself as chat.
+//
+// It exists because a DELEGATED task used to be told it came from the web chat whatever
+// asked for it. That was invisible while only chats could delegate; it stopped being
+// invisible when a Slack thread could, because the runtime's prompt tells the model where
+// its answer is going and it was naming the wrong place.
+func briefKindFor(kind string) string {
+	if kind == KindDev {
+		return SourceChat
+	}
+	return kind
+}

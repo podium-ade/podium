@@ -102,6 +102,10 @@ type Options struct {
 	// task, which is what a conductor whose host has no runtime must do; set, it is what
 	// answers a conversation, and a container is what it delegates to. See host.go.
 	Host *HostRuntime
+	// HostMaxTurns is how many host turns may run at once. Zero means
+	// DefaultHostMaxTurns. It exists because a host turn is a process on this machine and
+	// Slack decides how many conversations there are: see acquireHostSlot.
+	HostMaxTurns int
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -128,6 +132,9 @@ type Conductor struct {
 	skillsDir string
 	// host is the runtime for a turn this process runs itself, nil when it runs none.
 	host *HostRuntime
+	// hostSlots is the cap on concurrent host turns, one token per slot. Buffered and not
+	// a mutex because a queued turn waits on ctx as well.
+	hostSlots chan struct{}
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -199,6 +206,7 @@ func New(opts Options) (*Conductor, error) {
 		xaiBaseURL:      cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
 		skillsDir:       opts.SkillsDir,
 		host:            opts.Host,
+		hostSlots:       make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
 		sessions:        map[string]*sessionState{},
 		hostRuns:        map[string]func(){},
 		turnTokens:      map[string]turnGrant{},
@@ -269,6 +277,11 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	if !ok {
 		return
 	}
+	// Recorded before any turn runs, and whoever answers it: a conversation whose first
+	// turn fails is still a conversation somebody can read, and whether the assistant or a
+	// playbook takes it does not change who said what. A no-op for the web chat, which
+	// stores its own messages, and for a source that is not mirrored at all.
+	c.mirrorHeard(ctx, src, ev)
 
 	c.mu.Lock()
 	st := c.sessions[sess.ID]
@@ -419,6 +432,21 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.logger.WarnContext(ctx, "reacting to the triggering message failed", "ref", ev.Ref, "error", err)
 	}
 
+	// A host turn is a process on THIS machine, so the number of them running at once is
+	// bounded here rather than by how many people are talking. The slot is taken after the
+	// placeholder and before anything expensive: a queued conversation shows 👀 working…
+	// for longer, which is the honest thing for it to show, and spends no Slack reads and
+	// no model tokens while it waits.
+	if j.onHost {
+		release, ok := c.acquireHostSlot(ctx)
+		if !ok {
+			c.logger.InfoContext(ctx, "the conductor stopped while a turn was queued",
+				"session_id", sess.ID)
+			return
+		}
+		defer release()
+	}
+
 	entries, err := src.FetchTranscript(ctx, ev.Ref)
 	if err != nil {
 		// A turn with no history is a worse answer than one with it, and a much better
@@ -538,7 +566,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, choice)
-	task, err := c.podium.CreateTask(ctx, taskSpec)
+	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
@@ -576,7 +604,7 @@ func playbookNames(menu []DelegablePlaybook) []string {
 // session is one piece of work, so they run a playbook as a task. The dev source is in here
 // because it is how both are tested.
 func aConversation(kind string) bool {
-	return kind == SourceChat || kind == KindDev
+	return kind == SourceChat || kind == SourceSlack || kind == KindDev
 }
 
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
@@ -902,6 +930,9 @@ func (c *Conductor) post(ctx context.Context, src Source, ref string, out Outbou
 			"ref", ref, "type", out.Type, "error", err)
 		return ""
 	}
+	// Said out loud, so it belongs in the copy a reader sees. Only the answer and the
+	// apology: mirrorSaid drops everything else.
+	c.mirrorSaid(ctx, src, ref, out)
 	return id
 }
 

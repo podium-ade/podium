@@ -60,6 +60,7 @@ func newPlaybook(name string) *agentv1.PlaybookDefinition {
 		AllowedTools: []string{"read", "bash"},
 		MaxTurns:     20,
 		Timeout:      "10m",
+		Priority:     4,
 		Env:          map[string]string{"PODIUM_AGENT_DRY_RUN": "1"},
 		Secrets: []*agentv1.PlaybookSecretRef{
 			{Name: "podium.agent.github_token", Target: "env", Key: "GITHUB_TOKEN"},
@@ -89,6 +90,7 @@ func TestACreatedPlaybookReachesTheRunningProfileWithNoRestart(t *testing.T) {
 	live := f.live.Current().Playbooks["reporter"]
 	assert.Equal(t, "example.invalid/reporter:dev", live.Image)
 	assert.Equal(t, []string{"read", "bash"}, live.AllowedTools)
+	assert.Equal(t, 4, live.Priority, "the queue priority a browser set is the one turns run at")
 	assert.Equal(t, "1", live.Env["PODIUM_AGENT_DRY_RUN"])
 	require.Len(t, live.Secrets, 1)
 	assert.Equal(t, "podium.agent.github_token", live.Secrets[0].Name)
@@ -241,6 +243,8 @@ func TestAnInvalidPlaybookIsRefusedAndNothingIsStored(t *testing.T) {
 		{"no image", func(s *agentv1.PlaybookDefinition) { s.Image = "" }, "image is required"},
 		{"no tools", func(s *agentv1.PlaybookDefinition) { s.AllowedTools = nil }, "allowed_tools is required"},
 		{"a bad name", func(s *agentv1.PlaybookDefinition) { s.Name = "Reporter!" }, "must match"},
+		{"a priority nothing could distinguish",
+			func(s *agentv1.PlaybookDefinition) { s.Priority = 5000 }, "priority must be between"},
 		{"a timeout that is not one", func(s *agentv1.PlaybookDefinition) { s.Timeout = "soon" },
 			"must be a duration"},
 		{"the reserved provider key", func(s *agentv1.PlaybookDefinition) {

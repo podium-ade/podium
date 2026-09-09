@@ -26,6 +26,14 @@ import (
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
+// The range a playbook's priority may sit in. The bound is a guard against a typo rather
+// than a scale with meaning: the queue is sorted, so only the ORDER of these numbers matters
+// and a thousand steps either side of the default is more than any fleet can distinguish.
+const (
+	MinPriority = -1000
+	MaxPriority = 1000
+)
+
 // NameRE constrains a profile name and a playbook name. A playbook name also has to survive being
 // typed after a slash in Slack.
 var NameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -191,15 +199,23 @@ type Repo struct {
 // match the yaml keys deliberately: a playbook read out of Postgres and a playbook read out of
 // playbooks/<name>.yaml are the same document, so there is one schema to reason about.
 type Playbook struct {
-	Image         string            `yaml:"image" json:"image"`
-	SystemPrompt  string            `yaml:"system_prompt" json:"system_prompt"`
-	AllowedTools  []string          `yaml:"allowed_tools" json:"allowed_tools"`
-	MaxTurns      int               `yaml:"max_turns" json:"max_turns"`
-	Timeout       spec.Duration     `yaml:"timeout" json:"timeout"`
-	Model         string            `yaml:"model" json:"model,omitempty"`
-	Agent         string            `yaml:"agent" json:"agent,omitempty"`
-	Effort        string            `yaml:"effort" json:"effort,omitempty"`
-	Labels        []string          `yaml:"labels" json:"labels,omitempty"`
+	Image        string        `yaml:"image" json:"image"`
+	SystemPrompt string        `yaml:"system_prompt" json:"system_prompt"`
+	AllowedTools []string      `yaml:"allowed_tools" json:"allowed_tools"`
+	MaxTurns     int           `yaml:"max_turns" json:"max_turns"`
+	Timeout      spec.Duration `yaml:"timeout" json:"timeout"`
+	Model        string        `yaml:"model" json:"model,omitempty"`
+	Agent        string        `yaml:"agent" json:"agent,omitempty"`
+	Effort       string        `yaml:"effort" json:"effort,omitempty"`
+	Labels       []string      `yaml:"labels" json:"labels,omitempty"`
+	// Priority is where a turn of this playbook goes in Podium's queue: the scheduler
+	// claims higher first and breaks ties by age. Zero is the default and negative is
+	// allowed, so a playbook that grinds for two hours can be told to wait behind
+	// everything somebody is watching.
+	//
+	// It is a sort key and not a budget: it changes what runs next when the fleet is full,
+	// and nothing at all about what a turn is given or how long it may take.
+	Priority      int               `yaml:"priority" json:"priority,omitempty"`
 	Resources     spec.Resources    `yaml:"resources" json:"resources,omitempty"`
 	Secrets       []spec.SecretRef  `yaml:"secrets" json:"secrets,omitempty"`
 	Repos         []Repo            `yaml:"repos" json:"repos,omitempty"`
@@ -478,6 +494,10 @@ func (s Playbook) validate(path string) error {
 	}
 	if s.Timeout <= 0 {
 		errs = append(errs, fmt.Errorf("timeout must be positive, got %s", s.Timeout))
+	}
+	if s.Priority < MinPriority || s.Priority > MaxPriority {
+		errs = append(errs, fmt.Errorf("priority must be between %d and %d, got %d",
+			MinPriority, MaxPriority, s.Priority))
 	}
 	// A playbook's own triple, checked with its own model. When the playbook names no model the
 	// effective one is the profile's, and Profile.validate re-checks it there.

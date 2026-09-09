@@ -48,6 +48,9 @@ const (
 	// NodeAdminServiceUndrainNodeProcedure is the fully-qualified name of the NodeAdminService's
 	// UndrainNode RPC.
 	NodeAdminServiceUndrainNodeProcedure = "/podium.v1.NodeAdminService/UndrainNode"
+	// NodeAdminServiceSetNodeSlotsProcedure is the fully-qualified name of the NodeAdminService's
+	// SetNodeSlots RPC.
+	NodeAdminServiceSetNodeSlotsProcedure = "/podium.v1.NodeAdminService/SetNodeSlots"
 	// NodeAdminServiceDeleteNodeProcedure is the fully-qualified name of the NodeAdminService's
 	// DeleteNode RPC.
 	NodeAdminServiceDeleteNodeProcedure = "/podium.v1.NodeAdminService/DeleteNode"
@@ -65,6 +68,9 @@ type NodeAdminServiceClient interface {
 	DrainNode(context.Context, *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error)
 	// UndrainNode puts a drained node back in the pool.
 	UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error)
+	// SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
+	// its own configuration file.
+	SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error)
 	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
 	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
@@ -110,6 +116,12 @@ func NewNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(nodeAdminServiceMethods.ByName("UndrainNode")),
 			connect.WithClientOptions(opts...),
 		),
+		setNodeSlots: connect.NewClient[v1.SetNodeSlotsRequest, v1.SetNodeSlotsResponse](
+			httpClient,
+			baseURL+NodeAdminServiceSetNodeSlotsProcedure,
+			connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeSlots")),
+			connect.WithClientOptions(opts...),
+		),
 		deleteNode: connect.NewClient[v1.DeleteNodeRequest, v1.DeleteNodeResponse](
 			httpClient,
 			baseURL+NodeAdminServiceDeleteNodeProcedure,
@@ -126,6 +138,7 @@ type nodeAdminServiceClient struct {
 	rekeyNode             *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
 	drainNode             *connect.Client[v1.DrainNodeRequest, v1.DrainNodeResponse]
 	undrainNode           *connect.Client[v1.UndrainNodeRequest, v1.UndrainNodeResponse]
+	setNodeSlots          *connect.Client[v1.SetNodeSlotsRequest, v1.SetNodeSlotsResponse]
 	deleteNode            *connect.Client[v1.DeleteNodeRequest, v1.DeleteNodeResponse]
 }
 
@@ -154,6 +167,11 @@ func (c *nodeAdminServiceClient) UndrainNode(ctx context.Context, req *connect.R
 	return c.undrainNode.CallUnary(ctx, req)
 }
 
+// SetNodeSlots calls podium.v1.NodeAdminService.SetNodeSlots.
+func (c *nodeAdminServiceClient) SetNodeSlots(ctx context.Context, req *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error) {
+	return c.setNodeSlots.CallUnary(ctx, req)
+}
+
 // DeleteNode calls podium.v1.NodeAdminService.DeleteNode.
 func (c *nodeAdminServiceClient) DeleteNode(ctx context.Context, req *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
 	return c.deleteNode.CallUnary(ctx, req)
@@ -171,6 +189,9 @@ type NodeAdminServiceHandler interface {
 	DrainNode(context.Context, *connect.Request[v1.DrainNodeRequest]) (*connect.Response[v1.DrainNodeResponse], error)
 	// UndrainNode puts a drained node back in the pool.
 	UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error)
+	// SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
+	// its own configuration file.
+	SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error)
 	// DeleteNode forgets a node. It refuses a node that is still online and not drained.
 	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
 }
@@ -212,6 +233,12 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 		connect.WithSchema(nodeAdminServiceMethods.ByName("UndrainNode")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeAdminServiceSetNodeSlotsHandler := connect.NewUnaryHandler(
+		NodeAdminServiceSetNodeSlotsProcedure,
+		svc.SetNodeSlots,
+		connect.WithSchema(nodeAdminServiceMethods.ByName("SetNodeSlots")),
+		connect.WithHandlerOptions(opts...),
+	)
 	nodeAdminServiceDeleteNodeHandler := connect.NewUnaryHandler(
 		NodeAdminServiceDeleteNodeProcedure,
 		svc.DeleteNode,
@@ -230,6 +257,8 @@ func NewNodeAdminServiceHandler(svc NodeAdminServiceHandler, opts ...connect.Han
 			nodeAdminServiceDrainNodeHandler.ServeHTTP(w, r)
 		case NodeAdminServiceUndrainNodeProcedure:
 			nodeAdminServiceUndrainNodeHandler.ServeHTTP(w, r)
+		case NodeAdminServiceSetNodeSlotsProcedure:
+			nodeAdminServiceSetNodeSlotsHandler.ServeHTTP(w, r)
 		case NodeAdminServiceDeleteNodeProcedure:
 			nodeAdminServiceDeleteNodeHandler.ServeHTTP(w, r)
 		default:
@@ -259,6 +288,10 @@ func (UnimplementedNodeAdminServiceHandler) DrainNode(context.Context, *connect.
 
 func (UnimplementedNodeAdminServiceHandler) UndrainNode(context.Context, *connect.Request[v1.UndrainNodeRequest]) (*connect.Response[v1.UndrainNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.UndrainNode is not implemented"))
+}
+
+func (UnimplementedNodeAdminServiceHandler) SetNodeSlots(context.Context, *connect.Request[v1.SetNodeSlotsRequest]) (*connect.Response[v1.SetNodeSlotsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeAdminService.SetNodeSlots is not implemented"))
 }
 
 func (UnimplementedNodeAdminServiceHandler) DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {

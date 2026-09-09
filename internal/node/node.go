@@ -59,6 +59,10 @@ type Node struct {
 	// what it already has — see applyCheckpoints.
 	pending  map[string]*pendingAdoption
 	draining bool
+	// maxTasks is the concurrency budget in force: cfg.MaxTasks until the control plane
+	// says otherwise. The override is not persisted here — the server re-sends it after
+	// every HelloAck — so a node that restarts alone comes back on its own configuration.
+	maxTasks int
 
 	wake      chan struct{}
 	drainOnce sync.Once
@@ -143,6 +147,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		tasks:      make(map[string]*buffer),
 		taskImages: make(map[string][]string),
 		pending:    make(map[string]*pendingAdoption),
+		maxTasks:   cfg.MaxTasks,
 		wake:       make(chan struct{}, 1),
 		drainDone:  make(chan struct{}),
 	}, nil
@@ -423,11 +428,26 @@ func (n *Node) freeSlots() int32 {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	free := n.cfg.MaxTasks - len(n.tasks)
+	free := n.maxTasks - len(n.tasks)
 	if free < 0 || n.draining {
 		return 0
 	}
 	return int32(free)
+}
+
+// setSlots applies the control plane's slot count, or restores this node's own max_tasks when
+// it is 0. Lowering it below what is already running takes nothing down: the running tasks
+// finish, and freeSlots stays at 0 until enough of them have.
+func (n *Node) setSlots(maxTasks int32) (inForce int, changed bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	was := n.maxTasks
+	if maxTasks > 0 {
+		n.maxTasks = int(maxTasks)
+	} else {
+		n.maxTasks = n.cfg.MaxTasks
+	}
+	return n.maxTasks, n.maxTasks != was
 }
 
 func (n *Node) runningCount() int32 {

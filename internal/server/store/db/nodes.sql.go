@@ -12,7 +12,7 @@ import (
 const createNode = `-- name: CreateNode :one
 insert into nodes (id, name, tags, labels, capacity, node_key_hash, status, version, ts_stable_id)
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9::text)
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
 `
 
 type CreateNodeParams struct {
@@ -53,6 +53,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.CreatedAt,
 		&i.TsStableID,
 		&i.Draining,
+		&i.MaxTasksOverride,
 	)
 	return i, err
 }
@@ -70,7 +71,7 @@ func (q *Queries) DeleteNode(ctx context.Context, id string) (int64, error) {
 }
 
 const getNode = `-- name: GetNode :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes where id = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes where id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -89,12 +90,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.CreatedAt,
 		&i.TsStableID,
 		&i.Draining,
+		&i.MaxTasksOverride,
 	)
 	return i, err
 }
 
 const getNodeByKeyHash = `-- name: GetNodeByKeyHash :one
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes where node_key_hash = $1
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes where node_key_hash = $1
 `
 
 func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Node, error) {
@@ -113,12 +115,13 @@ func (q *Queries) GetNodeByKeyHash(ctx context.Context, nodeKeyHash []byte) (Nod
 		&i.CreatedAt,
 		&i.TsStableID,
 		&i.Draining,
+		&i.MaxTasksOverride,
 	)
 	return i, err
 }
 
 const listNodes = `-- name: ListNodes :many
-select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining from nodes order by created_at, id
+select id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override from nodes order by created_at, id
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -143,6 +146,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.CreatedAt,
 			&i.TsStableID,
 			&i.Draining,
+			&i.MaxTasksOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -165,6 +169,23 @@ type SetNodeDrainingParams struct {
 
 func (q *Queries) SetNodeDraining(ctx context.Context, arg SetNodeDrainingParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setNodeDraining, arg.Draining, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setNodeMaxTasks = `-- name: SetNodeMaxTasks :execrows
+update nodes set max_tasks_override = $1::int where id = $2
+`
+
+type SetNodeMaxTasksParams struct {
+	MaxTasksOverride *int32
+	ID               string
+}
+
+func (q *Queries) SetNodeMaxTasks(ctx context.Context, arg SetNodeMaxTasksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNodeMaxTasks, arg.MaxTasksOverride, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -212,7 +233,7 @@ set status            = $1,
     version           = coalesce($3::text, version),
     last_heartbeat_at = now()
 where id = $4
-returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
 `
 
 type UpdateNodeHeartbeatParams struct {
@@ -243,6 +264,7 @@ func (q *Queries) UpdateNodeHeartbeat(ctx context.Context, arg UpdateNodeHeartbe
 		&i.CreatedAt,
 		&i.TsStableID,
 		&i.Draining,
+		&i.MaxTasksOverride,
 	)
 	return i, err
 }

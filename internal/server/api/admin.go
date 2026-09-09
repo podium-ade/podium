@@ -20,10 +20,19 @@ type Sessions interface {
 	SnapshotOf(nodeID string) (nodes.Snapshot, bool)
 }
 
-// Drainer pushes a drain instruction at a connected node.
+// Drainer pushes an operator's standing instructions at a connected node: what it may not
+// take, and how much of it.
 type Drainer interface {
 	SetDrain(ctx context.Context, nodeID string, draining bool) error
+	SetSlots(ctx context.Context, nodeID string, maxTasks int32) error
 }
+
+// MaxNodeSlots is the largest slot count SetNodeSlots accepts. It is a guard against a typo,
+// not a considered limit on what a machine can do: the scheduler assigns straight up to this
+// number, so a stray zero on the end would pile hundreds of containers onto one box before
+// anybody noticed. An operator who really wants more can raise max_tasks in the node's own
+// configuration, where the number sits next to the machine it describes.
+const MaxNodeSlots = 256
 
 // NodeAdminService implements podium.v1.NodeAdminService.
 type NodeAdminService struct {
@@ -145,6 +154,60 @@ func (s *NodeAdminService) UndrainNode(
 		return nil, err
 	}
 	return connect.NewResponse(&podiumv1.UndrainNodeResponse{Node: node}), nil
+}
+
+// SetNodeSlots changes how many tasks a node runs at once. Zero clears the instruction, and
+// the node goes back to the max_tasks in its own configuration file.
+//
+// It is stored against the node rather than sent and forgotten, for the same reason a drain
+// is: an operator who caps a machine at two tasks means it for the machine, and a value that
+// evaporated on the next reconnect would be worse than no feature at all. A node that is
+// offline right now is a legitimate thing to configure — every stream is sent the count just
+// after its HelloAck, so the node picks it up on its next connection.
+func (s *NodeAdminService) SetNodeSlots(
+	ctx context.Context,
+	req *connect.Request[podiumv1.SetNodeSlotsRequest],
+) (*connect.Response[podiumv1.SetNodeSlotsResponse], error) {
+	nodeID := req.Msg.GetNodeId()
+	maxTasks := req.Msg.GetMaxTasks()
+	switch {
+	case nodeID == "":
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("set slots: node_id is required"))
+	case maxTasks < 0:
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"set slots: max_tasks is %d; it cannot be negative, and 0 hands the node back to its own max_tasks", maxTasks))
+	case maxTasks > MaxNodeSlots:
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"set slots: max_tasks is %d, and %d is the most this API accepts; raise max_tasks in the node's own configuration if the machine really takes more",
+			maxTasks, MaxNodeSlots))
+	}
+	if _, err := s.store.GetNode(ctx, nodeID); err != nil {
+		return nil, storeError(err)
+	}
+	var override *int32
+	if maxTasks > 0 {
+		override = &maxTasks
+	}
+	if err := s.store.SetNodeMaxTasks(ctx, nodeID, override); err != nil {
+		return nil, storeError(err)
+	}
+	if s.drains != nil {
+		if err := s.drains.SetSlots(ctx, nodeID, maxTasks); err != nil {
+			// Every stream is sent the count as it opens, so failing to reach the node
+			// now changes nothing about the outcome.
+			s.logger.InfoContext(ctx, "slot count not delivered; the node will read it on reconnect",
+				"node_id", nodeID, "max_tasks", maxTasks, "error", err)
+		}
+	}
+	s.logger.InfoContext(ctx, "node slot count changed",
+		"node_id", nodeID, "max_tasks", maxTasks, "by", login(ctx))
+
+	after, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	live, connected := s.sessions.SnapshotOf(nodeID)
+	return connect.NewResponse(&podiumv1.SetNodeSlotsResponse{Node: nodeToProto(after, live, connected)}), nil
 }
 
 func (s *NodeAdminService) setDraining(ctx context.Context, nodeID string, draining bool) (*podiumv1.Node, error) {

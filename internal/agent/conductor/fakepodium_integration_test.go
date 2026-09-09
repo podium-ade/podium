@@ -27,13 +27,14 @@ import (
 // StreamTaskEvents, GetTask, ListArtifacts and the artifact download route. It exists so
 // the turn loop can be exercised without Docker — the e2e suite covers the real thing.
 type fakePodium struct {
-	mu     sync.Mutex
-	tasks  map[string]*fakeTask
-	next   int
-	specs  []*podiumv1.TaskSpec
-	arts   map[string][]*podiumv1.Artifact
-	blobs  map[string][]byte
-	events func(taskID string) []*podiumv1.TaskEvent
+	mu         sync.Mutex
+	tasks      map[string]*fakeTask
+	next       int
+	specs      []*podiumv1.TaskSpec
+	priorities []int32
+	arts       map[string][]*podiumv1.Artifact
+	blobs      map[string][]byte
+	events     func(taskID string) []*podiumv1.TaskEvent
 	// hold, when non-nil, is waited on before a created task is marked terminal. It is how
 	// a test makes one turn take long enough for a second message to arrive during it.
 	hold <-chan struct{}
@@ -83,6 +84,13 @@ func (f *fakePodium) Specs() []*podiumv1.TaskSpec {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]*podiumv1.TaskSpec(nil), f.specs...)
+}
+
+// Priorities is the queue priority the conductor asked for on each task, in order.
+func (f *fakePodium) Priorities() []int32 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int32(nil), f.priorities...)
 }
 
 // TaskIDs is every task the conductor created, in order.
@@ -140,6 +148,7 @@ func (f *fakePodium) CreateTask(
 	f.next++
 	id := fmt.Sprintf("task_%02d", f.next)
 	f.specs = append(f.specs, req.Msg.GetSpec())
+	f.priorities = append(f.priorities, req.Msg.GetPriority())
 	var events []*podiumv1.TaskEvent
 	if f.events != nil {
 		events = f.events(id)
