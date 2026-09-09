@@ -1203,15 +1203,22 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 
 	msgs, err := st.ListChatMessages(ctx, chat.ID, 0)
 	require.NoError(t, err)
-	require.Len(t, msgs, 2, "the question and the answer; the placeholder and the progress are noise: %+v", msgs)
+	require.Len(t, msgs, 3, "the question, the progress and the answer — what the web chat keeps; only the placeholder is noise: %+v", msgs)
 
 	assert.Equal(t, store.RoleUser, msgs[0].Role)
 	assert.Equal(t, "alice", msgs[0].Author)
 	assert.Equal(t, "what does this repo do?", msgs[0].Text)
 
-	assert.Equal(t, store.RoleAssistant, msgs[1].Role)
-	assert.Equal(t, "Podium", msgs[1].Author, "the bot's own display name, so a reader can tell it apart")
-	assert.Equal(t, "it is a task runner.", msgs[1].Text)
+	// The source answered the placeholder with an id, so this progress reached it as an EDIT
+	// of that message — which is the only progress a Slack thread ever shows, and it is kept.
+	assert.Equal(t, store.RoleProgress, msgs[1].Role)
+	assert.Equal(t, "reading the tree", msgs[1].Text, "the ⏳ prefix marks progress in a thread; the row's role does that here")
+	assert.NotEmpty(t, msgs[1].TaskID, "a task's progress links to the task, as in a web chat")
+
+	assert.Equal(t, store.RoleAssistant, msgs[2].Role)
+	assert.Equal(t, "Podium", msgs[2].Author, "the bot's own display name, so a reader can tell it apart")
+	assert.Equal(t, "it is a task runner.", msgs[2].Text)
+	assert.Equal(t, msgs[1].TaskID, msgs[2].TaskID)
 
 	// And it is in the list, for any login, because nobody owns it.
 	chats, _, err := st.ListChats(ctx, "whoever", 0, "")
