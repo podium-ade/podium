@@ -262,6 +262,21 @@ func TestDeleteChatThroughTheService(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
+// A mirrored Slack thread has no owner, so the ownership check must not turn every login
+// away: whoever sees it in the list can delete the copy.
+func TestDeleteChatRemovesAMirroredThread(t *testing.T) {
+	f := newChatFixture(t)
+	ctx := context.Background()
+
+	thread, err := f.store.CreateMirrorChat(ctx, "slack:C1:1.1", store.OriginSlack, "alice", "in slack")
+	require.NoError(t, err)
+
+	_, err = f.clientAs("bob").DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
+	require.NoError(t, err)
+	_, err = f.store.GetChat(ctx, thread.ID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
 // fakeTasks is CancelTask as DeleteChat sees it: record the call, optionally fail it.
 type fakeTasks struct {
 	mu    sync.Mutex
