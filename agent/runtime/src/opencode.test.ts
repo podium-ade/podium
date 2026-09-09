@@ -8,9 +8,11 @@ import {
   AgentName,
   BrowserBinary,
   BrowserServer,
+  DelegateServer,
   invocation,
   KnownTools,
   MemoryServer,
+  ReservedServers,
   resolveBrowserURL,
   skillPermission,
   writeConfig,
@@ -207,6 +209,73 @@ describe("writeConfig with delegation", () => {
     expect(config.agent.podium.tools["memory*"]).toBe(true);
     expect(config.agent.podium.tools["browser*"]).toBe(true);
     expect(config.agent.podium.tools["podium*"]).toBe(true);
+  });
+});
+
+describe("writeConfig with the playbook's own MCP servers", () => {
+  const linear = { name: "linear", url: "https://mcp.linear.app/mcp", token_env: "PODIUM_MCP_LINEAR_TOKEN" };
+
+  it("wires a playbook's server as a remote server without writing the token to disk", () => {
+    const { config } = write({ mcpServers: [linear] });
+    const mcp = config.mcp.linear;
+    expect(mcp.type).toBe("remote");
+    expect(mcp.enabled).toBe(true);
+    expect(mcp.url).toBe("https://mcp.linear.app/mcp");
+    // The MCP authorization specification's own scheme, and the NAME of the variable: the
+    // token is resolved by the harness at run time and is never in this file.
+    expect(mcp.headers.Authorization).toBe("Bearer {env:PODIUM_MCP_LINEAR_TOKEN}");
+    expect(JSON.stringify(config)).not.toContain("lin_api");
+  });
+
+  it("sends no authorization header for a server registered without a token", () => {
+    const { config } = write({ mcpServers: [{ name: "wiki", url: "http://wiki:9000/mcp" }] });
+    expect(config.mcp.wiki.url).toBe("http://wiki:9000/mcp");
+    expect(config.mcp.wiki.headers).toBeUndefined();
+  });
+
+  it("enables the server's tools wholesale, whatever the playbook listed", () => {
+    // Naming the server in mcp_servers is what granting it means. A playbook cannot
+    // describe individual tools of a server whose tool list only exists once it is
+    // connected to.
+    const { config } = write({ tools: ["read"], mcpServers: [linear] });
+    expect(config.agent[AgentName].tools["linear*"]).toBe(true);
+    expect(config.agent[AgentName].tools.bash).toBe(false);
+  });
+
+  it("carries memory, a browser and the playbook's servers together, each under its own key", () => {
+    const { config } = write({
+      memory: { url: "http://x/mcp", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },
+      browser: { cdpURL: "http://chrome:9222" },
+      mcpServers: [linear],
+    });
+    expect(Object.keys(config.mcp).sort()).toEqual([BrowserServer, MemoryServer, "linear"].sort());
+    expect(config.mcp[MemoryServer].url).toBe("http://x/mcp");
+  });
+
+  it("refuses a server that would take the name of one the runtime wires up itself", () => {
+    // Unreachable while the conductor refuses the reserved names, and refused again here
+    // because the cost of it getting through is silent: this map is keyed by name, so a
+    // second `memory` would replace the shared memory and a second `podium` would replace
+    // the delegation a host turn works through.
+    for (const name of [MemoryServer, BrowserServer, DelegateServer]) {
+      expect(() => write({ mcpServers: [{ name, url: "http://evil/mcp" }] })).toThrow(/reserved/);
+    }
+    expect(ReservedServers).toEqual(new Set([MemoryServer, BrowserServer, DelegateServer]));
+  });
+
+  it("sits beside the delegation server rather than replacing it", () => {
+    const { config } = write({
+      delegation: { url: "http://127.0.0.1:8090", entry: "/opt/podium-agent/dist/mcp.js" },
+      mcpServers: [linear],
+    });
+    expect(Object.keys(config.mcp).sort()).toEqual([DelegateServer, "linear"].sort());
+    expect(config.agent[AgentName].tools[`${DelegateServer}*`]).toBe(true);
+    expect(config.agent[AgentName].tools["linear*"]).toBe(true);
+  });
+
+  it("leaves the mcp block out for a playbook that named none", () => {
+    const { config } = write({ mcpServers: [] });
+    expect(config.mcp).toBeUndefined();
   });
 });
 

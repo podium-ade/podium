@@ -55,6 +55,10 @@ export function PlaybooksPanel() {
     queryKey: ["agent", "skills"],
     queryFn: () => agent.listSkills({}),
   });
+  const mcpList = useQuery({
+    queryKey: ["agent", "mcp"],
+    queryFn: () => agent.listMcpServers({}),
+  });
   const { agents } = useAgents();
 
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
@@ -118,6 +122,11 @@ export function PlaybooksPanel() {
           .filter((s) => !s.shadowed && !s.enabled)
           .map((s) => s.name)}
         skillsUnknown={skillList.isError || skillList.isPending}
+        mcpNames={(mcpList.data?.servers ?? []).map((m) => m.name)}
+        disabledMcpNames={(mcpList.data?.servers ?? [])
+          .filter((m) => !m.enabled)
+          .map((m) => m.name)}
+        mcpUnknown={mcpList.isError || mcpList.isPending}
         saving={saving}
         deleting={remove.isPending}
         error={saveError}

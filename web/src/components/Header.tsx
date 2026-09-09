@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, Coins, KeyRound, ListTodo, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
+import { Bot, Coins, KeyRound, ListTodo, Plug, Puzzle, Server, Settings2, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer, viewerLabel } from "../lib/identity";
@@ -12,16 +12,14 @@ function pathActive(pathname: string, to: string, end?: boolean) {
 
 /**
  * Agent in the sidebar is the talk screens (chat, sessions, memory, profile). Playbooks,
- * Skills and Settings are siblings, not children, so a prefix match on /agent would light
- * Agent on every one of them.
+ * Skills, MCP and Settings are siblings, not children, so a prefix match on /agent would
+ * light Agent on every one of them.
  */
+const agentSiblings = ["/agent/playbooks", "/agent/skills", "/agent/mcp", "/agent/settings"];
+
 function agentActive(pathname: string) {
   if (pathname !== "/agent" && !pathname.startsWith("/agent/")) return false;
-  return (
-    !pathname.startsWith("/agent/playbooks") &&
-    !pathname.startsWith("/agent/skills") &&
-    !pathname.startsWith("/agent/settings")
-  );
+  return !agentSiblings.some((p) => pathname.startsWith(p));
 }
 
 function Item({
@@ -104,6 +102,9 @@ export function Header() {
             </Item>
             <Item to="/agent/skills" icon={Puzzle}>
               Skills
+            </Item>
+            <Item to="/agent/mcp" icon={Plug}>
+              MCP
             </Item>
             <div className="pt-4" />
           </>

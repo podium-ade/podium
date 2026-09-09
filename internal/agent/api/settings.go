@@ -578,7 +578,8 @@ func (s *AgentService) ListAgents(
 	return connect.NewResponse(out), nil
 }
 
-// RefreshTokens keeps stored OAuth credentials alive until the process stops.
+// RefreshTokens keeps stored OAuth credentials alive until the process stops — the
+// subscription sign-in's, and every signed-in MCP server's.
 //
 // It runs as its own goroutine because nothing else is watching: a token issued for an hour
 // would otherwise stop working an hour after a sign-in, and the first anybody would hear of
@@ -601,6 +602,11 @@ func (s *AgentService) RefreshTokens(ctx context.Context) {
 
 func (s *AgentService) refreshOnce(ctx context.Context) {
 	s.sweepFlows()
+	// The MCP registry's sign-ins are on the same tick and the same lead. They are a
+	// different credential in a different table, but "a token issued for an hour stops
+	// working an hour later and the first anybody hears of it is a turn failing" is the
+	// same problem — see refreshMcpOnce.
+	s.refreshMcpOnce(ctx)
 	for _, p := range providerSpecs {
 		if !p.oauth || s.secrets == nil || s.store == nil {
 			continue

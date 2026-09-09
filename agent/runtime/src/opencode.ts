@@ -20,6 +20,8 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 
+import type { McpServerRef } from "./brief.js";
+
 /** dnsLookup is the callback API as a promise; node:dns/promises resolves differently. */
 const dnsLookup = promisify(dnsLookupCb) as (host: string) => Promise<{ address: string }>;
 
@@ -100,6 +102,15 @@ async function defaultLookup(host: string): Promise<string> {
   return address;
 }
 
+/**
+ * ReservedServers are the MCP server names this runtime wires up itself. A playbook's own
+ * `mcp_servers` may not take one: the harness config is a single map keyed by name, so a
+ * registration reusing one would silently replace something the conductor decided the turn
+ * gets — the shared memory, the sidecar browser, or the delegation a host turn works
+ * through. internal/agent/mcp holds the same list, and refuses a registration much earlier.
+ */
+export const ReservedServers = new Set([MemoryServer, BrowserServer, DelegateServer]);
+
 /** ConfigName and PromptName are what is written into the config directory. */
 const ConfigName = "opencode.json";
 const PromptName = "system.md";
@@ -150,6 +161,8 @@ export interface Config {
    * drives is somewhere else.
    */
   delegation?: { url: string; entry: string };
+  /** mcpServers is the playbook's own MCP servers, already resolved by the conductor. */
+  mcpServers?: McpServerRef[];
 }
 
 /**
@@ -213,6 +226,13 @@ export function writeConfig(cfg: Config): string {
   if (cfg.delegation) {
     tools[`${DelegateServer}*`] = true;
   }
+  // And the playbook's own servers. Each one's tools are enabled wholesale, because naming
+  // the server in `mcp_servers` is what granting it means — the conductor already decided
+  // which turns get which, and a playbook cannot describe individual tools of a server
+  // whose tool list only exists once the server has been connected to.
+  for (const server of cfg.mcpServers ?? []) {
+    tools[`${server.name}*`] = true;
+  }
 
   const doc: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
@@ -260,6 +280,26 @@ export function writeConfig(cfg: Config): string {
       type: "local",
       command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
       enabled: true,
+    };
+  }
+  for (const server of cfg.mcpServers ?? []) {
+    if (ReservedServers.has(server.name)) {
+      // Unreachable while the conductor refuses the reserved names, and refused again here
+      // because the cost of it getting through is silent: this map is keyed by name, so a
+      // second `memory` would replace the shared memory a turn cannot opt out of, and a
+      // second `podium` would replace the delegation a host turn works through.
+      throw new Error(`mcp server ${server.name} may not use a reserved name`);
+    }
+    mcp[server.name] = {
+      type: "remote",
+      url: server.url,
+      enabled: true,
+      // No token means no header, which is what an unauthenticated server wants. Where
+      // there is one, {env:...} is resolved by the harness, so the token is never written
+      // to disk and never appears in this config file — exactly as memory's is.
+      ...(server.token_env
+        ? { headers: { Authorization: `Bearer {env:${server.token_env}}` } }
+        : {}),
     };
   }
   if (Object.keys(mcp).length > 0) {

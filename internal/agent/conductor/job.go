@@ -39,6 +39,11 @@ type job struct {
 	// whose turn is bounded by its task's own timeout on the node instead.
 	timeout time.Duration
 	skills  []string
+	// mcpServers is the MCP servers this turn may reach, by name, out of the conductor's
+	// registry. A playbook's own list; empty for the assistant, which reaches other systems
+	// by delegating to a playbook that has them rather than by holding their credentials
+	// itself.
+	mcpServers []string
 	// playbook is the container half, and the zero Playbook for the assistant. Only the
 	// task path reads it.
 	playbook profiles.Playbook
@@ -59,6 +64,7 @@ func playbookJob(p profiles.Playbook) job {
 		allowedTools: p.AllowedTools,
 		maxTurns:     p.MaxTurns,
 		skills:       p.Skills,
+		mcpServers:   p.MCPServers,
 		playbook:     p,
 	}
 }

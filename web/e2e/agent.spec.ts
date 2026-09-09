@@ -156,6 +156,15 @@ test("the agent tabs are real routes", async ({ page }) => {
     page.getByText("A skill runs in the turn's container with the turn's credentials"),
   ).toBeVisible();
 
+  // The MCP registry. Empty on this harness, so what it must show is the way in and the
+  // sentence about what naming a server in a playbook actually spends.
+  await page.getByRole("link", { name: "MCP" }).click();
+  await expect(page).toHaveURL(/\/agent\/mcp$/);
+  await expect(page.getByTestId("mcp-new")).toBeVisible();
+  await expect(
+    page.getByText(/token is spent by every turn of every playbook that names it/),
+  ).toBeVisible();
+
   // Back into the talk screens: Agent in the sidebar, then the remaining tabs.
   await page.getByRole("link", { name: "Agent" }).click();
   await expect(page).toHaveURL(/\/agent\/chat$/);

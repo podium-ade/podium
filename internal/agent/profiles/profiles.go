@@ -22,6 +22,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
+	"github.com/alvaroibarguen/podium/internal/agent/mcp"
 	"github.com/alvaroibarguen/podium/internal/agent/skills"
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
@@ -230,6 +231,15 @@ type Playbook struct {
 	// container with that turn's credentials. This list is the whole of what decides which
 	// ones do. See docs/security.md.
 	Skills []string `yaml:"skills" json:"skills,omitempty"`
+	// MCPServers is the MCP servers a turn of this playbook may use, by name, out of the
+	// registry an operator manages in the web UI. Nothing is implicit here either: a
+	// playbook that names none gets none, and the runtime writes the harness exactly the
+	// entries the brief carried.
+	//
+	// A server is somebody else's API with a credential attached, and the tools it exposes
+	// run with whatever that credential can do. This list is the whole of what decides
+	// which turns get which of them. See docs/security.md.
+	MCPServers []string `yaml:"mcp_servers" json:"mcp_servers,omitempty"`
 	// Docker gives the turn a real Docker daemon beside it: the conductor attaches a
 	// privileged `dind` sidecar and points DOCKER_HOST at it. A playbook needs this to run a
 	// dev stack, `docker compose`, or testcontainers.
@@ -469,6 +479,35 @@ func validateSkills(names []string) []error {
 	return errs
 }
 
+// validateMCPServers holds an mcp_servers list to the same rules validateSkills holds a
+// skills list to, and for the same reason: a name that is not a name at all is a turn that
+// fails on its harness config, and finding that out from a turn is worse than finding it out
+// on save. Every list goes through it.
+//
+// Whether a named server EXISTS is deliberately not checked, exactly as a skill's is not. The
+// registry is the conductor's own database, and a profile has to be loadable on a machine
+// with no database at all — a test, CI, a laptop. A name with nothing behind it fails the
+// turn that wants it, naming the server, and leaves everything else running.
+func validateMCPServers(names []string) []error {
+	var errs []error
+	if len(names) > mcp.MaxServers {
+		errs = append(errs, fmt.Errorf("mcp_servers names %d servers; the limit is %d",
+			len(names), mcp.MaxServers))
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if err := mcp.ValidateName(name); err != nil {
+			errs = append(errs, fmt.Errorf("mcp_servers: %w", err))
+			continue
+		}
+		if seen[name] {
+			errs = append(errs, fmt.Errorf("mcp_servers names %q twice", name))
+		}
+		seen[name] = true
+	}
+	return errs
+}
+
 func (s Playbook) validate(path string) error {
 	var errs []error
 	if strings.TrimSpace(s.Image) == "" {
@@ -510,12 +549,26 @@ func (s Playbook) validate(path string) error {
 			errs = append(errs, fmt.Errorf("secrets may not name %s: the conductor decides what "+
 				"credential a turn gets, from the agent the playbook runs on", ref.Name))
 		}
+		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) {
+			// The registry is what grants an MCP server to a playbook, and the token is
+			// how a turn uses one. A playbook that could name the secret directly would
+			// have the credential of a server it was never granted.
+			errs = append(errs, fmt.Errorf("secrets may not name %s: an MCP server's token "+
+				"comes from mcp_servers, which is what decides whether this playbook has "+
+				"that server at all", ref.Name))
+		}
 	}
 	errs = append(errs, validateSkills(s.Skills)...)
+	errs = append(errs, validateMCPServers(s.MCPServers)...)
 	for key := range s.Env {
 		if strings.HasPrefix(key, skills.EnvPrefix) {
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
 				"variable per skill it delivers", key, skills.EnvPrefix))
+			continue
+		}
+		if strings.HasPrefix(key, mcp.EnvPrefix) {
+			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
+				"variable per MCP server it delivers", key, mcp.EnvPrefix))
 			continue
 		}
 		switch key {

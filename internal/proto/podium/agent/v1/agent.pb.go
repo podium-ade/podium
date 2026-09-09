@@ -4691,7 +4691,15 @@ type PlaybookDefinition struct {
 	// priority is where a turn of this playbook goes in Podium's queue: the scheduler claims
 	// higher first and breaks ties by age. Zero is the default and negative is allowed, so a
 	// background playbook can be told to wait behind everything a person is watching.
-	Priority      int32 `protobuf:"varint,23,opt,name=priority,proto3" json:"priority,omitempty"`
+	Priority int32 `protobuf:"varint,23,opt,name=priority,proto3" json:"priority,omitempty"`
+	// mcp_servers is the MCP servers a turn of this playbook may use, by name, out of the
+	// registry ListMcpServers reports. Empty means none, and none is what the turn gets: the
+	// runtime writes the harness one MCP entry per name here and no others.
+	//
+	// A server is somebody else's API with a credential attached, and a turn that has it can
+	// read and write whatever that credential can. This list is the whole of what decides
+	// which turns do — see docs/security.md.
+	McpServers    []string `protobuf:"bytes,24,rep,name=mcp_servers,json=mcpServers,proto3" json:"mcp_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4885,6 +4893,13 @@ func (x *PlaybookDefinition) GetPriority() int32 {
 		return x.Priority
 	}
 	return 0
+}
+
+func (x *PlaybookDefinition) GetMcpServers() []string {
+	if x != nil {
+		return x.McpServers
+	}
+	return nil
 }
 
 type GetProfileRequest struct {
@@ -5949,6 +5964,1063 @@ func (*DeleteSkillResponse) Descriptor() ([]byte, []int) {
 	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{86}
 }
 
+// McpServer is one MCP server this conductor can hand a turn: an address, the header its
+// credential travels in, and who a playbook has to name to get it.
+//
+// It is REMOTE and only remote. A local server is a command line, and a command line typed
+// into a browser form is a process running inside the turn container with that turn's GitHub
+// token and model credential — the two local servers a turn can get, memory's client and the
+// browser's, are the conductor's own decision and stay that way.
+//
+// EVERY FIELD HERE IS AN OPERATOR'S OWN TEXT except the provenance and the token metadata. It
+// names a credential and never carries one: the token is a Podium secret, and token_hint is
+// the last four characters kept at save time, which is the only form any part of it is read
+// back in.
+type McpServer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is what a playbook names, and it is also the prefix the harness gives this
+	// server's tools — so `linear` is what `mcp__linear__*` comes from. It matches
+	// ^[a-z][a-z0-9-]{0,31}$ and may not be `memory` or `browser`, which the conductor and
+	// the runtime already own.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// url is the server's endpoint, an absolute http or https URL.
+	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	// description is the operator's own note about what this server is for. It is shown in
+	// the UI and never sent anywhere.
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// enabled is false for a server somebody turned off. A playbook that names a disabled
+	// server fails its turns saying so rather than running without it, for the same reason a
+	// disabled skill does: a turn with fewer tools than its playbook describes is the one
+	// outcome nobody can diagnose afterwards.
+	Enabled bool `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// token_set is whether the control plane actually holds this server's secret. It is asked
+	// of the control plane rather than inferred from the row: `podium secret rm` is a thing an
+	// operator can do without this conductor hearing about it.
+	TokenSet bool `protobuf:"varint,5,opt,name=token_set,json=tokenSet,proto3" json:"token_set,omitempty"`
+	// token_hint is the last four characters of the token, or "" when none is set.
+	TokenHint string `protobuf:"bytes,6,opt,name=token_hint,json=tokenHint,proto3" json:"token_hint,omitempty"`
+	// token_set_by is the X-Podium-Login that stored it, and token_set_at when.
+	TokenSetBy string                 `protobuf:"bytes,7,opt,name=token_set_by,json=tokenSetBy,proto3" json:"token_set_by,omitempty"`
+	TokenSetAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=token_set_at,json=tokenSetAt,proto3" json:"token_set_at,omitempty"`
+	// playbooks names the playbooks whose mcp_servers list this one, so a human can see what
+	// a disable or a delete would change before doing it.
+	Playbooks []string `protobuf:"bytes,9,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
+	// created_by, updated_by and updated_at are the row's provenance.
+	CreatedBy string                 `protobuf:"bytes,10,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	UpdatedBy string                 `protobuf:"bytes,11,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// token_env is the environment variable the conductor delivers the token in, and
+	// token_secret the Podium secret it is stored as. Both are derived from the name and are
+	// reported so an operator can find the secret with the CLI.
+	TokenEnv    string `protobuf:"bytes,13,opt,name=token_env,json=tokenEnv,proto3" json:"token_env,omitempty"`
+	TokenSecret string `protobuf:"bytes,14,opt,name=token_secret,json=tokenSecret,proto3" json:"token_secret,omitempty"`
+	// auth_kind is "token" for a credential somebody pasted, "oauth" for one this conductor
+	// signed in for, and "" when the server has none. It is what the UI shows instead of a
+	// hint for a sign-in: an access token is not a thing to show four characters of.
+	AuthKind string `protobuf:"bytes,15,opt,name=auth_kind,json=authKind,proto3" json:"auth_kind,omitempty"`
+	// account is who the authorization server says is signed in — an email or a subject — for
+	// an OAuth credential, and "" otherwise. It comes from the token response's own id_token.
+	Account string `protobuf:"bytes,16,opt,name=account,proto3" json:"account,omitempty"`
+	// expires_at is when the stored access token stops working. Unset for a pasted token,
+	// which does not expire. The conductor refreshes an OAuth token in the background well
+	// before this, so a time in the past means refreshing has been failing.
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// refreshable is true when a refresh token was issued, which is what makes a sign-in
+	// survive its first hour without a human.
+	Refreshable bool `protobuf:"varint,18,opt,name=refreshable,proto3" json:"refreshable,omitempty"`
+	// oauth_supported is true when this server advertises an authorization server, so the UI
+	// offers the sign-in rather than only the paste field. It is discovered on demand and is
+	// false until something has looked; a server that answers nothing is not a server that
+	// cannot be used, only one whose credential has to be pasted.
+	OauthSupported bool `protobuf:"varint,19,opt,name=oauth_supported,json=oauthSupported,proto3" json:"oauth_supported,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *McpServer) Reset() {
+	*x = McpServer{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[87]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpServer) ProtoMessage() {}
+
+func (x *McpServer) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[87]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpServer.ProtoReflect.Descriptor instead.
+func (*McpServer) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{87}
+}
+
+func (x *McpServer) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *McpServer) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *McpServer) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *McpServer) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *McpServer) GetTokenSet() bool {
+	if x != nil {
+		return x.TokenSet
+	}
+	return false
+}
+
+func (x *McpServer) GetTokenHint() string {
+	if x != nil {
+		return x.TokenHint
+	}
+	return ""
+}
+
+func (x *McpServer) GetTokenSetBy() string {
+	if x != nil {
+		return x.TokenSetBy
+	}
+	return ""
+}
+
+func (x *McpServer) GetTokenSetAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.TokenSetAt
+	}
+	return nil
+}
+
+func (x *McpServer) GetPlaybooks() []string {
+	if x != nil {
+		return x.Playbooks
+	}
+	return nil
+}
+
+func (x *McpServer) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *McpServer) GetUpdatedBy() string {
+	if x != nil {
+		return x.UpdatedBy
+	}
+	return ""
+}
+
+func (x *McpServer) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *McpServer) GetTokenEnv() string {
+	if x != nil {
+		return x.TokenEnv
+	}
+	return ""
+}
+
+func (x *McpServer) GetTokenSecret() string {
+	if x != nil {
+		return x.TokenSecret
+	}
+	return ""
+}
+
+func (x *McpServer) GetAuthKind() string {
+	if x != nil {
+		return x.AuthKind
+	}
+	return ""
+}
+
+func (x *McpServer) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *McpServer) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *McpServer) GetRefreshable() bool {
+	if x != nil {
+		return x.Refreshable
+	}
+	return false
+}
+
+func (x *McpServer) GetOauthSupported() bool {
+	if x != nil {
+		return x.OauthSupported
+	}
+	return false
+}
+
+type ListMcpServersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMcpServersRequest) Reset() {
+	*x = ListMcpServersRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[88]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMcpServersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMcpServersRequest) ProtoMessage() {}
+
+func (x *ListMcpServersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[88]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMcpServersRequest.ProtoReflect.Descriptor instead.
+func (*ListMcpServersRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{88}
+}
+
+type ListMcpServersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// servers is every registered server, sorted by name.
+	Servers []*McpServer `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	// max_per_playbook is how many servers one playbook may name.
+	MaxPerPlaybook int32 `protobuf:"varint,2,opt,name=max_per_playbook,json=maxPerPlaybook,proto3" json:"max_per_playbook,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListMcpServersResponse) Reset() {
+	*x = ListMcpServersResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[89]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMcpServersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMcpServersResponse) ProtoMessage() {}
+
+func (x *ListMcpServersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[89]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMcpServersResponse.ProtoReflect.Descriptor instead.
+func (*ListMcpServersResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{89}
+}
+
+func (x *ListMcpServersResponse) GetServers() []*McpServer {
+	if x != nil {
+		return x.Servers
+	}
+	return nil
+}
+
+func (x *ListMcpServersResponse) GetMaxPerPlaybook() int32 {
+	if x != nil {
+		return x.MaxPerPlaybook
+	}
+	return 0
+}
+
+type CreateMcpServerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// server.name, server.url, server.description and server.enabled are read; the token
+	// metadata and the provenance are the conductor's and are ignored.
+	//
+	// server.enabled has to be set: proto3 gives a bool no field presence, so an omitted one
+	// is `false` and registers a server that is turned off. That is the safe direction — a
+	// playbook naming it fails loudly rather than silently getting nothing — but it is not
+	// what a caller who left the field out meant.
+	Server *McpServer `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	// token is the credential to store with the registration, or empty for a server that
+	// needs none. SENSITIVE: never log this field.
+	Token         string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateMcpServerRequest) Reset() {
+	*x = CreateMcpServerRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMcpServerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMcpServerRequest) ProtoMessage() {}
+
+func (x *CreateMcpServerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMcpServerRequest.ProtoReflect.Descriptor instead.
+func (*CreateMcpServerRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{90}
+}
+
+func (x *CreateMcpServerRequest) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+func (x *CreateMcpServerRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type CreateMcpServerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *McpServer             `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateMcpServerResponse) Reset() {
+	*x = CreateMcpServerResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[91]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMcpServerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMcpServerResponse) ProtoMessage() {}
+
+func (x *CreateMcpServerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[91]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMcpServerResponse.ProtoReflect.Descriptor instead.
+func (*CreateMcpServerResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{91}
+}
+
+func (x *CreateMcpServerResponse) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type UpdateMcpServerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// server.name names the registration to replace. The stored token is left alone —
+	// SetMcpServerToken and ClearMcpServerToken are the only things that touch it.
+	Server        *McpServer `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateMcpServerRequest) Reset() {
+	*x = UpdateMcpServerRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[92]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateMcpServerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateMcpServerRequest) ProtoMessage() {}
+
+func (x *UpdateMcpServerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[92]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateMcpServerRequest.ProtoReflect.Descriptor instead.
+func (*UpdateMcpServerRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{92}
+}
+
+func (x *UpdateMcpServerRequest) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type UpdateMcpServerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *McpServer             `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateMcpServerResponse) Reset() {
+	*x = UpdateMcpServerResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[93]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateMcpServerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateMcpServerResponse) ProtoMessage() {}
+
+func (x *UpdateMcpServerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[93]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateMcpServerResponse.ProtoReflect.Descriptor instead.
+func (*UpdateMcpServerResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{93}
+}
+
+func (x *UpdateMcpServerResponse) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type DeleteMcpServerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMcpServerRequest) Reset() {
+	*x = DeleteMcpServerRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMcpServerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMcpServerRequest) ProtoMessage() {}
+
+func (x *DeleteMcpServerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[94]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMcpServerRequest.ProtoReflect.Descriptor instead.
+func (*DeleteMcpServerRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *DeleteMcpServerRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type DeleteMcpServerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMcpServerResponse) Reset() {
+	*x = DeleteMcpServerResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[95]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMcpServerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMcpServerResponse) ProtoMessage() {}
+
+func (x *DeleteMcpServerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[95]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMcpServerResponse.ProtoReflect.Descriptor instead.
+func (*DeleteMcpServerResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{95}
+}
+
+type SetMcpServerTokenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// SENSITIVE: never log this field. The handler wraps the request in a redacting
+	// slog.LogValuer so no log site has to remember.
+	Token         string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMcpServerTokenRequest) Reset() {
+	*x = SetMcpServerTokenRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[96]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMcpServerTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMcpServerTokenRequest) ProtoMessage() {}
+
+func (x *SetMcpServerTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[96]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMcpServerTokenRequest.ProtoReflect.Descriptor instead.
+func (*SetMcpServerTokenRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{96}
+}
+
+func (x *SetMcpServerTokenRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SetMcpServerTokenRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type SetMcpServerTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *McpServer             `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMcpServerTokenResponse) Reset() {
+	*x = SetMcpServerTokenResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMcpServerTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMcpServerTokenResponse) ProtoMessage() {}
+
+func (x *SetMcpServerTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMcpServerTokenResponse.ProtoReflect.Descriptor instead.
+func (*SetMcpServerTokenResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *SetMcpServerTokenResponse) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type ClearMcpServerTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearMcpServerTokenRequest) Reset() {
+	*x = ClearMcpServerTokenRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearMcpServerTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearMcpServerTokenRequest) ProtoMessage() {}
+
+func (x *ClearMcpServerTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearMcpServerTokenRequest.ProtoReflect.Descriptor instead.
+func (*ClearMcpServerTokenRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *ClearMcpServerTokenRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type ClearMcpServerTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *McpServer             `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearMcpServerTokenResponse) Reset() {
+	*x = ClearMcpServerTokenResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearMcpServerTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearMcpServerTokenResponse) ProtoMessage() {}
+
+func (x *ClearMcpServerTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearMcpServerTokenResponse.ProtoReflect.Descriptor instead.
+func (*ClearMcpServerTokenResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *ClearMcpServerTokenResponse) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type StartMcpOAuthRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// redirect_uri is where the authorization server sends the operator's browser back to. It
+	// is supplied by the BROWSER, because the browser is the only party that knows the address
+	// this control plane is actually reached at — a tailnet name, a reverse proxy, localhost.
+	// That is what makes a redirect flow work here at all without every one of those being
+	// registered in advance: the client is registered dynamically, with this value.
+	//
+	// The conductor holds it to a shape: https (or http on loopback, for a dev install), no
+	// query and no fragment, and the one path the web UI serves the callback on.
+	RedirectUri string `protobuf:"bytes,2,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
+	// scope narrows the grant. Empty asks for what the server itself advertises, which is the
+	// right default and not always the narrowest one — a server offering a write scope is a
+	// server whose tools can write.
+	Scope         string `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartMcpOAuthRequest) Reset() {
+	*x = StartMcpOAuthRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartMcpOAuthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartMcpOAuthRequest) ProtoMessage() {}
+
+func (x *StartMcpOAuthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartMcpOAuthRequest.ProtoReflect.Descriptor instead.
+func (*StartMcpOAuthRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *StartMcpOAuthRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthRequest) GetRedirectUri() string {
+	if x != nil {
+		return x.RedirectUri
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+type StartMcpOAuthResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// flow_id names this sign-in. It is not a credential: the PKCE verifier and the client
+	// registration stay on the conductor, so a browser holding this cannot complete a sign-in
+	// by itself.
+	FlowId string `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	// authorize_url is where to send the browser. It carries the state and the PKCE challenge.
+	AuthorizeUrl string `protobuf:"bytes,2,opt,name=authorize_url,json=authorizeUrl,proto3" json:"authorize_url,omitempty"`
+	// state is what the callback must come back with. The browser gets it so it can tell a
+	// callback for this sign-in from a stale one in another tab; the conductor compares its
+	// own copy, in constant time, and that comparison is the one that counts.
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// issuer and scope are what discovery settled on, so an operator can see which
+	// authorization server they are about to sign in to and what they are granting.
+	Issuer        string                 `protobuf:"bytes,4,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	Scope         string                 `protobuf:"bytes,5,opt,name=scope,proto3" json:"scope,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartMcpOAuthResponse) Reset() {
+	*x = StartMcpOAuthResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[101]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartMcpOAuthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartMcpOAuthResponse) ProtoMessage() {}
+
+func (x *StartMcpOAuthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[101]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartMcpOAuthResponse.ProtoReflect.Descriptor instead.
+func (*StartMcpOAuthResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{101}
+}
+
+func (x *StartMcpOAuthResponse) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthResponse) GetAuthorizeUrl() string {
+	if x != nil {
+		return x.AuthorizeUrl
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthResponse) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthResponse) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *StartMcpOAuthResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+type CompleteMcpOAuthRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	FlowId string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	// code is the authorization code the browser was redirected back with. SENSITIVE: never
+	// log this field. It is single-use and useless without the verifier the conductor kept.
+	Code          string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteMcpOAuthRequest) Reset() {
+	*x = CompleteMcpOAuthRequest{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[102]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteMcpOAuthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteMcpOAuthRequest) ProtoMessage() {}
+
+func (x *CompleteMcpOAuthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[102]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteMcpOAuthRequest.ProtoReflect.Descriptor instead.
+func (*CompleteMcpOAuthRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{102}
+}
+
+func (x *CompleteMcpOAuthRequest) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *CompleteMcpOAuthRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *CompleteMcpOAuthRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type CompleteMcpOAuthResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *McpServer             `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteMcpOAuthResponse) Reset() {
+	*x = CompleteMcpOAuthResponse{}
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[103]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteMcpOAuthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteMcpOAuthResponse) ProtoMessage() {}
+
+func (x *CompleteMcpOAuthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_agent_proto_msgTypes[103]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteMcpOAuthResponse.ProtoReflect.Descriptor instead.
+func (*CompleteMcpOAuthResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_agent_proto_rawDescGZIP(), []int{103}
+}
+
+func (x *CompleteMcpOAuthResponse) GetServer() *McpServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
 var File_podium_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_agent_proto_rawDesc = "" +
@@ -6307,7 +7379,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fPlaybookRepo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12%\n" +
-	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xe5\x06\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\x86\a\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -6334,7 +7406,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05agent\x18\x14 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06effort\x18\x15 \x01(\tR\x06effort\x12\x16\n" +
 	"\x06skills\x18\x16 \x03(\tR\x06skills\x12\x1a\n" +
-	"\bpriority\x18\x17 \x01(\x05R\bpriority\x1a6\n" +
+	"\bpriority\x18\x17 \x01(\x05R\bpriority\x12\x1f\n" +
+	"\vmcp_servers\x18\x18 \x03(\tR\n" +
+	"mcpServers\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +
@@ -6404,7 +7478,78 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\"(\n" +
 	"\x12DeleteSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteSkillResponse2\x8c\x17\n" +
+	"\x13DeleteSkillResponse\"\x9d\x05\n" +
+	"\tMcpServer\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\x12\x1b\n" +
+	"\ttoken_set\x18\x05 \x01(\bR\btokenSet\x12\x1d\n" +
+	"\n" +
+	"token_hint\x18\x06 \x01(\tR\ttokenHint\x12 \n" +
+	"\ftoken_set_by\x18\a \x01(\tR\n" +
+	"tokenSetBy\x12<\n" +
+	"\ftoken_set_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"tokenSetAt\x12\x1c\n" +
+	"\tplaybooks\x18\t \x03(\tR\tplaybooks\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\n" +
+	" \x01(\tR\tcreatedBy\x12\x1d\n" +
+	"\n" +
+	"updated_by\x18\v \x01(\tR\tupdatedBy\x129\n" +
+	"\n" +
+	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
+	"\ttoken_env\x18\r \x01(\tR\btokenEnv\x12!\n" +
+	"\ftoken_secret\x18\x0e \x01(\tR\vtokenSecret\x12\x1b\n" +
+	"\tauth_kind\x18\x0f \x01(\tR\bauthKind\x12\x18\n" +
+	"\aaccount\x18\x10 \x01(\tR\aaccount\x129\n" +
+	"\n" +
+	"expires_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12 \n" +
+	"\vrefreshable\x18\x12 \x01(\bR\vrefreshable\x12'\n" +
+	"\x0foauth_supported\x18\x13 \x01(\bR\x0eoauthSupported\"\x17\n" +
+	"\x15ListMcpServersRequest\"x\n" +
+	"\x16ListMcpServersResponse\x124\n" +
+	"\aservers\x18\x01 \x03(\v2\x1a.podium.agent.v1.McpServerR\aservers\x12(\n" +
+	"\x10max_per_playbook\x18\x02 \x01(\x05R\x0emaxPerPlaybook\"b\n" +
+	"\x16CreateMcpServerRequest\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"M\n" +
+	"\x17CreateMcpServerResponse\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\"L\n" +
+	"\x16UpdateMcpServerRequest\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\"M\n" +
+	"\x17UpdateMcpServerResponse\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\",\n" +
+	"\x16DeleteMcpServerRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x19\n" +
+	"\x17DeleteMcpServerResponse\"D\n" +
+	"\x18SetMcpServerTokenRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"O\n" +
+	"\x19SetMcpServerTokenResponse\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\"0\n" +
+	"\x1aClearMcpServerTokenRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"Q\n" +
+	"\x1bClearMcpServerTokenResponse\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server\"c\n" +
+	"\x14StartMcpOAuthRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
+	"\fredirect_uri\x18\x02 \x01(\tR\vredirectUri\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\"\xd4\x01\n" +
+	"\x15StartMcpOAuthResponse\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12#\n" +
+	"\rauthorize_url\x18\x02 \x01(\tR\fauthorizeUrl\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x16\n" +
+	"\x06issuer\x18\x04 \x01(\tR\x06issuer\x12\x14\n" +
+	"\x05scope\x18\x05 \x01(\tR\x05scope\x129\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\\\n" +
+	"\x17CompleteMcpOAuthRequest\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\"N\n" +
+	"\x18CompleteMcpOAuthResponse\x122\n" +
+	"\x06server\x18\x01 \x01(\v2\x1a.podium.agent.v1.McpServerR\x06server2\xc8\x1d\n" +
 	"\fAgentService\x12[\n" +
 	"\fListSessions\x12$.podium.agent.v1.ListSessionsRequest\x1a%.podium.agent.v1.ListSessionsResponse\x12U\n" +
 	"\n" +
@@ -6432,7 +7577,15 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"ListSkills\x12\".podium.agent.v1.ListSkillsRequest\x1a#.podium.agent.v1.ListSkillsResponse\x12X\n" +
 	"\vUploadSkill\x12#.podium.agent.v1.UploadSkillRequest\x1a$.podium.agent.v1.UploadSkillResponse\x12d\n" +
 	"\x0fSetSkillEnabled\x12'.podium.agent.v1.SetSkillEnabledRequest\x1a(.podium.agent.v1.SetSkillEnabledResponse\x12X\n" +
-	"\vDeleteSkill\x12#.podium.agent.v1.DeleteSkillRequest\x1a$.podium.agent.v1.DeleteSkillResponse\x12U\n" +
+	"\vDeleteSkill\x12#.podium.agent.v1.DeleteSkillRequest\x1a$.podium.agent.v1.DeleteSkillResponse\x12a\n" +
+	"\x0eListMcpServers\x12&.podium.agent.v1.ListMcpServersRequest\x1a'.podium.agent.v1.ListMcpServersResponse\x12d\n" +
+	"\x0fCreateMcpServer\x12'.podium.agent.v1.CreateMcpServerRequest\x1a(.podium.agent.v1.CreateMcpServerResponse\x12d\n" +
+	"\x0fUpdateMcpServer\x12'.podium.agent.v1.UpdateMcpServerRequest\x1a(.podium.agent.v1.UpdateMcpServerResponse\x12d\n" +
+	"\x0fDeleteMcpServer\x12'.podium.agent.v1.DeleteMcpServerRequest\x1a(.podium.agent.v1.DeleteMcpServerResponse\x12j\n" +
+	"\x11SetMcpServerToken\x12).podium.agent.v1.SetMcpServerTokenRequest\x1a*.podium.agent.v1.SetMcpServerTokenResponse\x12p\n" +
+	"\x13ClearMcpServerToken\x12+.podium.agent.v1.ClearMcpServerTokenRequest\x1a,.podium.agent.v1.ClearMcpServerTokenResponse\x12^\n" +
+	"\rStartMcpOAuth\x12%.podium.agent.v1.StartMcpOAuthRequest\x1a&.podium.agent.v1.StartMcpOAuthResponse\x12g\n" +
+	"\x10CompleteMcpOAuth\x12(.podium.agent.v1.CompleteMcpOAuthRequest\x1a).podium.agent.v1.CompleteMcpOAuthResponse\x12U\n" +
 	"\n" +
 	"CreateChat\x12\".podium.agent.v1.CreateChatRequest\x1a#.podium.agent.v1.CreateChatResponse\x12R\n" +
 	"\tListChats\x12!.podium.agent.v1.ListChatsRequest\x1a\".podium.agent.v1.ListChatsResponse\x12U\n" +
@@ -6460,7 +7613,7 @@ func file_podium_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_agent_proto_rawDescData
 }
 
-var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 89)
+var file_podium_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 106)
 var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*Session)(nil),                       // 0: podium.agent.v1.Session
 	(*Turn)(nil),                          // 1: podium.agent.v1.Turn
@@ -6549,143 +7702,188 @@ var file_podium_agent_v1_agent_proto_goTypes = []any{
 	(*SetSkillEnabledResponse)(nil),       // 84: podium.agent.v1.SetSkillEnabledResponse
 	(*DeleteSkillRequest)(nil),            // 85: podium.agent.v1.DeleteSkillRequest
 	(*DeleteSkillResponse)(nil),           // 86: podium.agent.v1.DeleteSkillResponse
-	nil,                                   // 87: podium.agent.v1.Memory.MetadataEntry
-	nil,                                   // 88: podium.agent.v1.PlaybookDefinition.EnvEntry
-	(*timestamppb.Timestamp)(nil),         // 89: google.protobuf.Timestamp
+	(*McpServer)(nil),                     // 87: podium.agent.v1.McpServer
+	(*ListMcpServersRequest)(nil),         // 88: podium.agent.v1.ListMcpServersRequest
+	(*ListMcpServersResponse)(nil),        // 89: podium.agent.v1.ListMcpServersResponse
+	(*CreateMcpServerRequest)(nil),        // 90: podium.agent.v1.CreateMcpServerRequest
+	(*CreateMcpServerResponse)(nil),       // 91: podium.agent.v1.CreateMcpServerResponse
+	(*UpdateMcpServerRequest)(nil),        // 92: podium.agent.v1.UpdateMcpServerRequest
+	(*UpdateMcpServerResponse)(nil),       // 93: podium.agent.v1.UpdateMcpServerResponse
+	(*DeleteMcpServerRequest)(nil),        // 94: podium.agent.v1.DeleteMcpServerRequest
+	(*DeleteMcpServerResponse)(nil),       // 95: podium.agent.v1.DeleteMcpServerResponse
+	(*SetMcpServerTokenRequest)(nil),      // 96: podium.agent.v1.SetMcpServerTokenRequest
+	(*SetMcpServerTokenResponse)(nil),     // 97: podium.agent.v1.SetMcpServerTokenResponse
+	(*ClearMcpServerTokenRequest)(nil),    // 98: podium.agent.v1.ClearMcpServerTokenRequest
+	(*ClearMcpServerTokenResponse)(nil),   // 99: podium.agent.v1.ClearMcpServerTokenResponse
+	(*StartMcpOAuthRequest)(nil),          // 100: podium.agent.v1.StartMcpOAuthRequest
+	(*StartMcpOAuthResponse)(nil),         // 101: podium.agent.v1.StartMcpOAuthResponse
+	(*CompleteMcpOAuthRequest)(nil),       // 102: podium.agent.v1.CompleteMcpOAuthRequest
+	(*CompleteMcpOAuthResponse)(nil),      // 103: podium.agent.v1.CompleteMcpOAuthResponse
+	nil,                                   // 104: podium.agent.v1.Memory.MetadataEntry
+	nil,                                   // 105: podium.agent.v1.PlaybookDefinition.EnvEntry
+	(*timestamppb.Timestamp)(nil),         // 106: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_agent_proto_depIdxs = []int32{
-	89, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
-	89, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
-	89, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
-	89, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
-	2,  // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
-	0,  // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
-	0,  // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
-	1,  // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
-	89, // 8: podium.agent.v1.TaskCost.started_at:type_name -> google.protobuf.Timestamp
-	89, // 9: podium.agent.v1.TaskCost.finished_at:type_name -> google.protobuf.Timestamp
-	89, // 10: podium.agent.v1.GetUsageRequest.from:type_name -> google.protobuf.Timestamp
-	89, // 11: podium.agent.v1.GetUsageRequest.to:type_name -> google.protobuf.Timestamp
-	89, // 12: podium.agent.v1.GetUsageRequest.compare_from:type_name -> google.protobuf.Timestamp
-	9,  // 13: podium.agent.v1.GetUsageResponse.days:type_name -> podium.agent.v1.UsageDay
-	10, // 14: podium.agent.v1.GetUsageResponse.costs:type_name -> podium.agent.v1.TaskCost
-	11, // 15: podium.agent.v1.GetUsageResponse.backends:type_name -> podium.agent.v1.UsageBackend
-	89, // 16: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
-	89, // 17: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
-	15, // 18: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	15, // 19: podium.agent.v1.GetSettingsResponse.providers:type_name -> podium.agent.v1.ProviderSettings
-	15, // 20: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	89, // 21: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
-	15, // 22: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
-	26, // 23: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
-	27, // 24: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
-	87, // 25: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
-	89, // 26: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
-	30, // 27: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
-	30, // 28: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
-	37, // 29: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
-	39, // 30: podium.agent.v1.ListPlaybooksResponse.assistant:type_name -> podium.agent.v1.Assistant
-	89, // 31: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
-	89, // 32: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
-	42, // 33: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
-	89, // 34: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
-	89, // 35: podium.agent.v1.ChatPullRequest.created_at:type_name -> google.protobuf.Timestamp
-	45, // 36: podium.agent.v1.ChatPullRequests.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	43, // 37: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
-	44, // 38: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
-	41, // 39: podium.agent.v1.ChatFrame.chat:type_name -> podium.agent.v1.Chat
-	46, // 40: podium.agent.v1.ChatFrame.pull_requests:type_name -> podium.agent.v1.ChatPullRequests
-	41, // 41: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
-	41, // 42: podium.agent.v1.RenameChatResponse.chat:type_name -> podium.agent.v1.Chat
-	2,  // 43: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
-	41, // 44: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
-	43, // 45: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
-	45, // 46: podium.agent.v1.AttachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	45, // 47: podium.agent.v1.DetachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
-	89, // 48: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
-	64, // 49: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
-	65, // 50: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
-	66, // 51: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
-	88, // 52: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
-	89, // 53: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
-	63, // 54: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	67, // 55: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
-	63, // 56: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
-	67, // 57: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	67, // 58: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	67, // 59: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	67, // 60: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
-	89, // 61: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
-	78, // 62: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
-	78, // 63: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
-	78, // 64: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
-	3,  // 65: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
-	5,  // 66: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
-	7,  // 67: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
-	12, // 68: podium.agent.v1.AgentService.GetUsage:input_type -> podium.agent.v1.GetUsageRequest
-	14, // 69: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
-	17, // 70: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
-	20, // 71: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
-	22, // 72: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
-	24, // 73: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
-	28, // 74: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
-	31, // 75: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
-	33, // 76: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
-	35, // 77: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
-	38, // 78: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
-	68, // 79: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
-	70, // 80: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
-	72, // 81: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
-	74, // 82: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
-	76, // 83: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
-	79, // 84: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
-	81, // 85: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
-	83, // 86: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
-	85, // 87: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
-	48, // 88: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
-	52, // 89: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
-	50, // 90: podium.agent.v1.AgentService.RenameChat:input_type -> podium.agent.v1.RenameChatRequest
-	54, // 91: podium.agent.v1.AgentService.DeleteChat:input_type -> podium.agent.v1.DeleteChatRequest
-	56, // 92: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
-	58, // 93: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
-	59, // 94: podium.agent.v1.AgentService.AttachChatPullRequest:input_type -> podium.agent.v1.AttachChatPullRequestRequest
-	61, // 95: podium.agent.v1.AgentService.DetachChatPullRequest:input_type -> podium.agent.v1.DetachChatPullRequestRequest
-	4,  // 96: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
-	6,  // 97: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
-	8,  // 98: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
-	13, // 99: podium.agent.v1.AgentService.GetUsage:output_type -> podium.agent.v1.GetUsageResponse
-	16, // 100: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
-	18, // 101: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
-	21, // 102: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
-	23, // 103: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
-	25, // 104: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
-	29, // 105: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
-	32, // 106: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
-	34, // 107: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
-	36, // 108: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
-	40, // 109: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
-	69, // 110: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
-	71, // 111: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
-	73, // 112: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
-	75, // 113: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
-	77, // 114: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
-	80, // 115: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
-	82, // 116: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
-	84, // 117: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
-	86, // 118: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
-	49, // 119: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
-	53, // 120: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
-	51, // 121: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
-	55, // 122: podium.agent.v1.AgentService.DeleteChat:output_type -> podium.agent.v1.DeleteChatResponse
-	57, // 123: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
-	47, // 124: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
-	60, // 125: podium.agent.v1.AgentService.AttachChatPullRequest:output_type -> podium.agent.v1.AttachChatPullRequestResponse
-	62, // 126: podium.agent.v1.AgentService.DetachChatPullRequest:output_type -> podium.agent.v1.DetachChatPullRequestResponse
-	96, // [96:127] is the sub-list for method output_type
-	65, // [65:96] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	106, // 0: podium.agent.v1.Session.created_at:type_name -> google.protobuf.Timestamp
+	106, // 1: podium.agent.v1.Session.last_turn_at:type_name -> google.protobuf.Timestamp
+	106, // 2: podium.agent.v1.Turn.started_at:type_name -> google.protobuf.Timestamp
+	106, // 3: podium.agent.v1.Turn.finished_at:type_name -> google.protobuf.Timestamp
+	2,   // 4: podium.agent.v1.ListSessionsRequest.page:type_name -> podium.agent.v1.Page
+	0,   // 5: podium.agent.v1.ListSessionsResponse.sessions:type_name -> podium.agent.v1.Session
+	0,   // 6: podium.agent.v1.GetSessionResponse.session:type_name -> podium.agent.v1.Session
+	1,   // 7: podium.agent.v1.ListTurnsResponse.turns:type_name -> podium.agent.v1.Turn
+	106, // 8: podium.agent.v1.TaskCost.started_at:type_name -> google.protobuf.Timestamp
+	106, // 9: podium.agent.v1.TaskCost.finished_at:type_name -> google.protobuf.Timestamp
+	106, // 10: podium.agent.v1.GetUsageRequest.from:type_name -> google.protobuf.Timestamp
+	106, // 11: podium.agent.v1.GetUsageRequest.to:type_name -> google.protobuf.Timestamp
+	106, // 12: podium.agent.v1.GetUsageRequest.compare_from:type_name -> google.protobuf.Timestamp
+	9,   // 13: podium.agent.v1.GetUsageResponse.days:type_name -> podium.agent.v1.UsageDay
+	10,  // 14: podium.agent.v1.GetUsageResponse.costs:type_name -> podium.agent.v1.TaskCost
+	11,  // 15: podium.agent.v1.GetUsageResponse.backends:type_name -> podium.agent.v1.UsageBackend
+	106, // 16: podium.agent.v1.ProviderSettings.set_at:type_name -> google.protobuf.Timestamp
+	106, // 17: podium.agent.v1.ProviderSettings.expires_at:type_name -> google.protobuf.Timestamp
+	15,  // 18: podium.agent.v1.GetSettingsResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	15,  // 19: podium.agent.v1.GetSettingsResponse.providers:type_name -> podium.agent.v1.ProviderSettings
+	15,  // 20: podium.agent.v1.SetProviderKeyResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	106, // 21: podium.agent.v1.StartProviderOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	15,  // 22: podium.agent.v1.PollProviderOAuthResponse.provider:type_name -> podium.agent.v1.ProviderSettings
+	26,  // 23: podium.agent.v1.AgentBackend.models:type_name -> podium.agent.v1.AgentModel
+	27,  // 24: podium.agent.v1.ListAgentsResponse.agents:type_name -> podium.agent.v1.AgentBackend
+	104, // 25: podium.agent.v1.Memory.metadata:type_name -> podium.agent.v1.Memory.MetadataEntry
+	106, // 26: podium.agent.v1.Memory.created_at:type_name -> google.protobuf.Timestamp
+	30,  // 27: podium.agent.v1.ListMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	30,  // 28: podium.agent.v1.SearchMemoriesResponse.items:type_name -> podium.agent.v1.Memory
+	37,  // 29: podium.agent.v1.ListPlaybooksResponse.playbooks:type_name -> podium.agent.v1.Playbook
+	39,  // 30: podium.agent.v1.ListPlaybooksResponse.assistant:type_name -> podium.agent.v1.Assistant
+	106, // 31: podium.agent.v1.Chat.created_at:type_name -> google.protobuf.Timestamp
+	106, // 32: podium.agent.v1.Chat.last_message_at:type_name -> google.protobuf.Timestamp
+	42,  // 33: podium.agent.v1.ChatMessage.attachments:type_name -> podium.agent.v1.ChatAttachment
+	106, // 34: podium.agent.v1.ChatMessage.ts:type_name -> google.protobuf.Timestamp
+	106, // 35: podium.agent.v1.ChatPullRequest.created_at:type_name -> google.protobuf.Timestamp
+	45,  // 36: podium.agent.v1.ChatPullRequests.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	43,  // 37: podium.agent.v1.ChatFrame.message:type_name -> podium.agent.v1.ChatMessage
+	44,  // 38: podium.agent.v1.ChatFrame.status:type_name -> podium.agent.v1.ChatStatus
+	41,  // 39: podium.agent.v1.ChatFrame.chat:type_name -> podium.agent.v1.Chat
+	46,  // 40: podium.agent.v1.ChatFrame.pull_requests:type_name -> podium.agent.v1.ChatPullRequests
+	41,  // 41: podium.agent.v1.CreateChatResponse.chat:type_name -> podium.agent.v1.Chat
+	41,  // 42: podium.agent.v1.RenameChatResponse.chat:type_name -> podium.agent.v1.Chat
+	2,   // 43: podium.agent.v1.ListChatsRequest.page:type_name -> podium.agent.v1.Page
+	41,  // 44: podium.agent.v1.ListChatsResponse.chats:type_name -> podium.agent.v1.Chat
+	43,  // 45: podium.agent.v1.SendChatMessageResponse.message:type_name -> podium.agent.v1.ChatMessage
+	45,  // 46: podium.agent.v1.AttachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	45,  // 47: podium.agent.v1.DetachChatPullRequestResponse.pull_requests:type_name -> podium.agent.v1.ChatPullRequest
+	106, // 48: podium.agent.v1.AgentProfile.updated_at:type_name -> google.protobuf.Timestamp
+	64,  // 49: podium.agent.v1.PlaybookDefinition.resources:type_name -> podium.agent.v1.PlaybookResources
+	65,  // 50: podium.agent.v1.PlaybookDefinition.secrets:type_name -> podium.agent.v1.PlaybookSecretRef
+	66,  // 51: podium.agent.v1.PlaybookDefinition.repos:type_name -> podium.agent.v1.PlaybookRepo
+	105, // 52: podium.agent.v1.PlaybookDefinition.env:type_name -> podium.agent.v1.PlaybookDefinition.EnvEntry
+	106, // 53: podium.agent.v1.PlaybookDefinition.updated_at:type_name -> google.protobuf.Timestamp
+	63,  // 54: podium.agent.v1.GetProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	67,  // 55: podium.agent.v1.GetProfileResponse.playbooks:type_name -> podium.agent.v1.PlaybookDefinition
+	63,  // 56: podium.agent.v1.UpdateProfileResponse.profile:type_name -> podium.agent.v1.AgentProfile
+	67,  // 57: podium.agent.v1.CreatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	67,  // 58: podium.agent.v1.CreatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	67,  // 59: podium.agent.v1.UpdatePlaybookRequest.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	67,  // 60: podium.agent.v1.UpdatePlaybookResponse.playbook:type_name -> podium.agent.v1.PlaybookDefinition
+	106, // 61: podium.agent.v1.AgentSkill.uploaded_at:type_name -> google.protobuf.Timestamp
+	78,  // 62: podium.agent.v1.ListSkillsResponse.skills:type_name -> podium.agent.v1.AgentSkill
+	78,  // 63: podium.agent.v1.UploadSkillResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	78,  // 64: podium.agent.v1.SetSkillEnabledResponse.skill:type_name -> podium.agent.v1.AgentSkill
+	106, // 65: podium.agent.v1.McpServer.token_set_at:type_name -> google.protobuf.Timestamp
+	106, // 66: podium.agent.v1.McpServer.updated_at:type_name -> google.protobuf.Timestamp
+	106, // 67: podium.agent.v1.McpServer.expires_at:type_name -> google.protobuf.Timestamp
+	87,  // 68: podium.agent.v1.ListMcpServersResponse.servers:type_name -> podium.agent.v1.McpServer
+	87,  // 69: podium.agent.v1.CreateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
+	87,  // 70: podium.agent.v1.CreateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
+	87,  // 71: podium.agent.v1.UpdateMcpServerRequest.server:type_name -> podium.agent.v1.McpServer
+	87,  // 72: podium.agent.v1.UpdateMcpServerResponse.server:type_name -> podium.agent.v1.McpServer
+	87,  // 73: podium.agent.v1.SetMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
+	87,  // 74: podium.agent.v1.ClearMcpServerTokenResponse.server:type_name -> podium.agent.v1.McpServer
+	106, // 75: podium.agent.v1.StartMcpOAuthResponse.expires_at:type_name -> google.protobuf.Timestamp
+	87,  // 76: podium.agent.v1.CompleteMcpOAuthResponse.server:type_name -> podium.agent.v1.McpServer
+	3,   // 77: podium.agent.v1.AgentService.ListSessions:input_type -> podium.agent.v1.ListSessionsRequest
+	5,   // 78: podium.agent.v1.AgentService.GetSession:input_type -> podium.agent.v1.GetSessionRequest
+	7,   // 79: podium.agent.v1.AgentService.ListTurns:input_type -> podium.agent.v1.ListTurnsRequest
+	12,  // 80: podium.agent.v1.AgentService.GetUsage:input_type -> podium.agent.v1.GetUsageRequest
+	14,  // 81: podium.agent.v1.AgentService.GetSettings:input_type -> podium.agent.v1.GetSettingsRequest
+	17,  // 82: podium.agent.v1.AgentService.SetProviderKey:input_type -> podium.agent.v1.SetProviderKeyRequest
+	20,  // 83: podium.agent.v1.AgentService.ClearProviderKey:input_type -> podium.agent.v1.ClearProviderKeyRequest
+	22,  // 84: podium.agent.v1.AgentService.StartProviderOAuth:input_type -> podium.agent.v1.StartProviderOAuthRequest
+	24,  // 85: podium.agent.v1.AgentService.PollProviderOAuth:input_type -> podium.agent.v1.PollProviderOAuthRequest
+	28,  // 86: podium.agent.v1.AgentService.ListAgents:input_type -> podium.agent.v1.ListAgentsRequest
+	31,  // 87: podium.agent.v1.AgentService.ListMemories:input_type -> podium.agent.v1.ListMemoriesRequest
+	33,  // 88: podium.agent.v1.AgentService.SearchMemories:input_type -> podium.agent.v1.SearchMemoriesRequest
+	35,  // 89: podium.agent.v1.AgentService.DeleteMemory:input_type -> podium.agent.v1.DeleteMemoryRequest
+	38,  // 90: podium.agent.v1.AgentService.ListPlaybooks:input_type -> podium.agent.v1.ListPlaybooksRequest
+	68,  // 91: podium.agent.v1.AgentService.GetProfile:input_type -> podium.agent.v1.GetProfileRequest
+	70,  // 92: podium.agent.v1.AgentService.UpdateProfile:input_type -> podium.agent.v1.UpdateProfileRequest
+	72,  // 93: podium.agent.v1.AgentService.CreatePlaybook:input_type -> podium.agent.v1.CreatePlaybookRequest
+	74,  // 94: podium.agent.v1.AgentService.UpdatePlaybook:input_type -> podium.agent.v1.UpdatePlaybookRequest
+	76,  // 95: podium.agent.v1.AgentService.DeletePlaybook:input_type -> podium.agent.v1.DeletePlaybookRequest
+	79,  // 96: podium.agent.v1.AgentService.ListSkills:input_type -> podium.agent.v1.ListSkillsRequest
+	81,  // 97: podium.agent.v1.AgentService.UploadSkill:input_type -> podium.agent.v1.UploadSkillRequest
+	83,  // 98: podium.agent.v1.AgentService.SetSkillEnabled:input_type -> podium.agent.v1.SetSkillEnabledRequest
+	85,  // 99: podium.agent.v1.AgentService.DeleteSkill:input_type -> podium.agent.v1.DeleteSkillRequest
+	88,  // 100: podium.agent.v1.AgentService.ListMcpServers:input_type -> podium.agent.v1.ListMcpServersRequest
+	90,  // 101: podium.agent.v1.AgentService.CreateMcpServer:input_type -> podium.agent.v1.CreateMcpServerRequest
+	92,  // 102: podium.agent.v1.AgentService.UpdateMcpServer:input_type -> podium.agent.v1.UpdateMcpServerRequest
+	94,  // 103: podium.agent.v1.AgentService.DeleteMcpServer:input_type -> podium.agent.v1.DeleteMcpServerRequest
+	96,  // 104: podium.agent.v1.AgentService.SetMcpServerToken:input_type -> podium.agent.v1.SetMcpServerTokenRequest
+	98,  // 105: podium.agent.v1.AgentService.ClearMcpServerToken:input_type -> podium.agent.v1.ClearMcpServerTokenRequest
+	100, // 106: podium.agent.v1.AgentService.StartMcpOAuth:input_type -> podium.agent.v1.StartMcpOAuthRequest
+	102, // 107: podium.agent.v1.AgentService.CompleteMcpOAuth:input_type -> podium.agent.v1.CompleteMcpOAuthRequest
+	48,  // 108: podium.agent.v1.AgentService.CreateChat:input_type -> podium.agent.v1.CreateChatRequest
+	52,  // 109: podium.agent.v1.AgentService.ListChats:input_type -> podium.agent.v1.ListChatsRequest
+	50,  // 110: podium.agent.v1.AgentService.RenameChat:input_type -> podium.agent.v1.RenameChatRequest
+	54,  // 111: podium.agent.v1.AgentService.DeleteChat:input_type -> podium.agent.v1.DeleteChatRequest
+	56,  // 112: podium.agent.v1.AgentService.SendChatMessage:input_type -> podium.agent.v1.SendChatMessageRequest
+	58,  // 113: podium.agent.v1.AgentService.StreamChat:input_type -> podium.agent.v1.StreamChatRequest
+	59,  // 114: podium.agent.v1.AgentService.AttachChatPullRequest:input_type -> podium.agent.v1.AttachChatPullRequestRequest
+	61,  // 115: podium.agent.v1.AgentService.DetachChatPullRequest:input_type -> podium.agent.v1.DetachChatPullRequestRequest
+	4,   // 116: podium.agent.v1.AgentService.ListSessions:output_type -> podium.agent.v1.ListSessionsResponse
+	6,   // 117: podium.agent.v1.AgentService.GetSession:output_type -> podium.agent.v1.GetSessionResponse
+	8,   // 118: podium.agent.v1.AgentService.ListTurns:output_type -> podium.agent.v1.ListTurnsResponse
+	13,  // 119: podium.agent.v1.AgentService.GetUsage:output_type -> podium.agent.v1.GetUsageResponse
+	16,  // 120: podium.agent.v1.AgentService.GetSettings:output_type -> podium.agent.v1.GetSettingsResponse
+	18,  // 121: podium.agent.v1.AgentService.SetProviderKey:output_type -> podium.agent.v1.SetProviderKeyResponse
+	21,  // 122: podium.agent.v1.AgentService.ClearProviderKey:output_type -> podium.agent.v1.ClearProviderKeyResponse
+	23,  // 123: podium.agent.v1.AgentService.StartProviderOAuth:output_type -> podium.agent.v1.StartProviderOAuthResponse
+	25,  // 124: podium.agent.v1.AgentService.PollProviderOAuth:output_type -> podium.agent.v1.PollProviderOAuthResponse
+	29,  // 125: podium.agent.v1.AgentService.ListAgents:output_type -> podium.agent.v1.ListAgentsResponse
+	32,  // 126: podium.agent.v1.AgentService.ListMemories:output_type -> podium.agent.v1.ListMemoriesResponse
+	34,  // 127: podium.agent.v1.AgentService.SearchMemories:output_type -> podium.agent.v1.SearchMemoriesResponse
+	36,  // 128: podium.agent.v1.AgentService.DeleteMemory:output_type -> podium.agent.v1.DeleteMemoryResponse
+	40,  // 129: podium.agent.v1.AgentService.ListPlaybooks:output_type -> podium.agent.v1.ListPlaybooksResponse
+	69,  // 130: podium.agent.v1.AgentService.GetProfile:output_type -> podium.agent.v1.GetProfileResponse
+	71,  // 131: podium.agent.v1.AgentService.UpdateProfile:output_type -> podium.agent.v1.UpdateProfileResponse
+	73,  // 132: podium.agent.v1.AgentService.CreatePlaybook:output_type -> podium.agent.v1.CreatePlaybookResponse
+	75,  // 133: podium.agent.v1.AgentService.UpdatePlaybook:output_type -> podium.agent.v1.UpdatePlaybookResponse
+	77,  // 134: podium.agent.v1.AgentService.DeletePlaybook:output_type -> podium.agent.v1.DeletePlaybookResponse
+	80,  // 135: podium.agent.v1.AgentService.ListSkills:output_type -> podium.agent.v1.ListSkillsResponse
+	82,  // 136: podium.agent.v1.AgentService.UploadSkill:output_type -> podium.agent.v1.UploadSkillResponse
+	84,  // 137: podium.agent.v1.AgentService.SetSkillEnabled:output_type -> podium.agent.v1.SetSkillEnabledResponse
+	86,  // 138: podium.agent.v1.AgentService.DeleteSkill:output_type -> podium.agent.v1.DeleteSkillResponse
+	89,  // 139: podium.agent.v1.AgentService.ListMcpServers:output_type -> podium.agent.v1.ListMcpServersResponse
+	91,  // 140: podium.agent.v1.AgentService.CreateMcpServer:output_type -> podium.agent.v1.CreateMcpServerResponse
+	93,  // 141: podium.agent.v1.AgentService.UpdateMcpServer:output_type -> podium.agent.v1.UpdateMcpServerResponse
+	95,  // 142: podium.agent.v1.AgentService.DeleteMcpServer:output_type -> podium.agent.v1.DeleteMcpServerResponse
+	97,  // 143: podium.agent.v1.AgentService.SetMcpServerToken:output_type -> podium.agent.v1.SetMcpServerTokenResponse
+	99,  // 144: podium.agent.v1.AgentService.ClearMcpServerToken:output_type -> podium.agent.v1.ClearMcpServerTokenResponse
+	101, // 145: podium.agent.v1.AgentService.StartMcpOAuth:output_type -> podium.agent.v1.StartMcpOAuthResponse
+	103, // 146: podium.agent.v1.AgentService.CompleteMcpOAuth:output_type -> podium.agent.v1.CompleteMcpOAuthResponse
+	49,  // 147: podium.agent.v1.AgentService.CreateChat:output_type -> podium.agent.v1.CreateChatResponse
+	53,  // 148: podium.agent.v1.AgentService.ListChats:output_type -> podium.agent.v1.ListChatsResponse
+	51,  // 149: podium.agent.v1.AgentService.RenameChat:output_type -> podium.agent.v1.RenameChatResponse
+	55,  // 150: podium.agent.v1.AgentService.DeleteChat:output_type -> podium.agent.v1.DeleteChatResponse
+	57,  // 151: podium.agent.v1.AgentService.SendChatMessage:output_type -> podium.agent.v1.SendChatMessageResponse
+	47,  // 152: podium.agent.v1.AgentService.StreamChat:output_type -> podium.agent.v1.ChatFrame
+	60,  // 153: podium.agent.v1.AgentService.AttachChatPullRequest:output_type -> podium.agent.v1.AttachChatPullRequestResponse
+	62,  // 154: podium.agent.v1.AgentService.DetachChatPullRequest:output_type -> podium.agent.v1.DetachChatPullRequestResponse
+	116, // [116:155] is the sub-list for method output_type
+	77,  // [77:116] is the sub-list for method input_type
+	77,  // [77:77] is the sub-list for extension type_name
+	77,  // [77:77] is the sub-list for extension extendee
+	0,   // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_agent_proto_init() }
@@ -6709,7 +7907,7 @@ func file_podium_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_agent_proto_rawDesc), len(file_podium_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   89,
+			NumMessages:   106,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
