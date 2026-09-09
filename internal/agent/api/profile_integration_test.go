@@ -4,6 +4,8 @@ package api
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -184,7 +186,7 @@ func TestAStoredPlaybookAFileLaterClaimsIsReportedAsShadowed(t *testing.T) {
 	svc := NewAgentService(AgentServiceOptions{
 		Store: f.svc.store, Secrets: newFakeSecrets(), Profiles: restarted,
 	})
-	require.NoError(t, svc.ReloadProfile(context.Background()))
+	require.NoError(t, svc.Reconcile(context.Background()))
 	assert.Equal(t, "the-file-wins:dev", restarted.Current().Playbooks["reporter"].Image)
 
 	res, err := svc.GetProfile(loginCtx("alice"), connect.NewRequest(&agentv1.GetProfileRequest{}))
@@ -376,5 +378,135 @@ func TestTheProfileRpcsWithNoProfileSaySo(t *testing.T) {
 	_, err = svc.CreatePlaybook(ctx, connect.NewRequest(&agentv1.CreatePlaybookRequest{Playbook: newPlaybook("x")}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	_, err = svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "x"}))
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+// onDiskProfile writes a real profile directory and returns a fixture reading it, which is
+// what the reload RPC needs and the in-memory fileProfile above cannot give it.
+func onDiskProfile(t *testing.T) (profileFixture, string) {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "playbooks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "profile.yaml"), []byte(
+		"name: podium\ndisplay_name: Podium\nsystem_prompt: file:./prompts/profile.md\n"+
+			"model: claude-opus-5\ndefault_playbook: general\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "prompts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "prompts", "profile.md"),
+		[]byte("you are Podium"), 0o600))
+	writePlaybookFile(t, dir, "general", "Answer the question.")
+
+	files, err := profiles.Load(dir)
+	require.NoError(t, err)
+	live := profiles.NewLive(files)
+	svc := NewAgentService(AgentServiceOptions{
+		Store:      newStore(t),
+		Secrets:    newFakeSecrets(),
+		Model:      "claude-opus-5",
+		Profiles:   live,
+		ProfileDir: dir,
+	})
+	return profileFixture{svc: svc, live: live}, dir
+}
+
+func writePlaybookFile(t *testing.T, dir, name, prompt string) {
+	t.Helper()
+	body := "image: podium-agent-runtime:dev\nsystem_prompt: " + prompt +
+		"\nallowed_tools: [read]\nmax_turns: 50\n"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "playbooks", name+".yaml"), []byte(body), 0o600))
+}
+
+func (f profileFixture) reload(t *testing.T) error {
+	t.Helper()
+	_, err := f.svc.ReloadProfileDir(loginCtx("alice"),
+		connect.NewRequest(&agentv1.ReloadProfileDirRequest{}))
+	return err
+}
+
+// The other half of the feature: a playbook FILE an operator has just edited reaches the
+// running conductor too, which used to take a restart of the process.
+func TestEditingAPlaybookFileReachesTheRunningProfileWithNoRestart(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	require.NotContains(t, f.live.Current().Playbooks, "reporter")
+
+	writePlaybookFile(t, dir, "reporter", "Write the weekly report.")
+	require.NoError(t, f.reload(t))
+
+	assert.Contains(t, f.live.Current().Playbooks, "reporter")
+	assert.Equal(t, profiles.OriginFile, f.live.Current().Playbooks["reporter"].Origin)
+	// Files() is the half an override is explained against, so it has to move too.
+	assert.Contains(t, f.live.Files().Playbooks, "reporter")
+}
+
+// A prompt a `file:` points at is resolved at load, so editing one is the same reload.
+func TestReloadingTheDirectoryPicksUpAnEditedPromptFile(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "prompts", "profile.md"),
+		[]byte("you are Podium, and you are terse"), 0o600))
+
+	require.NoError(t, f.reload(t))
+	assert.Equal(t, "you are Podium, and you are terse", f.live.Current().SystemPrompt)
+}
+
+// A directory that does not load is the case the button exists to survive: an operator with
+// half a file saved must not be able to break a bot that is answering.
+func TestAProfileDirectoryThatDoesNotLoadIsRefusedAndChangesNothing(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "playbooks", "broken.yaml"),
+		[]byte("image: [unterminated\n"), 0o600))
+
+	err := f.reload(t)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.NotContains(t, f.live.Current().Playbooks, "broken")
+	assert.Equal(t, []string{"general"}, f.live.Current().PlaybookNames())
+}
+
+// The two halves are merged on a reload exactly as they are at start-up: re-reading the
+// directory must not throw away a playbook or an override somebody made in the browser.
+func TestReloadingTheDirectoryKeepsWhatTheDatabaseHolds(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	ctx := loginCtx("alice")
+	f.create(t, newPlaybook("reporter"))
+	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{DisplayName: "Bot"}))
+	require.NoError(t, err)
+
+	writePlaybookFile(t, dir, "triage", "Triage the ticket.")
+	require.NoError(t, f.reload(t))
+
+	cur := f.live.Current()
+	assert.Equal(t, []string{"general", "reporter", "triage"}, cur.PlaybookNames())
+	assert.Equal(t, "Bot", cur.DisplayName)
+	// The file half is what an override is shown against, and it holds no override.
+	assert.Equal(t, "Podium", f.live.Files().DisplayName)
+}
+
+// A file added for a name the database already holds shadows it, on a reload as at start-up.
+func TestAReloadedFileShadowsAStoredPlaybookOfTheSameName(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	f.create(t, newPlaybook("reporter"))
+	require.Equal(t, profiles.OriginStored, f.live.Current().Playbooks["reporter"].Origin)
+
+	writePlaybookFile(t, dir, "reporter", "The file's report.")
+	require.NoError(t, f.reload(t))
+
+	assert.Equal(t, profiles.OriginFile, f.live.Current().Playbooks["reporter"].Origin)
+	res, err := f.svc.GetProfile(loginCtx("alice"), connect.NewRequest(&agentv1.GetProfileRequest{}))
+	require.NoError(t, err)
+	var shadowed []string
+	for _, s := range res.Msg.GetPlaybooks() {
+		if s.GetShadowed() {
+			shadowed = append(shadowed, s.GetName())
+		}
+	}
+	assert.Equal(t, []string{"reporter"}, shadowed)
+}
+
+// A conductor started with no directory has nothing to go back to, and says so rather than
+// offering a button that cannot work.
+func TestReloadingWithNoProfileDirectorySaysSo(t *testing.T) {
+	f := newProfileFixture(t)
+	err := f.reload(t)
+	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }

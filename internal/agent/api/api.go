@@ -105,6 +105,10 @@ type AgentServiceOptions struct {
 	// Profiles is the profile in force, swapped whenever a stored playbook changes. Nil makes
 	// the playbook and profile RPCs answer FailedPrecondition.
 	Profiles *profiles.Live
+	// ProfileDir is PODIUM_AGENT_PROFILE_DIR, the directory Profiles' file half was read
+	// from. It is what ReloadProfileDir re-reads. Empty means this conductor has no
+	// directory to go back to and that RPC answers FailedPrecondition.
+	ProfileDir string
 	// Chat is the web chat's write path and live fan-out. Nil makes the chat RPCs answer
 	// FailedPrecondition.
 	Chat ChatSource
@@ -128,15 +132,16 @@ type AgentService struct {
 	xaiBaseURL string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
-	oauth     map[string]*oauthClient
-	http      *http.Client
-	memory    memory.Client
-	skillsDir string
-	profiles  *profiles.Live
-	chat      ChatSource
-	tasks     TaskCanceller
-	turns     TurnStopper
-	logger    *slog.Logger
+	oauth      map[string]*oauthClient
+	http       *http.Client
+	memory     memory.Client
+	skillsDir  string
+	profiles   *profiles.Live
+	profileDir string
+	chat       ChatSource
+	tasks      TaskCanceller
+	turns      TurnStopper
+	logger     *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -199,6 +204,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		memory:     opts.Memory,
 		skillsDir:  opts.SkillsDir,
 		profiles:   opts.Profiles,
+		profileDir: opts.ProfileDir,
 		chat:       opts.Chat,
 		tasks:      opts.Tasks,
 		turns:      opts.Turns,

@@ -12,6 +12,7 @@ const updatePlaybook = vi.fn();
 const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
+const reloadProfileDir = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -23,6 +24,7 @@ vi.mock("../../lib/client", async () => {
       updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
       deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
       listSkills: (...a: unknown[]) => listSkills(...a),
+      reloadProfileDir: (...a: unknown[]) => reloadProfileDir(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
@@ -232,10 +234,39 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByText(/running an older profile/)).toBeInTheDocument();
   });
 
-  it("says a change needs no restart, and that a file playbook still does", async () => {
+  it("says a change needs no restart, and points a file playbook at the re-read", async () => {
     mount();
     await screen.findByTestId("playbook-row");
     expect(screen.getByText(/next turn, with no restart/)).toBeInTheDocument();
-    expect(screen.getByText(/still needs a restart/)).toBeInTheDocument();
+    expect(screen.getByText(/no restart either/)).toBeInTheDocument();
+  });
+
+  it("re-reads the profile directory and shows what the files now hold", async () => {
+    reloadProfileDir.mockResolvedValue({});
+    mount();
+    await screen.findByTestId("playbook-row");
+    expect(screen.queryByText("/reporter")).toBeNull();
+
+    getProfile.mockResolvedValue({
+      profile: baseProfile,
+      playbooks: [playbook(), playbook({ name: "reporter" })],
+      staleReason: "",
+    });
+    await userEvent.click(screen.getByTestId("reload-profile-dir"));
+
+    expect(reloadProfileDir).toHaveBeenCalled();
+    expect(await screen.findByText("/reporter")).toBeInTheDocument();
+  });
+
+  // A half-saved file is the case the button has to survive: it is refused, and the screen
+  // still shows the profile the conductor is actually running.
+  it("reports a profile directory that does not load and keeps the current one", async () => {
+    reloadProfileDir.mockRejectedValue(new Error("playbooks/broken.yaml: line 1: bad YAML"));
+    mount();
+    await screen.findByTestId("playbook-row");
+
+    await userEvent.click(screen.getByTestId("reload-profile-dir"));
+    expect(await screen.findByText(/playbooks\/broken.yaml/)).toBeInTheDocument();
+    expect(screen.getByTestId("playbook-row")).toBeInTheDocument();
   });
 });

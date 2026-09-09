@@ -14,6 +14,7 @@ import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import { ConductorDown } from "./ConductorDown";
 import { PlaybookEditor, type PlaybookDraft } from "./PlaybookEditor";
+import { ReloadProfileDirButton } from "./ReloadProfileDirButton";
 
 /** How much of a prompt's first line the list shows. */
 const HINT_CHARS = 160;
@@ -167,10 +168,13 @@ export function PlaybooksPanel() {
         title="Playbooks"
         description="A playbook is a machine job the assistant can start: an image, a workspace and the tools that come with them. It picks one per piece of work — a conversation never runs one directly."
         actions={
-          <Button type="button" size="sm" data-testid="playbook-new" onClick={() => open(undefined)}>
-            <Plus />
-            New playbook
-          </Button>
+          <>
+            <ReloadProfileDirButton />
+            <Button type="button" size="sm" data-testid="playbook-new" onClick={() => open(undefined)}>
+              <Plus />
+              New playbook
+            </Button>
+          </>
         }
       />
 
@@ -191,7 +195,8 @@ export function PlaybooksPanel() {
       <Alert variant="info" title="A playbook saved here takes effect on the next turn, with no restart">
         The conductor rebuilds its profile on every write. A{" "}
         <code className="font-mono">playbooks/&lt;name&gt;.yaml</code> in the profile directory is
-        read at start-up only, so changing one of those still needs a restart.
+        read at start-up only, so after editing one of those press{" "}
+        <span className="font-medium">Re-read the files</span> above — no restart either.
       </Alert>
 
       {profile.isPending ? <TableSkeleton rows={3} cols={3} /> : null}

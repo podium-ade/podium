@@ -27,5 +27,6 @@ PODIUM_AGENT_SKILLS_DIR=/path/to/podium/skills
 
 in `deploy/.env`, and both are commented in [`../deploy/.env.example`](../deploy/.env.example).
 
-Changing a file here needs a conductor restart — there is no SIGHUP reload. A skill in
-`../skills` does not: the library is resolved at the start of every turn.
+Changing a file here needs the conductor to re-read this directory: **Re-read the files**, on the
+Playbooks screen or on Agent → Assistant. No restart, and no SIGHUP reload. A skill in
+`../skills` needs neither: the library is resolved at the start of every turn.
