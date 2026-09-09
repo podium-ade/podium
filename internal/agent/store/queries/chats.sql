@@ -18,13 +18,15 @@ select * from chats where id = @id;
 
 -- RenameChat is filtered by login so a rename cannot cross the partition even if
 -- the caller forgot to check. No row is not found, whether the chat is missing or
--- belongs to somebody else — the same answer every other chat read gives.
+-- belongs to somebody else — the same answer every other chat read gives. A chat with no
+-- login is a mirrored thread, which belongs to the workspace: whoever can see it (ListChats)
+-- can rename it, and delete it below.
 --
 -- It clears auto_title: a name a human typed is theirs, the same rule as a title
 -- supplied at create, so no later turn renames the chat over the top of it.
 -- name: RenameChat :one
 update chats set title = @title, auto_title = false
- where id = @id and login = @login
+ where id = @id and (login = @login or login is null)
 returning *;
 
 -- ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -114,7 +116,7 @@ returning *;
 -- query so another owner's chat cannot be removed even if the id is known; zero rows
 -- means it was not there or not theirs.
 -- name: DeleteChat :execrows
-delete from chats where id = @id and login = @login;
+delete from chats where id = @id and (login = @login or login is null);
 
 -- LinkChatPullRequest is the automatic half of a chat's pull requests (0007): a turn's
 -- answer named this one. It is on-conflict-do-nothing, which is both halves of "one link

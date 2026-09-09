@@ -666,9 +666,10 @@ func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]string, 
 	return rows, nil
 }
 
-// RenameChat sets the title of one of login's chats. Another login's chat is not
-// found, the same as every other chat read: knowing the id is not access. The row it
-// returns has AutoTitle cleared: the name is the owner's now.
+// RenameChat sets the title of one of login's chats, or of a mirrored thread, which every
+// login can see and so any may rename. Another login's chat is not found, the same as every
+// other chat read: knowing the id is not access. The row it returns has AutoTitle cleared:
+// the name is the owner's now.
 func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, error) {
 	if login == "" {
 		return Chat{}, errors.New("rename chat: a login is required")
@@ -935,9 +936,11 @@ func (s *Store) RunningChatTask(ctx context.Context, chatID string) (string, err
 	return turns[0].TaskID, nil
 }
 
-// DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
-// ErrNotFound means it was not there or not theirs: the two are the same answer so the
-// existence of another login's chat is not leaked. Sessions and turns are left alone —
+// DeleteChat removes one login's chat, or a mirrored thread's copy, and every message in it
+// (ON DELETE CASCADE). ErrNotFound means it was not there or not theirs: the two are the
+// same answer so the existence of another login's chat is not leaked. A mirrored thread has
+// no owner and every login sees it, so any may delete the copy; the thread itself lives in
+// Slack and is mirrored afresh by its next message. Sessions and turns are left alone —
 // they are the audit of the work, not the transcript.
 func (s *Store) DeleteChat(ctx context.Context, id, login string) error {
 	if login == "" {
