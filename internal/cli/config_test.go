@@ -33,6 +33,20 @@ func TestLoadConfigPrecedence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "http://from-flag:8080", cfg.Server, "flags win over the environment")
 	require.Equal(t, "from-flag", cfg.Token)
+
+	// The whole reason a dev stack's .env configures a shell in one line: the CLI's token
+	// and the server's dev token are the same secret, so the CLI reads whichever name is
+	// present and PODIUM_TOKEN still wins when both are.
+	t.Setenv("PODIUM_TOKEN", "")
+	t.Setenv("PODIUM_DEV_TOKEN", "from-dev-token")
+	cfg, err = LoadConfig("", "")
+	require.NoError(t, err)
+	require.Equal(t, "from-dev-token", cfg.Token)
+
+	t.Setenv("PODIUM_TOKEN", "from-env")
+	cfg, err = LoadConfig("", "")
+	require.NoError(t, err)
+	require.Equal(t, "from-env", cfg.Token, "PODIUM_TOKEN wins over PODIUM_DEV_TOKEN")
 }
 
 func TestLoadConfigNeedsAToken(t *testing.T) {

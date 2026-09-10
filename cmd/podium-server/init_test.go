@@ -63,6 +63,20 @@ func TestInitLeavesTailscaleKeysEmpty(t *testing.T) {
 	}
 }
 
+// TestInitConfiguresTheCLI guards the reason the quickstart can say "source this file and
+// you are done". The CLI needs an address and a token: the address is written here, and the
+// token is PODIUM_DEV_TOKEN, which the CLI reads directly. Writing a second copy under
+// PODIUM_TOKEN would only create a pair that can drift apart.
+func TestInitConfiguresTheCLI(t *testing.T) {
+	env := parseEnv(t, renderEnv(initSecrets{
+		Transport: server.TransportDev, PGPassword: "pg", DevToken: "dev",
+		S3SecretKey: "s3", AgentToken: "agent",
+	}))
+	require.NotEmpty(t, env["PODIUM_SERVER"])
+	require.NotEmpty(t, env["PODIUM_DEV_TOKEN"])
+	require.NotContains(t, env, "PODIUM_TOKEN", "the CLI reads PODIUM_DEV_TOKEN; one secret, one line")
+}
+
 // TestInitCommandWritesUsableCredentials runs the command itself, because the bug this
 // guards was in the generation loop rather than in the rendering: renderEnv would have
 // happily written PODIUM_AGENT_TOKEN= with nothing after it.

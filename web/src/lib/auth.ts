@@ -2,8 +2,9 @@
 // endpoint, and a browser that just loaded index.html has no token. Rather than weakening the
 // server or baking the secret into the served HTML, the UI asks for it once and keeps it in
 // localStorage. Under `pnpm dev` the Vite proxy injects the header instead, so the token here
-// stays empty and nothing is prompted. When the tailnet transport lands (step 11) identity
-// comes from WhoIs and this whole module goes away.
+// stays empty and nothing is prompted. Under the tailnet transport identity comes from
+// Tailscale's WhoIs, there is no token to hold, and TokenGate never shows this module's
+// prompt at all.
 
 const KEY = "podium.devToken";
 
