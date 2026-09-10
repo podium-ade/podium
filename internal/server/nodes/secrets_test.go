@@ -32,7 +32,7 @@ func TestSecretServiceRoundTrip(t *testing.T) {
 
 	first := setSecret(t, h, "GREETING", "hello from the secret store")
 	assert.EqualValues(t, 1, first.GetVersion())
-	assert.Equal(t, "dev", first.GetCreatedBy(), "the actor is the transport identity")
+	assert.Equal(t, "local", first.GetCreatedBy(), "the actor is the transport identity")
 	assert.NotEmpty(t, first.GetKeyId())
 	assert.False(t, first.GetUpdatedAt().AsTime().IsZero())
 
