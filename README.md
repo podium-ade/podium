@@ -98,6 +98,8 @@ docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 set -a; . deploy/.env; set +a           # the same file configures this shell's CLI
 
 make stack-up S=server
+
+# these two only if this machine should be a worker as well as the control plane
 echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
 make stack-up S=node
 
@@ -105,6 +107,12 @@ make stack-up S=node
 ./bin/podium run --image alpine:3 -- echo hello
 open http://127.0.0.1:8080
 ```
+
+Those two node lines are the host enrolling itself as a worker, which is what makes one
+machine a whole Podium. Leave them out and you have a control plane and a UI with nothing to
+run tasks on — a submitted task stays `queued` and says why. For a worker on another machine
+see [Running across machines](#running-across-machines): the `dev` transport above is
+loopback-only, so it is not the way to get one.
 
 The enrollment token is the one value that cannot be written ahead of time: only a running
 control plane can mint one, and it is single-use — a worker that has enrolled has
