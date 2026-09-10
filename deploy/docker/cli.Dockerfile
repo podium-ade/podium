@@ -7,7 +7,15 @@
 # image needs no socket, no privileges and no state.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-COPY podium /usr/local/bin/podium
+# goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
+# binaries at the same path: the build context holds linux/amd64/<binary> and
+# linux/arm64/<binary>, and $TARGETPLATFORM is how a single Dockerfile picks its own. buildx
+# sets it per platform; the ARG only has to be declared to be usable.
+#
+# This is also why a hand-rolled `docker build` needs the same layout — a flat context fails
+# here with `"/<binary>": not found`. See ../../docs/quickstart.md#building-the-images-yourself.
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/podium /usr/local/bin/podium
 
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/podium"]
