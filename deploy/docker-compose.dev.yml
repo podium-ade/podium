@@ -27,7 +27,10 @@ services:
     container_name: podium-dev-postgres
     environment:
       POSTGRES_USER: podium
-      POSTGRES_PASSWORD: podium
+      # A throwaway by default. It reads deploy/.env like every other compose file, so a
+      # PODIUM_PG_PASSWORD there — `podium-server init` writes a random one — is honoured,
+      # and run-host.sh builds the same DSN from the same value.
+      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:-podium}
       POSTGRES_DB: podium
     ports:
       # Loopback only: the credentials are dev throwaways. Override PODIUM_PG_PORT when

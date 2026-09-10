@@ -68,13 +68,30 @@ env_dir=$(dirname "$ENV_FILE")
 pg_host=127.0.0.1:${PODIUM_PG_PORT:-5432}
 : "${PODIUM_TRANSPORT:=dev}"
 : "${PODIUM_MASTER_KEY_FILE:=$env_dir/master.key}"
+# The same default docker-compose.dev.yml gives POSTGRES_PASSWORD, so a .env copied from
+# .env.example — where the line is present and empty — still reaches the database that
+# compose file just started, instead of failing authentication with an empty password.
+: "${PODIUM_PG_PASSWORD:=podium}"
 : "${PODIUM_DATABASE_URL:=postgres://podium:${PODIUM_PG_PASSWORD}@${pg_host}/podium}"
 : "${PODIUM_AGENT_DATABASE_URL:=postgres://podium:${PODIUM_PG_PASSWORD}@${pg_host}/podium_agent}"
-: "${PODIUM_S3_ENDPOINT:=127.0.0.1:${PODIUM_S3_PORT:-9000}}"
-: "${PODIUM_S3_BUCKET:=podium}"
-: "${PODIUM_S3_ACCESS_KEY:=podium}"
-: "${PODIUM_S3_USE_SSL:=false}"
-: "${PODIUM_AGENT_URL:=http://127.0.0.1:8090}"
+# Only once there is a secret key, for the same reason as the conductor below: the server
+# refuses to start with PODIUM_S3_ENDPOINT set and no credentials, and a .env copied from
+# .env.example has none. Unset means artifacts and log rollup are off, which is supported —
+# the server says so at startup and every upload answers failed_precondition.
+if [ -n "${PODIUM_S3_SECRET_KEY:-}" ]; then
+	: "${PODIUM_S3_ENDPOINT:=127.0.0.1:${PODIUM_S3_PORT:-9000}}"
+	: "${PODIUM_S3_BUCKET:=podium}"
+	: "${PODIUM_S3_ACCESS_KEY:=podium}"
+	: "${PODIUM_S3_USE_SSL:=false}"
+fi
+# Only once there is a token to present. The server refuses to start with
+# PODIUM_AGENT_URL set and PODIUM_AGENT_TOKEN empty — a proxy that forwards an
+# unauthenticated request into the conductor is worse than no proxy — and a .env copied
+# from .env.example has the line but no value. Without one the stack comes up as a task
+# runner with no Agent tab, which is a supported configuration and the quickstart's.
+if [ -n "${PODIUM_AGENT_TOKEN:-}" ]; then
+	: "${PODIUM_AGENT_URL:=http://127.0.0.1:8090}"
+fi
 # The WORKED EXAMPLE, deliberately, and not the profile this repository's own bot runs.
 # examples/agent loads and runs on any node: one playbook, the base image, no credential and
 # no skill library. ../playbooks is the real bot — a privileged node, a Docker daemon, a
@@ -132,10 +149,17 @@ fi
 : "${PODIUM_AGENT_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_TRANSPORT:=$PODIUM_TRANSPORT}"
+# The dev transport has one token and three processes that need it, which is why
+# docker-compose.yml fans PODIUM_DEV_TOKEN out into these two. Doing it here as well
+# keeps the host-binary path configured by the same one line of .env. Under tailnet
+# there is no dev token and both land empty, which is what that transport wants.
+: "${PODIUM_NODE_DEV_TOKEN:=${PODIUM_DEV_TOKEN:-}}"
+: "${PODIUM_AGENT_API_TOKEN:=${PODIUM_DEV_TOKEN:-}}"
 export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_DATABASE_URL \
 	PODIUM_S3_ENDPOINT PODIUM_S3_BUCKET PODIUM_S3_ACCESS_KEY PODIUM_S3_USE_SSL \
 	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_NODE_DATA_DIR PODIUM_TS_STATE_DIR \
-	PODIUM_SERVER PODIUM_AGENT_SERVER PODIUM_NODE_SERVER PODIUM_NODE_TRANSPORT
+	PODIUM_SERVER PODIUM_AGENT_SERVER PODIUM_NODE_SERVER PODIUM_NODE_TRANSPORT \
+	PODIUM_NODE_DEV_TOKEN PODIUM_AGENT_API_TOKEN
 # Exported explicitly rather than relying on the `set -a` that read the file: an `auto` above
 # was reassigned after that, and a variable this script resolved must reach the child whether
 # the .env named it or the operator did.
@@ -188,6 +212,14 @@ start_one() {
 case $action in
 up)
 	for svc in $services; do
+		# Said here rather than left to the conductor, because the server has to be
+		# holding the same token before the Agent tab appears at all.
+		if [ "$svc" = agent ] && [ -z "${PODIUM_AGENT_TOKEN:-}" ]; then
+			echo "the conductor needs PODIUM_AGENT_TOKEN in $ENV_FILE — the server presents it" >&2
+			echo "on every proxied call and the conductor accepts nothing else, so set one" >&2
+			echo "value for both and restart the server: make stack-down S=server" >&2
+			exit 1
+		fi
 		EXTRA_ARGS=
 		[ "$svc" = node ] && EXTRA_ARGS=${PODIUM_NODE_ARGS:-}
 		start_one "$svc"

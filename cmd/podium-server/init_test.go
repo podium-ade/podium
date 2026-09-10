@@ -63,6 +63,20 @@ func TestInitLeavesTailscaleKeysEmpty(t *testing.T) {
 	}
 }
 
+// TestInitConfiguresTheCLI guards the reason the quickstart can say "source this file and
+// you are done": the CLI's two variables are in it, and PODIUM_TOKEN carries the dev token
+// rather than a second secret. A divergence here is a shell that reads .env, looks
+// configured, and is refused by every call.
+func TestInitConfiguresTheCLI(t *testing.T) {
+	env := parseEnv(t, renderEnv(initSecrets{
+		Transport: server.TransportDev, PGPassword: "pg", DevToken: "dev",
+		S3SecretKey: "s3", AgentToken: "agent",
+	}))
+	require.Equal(t, env["PODIUM_DEV_TOKEN"], env["PODIUM_TOKEN"],
+		"the CLI presents PODIUM_TOKEN and the server checks it against PODIUM_DEV_TOKEN")
+	require.NotEmpty(t, env["PODIUM_SERVER"])
+}
+
 // TestInitCommandWritesUsableCredentials runs the command itself, because the bug this
 // guards was in the generation loop rather than in the rendering: renderEnv would have
 // happily written PODIUM_AGENT_TOKEN= with nothing after it.
