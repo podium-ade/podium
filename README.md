@@ -69,45 +69,38 @@ container is the pipeline.
 
 ## Quickstart
 
-Docker and nothing else — no Go toolchain, no Node, no binary on the host. Two files, then up:
+One file, one command. Save [`deploy/docker-compose.yml`](deploy/docker-compose.yml) anywhere
+and run:
 
 ```sh
-mkdir podium && cd podium
-curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
-curl -fsSL --create-dirs -o postgres/init.sql \
-  https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
-
-docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
-  ghcr.io/podium-ade/podium-server:latest init --dir /out
-
-docker compose up -d --wait          # postgres, objectstore, server — and nothing else
-open http://127.0.0.1:8080
+docker compose up -d --wait
+open http://127.0.0.1:8080          # the token is `podium`
 ```
 
-`init` writes `master.key` and a `0600` `.env` holding a fresh Postgres password, the shared
-bearer token and the object-store secret, and never overwrites either. `--user` is not
-decoration: the image runs as uid 65532, so without it both files land owned by someone you
-are not. **Back `master.key` up somewhere that is not this machine** — there is no recovery
-path. Then pin the release, because `latest` moves under you:
+That is the whole procedure. Postgres, an object store, the control plane and the conductor,
+with the web UI on 8080 and the **Agent** screen already wired. No Go toolchain, no Node, no
+binary on the host, no second file, and no `.env` to write first — the Postgres bootstrap
+script is inline in the compose file, the conductor's profile directory ships inside its
+image, and the master key is generated into a volume on first `up`.
 
-```sh
-echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env
-```
+> **It ships with default credentials**, which is what makes that one command possible. Three
+> of the four are only reachable inside the compose network. The fourth, `PODIUM_LOCAL_TOKEN`,
+> is the only thing between a caller and the whole API — and 8080 is published, on `127.0.0.1`
+> alone, so the exposure is anyone on that machine. For anything you would miss, write a
+> `.env` beside the compose file **before the first `up`** and override them:
+>
+> ```sh
+> printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\n' \
+>   "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" > .env
+> ```
+>
+> `PODIUM_PG_PASSWORD` is baked into the Postgres volume when it is initialised, so changing
+> it later means `down -v` or an `ALTER ROLE`.
 
-Everything past the control plane is behind a compose profile, so that `up` is exactly three
-containers and needs no other file. The UI asks once for `PODIUM_LOCAL_TOKEN` from the `.env`.
-
-**The CLI, without installing it.** The `cli` profile is the CLI as a one-shot, wired to the
-server over the compose network from the same `.env`. `docker compose run` turns the profile on
-by itself:
-
-```sh
-docker compose run --rm cli nodes
-```
-
-**A worker.** This is the machine you are already on volunteering to run tasks. Leave it out
-and you have a control plane and a UI with nothing to schedule onto — a submitted task stays
-`queued` and says why.
+**A worker.** Tasks need one, and it is the one thing that stays opt-in: it mounts the host's
+Docker socket, which is **root-equivalent on that host** — read
+[docs/security.md](docs/security.md) before putting one anywhere real. Without it a submitted
+task sits in `queued` and says why.
 
 ```sh
 echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
@@ -117,12 +110,12 @@ docker compose --profile node up -d
 
 The enrollment token is the one value that cannot be written ahead of time: only a running
 control plane can mint one, and it is single-use — a worker that has enrolled has
-`identity.json` and never reads it again. That worker mounts the host's Docker socket, which is
-**root-equivalent on that host**; read [docs/security.md](docs/security.md) before putting one
-anywhere real. For a worker on *another* machine the `local` transport is the wrong tool — it
-is loopback-only. See [Running across machines](#running-across-machines).
+`identity.json` and never reads it again. For a worker on *another* machine the `local`
+transport is the wrong tool, being loopback-only; see
+[Running across machines](#running-across-machines).
 
-**Run something.**
+**Run something.** The `cli` profile is the CLI as a one-shot, so there is no binary to
+install; `docker compose run` turns the profile on by itself.
 
 ```sh
 docker compose run --rm cli run --image alpine:3 -- echo hello
@@ -131,7 +124,8 @@ docker compose run --rm cli run --image alpine:3 -- echo hello
 The CLI exits with the task's exit code, which is what makes it usable as a CI step. Podium's
 own commentary goes to stderr with a `→`, so redirecting stdout captures exactly the task's.
 
-A task can bring its own environment with it:
+A task can bring its own environment with it. A `--spec` is read by the CLI, so mount it where
+the container can see it:
 
 ```sh
 docker compose run --rm -v "$PWD/specs:/specs:ro" cli run --spec /specs/postgres-sidecar.yaml
@@ -152,8 +146,14 @@ docker compose run --rm -v "$PWD/specs:/specs:ro" cli run --spec /specs/postgres
 
 A sidecar is a sibling container on the task's private network, addressed by name — `psql -h
 db` — started before the task and waited for. More in [`examples/`](examples): `hello.yaml`,
-`postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`. A `--spec` is read by
-the CLI, so under `docker compose run` it has to be mounted where the container can see it.
+`postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`.
+
+**Back up the `server-state` volume.** It holds the master key every stored secret is
+encrypted under, and there is no recovery path:
+
+```sh
+docker compose cp server:/var/lib/podium/master.key ./master.key
+```
 
 Full walkthrough, including tearing it down: **[docs/quickstart.md](docs/quickstart.md)**.
 
@@ -164,27 +164,35 @@ Full walkthrough, including tearing it down: **[docs/quickstart.md](docs/quickst
 
 ### The agent layer
 
-The conductor is a second process, and an ordinary API client of `podium-server`: its own
-database, its own token, and it never touches Docker. It turns a Slack mention, a Linear
-assignment or a web-chat message into one turn. It is behind the `conductor` compose profile,
-together with the agents' shared memory.
+The conductor comes up with everything else. It is an ordinary API client of `podium-server` —
+its own database, its own token, and it never touches Docker — and it turns a Slack mention, a
+Linear assignment or a web-chat message into one turn. The UI's **Agent** screen is its front
+end, reverse-proxied behind the server's identity middleware so there is one origin and one
+login. The playbook a turn runs is the worked example baked into the agent image at
+`/etc/podium/agent`; mount your own profile directory over it to replace it.
 
-It also needs an **agent profile directory** — an unrelated thing that unluckily shares the
-word. That is a tree of `profile.yaml`, playbooks and prompts naming what a turn may do, and
-it has no default content. You cannot `curl` a directory, so this is the one step that wants a
-clone:
+Two things it does not have out of the box, and both are credentials:
 
-```sh
-git clone --depth 1 https://github.com/podium-ade/podium.git /tmp/podium
-cp -r /tmp/podium/examples/agent ./agent
-echo "PODIUM_AGENT_URL=http://agent:8090" >> .env
-docker compose --profile conductor up -d
-```
+- **A model key.** A turn needs an Anthropic key, and it is set in the UI rather than in
+  `.env` on purpose — that way it lands in the encrypted secret store instead of in
+  `docker inspect` output.
+- **Shared memory.** Hindsight is behind the `memory` compose profile, and not by preference:
+  it exits at boot without an Anthropic key of its own, for fact extraction, and a paid
+  third-party credential is the one thing a compose file cannot default. Without it the
+  conductor runs with no memory at all, which is supported — briefs carry no memory block and
+  nothing is retained.
 
-Setting `PODIUM_AGENT_URL` is what mounts the conductor's API behind the server's identity
-middleware and makes the **Agent** screen appear — one origin, one login. Left unset the prefix
-is not mounted and the screen is hidden, which is a supported way to run. A turn also needs an
-Anthropic key, set in the UI rather than in `.env`. See [docs/agent.md](docs/agent.md).
+  ```sh
+  printf 'PODIUM_MEMORY_LLM_API_KEY=sk-ant-...\nPODIUM_AGENT_MEMORY_URL=http://hindsight:8888\n' >> .env
+  docker compose --profile memory up -d
+  ```
+
+  Turning it on has a networking consequence worth reading before you do: the memory port is
+  published on loopback by default, but an agent turn runs in a task container that reaches
+  the host through the bridge gateway, which loopback is not reachable from. Widening it means
+  setting `PODIUM_MEMORY_BIND` — and a real `PODIUM_AGENT_MEMORY_API_KEY` at the same time,
+  because Hindsight has no authentication beyond that key. See
+  [docs/agent.md](docs/agent.md) and [docs/security.md](docs/security.md).
 
 ## The binaries
 

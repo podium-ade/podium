@@ -219,6 +219,10 @@ dockers_v2:
   - id: agent
     ids: [podium-agent]
     dockerfile: deploy/docker/agent.Dockerfile
+    # The conductor will not start without a profile directory, so the image ships the worked
+    # example as its default. Whole directories are allowed here; the Dockerfile COPYs it to
+    # /etc/podium/agent. Drop this and the agent image stops building.
+    extra_files: [examples/agent]
     platforms: [linux/amd64, linux/arm64]
     images: ["ghcr.io/podium-ade/podium-agent"]
     tags:

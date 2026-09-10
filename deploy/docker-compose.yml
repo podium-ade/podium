@@ -1,59 +1,66 @@
-# A single-machine Podium, run entirely with Docker: Postgres, an object store and the
-# control plane, with an optional worker and conductor beside them. No Go toolchain, and no
-# binary installed on the host — `podium-server init` and the `podium` CLI both run from the
-# published images.
+# A whole Podium in one file: Postgres, the agents' shared memory, an object store, the
+# control plane and the conductor. Save this file anywhere and run
 #
-# Two files are all you need on disk. From an empty directory:
+#   docker compose up -d --wait
+#   open http://127.0.0.1:8080          # the token is PODIUM_LOCAL_TOKEN below: `podium`
 #
-#   curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
-#   curl -fsSL --create-dirs -o postgres/init.sql \
-#     https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
+# That is the entire procedure. No Go toolchain, no Node, no binary on the host, no second
+# file to fetch, and no .env to write first — the Postgres bootstrap script is inline at the
+# bottom of this file, the conductor's profile directory ships inside its image, and the
+# master key is generated into a volume by the `init` service.
 #
-#   docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
-#     ghcr.io/podium-ade/podium-server:latest init --dir /out
+# ---------------------------------------------------------------------------------------
+# IT SHIPS WITH DEFAULT CREDENTIALS, so that the command above needs nothing from you. That
+# is a deliberate trade and it has a limit. PODIUM_PG_PASSWORD, PODIUM_S3_SECRET_KEY and
+# PODIUM_AGENT_TOKEN are only reachable from inside this compose network — no published port
+# goes near them. PODIUM_LOCAL_TOKEN is different: it is the ONLY thing between a caller and
+# the whole API, and 8080 is published. It is published on 127.0.0.1 alone, so the exposure
+# is "anyone on this machine".
 #
-#   docker compose up -d --wait      # postgres, objectstore, server — and nothing else
-#   open http://127.0.0.1:8080
+# For anything you would miss, write a .env beside this file and override them:
 #
-# `init` writes master.key and a .env with fresh credentials, and never overwrites either.
-# Pin PODIUM_IMAGE_TAG in that .env to the release you tested; `latest` moves under you.
+#   printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\n' \
+#     "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" > .env
+#   docker compose up -d --wait
 #
-# Everything past the control plane is behind a profile, so the plain `up` above is exactly
-# three containers and needs no other file:
+# Do that BEFORE the first `up`: PODIUM_PG_PASSWORD is baked into the Postgres volume when it
+# is initialised, so changing it later means `docker compose down -v` or an ALTER ROLE.
+# ---------------------------------------------------------------------------------------
 #
-#   cli     the CLI, as a one-shot. `docker compose run` turns the profile on by itself:
-#             docker compose run --rm cli nodes
-#             docker compose run --rm cli node enroll-token --label demo
-#           A --spec has to be reachable inside the container, so mount it:
-#             docker compose run --rm -v "$PWD/examples:/specs:ro" cli run --spec /specs/hello.yaml
+# Two things stay behind a compose profile, because neither belongs in every deployment:
 #
-#   node    a worker on THIS machine. Put a token in .env first — it is single-use and only
-#           a running control plane can mint one:
+#   node    a worker, on THIS machine. Tasks need one — without it a submitted task sits in
+#           `queued` and says why. It mounts the host's Docker socket, which is
+#           root-equivalent on that host, so it is a decision rather than a default:
 #             echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
 #               node enroll-token --label demo)" >> .env
 #             docker compose --profile node up -d
-#           For a worker on another machine the local transport is the wrong tool: it is
-#           loopback-only. Use docker-compose.tailnet.yml. See ../docs/networking.md.
+#           A worker on ANOTHER machine cannot use this file: the local transport is
+#           loopback-only. Use docker-compose.tailnet.yml — see ../docs/networking.md.
 #
-#   conductor  podium-agent and the agents' shared memory. It needs an agent PROFILE
-#              DIRECTORY, which is a different thing that unluckily shares the word: a tree
-#              of profile.yaml, playbooks and prompts naming what a turn may do. It has no
-#              default content, so copy the example before the first `up`:
-#                cp -r ../examples/agent ./agent
-#              and set PODIUM_AGENT_URL=http://agent:8090 in .env, which is what mounts the
-#              API behind the server and makes the UI's Agent screen appear.
-#              (This profile is named `conductor` and not `agent` precisely so that
-#              `--profile agent` cannot be confused with PODIUM_AGENT_PROFILE_DIR.)
+#   cli     the `podium` CLI as a one-shot, so there is no binary to install. `docker compose
+#           run` turns the profile on by itself:
+#             docker compose run --rm cli nodes
+#             docker compose run --rm cli run --image alpine:3 -- echo hello
+#           A --spec is read by the CLI, so mount it where the container can see it:
+#             docker compose run --rm -v "$PWD/specs:/specs:ro" cli run --spec /specs/hello.yaml
 #
-# Every variable is documented in .env.example.
+# The conductor comes up with everything else and answers on the UI's Agent screen, but a
+# turn needs an Anthropic key, which is set in the UI rather than here. The playbook it runs
+# is the worked example baked into the image; mount your own over /etc/podium/agent to
+# replace it. See ../docs/agent.md.
+#
+# Every variable is documented in .env.example. Pin PODIUM_IMAGE_TAG to a release you have
+# tested: `latest` moves under you, and a control plane and a worker from different releases
+# can disagree about the wire.
 #
 # ---------------------------------------------------------------------------------------
-# VERIFIED on 2026-09-10, on Docker Desktop 29.4.3 (linux/arm64), against images built from
-# these four Dockerfiles and pulled from a registry: `init` in a container, `up --wait`,
-# node enrolment through the `cli` compose profile, and `run --image alpine:3 -- echo hello`
-# and `run --spec` both exiting 0 with the task's own output. The published ghcr.io tags do
-# not exist until a v* tag is pushed — until then set PODIUM_IMAGE_REPO to a registry holding
-# images you built yourself. The `conductor` compose profile has NOT been brought up this way.
+# VERIFIED on 2026-09-10, Docker Desktop 29.4.3 (linux/arm64), against images built from
+# these four Dockerfiles and pulled from a registry rather than read from a local daemon:
+# `docker compose up -d --wait` from an empty directory with no .env, then node enrolment
+# through the `cli` profile and `run --image alpine:3` and `run --spec` both exiting 0 with
+# the task's own output. The published ghcr.io tags do not exist until a v* tag is pushed —
+# until then set PODIUM_IMAGE_REPO to a registry holding images you built yourself.
 # ---------------------------------------------------------------------------------------
 name: podium
 
@@ -64,15 +71,18 @@ services:
     image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     environment:
       POSTGRES_USER: podium
-      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
+      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:-podium}
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
+    configs:
       # Creates podium_agent (the conductor's) and podium_memory (Hindsight's), and the
-      # pgvector extension in the latter. Init scripts run ONLY when the data directory is
-      # empty, so on an existing install create them by hand — the recipe is in
-      # docs/operations.md and at the top of this script.
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+      # pgvector extension in the latter. It is inline at the bottom of this file rather than
+      # a second file to fetch, which is what lets this deployment be one file. Init scripts
+      # run ONLY when the data directory is empty, so on an EXISTING install create these by
+      # hand — the recipe is in docs/operations.md.
+      - source: postgres-init
+        target: /docker-entrypoint-initdb.d/10-databases.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
       interval: 2s
@@ -91,15 +101,25 @@ services:
   # The full image, not -slim: it has the embedding and reranking models baked in, so it
   # comes up in seconds with no HuggingFace egress and needs no volume of its own. Every
   # byte of state is in Postgres — back THAT up, not this container.
+  # BEHIND A PROFILE, and not by preference: Hindsight exits at boot without an Anthropic
+  # key of its own (HINDSIGHT_API_LLM_API_KEY, for fact extraction), and a paid third-party
+  # credential is the one thing a compose file cannot default. So `up` leaves it out and the
+  # conductor runs with no memory, which is a supported configuration — briefs carry no
+  # memory block and nothing is retained. To turn it on, two lines and a flag:
+  #
+  #   PODIUM_MEMORY_LLM_API_KEY=sk-ant-...        # Hindsight's own key, billed like any other
+  #   PODIUM_AGENT_MEMORY_URL=http://hindsight:8888
+  #   docker compose --profile memory up -d
+  #
   hindsight:
-    profiles: ["conductor"]
+    profiles: ["memory"]
     image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
     depends_on:
       postgres:
         condition: service_healthy
     shm_size: 1g
     environment:
-      HINDSIGHT_API_DATABASE_URL: postgresql://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_memory
+      HINDSIGHT_API_DATABASE_URL: postgresql://podium:${PODIUM_PG_PASSWORD:-podium}@postgres:5432/podium_memory
       # THERE IS NO AUTHENTICATION BY DEFAULT — the tenant extension is what turns it on,
       # for the REST API and the MCP endpoint alike. It is mandatory here because 8888 is
       # published on all interfaces below, and it is the same value tasks get as the Podium
@@ -110,7 +130,7 @@ services:
       # missing — "HINDSIGHT_API_TENANT_API_KEY is required when using ApiKeyTenantExtension"
       # and "LLM API key is required" — which is fail-closed and names the fix.
       HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
-      HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-podium}
       # Fact extraction. This is Hindsight's own key, read at container start, so it comes
       # from .env rather than from the UI's secret store — and its calls are billed like any
       # other. It may be the same key the agents use.
@@ -127,14 +147,21 @@ services:
       # old hostname are then never recovered — consolidation gets stuck indefinitely.
       HINDSIGHT_API_WORKER_ID: hindsight
     ports:
-      # ALL INTERFACES, on purpose. Agent turns run in task containers on a node, on their
-      # own bridge network, and reach the host through the bridge gateway
-      # (host.docker.internal) — which a service bound to 127.0.0.1 is not reachable from.
-      # That is why the API key above is required and why docs/security.md and
-      # docs/networking.md tell you to firewall 8888 down to the Docker bridge and tailnet
-      # ranges. Set PODIUM_MEMORY_BIND to the tailnet or bridge-gateway IP for something
-      # tighter.
-      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:8888:8888"
+      # LOOPBACK by default, which is not what a worker needs — read on. This is the one
+      # default credential in this file that is not confined to the compose network, so it
+      # starts closed: the key above defaults to `podium`, and a memory anybody who can reach
+      # the port can read and rewrite is a worse trade than a broken feature.
+      #
+      # The default `up` ships no node, so nothing needs this port off loopback and the
+      # conductor reaches Hindsight by service name over the compose network regardless.
+      #
+      # ONCE YOU ADD A WORKER that runs agent turns, you have to widen it: a turn runs in a
+      # task container on its own bridge network and reaches the host through the bridge
+      # gateway (host.docker.internal, which PODIUM_AGENT_MEMORY_TASK_URL names), and a
+      # service on 127.0.0.1 is not reachable from there. Set PODIUM_MEMORY_BIND to the
+      # bridge-gateway or tailnet address — and set a real PODIUM_AGENT_MEMORY_API_KEY at the
+      # same time. See docs/security.md and docs/networking.md.
+      - "${PODIUM_MEMORY_BIND:-127.0.0.1}:${PODIUM_MEMORY_PORT:-8888}:8888"
     healthcheck:
       # GET / is a 404 here; /health is the one that reports the database too. curl is in
       # the image.
@@ -168,7 +195,7 @@ services:
       RUSTFS_VOLUMES: /data
       RUSTFS_ADDRESS: 0.0.0.0:9000
       RUSTFS_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
-      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:-podiumpodium}
       RUSTFS_CONSOLE_ENABLE: "false"
       RUSTFS_OBS_LOGGER_LEVEL: warn
     volumes:
@@ -186,6 +213,38 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # The master key, generated once into the server's state volume. It is the only thing this
+  # deployment needs that cannot be a literal in a compose file: a fresh 32 bytes that then
+  # has to persist, because it is what every stored secret is encrypted under.
+  #
+  # A one-shot. `depends_on: service_completed_successfully` holds the server until it has run,
+  # and it is idempotent — an existing key is left alone, so `up` is safe to repeat.
+  #
+  # busybox and not podium-server, for a good reason: `gen-master-key --out` refuses to
+  # overwrite an existing key (correctly — it is a live credential with no recovery path), and
+  # the distroless image has no shell to test for the file first. So this writes the format
+  # secrets.ParseKey accepts, which is 64 hex characters, and nothing about that is
+  # podium-specific. Mode 0600 owned by 65532, the unprivileged uid podium-server runs as: the
+  # server refuses a key file any other account on the machine can read.
+  init:
+    image: busybox:1.37@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    volumes:
+      - server-state:/state
+    command:
+      - sh
+      - -ec
+      - |
+        if [ -s /state/master.key ]; then
+          echo "init: /state/master.key already exists, leaving it alone"
+        else
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d '[:space:]' > /state/master.key
+          echo "init: generated a new master key — back up the server-state volume"
+        fi
+        chmod 0600 /state/master.key
+        chown -R 65532:65532 /state
+    restart: "no"
+
   server:
     # Multi-arch, built and pushed by .github/workflows/release.yml on a v* tag. Pin
     # PODIUM_IMAGE_TAG to a released version — `latest` moves under you.
@@ -195,8 +254,10 @@ services:
         condition: service_healthy
       objectstore:
         condition: service_healthy
+      init:
+        condition: service_completed_successfully
     environment:
-      PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
+      PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:-podium}@postgres:5432/podium
       PODIUM_TRANSPORT: local
       # Inside a container, loopback is the container's own: a server bound to it is
       # unreachable even from this compose network. So the server binds every interface of
@@ -206,13 +267,13 @@ services:
       # set here explicitly. Do NOT set it on a host, and do not publish 8080 on 0.0.0.0.
       PODIUM_LOCAL_LISTEN: 0.0.0.0:8080
       PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN: "true"
-      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?set PODIUM_LOCAL_TOKEN}
-      PODIUM_MASTER_KEY_FILE: /etc/podium/master.key
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:-podium}
+      PODIUM_MASTER_KEY_FILE: /var/lib/podium/master.key
       # The object store. The bucket is created on start if it is missing.
       PODIUM_S3_ENDPOINT: objectstore:9000
       PODIUM_S3_BUCKET: ${PODIUM_S3_BUCKET:-podium}
       PODIUM_S3_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
-      PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?}
+      PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:-podiumpodium}
       # Log roll-up. The defaults are here to be seen rather than because they need setting:
       # a finished task's logs move into the object store a minute after it settles, and the
       # hot rows are dropped a day later.
@@ -222,15 +283,13 @@ services:
       # The conductor's API, reverse-proxied behind this server's identity middleware so the
       # web UI keeps one origin and one login. Set PODIUM_AGENT_URL to the empty string to run
       # without a conductor: the prefix is then not mounted and the UI hides its Agent screen.
-      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-}
-      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
     volumes:
+      # Holds the master key `init` generated, among other state. BACK THIS VOLUME UP: there
+      # is no recovery path for that key, and losing it loses every secret encrypted under it.
+      #   docker compose cp server:/var/lib/podium/master.key ./master.key
       - server-state:/var/lib/podium
-      # The AES-256 key every stored secret is encrypted under, written by
-      # `podium-server init` or `podium-server gen-master-key --out master.key`. Mode 0600 or
-      # the server refuses to start. Back it up somewhere that is not this machine: there is
-      # no recovery path.
-      - ./master.key:/etc/podium/master.key:ro
     ports:
       - "127.0.0.1:${PODIUM_PORT:-8080}:8080"
     restart: unless-stopped
@@ -249,22 +308,20 @@ services:
   #   cp -r ../examples/agent ./agent      # then edit ./agent/playbooks/general.yaml's image
   #
   agent:
-    profiles: ["conductor"]
     image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
-      - hindsight
     environment:
       PODIUM_AGENT_SERVER: http://server:8080
-      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:-podium}
       # Its OWN database. deploy/postgres/init.sql creates it, but ONLY on an empty volume;
       # on an existing install run `docker compose exec -T postgres createdb -U podium
       # podium_agent` first.
-      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
+      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:-podium}@postgres:5432/podium_agent
       # Inside the compose network only. There is deliberately no `ports:` here: the server
       # is what a browser reaches the AgentService through.
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090
-      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
       PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
       # Both or neither. Without them no Slack source is started.
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
@@ -282,21 +339,25 @@ services:
       # Hindsight over the compose network, and a task container reaches it through the
       # host. Set PODIUM_AGENT_MEMORY_URL to the empty string to run with no memory at all —
       # briefs then carry no memory block and nothing is retained.
-      PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://hindsight:8888}
+      PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-}
       PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
       PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
-      PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-podium}
       # Grok. The credential is set in the web UI, not here; these three are the endpoint,
       # the OIDC issuer a subscription sign-in discovers from, and the OAuth client id.
       # An empty client id leaves the API key path, which is a supported configuration.
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
-    volumes:
-      # Read-only. A playbook file names the image, the tools and the secrets its turns get, and
-      # is what THIS bot hands a turn — not a boundary around the secret store, which has no
-      # per-caller authorisation at all. See docs/security.md.
-      - ./agent:/etc/podium/agent:ro
+    # NO VOLUMES, on purpose: the image ships the worked example at /etc/podium/agent, which
+    # is where PODIUM_AGENT_PROFILE_DIR already points, so this file needs nothing from your
+    # disk. To run your OWN bot, mount a profile directory over it — read-only, because a
+    # playbook names the image, the tools and the secrets its turns get and is what THIS bot
+    # hands a turn; it is not a boundary around the secret store, which has no per-caller
+    # authorisation at all. See docs/security.md and docs/agent.md.
+    #
+    #   volumes:
+    #     - ./my-profile:/etc/podium/agent:ro
     restart: unless-stopped
     # No healthcheck: the image is distroless, so there is nothing a compose healthcheck can
     # exec. Point a prober at /readyz inside the network.
@@ -311,7 +372,7 @@ services:
     environment:
       PODIUM_NODE_SERVER: http://server:8080
       PODIUM_NODE_TRANSPORT: local
-      PODIUM_NODE_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_NODE_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:-podium}
       # Podium's own single-use enrollment token, from `podium node enroll-token`. Needed on
       # the first run only; drop it afterwards. Not the same thing as a Tailscale auth key.
       PODIUM_NODE_ENROLL_TOKEN: ${PODIUM_NODE_ENROLL_TOKEN:-}
@@ -358,7 +419,7 @@ services:
       - server
     environment:
       PODIUM_SERVER: http://server:8080
-      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:-podium}
     # A one-shot: never bring it back up.
     restart: "no"
 
@@ -366,3 +427,41 @@ volumes:
   pgdata:
   objectstore-data:
   server-state:
+
+# The Postgres bootstrap script, inline so that this deployment is ONE file with nothing to
+# fetch beside it. It is byte-identical to deploy/postgres/init.sql, which docker-compose.dev.yml
+# and docker-compose.tailnet.yml mount from disk, and `go test ./deploy/...` fails if the two
+# ever drift.
+configs:
+  postgres-init:
+    content: |
+      -- Databases the compose stack needs beside podium's own.
+      --
+      -- MOUNTED AT /docker-entrypoint-initdb.d/10-databases.sql, which Postgres runs ONLY when
+      -- the data directory is empty. On an existing install nothing here happens: create the
+      -- databases by hand instead. See docs/operations.md → "Adding the agent and memory
+      -- databases to an existing deployment".
+      --
+      --   docker compose exec -T postgres createdb -U podium podium_agent
+      --   docker compose exec -T postgres createdb -U podium podium_memory
+      --   docker compose exec -T postgres psql -U podium -d podium_memory \
+      --       -c 'create extension if not exists vector'
+      --
+      -- podium-agent owns podium_agent and migrates it on start. It is a separate database, not a
+      -- schema in podium's: the conductor is an API client of the control plane and never opens
+      -- the control plane's schema.
+      create database podium_agent owner podium;
+
+      -- Hindsight owns podium_memory and runs its own Alembic migrations on start.
+      create database podium_memory owner podium;
+
+      \connect podium_memory
+
+      -- Hindsight requires the pgvector extension to live in `public`, and creates it itself if
+      -- it can. We create it up front anyway, for two reasons: it is the only statement here that
+      -- needs more than CREATEDB, so doing it now leaves the door open to giving Hindsight a
+      -- non-superuser role later; and Hindsight's migration, finding the extension in another
+      -- schema, would try to DROP EXTENSION vector CASCADE and recreate it in public.
+      --
+      -- podium and podium_agent stay extension-free. Podium's own migrations never reference it.
+      create extension if not exists vector;
