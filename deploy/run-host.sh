@@ -152,7 +152,7 @@ fi
 # The local transport has one token and three processes that need it, which is why
 # docker-compose.yml fans PODIUM_LOCAL_TOKEN out into these two. Doing it here as well
 # keeps the host-binary path configured by the same one line of .env. Under tailnet
-# there is no dev token and both land empty, which is what that transport wants.
+# there is no shared token and both land empty, which is what that transport wants.
 : "${PODIUM_NODE_LOCAL_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
 : "${PODIUM_AGENT_API_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
 export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_DATABASE_URL \

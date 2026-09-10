@@ -3,6 +3,36 @@
 `podium` talks to `podium-server` over Connect and to nothing else. It never needs Docker,
 and it never needs to be on the same machine as a node.
 
+## Getting it
+
+It is published as an image as well as a binary, so a deployment that has only Docker still
+has a CLI. The compose file carries it as the `cli` profile, wired to the server over the
+compose network from the same `.env` everything else reads — and `docker compose run` turns
+the profile on by itself:
+
+```sh
+docker compose run --rm cli nodes
+docker compose run --rm cli node enroll-token --label demo
+```
+
+Anything that reads a file needs that file mounted where the container can see it, which in
+practice means `--spec`:
+
+```sh
+docker compose run --rm -v "$PWD/examples:/specs:ro" cli run --spec /specs/hello.yaml
+```
+
+Away from a compose stack it is a plain `docker run`, and then the address and token are
+yours to pass:
+
+```sh
+docker run --rm -e PODIUM_SERVER -e PODIUM_TOKEN ghcr.io/podium-ade/podium:latest nodes
+```
+
+For day-to-day use the loose binary is nicer — one static file from the release archive, no
+`--rm`, no mounts, and shell completion. Then `set -a; . .env; set +a` configures it from the
+same file the stack uses. Everything below applies either way.
+
 ## Configuration
 
 Three sources, in increasing order of precedence:
@@ -21,7 +51,7 @@ token: devtoken
 
 The default server is `http://127.0.0.1:8080`.
 
-**A token is a dev-transport artefact.** Over the tailnet, Tailscale names the caller at the
+**A token is a `local`-transport artefact.** Over the tailnet, Tailscale names the caller at the
 connection level, so there is nothing to present and none is asked for:
 
 ```sh

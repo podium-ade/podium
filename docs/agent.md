@@ -465,7 +465,7 @@ Podium itself. A playbook needing any other tools names an image **you** built `
 see *Extending the runtime image* below.
 
 ```yaml
-image: ghcr.io/alvaroibarguen/podium-agent-runtime:latest   # required
+image: ghcr.io/podium-ade/podium-agent-runtime:latest   # required
 system_prompt: file:../prompts/general.md                    # required
 allowed_tools: [read, grep, glob, webfetch, bash]            # required, non-empty
 max_turns: 50                                                # default 50
@@ -1021,7 +1021,7 @@ there is no way to read a value back through any API in Podium.
 
 The **image is free text you supply**. Podium ships no picker and assumes no catalogue: the only
 requirement is that the image implements the turn-brief protocol, and `FROM
-ghcr.io/alvaroibarguen/podium-agent-runtime` is the easy way to get one that does. See
+ghcr.io/podium-ade/podium-agent-runtime` is the easy way to get one that does. See
 *Extending the runtime image*.
 
 ### Reserved secret names
@@ -1504,7 +1504,7 @@ all. Then inherit the base and add what your own work needs:
 
 ```dockerfile
 # agent-warehouse.Dockerfile
-FROM ghcr.io/alvaroibarguen/podium-agent-runtime:latest
+FROM ghcr.io/podium-ade/podium-agent-runtime:latest
 
 USER root
 RUN set -eux; \
@@ -1577,7 +1577,7 @@ timeout: 2h
 secrets:
   - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
 repos:
-  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+  - { name: podium, url: https://github.com/podium-ade/podium, default_branch: main }
 ```
 
 **This playbook has write access to your repositories.** Read
@@ -1932,7 +1932,7 @@ by tag **and** digest. Notes an operator needs:
   through the Docker bridge gateway and a service on `127.0.0.1` is not reachable from there.
   Firewall it down to the bridge and tailnet ranges — see
   [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
-- **Its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
+- **Its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
   from `.env` rather than from the web UI's secret store. It may be the same key the agents use,
   and its calls are billed like any other. `PODIUM_MEMORY_LLM_MODEL` chooses the model: this is
   background work over short prose, so a cheaper model is a reasonable choice.

@@ -11,7 +11,7 @@
 
 [Unit]
 Description=Podium worker node
-Documentation=https://github.com/alvaroibarguen/podium
+Documentation=https://github.com/podium-ade/podium
 # The daemon refuses to start without a working engine, so let systemd order it rather than
 # making the first thousand restarts do the waiting.
 Requires=docker.service

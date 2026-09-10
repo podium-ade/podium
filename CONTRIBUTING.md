@@ -30,7 +30,7 @@ bare `buf generate`.
 ## First build
 
 ```sh
-git clone https://github.com/alvaroibarguen/podium.git
+git clone https://github.com/podium-ade/podium.git
 cd podium
 make build
 ```

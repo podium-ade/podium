@@ -283,7 +283,7 @@ delete secrets and delete nodes.
   graph, and the row is kept in an archive. No future turn sees it — which is what the operator
   asked for — but the text is still in `podium_memory`, and it is reversible through the memory
   engine's own API. If a memory must be *destroyed*, that is a database operation, not a UI one.
-- **The memory service gets its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
+- **The memory service gets its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, as a container
   environment variable — so it is visible in `docker inspect` and in `/proc` on the host, like
   any compose environment value. It is not stored in Podium's encrypted secret store, because it
   is read before anything Podium controls is running. Three things reduce what that costs
@@ -362,7 +362,7 @@ know before you write one.
   by the browser**, so an image decoder bug is reachable from a turn's output. The
   compensating decision is in `ChatAttachments.tsx`: only raster types are ever rendered or
   handed to a tab, and `image/svg+xml` never is — an SVG is a scriptable document and a
-  `blob:` URL inherits the app's origin, which is where the dev token lives.
+  `blob:` URL inherits the app's origin, which is where the bearer token lives.
 - **A chat belongs to a login, and that is a partition rather than a permission.**
   `ListChats`, `RenameChat`, `DeleteChat`, `SendChatMessage` and `StreamChat` refuse another login's chat with `not_found`,
   and the login is the one `podium-server` asserted. But every login is fully trusted — there is
@@ -614,7 +614,7 @@ key where the server offers one — and name it only in playbooks you would trus
   for exactly that reason.
 - The web UI keeps the token in `localStorage`.
 
-Loopback is doing all the work. Do not publish a dev-transport port to anything but
+Loopback is doing all the work. Do not publish a `local`-transport port to anything but
 `127.0.0.1`, and do not use the local transport across a network under any circumstances.
 
 ### `tailnet` — the one to use for real workers

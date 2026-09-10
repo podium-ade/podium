@@ -38,7 +38,7 @@ FROM ${NODE_IMAGE}
 ARG VERSION=dev
 ARG REVISION=none
 LABEL org.opencontainers.image.title="podium-agent-runtime" \
-      org.opencontainers.image.source="https://github.com/alvaroibarguen/podium" \
+      org.opencontainers.image.source="https://github.com/podium-ade/podium" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 

@@ -314,7 +314,7 @@ export function PlaybookEditor({
                   brief off <code className="font-mono">PODIUM_AGENT_TURN</code> and emit the
                   runner&apos;s message events — and{" "}
                   <code className="font-mono">
-                    FROM ghcr.io/alvaroibarguen/podium-agent-runtime
+                    FROM ghcr.io/podium-ade/podium-agent-runtime
                   </code>{" "}
                   is the easy way to get one that does. Podium does not pick an image for you.
                 </>
