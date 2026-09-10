@@ -31,7 +31,7 @@ func TestLoadConfigFileThenEnvironment(t *testing.T) {
 	path := filepath.Join(dir, "node.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(
 		"server: http://from-file:8080\n"+
-			"transport: dev\n"+
+			"transport: local\n"+
 			"data_dir: /var/lib/from-file\n"+
 			"labels: [linux/arm64, browser]\n"+
 			"max_tasks: 2\n"+

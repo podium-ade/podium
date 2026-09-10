@@ -3,8 +3,8 @@
 What Podium protects, what it does not, and where the boundaries actually are. Read the trust
 model before you decide which machines run a node.
 
-**Podium is pre-alpha and has never had a security review.** Nothing here has been tested by
-anyone trying to break it. Treat the whole system as inside your perimeter, not as part of it.
+**Podium has never had a security review.** Nothing here has been tested by anyone trying to
+break it. Treat the whole system as inside your perimeter, not as part of it.
 
 ---
 
@@ -600,12 +600,12 @@ key where the server offers one — and name it only in playbooks you would trus
 
 ## Transports, and what crosses the wire
 
-### `dev` — loopback, shared bearer token
+### `local` — loopback, shared bearer token
 
 - The listen address **must resolve to loopback**; the server refuses to start otherwise. That
   check is what makes the rest of this acceptable.
 - Every RPC carries `Authorization: Bearer <PODIUM_LOCAL_TOKEN>`, compared in constant time.
-  There is one token for everything and everyone. It has no identity: audit rows say `dev`.
+  There is one token for everything and everyone. It has no identity: audit rows say `local`.
 - **The connection is unencrypted HTTP.** Everything crosses it in the clear, and that includes
   **resolved secret values**, which travel inside `Assign` from the server to the node. There is
   no TLS and no per-node key on the HTTP layer.
@@ -631,16 +631,22 @@ Loopback is doing all the work. Do not publish a dev-transport port to anything 
 - `PODIUM_TS_ALLOW_UNTAGGED_NODES=true` removes the network-level proof that a caller is an
   authorised worker. It exists for a tailnet with no ACL tags yet. The server warns loudly.
 
-**Unverified.** The tailnet transport has never been run against a real tailnet — that needs
-tagged auth keys and HTTPS enabled, neither of which the build machine had. Everything above is
-what the code does; none of it has been observed in the wild. `host` mode is likewise
-implemented and never run.
+**What is and is not proved here.** The transport itself has run against a real tailnet: the
+server joined as a `tag:podium-server` device, served 443 on its MagicDNS name under a real
+Let's Encrypt certificate, and answered `WhoAmI` from `WhoIs` alone with no bearer token sent.
+A `tag:podium-node` worker enrolled over it and ran tasks.
+
+**The ACL's outbound-only guarantee is not proved.** The tailnet it ran on had a blanket
+allow-all rule, so [`tailscale-acl.example.json`](../deploy/tailscale-acl.example.json) has
+never been applied intact and nothing has ever refused server → node. Device approval is
+likewise unexercised, and only one login has ever authenticated, so the multi-identity paths
+below have never had a second row to work with. `host` mode is implemented and never run.
 
 ### Ports
 
 | Port | Who | Authentication |
 |---|---|---|
-| `127.0.0.1:8080` | server, `dev` transport | bearer token, except `/healthz`, `/readyz`, `/metrics` |
+| `127.0.0.1:8080` | server, `local` transport | bearer token, except `/healthz`, `/readyz`, `/metrics` |
 | `:443` on the server's tailnet device | server, `tailnet` transport | Tailscale identity |
 | `:80` on the server's tailnet device | redirect to 443 | none |
 | `127.0.0.1:9091` | node | **none.** `/healthz`, `/readyz`, `/metrics` |
@@ -774,7 +780,7 @@ task is dispatched to a node                    │  resolved once per dispatch,
         of the same name)                                   path the ref names
 ```
 
-- **Under the `dev` transport that `Assign` crosses an unencrypted loopback socket.** Under
+- **Under the `local` transport that `Assign` crosses an unencrypted loopback socket.** Under
   `tailnet` it is inside WireGuard.
 - A value is in server memory for the length of one dispatch and is zeroed afterwards, on both
   the resolver's slice and the node's. Go may have copied it during the proto marshal; nothing
@@ -868,7 +874,8 @@ Everything below is a real hole, not a hypothetical:
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
 - **The local transport is plaintext**, secret values included.
-- **The tailnet transport has never been run against a real tailnet.**
+- **The tailnet ACL's outbound-only guarantee has never been enforced**, so nothing has ever
+  refused a connection from the control plane to a worker.
 - **Redaction does not survive a node restart** and is best-effort at the best of times.
 - **Every process in the task container can reach the runner event socket** — mode 0666 on the
   host, plus gid 0 as a supplementary group on the container so a non-root image can open it at

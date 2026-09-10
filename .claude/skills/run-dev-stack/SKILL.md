@@ -17,7 +17,7 @@ image build.
 | Local only | `dev` | Everything on one box. Simplest. |
 | Remote worker | `tailnet` | A worker on another machine. **The only supported way.** |
 
-The `dev` transport **refuses to listen on anything but loopback**, so a remote node cannot
+The `local` transport **refuses to listen on anything but loopback**, so a remote node cannot
 reach it. That is a deliberate check, not a bug: the local transport authenticates with one shared
 static token, and binding that to a real interface publishes the whole API. Do not work around
 it with a TCP relay.
@@ -68,7 +68,7 @@ export.
 
 ---
 
-## Local only — the `dev` transport
+## Local only — the `local` transport
 
 ```sh
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres

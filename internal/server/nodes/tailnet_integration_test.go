@@ -69,7 +69,7 @@ func TestEnrollIsRateLimitedPerAddress(t *testing.T) {
 }
 
 // WhoAmI is what the web UI probes before deciding whether to ask for a token. Under the dev
-// transport it answers "dev_token", which is the UI's signal that a prompt is still required.
+// transport it answers "local_token", which is the UI's signal that a prompt is still required.
 func TestWhoAmIUnderTheDevTransport(t *testing.T) {
 	h := newHarness(t)
 	identity := podiumv1connect.NewIdentityServiceClient(h.http, h.url)
