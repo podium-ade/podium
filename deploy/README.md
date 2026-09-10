@@ -30,12 +30,83 @@
 
 ## What you have to configure
 
-Everything is `deploy/.env`. [`.env.example`](.env.example) documents every variable Podium
-reads, with its default, and a test fails the build if the two drift apart. This section is
-the other half of that: which of them **you** have to decide, for the thing you are actually
-running. Anything not listed here has a working default.
+**Which variables are required depends on how you run Podium**, and the two answers are very
+different. [`.env.example`](.env.example) documents every variable there is, with its default,
+and a test fails the build if the two drift apart.
 
-`podium-server init` writes the ones marked ⚙ with fresh random values. The rest are yours.
+### Required to start: nothing
+
+Under [`docker-compose.yml`](docker-compose.yml) every variable has a working default, so
+`docker compose up -d --wait` needs no `.env` at all. A test enforces that — the compose file
+may not interpolate anything with `:?`, because one such variable turns `up` into an error
+message.
+
+That is a starting point, not a finishing one. The next two tables are the things you will
+actually want to set.
+
+### Required for a feature to work at all
+
+Each of these switches something on. Without it that one thing does not work, and nothing else
+is affected.
+
+| | what it unlocks | without it |
+|---|---|---|
+| `PODIUM_MEMORY_LLM_API_KEY` | the agents' shared memory | the `hindsight` container exits at boot and keeps restarting. It is the one container a bare `up` leaves broken. Any of [~25 providers](https://hindsight.vectorize.io/developer/models), chosen with `PODIUM_MEMORY_LLM_PROVIDER` |
+| `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other |
+| `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
+| `TS_AUTHKEY` + `PODIUM_TAILNET` | the tailnet transport | `docker-compose.tailnet.yml` refuses to interpolate. Nobody can default these, and failing closed is correct. `PODIUM_NODE_TS_AUTHKEY` is the worker's equivalent |
+| `PODIUM_AGENT_UI_URL` | correct links in Slack and Linear | links point at `http://server:8080`, which is a name only the compose network can resolve. Cosmetic, and immediately visible |
+
+### Defaults that are credentials
+
+These have values, so nothing forces you to choose. Replace them before anything you would
+miss — and note **`PODIUM_PG_PASSWORD` has to be set before the first `up`**, because it is
+baked into the Postgres volume when it is initialised; afterwards it takes a `down -v` or an
+`ALTER ROLE`.
+
+| | default | reachable from |
+|---|---|---|
+| `PODIUM_LOCAL_TOKEN` | `podium` | **`127.0.0.1:8080`.** The only one of these that leaves the compose network, and the only thing between a caller and the whole API — there is no per-user identity under this transport and no RBAC anywhere |
+| `PODIUM_AGENT_MEMORY_API_KEY` | `podium` | the memory port, which is loopback by default *because* this has a default. Hindsight has no authentication beyond it |
+| `PODIUM_PG_PASSWORD` | `podium` | the compose network only — no published port goes near Postgres |
+| `PODIUM_S3_SECRET_KEY` | `podiumpodium` | the compose network only |
+| `PODIUM_AGENT_TOKEN` | `podium` | the compose network only |
+
+```sh
+printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\nPODIUM_AGENT_TOKEN=%s\n' \
+  "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" > .env
+```
+
+### Required only if you run the binaries yourself
+
+`.env.example` marks seven variables as required, and every one of them is about running
+`podium-server` and `podium-agent` by hand — the compose files supply all seven. If you are
+using compose, ignore them:
+
+`PODIUM_DATABASE_URL`, `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_AGENT_SERVER`,
+`PODIUM_AGENT_API_TOKEN`, `PODIUM_AGENT_DATABASE_URL`, `PODIUM_AGENT_TOKEN`.
+
+`make stack-up` derives most of them anyway — `PODIUM_DATABASE_URL` from `PODIUM_PG_PASSWORD`,
+the node's and conductor's copies of the shared token from `PODIUM_LOCAL_TOKEN` — and
+`podium-server init` writes the credentials with fresh random values. See
+[From a clone](#from-a-clone-to-work-on-podium).
+
+### Everything else is config
+
+Ports, intervals, model names, poll rates, labels, slot counts, base URLs. All of them have
+defaults that work, and all of them are documented with their default in
+[`.env.example`](.env.example). Two worth knowing about because they bite rather than break:
+
+| | |
+|---|---|
+| `PODIUM_IMAGE_TAG` | **pin it.** `latest` moves under you, and a control plane and a worker from different releases can disagree about the wire |
+| `PODIUM_PORT`, `PODIUM_PG_PORT`, `PODIUM_S3_PORT`, `PODIUM_MEMORY_PORT` | move a published port when something on the machine already owns it |
+
+---
+
+The rest of this section is the same ground by component, with the per-variable detail.
+`podium-server init` writes the ones marked ⚙ with fresh random values.
 
 ### Always
 
