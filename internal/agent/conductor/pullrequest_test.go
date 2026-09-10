@@ -10,12 +10,12 @@ import (
 
 func TestATurnsAnswerNamesThePullRequestItOpened(t *testing.T) {
 	found := FindPullRequests(
-		"Done. I opened https://github.com/alvaroibarguen/podium/pull/41 with the fix.")
+		"Done. I opened https://github.com/podium-ade/podium/pull/41 with the fix.")
 
 	require.Len(t, found, 1)
 	assert.Equal(t, PullRequest{
-		URL:    "https://github.com/alvaroibarguen/podium/pull/41",
-		Owner:  "alvaroibarguen",
+		URL:    "https://github.com/podium-ade/podium/pull/41",
+		Owner:  "podium-ade",
 		Repo:   "podium",
 		Number: 41,
 	}, found[0])
@@ -25,13 +25,13 @@ func TestTheSamePullRequestSaidThreeWaysIsOnePullRequest(t *testing.T) {
 	// Bare, as a markdown link, and with the /files a browser was on. All one thing: the
 	// URL that is stored is canonical, so the trailing path never makes a second link.
 	found := FindPullRequests(strings.Join([]string{
-		"Opened https://github.com/alvaroibarguen/podium/pull/41.",
-		"See [#41](https://github.com/alvaroibarguen/podium/pull/41) for the diff,",
-		"and <https://github.com/alvaroibarguen/podium/pull/41/files> for the files.",
+		"Opened https://github.com/podium-ade/podium/pull/41.",
+		"See [#41](https://github.com/podium-ade/podium/pull/41) for the diff,",
+		"and <https://github.com/podium-ade/podium/pull/41/files> for the files.",
 	}, "\n"))
 
 	require.Len(t, found, 1)
-	assert.Equal(t, "https://github.com/alvaroibarguen/podium/pull/41", found[0].URL)
+	assert.Equal(t, "https://github.com/podium-ade/podium/pull/41", found[0].URL)
 }
 
 func TestAnAnswerThatNamesNoPullRequestLinksNone(t *testing.T) {
@@ -45,14 +45,14 @@ func TestWhatLooksLikeAPullRequestAndIsNot(t *testing.T) {
 	// commit is not a pull request, a repository is not a pull request, and a pull request
 	// on some other host is not one this feature can render.
 	for _, text := range []string{
-		"https://github.com/alvaroibarguen/podium/issues/41",
-		"https://github.com/alvaroibarguen/podium/commit/aa519fc",
-		"https://github.com/alvaroibarguen/podium",
-		"https://github.com/alvaroibarguen/podium/pulls",
-		"https://gitlab.com/alvaroibarguen/podium/pull/41",
-		"https://github.example.com/alvaroibarguen/podium/pull/41",
-		"https://github.com/alvaroibarguen/podium/pull/",
-		"https://github.com/alvaroibarguen/podium/pull/0",
+		"https://github.com/podium-ade/podium/issues/41",
+		"https://github.com/podium-ade/podium/commit/aa519fc",
+		"https://github.com/podium-ade/podium",
+		"https://github.com/podium-ade/podium/pulls",
+		"https://gitlab.com/podium-ade/podium/pull/41",
+		"https://github.example.com/podium-ade/podium/pull/41",
+		"https://github.com/podium-ade/podium/pull/",
+		"https://github.com/podium-ade/podium/pull/0",
 		// #41 on its own means nothing without a repository to read it against, which is
 		// exactly why bare references are not matched.
 		"I pushed the fix to #41.",

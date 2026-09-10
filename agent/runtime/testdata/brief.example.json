@@ -46,7 +46,7 @@
   "repos": [
     {
       "name": "podium",
-      "url": "https://github.com/alvaroibarguen/podium",
+      "url": "https://github.com/podium-ade/podium",
       "default_branch": "main"
     }
   ],

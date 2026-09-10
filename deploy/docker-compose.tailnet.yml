@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   server:
-    image: ghcr.io/alvaroibarguen/podium-server:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,7 +116,7 @@ services:
   #
   # It needs a profile directory: `cp -r ../examples/agent ./agent` before the first `up`.
   agent:
-    image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
       - hindsight
@@ -153,7 +153,7 @@ services:
   # A worker. In practice this runs on a *different machine* — that is the whole point of the
   # tailnet transport — so treat this service as the recipe rather than as a co-located node.
   node:
-    image: ghcr.io/alvaroibarguen/podium-node:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}
     environment:
       PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
       PODIUM_NODE_TRANSPORT: tailnet
@@ -168,9 +168,15 @@ services:
       PODIUM_NODE_LABELS: linux/amd64
       PODIUM_NODE_MAX_TASKS: "4"
     volumes:
-      # identity.json (the node key) and the node's own tsnet state both live here, and both are
-      # credentials. Losing this volume means a new enrollment token and a ghost device.
-      - node-state:/var/lib/podium-node
+      # A HOST PATH, at the same absolute path inside the container and out, and it has to
+      # be. This node drives the host's Docker daemon, so every bind mount it asks for is
+      # resolved by THAT daemon against the HOST filesystem. The podium-runner it extracts
+      # in here is bind mounted into every task container as PID 1 — and from a named volume
+      # that source does not exist as far as the daemon is concerned, so every task dies at
+      # creation with `bind source path does not exist`.
+      # identity.json (the node key) and the node's own tsnet state both live here, and both
+      # are credentials. Losing this directory means a new enrollment token and a ghost device.
+      - /var/lib/podium-node:/var/lib/podium-node
       # Root-equivalent on the host. A node is a machine you are willing to let arbitrary
       # containers run on; do not point this at a machine that is anything else.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -179,4 +185,3 @@ services:
 volumes:
   pgdata:
   server-state:
-  node-state:

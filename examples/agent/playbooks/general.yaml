@@ -8,7 +8,7 @@
 #
 # The image is the locally built :dev tag, so `make agent-runtime` is all it takes for this
 # example to run against a dev stack. A real deployment pins
-# ghcr.io/alvaroibarguen/podium-agent-runtime to a released tag — or names an image of its
+# ghcr.io/podium-ade/podium-agent-runtime to a released tag — or names an image of its
 # own, built `FROM podium-agent-runtime` with whatever tools the work needs. Podium ships the
 # base and, for its own development, -dev; every other image is yours. See
 # docs/agent.md#extending-the-runtime-image.

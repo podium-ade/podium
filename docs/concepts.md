@@ -74,7 +74,7 @@ byte.
 ## CLI — `podium`
 
 Talks only to the server. It never touches Docker, so it runs anywhere: a laptop, a CI job, the
-`ghcr.io/alvaroibarguen/podium` image. `podium run` follows the task it submits and exits with
+`ghcr.io/podium-ade/podium` image. `podium run` follows the task it submits and exits with
 the task's own exit code, which is what makes it usable as a CI step.
 
 ## Runner — `podium-runner`

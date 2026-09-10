@@ -1,10 +1,14 @@
 # Deploying Podium
 
-> **There is no release yet.** No `ghcr.io` image has been published and none of the four
-> Dockerfiles in `docker/` has been built, so the compose files here cannot pull what they
-> name. `install-node.sh` passes `shellcheck` and has never run on a real machine. Until a
-> release is tagged, [From a clone](#from-a-clone-with-no-release) is the path that works —
-> and it is the one this repository's own deployment uses.
+> **No `ghcr.io` image has been published yet**, because there has been no `v*` tag. The
+> compose files here work — they were run end to end on 2026-09-10 against images built from
+> `docker/*.Dockerfile` and pulled from a registry: `podium-server init` in a container,
+> `up --wait`, node enrolment through the `cli` profile, and a task exiting 0 with its own
+> output. Until there is a release, build the four images and point `PODIUM_IMAGE_REPO` at a
+> registry your machines can reach — [the recipe is in the
+> quickstart](../docs/quickstart.md#building-the-images-yourself).
+>
+> `install-node.sh` needs a release archive to download, so it has still never run.
 
 ---
 
@@ -12,7 +16,7 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | Postgres, the object store, the control plane, and an optional worker behind the `node` profile |
+| `docker-compose.yml` | Postgres, the object store and the control plane. A plain `up` is those three; the `cli`, `node` and `agent` profiles add the CLI as a one-shot, a worker on this machine, and the conductor with the agents' shared memory |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
@@ -117,8 +121,11 @@ The memory service is a container of its own, and its key is **not** the one abo
 ### Read by the compose files, not by any binary
 
 ⚙ `PODIUM_PG_PASSWORD`, and `PODIUM_IMAGE_TAG` — **pin it**, `latest` moves, and a control
-plane and a worker from different releases can disagree about the wire. `PODIUM_PORT`,
-`PODIUM_PG_PORT` and `PODIUM_S3_PORT` move a published port when something already owns it.
+plane and a worker from different releases can disagree about the wire. `PODIUM_IMAGE_REPO`
+says where the four images come from, and defaults to `ghcr.io/podium-ade`; set it if you
+mirror them, which an air-gapped or pull-through deployment has to, or if you built them
+yourself. `PODIUM_PORT`, `PODIUM_PG_PORT` and `PODIUM_S3_PORT` move a published port when
+something already owns it.
 
 `run-host.sh` and `install-node.sh` have a handful of their own, all documented at the bottom
 of `.env.example`. The installer's are deliberately **not** the daemon's names — it takes
@@ -127,10 +134,65 @@ reads as `PODIUM_NODE_LABELS`.
 
 ---
 
-## From a clone, with no release
+## A single machine, with Docker
 
-No images are published yet, so this is the path that works today. It needs Docker for the
-dependencies and Go for the binaries, and nothing outside the repo.
+This is the way in, and it needs no Go toolchain and no binary on the host. Two files, then up:
+
+```sh
+mkdir podium && cd podium
+curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
+curl -fsSL --create-dirs -o postgres/init.sql \
+  https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
+
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest init --dir /out
+echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env          # pin it; `latest` moves under you
+
+docker compose up -d --wait                     # postgres, objectstore, server
+```
+
+`init` generates the master key, the Postgres password, the local transport's token and the
+object-store secret, and writes `.env` mode 0600. `--user` matters: the image runs as uid
+65532, so without it both files land owned by someone you are not. **Back `master.key` up
+somewhere that is not this machine** — there is no recovery path, and losing it loses every
+secret encrypted under it.
+
+Everything past the control plane is behind a profile, so that `up` is exactly three
+containers:
+
+| profile | what it adds |
+|---|---|
+| `cli` | the `podium` CLI as a one-shot. `docker compose run` turns it on by itself: `docker compose run --rm cli nodes`. A `--spec` has to be mounted where the container can see it |
+| `node` | a worker on **this** machine. Needs a `PODIUM_NODE_ENROLL_TOKEN` in `.env` first, and mounts the host's Docker socket — root-equivalent on that host |
+| `agent` | the conductor and the agents' shared memory. Needs a profile directory at `./agent` and `PODIUM_AGENT_URL=http://agent:8090` |
+
+Then a worker, on this machine:
+
+```sh
+echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
+  node enroll-token --label linux/amd64)" >> .env
+docker compose --profile node up -d
+```
+
+or on another machine — for which the `local` transport is the wrong tool, being loopback-only.
+Use [a tailnet](#a-tailnet-host) and then [`../docs/node-setup.md`](../docs/node-setup.md).
+
+Two things worth knowing before you rely on this:
+
+- **The worker's data directory is a host path**, `/var/lib/podium-node`, at the same absolute
+  path inside the container and out. It has to be: the node drives the *host's* daemon, so
+  every bind mount it asks for — including the `podium-runner` that is PID 1 in every task
+  container — is resolved by that daemon against the host filesystem. From a named volume,
+  every task dies at creation with `bind source path does not exist`.
+- **`docker compose down -v` does not remove it.** Bring a fresh stack up against an old data
+  directory and the node loops on `unauthenticated: unknown node key` forever rather than
+  failing, because `identity.json` is still there so it never reads the new enrollment token.
+  Starting genuinely from scratch means emptying that directory too.
+
+## From a clone, to work on Podium
+
+This is the path for changing Podium rather than running it: host binaries you just built,
+with only the dependencies in containers. It needs Docker, Go and Node.
 
 ```sh
 make build                                             # bin/podium-{server,agent,node,podium}
@@ -175,45 +237,19 @@ its `agent` service.
 
 ---
 
-## A host, once there is a release
-
-```sh
-scp -r deploy/ host:podium/
-ssh host
-cd podium
-
-podium-server init             # writes master.key and a .env with fresh credentials
-docker compose up -d --wait    # postgres, objectstore, server
-```
-
-`init` generates the AES-256 master key, the Postgres password, the local transport's token and the
-object-store secret, and writes `.env` mode 0600. **Back `master.key` up somewhere that is not
-this machine** — there is no recovery path, and losing it loses every secret encrypted under it.
-
-Then a worker, on this machine or another:
-
-```sh
-TOKEN=$(podium node enroll-token --label linux/amd64)
-
-# here, with compose:
-PODIUM_NODE_ENROLL_TOKEN=$TOKEN docker compose --profile node up -d
-
-# or on another machine:
-curl -fsSL https://raw.githubusercontent.com/alvaroibarguen/podium/main/deploy/install-node.sh \
-  | sudo PODIUM_SERVER=https://podium.<tailnet>.ts.net \
-         PODIUM_ENROLL_TOKEN=$TOKEN \
-         TS_AUTHKEY=tskey-auth-... \
-         PODIUM_LABELS=linux/amd64 \
-         bash
-```
-
 ## A tailnet host
 
 ```sh
-podium-server init --transport tailnet --tailnet <your MagicDNS suffix>
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest \
+  init --dir /out --transport tailnet --tailnet <your MagicDNS suffix>
 # fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
 docker compose -f docker-compose.tailnet.yml up -d --wait
 ```
+
+There is deliberately no `cli` profile in that file: the server has no address on the compose
+network for a sibling container to reach, so run the CLI from a device on the tailnet, where it
+needs no token at all.
 
 There are no published ports in that file at all. The server listens on port 443 of its own
 Tailscale device; workers dial out and listen for nothing.

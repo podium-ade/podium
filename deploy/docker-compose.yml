@@ -1,28 +1,55 @@
-# A single-machine Podium: Postgres, an object store and the control plane, with an optional
-# worker node alongside them.
+# A single-machine Podium, run entirely with Docker: Postgres, an object store and the
+# control plane, with an optional worker and conductor beside them. No Go toolchain, and no
+# binary installed on the host — `podium-server init` and the `podium` CLI both run from the
+# published images.
 #
-#   cd deploy
-#   podium-server init            # writes master.key and a .env with fresh credentials
-#   docker compose up -d --wait   # postgres, objectstore, server
+# Two files are all you need on disk. From an empty directory:
 #
-# The worker is behind a profile, because the common case is workers on other machines:
+#   curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
+#   curl -fsSL --create-dirs -o postgres/init.sql \
+#     https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
 #
-#   TOKEN=$(podium node enroll-token --label linux/amd64)
-#   PODIUM_NODE_ENROLL_TOKEN=$TOKEN docker compose --profile node up -d
+#   docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+#     ghcr.io/podium-ade/podium-server:latest init --dir /out
 #
-# Every variable is documented in .env.example. Only postgres and objectstore can be brought
-# up without the images being published:
+#   docker compose up -d --wait      # postgres, objectstore, server — and nothing else
+#   open http://127.0.0.1:8080
 #
-#   docker compose up -d --wait postgres objectstore
+# `init` writes master.key and a .env with fresh credentials, and never overwrites either.
+# Pin PODIUM_IMAGE_TAG in that .env to the release you tested; `latest` moves under you.
+#
+# Everything past the control plane is behind a profile, so the plain `up` above is exactly
+# three containers and needs no other file:
+#
+#   cli     the CLI, as a one-shot. `docker compose run` turns the profile on by itself:
+#             docker compose run --rm cli nodes
+#             docker compose run --rm cli node enroll-token --label demo
+#           A --spec has to be reachable inside the container, so mount it:
+#             docker compose run --rm -v "$PWD/examples:/specs:ro" cli run --spec /specs/hello.yaml
+#
+#   node    a worker on THIS machine. Put a token in .env first — it is single-use and only
+#           a running control plane can mint one:
+#             echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
+#               node enroll-token --label demo)" >> .env
+#             docker compose --profile node up -d
+#           For a worker on another machine the local transport is the wrong tool: it is
+#           loopback-only. Use docker-compose.tailnet.yml. See ../docs/networking.md.
+#
+#   agent   the conductor and the agents' shared memory. Needs a profile directory, which
+#           has no default content, so copy the example before the first `up`:
+#             cp -r ../examples/agent ./agent
+#           and set PODIUM_AGENT_URL=http://agent:8090 in .env, which is what mounts the
+#           API behind the server and makes the UI's Agent screen appear.
+#
+# Every variable is documented in .env.example.
 #
 # ---------------------------------------------------------------------------------------
-# NOT YET EXERCISED END TO END. The ghcr.io images have never been published, so `server`
-# and `node` here have never started. `postgres` and `objectstore` have: the same RustFS
-# image and settings run in deploy/docker-compose.dev.yml, where a real podium-server has
-# stored and read back artifacts, including a 40 MB one over minio-go's multipart threshold,
-# both proxied and by presigned URL, plus log roll-up. Everything under
-# internal/server/artifacts is additionally tested against an in-process S3 endpoint
-# (internal/server/artifacts/fakes3), which verifies presigned signatures for real.
+# VERIFIED on 2026-09-10, on Docker Desktop 29.4.3 (linux/arm64), against images built from
+# these four Dockerfiles and pulled from a registry: `init` in a container, `up --wait`,
+# node enrolment through the `cli` profile, and `run --image alpine:3 -- echo hello` and
+# `run --spec` both exiting 0 with the task's own output. The published ghcr.io tags do not
+# exist until a v* tag is pushed — until then set PODIUM_IMAGE_REPO to a registry holding
+# images you built yourself. The `agent` profile has NOT been brought up this way.
 # ---------------------------------------------------------------------------------------
 name: podium
 
@@ -61,6 +88,7 @@ services:
   # comes up in seconds with no HuggingFace egress and needs no volume of its own. Every
   # byte of state is in Postgres — back THAT up, not this container.
   hindsight:
+    profiles: ["agent"]
     image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
     depends_on:
       postgres:
@@ -157,7 +185,7 @@ services:
   server:
     # Multi-arch, built and pushed by .github/workflows/release.yml on a v* tag. Pin
     # PODIUM_IMAGE_TAG to a released version — `latest` moves under you.
-    image: ghcr.io/alvaroibarguen/podium-server:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -190,7 +218,7 @@ services:
       # The conductor's API, reverse-proxied behind this server's identity middleware so the
       # web UI keeps one origin and one login. Set PODIUM_AGENT_URL to the empty string to run
       # without a conductor: the prefix is then not mounted and the UI hides its Agent screen.
-      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-}
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
     volumes:
       - server-state:/var/lib/podium
@@ -217,7 +245,8 @@ services:
   #   cp -r ../examples/agent ./agent      # then edit ./agent/playbooks/general.yaml's image
   #
   agent:
-    image: ghcr.io/alvaroibarguen/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    profiles: ["agent"]
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
       - hindsight
@@ -272,12 +301,12 @@ services:
   # other machines — see deploy/install-node.sh and docs/networking.md.
   node:
     profiles: ["node"]
-    image: ghcr.io/alvaroibarguen/podium-node:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
     environment:
       PODIUM_NODE_SERVER: http://server:8080
-      PODIUM_NODE_TRANSPORT: dev
+      PODIUM_NODE_TRANSPORT: local
       PODIUM_NODE_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
       # Podium's own single-use enrollment token, from `podium node enroll-token`. Needed on
       # the first run only; drop it afterwards. Not the same thing as a Tailscale auth key.
@@ -286,8 +315,19 @@ services:
       PODIUM_NODE_MAX_TASKS: ${PODIUM_NODE_MAX_TASKS:-4}
       PODIUM_NODE_LABELS: ${PODIUM_NODE_LABELS:-}
     volumes:
-      # identity.json holds the node key and there is no recovery path for it.
-      - node-state:/var/lib/podium-node
+      # A HOST PATH, at the same absolute path inside the container and out, and it has to
+      # be. This node drives the host's Docker daemon, so every bind mount it asks for is
+      # resolved by THAT daemon against the HOST filesystem. The podium-runner it extracts
+      # in here is bind mounted into every task container as PID 1 — and from a named volume
+      # that source does not exist as far as the daemon is concerned, so every task dies at
+      # creation with `bind source path does not exist`.
+      # identity.json holds the node key and there is no recovery path for it, so this is
+      # still state worth backing up. Being a host path it also OUTLIVES `docker compose
+      # down -v`, which surprises you exactly once: bring a fresh stack up against an old
+      # data dir and the node loops on `unauthenticated: unknown node key` forever rather
+      # than failing, because identity.json exists so it never reads the new enrollment
+      # token. Recreating a stack from scratch means emptying this directory too.
+      - /var/lib/podium-node:/var/lib/podium-node
       # ROOT-EQUIVALENT ON THE HOST. Anything that can talk to this socket can start a
       # privileged container and own the machine. A node is a machine you are willing to let
       # arbitrary containers run on; do not point this at a machine that is anything else.
@@ -295,8 +335,30 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
+  # The CLI, so a deployment that has only Docker never needs a host binary:
+  #
+  #   docker compose run --rm cli nodes
+  #   docker compose run --rm cli node enroll-token --label linux/amd64
+  #   docker compose run --rm cli run --image alpine:3 -- echo hello
+  #
+  # Behind a profile because it is a one-shot command and not a daemon, so `up` never starts
+  # it. `docker compose run` enables the profile by itself; there is nothing to pass.
+  #
+  # PODIUM_SERVER here is the compose network's name for the server, NOT the loopback
+  # address in .env — that one is for a CLI running on the host. The CLI never talks to
+  # Docker, so this gets no socket and no privileges.
+  cli:
+    profiles: ["cli"]
+    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium:${PODIUM_IMAGE_TAG:-latest}
+    depends_on:
+      - server
+    environment:
+      PODIUM_SERVER: http://server:8080
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+    # A one-shot: never bring it back up.
+    restart: "no"
+
 volumes:
   pgdata:
   objectstore-data:
   server-state:
-  node-state:

@@ -11,8 +11,8 @@
 <p align="center">
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-3b2fd4.svg"></a>
   <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/go-1.27%2B-00ADD8.svg"></a>
-  <a href=".github/workflows/ci-go.yml"><img alt="ci / go" src="https://github.com/alvaroibarguen/podium/actions/workflows/ci-go.yml/badge.svg"></a>
-  <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/alvaroibarguen/podium/actions/workflows/ci-web.yml/badge.svg"></a>
+  <a href=".github/workflows/ci-go.yml"><img alt="ci / go" src="https://github.com/podium-ade/podium/actions/workflows/ci-go.yml/badge.svg"></a>
+  <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
 </p>
 
 A control plane (`podium-server`) schedules work and serves a web UI. A daemon (`podium-node`)
@@ -69,73 +69,72 @@ container is the pipeline.
 
 ## Quickstart
 
-Needs Go 1.27+, Docker (Engine 24+, **cgroup v2**), Node 22+ and pnpm.
+Docker and nothing else — no Go toolchain, no Node, no binary on the host. Two files, then up:
 
 ```sh
-git clone https://github.com/alvaroibarguen/podium.git && cd podium
-make build
-```
+mkdir podium && cd podium
+curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
+curl -fsSL --create-dirs -o postgres/init.sql \
+  https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
 
-**Configure it.** Every daemon is configured by environment, and one file holds all of it.
-Copy the template and set the handful of values it names at the top:
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest init --dir /out
 
-```sh
-cp deploy/.env.example deploy/.env
-$EDITOR deploy/.env
-```
-
-```ini
-PODIUM_LOCAL_TOKEN=devtoken               # the one shared secret; pick any string
-PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
-```
-
-Two lines, because the `local` transport has exactly one secret: the server, the worker, the
-conductor, the web UI and the CLI all present `PODIUM_LOCAL_TOKEN`, and every one of them
-reads it from that single line. Everything else in the file has a working default and is
-commented with what it does. If you would rather not choose your own credentials,
-`./bin/podium-server init --dir deploy` writes the same file with fresh random ones, plus
-the master key, and never overwrites either.
-
-**Run it.** `make stack-up` reads `deploy/.env`, so nothing below declares a variable:
-
-```sh
-./bin/podium-server gen-master-key --out deploy/master.key   # found beside the .env
-docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
-set -a; . deploy/.env; set +a           # the same file configures this shell's CLI
-
-make stack-up S=server
-
-# these two only if this machine should be a worker as well as the control plane
-echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
-make stack-up S=node
-
-./bin/podium nodes
-./bin/podium run --image alpine:3 -- echo hello
+docker compose up -d --wait          # postgres, objectstore, server — and nothing else
 open http://127.0.0.1:8080
 ```
 
-Those two node lines are the host enrolling itself as a worker, which is what makes one
-machine a whole Podium. Leave them out and you have a control plane and a UI with nothing to
-run tasks on — a submitted task stays `queued` and says why. For a worker on another machine
-see [Running across machines](#running-across-machines): the `local` transport above is
-loopback-only, so it is not the way to get one.
+`init` writes `master.key` and a `0600` `.env` holding a fresh Postgres password, the shared
+bearer token and the object-store secret, and never overwrites either. `--user` is not
+decoration: the image runs as uid 65532, so without it both files land owned by someone you
+are not. **Back `master.key` up somewhere that is not this machine** — there is no recovery
+path. Then pin the release, because `latest` moves under you:
+
+```sh
+echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env
+```
+
+Everything past the control plane is behind a compose profile, so that `up` is exactly three
+containers and needs no other file. The UI asks once for `PODIUM_LOCAL_TOKEN` from the `.env`.
+
+**The CLI, without installing it.** The `cli` profile is the CLI as a one-shot, wired to the
+server over the compose network from the same `.env`. `docker compose run` turns the profile on
+by itself:
+
+```sh
+docker compose run --rm cli nodes
+```
+
+**A worker.** This is the machine you are already on volunteering to run tasks. Leave it out
+and you have a control plane and a UI with nothing to schedule onto — a submitted task stays
+`queued` and says why.
+
+```sh
+echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
+  node enroll-token --label demo)" >> .env
+docker compose --profile node up -d
+```
 
 The enrollment token is the one value that cannot be written ahead of time: only a running
 control plane can mint one, and it is single-use — a worker that has enrolled has
-`identity.json` and never reads it again.
+`identity.json` and never reads it again. That worker mounts the host's Docker socket, which is
+**root-equivalent on that host**; read [docs/security.md](docs/security.md) before putting one
+anywhere real. For a worker on *another* machine the `local` transport is the wrong tool — it
+is loopback-only. See [Running across machines](#running-across-machines).
 
-`make stack-down` stops everything, `make stack-status` says what is up, and both take the
-same `S=` to name one service. Logs are in `.podium/log/`. Full walkthrough:
-**[docs/quickstart.md](docs/quickstart.md)**.
+**Run something.**
 
-> If 5432 or 8080 are taken on your machine, set `PODIUM_PG_PORT`, `PODIUM_LOCAL_LISTEN` and a
-> matching `PODIUM_SERVER` in `deploy/.env`. The compose file, the daemons and the CLI all
-> read that one file, so there is nothing else to keep in step.
+```sh
+docker compose run --rm cli run --image alpine:3 -- echo hello
+```
+
+The CLI exits with the task's exit code, which is what makes it usable as a CI step. Podium's
+own commentary goes to stderr with a `→`, so redirecting stdout captures exactly the task's.
 
 A task can bring its own environment with it:
 
 ```sh
-podium run --spec examples/postgres-sidecar.yaml
+docker compose run --rm -v "$PWD/specs:/specs:ro" cli run --spec /specs/postgres-sidecar.yaml
 ```
 
 ```
@@ -153,74 +152,43 @@ podium run --spec examples/postgres-sidecar.yaml
 
 A sidecar is a sibling container on the task's private network, addressed by name — `psql -h
 db` — started before the task and waited for. More in [`examples/`](examples): `hello.yaml`,
-`postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`.
+`postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`. A `--spec` is read by
+the CLI, so under `docker compose run` it has to be mounted where the container can see it.
 
-### Starting the agent layer
+Full walkthrough, including tearing it down: **[docs/quickstart.md](docs/quickstart.md)**.
 
-The conductor is a second process. It is an ordinary API client of `podium-server`, with its own
-database and its own token, so the server has to be told where it is before the **Agent** tab
-appears in the UI.
+> **The `ghcr.io/podium-ade/*` tags do not exist until a `v*` tag is pushed.** Until then,
+> build the four images and set `PODIUM_IMAGE_REPO` to a registry you can reach — the recipe is
+> in [docs/quickstart.md](docs/quickstart.md#building-the-images-yourself). To work *on* Podium
+> rather than run it, [CONTRIBUTING.md](CONTRIBUTING.md) has the source-built stack.
 
-It needs one more value in `deploy/.env` — the token the two present to each other. Both
-sides read the same line, which is why it is one line:
+### The agent layer
 
-```ini
-PODIUM_AGENT_TOKEN=agenttoken           # or: openssl rand -hex 32
-```
+The conductor is a second process, and an ordinary API client of `podium-server`: its own
+database, its own token, and it never touches Docker. It turns a Slack mention, a Linear
+assignment or a web-chat message into one turn. It is behind the `agent` profile, together with
+the agents' shared memory, and needs a profile directory — a tree of YAML with no default
+content, so it is the one step that wants a clone:
 
 ```sh
-make agent-runtime                      # the images a turn runs in
-
-make stack-down S=server                # the server reads that token at start
-make stack-up S="server agent"
-
-open http://127.0.0.1:8080/agent
+git clone --depth 1 https://github.com/podium-ade/podium.git /tmp/podium
+cp -r /tmp/podium/examples/agent ./agent
+echo "PODIUM_AGENT_URL=http://agent:8090" >> .env
+docker compose --profile agent up -d
 ```
 
-The conductor's database, `podium_agent`, is created by the dev compose file on a fresh
-Postgres volume. On one that predates it, `docker exec podium-dev-postgres createdb -U podium
-podium_agent` once.
-
-Five variables are mandatory and the conductor names the missing one and exits. `make
-stack-up` derives every one of them except `PODIUM_AGENT_TOKEN`, which is the one you set:
-
-| | |
-|---|---|
-| `PODIUM_AGENT_SERVER` | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`; empty on a tailnet, where WhoIs supplies identity |
-| `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
-| `PODIUM_AGENT_TOKEN` | the bearer `podium-server` presents on proxied `AgentService` calls. The same value goes in the server's environment |
-| `PODIUM_AGENT_PROFILE_DIR` | defaults to `/etc/podium/agent`; `make stack-up` points it at `examples/agent` in a checkout. Must contain `profile.yaml` |
-
-Everything else is optional and switches a feature on: both Slack tokens together (one alone is
-an error naming the other), `PODIUM_AGENT_LINEAR_API_KEY`, and the `PODIUM_AGENT_MEMORY_*` set.
-`PODIUM_AGENT_LISTEN` defaults to `127.0.0.1:8090` — keep it on loopback, because the server
-proxies it and nothing else should reach it.
-
-**To get a real answer rather than a dry run** you also need a model credential, set in **Agent →
-Settings**, and at least one enrolled node whose engine has the runtime images. Without one the
-machinery runs end to end and returns a canned answer.
-
-Two backends, one runtime image:
-
-- **Claude** — paste an Anthropic key. It is validated against `GET /v1/models` and stored as the
-  Podium secret `podium.agent.anthropic_api_key`.
-- **Grok** — paste an xAI key, or sign in with a SuperGrok / X Premium+ subscription. The
-  subscription sign-in is an OAuth device code; the client id ships as a default, and setting
-  the variable to the empty string turns it off.
-
-The harness is [opencode](https://opencode.ai), which takes `--model provider/model` — so a
-backend is a flag rather than a dialect, one runtime image serves every provider, and adding a
-third is a catalogue entry.
-
-A profile picks the default backend, model and reasoning effort, and any playbook can override all
-three. The picker on **Agent → Playbooks** is one control for the three, because they are one
-decision — a model only runs on one backend, and which effort levels exist depends on the model.
-
-Full reference, including the Slack app manifest and the Linear setup:
-**[docs/agent.md](docs/agent.md)**.
+Setting `PODIUM_AGENT_URL` is what mounts the conductor's API behind the server's identity
+middleware and makes the **Agent** screen appear — one origin, one login. Left unset the prefix
+is not mounted and the screen is hidden, which is a supported way to run. A turn also needs an
+Anthropic key, set in the UI rather than in `.env`. See [docs/agent.md](docs/agent.md).
 
 ## The binaries
+
+Each of the first four is also a published image — `ghcr.io/podium-ade/podium-server`,
+`-node`, `-agent`, and `ghcr.io/podium-ade/podium` for the CLI — and that is the way in. They
+are single static Go binaries on a distroless base, so an image is the binary and a
+certificate bundle and nothing else. The release archive has the same binaries loose, for a
+host that would rather run them directly.
 
 | | |
 |---|---|
@@ -259,13 +227,19 @@ Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial ou
 no login page, no API token and no public ingress.
 
 ```sh
-./bin/podium-server init --dir deploy --transport tailnet --tailnet <magicdns-suffix>
-$EDITOR deploy/.env                     # paste TS_AUTHKEY; init reports what else is missing
-make stack-up S=server
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest \
+  init --dir /out --transport tailnet --tailnet <magicdns-suffix>
+$EDITOR .env                            # paste TS_AUTHKEY; init reports what else is missing
+docker compose -f docker-compose.tailnet.yml up -d --wait
 
 # from any device on the tailnet — no token, no login
-./bin/podium --server https://podium.<tailnet>.ts.net nodes
+podium --server https://podium.<tailnet>.ts.net nodes
 ```
+
+That last line is a CLI on your own machine, not in a container: the tailnet compose file has
+no `cli` profile, because the server listens on port 443 of its own Tailscale device and has no
+address on the compose network for a sibling container to reach.
 
 Read **[docs/networking.md](docs/networking.md)** first: what to create in the Tailscale admin
 console, the ACL, and the two different keys involved (a Tailscale auth key and a Podium
@@ -338,11 +312,14 @@ node, because a node enforces its own budget and rejects work it has no slot for
 
 ## Configuration
 
-Every daemon is configured entirely by environment, and **one file is the whole of it**:
-copy [`deploy/.env.example`](deploy/.env.example) to `deploy/.env` and edit it. The compose
-files interpolate that file, `make stack-up` sources it before starting a host binary, and
-`set -a; . deploy/.env; set +a` configures your shell's CLI from the same lines. Nothing in
-this repository asks you to declare a variable anywhere else.
+Every daemon is configured entirely by environment, and **one file is the whole of it**: the
+`.env` that `podium-server init` writes beside the compose file. The compose files interpolate
+it, and `set -a; . .env; set +a` configures a host CLI from the same lines. Nothing here asks
+you to declare a variable anywhere else.
+
+[`deploy/.env.example`](deploy/.env.example) is the annotated version of that file — copy it
+instead of running `init` if you would rather choose your own credentials. Working from a
+clone, it is `deploy/.env`, which `make stack-up` sources before starting a host binary.
 
 `.env.example` documents every variable there is, with its default, and `go test ./deploy/...`
 fails the build if the code reads one that file does not mention, or if that file documents
@@ -452,7 +429,7 @@ What Podium does not do, and what will surprise you if nobody says it first.
 - **`podium node rm` does not stop the daemon.** A removed node whose `identity.json` survives
   reconnects for ever and is told its key is unknown, once per backoff.
 - **The web UI holds a task's whole log in memory**, cannot jump to an arbitrary page of the task
-  list, shows no node CPU/memory utilisation, and keeps the dev token in `localStorage`.
+  list, shows no node CPU/memory utilisation, and keeps the bearer token in `localStorage`.
 
 ## Security
 

@@ -12,7 +12,7 @@ const token = "ghp_ThisIsNotARealToken0000000000000000";
 
 const repo: RepoRef = {
   name: "podium",
-  url: "https://github.com/alvaroibarguen/podium",
+  url: "https://github.com/podium-ade/podium",
   default_branch: "main",
 };
 

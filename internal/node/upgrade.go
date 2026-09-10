@@ -18,7 +18,7 @@ import (
 
 // DefaultReleaseBaseURL is where a released archive lives. GoReleaser publishes
 // <base>/<tag>/podium_<version>_<os>_<arch>.tar.gz alongside <base>/<tag>/checksums.txt.
-const DefaultReleaseBaseURL = "https://github.com/alvaroibarguen/podium/releases/download"
+const DefaultReleaseBaseURL = "https://github.com/podium-ade/podium/releases/download"
 
 // maxArchiveBytes caps what an upgrade will read off the network. A Podium archive is a few
 // tens of megabytes; a hundred is generous and a redirect to something enormous is not going

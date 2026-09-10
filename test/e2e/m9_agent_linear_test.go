@@ -284,7 +284,7 @@ linear: true
 secrets:
   - { name: ` + githubTokenSecret + `, target: env, key: GITHUB_TOKEN }
 repos:
-  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+  - { name: podium, url: https://github.com/podium-ade/podium, default_branch: main }
 env:
   PODIUM_AGENT_DRY_RUN: "1"
 `
