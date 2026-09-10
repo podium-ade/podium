@@ -8,11 +8,9 @@
 #
 # It names no agent, model or effort, so it runs on whatever profile.yaml is set to.
 #
-# The tag is the locally built one, because that is what a node's own engine can resolve
-# today: nothing publishes these images yet (a TODO in .goreleaser.yaml), so a fleet needs a
-# registry every node can pull from before this can be a remote reference. See
+# No `image:`: it defaults to the runtime published alongside this conductor's own version,
+# and to podium-agent-runtime:dev on an unstamped build. See
 # docs/agent.md#extending-the-runtime-image.
-image: podium-agent-runtime:dev
 system_prompt: file:../prompts/general.md
 allowed_tools: [read, grep, glob, webfetch, bash]
 max_turns: 50

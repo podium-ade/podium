@@ -145,7 +145,7 @@ services:
     restart: "no"
 
   server:
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_SERVER_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -193,7 +193,7 @@ services:
   # purpose: over the tailnet, WhoIs names the caller.
   #
   agent:
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_AGENT_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       - server
     environment:
@@ -230,7 +230,7 @@ services:
   # tailnet transport — so treat this service as the recipe rather than as a co-located node.
   node:
     profiles: ["node"]
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_NODE_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}}
     environment:
       PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
       PODIUM_NODE_TRANSPORT: tailnet

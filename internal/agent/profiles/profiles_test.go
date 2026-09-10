@@ -96,9 +96,6 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"an unknown key", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "systemprompt: oops\n"
 		}, []string{"playbooks/general.yaml", "systemprompt"}},
-		{"no image", func(f map[string]string) {
-			f["playbooks/general.yaml"] = "system_prompt: x\nallowed_tools: [read]\n"
-		}, []string{"playbooks/general.yaml", "image is required"}},
 		{"empty allowed_tools", func(f map[string]string) {
 			f["playbooks/general.yaml"] = "image: alpine:3\nsystem_prompt: x\nallowed_tools: []\n"
 		}, []string{"playbooks/general.yaml", "allowed_tools"}},

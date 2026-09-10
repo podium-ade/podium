@@ -233,31 +233,17 @@ dockers_v2:
     sbom: true
     labels: *labels
 
-  # TODO(step 16 → step 14's owner): publish the two agent runtime images.
+  # podium-agent-runtime — the image an agent turn runs in — is NOT here. It builds from
+  # agent/runtime rather than from a Go binary, and its Dockerfile COPYs package.json and src
+  # relative to that directory; extra_files stages paths relative to the PROJECT ROOT, so
+  # those COPYs would not resolve. It is published by the `agent-runtime` job in
+  # .github/workflows/release.yml instead, with the same tag set, an SBOM attestation and a
+  # cosign signature on its manifest.
   #
-  #   ghcr.io/podium-ade/podium-agent-runtime       agent/runtime/Dockerfile
-  #   ghcr.io/podium-ade/podium-agent-runtime-dev   agent/runtime/Dockerfile.dev
-  #
-  # Same tag set as every entry above ({{ .Version }}, v{{ .Major }}.{{ .Minor }},
-  # sha-{{ .ShortCommit }}, latest off a prerelease), same labels, sbom: true. Deliberately
-  # not wired up in step 16: `make agent-runtime` builds it locally as :dev and that is all
-  # the agentic track needs — a node runs tasks on its own engine, so a local tag is visible
-  # to a task without a registry. Publishing it is what lets a FLEET run agent tasks, and it
-  # is also what anybody building `FROM podium-agent-runtime` needs.
-  #
-  # Two things make these entries unlike the ones above, and each needs deciding rather
-  # than copying:
-  #   1. They build from `agent/runtime`, not from a Go binary. `ids:` does not apply, and the
-  #      build context is that directory. goreleaser's dockers_v2 can do it, but there is no
-  #      binary to gate on, so nothing stops it running on a tree where pnpm never ran.
-  #   2. -dev is layered on the base image (ARG RUNTIME_IMAGE, default
-  #      podium-agent-runtime:dev). Published builds must pass the pushed base by digest, and
-  #      goreleaser builds all entries in parallel — so either the ARG points at a published
-  #      tag or the two become one buildx bake. -dev is ~1.7 GB and downloads a Go toolchain,
-  #      a Docker client and golangci-lint per architecture — all three are already per-arch
-  #      pinned in the Dockerfile, so an amd64+arm64 manifest under qemu needs no extra
-  #      build-args, only patience.
-  # Also mirror the tags into deploy/docker-compose.yml, where the conductor's image goes.
+  # podium-agent-runtime-dev is deliberately not published at all: it layers on that image, so
+  # a released build would need the pushed base by digest, and it carries a Go toolchain, a
+  # Docker client and golangci-lint at ~1.7 GB per architecture. `make agent-runtime` builds
+  # it locally, which is the only place it is used.
 
 # The manifests are what people pull, so they are what is signed. UNVERIFIED: no image has
 # been built or signed from this repository yet, because the build machine may not create

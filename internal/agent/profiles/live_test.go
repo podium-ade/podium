@@ -36,8 +36,6 @@ func TestAStoredPlaybookIsValidatedByTheRulesAFileIsHeldTo(t *testing.T) {
 			`playbook name "" must match`},
 		{"a name Slack cannot type", func() Playbook { s := stored("Reporter"); return s }(),
 			`must match`},
-		{"no image", func() Playbook { s := stored("x"); s.Image = ""; return s }(),
-			"image is required"},
 		{"no prompt", func() Playbook { s := stored("x"); s.SystemPrompt = " "; return s }(),
 			"system_prompt is required"},
 		{"no tools", func() Playbook { s := stored("x"); s.AllowedTools = nil; return s }(),
@@ -214,4 +212,15 @@ func TestLiveIsSafeWhenThereIsNoProfileAtAll(t *testing.T) {
 	assert.Nil(t, live.Current())
 	assert.Nil(t, live.Files())
 	live.Set(&Profile{})
+}
+
+// A stored playbook with no image is accepted, like a file-loaded one, and comes out carrying
+// the matched runtime. This used to be a rejection case in the table above; the contract
+// changed when the runtime became version-matched, so it is asserted rather than dropped.
+func TestAStoredPlaybookWithNoImageGetsTheDefault(t *testing.T) {
+	s := stored("x")
+	s.Image = ""
+	got, err := ValidateStoredPlaybook(s)
+	require.NoError(t, err)
+	require.Equal(t, DefaultRuntimeImage(), got.Image)
 }

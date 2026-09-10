@@ -6,13 +6,15 @@
 # `agent: grok` here — and nothing else — would run this one playbook on Grok and leave the
 # rest of the bot alone.
 #
-# The image is the locally built :dev tag, so `make agent-runtime` is all it takes for this
-# example to run against a dev stack. A real deployment pins
-# ghcr.io/podium-ade/podium-agent-runtime to a released tag — or names an image of its
-# own, built `FROM podium-agent-runtime` with whatever tools the work needs. Podium ships the
-# base and, for its own development, -dev; every other image is yours. See
-# docs/agent.md#extending-the-runtime-image.
-image: podium-agent-runtime:dev
+# NO `image:` HERE, on purpose. A playbook that names none runs in the runtime published
+# alongside the conductor reading it — ghcr.io/podium-ade/podium-agent-runtime at this build's
+# own version — so the two are a matched pair and no release has to edit this file. An
+# unstamped build falls back to the locally built podium-agent-runtime:dev, which is what
+# `make agent-runtime` produces, so this example runs against a dev stack unchanged.
+#
+# Name one to override it: a pinned digest, or your own image built `FROM
+# podium-agent-runtime` with whatever tools the work needs. Podium ships the base; every
+# other image is yours. See docs/agent.md#extending-the-runtime-image.
 system_prompt: file:../prompts/general.md
 allowed_tools: [read, grep, glob, webfetch, bash]
 max_turns: 50
