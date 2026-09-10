@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "podium/v1/common.proto";
 
 // NodeService is the node-facing half of the wire contract. Identity is transport-derived
-// (dev bearer token now, tailnet WhoIs later); it is never carried in these messages.
+// (a shared bearer token, or tailnet WhoIs); it is never carried in these messages.
 service NodeService {
   // Enroll exchanges a single-use enrollment token for a durable node identity. Called once.
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
@@ -163,7 +163,7 @@ message Assign {
   TaskSpec spec = 3;
   google.protobuf.Timestamp deadline = 4;
   // SENSITIVE: never log. The values live in node memory and in the task container, and
-  // nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=dev
+  // nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=local
   // is loopback-only for exactly this reason.
   repeated ResolvedSecret resolved_secrets = 5;
   // SENSITIVE: never log. One credential per registry the spec's images are pulled from,

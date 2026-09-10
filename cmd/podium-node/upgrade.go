@@ -17,7 +17,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/node"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
@@ -37,7 +37,7 @@ func newUpgradeCommand() *cobra.Command {
 			"A failure at any step before the rename leaves the running node untouched.\n\n" +
 			"Draining asks the control plane to stop giving this node work and waits for\n" +
 			"what it is already running to finish. It needs a credential this machine has:\n" +
-			"under the dev transport that is the shared token from the node's own config.\n" +
+			"under the local transport that is the shared token from the node's own config.\n" +
 			"If it cannot, drain from the control plane instead —\n" +
 			"`podium node drain <name>` — and re-run with --drain=false.\n\n" +
 			"There is no auto_upgrade. A worker that replaces its own binary without an\n" +
@@ -136,14 +136,14 @@ func newUpgradeCommand() *cobra.Command {
 }
 
 // adminClient builds a control-plane client with whatever credential this machine holds.
-// Under the dev transport that is the shared token in the node's config; over a tailnet the
+// Under the local transport that is the shared token in the node's config; over a tailnet the
 // machine's own tailscaled is the credential, which only exists when the node was configured
 // with transport: host. A node running its own embedded tsnet device has nothing to lend,
 // and the drain fails with a message saying so.
 func adminClient(cfg node.Config) podiumv1connect.NodeAdminServiceClient {
 	var httpClient *http.Client
-	if cfg.Transport == node.TransportDev {
-		httpClient = dev.NewClient(cfg.DevToken)
+	if cfg.Transport == node.TransportLocal {
+		httpClient = local.NewClient(cfg.LocalToken)
 	} else {
 		httpClient = tailnet.NewHostClient()
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
-// Under the dev transport there is no Tailscale device, so a node enrolls unbound and its stream
+// Under the local transport there is no Tailscale device, so a node enrolls unbound and its stream
 // is never checked against one. This is the no-regression half of the binding rule.
 func TestDevEnrollmentLeavesTheNodeUnbound(t *testing.T) {
 	h := newHarness(t)
@@ -77,7 +77,7 @@ func TestWhoAmIUnderTheDevTransport(t *testing.T) {
 	res, err := identity.WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 	require.NoError(t, err)
 	require.Equal(t, "dev", res.Msg.GetLogin())
-	require.Equal(t, podiumv1.IdentityKind_IDENTITY_KIND_DEV_TOKEN, res.Msg.GetKind())
+	require.Equal(t, podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN, res.Msg.GetKind())
 	require.Empty(t, res.Msg.GetTags())
 }
 

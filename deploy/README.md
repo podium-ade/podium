@@ -28,7 +28,7 @@
 > `docker/` has ever been built**, so the `ghcr.io` images do not exist. `install-node.sh` passes
 > `shellcheck` and `bash -n` and has never run on a real machine.
 >
-> The *transports* are a different question, and both now work: the dev transport
+> The *transports* are a different question, and both now work: the local transport
 > ([`../docs/quickstart.md`](../docs/quickstart.md)) and the tailnet transport, with a real
 > certificate and a Linux worker running tasks over it. It is the packaging in this directory
 > that is untested, not the thing it packages. Build from source and start with the quickstart.
@@ -164,11 +164,11 @@ prober — point your monitoring at `http://127.0.0.1:8080/readyz`, which is 503
 the object store is unreachable. `docker compose up -d --wait` therefore waits for `postgres` and
 `objectstore` to be healthy and for the rest to be *running*.
 
-**`PODIUM_DEV_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
+**`PODIUM_LOCAL_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
 a container loopback is the container's own, so nothing — not even this compose network — could
-reach a server bound to it. The dev transport refuses a non-loopback address by itself, because
+reach a server bound to it. The local transport refuses a non-loopback address by itself, because
 one static token is the only credential it has, so the compose file also sets
-`PODIUM_DEV_ALLOW_UNSAFE_LISTEN=true` to say that this address is reachable only from inside a
+`PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN=true` to say that this address is reachable only from inside a
 container. The server logs a warning naming that variable every time it starts.
 
 Nothing in the process can tell a container's `0.0.0.0` from a public interface on a host, which
@@ -217,7 +217,7 @@ and cannot reissue. `server-state` holds the Tailscale device identity. See
 | `PODIUM_SERVER` | **required.** `https://…` selects the tailnet transport, `http://…` the dev one |
 | `PODIUM_ENROLL_TOKEN` | required unless this machine has already enrolled |
 | `TS_AUTHKEY` | tailnet only, first run only |
-| `PODIUM_DEV_TOKEN` | dev transport only |
+| `PODIUM_LOCAL_TOKEN` | local transport only |
 | `PODIUM_LABELS` | comma separated; what scheduling matches on |
 | `PODIUM_MAX_TASKS` | default 4 |
 | `PODIUM_VERSION` | default `latest` |

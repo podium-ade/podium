@@ -6,9 +6,9 @@ import { ViewerContext, type Viewer } from "../lib/identity";
 import { Header } from "./Header";
 
 const base: Viewer = {
-  login: "dev",
+  login: "local",
   displayName: "",
-  kind: IdentityKind.DEV_TOKEN,
+  kind: IdentityKind.LOCAL_TOKEN,
   agentEnabled: false,
   serverVersion: "dev",
 };
@@ -80,7 +80,7 @@ describe("Header", () => {
     const settings = screen.getByRole("link", { name: "Settings" });
     expect(settings).toHaveAttribute("href", "/agent/settings");
     expect(settings.closest("nav")?.getAttribute("aria-label")).toBe("Profile");
-    const identity = screen.getByText("dev");
+    const identity = screen.getByText("local");
     expect(identity.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

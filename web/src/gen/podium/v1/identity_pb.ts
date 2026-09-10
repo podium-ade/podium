@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/identity.proto.
  */
 export const file_podium_v1_identity: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IrABCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgqegoMSWRlbnRpdHlLaW5kEh0KGUlERU5USVRZX0tJTkRfVU5TUEVDSUZJRUQQABIWChJJREVOVElUWV9LSU5EX1VTRVIQARIWChJJREVOVElUWV9LSU5EX05PREUQAhIbChdJREVOVElUWV9LSU5EX0RFVl9UT0tFThADMlAKD0lkZW50aXR5U2VydmljZRI9CgZXaG9BbUkSGC5wb2RpdW0udjEuV2hvQW1JUmVxdWVzdBoZLnBvZGl1bS52MS5XaG9BbUlSZXNwb25zZUKnAQoNY29tLnBvZGl1bS52MUINSWRlbnRpdHlQcm90b1ABWkJnaXRodWIuY29tL2FsdmFyb2liYXJndWVuL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM");
+  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IrABCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgqfAoMSWRlbnRpdHlLaW5kEh0KGUlERU5USVRZX0tJTkRfVU5TUEVDSUZJRUQQABIWChJJREVOVElUWV9LSU5EX1VTRVIQARIWChJJREVOVElUWV9LSU5EX05PREUQAhIdChlJREVOVElUWV9LSU5EX0xPQ0FMX1RPS0VOEAMyUAoPSWRlbnRpdHlTZXJ2aWNlEj0KBldob0FtSRIYLnBvZGl1bS52MS5XaG9BbUlSZXF1ZXN0GhkucG9kaXVtLnYxLldob0FtSVJlc3BvbnNlQqcBCg1jb20ucG9kaXVtLnYxQg1JZGVudGl0eVByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw");
 
 /**
  * @generated from message podium.v1.WhoAmIRequest
@@ -30,7 +30,7 @@ export const WhoAmIRequestSchema: GenMessage<WhoAmIRequest> = /*@__PURE__*/
  */
 export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
   /**
-   * login is the Tailscale login name of a user, the device name of a node, or "dev".
+   * login is the Tailscale login name of a user, the device name of a node, or "local".
    *
    * @generated from field: string login = 1;
    */
@@ -47,7 +47,7 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
   kind: IdentityKind;
 
   /**
-   * tags are the calling device's ACL tags. Empty for a human and under the dev transport.
+   * tags are the calling device's ACL tags. Empty for a human and under the local transport.
    *
    * @generated from field: repeated string tags = 4;
    */
@@ -111,11 +111,11 @@ export enum IdentityKind {
   NODE = 2,
 
   /**
-   * The dev transport's shared bearer token, which has no per-user identity.
+   * The local transport's shared bearer token, which has no per-user identity.
    *
-   * @generated from enum value: IDENTITY_KIND_DEV_TOKEN = 3;
+   * @generated from enum value: IDENTITY_KIND_LOCAL_TOKEN = 3;
    */
-  DEV_TOKEN = 3,
+  LOCAL_TOKEN = 3,
 }
 
 /**
@@ -127,7 +127,7 @@ export const IdentityKindSchema: GenEnum<IdentityKind> = /*@__PURE__*/
 /**
  * IdentityService answers "who does the server think I am". Under the tailnet transport the
  * answer comes from Tailscale's WhoIs and the call needs no credential at all, which is how the
- * web UI knows it can skip its dev-token prompt: if WhoAmI succeeds unauthenticated, identity is
+ * web UI knows it can skip its token prompt: if WhoAmI succeeds unauthenticated, identity is
  * already established.
  *
  * @generated from service podium.v1.IdentityService

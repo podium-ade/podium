@@ -22,7 +22,7 @@ the network to refuse server → node.
 refuses to bind anything but loopback, so a remote `podium-node` pointed at `http://<host>:8080`
 finds nothing to connect to.
 
-Its one waiver, `PODIUM_DEV_ALLOW_UNSAFE_LISTEN`, is for **a container**, where loopback is the
+Its one waiver, `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN`, is for **a container**, where loopback is the
 container's own and the published port is the boundary. Set on a host it publishes the whole API
 behind one static token; a TCP relay in front of the loopback listener is the same exposure by
 another route. **Neither is a sanctioned way to run a remote worker.**
@@ -138,7 +138,7 @@ podium --server https://podium.<tailnet>.ts.net node rekey node_01j…
 
 The node keeps its ID, labels and history; the next connection binds it to the new device.
 
-## Single machine: the dev transport
+## Single machine: the local transport
 
 ### 1. Mint an enrollment token (on the control plane)
 
@@ -146,7 +146,7 @@ Tokens are single-use, expire in 1h by default, and are shown exactly once — t
 only their SHA-256.
 
 ```sh
-TOKEN=$(podium --server http://127.0.0.1:8080 --token "$PODIUM_DEV_TOKEN" \
+TOKEN=$(podium --server http://127.0.0.1:8080 --token "$PODIUM_LOCAL_TOKEN" \
   node enroll-token --label linux/arm64 --label browser)
 ```
 
@@ -164,7 +164,7 @@ Environment-only is a supported deployment — no config file needed:
 
 ```sh
 export PODIUM_NODE_SERVER=http://127.0.0.1:8080   # the control plane, on this same machine
-export PODIUM_NODE_DEV_TOKEN=devtoken             # YOURS: must equal the server's PODIUM_DEV_TOKEN
+export PODIUM_NODE_LOCAL_TOKEN=devtoken             # YOURS: must equal the server's PODIUM_LOCAL_TOKEN
 export PODIUM_NODE_ENROLL_TOKEN=...               # YOURS: from step 1. First run only
 export PODIUM_NODE_TRANSPORT=dev                  # fixed for this setup
 export PODIUM_NODE_DATA_DIR=/var/lib/podium-node  # default; must persist
@@ -187,7 +187,7 @@ longer needed — drop it from the environment.
 ### 3. Verify
 
 ```sh
-podium --server http://127.0.0.1:8080 --token "$PODIUM_DEV_TOKEN" nodes
+podium --server http://127.0.0.1:8080 --token "$PODIUM_LOCAL_TOKEN" nodes
 ```
 
 ```
@@ -198,7 +198,7 @@ worker-1          node_01m1j889e944...   online   browser          0/4          
 `online` means the node holds an open stream. Then run something on it:
 
 ```sh
-podium --server http://127.0.0.1:8080 --token "$PODIUM_DEV_TOKEN" \
+podium --server http://127.0.0.1:8080 --token "$PODIUM_LOCAL_TOKEN" \
   run --image alpine:3 -- sh -c 'echo hello from $(hostname)'
 ```
 
@@ -217,7 +217,7 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 |---|---|---|---|
 | `PODIUM_NODE_SERVER` | `server` | `http://127.0.0.1:8080` | Control plane base URL |
 | `PODIUM_NODE_TRANSPORT` | `transport` | `dev` | `dev`, `tailnet` or `host` |
-| `PODIUM_NODE_DEV_TOKEN` | `dev_token` | — | `dev` only. Must equal the server's `PODIUM_DEV_TOKEN` |
+| `PODIUM_NODE_LOCAL_TOKEN` | `dev_token` | — | `dev` only. Must equal the server's `PODIUM_LOCAL_TOKEN` |
 | `PODIUM_NODE_TS_AUTHKEY` | `ts_auth_key` | — | `tailnet` only. The **Tailscale** auth key; `TS_AUTHKEY` is honoured as a fallback. First run only |
 | `PODIUM_NODE_TS_HOSTNAME` | `ts_hostname` | `podium-node-<hostname>` | `tailnet` only. The Tailscale device name |
 | `PODIUM_NODE_ENROLL_TOKEN` | `enroll_token` | — | First run only |
@@ -333,7 +333,7 @@ transport: dev
 data_dir: /var/lib/podium-node
 labels: [linux/arm64, browser]
 max_tasks: 4
-dev_token: ""        # or leave to PODIUM_NODE_DEV_TOKEN
+dev_token: ""        # or leave to PODIUM_NODE_LOCAL_TOKEN
 enroll_token: ""     # first run only
 ```
 
@@ -373,7 +373,7 @@ The daemon tries to fail with an actionable message. The common ones:
 | Message | Fix |
 |---|---|
 | `server is empty` | Set `PODIUM_NODE_SERVER` |
-| `dev_token is empty` | Set `PODIUM_NODE_DEV_TOKEN` to the server's `PODIUM_DEV_TOKEN` |
+| `dev_token is empty` | Set `PODIUM_NODE_LOCAL_TOKEN` to the server's `PODIUM_LOCAL_TOKEN` |
 | `transport tailnet dials "http://…"` | A tailnet server serves HTTPS: use its `https://podium.<tailnet>.ts.net` URL |
 | `transport dev dials "https://…"` | An https:// control plane means `transport: tailnet` |
 | `holds no Tailscale device yet and neither PODIUM_NODE_TS_AUTHKEY nor TS_AUTHKEY is set` | First run needs the **Tailscale** auth key, not the enrollment token |

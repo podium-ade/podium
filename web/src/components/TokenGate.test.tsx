@@ -60,12 +60,12 @@ describe("TokenGate", () => {
     await waitFor(() => expect(screen.getByText("alvaro@affiniti.com")).toBeTruthy());
   });
 
-  it("shows dev in the header under the dev transport", async () => {
-    whoAmI.mockResolvedValue(create(WhoAmIResponseSchema, { login: "dev", kind: IdentityKind.DEV_TOKEN }));
+  it("shows local in the header under the local transport", async () => {
+    whoAmI.mockResolvedValue(create(WhoAmIResponseSchema, { login: "local", kind: IdentityKind.LOCAL_TOKEN }));
     mount();
 
     await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
-    expect(screen.getByText("dev")).toBeTruthy();
+    expect(screen.getByText("local")).toBeTruthy();
   });
 
   it("asks for the dev token when the probe is Unauthenticated", async () => {
@@ -79,7 +79,7 @@ describe("TokenGate", () => {
 
   it("re-probes with the token the operator typed", async () => {
     whoAmI.mockRejectedValueOnce(new ConnectError("unauthenticated", Code.Unauthenticated));
-    whoAmI.mockResolvedValue(create(WhoAmIResponseSchema, { login: "dev", kind: IdentityKind.DEV_TOKEN }));
+    whoAmI.mockResolvedValue(create(WhoAmIResponseSchema, { login: "local", kind: IdentityKind.LOCAL_TOKEN }));
     mount();
 
     const user = userEvent.setup();

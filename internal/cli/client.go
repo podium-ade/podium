@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
@@ -37,5 +37,5 @@ func httpClientFor(cfg Config) *http.Client {
 	if cfg.Tailnet() && cfg.Token == "" {
 		return tailnet.NewUserClient()
 	}
-	return dev.NewClient(cfg.Token)
+	return local.NewClient(cfg.Token)
 }

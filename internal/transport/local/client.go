@@ -1,8 +1,8 @@
-package dev
+package local
 
 import "net/http"
 
-// bearer presents the shared dev token on every request. Under the dev transport an
+// bearer presents the shared dev token on every request. Under the local transport an
 // operator and a node authenticate the same way; a node additionally proves possession
 // of its node key inside Hello.
 type bearer struct {

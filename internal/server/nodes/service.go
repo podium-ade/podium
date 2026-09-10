@@ -160,13 +160,13 @@ func (s *Service) Enroll(
 // mayEnroll decides whether an identity is allowed to become a node.
 //
 //   - KindNode: the device carries the required ACL tag. This is the tailnet path.
-//   - KindDevToken: the dev transport has no device tags at all, and its token is already the
+//   - KindLocalToken: the local transport has no device tags at all, and its token is already the
 //     only thing between a caller and the whole API.
 //   - KindUser: only under PODIUM_TS_ALLOW_UNTAGGED_NODES, the escape hatch for a tailnet with
 //     no tags yet.
 func (s *Service) mayEnroll(id transport.Identity) bool {
 	switch id.Kind {
-	case transport.KindNode, transport.KindDevToken:
+	case transport.KindNode, transport.KindLocalToken:
 		return true
 	case transport.KindUser:
 		return s.allowUntagged

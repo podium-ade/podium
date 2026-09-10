@@ -10,9 +10,9 @@ to do when it does not work.
 ## This is not only the production option
 
 **The tailnet transport is the only supported way to reach a worker on another machine — in
-development as much as in production.** There is no "use the dev transport across the LAN while
-I try this out" path. `dev.CheckListen` refuses any listen address that is not unambiguously
-loopback, and its one waiver, `PODIUM_DEV_ALLOW_UNSAFE_LISTEN`, is for **a container**, where
+development as much as in production.** There is no "use the local transport across the LAN while
+I try this out" path. `local.CheckListen` refuses any listen address that is not unambiguously
+loopback, and its one waiver, `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN`, is for **a container**, where
 loopback is the container's own and the published port is the boundary.
 
 Set that waiver on a host and you publish the whole API — task submission, which is code as root
@@ -132,7 +132,7 @@ Consequences worth spelling out:
   shows your name. The UI probes `IdentityService.WhoAmI` before deciding whether to ask for
   anything; over the tailnet that call succeeds with no credential, so the prompt never appears.
 - **The CLI needs no token.** `podium --server https://podium.<tailnet>.ts.net nodes` works as
-  it stands. `--token` still exists and is for the dev transport only.
+  it stands. `--token` still exists and is for the local transport only.
 - **`requested_by` on a task is the real person's login**, because that is who Tailscale said
   submitted it.
 - **A tagged device never counts as its owner.** Tailscale reports the tag owner's profile for a
@@ -193,7 +193,7 @@ replaces it, run `podium node rekey node_01j…` and reconnect
 `podium node rekey NODE_ID` clears the binding. The node keeps its ID, labels and history, and
 the next `Hello` binds it to whatever device it arrives from. Between the rekey and that
 reconnect the node key alone is enough, so rekey immediately before moving a worker, not as a
-matter of routine. A node that enrolled over the dev transport has no binding and picks one up on
+matter of routine. A node that enrolled over the local transport has no binding and picks one up on
 its first tailnet connection.
 
 ## tsnet or host mode

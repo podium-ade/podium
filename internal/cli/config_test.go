@@ -38,7 +38,7 @@ func TestLoadConfigPrecedence(t *testing.T) {
 	// and the server's dev token are the same secret, so the CLI reads whichever name is
 	// present and PODIUM_TOKEN still wins when both are.
 	t.Setenv("PODIUM_TOKEN", "")
-	t.Setenv("PODIUM_DEV_TOKEN", "from-dev-token")
+	t.Setenv("PODIUM_LOCAL_TOKEN", "from-dev-token")
 	cfg, err = LoadConfig("", "")
 	require.NoError(t, err)
 	require.Equal(t, "from-dev-token", cfg.Token)
@@ -46,7 +46,7 @@ func TestLoadConfigPrecedence(t *testing.T) {
 	t.Setenv("PODIUM_TOKEN", "from-env")
 	cfg, err = LoadConfig("", "")
 	require.NoError(t, err)
-	require.Equal(t, "from-env", cfg.Token, "PODIUM_TOKEN wins over PODIUM_DEV_TOKEN")
+	require.Equal(t, "from-env", cfg.Token, "PODIUM_TOKEN wins over PODIUM_LOCAL_TOKEN")
 }
 
 func TestLoadConfigNeedsAToken(t *testing.T) {

@@ -56,7 +56,7 @@ docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 `--wait` matters: a bare port probe races the server's first connection.
 
 > If something already owns `5432` on your machine, set `PODIUM_PG_PORT=55432` here and match
-> the DSN below. The same goes for `8080`: `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and pass
+> the DSN below. The same goes for `8080`: `PODIUM_LOCAL_LISTEN=127.0.0.1:18080`, and pass
 > `--server http://127.0.0.1:18080` to the CLI.
 
 The image is `pgvector/pgvector:pg16` — Postgres 16 with the `pgvector` extension available.
@@ -94,14 +94,14 @@ Four variables, one per line:
 
 ```sh
 export PODIUM_TRANSPORT=dev                    # loopback, one shared token
-export PODIUM_DEV_TOKEN=devtoken               # YOURS: pick anything. The only credential there is
+export PODIUM_LOCAL_TOKEN=devtoken               # YOURS: pick anything. The only credential there is
 export PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium
 export PODIUM_MASTER_KEY_FILE=/tmp/podium-master.key   # from step 3. Omit to run without secrets
 
 ./bin/podium-server &
 ```
 
-It migrates the schema on start. `PODIUM_DEV_LISTEN` defaults to `127.0.0.1:8080` and **must**
+It migrates the schema on start. `PODIUM_LOCAL_LISTEN` defaults to `127.0.0.1:8080` and **must**
 resolve to loopback — the server refuses to start otherwise, because the shared token is the
 only credential there is.
 
@@ -135,7 +135,7 @@ only its SHA-256. The token goes on stdout and nothing else does, so `$(...)` wo
 ```sh
 export PODIUM_NODE_SERVER=http://127.0.0.1:8080  # the control plane from step 4
 export PODIUM_NODE_TRANSPORT=dev
-export PODIUM_NODE_DEV_TOKEN=devtoken            # must equal the server's PODIUM_DEV_TOKEN
+export PODIUM_NODE_LOCAL_TOKEN=devtoken            # must equal the server's PODIUM_LOCAL_TOKEN
 export PODIUM_NODE_ENROLL_TOKEN=$TOKEN           # from step 6. First run only
 export PODIUM_NODE_DATA_DIR=/tmp/podium-node     # holds the node's identity
 export PODIUM_NODE_LABELS=demo                   # what task specs match on

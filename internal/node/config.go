@@ -33,8 +33,8 @@ const (
 
 // The transports podium-node understands.
 const (
-	// TransportDev dials a loopback server with a shared bearer token.
-	TransportDev = "dev"
+	// TransportLocal dials a loopback server with a shared bearer token.
+	TransportLocal = "dev"
 	// TransportTailnet embeds the node's own Tailscale device (tsnet) and dials the control
 	// plane's MagicDNS name over it. The node listens for nothing.
 	TransportTailnet = "tailnet"
@@ -59,8 +59,8 @@ type Config struct {
 	MaxTasks int `yaml:"max_tasks"`
 	// EnrollToken is consumed on the first run only, PODIUM_NODE_ENROLL_TOKEN.
 	EnrollToken string `yaml:"enroll_token"`
-	// DevToken is the shared bearer token of the dev transport, PODIUM_NODE_DEV_TOKEN.
-	DevToken string `yaml:"dev_token"`
+	// LocalToken is the shared bearer token of the local transport, PODIUM_NODE_LOCAL_TOKEN.
+	LocalToken string `yaml:"local_token"`
 	// TSAuthKey is the *Tailscale* auth key, PODIUM_NODE_TS_AUTHKEY or TS_AUTHKEY: reusable,
 	// pre-approved, tagged tag:podium-node. It is read on the first run only, and it is a
 	// different thing from EnrollToken, which is Podium's own single-use secret.
@@ -144,7 +144,7 @@ func applyEnv(cfg *Config) {
 	envString("PODIUM_NODE_TRANSPORT", &cfg.Transport)
 	envString("PODIUM_NODE_DATA_DIR", &cfg.DataDir)
 	envString("PODIUM_NODE_ENROLL_TOKEN", &cfg.EnrollToken)
-	envString("PODIUM_NODE_DEV_TOKEN", &cfg.DevToken)
+	envString("PODIUM_NODE_LOCAL_TOKEN", &cfg.LocalToken)
 	envString("PODIUM_NODE_TS_HOSTNAME", &cfg.TSHostname)
 	// TS_AUTHKEY is the name tsnet itself documents, so it is honoured as a fallback; the
 	// PODIUM_NODE_ prefixed name wins when both are set.
@@ -208,12 +208,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("server %q must be an http:// or https:// URL", c.Server)
 	}
 	switch c.Transport {
-	case TransportDev:
-		if c.DevToken == "" {
-			return errors.New("dev_token is empty: set PODIUM_NODE_DEV_TOKEN to the server's PODIUM_DEV_TOKEN")
+	case TransportLocal:
+		if c.LocalToken == "" {
+			return errors.New("local_token is empty: set PODIUM_NODE_LOCAL_TOKEN to the server's PODIUM_LOCAL_TOKEN")
 		}
 		if !strings.HasPrefix(c.Server, "http://") {
-			return fmt.Errorf("transport dev dials %q, but the dev transport is loopback HTTP; "+
+			return fmt.Errorf("transport dev dials %q, but the local transport is loopback HTTP; "+
 				"an https:// control plane means transport: tailnet", c.Server)
 		}
 	case TransportTailnet, TransportHost:
@@ -224,7 +224,7 @@ func (c *Config) Validate() error {
 		}
 	default:
 		return fmt.Errorf("transport %q is not a transport (want %s, %s or %s)",
-			c.Transport, TransportDev, TransportTailnet, TransportHost)
+			c.Transport, TransportLocal, TransportTailnet, TransportHost)
 	}
 	if c.MaxTasks < 1 {
 		return fmt.Errorf("max_tasks is %d: a node with no slots never gets work; set PODIUM_NODE_MAX_TASKS to 1 or more", c.MaxTasks)

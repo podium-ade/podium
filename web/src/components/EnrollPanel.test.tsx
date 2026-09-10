@@ -35,8 +35,8 @@ describe("enrollCommand", () => {
     expect(cmd).not.toContain("\n");
     expect(cmd).toContain("PODIUM_NODE_SERVER=http://127.0.0.1:8080");
     expect(cmd).toContain("PODIUM_NODE_ENROLL_TOKEN=tok_abc");
-    expect(cmd).toContain("PODIUM_NODE_DEV_TOKEN=$PODIUM_DEV_TOKEN");
-    expect(cmd).toContain("PODIUM_NODE_TRANSPORT=dev");
+    expect(cmd).toContain("PODIUM_NODE_LOCAL_TOKEN=$PODIUM_LOCAL_TOKEN");
+    expect(cmd).toContain("PODIUM_NODE_TRANSPORT=local");
     expect(cmd.endsWith("podium-node")).toBe(true);
   });
 
@@ -44,7 +44,7 @@ describe("enrollCommand", () => {
     const cmd = enrollCommand("https://podium.taila79bf6.ts.net", "tok_abc");
     expect(cmd).toContain("PODIUM_NODE_TRANSPORT=tailnet");
     expect(cmd).toContain("PODIUM_NODE_TS_AUTHKEY=$TS_AUTHKEY");
-    expect(cmd).not.toContain("PODIUM_NODE_DEV_TOKEN");
+    expect(cmd).not.toContain("PODIUM_NODE_LOCAL_TOKEN");
     // The Tailscale auth key stays a shell reference: Podium never sees it.
     expect(cmd).not.toContain("tskey-");
   });

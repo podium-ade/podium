@@ -23,11 +23,11 @@ func TestDecideBinding(t *testing.T) {
 		want      bindingDecision
 	}{
 		{
-			name: "dev transport: no devices anywhere, nothing to do",
+			name: "local transport: no devices anywhere, nothing to do",
 			want: bindingNoop,
 		},
 		{
-			name:   "dev transport reconnecting to a node that was bound over the tailnet",
+			name:   "local transport reconnecting to a node that was bound over the tailnet",
 			stored: enrolledFrom,
 			want:   bindingNoop,
 		},
@@ -70,8 +70,8 @@ func TestMayEnroll(t *testing.T) {
 
 	require.True(t, s.mayEnroll(transport.Identity{Kind: transport.KindNode}),
 		"a tagged device is what enrollment is for")
-	require.True(t, s.mayEnroll(transport.Identity{Kind: transport.KindDevToken}),
-		"the dev transport has no device tags at all")
+	require.True(t, s.mayEnroll(transport.Identity{Kind: transport.KindLocalToken}),
+		"the local transport has no device tags at all")
 	require.False(t, s.mayEnroll(transport.Identity{Kind: transport.KindUser}),
 		"an untagged tailnet device must not enroll by default")
 	require.False(t, s.mayEnroll(transport.Identity{}))

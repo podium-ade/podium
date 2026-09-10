@@ -533,7 +533,7 @@ export type Assign = Message$1<"podium.v1.Assign"> & {
 
   /**
    * SENSITIVE: never log. The values live in node memory and in the task container, and
-   * nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=dev
+   * nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=local
    * is loopback-only for exactly this reason.
    *
    * @generated from field: repeated podium.v1.ResolvedSecret resolved_secrets = 5;
@@ -1140,7 +1140,7 @@ export const TaskEventKindSchema: GenEnum<TaskEventKind> = /*@__PURE__*/
 
 /**
  * NodeService is the node-facing half of the wire contract. Identity is transport-derived
- * (dev bearer token now, tailnet WhoIs later); it is never carried in these messages.
+ * (a shared bearer token, or tailnet WhoIs); it is never carried in these messages.
  *
  * @generated from service podium.v1.NodeService
  */

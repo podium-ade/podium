@@ -80,7 +80,7 @@ var bankNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 type Config struct {
 	// Server is PODIUM_AGENT_SERVER: the Podium API base URL. Required.
 	Server string
-	// APIToken is PODIUM_AGENT_API_TOKEN, the dev transport's bearer for the Podium API.
+	// APIToken is PODIUM_AGENT_API_TOKEN, the local transport's bearer for the Podium API.
 	// Empty is correct on a tailnet, where WhoIs names the caller.
 	// SENSITIVE: never log it.
 	APIToken string
@@ -254,12 +254,12 @@ func (c Config) Validate() error {
 	if u.Host == "" {
 		return fmt.Errorf("PODIUM_AGENT_SERVER=%q has no host", c.Server)
 	}
-	// Over plain HTTP the Podium API is the dev transport, whose only credential is the
+	// Over plain HTTP the Podium API is the local transport, whose only credential is the
 	// shared token. Over HTTPS it is a tailnet, where WhoIs names the caller and a token is
 	// optional.
 	if u.Scheme == "http" && c.APIToken == "" {
 		return errors.New("PODIUM_AGENT_API_TOKEN is required when PODIUM_AGENT_SERVER is http:// " +
-			"(the dev transport has no other credential)")
+			"(the local transport has no other credential)")
 	}
 	if c.DatabaseURL == "" {
 		return errors.New("PODIUM_AGENT_DATABASE_URL is required: the conductor's own database, podium_agent")

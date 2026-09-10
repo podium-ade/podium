@@ -99,7 +99,7 @@ const profileResponse = {
 const viewer: Viewer = {
   login: "dev",
   displayName: "",
-  kind: IdentityKind.DEV_TOKEN,
+  kind: IdentityKind.LOCAL_TOKEN,
   agentEnabled: true,
   serverVersion: "dev",
 };
