@@ -164,6 +164,10 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# The dev transport's shared bearer token. Every API call and the web UI\n")
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
 		b.WriteString("PODIUM_DEV_TOKEN=" + v.DevToken + "\n\n")
+		// Where the CLI looks. Its token is the dev token above, which it reads under that
+		// name, so sourcing this file is all it takes to configure a shell.
+		b.WriteString("# Where the CLI looks for the control plane. It presents the token above.\n")
+		b.WriteString("PODIUM_SERVER=http://127.0.0.1:8080\n\n")
 	}
 
 	b.WriteString("# The conductor's API token. podium-server presents it on every proxied call and\n")

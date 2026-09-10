@@ -37,7 +37,8 @@ func ConfigPath() string {
 }
 
 // LoadConfig resolves the effective configuration: the file, then PODIUM_SERVER and
-// PODIUM_TOKEN, then the --server and --token flags. A missing file is not an error.
+// PODIUM_TOKEN (or PODIUM_DEV_TOKEN, which is the same secret under the server's name for
+// it), then the --server and --token flags. A missing file is not an error.
 func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	cfg := Config{Server: DefaultServer}
 
@@ -66,6 +67,12 @@ func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	}
 	if v := os.Getenv("PODIUM_TOKEN"); v != "" {
 		cfg.Token = v
+	} else if v := os.Getenv("PODIUM_DEV_TOKEN"); v != "" {
+		// The dev transport has exactly one bearer, and PODIUM_DEV_TOKEN is the name the
+		// server reads it under. A shell that sourced a stack's .env is therefore already
+		// holding the CLI's token, and asking for the same secret again under a second
+		// name only creates a pair that can drift apart.
+		cfg.Token = v
 	}
 	if serverFlag != "" {
 		cfg.Server = serverFlag
@@ -81,7 +88,8 @@ func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	// MagicDNS name and Tailscale's WhoIs names the caller, so there is nothing to present and
 	// asking for one would be wrong.
 	if cfg.Token == "" && !cfg.Tailnet() {
-		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN, or put `token:` in " + ConfigPath() +
+		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN or PODIUM_DEV_TOKEN, " +
+			"or put `token:` in " + ConfigPath() +
 			" (a tailnet control plane needs none: use its https:// MagicDNS URL)")
 	}
 	return cfg, nil
