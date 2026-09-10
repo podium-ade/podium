@@ -24,9 +24,9 @@ import (
 // docs/security.md says so.
 const AgentLoginHeader = "X-Podium-Login"
 
-// devLogin is the login reported for the local transport, which has no per-user identity at
-// all. It is the same word WhoAmI answers there.
-const devLogin = "dev"
+// localLogin is the login reported for the local transport, which has no per-user identity
+// at all. It is the same word WhoAmI answers there.
+const localLogin = "local"
 
 // agentDialTimeout and agentResponseHeaderTimeout bound the hop to the conductor. The
 // conductor is on this host; a dial that takes a second is a dial that is not going to work.
@@ -112,7 +112,7 @@ func agentLogin(ctx context.Context) string {
 		return "unknown"
 	}
 	if id.Kind == transport.KindLocalToken || id.Login == "" {
-		return devLogin
+		return localLogin
 	}
 	return id.Login
 }

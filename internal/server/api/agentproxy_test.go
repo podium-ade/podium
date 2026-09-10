@@ -110,7 +110,7 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 		want string
 	}{
 		{"a tailnet user", &transport.Identity{Kind: transport.KindUser, Login: "bob@example.com"}, "bob@example.com"},
-		{"the dev token", &transport.Identity{Kind: transport.KindLocalToken, Login: "dev"}, "dev"},
+		{"the local token", &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, "local"},
 		// Only reachable by calling the proxy without the middleware, which is a wiring bug
 		// rather than a request; it must still not produce an empty header.
 		{"no identity at all", nil, "unknown"},
@@ -145,7 +145,7 @@ func TestAgentProxyAnswersAConnectErrorWhenTheConductorIsDown(t *testing.T) {
 
 	proxy, err := NewAgentProxy(url, agentToken, nil)
 	require.NoError(t, err)
-	rec := call(t, proxy, &transport.Identity{Kind: transport.KindLocalToken, Login: "dev"}, nil)
+	rec := call(t, proxy, &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, nil)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))

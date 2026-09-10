@@ -118,7 +118,7 @@ func (c Config) Validate() error {
 	switch c.Transport {
 	case TransportLocal:
 		if c.LocalToken == "" {
-			return errors.New("PODIUM_LOCAL_TOKEN is required for PODIUM_TRANSPORT=dev")
+			return errors.New("PODIUM_LOCAL_TOKEN is required for PODIUM_TRANSPORT=local")
 		}
 		if err := local.CheckListen(c.LocalListen, c.LocalAllowUnsafeListen); err != nil {
 			return err
