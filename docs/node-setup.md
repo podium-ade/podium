@@ -350,7 +350,7 @@ Equivalent config file:
 
 ```yaml
 # /etc/podium/node.yaml — a tailnet worker
-server: https://podium.taila79bf6.ts.net
+server: https://podium.tail0a1b2c.ts.net
 transport: tailnet
 data_dir: /var/lib/podium-node
 labels: [linux/amd64, browser]

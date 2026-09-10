@@ -142,7 +142,7 @@ func TestValidateRefusesToStart(t *testing.T) {
 	t.Run("tailnet with an https server is accepted", func(t *testing.T) {
 		c := base()
 		c.Transport = TransportTailnet
-		c.Server = "https://podium.taila79bf6.ts.net"
+		c.Server = "https://podium.tail0a1b2c.ts.net"
 		c.LocalToken = ""
 		require.NoError(t, c.Validate(), "the tailnet transport needs no dev token")
 	})
@@ -150,14 +150,14 @@ func TestValidateRefusesToStart(t *testing.T) {
 	t.Run("host with an https server is accepted", func(t *testing.T) {
 		c := base()
 		c.Transport = TransportHost
-		c.Server = "https://podium.taila79bf6.ts.net"
+		c.Server = "https://podium.tail0a1b2c.ts.net"
 		c.LocalToken = ""
 		require.NoError(t, c.Validate())
 	})
 
 	t.Run("dev refuses an https server", func(t *testing.T) {
 		c := base()
-		c.Server = "https://podium.taila79bf6.ts.net"
+		c.Server = "https://podium.tail0a1b2c.ts.net"
 		require.ErrorContains(t, c.Validate(), "transport: tailnet")
 	})
 
@@ -173,7 +173,7 @@ func TestValidateRefusesToStart(t *testing.T) {
 
 func TestTailnetEnvironment(t *testing.T) {
 	t.Setenv("PODIUM_NODE_TRANSPORT", "tailnet")
-	t.Setenv("PODIUM_NODE_SERVER", "https://podium.taila79bf6.ts.net")
+	t.Setenv("PODIUM_NODE_SERVER", "https://podium.tail0a1b2c.ts.net")
 	t.Setenv("PODIUM_NODE_DATA_DIR", t.TempDir())
 	t.Setenv("PODIUM_NODE_TS_HOSTNAME", "podium-node-podiumbot1")
 	t.Setenv("TS_AUTHKEY", "tskey-auth-fallback")
