@@ -35,21 +35,25 @@
 #           For a worker on another machine the local transport is the wrong tool: it is
 #           loopback-only. Use docker-compose.tailnet.yml. See ../docs/networking.md.
 #
-#   agent   the conductor and the agents' shared memory. Needs a profile directory, which
-#           has no default content, so copy the example before the first `up`:
-#             cp -r ../examples/agent ./agent
-#           and set PODIUM_AGENT_URL=http://agent:8090 in .env, which is what mounts the
-#           API behind the server and makes the UI's Agent screen appear.
+#   conductor  podium-agent and the agents' shared memory. It needs an agent PROFILE
+#              DIRECTORY, which is a different thing that unluckily shares the word: a tree
+#              of profile.yaml, playbooks and prompts naming what a turn may do. It has no
+#              default content, so copy the example before the first `up`:
+#                cp -r ../examples/agent ./agent
+#              and set PODIUM_AGENT_URL=http://agent:8090 in .env, which is what mounts the
+#              API behind the server and makes the UI's Agent screen appear.
+#              (This profile is named `conductor` and not `agent` precisely so that
+#              `--profile agent` cannot be confused with PODIUM_AGENT_PROFILE_DIR.)
 #
 # Every variable is documented in .env.example.
 #
 # ---------------------------------------------------------------------------------------
 # VERIFIED on 2026-09-10, on Docker Desktop 29.4.3 (linux/arm64), against images built from
 # these four Dockerfiles and pulled from a registry: `init` in a container, `up --wait`,
-# node enrolment through the `cli` profile, and `run --image alpine:3 -- echo hello` and
-# `run --spec` both exiting 0 with the task's own output. The published ghcr.io tags do not
-# exist until a v* tag is pushed — until then set PODIUM_IMAGE_REPO to a registry holding
-# images you built yourself. The `agent` profile has NOT been brought up this way.
+# node enrolment through the `cli` compose profile, and `run --image alpine:3 -- echo hello`
+# and `run --spec` both exiting 0 with the task's own output. The published ghcr.io tags do
+# not exist until a v* tag is pushed — until then set PODIUM_IMAGE_REPO to a registry holding
+# images you built yourself. The `conductor` compose profile has NOT been brought up this way.
 # ---------------------------------------------------------------------------------------
 name: podium
 
@@ -88,7 +92,7 @@ services:
   # comes up in seconds with no HuggingFace egress and needs no volume of its own. Every
   # byte of state is in Postgres — back THAT up, not this container.
   hindsight:
-    profiles: ["agent"]
+    profiles: ["conductor"]
     image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
     depends_on:
       postgres:
@@ -245,7 +249,7 @@ services:
   #   cp -r ../examples/agent ./agent      # then edit ./agent/playbooks/general.yaml's image
   #
   agent:
-    profiles: ["agent"]
+    profiles: ["conductor"]
     image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server

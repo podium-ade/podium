@@ -250,14 +250,17 @@ still `queued` says which of the scheduler's reasons is keeping it there.
 
 ## The agent layer
 
-The conductor and the agents' shared memory are behind the `agent` profile. It needs a profile
-directory, which has no default content, so copy the example first:
+The conductor and the agents' shared memory are behind the `conductor` compose profile. It
+needs an **agent profile directory**, which is an unrelated thing that unluckily shares the
+word — a tree of `profile.yaml`, playbooks and prompts naming what a turn may do, pointed at
+by `PODIUM_AGENT_PROFILE_DIR`. It has no default content, and you cannot `curl` a directory,
+so this is the one step that wants a clone:
 
 ```sh
 git clone --depth 1 https://github.com/podium-ade/podium.git /tmp/podium
 cp -r /tmp/podium/examples/agent ./agent      # then edit ./agent/playbooks/*.yaml
 echo "PODIUM_AGENT_URL=http://agent:8090" >> .env
-docker compose --profile agent up -d
+docker compose --profile conductor up -d
 ```
 
 A profile directory is a tree of YAML rather than one file, so this is the one step that wants
@@ -272,7 +275,7 @@ A turn needs an Anthropic key, which is set in the UI rather than in `.env`, and
 naming a runtime image. That is a longer story: [`agent.md`](agent.md).
 
 > **Not verified this way.** Everything above the agent layer has been run end to end from
-> images; the `agent` profile has not.
+> images; the `conductor` compose profile has not.
 
 ## Workers on other machines
 
@@ -307,7 +310,7 @@ the release's `checksums.txt` and installs a hardened systemd unit.
 ## Tearing it down
 
 ```sh
-docker compose --profile node --profile agent down -v
+docker compose --profile node --profile conductor down -v
 ```
 
 `-v` takes the Postgres, object-store and server volumes with it. Check:

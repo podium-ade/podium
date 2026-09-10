@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | Postgres, the object store and the control plane. A plain `up` is those three; the `cli`, `node` and `agent` profiles add the CLI as a one-shot, a worker on this machine, and the conductor with the agents' shared memory |
+| `docker-compose.yml` | Postgres, the object store and the control plane. A plain `up` is those three; the `cli`, `node` and `conductor` compose profiles add the CLI as a one-shot, a worker on this machine, and podium-agent with the agents' shared memory |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
