@@ -105,7 +105,7 @@ func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger) (http.Handl
 }
 
 // agentLogin is who the identity middleware says is calling, in the form the conductor
-// records. The local transport has no per-user identity, so every caller there is "dev".
+// records. The local transport has no per-user identity, so every caller there is "local".
 func agentLogin(ctx context.Context) string {
 	id, ok := transport.From(ctx)
 	if !ok {
