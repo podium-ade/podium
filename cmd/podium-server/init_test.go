@@ -39,7 +39,7 @@ func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
 		t.Run(transport, func(t *testing.T) {
 			env := parseEnv(t, renderEnv(initSecrets{
 				Transport:   transport,
-				Tailnet:     "taila79bf6",
+				Tailnet:     "tail0a1b2c",
 				PGPassword:  "pg",
 				LocalToken:  "dev",
 				S3SecretKey: "s3",
@@ -57,7 +57,7 @@ func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
 // TestInitLeavesTailscaleKeysEmpty guards the other half: a value only the operator can
 // supply must be present and blank, not absent, so there is a line to fill in.
 func TestInitLeavesTailscaleKeysEmpty(t *testing.T) {
-	body := renderEnv(initSecrets{Transport: server.TransportTailnet, Tailnet: "taila79bf6"})
+	body := renderEnv(initSecrets{Transport: server.TransportTailnet, Tailnet: "tail0a1b2c"})
 	for _, name := range []string{"TS_AUTHKEY", "PODIUM_NODE_TS_AUTHKEY", "PODIUM_NODE_ENROLL_TOKEN"} {
 		require.Contains(t, body, name+"=\n", "%s should be present and empty to be filled in", name)
 	}

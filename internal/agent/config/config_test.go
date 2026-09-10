@@ -65,7 +65,7 @@ func TestValidateNamesTheVariableThatIsMissing(t *testing.T) {
 // and wrong over plain HTTP.
 func TestATailnetServerNeedsNoAPIToken(t *testing.T) {
 	cfg := valid(t)
-	cfg.Server = "https://podium.taila79bf6.ts.net"
+	cfg.Server = "https://podium.tail0a1b2c.ts.net"
 	cfg.APIToken = ""
 	require.NoError(t, cfg.Validate())
 }

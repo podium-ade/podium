@@ -289,7 +289,7 @@ func TestTheComposeServerConfigurationStarts(t *testing.T) {
 				"PODIUM_S3_SECRET_KEY": "s3secretkey",
 				"PODIUM_AGENT_TOKEN":   "agenttoken",
 				"TS_AUTHKEY":           "tskey-auth-notreal",
-				"PODIUM_TAILNET":       "taila79bf6",
+				"PODIUM_TAILNET":       "tail0a1b2c",
 			})
 			// The server reads its whole configuration from the environment, so the compose
 			// block IS the configuration: set it and ask the binary's own loader.
