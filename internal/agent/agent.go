@@ -290,6 +290,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Memory:           a.memory,
 		SkillsDir:        a.cfg.SkillsDir,
 		Profiles:         live,
+		ProfileDir:       a.cfg.ProfileDir,
 		Chat:             a.chat,
 		Tasks:            a.podium,
 		Turns:            a.conductor,
@@ -401,7 +402,7 @@ func (a *Agent) reconcileProfile(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if err := a.svc.ReloadProfile(ctx); err != nil && ctx.Err() == nil {
+			if err := a.svc.Reconcile(ctx); err != nil && ctx.Err() == nil {
 				a.logger.WarnContext(ctx, "rebuilding the profile from the database failed; "+
 					"the conductor is still running the last one that loaded", "error", err)
 			}
