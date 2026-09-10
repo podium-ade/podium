@@ -242,7 +242,6 @@ func TestAnInvalidPlaybookIsRefusedAndNothingIsStored(t *testing.T) {
 		mut  func(*agentv1.PlaybookDefinition)
 		want string
 	}{
-		{"no image", func(s *agentv1.PlaybookDefinition) { s.Image = "" }, "image is required"},
 		{"no tools", func(s *agentv1.PlaybookDefinition) { s.AllowedTools = nil }, "allowed_tools is required"},
 		{"a bad name", func(s *agentv1.PlaybookDefinition) { s.Name = "Reporter!" }, "must match"},
 		{"a priority nothing could distinguish",
@@ -267,6 +266,18 @@ func TestAnInvalidPlaybookIsRefusedAndNothingIsStored(t *testing.T) {
 			assert.NotContains(t, f.live.Current().Playbooks, "reporter")
 		})
 	}
+}
+
+// A playbook created with no image comes back carrying the runtime published alongside this
+// build. This was a refusal case in the table above until the runtime became version-matched;
+// it is asserted rather than dropped, because "the API fills it in" is the half that a
+// caller depends on and a unit test on applyDefaults cannot see.
+func TestAPlaybookWithNoImageGetsTheMatchedRuntime(t *testing.T) {
+	f := newProfileFixture(t)
+	in := newPlaybook("reporter")
+	in.Image = ""
+	got := f.create(t, in)
+	assert.Equal(t, profiles.DefaultRuntimeImage(), got.GetImage())
 }
 
 // A playbook may name any registered secret, exactly as a task spec may. There is no
