@@ -1,6 +1,19 @@
-# Podium
+<p align="center">
+  <img src="docs/assets/podium-logo.png" alt="" width="200">
+</p>
 
-**Run containerised tasks on machines you own, from anywhere, with one command.**
+<h1 align="center">Podium</h1>
+
+<p align="center">
+  <b>Run containerised tasks on machines you own, from anywhere, with one command.</b>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-3b2fd4.svg"></a>
+  <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/go-1.27%2B-00ADD8.svg"></a>
+  <a href=".github/workflows/ci-go.yml"><img alt="ci / go" src="https://github.com/alvaroibarguen/podium/actions/workflows/ci-go.yml/badge.svg"></a>
+  <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/alvaroibarguen/podium/actions/workflows/ci-web.yml/badge.svg"></a>
+</p>
 
 A control plane (`podium-server`) schedules work and serves a web UI. A daemon (`podium-node`)
 on each worker runs tasks with the local Docker engine and streams their logs back live. A CLI
@@ -20,18 +33,9 @@ tick 3
 → finished exit 3 in 3.2s
 ```
 
-<!-- 60-second demo: an asciinema cast belongs here. Not recorded yet. -->
-
-> ### ⚠️ Status: pre-alpha, and **not licensed**
->
-> [`LICENSE`](LICENSE) is still a placeholder. **Nobody has been granted any right to use,
-> copy or redistribute this code**, and it cannot be published until that is resolved — the
-> release workflow refuses to run while the file contains `TODO`, and every other release job
-> depends on that check.
->
-> There has never been a tagged release, so there is no binary to download and no image to
-> pull. Building from source is the only way in. See [Limitations](#limitations) for what has
-> and has not actually been proved.
+> **No tagged release yet.** There is no binary to download and no image to pull — building
+> from source is the only way in, and the [Quickstart](#quickstart) below is the whole of it.
+> Read [Limitations](#limitations) before putting Podium anywhere that matters.
 
 ---
 
@@ -304,49 +308,6 @@ node, because a node enforces its own budget and rejects work it has no slot for
 
 ---
 
-## Status
-
-Everything below is built and its tests pass. The **Proved** column is the honest one: it says
-what has actually been observed running. Most of it is macOS/arm64 with Docker Desktop; a real
-`podium-node` has now also run on Linux/amd64, and the rows say which is which.
-
-| | Built | Proved |
-|---|---|---|
-| Task lifecycle, live logs, cancel, exit codes | ✅ | ✅ end-to-end suite |
-| Sidecars, readiness probes, teardown | ✅ | ✅ both probe paths for real: `exec` inside the container on macOS, where the engine's bridges are unreachable from the host, and the **direct dial** on a Linux node, for `tcp_port` and `http_path`, passing and failing |
-| Resource limits, OOM reporting, hardening | ✅ | ✅ |
-| Secrets: encrypted store, env and file injection, shredding, log redaction | ✅ | ✅ |
-| Scheduler, leases, heartbeats, reconciliation, drain | ✅ | ✅ including chaos scenarios |
-| Web UI: submit, re-run, live logs, node actions, secrets, artifacts, agent | ✅ | ✅ 221 unit tests, Playwright against a live stack |
-| Artifacts and log roll-up | ✅ | ⚠️ proved against a **real RustFS**: bucket auto-create, a 40 MB artifact over the multipart threshold, fetched back byte-identical both proxied and by presigned URL, plus log roll-up and read-back. Earlier MinIO runs covered a zero-byte artifact and a browser task's PNG. The automated suite uses an in-process endpoint. TLS, bucket policies and AWS S3 proper are unexercised |
-| Tailnet transport (tsnet, WhoIs identity, HTTPS) | ✅ | ✅ **run against a real tailnet.** Real Let's Encrypt certificate on the MagicDNS name; `WhoAmI` named a caller with no bearer token sent; a `tag:podium-node` worker enrolled and ran a linux/amd64 task with live logs and its exit code. Two workers now run against it, routed by label |
-| The tailnet ACL's outbound-only guarantee | ✅ | ❌ **never enforced.** A blanket allow-all rule on that tailnet made [the shipped policy](deploy/tailscale-acl.example.json)'s `tests` block fail, and the block was dropped rather than the rule narrowed |
-| Device approval; more than one WhoIs identity | ✅ | ❌ never run. One login has ever authenticated, on a tailnet with approval off |
-| `host` transport | ✅ | ❌ never run |
-| Container images (GHCR, multi-arch, distroless, signed) | ✅ configured | ⚠️ one image, one registry. `podium-agent-runtime:dev` — the base, and the only image Podium ships for general use — built multi-arch with buildx and pushed to a **private** LAN registry that needs no login; a registry that does gets its login from the Registries screen. **Nothing on GHCR, nothing signed, no release.** `-dev` is a host-architecture local tag; the four Go service images have never been built at all |
-| Release pipeline (archives, checksums, SBOM) | ✅ | ⚠️ snapshot only — no tag, no signature ever produced |
-| `deploy/install-node.sh`, systemd unit | ✅ | ❌ `shellcheck` and `bash -n` only. Never run on a machine — there is no published release for it to download |
-| `podium-node upgrade` | ✅ | ⚠️ download, checksum verification, atomic swap and drain→swap→undrain exercised against a local release server and a live control plane. Never against two real releases; `systemctl restart` untested |
-| Linux | ✅ | ✅ a real `podium-node` on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, driven by a darwin/arm64 control plane over a real tailnet — first relayed to the dev transport, since then over the tailnet transport itself. cgroup v2 limits, OOM (exit 137), hardening, secrets on tmpfs, artifacts, log roll-up, cancellation and node-restart adoption all exercised. **Still unrun on Linux:** `deploy/install-node.sh`, the systemd unit, and the service container images |
-| Runner `message` events (a task talks back mid-run) | ✅ | ✅ end-to-end to the CLI, the UI timeline and the database |
-| Agent runtime image (one opencode turn per task) | ✅ | ⚠️ a real turn completed on **both** providers, with accounting and artifacts. Tool calls, repo clones, memory and the max-turns cap are unit-tested only |
-| xAI credentials: API key and subscription sign-in | ✅ | ✅ **both proved end to end against the real xAI.** A bad key refused by `api.x.ai` in its own words; a device-code sign-in approved by a human, a refresh token issued, the access token validated and stored |
-| Per-turn agent/model/effort picker | ✅ | ✅ resolution, credential routing and the brief proved on a live stack |
-| Running a turn **on a Grok model** | ✅ | ✅ `xai/grok-4.6` completed a turn through the runtime on the live stack |
-| Conductor: sessions, turns, exactly-once relay, restart recovery | ✅ | ✅ end-to-end, including a mid-turn kill and a second message queued behind a running turn |
-| Slack source | ✅ | ⚠️ **connected to a real workspace.** Socket Mode dials out and authenticates, and mentions have started turns that ran to completion. Nothing beyond that is proved: the file upload, the 4000-character split, the 429 path and the mirrored copy have only ever run against a fake |
-| Linear source | ✅ | ❌ **never connected to Linear.** Driven by a fake GraphQL server, against a ticket playbook the test defines: Podium ships no playbook with `linear: true` |
-| Shared memory (Hindsight, pgvector) | ✅ | ✅ against a **real Hindsight container**: auth, retain, list, search, tombstone. The SDK's own MCP client is unproven (needs a model) |
-| Web chat | ✅ | ⚠️ chat turns round-trip for real as dry runs, through podium-server's proxy |
-
-Milestones, for anyone reading the history: M0 scaffold and wire contract, M1 the first
-end-to-end task, M2 sidecars / secrets / artifacts, M3 the tailnet transport, M4 the scheduler,
-M5 the web UI, M6 packaging and documentation, M7 the `message` event and the agent runtime
-image, M8 the conductor and Slack, M9 the settings UI / memory / Linear, M10 the web chat — this
-commit.
-
----
-
 ## Documentation
 
 **Start here**
@@ -437,106 +398,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Limitations
 
-Everything here is real, current, and deliberate about being said out loud.
-
-### Where it has and has not actually run
-
-- **The tailnet transport has now run against a real tailnet.** `podium-server` joined as a
-  `tag:podium-server` device, served 443 on its MagicDNS name under a real Let's Encrypt
-  certificate, and answered `WhoAmI` with a login **with no bearer token sent** — the identity
-  came from Tailscale's `WhoIs` and nothing else. A `tag:podium-node` worker enrolled over it and
-  ran a linux/amd64 task with live logs and its exit code preserved. Two workers now run against
-  it, routed by label.
-- **Four things on that path are still unproved, and one is the guarantee itself.** The ACL's
-  outbound-only property was **never enforced**: the tailnet already had a blanket allow-all
-  rule, which made the shipped policy's `tests` block fail, and the block was dropped rather than
-  the rule narrowed. Nothing has ever refused server → node.
-  [`deploy/tailscale-acl.example.json`](deploy/tailscale-acl.example.json) has not been applied
-  intact. Also unproved: **device approval**; **more than one identity** — one login has ever
-  authenticated, so `users` has never held two rows; and the `host` transport, never run at all.
-- **Artifacts have run against a real RustFS, but not against S3 itself.** Bucket auto-create,
-  storing, listing and log roll-up are proved end to end against a real RustFS server, including
-  a 40 MB artifact over `minio-go`'s multipart threshold fetched back byte-identical both proxied
-  and by presigned URL. Earlier runs against MinIO covered a zero-byte artifact and a real PNG a
-  browser task produced. The automated suite still uses an in-process endpoint that speaks
-  the same API and verifies presigned signatures for real. **Bucket policies,
-  TLS, lifecycle rules and AWS S3 proper remain unexercised.**
-- **Linux has now run a real worker, and here is exactly how much of it.** A real `podium-node`
-  ran on Pop!_OS 24.04, linux/amd64, Docker Engine 29.7.2, cgroup v2, 24 cores, driven by a
-  darwin/arm64 control plane on another machine over a real tailnet. The **direct-dial readiness
-  path** — the one Linux takes instead of `exec`ing inside the container, and the one that had
-  only ever been unit-tested — is proved for `tcp_port` and `http_path`, both passing and
-  failing. So are cgroup v2 resource limits, OOM reporting with exit 137, container hardening,
-  secrets on tmpfs, artifact collection, log roll-up, cancellation, and a node restart adopting
-  the containers it left behind. That run is also what found the artifact-collection bug this
-  release fixes: it only reproduces where the daemon and the node share a filesystem, which
-  Docker Desktop does not. That first run relayed its traffic over the tailnet into the dev
-  transport's loopback listener; the tailnet transport itself has since driven the same worker
-  directly.
-- **Two things on Linux are still unrun.** `deploy/install-node.sh` — there is no published
-  release for it to download, and it passes `shellcheck` and `bash -n` only. And the systemd
-  unit — `systemd-analyze verify` has not been run on it.
-- **The base agent image has been built and pushed. The ones you would deploy have not.**
-  `podium-agent-runtime:dev` is built multi-arch — linux/amd64 and linux/arm64 in one OCI index —
-  with `docker buildx`, and pushed to a private plain-HTTP registry on the LAN. That registry
-  needs no login, which is the only reason a node can pull from it: Podium has no registry
-  authentication. That is the whole of it: nothing on GHCR, nothing signed, no release cut,
-  `podium-agent-runtime-dev` still a host-architecture local tag, and **the four Go service
-  images — `podium-server`, `podium-node`, `podium`, `podium-agent` — never built on any
-  architecture.**
-
-  Two things that cost an afternoon, if you repeat this. A plain-HTTP registry must be in
-  `insecure-registries` on **both** the pushing and the pulling daemon. And buildx's
-  `docker-container` driver does **not** inherit that from its daemon — the builder needs its own
-  `buildkitd.toml` with `[registry."host:port"] http = true`, given at `docker buildx create`.
-
-### The agent layer has never met the services it exists to talk to
-
-The conductor, the runtime image and all three playbooks are implemented, unit-tested,
-integration-tested against fakes, and covered by end-to-end scenarios that run real containers on
-a real Docker engine. What has **not** happened:
-
-- **Both providers run a real turn.** The runtime's harness is opencode, not the Claude Agent
-  SDK — the SDK could only talk to Anthropic, and pointing it at xAI failed on the first
-  request with `400 invalid-argument: Invalid message role` because it puts a `system`-role
-  entry inside `messages[]`. Under opencode, `xai/grok-4.6` and `anthropic/claude-opus-5` each
-  completed a turn end to end on a live stack, with cost and turn count recorded and the
-  transcript and `turn.json` artifacts intact. **What has not been exercised on a live model is
-  everything past a one-word answer**: a turn that calls tools, clones a repository, writes an
-  artifact, uses memory, or hits `max_turns`. Those paths have unit tests and nothing more.
-- **The harness adds its own scaffolding to every turn.** A custom agent's prompt is applied
-  and is behaviourally authoritative — verified with a sentinel instruction — but it does not
-  replace opencode's own ~5k tokens of tool definitions and base instructions. The previous
-  harness did the same thing, so this is not a regression, but it is not nothing either.
-- **A Slack workspace, and not much of one.** Socket Mode now dials a real workspace,
-  authenticates, and mentions have started turns that finished. Everything else about the
-  integration is still fake-driven: the file upload, the 4000-character split, the `Retry-After`
-  path, and the mirrored copy of a thread that the UI reads. `app_mention`, the thread read, the
-  threaded reply and the reactions have httptest coverage against `slack-go v0.29.0` and a
-  handful of real mentions behind them — which is more than nothing and less than proof.
-- **No Linear workspace.** The poller, the issue and comment reads, the state transition and
-  `commentCreate` are driven against a fake GraphQL server through `PODIUM_AGENT_LINEAR_URL`.
-  `fileUpload` in particular is implemented from documentation alone and has never run.
-- **No data warehouse, and no warehouse image any more.** The read-only role recipe in
-  `docs/agent.md` was proved once against a throwaway Postgres — an `UPDATE` under
-  `podium_analyst` failed with `cannot execute UPDATE in a read-only transaction` — from an
-  image that no longer ships. BigQuery was never proved beyond `bq version`. Anyone wanting
-  `psql`, `bq` or `duckdb` in a turn now builds that image themselves.
-- **Memory is the exception: Hindsight ran for real.** A real `ghcr.io/vectorize-io/hindsight`
-  container, pointed at a real pgvector Postgres, authenticated, retained, listed, searched and
-  tombstoned memories. The one unproven link is the Agent SDK's own MCP client reaching it from
-  inside a task container, which needs a model call.
-- **The conductor has only ever run on one host, under the `dev` transport.** Its entry in
-  `deploy/docker-compose.tailnet.yml` is a recipe, not a tested service, and the file says so:
-  under `PODIUM_TRANSPORT=tailnet` the server has **no port on the compose network**, so a plain
-  sidecar cannot reach it. That entry works only where the conductor can itself route into the
-  tailnet — the `host` transport, or `podium-agent` run on the host.
-- **An image your fleet cannot pull is a playbook your fleet cannot run.** Task images are resolved
-  by the node's own engine, so a local `:dev` tag works only on the host that built it.
-  `podium-agent-runtime:dev` is multi-arch on a private registry, so a second worker can pull it.
-  `podium-agent-runtime-dev:dev` is not, and neither is an image you build `FROM` the base until
-  you push it — to a registry every node can pull from **anonymously**, because Podium has
-  nowhere to put a pull credential.
+What Podium does not do, and what will surprise you if nobody says it first.
 
 ### Architectural, and not going to change soon
 
@@ -555,8 +417,8 @@ a real Docker engine. What has **not** happened:
   make it run code on a worker with that playbook's credentials. A playbook's `secrets:` list scopes
   what one bot hands one turn — keep it minimal — but it is not a boundary around the secret
   store: `CreateTask` checks only that a named secret exists, so anyone who can reach the API
-  can already mount any registered secret into an image of their own. Nothing in the agent track
-  fixes this.
+  can already mount any registered secret into an image of their own. The agent layer does not
+  change this.
 - **No egress policy.** A task reaches its sidecars and the internet. Whether it can also reach
   its worker's other networks depends on the host's routing, and Docker's default forwards it —
   **assume it can**, and firewall the host if that matters.
@@ -575,8 +437,8 @@ a real Docker engine. What has **not** happened:
 - **Under the `dev` transport, resolved secret values cross an unencrypted loopback socket.**
   Loopback is doing all the work; the server refuses to bind anywhere else.
 - **Nothing is ever deleted except rolled-up log chunks.** Tasks, events, artifacts and audit
-  rows grow without bound, and the object store has no lifecycle policy. Retention is work
-  nobody has done.
+  rows grow without bound, and the object store has no lifecycle policy. There is no retention
+  policy and no way to configure one.
 - **Rolled-up logs lose the interleaving between streams.** Once a finished task's chunks have
   been pruned, its log replays as stdout then stderr — one object per stream, and nothing records
   how they were braided together. Within a stream the order is exact.
@@ -604,5 +466,4 @@ untrusted**. Report a vulnerability privately — see [SECURITY.md](SECURITY.md)
 
 ## License
 
-**Not yet chosen** — see [`LICENSE`](LICENSE). This code is not published under any license
-until that decision is made, and the release workflow refuses to run until it is.
+[MIT](LICENSE).

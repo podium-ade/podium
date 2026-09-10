@@ -1,10 +1,9 @@
 # Security policy
 
-## Status: pre-alpha, and unlicensed
+## Status
 
-Podium has never had a security review, has no released version, and carries no licence yet
-(see [`LICENSE`](LICENSE)). There is nothing deployed anywhere that this policy protects. It is
-here so that the process exists before it is needed.
+Podium has never had a security review and has no released version. This policy is here so
+that the process exists before it is needed.
 
 **There are no supported versions.** Nothing has been released, so nothing receives security
 fixes. When the first `v0.x` is tagged, only the newest one will.
