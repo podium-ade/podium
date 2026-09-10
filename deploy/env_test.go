@@ -92,6 +92,13 @@ var quotedEnvName = regexp.MustCompile(`"(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)"`)
 // binary reads but an operator still has to set.
 var composeEnvName = regexp.MustCompile(`\$\{(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)[:?}-]`)
 
+// shellEnvName finds a variable a script in this directory reads. run-host.sh and
+// install-node.sh are as much a part of the deployment surface as the compose files —
+// run-host.sh is what `make stack-up` runs — and the variables they take were invisible to
+// this test until they were scanned, which is how four of them ended up set in a real .env
+// and documented in no file at all.
+var shellEnvName = regexp.MustCompile(`\$\{?(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)`)
+
 // declaredName finds a variable declared in .env.example, commented out or not.
 var declaredName = regexp.MustCompile(`(?m)^#?\s*(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)=`)
 
@@ -189,6 +196,8 @@ func sourceVars(t *testing.T) map[string][]string {
 			re = quotedEnvName
 		case strings.HasSuffix(path, ".yml"), strings.HasSuffix(path, ".yaml"):
 			re = composeEnvName
+		case strings.HasSuffix(path, ".sh"):
+			re = shellEnvName
 		default:
 			return nil
 		}

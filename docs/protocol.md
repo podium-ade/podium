@@ -31,7 +31,7 @@ match, not a query language, and `%` and `_` are characters rather than wildcard
 `IdentityService.WhoAmI` answers "who does the server think I am", and it sits behind the
 **same identity middleware as everything else** — which is the whole trick. A client that gets
 an answer without presenting a credential knows it is on a tailnet and needs no login step; a
-client that gets 401 knows it must supply the dev token. The web UI decides whether to prompt
+client that gets 401 knows it must supply the local transport's token. The web UI decides whether to prompt
 on exactly that.
 
 `WhoAmIResponse` also carries `server_version` and `server_commit`, the build identity of the

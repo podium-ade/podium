@@ -2104,7 +2104,7 @@ mounts that one prefix behind its own identity middleware and reverse-proxies it
 it deletes any client-supplied `Authorization` and `X-Podium-Login` and sets its own: the
 conductor's bearer, and the login of the caller it authenticated. So the web UI keeps one
 origin, one login and one CSP — `connect-src 'self'` is unchanged — and the conductor never sees
-the dev token. A node identity is refused with 403 before anything is forwarded.
+the local transport's token. A node identity is refused with 403 before anything is forwarded.
 
 The conductor's `/healthz`, `/readyz` and `/metrics` are deliberately **not** proxied: they are
 its own operational surface and they are unauthenticated on its own listener.

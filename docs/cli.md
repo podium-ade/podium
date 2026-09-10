@@ -461,7 +461,7 @@ overwrites either:
 | `master.key` | the AES-256 key every stored secret is encrypted under, mode 0600 |
 | `.env` | the compose file's variables, with fresh random credentials, mode 0600 |
 
-It generates the Postgres password, the dev token and the object-store secret. Everything it
+It generates the Postgres password, the local transport's token and the object-store secret. Everything it
 does not set is documented in `.env.example`.
 
 ```sh

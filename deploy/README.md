@@ -1,37 +1,10 @@
 # Deploying Podium
 
-> ## ⚠️ Podium has no licence, and cannot be published
->
-> [`LICENSE`](../LICENSE) at the repository root still reads:
->
-> ```
-> TODO: choose Apache-2.0 or AGPL-3.0 before first public push
-> ```
->
-> Until that is a real licence text, **this code may not be published, redistributed, or
-> deployed anywhere it is not yours alone.** Nobody — including you, for anything beyond your
-> own machines — has been granted any right to use it, and adding a licence later does not
-> retract copies that were already handed out.
->
-> The release workflow enforces this: `.github/workflows/release.yml` has a first job that
-> fails on a `v*` tag while `LICENSE` contains `TODO`, and every other job depends on it. So
-> there is no release, no `ghcr.io` image, and nothing to `curl`.
->
-> Choosing the licence is Alvaro's call and has been open since step 01.
-
----
-
-> ## ⚠️ Nothing in this directory has been run end to end
->
-> The compose files pass `docker compose config` and pin their images by digest, but no
-> deployment has ever been brought up from them. **None of the four service Dockerfiles in
-> `docker/` has ever been built**, so the `ghcr.io` images do not exist. `install-node.sh` passes
-> `shellcheck` and `bash -n` and has never run on a real machine.
->
-> The *transports* are a different question, and both now work: the local transport
-> ([`../docs/quickstart.md`](../docs/quickstart.md)) and the tailnet transport, with a real
-> certificate and a Linux worker running tasks over it. It is the packaging in this directory
-> that is untested, not the thing it packages. Build from source and start with the quickstart.
+> **There is no release yet.** No `ghcr.io` image has been published and none of the four
+> Dockerfiles in `docker/` has been built, so the compose files here cannot pull what they
+> name. `install-node.sh` passes `shellcheck` and has never run on a real machine. Until a
+> release is tagged, [From a clone](#from-a-clone-with-no-release) is the path that works —
+> and it is the one this repository's own deployment uses.
 
 ---
 
@@ -51,21 +24,130 @@
 
 ---
 
+## What you have to configure
+
+Everything is `deploy/.env`. [`.env.example`](.env.example) documents every variable Podium
+reads, with its default, and a test fails the build if the two drift apart. This section is
+the other half of that: which of them **you** have to decide, for the thing you are actually
+running. Anything not listed here has a working default.
+
+`podium-server init` writes the ones marked ⚙ with fresh random values. The rest are yours.
+
+### Always
+
+| | |
+|---|---|
+| `PODIUM_DATABASE_URL` | the Postgres DSN. The server migrates on start. The compose files and `run-host.sh` both build it from ⚙ `PODIUM_PG_PASSWORD` instead, so you set one or the other, never both |
+| `PODIUM_TRANSPORT` | `local` or `tailnet`. Decides everything in the next table |
+| `PODIUM_MASTER_KEY_FILE` | the file holding the AES-256 key every secret is encrypted under. Leaving it unset is supported and means secrets are unavailable — the server starts and every secret call answers `FailedPrecondition`. **There is no recovery path.** Back the file up somewhere that is not the control plane |
+| `PODIUM_SERVER` | where the **CLI** looks for the control plane. Sourcing this file is what configures a shell: `set -a; . deploy/.env; set +a`. The CLI's token is `PODIUM_LOCAL_TOKEN`, which it reads directly — `PODIUM_TOKEN` exists only to point it at some other stack |
+
+### The transport
+
+| `PODIUM_TRANSPORT=local` | |
+|---|---|
+| ⚙ `PODIUM_LOCAL_TOKEN` | the one shared bearer. The server, every node, the conductor, the web UI and the CLI all present it. Whoever holds it can do everything |
+| `PODIUM_LOCAL_LISTEN` | defaults to `127.0.0.1:8080` and **must** be loopback — the token is the only credential there is |
+| `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` | waives that rule. Set by `docker-compose.yml`, because loopback inside a container is the container's own. **Never set it on a host** |
+
+| `PODIUM_TRANSPORT=tailnet` | |
+|---|---|
+| `TS_AUTHKEY` | the server's Tailscale auth key, Reusable and Pre-approved, tagged `tag:podium-server`. Read on the **first run only** — after that the state directory is the identity |
+| `PODIUM_NODE_TS_AUTHKEY` | the same for a worker, tagged `tag:podium-node` |
+| `PODIUM_TS_HOSTNAME` | the device name, and so the first label of the MagicDNS name. Defaults to `podium` |
+| `PODIUM_TS_STATE_DIR` | where tsnet keeps the node key. **Must persist**, or the server registers a new device every restart and the name drifts to `podium-1`, `podium-2` |
+| `PODIUM_TAILNET` | your MagicDNS suffix without `.ts.net`. Only `run-host.sh` reads it, to build `PODIUM_SERVER` |
+
+There is no token under `tailnet`. Tailscale's `WhoIs` names every caller, so
+`PODIUM_LOCAL_TOKEN`, `PODIUM_TOKEN` and `PODIUM_AGENT_API_TOKEN` are all unset there.
+
+### Artifacts and rolled-up logs, if you want them
+
+All or nothing: setting `PODIUM_S3_ENDPOINT` without credentials is a startup error, and
+setting none of them turns artifacts off — which is supported and says so at startup.
+
+| | |
+|---|---|
+| `PODIUM_S3_ENDPOINT` `PODIUM_S3_BUCKET` `PODIUM_S3_ACCESS_KEY` ⚙ `PODIUM_S3_SECRET_KEY` | the object store. `PODIUM_S3_USE_SSL` defaults to `false` |
+
+### The conductor, if you want the Agent tab
+
+The server refuses to start with `PODIUM_AGENT_URL` set and no token, because a proxy that
+forwards an unauthenticated request into the conductor is worse than no proxy.
+
+| on `podium-server` | |
+|---|---|
+| `PODIUM_AGENT_URL` | where the conductor listens. Setting it is what makes the Agent tab appear |
+| ⚙ `PODIUM_AGENT_TOKEN` | the bearer the server presents to it |
+
+| on `podium-agent` | |
+|---|---|
+| `PODIUM_AGENT_SERVER` | the Podium API base URL |
+| `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`. Unset on a tailnet |
+| `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
+| ⚙ `PODIUM_AGENT_TOKEN` | the same value as above. One line, both sides |
+| `PODIUM_AGENT_PROFILE_DIR` | must contain `profile.yaml`. Defaults to `/etc/podium/agent`, so in a checkout point it at `examples/agent` |
+
+Then, each switching on one feature and each optional:
+
+| | |
+|---|---|
+| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other |
+| `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
+| `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
+| `PODIUM_AGENT_SKILLS_DIR` | travels with `PODIUM_AGENT_PROFILE_DIR`: a playbook naming a skill that is not there fails every turn |
+| `PODIUM_AGENT_HOST_RUNTIME` + `PODIUM_AGENT_RUNNER_BIN` | answer a turn as a child process instead of a container. Opt-in, and a security decision — read [`../docs/security.md`](../docs/security.md) first. `auto` under `make stack-up` means this checkout's own build |
+
+The memory service is a container of its own, and its key is **not** the one above:
+`PODIUM_MEMORY_LLM_API_KEY` is read by Hindsight at start-up and is visible in
+`docker inspect`. Give it its own scoped key. Reads need no key at all; only writing does.
+
+### The worker
+
+| | |
+|---|---|
+| `PODIUM_NODE_SERVER` | the control plane. `http://` under `local`, `https://` under `tailnet` — the daemon refuses a mismatch |
+| `PODIUM_NODE_TRANSPORT` | matches the server's |
+| `PODIUM_NODE_LOCAL_TOKEN` | under `local`: the server's `PODIUM_LOCAL_TOKEN` |
+| `PODIUM_NODE_ENROLL_TOKEN` | from `podium node enroll-token`. **Single use, first run only** — after that `identity.json` in the data directory is the identity. Not the same thing as `TS_AUTHKEY` |
+| `PODIUM_NODE_DATA_DIR` | holds that `identity.json`. Losing it means re-enrolling |
+| `PODIUM_NODE_LABELS` | what task specs match on |
+| `PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS` | only on a worker dedicated to it, paired with a label so nothing else lands there |
+
+### Read by the compose files, not by any binary
+
+⚙ `PODIUM_PG_PASSWORD`, and `PODIUM_IMAGE_TAG` — **pin it**, `latest` moves, and a control
+plane and a worker from different releases can disagree about the wire. `PODIUM_PORT`,
+`PODIUM_PG_PORT` and `PODIUM_S3_PORT` move a published port when something already owns it.
+
+`run-host.sh` and `install-node.sh` have a handful of their own, all documented at the bottom
+of `.env.example`. The installer's are deliberately **not** the daemon's names — it takes
+`PODIUM_LABELS` and writes `labels:` into `/etc/podium/node.yaml`, which the daemon then
+reads as `PODIUM_NODE_LABELS`.
+
+---
+
 ## From a clone, with no release
 
 No images are published yet, so this is the path that works today. It needs Docker for the
 dependencies and Go for the binaries, and nothing outside the repo.
 
 ```sh
-make build                                                        # bin/podium-{server,agent,node,podium}
+make build                                             # bin/podium-{server,agent,node,podium}
 docker compose -f deploy/docker-compose.dev.yml \
-  --profile memory --profile artifacts up -d --wait               # Postgres, Hindsight, object store
-./bin/podium-server init --dir deploy                             # master.key + deploy/.env, mode 0600
-make stack-up                                                     # server, then conductor, then node
+  --profile memory --profile artifacts up -d --wait    # Postgres, Hindsight, object store
+./bin/podium-server init --dir deploy                  # master.key + deploy/.env, mode 0600
+set -a; . deploy/.env; set +a                          # the same file configures your CLI
+
+make stack-up                                          # server, then conductor, then node
+echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
+make stack-up S=node                                   # once the worker has a token to enrol with
 make stack-status
 ```
 
-`make stack-down` stops them. Logs and pids are under `.podium/`, which is gitignored.
+`init` fills in everything the stack needs except the enrollment token, which only a running
+control plane can mint and which is single-use. `make stack-down` stops everything, and
+`S=` names one service to act on. Logs and pids are under `.podium/`, which is gitignored.
 
 `run-host.sh` reads the same `deploy/.env` the compose files read — the one `init` writes,
 holding `PODIUM_PG_PASSWORD` rather than a whole `PODIUM_DATABASE_URL` — and does the
@@ -104,7 +186,7 @@ podium-server init             # writes master.key and a .env with fresh credent
 docker compose up -d --wait    # postgres, objectstore, server
 ```
 
-`init` generates the AES-256 master key, the Postgres password, the dev token and the
+`init` generates the AES-256 master key, the Postgres password, the local transport's token and the
 object-store secret, and writes `.env` mode 0600. **Back `master.key` up somewhere that is not
 this machine** — there is no recovery path, and losing it loses every secret encrypted under it.
 
