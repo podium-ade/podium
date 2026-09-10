@@ -28,7 +28,11 @@ function Shell() {
       <Header />
       <main
         className={cn(
-          "min-w-0 flex-1",
+          // relative because a scrolling pane has to be a containing block. Radix renders a
+          // hidden absolutely-positioned input beside every Switch and Checkbox inside a form;
+          // with nothing positioned above it that input hangs off the initial containing block,
+          // escapes the pane's overflow and stretches the document instead of the pane.
+          "relative min-w-0 flex-1",
           agent ? "overflow-hidden" : "overflow-y-auto px-6 py-7 lg:px-8",
         )}
       >
