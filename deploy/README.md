@@ -231,53 +231,6 @@ the Tailscale admin console and Podium cannot do any of them for you:
 A Tailscale auth key and a Podium enrollment token are different things and everyone confuses
 them. A new worker needs both.
 
----
-
-## Things that will surprise you
-
-**`docker compose config` needs the variables to exist.** Several are declared `${VAR:?message}`
-so compose fails loudly rather than starting with an empty password. Compose reads `.env` from
-the directory it runs in, so after `podium-server init` it just works; before that, supply them
-on the command line.
-
-**The Podium services have no healthcheck.** Their images are distroless: no shell, no `curl`,
-nothing a compose healthcheck can exec. `/healthz` and `/readyz` are served for an external
-prober — point your monitoring at `http://127.0.0.1:8080/readyz`, which is 503 while Postgres or
-the object store is unreachable. `docker compose up -d --wait` therefore waits for `postgres` and
-`objectstore` to be healthy and for the rest to be *running*.
-
-**`PODIUM_LOCAL_LISTEN` is `0.0.0.0:8080` inside the container, and that needs a waiver.** Inside
-a container loopback is the container's own, so nothing — not even this compose network — could
-reach a server bound to it. The local transport refuses a non-loopback address by itself, because
-one static token is the only credential it has, so the compose file also sets
-`PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN=true` to say that this address is reachable only from inside a
-container. The server logs a warning naming that variable every time it starts.
-
-Nothing in the process can tell a container's `0.0.0.0` from a public interface on a host, which
-is why the operator declares it rather than the code guessing. **Never set that variable on a
-host**, and do not publish 8080 on `0.0.0.0`: the boundary is the published port, which is
-`127.0.0.1:${PODIUM_PORT:-8080}`.
-
-**The object store publishes no port at all.** The server reaches it over the compose network,
-and its web console is disabled outright — RustFS is pre-1.0 and its console is where the
-stored-XSS advisories were. Publish 9000 on loopback only if you want `podium artifact get
---via-server=false` from your laptop; browse the bucket with any S3 client against the API.
-
-**The node service mounts the Docker socket, which is root on the host.** A node is a machine you
-are willing to let arbitrary containers run on. Read
-[`../docs/security.md`](../docs/security.md) before you put one anywhere that matters.
-
-**Pin `PODIUM_IMAGE_TAG`.** It defaults to `latest`, which moves. A control plane and its
-workers from different releases can disagree about the wire, and `podium version` will tell you
-so after the fact.
-
-**Volumes are not caches.** `objectstore-data` holds the only copy of a finished task's log once its
-chunks have been pruned out of Postgres. `node-state` holds a node key the server issued once
-and cannot reissue. `server-state` holds the Tailscale device identity. See
-[`../docs/storage.md`](../docs/storage.md).
-
----
-
 ## The node installer
 
 `install-node.sh` is meant to be piped into `bash` as root. It:
