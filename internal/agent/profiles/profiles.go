@@ -466,9 +466,9 @@ var releaseVersion = regexp.MustCompile(`^\d+\.\d+\.\d+`)
 // published alongside THIS build, so a conductor and its runtime are a matched pair by
 // construction rather than by whoever last edited a tag into a YAML file.
 //
-// This is why no playbook in the tree names an image any more. `latest` would drift out from
-// under a pinned conductor, and a hard-coded version has to be edited every release — which
-// is a promise to remember something, and those are the ones that rot.
+// It is why the playbooks Podium ships name no image. `latest` drifts out from under a pinned
+// conductor, and a hard-coded version has to be edited every release — a promise to remember
+// something, and those are the ones that rot.
 func DefaultRuntimeImage() string {
 	if releaseVersion.MatchString(version.Version) {
 		return RuntimeImageRepo + ":" + version.Version
