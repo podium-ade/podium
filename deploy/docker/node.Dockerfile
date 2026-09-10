@@ -14,7 +14,15 @@
 # to be copied in for tasks to run.
 FROM gcr.io/distroless/static-debian12:latest@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
 
-COPY podium-node /usr/local/bin/podium-node
+# goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
+# binaries at the same path: the build context holds linux/amd64/<binary> and
+# linux/arm64/<binary>, and $TARGETPLATFORM is how a single Dockerfile picks its own. buildx
+# sets it per platform; the ARG only has to be declared to be usable.
+#
+# This is also why a hand-rolled `docker build` needs the same layout — a flat context fails
+# here with `"/<binary>": not found`. See ../../docs/quickstart.md#building-the-images-yourself.
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/podium-node /usr/local/bin/podium-node
 
 # identity.json (the node key, issued once and never reissued), each task's state and the
 # node's own tsnet state live here. Mount a volume: losing it means a new enrollment token.

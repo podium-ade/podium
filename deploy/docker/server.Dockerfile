@@ -11,7 +11,15 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 
 # The web UI is compiled into the binary (go:embed of web/dist), so there is nothing to serve
 # from disk and no second stage to build it.
-COPY podium-server /usr/local/bin/podium-server
+# goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
+# binaries at the same path: the build context holds linux/amd64/<binary> and
+# linux/arm64/<binary>, and $TARGETPLATFORM is how a single Dockerfile picks its own. buildx
+# sets it per platform; the ARG only has to be declared to be usable.
+#
+# This is also why a hand-rolled `docker build` needs the same layout — a flat context fails
+# here with `"/<binary>": not found`. See ../../docs/quickstart.md#building-the-images-yourself.
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/podium-server /usr/local/bin/podium-server
 
 # Unprivileged, unlike the node: the control plane touches Postgres, an object store and a
 # network socket, and none of that wants root. 65532 is distroless's nonroot user.
