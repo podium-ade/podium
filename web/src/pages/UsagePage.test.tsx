@@ -25,8 +25,8 @@ vi.mock("../lib/client", async () => {
 });
 
 const VIEWER: Viewer = {
-  login: "alvaro@example.com",
-  displayName: "Alvaro",
+  login: "user@example.com",
+  displayName: "Example User",
   kind: IdentityKind.USER,
   agentEnabled: true,
   serverVersion: "v0",
@@ -88,7 +88,7 @@ const plainTask = {
   createdAt: timestampFromDate(today),
   startedAt: timestampFromDate(today),
   finishedAt: timestampFromDate(new Date(today.getTime() + 12_000)),
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "",
   usage: { cpuSeconds: 0.4, peakMemoryMb: 12n, wallMs: 12_000n },

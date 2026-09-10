@@ -32,7 +32,7 @@ const running = {
   attempts: 1,
   createdAt: ago(400),
   startedAt: ago(390),
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "",
 };
@@ -44,7 +44,7 @@ const queued = {
   nodeId: "",
   attempts: 0,
   createdAt: ago(90),
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "no online node carries the label gpu",
   lastScheduleAttemptAt: ago(12),
@@ -60,7 +60,7 @@ const succeeded = {
   startedAt: ago(1880),
   finishedAt: ago(1876),
   exitCode: 0,
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "",
 };

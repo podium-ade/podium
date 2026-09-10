@@ -87,8 +87,9 @@ docker run -d --name podium-node --restart unless-stopped \
   ghcr.io/podium-ade/podium-node:v0.1.0
 ```
 
-> **Unverified.** The `node` profile beside a control plane has been run end to end; this
-> standalone form, and a containerised node on a tailnet, have not.
+> **Unverified.** A containerised node on a tailnet is not a tested path; the `node` profile
+> beside a control plane is. If you are standing up a dedicated worker, prefer the binary
+> below.
 
 **As a binary** is what [`install-node.sh`](../deploy/install-node.sh) installs and what the
 rest of this document describes. It is the better answer for a dedicated worker: it verifies

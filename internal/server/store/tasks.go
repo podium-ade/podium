@@ -255,7 +255,7 @@ func applyCancelIntent(row db.Task, to Status, from []Status, patch Patch) (Stat
 		want = StatusCancelled
 	}
 	// The intent's reason wins over whatever the event implied. A task that was both
-	// cancelled and OOM-killed is better explained by "cancelled by alvaro" than by "oom":
+	// cancelled and OOM-killed is better explained by "cancelled by user" than by "oom":
 	// somebody asked for it to stop, and that is the thing that happened first.
 	if row.CancelReason != nil && *row.CancelReason != "" {
 		reason := *row.CancelReason

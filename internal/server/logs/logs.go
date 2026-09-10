@@ -222,7 +222,7 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 			// operator nothing. The container's exit state does, so say so.
 			//
 			// A task that was also cancelled or timed out loses this reason to the
-			// durable intent, which TransitionTask applies: "cancelled by alvaro" is a
+			// durable intent, which TransitionTask applies: "cancelled by user" is a
 			// better answer than "oom" for a task somebody stopped.
 			reason := FailureReasonOOM
 			patch.FailureReason = &reason

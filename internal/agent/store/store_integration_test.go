@@ -293,9 +293,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 	var got providerKey
 	require.ErrorIs(t, s.GetSetting(ctx, "provider_key", &got), ErrNotFound)
 
-	require.NoError(t, s.PutSetting(ctx, "provider_key", providerKey{Provider: "anthropic", SetBy: "alvaro"}))
+	require.NoError(t, s.PutSetting(ctx, "provider_key", providerKey{Provider: "anthropic", SetBy: "user"}))
 	require.NoError(t, s.GetSetting(ctx, "provider_key", &got))
-	assert.Equal(t, providerKey{Provider: "anthropic", SetBy: "alvaro"}, got)
+	assert.Equal(t, providerKey{Provider: "anthropic", SetBy: "user"}, got)
 
 	require.NoError(t, s.PutSetting(ctx, "provider_key", providerKey{Provider: "anthropic", SetBy: "sam"}))
 	require.NoError(t, s.GetSetting(ctx, "provider_key", &got))
