@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/chat"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1/agentv1connect"
+	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
 
 // chatToken is the bearer podium-server would present. A test fixture, not a secret.

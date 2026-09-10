@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/mcp"
 )
 
 // OAuth for an MCP server: discovery, dynamic client registration, and the authorization

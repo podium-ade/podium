@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // fakeMemory is the shared memory as these handlers see it: what it was asked, what it

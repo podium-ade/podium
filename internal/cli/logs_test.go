@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 func chunk(stream podiumv1.LogChunk_Stream, sidecar, text string) *podiumv1.TaskEvent {

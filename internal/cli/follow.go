@@ -12,8 +12,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
 // followGrace is how long the CLI keeps reconnecting to StreamTaskEvents once it can no

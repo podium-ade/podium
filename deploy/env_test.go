@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	yaml "go.yaml.in/yaml/v3"
 
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/transport/local"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/transport/local"
 )
 
 // notConfiguration is every PODIUM_* name that appears in the source and is deliberately

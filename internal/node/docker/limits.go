@@ -3,7 +3,7 @@ package docker
 import (
 	"github.com/docker/docker/api/types/container"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // The task container's sandbox, applied to every run and not configurable by a spec.

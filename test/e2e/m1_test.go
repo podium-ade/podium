@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/node/docker"
 )
 
 // TestM1Acceptance is the MVP-0 acceptance script, run against real everything: the CLI

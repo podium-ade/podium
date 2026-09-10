@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // DefaultListen is the address PODIUM_LOCAL_LISTEN falls back to.

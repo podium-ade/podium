@@ -13,9 +13,9 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // ArtifactDownloadPrefix is the HTTP path the server proxies artifact bytes on. It is not

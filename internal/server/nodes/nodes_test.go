@@ -30,11 +30,11 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/logs"
-	"github.com/alvaroibarguen/podium/internal/server/secrets"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/logs"
+	"github.com/podium-ade/podium/internal/server/secrets"
 )
 
 // devToken is the shared bearer token every client in this package presents. It is a test

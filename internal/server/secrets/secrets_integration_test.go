@@ -21,8 +21,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 var (

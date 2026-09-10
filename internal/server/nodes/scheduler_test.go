@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/api"
-	"github.com/alvaroibarguen/podium/internal/server/scheduler"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/api"
+	"github.com/podium-ade/podium/internal/server/scheduler"
 )
 
 // fastTiming is what PODIUM_TEST_FAST_TIMERS=1 gives the server these tests run against.

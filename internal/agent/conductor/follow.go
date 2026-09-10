@@ -8,8 +8,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
 // followGrace is how long a follow keeps reconnecting once it can no longer hold the

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
 // MaxUsageRange is the widest window Usage will read. A year of turns is already more than

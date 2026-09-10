@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // fileProfile is the half of the profile that lives on the conductor's host: one playbook,

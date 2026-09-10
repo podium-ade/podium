@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // The session's slot arithmetic, which is what the scheduler reads. It has two inputs that

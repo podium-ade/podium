@@ -19,10 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1/agentv1connect"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts/fakes3"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/artifacts/fakes3"
 )
 
 // copyExampleProfile copies examples/agent into a temporary directory so a test can add or

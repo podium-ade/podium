@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/skills"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // skillsDir is the other half of this deployment: PODIUM_AGENT_SKILLS_DIR points here, and a

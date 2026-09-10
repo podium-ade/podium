@@ -30,12 +30,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/api"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor/fakesource"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1/agentv1connect"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/agent/api"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // The fake runtime's delegation knobs. Not PODIUM_*, for the reason host_integration_test.go

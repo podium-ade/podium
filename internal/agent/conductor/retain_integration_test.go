@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor/fakesource"
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // memoryTaskURL is where a task container would reach the memory service. Nothing dials it

@@ -40,10 +40,10 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/logs"
-	"github.com/alvaroibarguen/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/logs"
+	"github.com/podium-ade/podium/internal/server/secrets"
 )
 
 // devToken is the shared bearer token every process in this package presents. It is a test

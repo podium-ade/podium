@@ -12,7 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // AgentLoginHeader is what the proxy tells the conductor about the human on the other end.

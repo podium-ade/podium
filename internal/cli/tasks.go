@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 func newTasksCommand(e *env) *cobra.Command {

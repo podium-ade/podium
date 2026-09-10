@@ -984,9 +984,9 @@ const file_podium_v1_admin_proto_rawDesc = "" +
 	"\fSetNodeSlots\x12\x1e.podium.v1.SetNodeSlotsRequest\x1a\x1f.podium.v1.SetNodeSlotsResponse\x12R\n" +
 	"\rSetNodeLabels\x12\x1f.podium.v1.SetNodeLabelsRequest\x1a .podium.v1.SetNodeLabelsResponse\x12I\n" +
 	"\n" +
-	"DeleteNode\x12\x1c.podium.v1.DeleteNodeRequest\x1a\x1d.podium.v1.DeleteNodeResponseB\xa4\x01\n" +
+	"DeleteNode\x12\x1c.podium.v1.DeleteNodeRequest\x1a\x1d.podium.v1.DeleteNodeResponseB\xa0\x01\n" +
 	"\rcom.podium.v1B\n" +
-	"AdminProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"AdminProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

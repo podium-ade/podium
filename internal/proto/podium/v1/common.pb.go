@@ -864,8 +864,8 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\x12NODE_STATUS_ONLINE\x10\x01\x12\x1b\n" +
 	"\x17NODE_STATUS_UNREACHABLE\x10\x02\x12\x17\n" +
 	"\x13NODE_STATUS_OFFLINE\x10\x03\x12\x18\n" +
-	"\x14NODE_STATUS_DRAINING\x10\x04B\xa5\x01\n" +
-	"\rcom.podium.v1B\vCommonProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x14NODE_STATUS_DRAINING\x10\x04B\xa1\x01\n" +
+	"\rcom.podium.v1B\vCommonProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

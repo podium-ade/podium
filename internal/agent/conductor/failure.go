@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // runtimeExitMaxTurns is the agent runtime's exit code for "I ran out of turns" (step 16).

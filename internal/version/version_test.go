@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/version"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 func TestStringDefaults(t *testing.T) {

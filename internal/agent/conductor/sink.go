@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/podium"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/agent/podium"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 type sink struct {

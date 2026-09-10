@@ -8,7 +8,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/alvaroibarguen/podium/web"
+	"github.com/podium-ade/podium/web"
 )
 
 // contentSecurityPolicy is deliberately narrow: the bundle is self-contained, Tailwind is

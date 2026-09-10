@@ -9,8 +9,8 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // RollupConfig is the log roll-up schedule.

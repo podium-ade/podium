@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // TestATaskResolvesTheHostByName is the node half of the shared memory: a turn's container

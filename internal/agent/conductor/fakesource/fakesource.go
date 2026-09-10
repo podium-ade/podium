@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
 // Record is one thing the conductor did.

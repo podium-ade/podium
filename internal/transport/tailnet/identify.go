@@ -10,7 +10,7 @@ import (
 
 	"tailscale.com/client/tailscale/apitype"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // upsertTimeout bounds the one database write Identify can make. It is off the request's own

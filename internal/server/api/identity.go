@@ -6,9 +6,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/transport"
-	"github.com/alvaroibarguen/podium/internal/version"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 // IdentityService implements podium.v1.IdentityService. It reads nothing and writes nothing: the

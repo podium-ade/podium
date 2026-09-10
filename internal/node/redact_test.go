@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 func resolved(name, value string) *podiumv1.ResolvedSecret {

@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/alvaroibarguen/podium/internal/proto
+      value: github.com/podium-ade/podium/internal/proto
 plugins:
   - local: protoc-gen-go
     out: internal/proto

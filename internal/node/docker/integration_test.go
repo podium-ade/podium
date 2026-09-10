@@ -22,8 +22,8 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 const testImage = "alpine:3"

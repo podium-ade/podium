@@ -19,7 +19,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/pkg/stdcopy"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 const (

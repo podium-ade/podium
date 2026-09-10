@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 func TestNewRefusesNonLoopbackListenAddress(t *testing.T) {

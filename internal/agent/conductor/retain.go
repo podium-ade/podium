@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // retainTimeout bounds one retain. Hindsight hands extraction to its own worker and answers

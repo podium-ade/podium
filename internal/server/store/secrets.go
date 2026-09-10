@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // Secret is one row of the secrets table. Ciphertext and Nonce are AES-256-GCM output;

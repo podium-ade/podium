@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // ErrDisabled is returned by every call when no object store is configured. It is not a

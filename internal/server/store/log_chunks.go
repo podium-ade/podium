@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // AppendLogChunks writes a batch of log chunks and returns the task's log high-water mark.

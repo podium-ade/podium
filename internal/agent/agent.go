@@ -19,17 +19,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/alvaroibarguen/podium/internal/agent/api"
-	"github.com/alvaroibarguen/podium/internal/agent/chat"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/config"
-	agentlinear "github.com/alvaroibarguen/podium/internal/agent/linear"
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	"github.com/alvaroibarguen/podium/internal/agent/podium"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	agentslack "github.com/alvaroibarguen/podium/internal/agent/slack"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1/agentv1connect"
+	"github.com/podium-ade/podium/internal/agent/api"
+	"github.com/podium-ade/podium/internal/agent/chat"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/config"
+	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/podium"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	agentslack "github.com/podium-ade/podium/internal/agent/slack"
+	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
 
 // ShutdownTimeout is how long Run gives in-flight work to finish after a signal.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // Audit actions written by the control plane. They are the strings that end up in

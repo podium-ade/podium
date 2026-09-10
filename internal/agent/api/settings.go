@@ -13,10 +13,10 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // The providers this control plane knows. A provider is a set of credentials and an

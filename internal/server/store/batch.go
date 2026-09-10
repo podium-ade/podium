@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // AppendBatch writes one node event batch — the non-log events and the log chunks it contains —

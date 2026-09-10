@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/server/secrets"
 )
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

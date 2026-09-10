@@ -3,9 +3,9 @@ package cli
 import (
 	"net/http"
 
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/local"
-	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/transport/local"
+	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
 // clients bundles the server-side services the CLI uses. The CLI only makes unary and

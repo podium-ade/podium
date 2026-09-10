@@ -36,7 +36,7 @@ import (
 	"github.com/johannesboyne/gofakes3"
 	"github.com/johannesboyne/gofakes3/backend/s3mem"
 
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/artifacts"
 )
 
 // Credentials the fake accepts. They are obvious fixtures, not secrets.

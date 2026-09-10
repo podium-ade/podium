@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
+	"github.com/podium-ade/podium/internal/agent/skills"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
 // The conductor's half of the skill library: the bundles somebody uploaded through the API.

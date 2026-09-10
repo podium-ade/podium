@@ -16,7 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // One Postgres 16 container for the whole package; every test gets its own database inside it.

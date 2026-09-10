@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/linear"
+	"github.com/podium-ade/podium/internal/agent/linear"
 )
 
 // githubTokenSecret is the conventional name for a repository credential, and the only
