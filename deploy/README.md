@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is five containers; the `cli`, `node` and `memory` compose profiles add the CLI as a one-shot, a worker on this machine, and the agents' shared memory |
+| `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is the whole control plane, the conductor and the agents' shared memory; the `cli` and `node` compose profiles add the CLI as a one-shot and a worker on this machine |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
@@ -145,11 +145,18 @@ docker compose up -d --wait
 open http://127.0.0.1:8080          # the token is `podium`
 ```
 
-Five containers: Postgres, the object store, a one-shot that generates the master key into the
-`server-state` volume, the control plane, and the conductor. Three things that used to need a
-file on disk no longer do — the Postgres bootstrap script is inline in the compose file, the
-conductor's profile directory ships in its image, and the master key is generated rather than
-carried.
+Six containers: Postgres, the agents' shared memory, the object store, a one-shot that
+generates the master key into the `server-state` volume, the control plane, and the conductor.
+Three things that used to need a file on disk no longer do — the Postgres bootstrap script is
+inline in the compose file, the conductor's profile directory ships in its image, and the
+master key is generated rather than carried.
+
+Hindsight wants an LLM key of its own for fact extraction (`PODIUM_MEMORY_LLM_API_KEY`) and
+exits at boot without one, so it is the single container that will be restarting after a bare
+`up`. Nothing else depends on it. The key can be from
+[any of its ~25 providers](https://hindsight.vectorize.io/developer/models) — set
+`PODIUM_MEMORY_LLM_PROVIDER` and `PODIUM_MEMORY_LLM_MODEL` to match; a local `ollama` keeps
+extraction off the network.
 
 **It ships default credentials**, which is the trade that makes that one command possible.
 `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY` and `PODIUM_AGENT_TOKEN` are reachable only from
@@ -178,7 +185,7 @@ Three things stay behind a compose profile:
 |---|---|
 | `cli` | the `podium` CLI as a one-shot. `docker compose run` turns it on by itself: `docker compose run --rm cli nodes`. A `--spec` has to be mounted where the container can see it |
 | `node` | a worker on **this** machine. Needs a `PODIUM_NODE_ENROLL_TOKEN` in `.env` first, and mounts the host's Docker socket — root-equivalent on that host |
-| `memory` | Hindsight, the agents' shared memory. Behind a profile because it exits at boot without an Anthropic key of its own for fact extraction, which no compose file can default. Needs `PODIUM_MEMORY_LLM_API_KEY` and `PODIUM_AGENT_MEMORY_URL` |
+
 
 Then a worker, on this machine:
 
