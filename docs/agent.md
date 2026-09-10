@@ -1932,7 +1932,7 @@ by tag **and** digest. Notes an operator needs:
   through the Docker bridge gateway and a service on `127.0.0.1` is not reachable from there.
   Firewall it down to the bridge and tailnet ranges — see
   [`networking.md`](networking.md#reaching-the-shared-memory-from-a-worker).
-- **Its own Anthropic key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
+- **Its own LLM key**, `PODIUM_MEMORY_LLM_API_KEY`, read at container start, so it comes
   from `.env` rather than from the web UI's secret store. It may be the same key the agents use,
   and its calls are billed like any other. `PODIUM_MEMORY_LLM_MODEL` chooses the model: this is
   background work over short prose, so a cheaper model is a reasonable choice.

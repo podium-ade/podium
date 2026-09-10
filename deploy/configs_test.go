@@ -3,6 +3,7 @@ package deploy
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,4 +60,27 @@ func TestTheSingleFileNeedsNoConfiguration(t *testing.T) {
 	require.Empty(t, names,
 		"docker-compose.yml interpolates %v with `:?`, so `docker compose up` fails until an "+
 			"operator sets them. Give each a default instead.", names)
+}
+
+// README.md carries the compose file verbatim, so that the front page shows the whole
+// deployment rather than describing it. Two copies of anything drift, so this is the test
+// that says so: the fenced block between the BEGIN/END markers must be the file itself.
+func TestReadmeEmbedsTheComposeFileVerbatim(t *testing.T) {
+	want, err := os.ReadFile("docker-compose.yml")
+	require.NoError(t, err)
+
+	readme, err := os.ReadFile("../README.md")
+	require.NoError(t, err)
+
+	const begin = "<!-- BEGIN deploy/docker-compose.yml -->\n```yaml\n"
+	const end = "```\n<!-- END deploy/docker-compose.yml -->"
+	i := strings.Index(string(readme), begin)
+	require.GreaterOrEqual(t, i, 0, "README.md has no BEGIN marker for the compose file")
+	rest := string(readme)[i+len(begin):]
+	j := strings.Index(rest, end)
+	require.GreaterOrEqual(t, j, 0, "README.md has no END marker for the compose file")
+
+	require.Equal(t, string(want), rest[:j],
+		"README.md's embedded compose file and deploy/docker-compose.yml have drifted. Copy "+
+			"the file into the fenced block between the markers; do not edit the README copy.")
 }

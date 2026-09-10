@@ -70,9 +70,13 @@ docker compose up -d --wait
  Container podium-agent-1        Healthy
 ```
 
-Five containers: Postgres, the object store, the one-shot that made the master key, the
-control plane, and the conductor. `--wait` matters — a bare port probe races the server's
-first connection.
+Six containers: Postgres, the agents' shared memory, the object store, the one-shot that made
+the master key, the control plane, and the conductor. `--wait` matters — a bare port probe
+races the server's first connection.
+
+Hindsight is the exception, and `--wait` will say so: it exits without an LLM key of its own
+and keeps restarting until you give it one. Everything else is up and working meanwhile — see
+[the agent layer](#the-agent-layer).
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/readyz    # 200
@@ -279,16 +283,30 @@ Two things the conductor does not have out of the box, both credentials:
 **A model key.** A turn needs an Anthropic key, set on the UI's Agent screen rather than in
 `.env` — that way it lands in the encrypted secret store instead of in `docker inspect`.
 
-**Shared memory.** Hindsight is behind the `memory` compose profile, and not by preference: it
-exits at boot without an Anthropic key of its own for fact extraction, and a paid third-party
-credential is the one thing a compose file cannot default. Without it the conductor runs with
-no memory, which is a supported configuration — briefs carry no memory block and nothing is
-retained.
+**Shared memory.** Hindsight came up in step 2 too — or rather it tried. It wants an LLM key of
+its own for fact extraction and exits at boot without one, so until you set it that is the one
+container in `docker compose ps` that keeps restarting. Nothing else depends on it, and the
+conductor runs with no memory quite happily: briefs carry no memory block and nothing is
+retained. One line:
 
 ```sh
-printf 'PODIUM_MEMORY_LLM_API_KEY=sk-ant-...\nPODIUM_AGENT_MEMORY_URL=http://hindsight:8888\n' >> .env
-docker compose --profile memory up -d --wait
+echo 'PODIUM_MEMORY_LLM_API_KEY=...' >> .env
+docker compose up -d
 ```
+
+**The key does not have to be Anthropic's.** Hindsight puts LiteLLM underneath and takes
+[any of ~25 providers](https://hindsight.vectorize.io/developer/models): OpenAI, Gemini, Groq,
+Bedrock, Vertex AI, DeepSeek, a gateway, an existing ChatGPT or Claude subscription, or a local
+`ollama` / `lmstudio` / `llamacpp` — which keeps fact extraction off the network altogether.
+Set the provider and a matching model beside the key:
+
+```sh
+printf 'PODIUM_MEMORY_LLM_PROVIDER=ollama\nPODIUM_MEMORY_LLM_MODEL=llama3.1\n' >> .env
+```
+
+The defaults are `anthropic` and `claude-opus-5`. Its
+[configuration reference](https://hindsight.vectorize.io/developer/configuration) is the
+authority on which variables each provider wants.
 
 Read this before you turn it on, because it is the one place the defaults are deliberately
 inconvenient: **Hindsight has no authentication beyond `PODIUM_AGENT_MEMORY_API_KEY`**, which
@@ -342,7 +360,7 @@ docker compose cp server:/var/lib/podium/master.key ./master.key
 ```
 
 ```sh
-docker compose --profile node --profile cli --profile memory down -v
+docker compose --profile node --profile cli down -v
 ```
 
 `-v` takes the Postgres, object-store and server volumes with it — including the master key the
