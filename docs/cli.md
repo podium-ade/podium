@@ -233,6 +233,26 @@ node accepts no more until enough have.
 Both numbers stay visible, because they answer different questions: `podium nodes` shows the
 count in force, and the node's own `max_tasks` is what it goes back to.
 
+### `podium node label NODE --add L [--remove L]`
+
+What the node is eligible for. A task whose spec lists `labels: [browser]` only ever goes to
+a node advertising `browser`, and labels are otherwise set once, at enrollment.
+
+```sh
+podium node label worker-3 --add monorepo               # tag it
+podium node label worker-3 --add gpu --add cuda/12      # repeatable
+podium node label worker-3 --remove browser             # untag it
+```
+
+Labels are added and removed rather than replaced, so two operators tagging different things
+cannot clobber each other; a label named in both `--add` and `--remove` ends up removed. The
+result is sorted and deduplicated, and printed, which is the same shape enrollment produces.
+
+A node that is connected is retagged immediately — the scheduler routes on the new set from
+its next tick, with no reconnect and no restart. A node that is offline is relabelled just the
+same: the change is on its row, and the next stream reads it. Nothing is taken away from a
+task that is already running.
+
 ### `podium node rm NODE [--force]`
 
 Forgets a node. It is refused while the node holds a live stream and has not been drained,

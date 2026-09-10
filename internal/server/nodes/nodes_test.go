@@ -680,6 +680,88 @@ func TestLabelRoutingAndUnschedulableTasks(t *testing.T) {
 		"a task no node can satisfy stays queued")
 }
 
+// Relabelling a node that is connected right now. The live session carries its own copy of
+// the labels, read off the row when the stream opened, so the interesting assertion is that a
+// task requiring the new label lands without the node reconnecting — that was the whole gap:
+// tagging a worker meant editing nodes.labels by hand and restarting the daemon.
+func TestSetNodeLabelsRetagsAConnectedNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-relabel", []string{"privileged", "linux/amd64"})
+	node.open(ctx)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+
+	pinned := h.createTask([]string{"privileged", "monorepo"}, "true")
+	node.expectNoAssign(2 * time.Second)
+
+	res, err := h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{
+		NodeId: node.id,
+		// The duplicate and the out-of-order pair are the point: the stored set is sorted
+		// and deduplicated however it was asked for.
+		Add: []string{"monorepo", "monorepo", "browser"},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, []string{"browser", "linux/amd64", "monorepo", "privileged"}, res.Msg.GetNode().GetLabels())
+	require.Equal(t, res.Msg.GetNode().GetLabels(), h.node(node.id).GetLabels())
+
+	assign := node.awaitAssign(assignTimeout)
+	require.Equal(t, pinned.GetId(), assign.GetTaskId(), "the live session matches on the new set")
+
+	off, err := h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{
+		NodeId: node.id,
+		Add:    []string{"gpu"},
+		Remove: []string{"browser", "linux/amd64"},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpu", "monorepo", "privileged"}, off.Msg.GetNode().GetLabels())
+
+	stuck := h.createTask([]string{"browser"}, "true")
+	node.expectNoAssign(4 * time.Second)
+	require.Equal(t, podiumv1.TaskStatus_TASK_STATUS_QUEUED, h.getTask(stuck.GetId()).GetStatus(),
+		"a label that was taken off stops routing work")
+
+	_, err = h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{
+		NodeId: "node_nope", Add: []string{"monorepo"},
+	}))
+	require.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+
+	_, err = h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{NodeId: node.id}))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	_, err = h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{
+		NodeId: node.id, Add: []string{"  "},
+	}))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+// A node that is offline is still relabelled: the row is what the next stream reads.
+func TestSetNodeLabelsOnADisconnectedNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := newHarness(t)
+	node := enrollNode(t, h, "node-offline-relabel", []string{"linux/amd64"})
+
+	res, err := h.admin.SetNodeLabels(ctx, connect.NewRequest(&podiumv1.SetNodeLabelsRequest{
+		NodeId: node.id, Add: []string{"monorepo"},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, []string{"linux/amd64", "monorepo"}, res.Msg.GetNode().GetLabels())
+
+	// Hello re-advertises the labels the node was configured with, and they must not undo
+	// the operator's change.
+	node.open(ctx)
+	defer node.disconnect()
+	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
+	require.Equal(t, []string{"linux/amd64", "monorepo"}, h.node(node.id).GetLabels())
+
+	task := h.createTask([]string{"monorepo"}, "true")
+	require.Equal(t, task.GetId(), node.awaitAssign(assignTimeout).GetTaskId())
+}
+
 // TestDisconnectMarksUnreachableAndReconnectMarksOnline covers the session lifecycle the node
 // daemon depends on for its reconnect loop.
 func TestDisconnectMarksUnreachableAndReconnectMarksOnline(t *testing.T) {

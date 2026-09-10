@@ -21,6 +21,10 @@ service NodeAdminService {
   // SetNodeSlots changes how many tasks a node runs at once, overriding the max_tasks in
   // its own configuration file.
   rpc SetNodeSlots(SetNodeSlotsRequest) returns (SetNodeSlotsResponse);
+  // SetNodeLabels changes what a node is eligible for after it has enrolled. Labels are
+  // added and removed rather than replaced, so two operators tagging different things
+  // cannot clobber each other.
+  rpc SetNodeLabels(SetNodeLabelsRequest) returns (SetNodeLabelsResponse);
   // DeleteNode forgets a node. It refuses a node that is still online and not drained.
   rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
 }
@@ -98,6 +102,19 @@ message SetNodeSlotsRequest {
 }
 
 message SetNodeSlotsResponse {
+  Node node = 1;
+}
+
+message SetNodeLabelsRequest {
+  string node_id = 1;
+  // add and remove are applied to the labels the node already has, in that order: a label
+  // named in both ends up removed. The result is sorted and deduplicated, exactly as
+  // enrollment produces it.
+  repeated string add = 2;
+  repeated string remove = 3;
+}
+
+message SetNodeLabelsResponse {
   Node node = 1;
 }
 
