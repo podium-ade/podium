@@ -70,8 +70,10 @@ docker compose up -d --wait
  Container podium-agent-1        Healthy
 ```
 
-Six containers: Postgres, the agents' shared memory, the object store, the one-shot that made
-the master key, the control plane, and the conductor. `--wait` matters — a bare port probe
+Six containers: Postgres, the agents' shared memory, the object store, the control plane, the
+conductor, and `init` — which is a **one-shot**, meaning it runs a single command and exits
+rather than staying up. It generated the master key, and the server waited for it to finish
+before starting. `--wait` matters — a bare port probe
 races the server's first connection.
 
 Hindsight is the exception, and `--wait` will say so: it exits without an LLM key of its own
@@ -124,8 +126,9 @@ echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env
 
 ## 3. The CLI, without installing it
 
-The `cli` profile is the CLI as a one-shot. `docker compose run` turns the profile on by
-itself, so there is nothing to pass:
+The `cli` profile is the CLI, and it is a **one-shot** rather than a daemon: the container
+runs a single command and exits, instead of staying up like the other five. `docker compose
+run` turns the profile on by itself, so there is nothing to pass:
 
 ```sh
 docker compose run --rm cli version
@@ -141,6 +144,12 @@ NAME   ID   STATUS   LABELS   RUNNING/MAX   HEARTBEAT
 
 Two lines from `version`, and a warning on the third if the CLI and the control plane are
 different builds. An empty node table is correct — nothing has enrolled yet.
+
+Each invocation is a **new container**: `run` creates one, it executes that command, exits
+with the command's own exit code, and `--rm` deletes it. Nothing persists in between, which
+explains three things that are otherwise puzzling — `run` rather than `exec` (there is no
+running container to exec into), a `--spec` having to be mounted (step 6), and why this is
+usable as a CI step at all.
 
 It reaches the server over the compose network, so it needs neither the published port nor the
 token on your shell: the compose file wires `PODIUM_SERVER` and the bearer from the same `.env`
