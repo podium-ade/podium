@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewRefusesNonLoopbackListenAddress(t *testing.T) {
-	for _, addr := range []string{"0.0.0.0:8080", ":8080", "192.168.1.10:8080", "[::]:8080", "example.com:8080"} {
+	for _, addr := range []string{"0.0.0.0:8080", ":8080", "192.0.2.10:8080", "[::]:8080", "example.com:8080"} {
 		t.Run(addr, func(t *testing.T) {
 			_, err := New(Options{Listen: addr, Token: "t"})
 			require.Error(t, err)

@@ -35,11 +35,11 @@ func TestWhoAmI(t *testing.T) {
 			name: "a node, with its tags",
 			id: transport.Identity{
 				Kind:     transport.KindNode,
-				Login:    "podiumbot1.taila79bf6.ts.net",
+				Login:    "podiumbot1.tail0a1b2c.ts.net",
 				NodeTags: []string{"tag:podium-node"},
 			},
 			want: &podiumv1.WhoAmIResponse{
-				Login: "podiumbot1.taila79bf6.ts.net",
+				Login: "podiumbot1.tail0a1b2c.ts.net",
 				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_NODE,
 				Tags:  []string{"tag:podium-node"},
 			},

@@ -31,7 +31,7 @@ func TestValidateRegistryHostNormalises(t *testing.T) {
 		"GHCR.IO":                     "ghcr.io",
 		"https://ghcr.io/":            "ghcr.io",
 		"registry-1.docker.io":        "docker.io",
-		" 192.168.1.100:5000 ":        "192.168.1.100:5000",
+		" 192.0.2.100:5000 ":          "192.0.2.100:5000",
 	} {
 		got, err := ValidateRegistryHost(in)
 		require.NoError(t, err, in)

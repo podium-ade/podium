@@ -64,7 +64,7 @@ func TestLoadConfigNeedsAToken(t *testing.T) {
 func TestLoadConfigNeedsNoTokenOverTheTailnet(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	cfg, err := LoadConfig("https://podium.taila79bf6.ts.net", "")
+	cfg, err := LoadConfig("https://podium.tail0a1b2c.ts.net", "")
 	require.NoError(t, err)
 	require.Empty(t, cfg.Token)
 	require.True(t, cfg.Tailnet())

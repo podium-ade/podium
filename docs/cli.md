@@ -25,7 +25,7 @@ The default server is `http://127.0.0.1:8080`.
 connection level, so there is nothing to present and none is asked for:
 
 ```sh
-podium --server https://podium.taila79bf6.ts.net nodes     # no --token
+podium --server https://podium.tail0a1b2c.ts.net nodes     # no --token
 ```
 
 The rule is the URL scheme: an `https://` server is a tailnet control plane and needs no token; a
@@ -495,14 +495,14 @@ With `--transport tailnet` the `.env` instead carries `PODIUM_TAILNET`, `TS_AUTH
 Tailscale prerequisites it can see:
 
 ```
-$ podium-server init --transport tailnet --tailnet taila79bf6
+$ podium-server init --transport tailnet --tailnet tail0a1b2c
 wrote ./master.key (mode 0600, key 3f2a1b0c)
 wrote ./.env (mode 0600)
 
 Back up ./master.key. Losing it loses every secret encrypted under it.
 
 Tailscale prerequisites:
-  [x] PODIUM_TAILNET=taila79bf6 — the server will be https://podium.taila79bf6.ts.net
+  [x] PODIUM_TAILNET=tail0a1b2c — the server will be https://podium.tail0a1b2c.ts.net
   [ ] TS_AUTHKEY is empty in .env. Generate two auth keys …
   [?] MagicDNS and HTTPS Certificates must both be ON for your tailnet …
   [?] Apply deploy/tailscale-acl.example.json to your Access Controls …
