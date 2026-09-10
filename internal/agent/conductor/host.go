@@ -77,6 +77,15 @@ const hostMaxLine = 64 * 1024
 // context of its own because the one it was cancelled with can no longer write anything.
 const hostRecordGrace = 5 * time.Second
 
+// hostDrainGrace is how long the event socket keeps accepting after the runtime has exited,
+// so a message the runtime sent but this process had not accepted yet is still read. See
+// hostLink.close, which is the whole explanation.
+//
+// It is short because it is not waiting for anything to be sent: the child is already gone,
+// and this only drains a queue it finished filling. A var so the test that hammers this can
+// shrink it; nothing else writes it.
+var hostDrainGrace = 100 * time.Millisecond
+
 // hostTools is every tool the assistant may use, and the only tool list in Podium that no
 // document can change.
 //
@@ -539,7 +548,7 @@ func hostJail(stateDir, turnID string) (hostPaths, error) {
 // It accepts more than one connection for the same reason the node's does: every
 // `podium-runner message` is a new process dialling in.
 type hostLink struct {
-	ln     net.Listener
+	ln     *net.UnixListener
 	events chan hostEvent
 	conns  sync.WaitGroup
 	once   sync.Once
@@ -576,7 +585,7 @@ type hostEvent struct {
 }
 
 func listenHost(sock string) (*hostLink, error) {
-	ln, err := net.Listen("unix", sock)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		return nil, err
 	}
@@ -585,8 +594,12 @@ func listenHost(sock string) (*hostLink, error) {
 	return l, nil
 }
 
+// serve accepts until close sets a deadline that expires with the queue empty. It owns the
+// listener's own Close, because the drain in close only works if nothing shuts the socket
+// from underneath it.
 func (l *hostLink) serve() {
 	defer func() {
+		_ = l.ln.Close()
 		l.conns.Wait()
 		close(l.events)
 	}()
@@ -623,8 +636,22 @@ func (l *hostLink) serve() {
 
 // close stops accepting. The events channel closes once the connections already open have
 // been drained, which is what ends the relay loop.
+// close stops the link, after draining whatever the runtime sent that this process has not
+// accepted yet.
+//
+// It sets a deadline rather than closing the listener, and that is the whole of it. A message
+// is one dial, one write and one close: `podium-runner message` returns as soon as the bytes
+// are in the socket buffer, not when this process has read them. The accounting is the LAST
+// thing a turn says and it is said microseconds before the runtime exits, so its connection
+// can still be sitting unaccepted in the listener's queue when cmd.Wait returns and this is
+// called — and closing the listener there discards it. The turn is then recorded with no
+// num_turns and no cost_usd, which is a hole in the accounting and, on a loaded machine, an
+// intermittent one.
+//
+// The child is gone by the time this runs, so nothing new can arrive and the wait is bounded
+// by what is already queued. It is paid once, after the answer has already been posted.
 func (l *hostLink) close() {
-	l.once.Do(func() { _ = l.ln.Close() })
+	l.once.Do(func() { _ = l.ln.SetDeadline(time.Now().Add(hostDrainGrace)) })
 }
 
 // registerHost records a host turn's cancel, so something outside the turn loop can stop it:

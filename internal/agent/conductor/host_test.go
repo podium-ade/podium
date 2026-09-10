@@ -2,6 +2,8 @@ package conductor
 
 import (
 	"encoding/base64"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,4 +232,71 @@ func TestTheAssistantsTurnIsBoundedByAClock(t *testing.T) {
 func TestAPlaybooksJobCarriesNoAssistantClock(t *testing.T) {
 	j := playbookJob(profiles.Playbook{Name: "coder", Timeout: spec.Duration(2 * time.Hour)})
 	assert.Zero(t, j.timeout)
+}
+
+// The accounting is the last thing a turn says, and it is said microseconds before the
+// runtime exits: one dial, one write, one close, and `podium-runner message` returns as soon
+// as the bytes are in the socket buffer rather than when this process has read them. So the
+// connection carrying it can still be sitting unaccepted in the listener's queue when the
+// child is reaped and the link is closed — and a listener that closes then discards it, which
+// is a turn recorded with no num_turns and no cost_usd.
+//
+// The loop is the test: the window is a scheduling one, so a single pass proves nothing. Two
+// hundred of them fail within a few iterations against a link that closes its listener
+// outright.
+func TestClosingTheLinkDeliversWhatTheRuntimeAlreadySent(t *testing.T) {
+	// The grace is what close waits out, and this test pays it two hundred times. Shrinking
+	// it keeps the run short without weakening the test: the drop this catches is a message
+	// discarded outright, which no grace at all would have saved.
+	restore := hostDrainGrace
+	hostDrainGrace = time.Millisecond
+	t.Cleanup(func() { hostDrainGrace = restore })
+
+	// Not t.TempDir(): on macOS that is already too deep for an AF_UNIX path, which is the
+	// same reason hostJail has a fallback.
+	dir, err := os.MkdirTemp("", "hl")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	for i := range 200 {
+		func() {
+			sock := filepath.Join(dir, fmt.Sprintf("%d.sock", i))
+			link, err := listenHost(sock)
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			say(t, sock, `{"v":1,"kind":"message","type":"accounting","text":"{}"}`)
+			// Exactly what the conductor does the moment cmd.Wait returns.
+			link.close()
+
+			var got []hostEvent
+			for ev := range link.events {
+				got = append(got, ev)
+			}
+			if len(got) != 1 {
+				t.Fatalf("iteration %d: the runtime's last message was dropped: got %d events, want 1", i, len(got))
+			}
+			if got[0].Type != "accounting" {
+				t.Fatalf("iteration %d: got type %q, want accounting", i, got[0].Type)
+			}
+		}()
+	}
+}
+
+// say is one `podium-runner message`: dial, write the line, close, and return without
+// waiting for anybody to read it.
+func say(t *testing.T, sock, line string) {
+	t.Helper()
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if _, err := conn.Write([]byte(line + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 }
