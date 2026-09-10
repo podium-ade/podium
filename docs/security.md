@@ -3,8 +3,8 @@
 What Podium protects, what it does not, and where the boundaries actually are. Read the trust
 model before you decide which machines run a node.
 
-**Podium is pre-alpha and has never had a security review.** Nothing here has been tested by
-anyone trying to break it. Treat the whole system as inside your perimeter, not as part of it.
+**Podium has never had a security review.** Nothing here has been tested by anyone trying to
+break it. Treat the whole system as inside your perimeter, not as part of it.
 
 ---
 
@@ -219,12 +219,12 @@ delete secrets and delete nodes.
   Said plainly: an attacker who can write a Linear comment on a ticket the bot is assigned, or
   post in a channel the bot is in, can attempt to make it commit code. Everything above makes
   that attempt visible and slow. None of it makes it impossible.
-- **The Linear API key is as sensitive as `PODIUM_DEV_TOKEN`.** It is a *personal* API key on a
+- **The Linear API key is as sensitive as `PODIUM_LOCAL_TOKEN`.** It is a *personal* API key on a
   user seat: full read and write of every issue, comment, project and document that user can
   see. Give the bot user access to only what it needs, the way you would a contractor. Podium
   never logs it and sends it in one header to one endpoint (`PODIUM_AGENT_LINEAR_URL`), and it
   is **never** injected into a task container — a turn cannot read the bot's Linear account.
-- **The Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`.** The `xoxb-` bot token can read and
+- **The Slack tokens are as sensitive as `PODIUM_LOCAL_TOKEN`.** The `xoxb-` bot token can read and
   post in every channel the bot is in; the `xapp-` app-level token opens the event connection.
   `PODIUM_AGENT_TOKEN` is the only thing guarding the conductor's API, which lists every session
   and every answer the bot has given.
@@ -264,7 +264,7 @@ delete secrets and delete nodes.
   per-agent key, no read-only key, no per-bank key. It reaches three places — the memory
   container, the conductor, and **every task container**, as the Podium secret
   `podium.agent.memory_api_key`. So any turn can rewrite or wipe the whole bank, whatever its
-  playbook file says. As sensitive as `PODIUM_DEV_TOKEN`.
+  playbook file says. As sensitive as `PODIUM_LOCAL_TOKEN`.
 - **The memory service has NO authentication of its own by default.** It is switched on by
   `HINDSIGHT_API_TENANT_EXTENSION` + `HINDSIGHT_API_TENANT_API_KEY`, which
   `deploy/docker-compose.yml` makes mandatory. Run that image without them — by hand, or in
@@ -601,21 +601,21 @@ key where the server offers one — and name it only in playbooks you would trus
 
 ## Transports, and what crosses the wire
 
-### `dev` — loopback, shared bearer token
+### `local` — loopback, shared bearer token
 
 - The listen address **must resolve to loopback**; the server refuses to start otherwise. That
   check is what makes the rest of this acceptable.
-- Every RPC carries `Authorization: Bearer <PODIUM_DEV_TOKEN>`, compared in constant time.
-  There is one token for everything and everyone. It has no identity: audit rows say `dev`.
+- Every RPC carries `Authorization: Bearer <PODIUM_LOCAL_TOKEN>`, compared in constant time.
+  There is one token for everything and everyone. It has no identity: audit rows say `local`.
 - **The connection is unencrypted HTTP.** Everything crosses it in the clear, and that includes
   **resolved secret values**, which travel inside `Assign` from the server to the node. There is
   no TLS and no per-node key on the HTTP layer.
-- The server logs a warning at startup when the dev transport is in use and any secret exists,
+- The server logs a warning at startup when the local transport is in use and any secret exists,
   for exactly that reason.
 - The web UI keeps the token in `localStorage`.
 
 Loopback is doing all the work. Do not publish a dev-transport port to anything but
-`127.0.0.1`, and do not use the dev transport across a network under any circumstances.
+`127.0.0.1`, and do not use the local transport across a network under any circumstances.
 
 ### `tailnet` — the one to use for real workers
 
@@ -632,16 +632,22 @@ Loopback is doing all the work. Do not publish a dev-transport port to anything 
 - `PODIUM_TS_ALLOW_UNTAGGED_NODES=true` removes the network-level proof that a caller is an
   authorised worker. It exists for a tailnet with no ACL tags yet. The server warns loudly.
 
-**Unverified.** The tailnet transport has never been run against a real tailnet — that needs
-tagged auth keys and HTTPS enabled, neither of which the build machine had. Everything above is
-what the code does; none of it has been observed in the wild. `host` mode is likewise
-implemented and never run.
+**What is and is not proved here.** The transport itself has run against a real tailnet: the
+server joined as a `tag:podium-server` device, served 443 on its MagicDNS name under a real
+Let's Encrypt certificate, and answered `WhoAmI` from `WhoIs` alone with no bearer token sent.
+A `tag:podium-node` worker enrolled over it and ran tasks.
+
+**The ACL's outbound-only guarantee is not proved.** The tailnet it ran on had a blanket
+allow-all rule, so [`tailscale-acl.example.json`](../deploy/tailscale-acl.example.json) has
+never been applied intact and nothing has ever refused server → node. Device approval is
+likewise unexercised, and only one login has ever authenticated, so the multi-identity paths
+below have never had a second row to work with. `host` mode is implemented and never run.
 
 ### Ports
 
 | Port | Who | Authentication |
 |---|---|---|
-| `127.0.0.1:8080` | server, `dev` transport | bearer token, except `/healthz`, `/readyz`, `/metrics` |
+| `127.0.0.1:8080` | server, `local` transport | bearer token, except `/healthz`, `/readyz`, `/metrics` |
 | `:443` on the server's tailnet device | server, `tailnet` transport | Tailscale identity |
 | `:80` on the server's tailnet device | redirect to 443 | none |
 | `127.0.0.1:9091` | node | **none.** `/healthz`, `/readyz`, `/metrics` |
@@ -775,7 +781,7 @@ task is dispatched to a node                    │  resolved once per dispatch,
         of the same name)                                   path the ref names
 ```
 
-- **Under the `dev` transport that `Assign` crosses an unencrypted loopback socket.** Under
+- **Under the `local` transport that `Assign` crosses an unencrypted loopback socket.** Under
   `tailnet` it is inside WireGuard.
 - A value is in server memory for the length of one dispatch and is zeroed afterwards, on both
   the resolver's slice and the node's. Go may have copied it during the proto marshal; nothing
@@ -868,8 +874,9 @@ Everything below is a real hole, not a hypothetical:
   every worker.
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
-- **The dev transport is plaintext**, secret values included.
-- **The tailnet transport has never been run against a real tailnet.**
+- **The local transport is plaintext**, secret values included.
+- **The tailnet ACL's outbound-only guarantee has never been enforced**, so nothing has ever
+  refused a connection from the control plane to a worker.
 - **Redaction does not survive a node restart** and is best-effort at the best of times.
 - **Every process in the task container can reach the runner event socket** — mode 0666 on the
   host, plus gid 0 as a supplementary group on the container so a non-root image can open it at

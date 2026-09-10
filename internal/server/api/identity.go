@@ -58,8 +58,8 @@ func identityKind(k transport.IdentityKind) podiumv1.IdentityKind {
 		return podiumv1.IdentityKind_IDENTITY_KIND_USER
 	case transport.KindNode:
 		return podiumv1.IdentityKind_IDENTITY_KIND_NODE
-	case transport.KindDevToken:
-		return podiumv1.IdentityKind_IDENTITY_KIND_DEV_TOKEN
+	case transport.KindLocalToken:
+		return podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN
 	default:
 		return podiumv1.IdentityKind_IDENTITY_KIND_UNSPECIFIED
 	}

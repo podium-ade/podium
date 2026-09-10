@@ -165,16 +165,16 @@ services:
         condition: service_healthy
     environment:
       PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
-      PODIUM_TRANSPORT: dev
+      PODIUM_TRANSPORT: local
       # Inside a container, loopback is the container's own: a server bound to it is
       # unreachable even from this compose network. So the server binds every interface of
       # the container and the boundary moves to the published port below, which is
-      # 127.0.0.1 of the host. The dev transport refuses a non-loopback address unless it is
+      # 127.0.0.1 of the host. The local transport refuses a non-loopback address unless it is
       # told this is the case — the token is the only credential it has — so the waiver is
       # set here explicitly. Do NOT set it on a host, and do not publish 8080 on 0.0.0.0.
-      PODIUM_DEV_LISTEN: 0.0.0.0:8080
-      PODIUM_DEV_ALLOW_UNSAFE_LISTEN: "true"
-      PODIUM_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?set PODIUM_DEV_TOKEN}
+      PODIUM_LOCAL_LISTEN: 0.0.0.0:8080
+      PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN: "true"
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?set PODIUM_LOCAL_TOKEN}
       PODIUM_MASTER_KEY_FILE: /etc/podium/master.key
       # The object store. The bucket is created on start if it is missing.
       PODIUM_S3_ENDPOINT: objectstore:9000
@@ -223,7 +223,7 @@ services:
       - hindsight
     environment:
       PODIUM_AGENT_SERVER: http://server:8080
-      PODIUM_AGENT_API_TOKEN: ${PODIUM_DEV_TOKEN:?}
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
       # Its OWN database. deploy/postgres/init.sql creates it, but ONLY on an empty volume;
       # on an existing install run `docker compose exec -T postgres createdb -U podium
       # podium_agent` first.
@@ -278,7 +278,7 @@ services:
     environment:
       PODIUM_NODE_SERVER: http://server:8080
       PODIUM_NODE_TRANSPORT: dev
-      PODIUM_NODE_DEV_TOKEN: ${PODIUM_DEV_TOKEN:?}
+      PODIUM_NODE_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
       # Podium's own single-use enrollment token, from `podium node enroll-token`. Needed on
       # the first run only; drop it afterwards. Not the same thing as a Tailscale auth key.
       PODIUM_NODE_ENROLL_TOKEN: ${PODIUM_NODE_ENROLL_TOKEN:-}

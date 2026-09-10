@@ -81,11 +81,11 @@ every commit.
   is correct.
 - **Migrations are numbered in order and never reused, and an applied one is never edited.** The
   migration runner tracks applied files by name. Take the next free number.
-- **The `dev` transport needs h2c for the node stream.** `NodeService.Stream` is bidirectional
-  and Connect refuses that on HTTP/1.1. `internal/transport/dev.NewStreamClient` is the reference;
+- **The `local` transport needs h2c for the node stream.** `NodeService.Stream` is bidirectional
+  and Connect refuses that on HTTP/1.1. `internal/transport/local.NewStreamClient` is the reference;
   do not "simplify" it to a plain `http.Client`.
 - **Ports.** If 5432 or 8080 are taken on your machine, `PODIUM_PG_PORT` and
-  `PODIUM_DEV_LISTEN=127.0.0.1:18080` are the escape hatches.
+  `PODIUM_LOCAL_LISTEN=127.0.0.1:18080` are the escape hatches.
 
 ## Running a stack by hand
 
@@ -93,22 +93,26 @@ See [`docs/quickstart.md`](docs/quickstart.md). The short version:
 
 ```sh
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
-PODIUM_TRANSPORT=dev PODIUM_DEV_TOKEN=devtoken \
-  PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium ./bin/podium-server &
-export PODIUM_SERVER=http://127.0.0.1:8080 PODIUM_TOKEN=devtoken
-TOKEN=$(./bin/podium node enroll-token --label demo)
-PODIUM_NODE_SERVER=$PODIUM_SERVER PODIUM_NODE_TRANSPORT=dev PODIUM_NODE_DEV_TOKEN=devtoken \
-  PODIUM_NODE_ENROLL_TOKEN=$TOKEN PODIUM_NODE_DATA_DIR=/tmp/podium-node ./bin/podium-node &
+cp deploy/.env.example deploy/.env      # set PODIUM_LOCAL_TOKEN and PODIUM_SERVER in it
+./bin/podium-server gen-master-key --out deploy/master.key
+set -a; . deploy/.env; set +a
+
+make stack-up S=server
+echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
+make stack-up S=node
 ./bin/podium run --image alpine:3 -- echo hello
 ```
+
+`make stack-up` sources `deploy/.env` and derives the rest — the DSN, the master key path,
+the node's and conductor's copies of the shared token. Nothing here exports a variable.
 
 For the UI with hot reload, which needs no token because the Vite proxy injects one:
 
 ```sh
-cd web && PODIUM_SERVER=http://127.0.0.1:8080 PODIUM_DEV_TOKEN=devtoken pnpm dev
+cd web && PODIUM_SERVER=http://127.0.0.1:8080 PODIUM_LOCAL_TOKEN=devtoken pnpm dev
 ```
 
-Teardown: `pkill -f bin/podium-node; pkill -f bin/podium-server`, then
+Teardown: `make stack-down`, then
 `docker compose -f deploy/docker-compose.dev.yml down -v`. A clean run leaves no container,
 network or volume behind — check with `docker ps -a --filter label=podium.task`.
 
@@ -178,7 +182,7 @@ These exist because a developer's Docker engine is shared with the rest of their
 ## Known flake
 
 There are none currently outstanding. `TestNodeRestartAdoptsItsContainers` used to duplicate one
-log line at a batch boundary about one run in three; step 12 fixed it by having the control plane
+log line at a batch boundary about one run in three; the fix was to have the control plane
 tell a reconnecting node its true per-stream byte offsets. If you see a duplicated or missing log
 line at a reconnect seam, that is a real regression in reconciliation — do not loosen the
 assertion.

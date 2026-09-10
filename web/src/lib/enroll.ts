@@ -1,7 +1,7 @@
 /**
  * enrollCommand is the one line an operator pastes on a new host.
  *
- * Neither credential is echoed into it. `PODIUM_DEV_TOKEN` is the operator's own and is already
+ * Neither credential is echoed into it. `PODIUM_LOCAL_TOKEN` is the operator's own and is already
  * in their shell; `TS_AUTHKEY` is a Tailscale auth key the operator mints in the Tailscale admin
  * console, and Podium never sees it. Only the enrollment token — single-use, Podium's own, and
  * worthless once redeemed — is inlined.
@@ -13,8 +13,8 @@ export function enrollCommand(server: string, token: string): string {
   const tailnet = server.startsWith("https://");
   return [
     `PODIUM_NODE_SERVER=${server}`,
-    `PODIUM_NODE_TRANSPORT=${tailnet ? "tailnet" : "dev"}`,
-    tailnet ? "PODIUM_NODE_TS_AUTHKEY=$TS_AUTHKEY" : "PODIUM_NODE_DEV_TOKEN=$PODIUM_DEV_TOKEN",
+    `PODIUM_NODE_TRANSPORT=${tailnet ? "tailnet" : "local"}`,
+    tailnet ? "PODIUM_NODE_TS_AUTHKEY=$TS_AUTHKEY" : "PODIUM_NODE_LOCAL_TOKEN=$PODIUM_LOCAL_TOKEN",
     `PODIUM_NODE_ENROLL_TOKEN=${token}`,
     "podium-node",
   ].join(" ");

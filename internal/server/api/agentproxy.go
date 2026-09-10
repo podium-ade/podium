@@ -24,9 +24,9 @@ import (
 // docs/security.md says so.
 const AgentLoginHeader = "X-Podium-Login"
 
-// devLogin is the login reported for the dev transport, which has no per-user identity at
-// all. It is the same word WhoAmI answers there.
-const devLogin = "dev"
+// localLogin is the login reported for the local transport, which has no per-user identity
+// at all. It is the same word WhoAmI answers there.
+const localLogin = "local"
 
 // agentDialTimeout and agentResponseHeaderTimeout bound the hop to the conductor. The
 // conductor is on this host; a dial that takes a second is a dial that is not going to work.
@@ -105,14 +105,14 @@ func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger) (http.Handl
 }
 
 // agentLogin is who the identity middleware says is calling, in the form the conductor
-// records. The dev transport has no per-user identity, so every caller there is "dev".
+// records. The local transport has no per-user identity, so every caller there is "local".
 func agentLogin(ctx context.Context) string {
 	id, ok := transport.From(ctx)
 	if !ok {
 		return "unknown"
 	}
-	if id.Kind == transport.KindDevToken || id.Login == "" {
-		return devLogin
+	if id.Kind == transport.KindLocalToken || id.Login == "" {
+		return localLogin
 	}
 	return id.Login
 }

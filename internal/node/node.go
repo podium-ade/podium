@@ -15,7 +15,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/node/docker"
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
@@ -176,7 +176,7 @@ func dialer(ctx context.Context, cfg Config, logger *slog.Logger) (*http.Client,
 	case TransportHost:
 		return tailnet.NewHostClient(), nil, nil
 	default:
-		return dev.NewStreamClient(cfg.DevToken), nil, nil
+		return local.NewStreamClient(cfg.LocalToken), nil, nil
 	}
 }
 

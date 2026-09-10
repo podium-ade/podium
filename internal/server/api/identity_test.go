@@ -45,11 +45,11 @@ func TestWhoAmI(t *testing.T) {
 			},
 		},
 		{
-			name: "the dev transport's shared token",
-			id:   transport.Identity{Kind: transport.KindDevToken, Login: "dev"},
+			name: "the local transport's shared token",
+			id:   transport.Identity{Kind: transport.KindLocalToken, Login: "local"},
 			want: &podiumv1.WhoAmIResponse{
-				Login: "dev",
-				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_DEV_TOKEN,
+				Login: "local",
+				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN,
 			},
 		},
 	}

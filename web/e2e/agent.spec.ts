@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
 
 const SERVER = process.env.PODIUM_UI_URL ?? "http://127.0.0.1:8080";
-const TOKEN = process.env.PODIUM_DEV_TOKEN ?? "devtoken";
+const TOKEN = process.env.PODIUM_LOCAL_TOKEN ?? "devtoken";
 const CLI = process.env.PODIUM_CLI ?? "../bin/podium";
 
 /** The one key the fake Anthropic accepts. An obvious fake; not a credential. */
@@ -39,10 +39,10 @@ function podium(...args: string[]): string {
   }).trim();
 }
 
-/** The dev transport has no session; seed the token the UI would otherwise prompt for. */
+/** The local transport has no session; seed the token the UI would otherwise prompt for. */
 async function authenticate(page: Page) {
   await page.addInitScript(
-    ([token]) => window.localStorage.setItem("podium.devToken", token),
+    ([token]) => window.localStorage.setItem("podium.localToken", token),
     [TOKEN],
   );
 }
@@ -299,7 +299,7 @@ test("a chat turn streams progress and lands a final message", async ({ page }) 
 });
 
 test("chats are per login", async ({ page }) => {
-  // NOT RUN, and it says so rather than pretending. The dev transport has exactly one
+  // NOT RUN, and it says so rather than pretending. The local transport has exactly one
   // identity ("dev"), so a browser cannot present a second login on this stack: the proxy
   // derives X-Podium-Login from the authenticated identity and strips anything the client
   // sent. Two logins need the tailnet transport and two real tailnet users.
@@ -308,6 +308,6 @@ test("chats are per login", async ({ page }) => {
   // internal/agent/store's TestTwoLoginsSeeDisjointChatLists, internal/agent/api's
   // TestTwoLoginsSeeDisjointChatsThroughTheService, and test/e2e's TestChatsArePerLogin,
   // which drives two logins straight at the conductor with the server's own bearer.
-  test.skip(true, "the dev transport has one identity; see the comment and TestChatsArePerLogin");
+  test.skip(true, "the local transport has one identity; see the comment and TestChatsArePerLogin");
   await authenticate(page);
 });

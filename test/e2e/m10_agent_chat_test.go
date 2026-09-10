@@ -217,7 +217,7 @@ func TestChatTurnRoundTrip(t *testing.T) {
 
 	agent := startAgentForChat(t, h, agentAddr)
 	// A login the proxy must ignore: what reaches the conductor is the server's own word
-	// about who is calling, which under the dev transport is "dev".
+	// about who is calling, which under the local transport is "dev".
 	client := agentClientThrough(h, "somebody-else")
 	ctx := context.Background()
 
@@ -429,7 +429,7 @@ func sessionKindOf(t *testing.T, databaseURL, sourceKey string) string {
 // The proxy's own guarantees, without a node
 // ---------------------------------------------------------------------------
 
-// TestChatsArePerLogin is the acceptance item about two logins. The dev transport has one
+// TestChatsArePerLogin is the acceptance item about two logins. The local transport has one
 // identity, so the two logins are asserted where they are actually decided: the proxy sets
 // X-Podium-Login from the authenticated identity, and the conductor partitions on it.
 func TestChatsArePerLogin(t *testing.T) {
@@ -524,7 +524,7 @@ func TestTheChatIsBehindTheProxysIdentity(t *testing.T) {
 
 // postAs is a POST against the conductor carrying both the server's bearer and the login
 // the server would have asserted. It is how a second identity is presented on a control
-// plane whose dev transport has only one.
+// plane whose local transport has only one.
 func (a *agentProc) postAs(path, token, login, body string) (int, string) {
 	a.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

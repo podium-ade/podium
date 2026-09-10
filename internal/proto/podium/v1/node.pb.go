@@ -1177,7 +1177,7 @@ type Assign struct {
 	Spec     *TaskSpec              `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
 	Deadline *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=deadline,proto3" json:"deadline,omitempty"`
 	// SENSITIVE: never log. The values live in node memory and in the task container, and
-	// nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=dev
+	// nowhere else. The transport is what protects them in flight, so PODIUM_TRANSPORT=local
 	// is loopback-only for exactly this reason.
 	ResolvedSecrets []*ResolvedSecret `protobuf:"bytes,5,rep,name=resolved_secrets,json=resolvedSecrets,proto3" json:"resolved_secrets,omitempty"`
 	// SENSITIVE: never log. One credential per registry the spec's images are pulled from,

@@ -29,7 +29,7 @@ podium --server https://podium.taila79bf6.ts.net nodes     # no --token
 ```
 
 The rule is the URL scheme: an `https://` server is a tailnet control plane and needs no token; a
-`http://` one is the dev transport and the CLI refuses to run without one, because every RPC
+`http://` one is the local transport and the CLI refuses to run without one, because every RPC
 would 401. See [networking.md](networking.md).
 
 ## Exit codes — contractual
@@ -454,7 +454,7 @@ server v0.4.0 (e4f5g6h)
 ```
 
 The server line comes from `IdentityService.WhoAmI`, which is behind the same identity
-middleware as everything else — so under the dev transport this command needs the token like any
+middleware as everything else — so under the local transport this command needs the token like any
 other. It **degrades rather than failing**: with nothing configured, or a control plane that
 cannot be reached, it prints the client's own build and says so on stderr, and still exits 0.
 A control plane older than the `server_version` field prints
@@ -481,7 +481,7 @@ overwrites either:
 | `master.key` | the AES-256 key every stored secret is encrypted under, mode 0600 |
 | `.env` | the compose file's variables, with fresh random credentials, mode 0600 |
 
-It generates the Postgres password, the dev token and the object-store secret. Everything it
+It generates the Postgres password, the local transport's token and the object-store secret. Everything it
 does not set is documented in `.env.example`.
 
 ```sh
@@ -552,7 +552,7 @@ file.
 | `--base-url` | GitHub releases | an air-gapped mirror, or a test |
 | `--config` | `/etc/podium/node.yaml` | where the server URL and credentials come from |
 
-Draining needs a credential this machine holds: under the dev transport that is the shared
+Draining needs a credential this machine holds: under the local transport that is the shared
 token from the node's own config. A tailnet node with its own embedded Tailscale device has
 none to lend, so drain from the control plane instead and pass `--drain=false`:
 

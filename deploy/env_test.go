@@ -16,7 +16,7 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 )
 
 // notConfiguration is every PODIUM_* name that appears in the source and is deliberately
@@ -91,6 +91,13 @@ var quotedEnvName = regexp.MustCompile(`"(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)"`)
 // composeEnvName finds ${VAR} interpolation in a compose file. These are variables no
 // binary reads but an operator still has to set.
 var composeEnvName = regexp.MustCompile(`\$\{(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)[:?}-]`)
+
+// shellEnvName finds a variable a script in this directory reads. run-host.sh and
+// install-node.sh are as much a part of the deployment surface as the compose files —
+// run-host.sh is what `make stack-up` runs — and the variables they take were invisible to
+// this test until they were scanned, which is how four of them ended up set in a real .env
+// and documented in no file at all.
+var shellEnvName = regexp.MustCompile(`\$\{?(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)`)
 
 // declaredName finds a variable declared in .env.example, commented out or not.
 var declaredName = regexp.MustCompile(`(?m)^#?\s*(PODIUM_[A-Z0-9_]+|TS_AUTHKEY)=`)
@@ -189,6 +196,8 @@ func sourceVars(t *testing.T) map[string][]string {
 			re = quotedEnvName
 		case strings.HasSuffix(path, ".yml"), strings.HasSuffix(path, ".yaml"):
 			re = composeEnvName
+		case strings.HasSuffix(path, ".sh"):
+			re = shellEnvName
 		default:
 			return nil
 		}
@@ -262,21 +271,21 @@ func composeServiceEnv(t *testing.T, file, service string, supplied map[string]s
 
 // TestTheComposeServerConfigurationStarts is the guard the rest of this file was missing.
 // Every name in .env.example was documented and every value in docker-compose.yml was
-// unchecked, so the shipped deployment sat there for a release with PODIUM_DEV_LISTEN set to
-// an address the dev transport refuses — `podium-server: dev transport: refusing to listen on
+// unchecked, so the shipped deployment sat there for a release with PODIUM_LOCAL_LISTEN set to
+// an address the local transport refuses — `podium-server: local transport: refusing to listen on
 // "0.0.0.0:8080"`, exit 1, on the very first `docker compose up`.
 func TestTheComposeServerConfigurationStarts(t *testing.T) {
 	for _, tc := range []struct {
 		file      string
 		transport string
 	}{
-		{file: "docker-compose.yml", transport: server.TransportDev},
+		{file: "docker-compose.yml", transport: server.TransportLocal},
 		{file: "docker-compose.tailnet.yml", transport: server.TransportTailnet},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			env := composeServiceEnv(t, tc.file, "server", map[string]string{
 				"PODIUM_PG_PASSWORD":   "pgpassword",
-				"PODIUM_DEV_TOKEN":     "devtoken",
+				"PODIUM_LOCAL_TOKEN":   "devtoken",
 				"PODIUM_S3_SECRET_KEY": "s3secretkey",
 				"PODIUM_AGENT_TOKEN":   "agenttoken",
 				"TS_AUTHKEY":           "tskey-auth-notreal",
@@ -303,18 +312,18 @@ func TestTheComposeServerConfigurationStarts(t *testing.T) {
 func TestTheComposeServerBindsEveryInterfaceOnPurpose(t *testing.T) {
 	env := composeServiceEnv(t, "docker-compose.yml", "server", map[string]string{
 		"PODIUM_PG_PASSWORD":   "pgpassword",
-		"PODIUM_DEV_TOKEN":     "devtoken",
+		"PODIUM_LOCAL_TOKEN":   "devtoken",
 		"PODIUM_S3_SECRET_KEY": "s3secretkey",
 		"PODIUM_AGENT_TOKEN":   "agenttoken",
 	})
-	require.Equal(t, "0.0.0.0:8080", env["PODIUM_DEV_LISTEN"],
+	require.Equal(t, "0.0.0.0:8080", env["PODIUM_LOCAL_LISTEN"],
 		"inside a container loopback is the container's own and nothing could reach it")
-	require.Equal(t, "true", env[dev.UnsafeListenVar],
+	require.Equal(t, "true", env[local.UnsafeListenVar],
 		"binding every interface needs the waiver, and the waiver is what says the operator meant it")
 
-	require.Error(t, dev.CheckListen(env["PODIUM_DEV_LISTEN"], false),
+	require.Error(t, local.CheckListen(env["PODIUM_LOCAL_LISTEN"], false),
 		"the loopback rule still stands for everyone who has not asked for the waiver")
-	require.NoError(t, dev.CheckListen(env["PODIUM_DEV_LISTEN"], true))
+	require.NoError(t, local.CheckListen(env["PODIUM_LOCAL_LISTEN"], true))
 }
 
 // clearPodiumEnv unsets every PODIUM_* and TS_AUTHKEY variable in the ambient environment, so

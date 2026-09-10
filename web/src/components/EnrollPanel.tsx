@@ -148,7 +148,7 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
                   </p>
                 ) : (
                   <p className="leading-relaxed text-muted">
-                    <span className="font-mono">$PODIUM_DEV_TOKEN</span> has to be set in that
+                    <span className="font-mono">$PODIUM_LOCAL_TOKEN</span> has to be set in that
                     shell to the same shared token this server was started with. The dev
                     transport is loopback-only: it works when the node and the server are the
                     same machine, and cannot reach a node anywhere else.

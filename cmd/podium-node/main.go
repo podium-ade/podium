@@ -36,7 +36,7 @@ func newRootCommand() *cobra.Command {
 		Long: "Podium worker node daemon.\n\n" +
 			"Configuration is " + node.DefaultConfigPath + " (or --config) overlaid by the\n" +
 			"PODIUM_NODE_* environment variables: PODIUM_NODE_SERVER, PODIUM_NODE_TRANSPORT,\n" +
-			"PODIUM_NODE_DEV_TOKEN, PODIUM_NODE_ENROLL_TOKEN, PODIUM_NODE_DATA_DIR,\n" +
+			"PODIUM_NODE_LOCAL_TOKEN, PODIUM_NODE_ENROLL_TOKEN, PODIUM_NODE_DATA_DIR,\n" +
 			"PODIUM_NODE_LABELS, PODIUM_NODE_MAX_TASKS, PODIUM_NODE_METRICS_LISTEN.\n\n" +
 			"The config file is optional: an environment-only node is a supported deployment.",
 		Args:          cobra.NoArgs,

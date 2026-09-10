@@ -23,7 +23,7 @@ set -euo pipefail
 VERSION="${PODIUM_VERSION:-latest}"
 SERVER="${PODIUM_SERVER:-${PODIUM_NODE_SERVER:-}}"
 ENROLL_TOKEN="${PODIUM_ENROLL_TOKEN:-${PODIUM_NODE_ENROLL_TOKEN:-}}"
-DEV_TOKEN="${PODIUM_DEV_TOKEN:-${PODIUM_NODE_DEV_TOKEN:-}}"
+LOCAL_TOKEN="${PODIUM_LOCAL_TOKEN:-${PODIUM_NODE_LOCAL_TOKEN:-}}"
 TS_AUTHKEY="${TS_AUTHKEY:-${PODIUM_NODE_TS_AUTHKEY:-}}"
 LABELS="${PODIUM_LABELS:-${PODIUM_NODE_LABELS:-}}"
 MAX_TASKS="${PODIUM_MAX_TASKS:-${PODIUM_NODE_MAX_TASKS:-4}}"
@@ -180,9 +180,9 @@ auth key — reusable, pre-approved, tagged tag:podium-node — on its first run
 same thing as PODIUM_ENROLL_TOKEN."
       ;;
     http://*)
-      TRANSPORT="${PODIUM_TRANSPORT:-dev}"
-      [ -n "$DEV_TOKEN" ] || die "an http:// control plane is the dev transport, which needs \
-PODIUM_DEV_TOKEN (the server's own PODIUM_DEV_TOKEN)"
+      TRANSPORT="${PODIUM_TRANSPORT:-local}"
+      [ -n "$LOCAL_TOKEN" ] || die "an http:// control plane is the local transport, which needs \
+PODIUM_LOCAL_TOKEN (the server's own PODIUM_LOCAL_TOKEN)"
       ;;
     *) die "PODIUM_SERVER must be an http:// or https:// URL, got '$SERVER'" ;;
   esac
@@ -216,8 +216,8 @@ write_config() {
         [ -n "$label" ] && echo "  - ${label}"
       done
     fi
-    if [ -n "$DEV_TOKEN" ]; then
-      echo "dev_token: ${DEV_TOKEN}"
+    if [ -n "$LOCAL_TOKEN" ]; then
+      echo "local_token: ${LOCAL_TOKEN}"
     fi
     if [ -n "$TS_AUTHKEY" ]; then
       echo "# Read on the first run only; ${DATA_DIR}/ts is the device identity afterwards."

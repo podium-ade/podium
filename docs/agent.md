@@ -293,7 +293,7 @@ test fails if one is read by the code and missing from that file.
 | env | required | default | meaning |
 |---|---|---|---|
 | `PODIUM_AGENT_SERVER` | yes | — | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the server's `PODIUM_DEV_TOKEN`; empty on a tailnet, where WhoIs names the caller |
+| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the server's `PODIUM_LOCAL_TOKEN`; empty on a tailnet, where WhoIs names the caller |
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
@@ -1781,7 +1781,7 @@ that a named secret **exists**, so anyone who can reach the control plane can al
 registered secret into an image and a command of their own. See
 [`security.md`](security.md#5-the-conductor-and-the-bot).
 
-The two Slack tokens are as sensitive as `PODIUM_DEV_TOKEN`. So are the Linear API key (full
+The two Slack tokens are as sensitive as `PODIUM_LOCAL_TOKEN`. So are the Linear API key (full
 read/write of everything that user can see) and the GitHub token (write access to the listed
 repositories). So is `PODIUM_AGENT_TOKEN`, which is the only thing guarding every session the bot
 has had.
@@ -2104,7 +2104,7 @@ mounts that one prefix behind its own identity middleware and reverse-proxies it
 it deletes any client-supplied `Authorization` and `X-Podium-Login` and sets its own: the
 conductor's bearer, and the login of the caller it authenticated. So the web UI keeps one
 origin, one login and one CSP — `connect-src 'self'` is unchanged — and the conductor never sees
-the dev token. A node identity is refused with 403 before anything is forwarded.
+the local transport's token. A node identity is refused with 403 before anything is forwarded.
 
 The conductor's `/healthz`, `/readyz` and `/metrics` are deliberately **not** proxied: they are
 its own operational surface and they are unauthenticated on its own listener.
