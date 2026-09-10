@@ -86,13 +86,15 @@ $EDITOR deploy/.env
 
 ```ini
 PODIUM_DEV_TOKEN=devtoken               # the one shared secret; pick any string
-PODIUM_TOKEN=devtoken                   # the same value, under the name the CLI reads
 PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
 ```
 
-Everything else in that file has a working default and is commented with what it does. If you
-would rather not choose your own credentials, `./bin/podium-server init --dir deploy` writes
-the same file with fresh random ones, plus the master key, and never overwrites either.
+Two lines, because the `dev` transport has exactly one secret: the server, the worker, the
+conductor, the web UI and the CLI all present `PODIUM_DEV_TOKEN`, and every one of them
+reads it from that single line. Everything else in the file has a working default and is
+commented with what it does. If you would rather not choose your own credentials,
+`./bin/podium-server init --dir deploy` writes the same file with fresh random ones, plus
+the master key, and never overwrites either.
 
 **Run it.** `make stack-up` reads `deploy/.env`, so nothing below declares a variable:
 
