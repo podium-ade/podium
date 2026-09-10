@@ -1,9 +1,7 @@
 # Contributing
 
-> **Podium carries no licence yet.** [`LICENSE`](LICENSE) is still a placeholder, so there is no
-> grant under which contributions can be accepted or redistributed. Until that is resolved this
-> repository is not open to outside contributions. What follows is the development setup, and is
-> accurate for anyone with access.
+> Podium is [MIT licensed](LICENSE). By opening a pull request you agree that your
+> contribution is offered under the same terms.
 
 ---
 
