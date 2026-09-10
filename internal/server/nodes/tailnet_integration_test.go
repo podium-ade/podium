@@ -70,13 +70,13 @@ func TestEnrollIsRateLimitedPerAddress(t *testing.T) {
 
 // WhoAmI is what the web UI probes before deciding whether to ask for a token. Under the dev
 // transport it answers "local_token", which is the UI's signal that a prompt is still required.
-func TestWhoAmIUnderTheDevTransport(t *testing.T) {
+func TestWhoAmIUnderTheLocalTransport(t *testing.T) {
 	h := newHarness(t)
 	identity := podiumv1connect.NewIdentityServiceClient(h.http, h.url)
 
 	res, err := identity.WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 	require.NoError(t, err)
-	require.Equal(t, "dev", res.Msg.GetLogin())
+	require.Equal(t, "local", res.Msg.GetLogin())
 	require.Equal(t, podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN, res.Msg.GetKind())
 	require.Empty(t, res.Msg.GetTags())
 }

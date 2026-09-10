@@ -532,7 +532,7 @@ func TestFakeNodeRunsATaskEndToEnd(t *testing.T) {
 
 	task := h.createTask(nil, "sh", "-c", "echo hi")
 	require.Equal(t, podiumv1.TaskStatus_TASK_STATUS_QUEUED, task.GetStatus())
-	require.Equal(t, "dev", task.GetRequestedBy())
+	require.Equal(t, "local", task.GetRequestedBy())
 
 	assign := node.awaitAssign(assignTimeout)
 	require.Equal(t, task.GetId(), assign.GetTaskId())
@@ -811,7 +811,7 @@ func TestConnectJSONWithoutTheCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Contains(t, decoded.Task.ID, "task_")
 	require.Equal(t, "TASK_STATUS_QUEUED", decoded.Task.Status)
-	require.Equal(t, "dev", decoded.Task.RequestedBy)
+	require.Equal(t, "local", decoded.Task.RequestedBy)
 
 	t.Run("without a token", func(t *testing.T) {
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewBufferString(body))

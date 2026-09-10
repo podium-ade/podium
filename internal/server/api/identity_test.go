@@ -46,9 +46,9 @@ func TestWhoAmI(t *testing.T) {
 		},
 		{
 			name: "the local transport's shared token",
-			id:   transport.Identity{Kind: transport.KindLocalToken, Login: "dev"},
+			id:   transport.Identity{Kind: transport.KindLocalToken, Login: "local"},
 			want: &podiumv1.WhoAmIResponse{
-				Login: "dev",
+				Login: "local",
 				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN,
 			},
 		},
