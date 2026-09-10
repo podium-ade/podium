@@ -220,33 +220,6 @@ decision — a model only runs on one backend, and which effort levels exist dep
 Full reference, including the Slack app manifest and the Linear setup:
 **[docs/agent.md](docs/agent.md)**.
 
-### Things that will trip you up locally
-
-- **The dev token is stored per browser origin.** It lives in `localStorage` under
-  `podium.localToken`, so it persists — but `127.0.0.1:8080` and `localhost:8080` and any other
-  port are each a different origin with their own copy. Pick one address and stay on it, or you
-  will be asked for the token again every time.
-- **A secret is only readable under the master key it was written with.** `secrets.key_id` records
-  which one — the first eight bytes of the key's SHA-256. Point the server at a different
-  `PODIUM_MASTER_KEY_FILE` and listing still works, because that reads metadata only, but
-  resolving the secret into a task fails with a key mismatch. `podium secret set` re-encrypts
-  under the current key.
-- **Task history belongs to the database, not the server.** Pointing `PODIUM_DATABASE_URL` at a
-  fresh database gives you an empty UI; the old one is untouched and switching back restores it.
-- **The conductor's `/readyz` is stricter than the server's.** It checks its own database, the
-  Podium API and, when configured, Hindsight. The server's readiness deliberately ignores the
-  conductor: a control plane whose bot is down is still a working task runner.
-- **There are two Anthropic keys, held very differently.** The agents' key is set in the UI and
-  encrypted at rest; the memory service's (`PODIUM_MEMORY_LLM_API_KEY`) is a container
-  environment variable it reads at start-up, before anything Podium controls is running, so it
-  is **visible in `docker inspect`**. They may be the same value. Give the memory service its own
-  scoped key with a spend limit, and prefer mounting it as a read-only `.env` at `/app/.env`
-  over passing `-e` — see [docs/security.md](docs/security.md). Memory *reads* need no key at
-  all: search and rerank run on models baked into the image. Only writing does, because storing
-  a memory means extracting facts with an LLM.
-
----
-
 ## The binaries
 
 | | |
