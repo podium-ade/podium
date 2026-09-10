@@ -206,7 +206,11 @@ services:
   init:
     image: busybox:1.37@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
     volumes:
-      - server-state:/state
+      # PODIUM_STATE_DIR=./state puts the master key on the HOST instead of inside a volume —
+      # a file you can see and back up, and one `down -v` cannot take. Compose reads a path as
+      # a bind mount and a bare name as a named volume, so this one variable switches between
+      # them. Must match the server's below. See ../docs/operations.md#the-master-key.
+      - ${PODIUM_STATE_DIR:-server-state}:/state
     command:
       - sh
       - -ec
@@ -249,8 +253,11 @@ services:
       PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}   # empty = no Agent screen
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
     volumes:
-      - server-state:/var/lib/podium      # holds the master key. BACK THIS UP:
-                                          #   docker compose cp server:/var/lib/podium/master.key .
+      # The master key and the tsnet identity, neither recoverable. BACK IT UP:
+      #   docker compose cp server:/var/lib/podium/master.key .
+      # Or set PODIUM_STATE_DIR=./state and it is ./state/master.key on the host, outside the
+      # reach of `down -v`. Same value as `init` above.
+      - ${PODIUM_STATE_DIR:-server-state}:/var/lib/podium
     ports:
       - "127.0.0.1:${PODIUM_PORT:-8080}:8080"
     restart: unless-stopped
@@ -397,12 +404,23 @@ A sidecar is a sibling container on the task's private network, addressed by nam
 db` — started before the task and waited for. More in [`examples/`](examples): `hello.yaml`,
 `postgres-sidecar.yaml`, `secrets.yaml`, `limits.yaml`, `artifacts.yaml`.
 
-**Back up the `server-state` volume.** It holds the master key every stored secret is
-encrypted under, and there is no recovery path:
+**The master key.** `init` generates it on the first `up`, every stored secret is encrypted
+under it, and there is no recovery path. By default it lives in the `server-state` volume, so
+copying it out is a command you have to remember — and `down -v` destroys it:
 
 ```sh
 docker compose cp server:/var/lib/podium/master.key ./master.key
 ```
+
+Simpler: keep it on the host from the start. Set this **before the first `up`** and the key is
+an ordinary file at `./state/master.key`, mode `0600`, that `down -v` cannot touch:
+
+```sh
+echo 'PODIUM_STATE_DIR=./state' >> .env
+```
+
+A bare name there is a Docker volume, a path is a bind mount, and compose tells them apart by
+the leading dot or slash. Either way, get a copy somewhere that is not this machine.
 
 Full walkthrough, including tearing it down: **[docs/quickstart.md](docs/quickstart.md)**.
 

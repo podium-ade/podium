@@ -272,12 +272,18 @@ printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\n'
 echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env          # pin it; `latest` moves under you
 ```
 
-**Back up the `server-state` volume.** It holds the master key every stored secret is
-encrypted under, and there is no recovery path:
+**Decide where the master key lives, before the first `up`.** `init` generates it, every stored
+secret is encrypted under it, and there is no recovery path. The default is inside the
+`server-state` volume, which `docker compose down -v` destroys; `PODIUM_STATE_DIR` set to a
+path makes it an ordinary file instead — compose reads a bare name as a volume and a path as a
+bind mount:
 
 ```sh
-docker compose cp server:/var/lib/podium/master.key ./master.key
+echo 'PODIUM_STATE_DIR=./state' >> .env      # -> ./state/master.key, mode 0600
 ```
+
+Left in the volume, copy it out: `docker compose cp server:/var/lib/podium/master.key .`
+Either way, get it somewhere that is not this machine.
 
 Three things stay behind a compose profile:
 
