@@ -89,7 +89,7 @@ PODIUM_LOCAL_TOKEN=devtoken               # the one shared secret; pick any stri
 PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
 ```
 
-Two lines, because the `dev` transport has exactly one secret: the server, the worker, the
+Two lines, because the `local` transport has exactly one secret: the server, the worker, the
 conductor, the web UI and the CLI all present `PODIUM_LOCAL_TOKEN`, and every one of them
 reads it from that single line. Everything else in the file has a working default and is
 commented with what it does. If you would rather not choose your own credentials,
@@ -117,7 +117,7 @@ open http://127.0.0.1:8080
 Those two node lines are the host enrolling itself as a worker, which is what makes one
 machine a whole Podium. Leave them out and you have a control plane and a UI with nothing to
 run tasks on — a submitted task stays `queued` and says why. For a worker on another machine
-see [Running across machines](#running-across-machines): the `dev` transport above is
+see [Running across machines](#running-across-machines): the `local` transport above is
 loopback-only, so it is not the way to get one.
 
 The enrollment token is the one value that cannot be written ahead of time: only a running
@@ -262,7 +262,7 @@ Full reference, including the Slack app manifest and the Linear setup:
 `PODIUM_TRANSPORT` decides how clients and workers reach the control plane. The two supported
 values differ on one thing — who names the caller — and everything else follows from it.
 
-| | `dev` | `tailnet` |
+| | `local` | `tailnet` |
 |---|---|---|
 | The wire | HTTP on loopback | HTTPS on the server's MagicDNS name |
 | Who the caller is | nobody. One shared bearer and no identity behind it | a Tailscale identity, from `WhoIs` |
@@ -270,7 +270,7 @@ values differ on one thing — who names the caller — and everything else foll
 | Where a worker can be | the same machine | anywhere on your tailnet |
 | Set up | the [Quickstart](#quickstart) | [Running across machines](#running-across-machines), below |
 
-The `dev` transport refuses to bind anywhere but loopback, because that one token is the only
+The `local` transport refuses to bind anywhere but loopback, because that one token is the only
 thing between a caller and the whole API. It is for one machine you are sitting at, and it is
 what the Quickstart runs. Anything else is `tailnet`, including a second machine on the same
 desk — see below.
@@ -381,7 +381,7 @@ and the third from the file's own directory:
 | | |
 |---|---|
 | `PODIUM_DATABASE_URL` | the Postgres DSN. The server migrates on start |
-| `PODIUM_LOCAL_TOKEN` | the `dev` transport's shared bearer token |
+| `PODIUM_LOCAL_TOKEN` | the `local` transport's shared bearer token |
 | `PODIUM_MASTER_KEY_FILE` | the AES-256 key secrets are encrypted under. Mode 0600/0400 enforced. Unset means secrets are unavailable, which is supported |
 | `PODIUM_S3_*` | the object store artifacts and rolled-up logs live in. Unset disables artifacts entirely, which is also supported |
 
@@ -457,7 +457,7 @@ What Podium does not do, and what will surprise you if nobody says it first.
   `echo $PASSWORD`, not the control that keeps a secret out of a log.
 - **A sidecar cannot reference a secret.** A database sidecar that needs a password takes it from
   a plaintext `env:` entry.
-- **Under the `dev` transport, resolved secret values cross an unencrypted loopback socket.**
+- **Under the `local` transport, resolved secret values cross an unencrypted loopback socket.**
   Loopback is doing all the work; the server refuses to bind anywhere else.
 - **Nothing is ever deleted except rolled-up log chunks.** Tasks, events, artifacts and audit
   rows grow without bound, and the object store has no lifecycle policy. There is no retention

@@ -388,7 +388,7 @@ separates "cannot reach it" from "not allowed".
 | | |
 |---|---|
 | connection refused / DNS failure | not a Podium problem. MagicDNS, the ACL, or the server is not running |
-| **401** with `WWW-Authenticate: Bearer` | the transport does not know who you are. Under `dev`: no token or a wrong one. Under `tailnet`: WhoIs returned nothing, which usually means the request did not arrive over the tailnet at all |
+| **401** with `WWW-Authenticate: Bearer` | the transport does not know who you are. Under `local`: no token or a wrong one. Under `tailnet`: WhoIs returned nothing, which usually means the request did not arrive over the tailnet at all |
 | **403**, no challenge | it knows who you are and says no. A tagged device that is not `tag:podium-node`, or the control plane's own device calling itself |
 | 200 on `/healthz`, 401 on everything else | the server is up and the credential is the problem |
 

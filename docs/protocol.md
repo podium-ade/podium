@@ -86,7 +86,7 @@ operator      podium node                       podium server
    plaintext of every secret the task's spec referenced, and `registry_credentials` the login
    for each registry the spec's images are pulled from that the server holds one for; both are
    resolved immediately before the push and sent to nobody else. The transport is what protects them in flight — WireGuard under
-   `tailnet`, and nothing at all under `dev`, which is why `dev` refuses to bind anything but
+   `tailnet`, and nothing at all under `local`, which is why `local` refuses to bind anything but
    loopback and warns at startup when any secret exists.
 5. **Cancel** is idempotent and is also how server-computed timeouts arrive: SIGTERM, 30s
    grace, SIGKILL, teardown.
