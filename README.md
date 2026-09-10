@@ -577,28 +577,28 @@ node, because a node enforces its own budget and rejects work it has no slot for
 
 ## Configuration
 
-Every daemon is configured entirely by environment, and **one file is the whole of it**: the
-`.env` that `podium-server init` writes beside the compose file. The compose files interpolate
-it, and `set -a; . .env; set +a` configures a host CLI from the same lines. Nothing here asks
-you to declare a variable anywhere else.
+Every daemon is configured entirely by environment, and **one file is the whole of it**: a
+`.env` beside the compose file. The compose file interpolates it, and `set -a; . .env; set +a`
+configures a host CLI from the same lines. Nothing here asks you to declare a variable
+anywhere else. [`deploy/.env.example`](deploy/.env.example) documents every variable there is
+with its default, and `go test ./deploy/...` fails the build if the code reads one that file
+does not mention, or if that file documents one nothing reads any more.
 
-[`deploy/.env.example`](deploy/.env.example) is the annotated version of that file — copy it
-instead of running `init` if you would rather choose your own credentials. Working from a
-clone, it is `deploy/.env`, which `make stack-up` sources before starting a host binary.
+**Nothing is required to start.** Every variable the compose file interpolates has a working
+default, and a test enforces it: the file may not use a `:?` interpolation, because one such
+variable turns `docker compose up` into an error message. What you set beyond that falls into
+three tiers — [`deploy/README.md`](deploy/README.md#what-you-have-to-configure) has the full
+version with consequences:
 
-`.env.example` documents every variable there is, with its default, and `go test ./deploy/...`
-fails the build if the code reads one that file does not mention, or if that file documents
-one nothing reads any more.
+| tier | | |
+|---|---|---|
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), `TS_AUTHKEY` + `PODIUM_TAILNET` (the tailnet transport) |
+| **Credentials with defaults** | replace before anything you would miss. `PODIUM_PG_PASSWORD` must be set *before* the first `up` | `PODIUM_LOCAL_TOKEN` (the only one that leaves the compose network), `PODIUM_AGENT_MEMORY_API_KEY`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN` |
+| **Just config** | ports, intervals, models, poll rates, labels, base URLs — all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
-The four you cannot skip — though `make stack-up` derives the first from `PODIUM_PG_PASSWORD`
-and the third from the file's own directory:
-
-| | |
-|---|---|
-| `PODIUM_DATABASE_URL` | the Postgres DSN. The server migrates on start |
-| `PODIUM_LOCAL_TOKEN` | the `local` transport's shared bearer token |
-| `PODIUM_MASTER_KEY_FILE` | the AES-256 key secrets are encrypted under. Mode 0600/0400 enforced. Unset means secrets are unavailable, which is supported |
-| `PODIUM_S3_*` | the object store artifacts and rolled-up logs live in. Unset disables artifacts entirely, which is also supported |
+Running the binaries by hand is the one case with genuinely required variables — seven, which
+the compose file supplies and `make stack-up` mostly derives. `podium-server init` writes the
+credentials with fresh random values and a master key beside them.
 
 `podium-server` has three subcommands: `init` (writes a master key and a filled `.env`),
 `gen-master-key`, and `rotate-master-key`. `/healthz`, `/readyz` and `/metrics` are open on both
