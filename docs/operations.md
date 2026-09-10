@@ -150,6 +150,35 @@ without it is a backup of unreadable secrets, and there is no recovery path.**
 Copy it somewhere that is not the control plane, and — if the point of the backup is surviving
 the loss of that machine — not the same place as the database dump.
 
+**Under the compose files the key is generated for you, by a one-shot `init` service, and
+where it lands is your choice.** By default it is inside the `server-state` volume, so there is
+nothing on the host to copy until you ask for it:
+
+```sh
+docker compose cp server:/var/lib/podium/master.key ./master.key
+```
+
+That also means `docker compose down -v` destroys it along with everything else in that volume.
+
+**Better, if you would rather not depend on remembering that:** point `PODIUM_STATE_DIR` at a
+path before the first `up` and the key is an ordinary file on the host, which `down -v` cannot
+touch.
+
+```sh
+echo 'PODIUM_STATE_DIR=./state' >> .env
+docker compose up -d --wait
+ls -l state/master.key            # -rw------- 64 bytes, the key as 64 hex characters
+```
+
+A bare name there is a Docker volume and a path is a bind mount — compose tells them apart by
+the leading dot or slash — so it is the same variable either way. The file is mode `0600`
+regardless, because the server refuses a key file any other account on the machine can read.
+Ownership differs by engine: on native Linux it stays uid 65532 and reading it from the host
+takes `sudo`; Docker Desktop maps it to you. Under the tailnet file the same directory also
+holds the tsnet device identity, so it is two credentials rather than one.
+Under `run-host.sh` and the tailnet compose file it is still a file beside the `.env`, which is
+where `podium-server init` wrote it.
+
 ```sh
 # Rotating, which is the only safe way to replace one:
 podium-server gen-master-key --out /etc/podium/master.key.new

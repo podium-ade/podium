@@ -11,6 +11,22 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 
 COPY podium-agent /usr/local/bin/podium-agent
 
+# A DEFAULT AGENT PROFILE, at the path PODIUM_AGENT_PROFILE_DIR already defaults to. The
+# conductor refuses to start without a profile directory holding profile.yaml, and there is no
+# sensible way for a compose file to conjure a tree of YAML and prompts — which meant every
+# deployment began by copying examples/agent out of a clone. Shipping the worked example in
+# the image instead is what makes `docker compose up` enough.
+#
+# It is the example, not this repository's own bot: one playbook, on the one runtime image
+# Podium publishes, holding no credential of its own. Mount your own over /etc/podium/agent to
+# replace it, which is what a real deployment does — and note the conductor reads this
+# directory and never writes it.
+#
+# goreleaser puts examples/agent into the build context via `extra_files` in .goreleaser.yaml.
+# Both have to change together or this COPY fails the build, which is the failure mode you
+# want.
+COPY examples/agent /etc/podium/agent
+
 # Unprivileged. The conductor talks to Postgres, the Podium API and Slack, and none of that
 # wants root. It never touches Docker and never reads the master key. 65532 is distroless's
 # nonroot user, and it is why PODIUM_AGENT_PROFILE_DIR is mounted read-only.

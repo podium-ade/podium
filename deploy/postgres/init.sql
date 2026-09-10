@@ -1,30 +1,10 @@
--- Databases the compose stack needs beside podium's own.
---
--- MOUNTED AT /docker-entrypoint-initdb.d/10-databases.sql, which Postgres runs ONLY when
--- the data directory is empty. On an existing install nothing here happens: create the
--- databases by hand instead. See docs/operations.md → "Adding the agent and memory
--- databases to an existing deployment".
---
---   docker compose exec -T postgres createdb -U podium podium_agent
---   docker compose exec -T postgres createdb -U podium podium_memory
---   docker compose exec -T postgres psql -U podium -d podium_memory \
---       -c 'create extension if not exists vector'
---
--- podium-agent owns podium_agent and migrates it on start. It is a separate database, not a
--- schema in podium's: the conductor is an API client of the control plane and never opens
--- the control plane's schema.
-create database podium_agent owner podium;
-
--- Hindsight owns podium_memory and runs its own Alembic migrations on start.
-create database podium_memory owner podium;
+-- The databases beside podium's own. Postgres runs this ONLY on an empty data directory;
+-- to add them to an existing install, see docs/operations.md.
+create database podium_agent owner podium;   -- the conductor's, migrated by podium-agent
+create database podium_memory owner podium;  -- Hindsight's, migrated by Hindsight
 
 \connect podium_memory
 
--- Hindsight requires the pgvector extension to live in `public`, and creates it itself if
--- it can. We create it up front anyway, for two reasons: it is the only statement here that
--- needs more than CREATEDB, so doing it now leaves the door open to giving Hindsight a
--- non-superuser role later; and Hindsight's migration, finding the extension in another
--- schema, would try to DROP EXTENSION vector CASCADE and recreate it in public.
---
--- podium and podium_agent stay extension-free. Podium's own migrations never reference it.
+-- Hindsight needs pgvector in `public` and would otherwise DROP EXTENSION ... CASCADE and
+-- recreate it there itself. podium and podium_agent stay extension-free.
 create extension if not exists vector;

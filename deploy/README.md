@@ -1,10 +1,14 @@
 # Deploying Podium
 
-> **There is no release yet.** No `ghcr.io` image has been published and none of the four
-> Dockerfiles in `docker/` has been built, so the compose files here cannot pull what they
-> name. `install-node.sh` passes `shellcheck` and has never run on a real machine. Until a
-> release is tagged, [From a clone](#from-a-clone-with-no-release) is the path that works —
-> and it is the one this repository's own deployment uses.
+> **No `ghcr.io` image has been published yet**, because there has been no `v*` tag. The
+> compose files here work — they were run end to end on 2026-09-10 against images built from
+> `docker/*.Dockerfile` and pulled from a registry: `podium-server init` in a container,
+> `up --wait`, node enrolment through the `cli` profile, and a task exiting 0 with its own
+> output. Until there is a release, build the four images and point `PODIUM_IMAGE_REPO` at a
+> registry your machines can reach — [the recipe is in the
+> quickstart](../docs/quickstart.md#building-the-images-yourself).
+>
+> `install-node.sh` needs a release archive to download, so it has still never run.
 
 ---
 
@@ -12,8 +16,8 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | Postgres, the object store, the control plane, and an optional worker behind the `node` profile |
-| `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
+| `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is the whole control plane, the conductor and the agents' shared memory; the `cli` and `node` compose profiles add the CLI as a one-shot and a worker on this machine |
+| `docker-compose.tailnet.yml` | the same deployment on a tailnet, so workers can be on other machines: no published ports at all, no token anywhere, and it **fails closed** on every credential rather than shipping defaults. Also one file — the Postgres script is inline in it too |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
@@ -24,14 +28,114 @@
 
 ---
 
+### Which compose file
+
+Three, and they are not variations on one theme — they answer different questions.
+
+| | `docker-compose.yml` | `docker-compose.tailnet.yml` | `docker-compose.dev.yml` |
+|---|---|---|---|
+| **for** | running Podium on one machine | running it across machines | working **on** Podium |
+| **Podium itself** | in containers | in containers | **on your host**, as binaries you built |
+| **transport** | `local` — loopback, one shared token | `tailnet` — HTTPS on a MagicDNS name, no token at all | whichever you configure the binary for |
+| **services** | postgres, hindsight, objectstore, init, server, agent, +`node`/`cli` profiles | the same, +`node` profile, no `cli` (see below) | postgres, +hindsight/objectstore behind `memory`/`artifacts` |
+| **published ports** | server on `127.0.0.1:8080` | **none**; the server is on :443 of its own Tailscale device | postgres, objectstore, hindsight — all loopback, so host binaries can reach them |
+| **credentials** | **defaults**, so `up` needs nothing | **fails closed** — six variables with no default | dev values |
+| **workers** | this machine only | anywhere on your tailnet | your own `make stack-up` node |
+| **files needed** | one | one | the repo you are working in |
+| **verified** | end to end, from registry images | transport yes, this file no | daily |
+
+The differences that look like inconsistencies and are not:
+
+- **Postgres is published in `dev.yml` and nowhere else.** A host binary has to reach it; a
+  container reaches it by service name over the compose network.
+- **Only the tailnet file fails closed on credentials.** A single machine on loopback can
+  afford a default token; a deployment that workers on other machines can reach cannot.
+- **There is no `cli` profile in the tailnet file.** Under that transport the server has no
+  address on the compose network at all, so a sibling container could not reach it. Run the
+  CLI from any device on the tailnet, where it needs no token.
+- **`dev.yml` mounts `postgres/init.sql`; the other two inline it.** Those two are meant to be
+  saved on their own; `dev.yml` is only ever used inside a clone. A test keeps all three
+  copies identical.
+
 ## What you have to configure
 
-Everything is `deploy/.env`. [`.env.example`](.env.example) documents every variable Podium
-reads, with its default, and a test fails the build if the two drift apart. This section is
-the other half of that: which of them **you** have to decide, for the thing you are actually
-running. Anything not listed here has a working default.
+**Which variables are required depends on how you run Podium**, and the two answers are very
+different. [`.env.example`](.env.example) documents every variable there is, with its default,
+and a test fails the build if the two drift apart.
 
-`podium-server init` writes the ones marked ⚙ with fresh random values. The rest are yours.
+### Required to start: nothing
+
+Under [`docker-compose.yml`](docker-compose.yml) every variable has a working default, so
+`docker compose up -d --wait` needs no `.env` at all. A test enforces that — the compose file
+may not interpolate anything with `:?`, because one such variable turns `up` into an error
+message.
+
+That is a starting point, not a finishing one. The next two tables are the things you will
+actually want to set.
+
+### Required for a feature to work at all
+
+Each of these switches something on. Without it that one thing does not work, and nothing else
+is affected.
+
+| | what it unlocks | without it |
+|---|---|---|
+| `PODIUM_MEMORY_LLM_API_KEY` | the agents' shared memory | the `hindsight` container exits at boot and keeps restarting. It is the one container a bare `up` leaves broken. Any of [~25 providers](https://hindsight.vectorize.io/developer/models), chosen with `PODIUM_MEMORY_LLM_PROVIDER` |
+| `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other |
+| `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
+| `TS_AUTHKEY` + `PODIUM_TAILNET` | the tailnet transport | `docker-compose.tailnet.yml` refuses to interpolate. Nobody can default these, and failing closed is correct. `PODIUM_NODE_TS_AUTHKEY` is the worker's equivalent |
+| `PODIUM_AGENT_UI_URL` | correct links in Slack and Linear | links point at `http://server:8080`, which is a name only the compose network can resolve. Cosmetic, and immediately visible |
+
+### Defaults that are credentials
+
+These have values, so nothing forces you to choose. Replace them before anything you would
+miss — and note **`PODIUM_PG_PASSWORD` has to be set before the first `up`**, because it is
+baked into the Postgres volume when it is initialised; afterwards it takes a `down -v` or an
+`ALTER ROLE`.
+
+| | default | reachable from |
+|---|---|---|
+| `PODIUM_LOCAL_TOKEN` | `podium` | **`127.0.0.1:8080`.** The only one of these that leaves the compose network, and the only thing between a caller and the whole API — there is no per-user identity under this transport and no RBAC anywhere |
+| `PODIUM_AGENT_MEMORY_API_KEY` | `podium` | the memory port, which is loopback by default *because* this has a default. Hindsight has no authentication beyond it |
+| `PODIUM_PG_PASSWORD` | `podium` | the compose network only — no published port goes near Postgres |
+| `PODIUM_S3_SECRET_KEY` | `podiumpodium` | the compose network only |
+| `PODIUM_AGENT_TOKEN` | `podium` | the compose network only |
+
+```sh
+printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\nPODIUM_AGENT_TOKEN=%s\n' \
+  "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" > .env
+```
+
+### Required only if you run the binaries yourself
+
+`.env.example` marks seven variables as required, and every one of them is about running
+`podium-server` and `podium-agent` by hand — the compose files supply all seven. If you are
+using compose, ignore them:
+
+`PODIUM_DATABASE_URL`, `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_AGENT_SERVER`,
+`PODIUM_AGENT_API_TOKEN`, `PODIUM_AGENT_DATABASE_URL`, `PODIUM_AGENT_TOKEN`.
+
+`make stack-up` derives most of them anyway — `PODIUM_DATABASE_URL` from `PODIUM_PG_PASSWORD`,
+the node's and conductor's copies of the shared token from `PODIUM_LOCAL_TOKEN` — and
+`podium-server init` writes the credentials with fresh random values. See
+[From a clone](#from-a-clone-to-work-on-podium).
+
+### Everything else is config
+
+Ports, intervals, model names, poll rates, labels, slot counts, base URLs. All of them have
+defaults that work, and all of them are documented with their default in
+[`.env.example`](.env.example). Two worth knowing about because they bite rather than break:
+
+| | |
+|---|---|
+| `PODIUM_IMAGE_TAG` | **pin it.** `latest` moves under you, and a control plane and a worker from different releases can disagree about the wire |
+| `PODIUM_PORT`, `PODIUM_PG_PORT`, `PODIUM_S3_PORT`, `PODIUM_MEMORY_PORT` | move a published port when something on the machine already owns it |
+
+---
+
+The rest of this section is the same ground by component, with the per-variable detail.
+`podium-server init` writes the ones marked ⚙ with fresh random values.
 
 ### Always
 
@@ -117,8 +221,11 @@ The memory service is a container of its own, and its key is **not** the one abo
 ### Read by the compose files, not by any binary
 
 ⚙ `PODIUM_PG_PASSWORD`, and `PODIUM_IMAGE_TAG` — **pin it**, `latest` moves, and a control
-plane and a worker from different releases can disagree about the wire. `PODIUM_PORT`,
-`PODIUM_PG_PORT` and `PODIUM_S3_PORT` move a published port when something already owns it.
+plane and a worker from different releases can disagree about the wire. `PODIUM_IMAGE_REPO`
+says where the four images come from, and defaults to `ghcr.io/podium-ade`; set it if you
+mirror them, which an air-gapped or pull-through deployment has to, or if you built them
+yourself. `PODIUM_PORT`, `PODIUM_PG_PORT` and `PODIUM_S3_PORT` move a published port when
+something already owns it.
 
 `run-host.sh` and `install-node.sh` have a handful of their own, all documented at the bottom
 of `.env.example`. The installer's are deliberately **not** the daemon's names — it takes
@@ -127,10 +234,92 @@ reads as `PODIUM_NODE_LABELS`.
 
 ---
 
-## From a clone, with no release
+## A single machine, with Docker
 
-No images are published yet, so this is the path that works today. It needs Docker for the
-dependencies and Go for the binaries, and nothing outside the repo.
+One file, one command, and no Go toolchain or binary on the host:
+
+```sh
+mkdir podium && cd podium
+curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
+docker compose up -d --wait
+open http://127.0.0.1:8080          # the token is `podium`
+```
+
+Six containers: Postgres, the agents' shared memory, the object store, a one-shot that
+generates the master key into the `server-state` volume, the control plane, and the conductor.
+Three things that used to need a file on disk no longer do — the Postgres bootstrap script is
+inline in the compose file, the conductor's profile directory ships in its image, and the
+master key is generated rather than carried.
+
+Hindsight wants an LLM key of its own for fact extraction (`PODIUM_MEMORY_LLM_API_KEY`) and
+exits at boot without one, so it is the single container that will be restarting after a bare
+`up`. Nothing else depends on it. The key can be from
+[any of its ~25 providers](https://hindsight.vectorize.io/developer/models) — set
+`PODIUM_MEMORY_LLM_PROVIDER` and `PODIUM_MEMORY_LLM_MODEL` to match; a local `ollama` keeps
+extraction off the network.
+
+**It ships default credentials**, which is the trade that makes that one command possible.
+`PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY` and `PODIUM_AGENT_TOKEN` are reachable only from
+inside the compose network. `PODIUM_LOCAL_TOKEN` is the exception and the one that matters: it
+is the only thing between a caller and the whole API, and 8080 is published — on `127.0.0.1`
+alone, so the exposure is anyone on that machine. Override them in a `.env` beside the compose
+file **before the first `up`**, because `PODIUM_PG_PASSWORD` is baked into the Postgres volume
+when it is initialised:
+
+```sh
+printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\n' \
+  "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
+echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env          # pin it; `latest` moves under you
+```
+
+**Decide where the master key lives, before the first `up`.** `init` generates it, every stored
+secret is encrypted under it, and there is no recovery path. The default is inside the
+`server-state` volume, which `docker compose down -v` destroys; `PODIUM_STATE_DIR` set to a
+path makes it an ordinary file instead — compose reads a bare name as a volume and a path as a
+bind mount:
+
+```sh
+echo 'PODIUM_STATE_DIR=./state' >> .env      # -> ./state/master.key, mode 0600
+```
+
+Left in the volume, copy it out: `docker compose cp server:/var/lib/podium/master.key .`
+Either way, get it somewhere that is not this machine.
+
+Three things stay behind a compose profile:
+
+| profile | what it adds |
+|---|---|
+| `cli` | the `podium` CLI. A **one-shot**: the container runs one command and exits rather than staying up, so `up` never starts it and you invoke it per command — `docker compose run --rm cli nodes`, which turns the profile on by itself. Each call is a fresh container that exits with the command's own code, which is why a `--spec` has to be mounted where it can see it |
+| `node` | a worker on **this** machine. Needs a `PODIUM_NODE_ENROLL_TOKEN` in `.env` first, and mounts the host's Docker socket — root-equivalent on that host |
+
+
+Then a worker, on this machine:
+
+```sh
+echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
+  node enroll-token --label linux/amd64)" >> .env
+docker compose --profile node up -d
+```
+
+or on another machine — for which the `local` transport is the wrong tool, being loopback-only.
+Use [a tailnet](#a-tailnet-host) and then [`../docs/node-setup.md`](../docs/node-setup.md).
+
+Two things worth knowing before you rely on the worker:
+
+- **Its data directory is a host path**, `/var/lib/podium-node`, at the same absolute path
+  inside the container and out. It has to be: the node drives the *host's* daemon, so every
+  bind mount it asks for — including the `podium-runner` that is PID 1 in every task
+  container — is resolved by that daemon against the host filesystem. From a named volume,
+  every task dies at creation with `bind source path does not exist`.
+- **`docker compose down -v` does not remove it.** Bring a fresh stack up against an old data
+  directory and the node loops on `unauthenticated: unknown node key` forever rather than
+  failing, because `identity.json` is still there so it never reads the new enrollment token.
+  Starting genuinely from scratch means emptying that directory too.
+
+## From a clone, to work on Podium
+
+This is the path for changing Podium rather than running it: host binaries you just built,
+with only the dependencies in containers. It needs Docker, Go and Node.
 
 ```sh
 make build                                             # bin/podium-{server,agent,node,podium}
@@ -175,45 +364,19 @@ its `agent` service.
 
 ---
 
-## A host, once there is a release
-
-```sh
-scp -r deploy/ host:podium/
-ssh host
-cd podium
-
-podium-server init             # writes master.key and a .env with fresh credentials
-docker compose up -d --wait    # postgres, objectstore, server
-```
-
-`init` generates the AES-256 master key, the Postgres password, the local transport's token and the
-object-store secret, and writes `.env` mode 0600. **Back `master.key` up somewhere that is not
-this machine** — there is no recovery path, and losing it loses every secret encrypted under it.
-
-Then a worker, on this machine or another:
-
-```sh
-TOKEN=$(podium node enroll-token --label linux/amd64)
-
-# here, with compose:
-PODIUM_NODE_ENROLL_TOKEN=$TOKEN docker compose --profile node up -d
-
-# or on another machine:
-curl -fsSL https://raw.githubusercontent.com/alvaroibarguen/podium/main/deploy/install-node.sh \
-  | sudo PODIUM_SERVER=https://podium.<tailnet>.ts.net \
-         PODIUM_ENROLL_TOKEN=$TOKEN \
-         TS_AUTHKEY=tskey-auth-... \
-         PODIUM_LABELS=linux/amd64 \
-         bash
-```
-
 ## A tailnet host
 
 ```sh
-podium-server init --transport tailnet --tailnet <your MagicDNS suffix>
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest \
+  init --dir /out --transport tailnet --tailnet <your MagicDNS suffix>
 # fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
 docker compose -f docker-compose.tailnet.yml up -d --wait
 ```
+
+There is deliberately no `cli` profile in that file: the server has no address on the compose
+network for a sibling container to reach, so run the CLI from a device on the tailnet, where it
+needs no token at all.
 
 There are no published ports in that file at all. The server listens on port 443 of its own
 Tailscale device; workers dial out and listen for nothing.

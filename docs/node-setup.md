@@ -45,6 +45,56 @@ Check the engine before you start:
 docker info --format 'cgroup v{{.CgroupVersion}}  api {{.ServerVersion}}  {{.Architecture}}'
 ```
 
+## As a container, or as a binary
+
+A worker is `podium-node` plus a Docker socket, and it runs either way.
+
+**As a container**, from `ghcr.io/podium-ade/podium-node`. Beside the control plane that is the
+compose file's `node` profile, and there is nothing to install:
+
+```sh
+echo "PODIUM_NODE_ENROLL_TOKEN=$(docker compose run --rm cli \
+  node enroll-token --label demo)" >> .env
+docker compose --profile node up -d
+```
+
+Two mounts are not optional, and both follow from the node driving the **host's** Docker daemon
+rather than one of its own:
+
+| mount | why |
+|---|---|
+| `/var/run/docker.sock:/var/run/docker.sock` | the daemon it runs tasks on. **Root-equivalent on that host**: anything that can talk to this socket can start a privileged container and own the machine. See [`security.md`](security.md) |
+| `/var/lib/podium-node:/var/lib/podium-node` | the data directory, at the **same absolute path** inside the container and out. Every bind mount the node asks for — including the `podium-runner` that is PID 1 in every task container — is resolved by the host's daemon against the host filesystem, so from a named volume every task dies at creation with `bind source path does not exist` |
+
+That second one has a consequence worth knowing: the directory outlives `docker compose down
+-v`. A fresh control plane against an old data directory leaves the node looping on
+`unauthenticated: unknown node key` forever rather than failing, because `identity.json` is
+still there so it never reads the new enrollment token.
+
+On a machine of its own the control plane has to be reachable, which on the `local` transport
+it is not — that transport is loopback-only. So a standalone container worker means a tailnet
+control plane, and the node needs its own Tailscale state and auth key:
+
+```sh
+docker run -d --name podium-node --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/podium-node:/var/lib/podium-node \
+  -e PODIUM_NODE_SERVER=https://podium.<tailnet>.ts.net \
+  -e PODIUM_NODE_TRANSPORT=tailnet \
+  -e PODIUM_NODE_TS_AUTHKEY=tskey-auth-... \
+  -e PODIUM_NODE_ENROLL_TOKEN=$TOKEN \
+  -e PODIUM_NODE_LABELS=linux/amd64 \
+  ghcr.io/podium-ade/podium-node:v0.1.0
+```
+
+> **Unverified.** The `node` profile beside a control plane has been run end to end; this
+> standalone form, and a containerised node on a tailnet, have not.
+
+**As a binary** is what [`install-node.sh`](../deploy/install-node.sh) installs and what the
+rest of this document describes. It is the better answer for a dedicated worker: it verifies
+the download against the release's `checksums.txt` before unpacking, and runs under a hardened
+systemd unit — neither of which a `docker run` line gives you.
+
 ## Which binary — architecture
 
 **The server and its nodes do not have to share an architecture.** A darwin/arm64 control plane

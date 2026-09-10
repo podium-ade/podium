@@ -46,7 +46,7 @@ skills: [validate-pr]
 secrets:
   - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
 repos:
-  - { name: podium, url: https://github.com/alvaroibarguen/podium, default_branch: main }
+  - { name: podium, url: https://github.com/podium-ade/podium, default_branch: main }
 env:
   # The docker executor's own integration tests bind host paths into containers, and the
   # nested daemon resolves those in ITS filesystem. /workspace is the one directory both

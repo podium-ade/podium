@@ -2,7 +2,7 @@
 #
 # install-node.sh — turn a Linux machine into a Podium worker.
 #
-#   curl -fsSL https://raw.githubusercontent.com/alvaroibarguen/podium/main/deploy/install-node.sh \
+#   curl -fsSL https://raw.githubusercontent.com/podium-ade/podium/main/deploy/install-node.sh \
 #     | sudo PODIUM_SERVER=https://podium.example.ts.net \
 #            PODIUM_ENROLL_TOKEN=... \
 #            TS_AUTHKEY=tskey-auth-... \
@@ -32,7 +32,7 @@ DATA_DIR="${PODIUM_DATA_DIR:-${PODIUM_NODE_DATA_DIR:-/var/lib/podium-node}}"
 # and the daemon have to agree on it: it is written into node.yaml rather than left to the
 # daemon's default.
 METRICS_LISTEN="${PODIUM_METRICS_LISTEN:-${PODIUM_NODE_METRICS_LISTEN:-127.0.0.1:9091}}"
-REPO="${PODIUM_REPO:-alvaroibarguen/podium}"
+REPO="${PODIUM_REPO:-podium-ade/podium}"
 BASE_URL="${PODIUM_RELEASE_BASE_URL:-https://github.com/${REPO}/releases}"
 RAW_URL="${PODIUM_RAW_BASE_URL:-https://raw.githubusercontent.com/${REPO}/main}"
 BIN_DIR="${PODIUM_BIN_DIR:-/usr/local/bin}"
@@ -197,7 +197,7 @@ write_config() {
   mkdir -p "$CONFIG_DIR"
   local out="${CONFIG_DIR}/node.yaml"
 
-  # The config file holds the enrollment token and possibly the dev token, so it is 0600 and
+  # The config file holds the enrollment token and possibly the transport token, so it is 0600 and
   # it is written atomically: a half-written node.yaml would fail to parse and the daemon
   # would not start.
   local tmp

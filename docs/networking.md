@@ -245,11 +245,36 @@ because there are two vantage points, and they are almost never the same string:
 | `PODIUM_AGENT_MEMORY_URL` | the conductor | `http://hindsight:8888` in compose, `http://127.0.0.1:8888` for a binary |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | goes into every turn's brief | `http://host.docker.internal:8888` |
 
-**Same host.** The default is right. Every task container is created with
+`PODIUM_MEMORY_BIND` and `PODIUM_MEMORY_PORT` decide where the compose files publish it, and
+the two files deliberately disagree:
+
+| | `PODIUM_MEMORY_BIND` default | `PODIUM_AGENT_MEMORY_API_KEY` default |
+|---|---|---|
+| `docker-compose.yml` | `127.0.0.1` | `podium` |
+| `docker-compose.tailnet.yml` | `0.0.0.0` | none — Hindsight refuses to start |
+
+That is one trade made twice. The single-machine file ships a default API key so that
+`docker compose up` needs no configuration, and closes the port to compensate: a default
+credential does not belong on an interface anything else can reach. The tailnet file has to
+publish widely, because the workers are elsewhere, so it refuses to start until you supply a
+real key.
+
+**Same host, and this is the part that catches people.** Every task container is created with
 `host.docker.internal` mapped to the engine's bridge gateway — Docker Desktop provides the name
 anyway; a native Linux engine needs the mapping, which the node adds — so a turn reaches the
-host without knowing its address. Port 8888 must be published on an interface the bridge can
-see, which is why `PODIUM_MEMORY_BIND` defaults to `0.0.0.0` and why the API key is mandatory.
+host without knowing its address. But **the loopback default is not reachable that way on a
+native Linux engine**: a service bound to `127.0.0.1` is out of reach through the bridge
+gateway, and only Docker Desktop's proxying hides it ([below](#reaching-the-control-plane-from-a-task)
+has the same trap from the other side). So the moment agent turns run as *tasks* rather than as
+host turns, even on one machine, you have to widen it and set a real key together:
+
+```sh
+PODIUM_MEMORY_BIND=172.17.0.1                                  # the bridge gateway
+PODIUM_AGENT_MEMORY_API_KEY=…                                  # not the default
+```
+
+It works on a Mac and fails on a Linux worker otherwise, which is the worst shape a
+misconfiguration can have.
 
 **Workers on other machines.** `host.docker.internal` then points at the *worker's* host, where
 there is no memory service. The task URL has to be an address every node's containers can route
@@ -355,6 +380,9 @@ on matching nodes. That is exactly what labels are for: label your workers `linu
   binding above will refuse a copied `identity.json`, but do not rely on that as your only
   control.
 - **The server's tsnet state directory is a credential too**, and must persist. See above.
+  Under both compose files it is the `server-state` volume, which also holds the master key the
+  `init` service generates — so that one volume is two unrecoverable credentials, and
+  `docker compose down -v` destroys both.
 - **A node host is root-equivalent to whoever can submit tasks.** The daemon needs the Docker
   socket, and a task is an arbitrary container. Run workers on machines that do nothing else.
 

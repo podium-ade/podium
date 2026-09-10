@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/alvaroibarguen/podium/security/advisories/new
+    url: https://github.com/podium-ade/podium/security/advisories/new
     about: Report privately. Never in a public issue. See SECURITY.md.
   - name: Documentation
-    url: https://github.com/alvaroibarguen/podium/tree/main/docs
+    url: https://github.com/podium-ade/podium/tree/main/docs
     about: Quickstart, concepts, the task spec, networking, security, storage and operations.

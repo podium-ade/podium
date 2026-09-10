@@ -70,7 +70,7 @@ Verifying a release:
 ```sh
 cosign verify-blob \
   --certificate checksums.txt.pem --signature checksums.txt.sig \
-  --certificate-identity-regexp 'https://github.com/alvaroibarguen/podium/.*' \
+  --certificate-identity-regexp 'https://github.com/podium-ade/podium/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 sha256sum --check --ignore-missing checksums.txt
