@@ -22,22 +22,53 @@ func TestInlinePostgresInitMatchesTheFile(t *testing.T) {
 	onDisk, err := os.ReadFile("postgres/init.sql")
 	require.NoError(t, err)
 
-	raw, err := os.ReadFile("docker-compose.yml")
-	require.NoError(t, err)
+	// Both distributed files carry it inline, because both are meant to be saved on their
+	// own. docker-compose.dev.yml mounts the file instead: it is only ever used in a clone.
+	for _, name := range []string{"docker-compose.yml", "docker-compose.tailnet.yml"} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(name)
+			require.NoError(t, err)
 
-	var file struct {
-		Configs map[string]struct {
-			Content string `yaml:"content"`
-		} `yaml:"configs"`
+			var file struct {
+				Configs map[string]struct {
+					Content string `yaml:"content"`
+				} `yaml:"configs"`
+			}
+			require.NoError(t, yaml.Unmarshal(raw, &file))
+
+			inline, ok := file.Configs["postgres-init"]
+			require.True(t, ok, "%s has no `postgres-init` config; the whole point of it is "+
+				"that the deployment needs no second file", name)
+			require.Equal(t, string(onDisk), inline.Content,
+				"the inline postgres-init config in %s and postgres/init.sql have drifted. "+
+					"Regenerate the inline block from the file — do not hand-edit one to "+
+					"match the other.", name)
+		})
 	}
-	require.NoError(t, yaml.Unmarshal(raw, &file))
+}
 
-	inline, ok := file.Configs["postgres-init"]
-	require.True(t, ok, "docker-compose.yml has no `postgres-init` config; the whole point of "+
-		"it is that the deployment needs no second file")
-	require.Equal(t, string(onDisk), inline.Content,
-		"the inline postgres-init config and postgres/init.sql have drifted. Regenerate the "+
-			"inline block from the file — do not hand-edit one to match the other.")
+// Every base image is pinned by digest, in all three files. A tag is a moving target and a
+// base image is the part of a supply chain nobody looks at — and this is the check that
+// actually catches it: docker-compose.dev.yml had quietly drifted off two of them.
+//
+// Podium's own four images are the exception: they are selected by PODIUM_IMAGE_REPO and
+// PODIUM_IMAGE_TAG, so an operator pins the version and a digest here would defeat that.
+func TestBaseImagesArePinnedByDigest(t *testing.T) {
+	image := regexp.MustCompile(`(?m)^\s+image:\s*(\S+)`)
+	for _, name := range []string{"docker-compose.yml", "docker-compose.dev.yml", "docker-compose.tailnet.yml"} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(name)
+			require.NoError(t, err)
+			for _, m := range image.FindAllStringSubmatch(string(raw), -1) {
+				ref := m[1]
+				if strings.Contains(ref, "${PODIUM_IMAGE_REPO") {
+					continue // ours, pinned by the operator with PODIUM_IMAGE_TAG
+				}
+				require.Contains(t, ref, "@sha256:",
+					"%s: %s is not pinned by digest", name, ref)
+			}
+		})
+	}
 }
 
 // The compose file has to start with no .env and no files beside it, which means every

@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is the whole control plane, the conductor and the agents' shared memory; the `cli` and `node` compose profiles add the CLI as a one-shot and a worker on this machine |
-| `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
+| `docker-compose.tailnet.yml` | the same deployment on a tailnet, so workers can be on other machines: no published ports at all, no token anywhere, and it **fails closed** on every credential rather than shipping defaults. Also one file — the Postgres script is inline in it too |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
@@ -27,6 +27,35 @@
 | `tailscale-acl.example.json` | the ACL policy from the networking design |
 
 ---
+
+### Which compose file
+
+Three, and they are not variations on one theme — they answer different questions.
+
+| | `docker-compose.yml` | `docker-compose.tailnet.yml` | `docker-compose.dev.yml` |
+|---|---|---|---|
+| **for** | running Podium on one machine | running it across machines | working **on** Podium |
+| **Podium itself** | in containers | in containers | **on your host**, as binaries you built |
+| **transport** | `local` — loopback, one shared token | `tailnet` — HTTPS on a MagicDNS name, no token at all | whichever you configure the binary for |
+| **services** | postgres, hindsight, objectstore, init, server, agent, +`node`/`cli` profiles | the same, +`node` profile, no `cli` (see below) | postgres, +hindsight/objectstore behind `memory`/`artifacts` |
+| **published ports** | server on `127.0.0.1:8080` | **none**; the server is on :443 of its own Tailscale device | postgres, objectstore, hindsight — all loopback, so host binaries can reach them |
+| **credentials** | **defaults**, so `up` needs nothing | **fails closed** — six variables with no default | dev values |
+| **workers** | this machine only | anywhere on your tailnet | your own `make stack-up` node |
+| **files needed** | one | one | the repo you are working in |
+| **verified** | end to end, from registry images | transport yes, this file no | daily |
+
+The differences that look like inconsistencies and are not:
+
+- **Postgres is published in `dev.yml` and nowhere else.** A host binary has to reach it; a
+  container reaches it by service name over the compose network.
+- **Only the tailnet file fails closed on credentials.** A single machine on loopback can
+  afford a default token; a deployment that workers on other machines can reach cannot.
+- **There is no `cli` profile in the tailnet file.** Under that transport the server has no
+  address on the compose network at all, so a sibling container could not reach it. Run the
+  CLI from any device on the tailnet, where it needs no token.
+- **`dev.yml` mounts `postgres/init.sql`; the other two inline it.** Those two are meant to be
+  saved on their own; `dev.yml` is only ever used inside a clone. A test keeps all three
+  copies identical.
 
 ## What you have to configure
 
