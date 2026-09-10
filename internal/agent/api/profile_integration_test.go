@@ -269,9 +269,8 @@ func TestAnInvalidPlaybookIsRefusedAndNothingIsStored(t *testing.T) {
 }
 
 // A playbook created with no image comes back carrying the runtime published alongside this
-// build. This was a refusal case in the table above until the runtime became version-matched;
-// it is asserted rather than dropped, because "the API fills it in" is the half that a
-// caller depends on and a unit test on applyDefaults cannot see.
+// build. Asserted through the API because "CreatePlaybook fills it in" is the half a caller
+// depends on, and a unit test on applyDefaults cannot see it.
 func TestAPlaybookWithNoImageGetsTheMatchedRuntime(t *testing.T) {
 	f := newProfileFixture(t)
 	in := newPlaybook("reporter")

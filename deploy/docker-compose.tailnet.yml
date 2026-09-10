@@ -27,13 +27,13 @@
 # start and says which one is missing.
 #
 # ---------------------------------------------------------------------------------------
-# UNVERIFIED, and narrower than it looks. The tailnet TRANSPORT has been exercised against a
-# real tailnet — a server device plus two workers, one on another machine, reconnecting across
-# restarts. THIS FILE has not been brought up: it needs a real auth key and a tailnet to join.
-# Its local-transport sibling, docker-compose.yml, has been run end to end.
+# UNVERIFIED. The tailnet transport itself is exercised — a server device and workers on other
+# machines, reconnecting across restarts — but this file is not: bringing it up needs a real
+# Tailscale auth key and a tailnet to join, which no test can supply. Treat it as the recipe,
+# and docker-compose.yml as the proven one.
 #
 # The `agent` service in particular cannot work as written on this network, for the reason
-# given where it is defined — the server has no address on the compose network here.
+# given where it is defined: the server has no address on the compose network here.
 # ---------------------------------------------------------------------------------------
 name: podium
 

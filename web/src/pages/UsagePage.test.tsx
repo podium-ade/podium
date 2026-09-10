@@ -66,7 +66,7 @@ const yesterday = addDays(today, -1);
 
 const agentTask = {
   id: "tsk_01j8zc4m2qk7x9nrwd3pvb",
-  spec: { image: "ghcr.io/affiniti/agent:1" },
+  spec: { image: "ghcr.io/example/agent:1" },
   status: TaskStatus.SUCCEEDED,
   nodeId: "nod_1",
   attempts: 1,

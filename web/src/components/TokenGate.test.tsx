@@ -40,7 +40,7 @@ describe("TokenGate", () => {
   it("never prompts when WhoAmI succeeds unauthenticated, and shows the tailnet login", async () => {
     whoAmI.mockResolvedValue(
       create(WhoAmIResponseSchema, {
-        login: "alvaro@affiniti.com",
+        login: "alvaro@example.com",
         displayName: "Alvaro Ibarguen",
         kind: IdentityKind.USER,
       }),
@@ -54,10 +54,10 @@ describe("TokenGate", () => {
 
   it("falls back to the login name when the profile has no display name", async () => {
     whoAmI.mockResolvedValue(
-      create(WhoAmIResponseSchema, { login: "alvaro@affiniti.com", kind: IdentityKind.USER }),
+      create(WhoAmIResponseSchema, { login: "alvaro@example.com", kind: IdentityKind.USER }),
     );
     mount();
-    await waitFor(() => expect(screen.getByText("alvaro@affiniti.com")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("alvaro@example.com")).toBeTruthy());
   });
 
   it("shows local in the header under the local transport", async () => {

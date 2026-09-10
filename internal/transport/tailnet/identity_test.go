@@ -79,15 +79,15 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name:    "some other tag is 403, not a user",
-			who:     who("ci-runner", []string{"tag:ci"}, "alvaro@affiniti.com", "Alvaro"),
+			who:     who("ci-runner", []string{"tag:ci"}, "alvaro@example.com", "Alvaro"),
 			wantErr: transport.ErrForbidden,
 		},
 		{
 			name: "untagged device with a login is a user",
-			who:  who("alvaros-macbook-pro", nil, "alvaro@affiniti.com", "Alvaro Ibarguen"),
+			who:  who("alvaros-macbook-pro", nil, "alvaro@example.com", "Alvaro Ibarguen"),
 			want: transport.Identity{
 				Kind:         transport.KindUser,
-				Login:        "alvaro@affiniti.com",
+				Login:        "alvaro@example.com",
 				DisplayName:  "Alvaro Ibarguen",
 				NodeStableID: "nalvaros-macbook-proCNTRL",
 				RemoteAddr:   "100.105.227.25:41234",
@@ -179,7 +179,7 @@ func identifierFor(answer *apitype.WhoIsResponse, err error, users UserStore) *i
 func TestIdentifyRecordsAUserOnce(t *testing.T) {
 	t.Parallel()
 	users := &fakeUsers{}
-	id := identifierFor(who("laptop", nil, "alvaro@affiniti.com", "Alvaro"), nil, users)
+	id := identifierFor(who("laptop", nil, "alvaro@example.com", "Alvaro"), nil, users)
 
 	req := httptest.NewRequest(http.MethodPost, "/podium.v1.TaskService/ListTasks", nil)
 	req.RemoteAddr = "100.84.71.97:52000"
@@ -187,9 +187,9 @@ func TestIdentifyRecordsAUserOnce(t *testing.T) {
 		got, err := id.Identify(req)
 		require.NoError(t, err)
 		require.Equal(t, transport.KindUser, got.Kind)
-		require.Equal(t, "alvaro@affiniti.com", got.Login)
+		require.Equal(t, "alvaro@example.com", got.Login)
 	}
-	require.Equal(t, [][2]string{{"alvaro@affiniti.com", "Alvaro"}}, users.calls())
+	require.Equal(t, [][2]string{{"alvaro@example.com", "Alvaro"}}, users.calls())
 }
 
 func TestIdentifyDoesNotRecordANode(t *testing.T) {
@@ -208,13 +208,13 @@ func TestIdentifyDoesNotRecordANode(t *testing.T) {
 func TestIdentifyStillAuthenticatesWhenTheUserWriteFails(t *testing.T) {
 	t.Parallel()
 	users := &fakeUsers{fail: errors.New("postgres is down")}
-	id := identifierFor(who("laptop", nil, "alvaro@affiniti.com", "Alvaro"), nil, users)
+	id := identifierFor(who("laptop", nil, "alvaro@example.com", "Alvaro"), nil, users)
 
 	req := httptest.NewRequest(http.MethodPost, "/podium.v1.TaskService/ListTasks", nil)
 	req.RemoteAddr = "100.84.71.97:52000"
 	got, err := id.Identify(req)
 	require.NoError(t, err)
-	require.Equal(t, "alvaro@affiniti.com", got.Login)
+	require.Equal(t, "alvaro@example.com", got.Login)
 }
 
 func TestIdentifyWhoIsFailureIsUnauthenticated(t *testing.T) {

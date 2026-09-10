@@ -26,7 +26,7 @@ const ago = (s: number) => timestampFromDate(new Date(Date.now() - s * 1000));
 
 const running = {
   id: "tsk_01J8ZC4M2QK7X9NRWD3PVB",
-  spec: { image: "ghcr.io/affiniti/etl:9" },
+  spec: { image: "ghcr.io/example/etl:9" },
   status: TaskStatus.RUNNING,
   nodeId: "nod_7KQ2WXB4",
   attempts: 1,
@@ -39,7 +39,7 @@ const running = {
 
 const queued = {
   id: "tsk_01J8ZBWK4R2D8YFQNA5JZX",
-  spec: { image: "ghcr.io/affiniti/pgdump:v3" },
+  spec: { image: "ghcr.io/example/pgdump:v3" },
   status: TaskStatus.QUEUED,
   nodeId: "",
   attempts: 0,

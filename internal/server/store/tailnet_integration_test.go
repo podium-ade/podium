@@ -13,30 +13,30 @@ func TestUpsertUser(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	_, err := s.GetUser(ctx, "alvaro@affiniti.com")
+	_, err := s.GetUser(ctx, "alvaro@example.com")
 	require.ErrorIs(t, err, ErrNotFound)
 
-	first, err := s.UpsertUser(ctx, "alvaro@affiniti.com", "Alvaro Ibarguen")
+	first, err := s.UpsertUser(ctx, "alvaro@example.com", "Alvaro Ibarguen")
 	require.NoError(t, err)
-	require.Equal(t, "alvaro@affiniti.com", first.Login)
+	require.Equal(t, "alvaro@example.com", first.Login)
 	require.Equal(t, "Alvaro Ibarguen", first.DisplayName)
 	require.Empty(t, first.Roles, "roles start empty; RBAC is a later slice")
 	require.False(t, first.FirstSeenAt.IsZero())
 
 	// Seeing the same person again is idempotent and does not move first_seen_at.
-	again, err := s.UpsertUser(ctx, "alvaro@affiniti.com", "Alvaro Ibarguen")
+	again, err := s.UpsertUser(ctx, "alvaro@example.com", "Alvaro Ibarguen")
 	require.NoError(t, err)
 	require.Equal(t, first.FirstSeenAt, again.FirstSeenAt)
 
 	// A refreshed display name lands; an empty one does not erase what is known.
-	renamed, err := s.UpsertUser(ctx, "alvaro@affiniti.com", "Alvaro I.")
+	renamed, err := s.UpsertUser(ctx, "alvaro@example.com", "Alvaro I.")
 	require.NoError(t, err)
 	require.Equal(t, "Alvaro I.", renamed.DisplayName)
-	blank, err := s.UpsertUser(ctx, "alvaro@affiniti.com", "")
+	blank, err := s.UpsertUser(ctx, "alvaro@example.com", "")
 	require.NoError(t, err)
 	require.Equal(t, "Alvaro I.", blank.DisplayName)
 
-	got, err := s.GetUser(ctx, "alvaro@affiniti.com")
+	got, err := s.GetUser(ctx, "alvaro@example.com")
 	require.NoError(t, err)
 	require.Equal(t, renamed.Login, got.Login)
 

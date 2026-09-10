@@ -37,21 +37,21 @@ func TestImageCacheRecordsOnlyWhatPodiumPulled(t *testing.T) {
 	dir := t.TempDir()
 	c := NewImageCache(dir)
 
-	assert.False(t, c.Owns("affiniti-api:latest"), "an empty cache owns nothing")
+	assert.False(t, c.Owns("some-api:latest"), "an empty cache owns nothing")
 
 	c.Pulled("alpine:3", "sha256:aaa", 8<<20)
 	assert.True(t, c.Owns("alpine:3"))
-	assert.False(t, c.Owns("affiniti-api:latest"),
+	assert.False(t, c.Owns("some-api:latest"),
 		"an image on the same engine that podium never pulled is never ours")
 
 	// Using an image nobody pulled does not adopt it.
-	c.Used("affiniti-api:latest")
-	assert.False(t, c.Owns("affiniti-api:latest"))
+	c.Used("some-api:latest")
+	assert.False(t, c.Owns("some-api:latest"))
 
 	// It survives a restart, which is what makes the allow-list durable.
 	reloaded := NewImageCache(dir)
 	assert.True(t, reloaded.Owns("alpine:3"))
-	assert.False(t, reloaded.Owns("affiniti-api:latest"))
+	assert.False(t, reloaded.Owns("some-api:latest"))
 	require.FileExists(t, filepath.Join(dir, ImageCacheFile))
 }
 
@@ -70,10 +70,10 @@ func TestRemoveOwnedImageRefusesAnImagePodiumDidNotPull(t *testing.T) {
 	cache.Pulled("alpine:3", "sha256:alpine", 8<<20)
 	cli := &fakeImages{}
 
-	stranger := ImageRecord{Ref: "affiniti-api:latest", ID: "sha256:stranger", SizeBytes: 4 << 30}
+	stranger := ImageRecord{Ref: "some-api:latest", ID: "sha256:stranger", SizeBytes: 4 << 30}
 	err := removeOwnedImage(context.Background(), cli, cache, stranger)
 	require.ErrorIs(t, err, ErrNotPodiumImage)
-	assert.Contains(t, err.Error(), "affiniti-api:latest")
+	assert.Contains(t, err.Error(), "some-api:latest")
 	assert.Empty(t, cli.removed, "ImageRemove must not even be called for a stranger's image")
 
 	// And the one it does own goes through, by ID rather than by ref.
