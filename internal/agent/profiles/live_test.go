@@ -215,8 +215,7 @@ func TestLiveIsSafeWhenThereIsNoProfileAtAll(t *testing.T) {
 }
 
 // A stored playbook with no image is accepted, like a file-loaded one, and comes out carrying
-// the matched runtime. This used to be a rejection case in the table above; the contract
-// changed when the runtime became version-matched, so it is asserted rather than dropped.
+// the matched runtime.
 func TestAStoredPlaybookWithNoImageGetsTheDefault(t *testing.T) {
 	s := stored("x")
 	s.Image = ""

@@ -26,25 +26,25 @@ const ago = (s: number) => timestampFromDate(new Date(Date.now() - s * 1000));
 
 const running = {
   id: "tsk_01J8ZC4M2QK7X9NRWD3PVB",
-  spec: { image: "ghcr.io/affiniti/etl:9" },
+  spec: { image: "ghcr.io/example/etl:9" },
   status: TaskStatus.RUNNING,
   nodeId: "nod_7KQ2WXB4",
   attempts: 1,
   createdAt: ago(400),
   startedAt: ago(390),
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "",
 };
 
 const queued = {
   id: "tsk_01J8ZBWK4R2D8YFQNA5JZX",
-  spec: { image: "ghcr.io/affiniti/pgdump:v3" },
+  spec: { image: "ghcr.io/example/pgdump:v3" },
   status: TaskStatus.QUEUED,
   nodeId: "",
   attempts: 0,
   createdAt: ago(90),
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "no online node carries the label gpu",
   lastScheduleAttemptAt: ago(12),
@@ -60,7 +60,7 @@ const succeeded = {
   startedAt: ago(1880),
   finishedAt: ago(1876),
   exitCode: 0,
-  requestedBy: "alvaro@example.com",
+  requestedBy: "user@example.com",
   failureReason: "",
   queuedReason: "",
 };

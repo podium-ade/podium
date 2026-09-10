@@ -22,12 +22,12 @@ func TestWhoAmI(t *testing.T) {
 			name: "a tailnet user",
 			id: transport.Identity{
 				Kind:        transport.KindUser,
-				Login:       "alvaro@affiniti.com",
-				DisplayName: "Alvaro Ibarguen",
+				Login:       "user@example.com",
+				DisplayName: "Example User",
 			},
 			want: &podiumv1.WhoAmIResponse{
-				Login:       "alvaro@affiniti.com",
-				DisplayName: "Alvaro Ibarguen",
+				Login:       "user@example.com",
+				DisplayName: "Example User",
 				Kind:        podiumv1.IdentityKind_IDENTITY_KIND_USER,
 			},
 		},

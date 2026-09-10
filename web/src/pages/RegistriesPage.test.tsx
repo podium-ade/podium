@@ -38,7 +38,7 @@ const row = {
   host: "us-docker.pkg.dev",
   username: "_json_key",
   keyId: "k_01abc",
-  createdBy: "alvaro@example.com",
+  createdBy: "user@example.com",
   updatedAt: timestampFromDate(new Date(Date.now() - 60_000)),
 };
 
@@ -56,7 +56,7 @@ describe("RegistriesPage", () => {
     mount();
     expect(await screen.findByText("us-docker.pkg.dev")).toBeInTheDocument();
     expect(screen.getByText("_json_key")).toBeInTheDocument();
-    expect(screen.getByText("alvaro@example.com")).toBeInTheDocument();
+    expect(screen.getByText("user@example.com")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("service_account");
   });
 

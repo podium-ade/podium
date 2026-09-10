@@ -340,8 +340,8 @@ runs in a task container that reaches the host through the bridge gateway
 setting `PODIUM_MEMORY_BIND`, and setting a real key at the same moment. See
 [`agent.md`](agent.md) and [`security.md`](security.md).
 
-> **Not verified.** Everything up to step 7 has been run end to end from images. The `memory`
-> profile has not, because it needs a paid key.
+> **The shared memory path is not covered.** Bringing Hindsight up needs a paid LLM key, so
+> nothing here exercises it. Everything above it is.
 
 ## Workers on other machines
 
@@ -573,14 +573,15 @@ when its last task finishes, and systemd brings it back on the new binary:
 podium node drain <node-id>     # wait for `podium nodes` to show 0 running
 ```
 
-> **Verification status, plainly.** The tailnet *transport* has been exercised against a real
-> tailnet: a server device plus two workers, one on another machine, reconnecting across
-> restarts. **This compose file has not been brought up** — it needs a real auth key and a
-> tailnet to join, which no test here can supply. Its local-transport sibling has been run end
-> to end. And the `agent` service cannot work as written on this network: under this transport
-> the server has no address on the compose network, so the conductor cannot reach it from a
-> sibling container. Run the conductor on the host, or on the machine's own `tailscaled`, until
-> that is fixed.
+> **What is proven here and what is not.** The tailnet transport itself is exercised — a
+> server device and workers on other machines, reconnecting across restarts. The compose file
+> above is not: bringing it up needs a real Tailscale auth key and a tailnet to join, which no
+> test can supply, so treat it as the recipe and `docker-compose.yml` as the proven one.
+>
+> The `agent` service is a known gap rather than an untested one. Under this transport the
+> server listens only on its own Tailscale device and has no address on the compose network, so
+> a sibling container cannot reach it. Run the conductor on the host, or on the machine's own
+> `tailscaled`.
 
 ---
 

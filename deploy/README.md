@@ -1,14 +1,9 @@
 # Deploying Podium
 
-> **No `ghcr.io` image has been published yet**, because there has been no `v*` tag. The
-> compose files here work — they were run end to end on 2026-09-10 against images built from
-> `docker/*.Dockerfile` and pulled from a registry: `podium-server init` in a container,
-> `up --wait`, node enrolment through the `cli` profile, and a task exiting 0 with its own
-> output. Until there is a release, build the four images and point `PODIUM_IMAGE_REPO` at a
-> registry your machines can reach — [the recipe is in the
-> quickstart](../docs/quickstart.md#building-the-images-yourself).
->
-> `install-node.sh` needs a release archive to download, so it has still never run.
+> **Nothing is published to `ghcr.io` until a `v*` tag exists.** Until then, build the images
+> yourself and point `PODIUM_IMAGE_REPO` at a registry your machines can reach — [the recipe is
+> in the quickstart](../docs/quickstart.md#building-the-images-yourself). `install-node.sh`
+> downloads a release archive, so it needs one too.
 
 ---
 
@@ -42,7 +37,7 @@ Three, and they are not variations on one theme — they answer different questi
 | **credentials** | **defaults**, so `up` needs nothing | **fails closed** — six variables with no default | dev values |
 | **workers** | this machine only | anywhere on your tailnet | your own `make stack-up` node |
 | **files needed** | one | one | the repo you are working in |
-| **verified** | end to end, from registry images | transport yes, this file no | daily |
+| **tested path** | yes | the transport, but not this file | yes |
 
 The differences that look like inconsistencies and are not:
 
@@ -247,9 +242,9 @@ open http://127.0.0.1:8080          # the token is `podium`
 
 Six containers: Postgres, the agents' shared memory, the object store, a one-shot that
 generates the master key into the `server-state` volume, the control plane, and the conductor.
-Three things that used to need a file on disk no longer do — the Postgres bootstrap script is
-inline in the compose file, the conductor's profile directory ships in its image, and the
-master key is generated rather than carried.
+Nothing else has to be on disk: the Postgres bootstrap script is inline in the compose file,
+the conductor's profile directory ships inside its image, and the master key is generated
+rather than carried.
 
 Hindsight wants an LLM key of its own for fact extraction (`PODIUM_MEMORY_LLM_API_KEY`) and
 exits at boot without one, so it is the single container that will be restarting after a bare
