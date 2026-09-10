@@ -934,8 +934,9 @@ at all — `sessions.playbook` is empty, and the Sessions and Usage screens read
 A `/word` typed in a **chat** is just text: nothing strips it, because there is no playbook to
 select and eating the first word of somebody's question would only lose it.
 
-Changing a playbook **file** needs a restart. There is no SIGHUP reload. A playbook made in the web
-UI does not — see *Playbooks in the web UI* below.
+Changing a playbook **file** needs the conductor to re-read the profile directory: **Re-read the
+files**, on the Playbooks screen or on Agent → Assistant. There is no SIGHUP reload and no
+restart. A playbook made in the web UI needs neither — see *Playbooks in the web UI* below.
 
 ### Playbooks in the web UI
 
@@ -970,7 +971,7 @@ Creating a playbook whose name a file already defines is refused outright, so th
 only ever reached by adding a file for a name the database already had. The rule is deliberately
 not "the most recent write wins": which of two definitions runs must never depend on which was
 saved last, and a GitOps deployment must stay the authority over the names it ships. Editing a
-file-defined playbook means editing the file and restarting the conductor, exactly as before.
+file-defined playbook means editing the file and pressing **Re-read the files**.
 
 Profile *settings* work the other way round, because they are not definitions with a name but
 single values with one writer: `profile.yaml` supplies the default and a field set in the UI
@@ -985,8 +986,17 @@ already in flight is untouched — it took its playbook by value when it started
 can change under it. Every conductor also re-reads the stored half every 15 seconds, which is
 what makes a second conductor on the same database, or a row changed with `psql`, land as well.
 
-The profile directory itself is still read **once, at start**. That half is a deploy artefact and
-re-reading a file somebody is half way through saving is not an improvement.
+The profile directory is read at start and **only** re-read when somebody asks — **Re-read the
+files**, on the Playbooks screen or on Agent → Assistant, which is `ReloadProfileDir`. That half
+is a deploy artefact, and re-reading a file somebody is half way through saving on a timer would
+be a way to break a working bot by touching a keyboard; a human pressing a button is the one
+signal that says the editing has finished.
+
+The re-read is all-or-nothing. `profile.yaml`, every `playbooks/<name>.yaml` and every prompt a
+`file:` names are loaded, merged with the stored playbooks and the overrides, and validated by
+exactly the code that runs at start-up — and only then swapped in. A directory that does not load
+is refused with the error naming the file, and the conductor keeps running the profile it already
+had. Nothing an operator can leave half-written on disk can stop a bot that is answering.
 
 **What is refused.** A playbook made in a browser is validated by exactly the code that validates a
 playbook file — same rules, same messages — so nothing is accepted here that a file could not say,

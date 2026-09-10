@@ -76,6 +76,9 @@ const (
 	// AgentServiceUpdateProfileProcedure is the fully-qualified name of the AgentService's
 	// UpdateProfile RPC.
 	AgentServiceUpdateProfileProcedure = "/podium.agent.v1.AgentService/UpdateProfile"
+	// AgentServiceReloadProfileDirProcedure is the fully-qualified name of the AgentService's
+	// ReloadProfileDir RPC.
+	AgentServiceReloadProfileDirProcedure = "/podium.agent.v1.AgentService/ReloadProfileDir"
 	// AgentServiceCreatePlaybookProcedure is the fully-qualified name of the AgentService's
 	// CreatePlaybook RPC.
 	AgentServiceCreatePlaybookProcedure = "/podium.agent.v1.AgentService/CreatePlaybook"
@@ -193,6 +196,15 @@ type AgentServiceClient interface {
 	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
+	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
+	// running profile.
+	//
+	// It is what an operator who has just edited that YAML does instead of restarting the
+	// process. Only an operator asks: a directory halfway through being saved does not load,
+	// and a load failure is refused here and changes nothing, so a conductor is never left
+	// running half a profile.
+	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
 	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
 	// already defines is refused: the files are authoritative for the names they hold.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
@@ -386,6 +398,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
 			connect.WithClientOptions(opts...),
 		),
+		reloadProfileDir: connect.NewClient[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse](
+			httpClient,
+			baseURL+AgentServiceReloadProfileDirProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
+			connect.WithClientOptions(opts...),
+		),
 		createPlaybook: connect.NewClient[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse](
 			httpClient,
 			baseURL+AgentServiceCreatePlaybookProcedure,
@@ -545,6 +563,7 @@ type agentServiceClient struct {
 	listPlaybooks         *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
 	getProfile            *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile         *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	reloadProfileDir      *connect.Client[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse]
 	createPlaybook        *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
 	updatePlaybook        *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
 	deletePlaybook        *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
@@ -648,6 +667,11 @@ func (c *agentServiceClient) GetProfile(ctx context.Context, req *connect.Reques
 // UpdateProfile calls podium.agent.v1.AgentService.UpdateProfile.
 func (c *agentServiceClient) UpdateProfile(ctx context.Context, req *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
 	return c.updateProfile.CallUnary(ctx, req)
+}
+
+// ReloadProfileDir calls podium.agent.v1.AgentService.ReloadProfileDir.
+func (c *agentServiceClient) ReloadProfileDir(ctx context.Context, req *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error) {
+	return c.reloadProfileDir.CallUnary(ctx, req)
 }
 
 // CreatePlaybook calls podium.agent.v1.AgentService.CreatePlaybook.
@@ -817,6 +841,15 @@ type AgentServiceHandler interface {
 	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
+	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
+	// running profile.
+	//
+	// It is what an operator who has just edited that YAML does instead of restarting the
+	// process. Only an operator asks: a directory halfway through being saved does not load,
+	// and a load failure is refused here and changes nothing, so a conductor is never left
+	// running half a profile.
+	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
 	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
 	// already defines is refused: the files are authoritative for the names they hold.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
@@ -1006,6 +1039,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("UpdateProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceReloadProfileDirHandler := connect.NewUnaryHandler(
+		AgentServiceReloadProfileDirProcedure,
+		svc.ReloadProfileDir,
+		connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceCreatePlaybookHandler := connect.NewUnaryHandler(
 		AgentServiceCreatePlaybookProcedure,
 		svc.CreatePlaybook,
@@ -1178,6 +1217,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetProfileHandler.ServeHTTP(w, r)
 		case AgentServiceUpdateProfileProcedure:
 			agentServiceUpdateProfileHandler.ServeHTTP(w, r)
+		case AgentServiceReloadProfileDirProcedure:
+			agentServiceReloadProfileDirHandler.ServeHTTP(w, r)
 		case AgentServiceCreatePlaybookProcedure:
 			agentServiceCreatePlaybookHandler.ServeHTTP(w, r)
 		case AgentServiceUpdatePlaybookProcedure:
@@ -1295,6 +1336,10 @@ func (UnimplementedAgentServiceHandler) GetProfile(context.Context, *connect.Req
 
 func (UnimplementedAgentServiceHandler) UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateProfile is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ReloadProfileDir is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
