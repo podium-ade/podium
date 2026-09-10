@@ -1,6 +1,6 @@
 # podium, the CLI. Published so a CI job can submit a task without installing anything:
 #
-#   docker run --rm -e PODIUM_SERVER -e PODIUM_TOKEN ghcr.io/alvaroibarguen/podium:latest \
+#   docker run --rm -e PODIUM_SERVER -e PODIUM_TOKEN ghcr.io/podium-ade/podium:latest \
 #     run --image alpine:3 -- echo hello
 #
 # The CLI never talks to Docker — everything it knows comes from the control plane — so this

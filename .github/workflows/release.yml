@@ -109,7 +109,7 @@ jobs:
       # runs on the control plane's host from its image.
       #
       # TODO(step 16 → step 14's owner): the two agent runtime images are not published.
-      # ghcr.io/alvaroibarguen/podium-agent-runtime and -dev, tagged like every other image
+      # ghcr.io/podium-ade/podium-agent-runtime and -dev, tagged like every other image
       # ({{ .Version }}, v{{ .Major }}.{{ .Minor }}, sha-<short>, latest off a prerelease).
       # See the TODO in .goreleaser.yaml for the two things that make them unlike the Go
       # images. Whoever wires it up needs pnpm and Node 22 in this job for the build stage —

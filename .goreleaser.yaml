@@ -144,7 +144,7 @@ sboms:
 #
 #   cosign verify-blob \
 #     --certificate checksums.txt.pem --signature checksums.txt.sig \
-#     --certificate-identity-regexp 'https://github.com/alvaroibarguen/podium/.*' \
+#     --certificate-identity-regexp 'https://github.com/podium-ade/podium/.*' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     checksums.txt
 #
@@ -177,7 +177,7 @@ dockers_v2:
     ids: [podium-server]
     dockerfile: deploy/docker/server.Dockerfile
     platforms: [linux/amd64, linux/arm64]
-    images: ["ghcr.io/alvaroibarguen/podium-server"]
+    images: ["ghcr.io/podium-ade/podium-server"]
     tags:
       - "{{ .Version }}"
       - "v{{ .Major }}.{{ .Minor }}"
@@ -185,7 +185,7 @@ dockers_v2:
       - "{{ if not .Prerelease }}latest{{ end }}"
     sbom: true
     labels: &labels
-      org.opencontainers.image.source: https://github.com/alvaroibarguen/podium
+      org.opencontainers.image.source: https://github.com/podium-ade/podium
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
@@ -194,7 +194,7 @@ dockers_v2:
     ids: [podium-node]
     dockerfile: deploy/docker/node.Dockerfile
     platforms: [linux/amd64, linux/arm64]
-    images: ["ghcr.io/alvaroibarguen/podium-node"]
+    images: ["ghcr.io/podium-ade/podium-node"]
     tags:
       - "{{ .Version }}"
       - "v{{ .Major }}.{{ .Minor }}"
@@ -207,7 +207,7 @@ dockers_v2:
     ids: [podium]
     dockerfile: deploy/docker/cli.Dockerfile
     platforms: [linux/amd64, linux/arm64]
-    images: ["ghcr.io/alvaroibarguen/podium"]
+    images: ["ghcr.io/podium-ade/podium"]
     tags:
       - "{{ .Version }}"
       - "v{{ .Major }}.{{ .Minor }}"
@@ -220,7 +220,7 @@ dockers_v2:
     ids: [podium-agent]
     dockerfile: deploy/docker/agent.Dockerfile
     platforms: [linux/amd64, linux/arm64]
-    images: ["ghcr.io/alvaroibarguen/podium-agent"]
+    images: ["ghcr.io/podium-ade/podium-agent"]
     tags:
       - "{{ .Version }}"
       - "v{{ .Major }}.{{ .Minor }}"
@@ -231,8 +231,8 @@ dockers_v2:
 
   # TODO(step 16 → step 14's owner): publish the two agent runtime images.
   #
-  #   ghcr.io/alvaroibarguen/podium-agent-runtime       agent/runtime/Dockerfile
-  #   ghcr.io/alvaroibarguen/podium-agent-runtime-dev   agent/runtime/Dockerfile.dev
+  #   ghcr.io/podium-ade/podium-agent-runtime       agent/runtime/Dockerfile
+  #   ghcr.io/podium-ade/podium-agent-runtime-dev   agent/runtime/Dockerfile.dev
   #
   # Same tag set as every entry above ({{ .Version }}, v{{ .Major }}.{{ .Minor }},
   # sha-{{ .ShortCommit }}, latest off a prerelease), same labels, sbom: true. Deliberately
@@ -284,12 +284,12 @@ release:
 
         cosign verify-blob \
           --certificate checksums.txt.pem --signature checksums.txt.sig \
-          --certificate-identity-regexp 'https://github.com/alvaroibarguen/podium/.*' \
+          --certificate-identity-regexp 'https://github.com/podium-ade/podium/.*' \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com \
           checksums.txt
         sha256sum --check --ignore-missing checksums.txt
 
     ## Installing a worker
 
-        curl -fsSL https://raw.githubusercontent.com/alvaroibarguen/podium/main/deploy/install-node.sh \
+        curl -fsSL https://raw.githubusercontent.com/podium-ade/podium/main/deploy/install-node.sh \
           | sudo PODIUM_SERVER=... PODIUM_ENROLL_TOKEN=... bash
