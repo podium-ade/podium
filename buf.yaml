@@ -20,15 +20,3 @@ lint:
 breaking:
   use:
     - FILE
-  ignore_only:
-    # TEMPORARY, and delete it in the commit after this one merges.
-    #
-    # IDENTITY_KIND_DEV_TOKEN became IDENTITY_KIND_LOCAL_TOKEN when the dev transport was
-    # renamed to local. The number is still 3, so nothing on the wire changed; FILE flags it
-    # because a renamed enum value breaks generated code, which is the right default and is
-    # exactly why this is scoped to one rule in one file rather than relaxed to WIRE.
-    #
-    # `buf breaking` compares against origin/main, so this stays red until main carries the
-    # new name. Once it does, this block is dead weight hiding a real rule — remove it.
-    ENUM_VALUE_SAME_NAME:
-      - proto/podium/v1/identity.proto
