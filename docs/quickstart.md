@@ -632,15 +632,26 @@ git clone https://github.com/podium-ade/podium.git && cd podium
 make web runner-embed                     # the embedded UI, and the two Linux runners
 
 REG=registry.example.com:5000             # a registry your machines can reach
-mkdir -p /tmp/ctx
+ARCH=arm64                                # match the machines that will run these
+mkdir -p "/tmp/ctx/linux/$ARCH"
 for b in podium podium-server podium-node podium-agent; do
-  CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o "/tmp/ctx/$b" "./cmd/$b"
+  CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -o "/tmp/ctx/linux/$ARCH/$b" "./cmd/$b"
 done
+cp -r examples/agent /tmp/ctx/examples/agent            # the conductor's default profile
+
 for p in server:podium-server node:podium-node agent:podium-agent cli:podium; do
-  docker build -f "deploy/docker/${p%%:*}.Dockerfile" -t "$REG/${p##*:}:dev" /tmp/ctx
+  docker build --platform "linux/$ARCH" \
+    -f "deploy/docker/${p%%:*}.Dockerfile" -t "$REG/${p##*:}:dev" /tmp/ctx
   docker push "$REG/${p##*:}:dev"
 done
 ```
+
+**The `linux/$ARCH/` directory is not decoration.** The Dockerfiles copy
+`$TARGETPLATFORM/<binary>`, because a release builds one multi-architecture image and cannot
+put two architectures' binaries at the same path. A flat context fails with
+`"/podium-server": not found`. `--platform` is what sets `$TARGETPLATFORM`, so it is required
+too. `examples/agent` sits at the context root instead, unprefixed, because the conductor's
+profile is the same for every architecture.
 
 Set `GOARCH` to match the machines that will run them, then point the compose file at your
 registry:
