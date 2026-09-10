@@ -120,7 +120,8 @@ Two things this does not do, and one to keep in mind:
 - **It does not restrict placement.** Podium schedules on labels and knows nothing about which
   nodes allow privilege. Pair the flag with a label — `--allow-privileged-sidecars --labels
   privileged`, and a spec that requires `labels: [privileged]` — so a privileged task reaches
-  the machine you meant and no other task ends up sharing it.
+  the machine you meant and no other task ends up sharing it. `--labels` is read at enrollment;
+  on a node that is already enrolled, `podium node label NODE --add privileged` puts it on.
 - Run the flag on a node **dedicated to it**. A machine that hosts one privileged sidecar hosts
   every other task on that machine at the same risk, because a container escape from the
   privileged one owns the node and everything else running on it.

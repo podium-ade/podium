@@ -123,6 +123,35 @@ func TestSetNodeMaxTasksSurvivesAHeartbeat(t *testing.T) {
 	require.ErrorIs(t, s.SetNodeMaxTasks(ctx, "node_nope", &eight), ErrNotFound)
 }
 
+// Labels are set at enrollment and changed afterwards through this column, so the row has to
+// take a new set whole — including an empty one, which is a jsonb `[]` rather than null.
+func TestSetNodeLabels(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+
+	node, err := s.CreateNode(ctx, NewNode{
+		Name:        "worker-1",
+		Labels:      []string{"linux/amd64", "privileged"},
+		NodeKeyHash: HashToken("node-key-labels"),
+	})
+	require.NoError(t, err)
+
+	relabelled, err := s.SetNodeLabels(ctx, node.ID, []string{"linux/amd64", "monorepo"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"linux/amd64", "monorepo"}, relabelled.Labels)
+
+	read, err := s.GetNode(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, relabelled, read)
+
+	bare, err := s.SetNodeLabels(ctx, node.ID, nil)
+	require.NoError(t, err)
+	require.Empty(t, bare.Labels)
+
+	_, err = s.SetNodeLabels(ctx, "node_nope", []string{"monorepo"})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestCreateNodeRequiresKeyHash(t *testing.T) {
 	s := newStore(t)
 	_, err := s.CreateNode(context.Background(), NewNode{Name: "keyless"})

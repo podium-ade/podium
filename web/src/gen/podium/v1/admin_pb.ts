@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/admin.proto.
  */
 export const file_podium_v1_admin: GenFile = /*@__PURE__*/
-  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSKFAwoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCRIQCghkcmFpbmluZxgMIAEoCBIfChJtYXhfdGFza3Nfb3ZlcnJpZGUYDSABKAVIAIgBAUIVChNfbWF4X3Rhc2tzX292ZXJyaWRlIlYKHENyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QSDgoGbGFiZWxzGAEgAygJEiYKA3R0bBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJeCh1DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCISChBMaXN0Tm9kZXNSZXF1ZXN0IjMKEUxpc3ROb2Rlc1Jlc3BvbnNlEh4KBW5vZGVzGAEgAygLMg8ucG9kaXVtLnYxLk5vZGUiIwoQUmVrZXlOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjIKEVJla2V5Tm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIjChBEcmFpbk5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiMgoRRHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIiUKElVuZHJhaW5Ob2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjQKE1VuZHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjkKE1NldE5vZGVTbG90c1JlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCgltYXhfdGFza3MYAiABKAUiNQoUU2V0Tm9kZVNsb3RzUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjMKEURlbGV0ZU5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDQoFZm9yY2UYAiABKAgiFAoSRGVsZXRlTm9kZVJlc3BvbnNlMsAEChBOb2RlQWRtaW5TZXJ2aWNlEmoKFUNyZWF0ZUVucm9sbG1lbnRUb2tlbhInLnBvZGl1bS52MS5DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0GigucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlc3BvbnNlEkYKCUxpc3ROb2RlcxIbLnBvZGl1bS52MS5MaXN0Tm9kZXNSZXF1ZXN0GhwucG9kaXVtLnYxLkxpc3ROb2Rlc1Jlc3BvbnNlEkYKCVJla2V5Tm9kZRIbLnBvZGl1bS52MS5SZWtleU5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLlJla2V5Tm9kZVJlc3BvbnNlEkYKCURyYWluTm9kZRIbLnBvZGl1bS52MS5EcmFpbk5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLkRyYWluTm9kZVJlc3BvbnNlEkwKC1VuZHJhaW5Ob2RlEh0ucG9kaXVtLnYxLlVuZHJhaW5Ob2RlUmVxdWVzdBoeLnBvZGl1bS52MS5VbmRyYWluTm9kZVJlc3BvbnNlEk8KDFNldE5vZGVTbG90cxIeLnBvZGl1bS52MS5TZXROb2RlU2xvdHNSZXF1ZXN0Gh8ucG9kaXVtLnYxLlNldE5vZGVTbG90c1Jlc3BvbnNlEkkKCkRlbGV0ZU5vZGUSHC5wb2RpdW0udjEuRGVsZXRlTm9kZVJlcXVlc3QaHS5wb2RpdW0udjEuRGVsZXRlTm9kZVJlc3BvbnNlQqQBCg1jb20ucG9kaXVtLnYxQgpBZG1pblByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChVwb2RpdW0vdjEvYWRtaW4ucHJvdG8SCXBvZGl1bS52MSKFAwoETm9kZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEiUKBnN0YXR1cxgDIAEoDjIVLnBvZGl1bS52MS5Ob2RlU3RhdHVzEg4KBmxhYmVscxgEIAMoCRIpCghjYXBhY2l0eRgFIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSFQoNcnVubmluZ190YXNrcxgGIAEoBRISCgpmcmVlX3Nsb3RzGAcgASgFEg8KB3ZlcnNpb24YCCABKAkSNQoRbGFzdF9oZWFydGJlYXRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHRzX3N0YWJsZV9pZBgLIAEoCRIQCghkcmFpbmluZxgMIAEoCBIfChJtYXhfdGFza3Nfb3ZlcnJpZGUYDSABKAVIAIgBAUIVChNfbWF4X3Rhc2tzX292ZXJyaWRlIlYKHENyZWF0ZUVucm9sbG1lbnRUb2tlblJlcXVlc3QSDgoGbGFiZWxzGAEgAygJEiYKA3R0bBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJeCh1DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCISChBMaXN0Tm9kZXNSZXF1ZXN0IjMKEUxpc3ROb2Rlc1Jlc3BvbnNlEh4KBW5vZGVzGAEgAygLMg8ucG9kaXVtLnYxLk5vZGUiIwoQUmVrZXlOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjIKEVJla2V5Tm9kZVJlc3BvbnNlEh0KBG5vZGUYASABKAsyDy5wb2RpdW0udjEuTm9kZSIjChBEcmFpbk5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiMgoRRHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIiUKElVuZHJhaW5Ob2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIjQKE1VuZHJhaW5Ob2RlUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjkKE1NldE5vZGVTbG90c1JlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCgltYXhfdGFza3MYAiABKAUiNQoUU2V0Tm9kZVNsb3RzUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIkQKFFNldE5vZGVMYWJlbHNSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSCwoDYWRkGAIgAygJEg4KBnJlbW92ZRgDIAMoCSI2ChVTZXROb2RlTGFiZWxzUmVzcG9uc2USHQoEbm9kZRgBIAEoCzIPLnBvZGl1bS52MS5Ob2RlIjMKEURlbGV0ZU5vZGVSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDQoFZm9yY2UYAiABKAgiFAoSRGVsZXRlTm9kZVJlc3BvbnNlMpQFChBOb2RlQWRtaW5TZXJ2aWNlEmoKFUNyZWF0ZUVucm9sbG1lbnRUb2tlbhInLnBvZGl1bS52MS5DcmVhdGVFbnJvbGxtZW50VG9rZW5SZXF1ZXN0GigucG9kaXVtLnYxLkNyZWF0ZUVucm9sbG1lbnRUb2tlblJlc3BvbnNlEkYKCUxpc3ROb2RlcxIbLnBvZGl1bS52MS5MaXN0Tm9kZXNSZXF1ZXN0GhwucG9kaXVtLnYxLkxpc3ROb2Rlc1Jlc3BvbnNlEkYKCVJla2V5Tm9kZRIbLnBvZGl1bS52MS5SZWtleU5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLlJla2V5Tm9kZVJlc3BvbnNlEkYKCURyYWluTm9kZRIbLnBvZGl1bS52MS5EcmFpbk5vZGVSZXF1ZXN0GhwucG9kaXVtLnYxLkRyYWluTm9kZVJlc3BvbnNlEkwKC1VuZHJhaW5Ob2RlEh0ucG9kaXVtLnYxLlVuZHJhaW5Ob2RlUmVxdWVzdBoeLnBvZGl1bS52MS5VbmRyYWluTm9kZVJlc3BvbnNlEk8KDFNldE5vZGVTbG90cxIeLnBvZGl1bS52MS5TZXROb2RlU2xvdHNSZXF1ZXN0Gh8ucG9kaXVtLnYxLlNldE5vZGVTbG90c1Jlc3BvbnNlElIKDVNldE5vZGVMYWJlbHMSHy5wb2RpdW0udjEuU2V0Tm9kZUxhYmVsc1JlcXVlc3QaIC5wb2RpdW0udjEuU2V0Tm9kZUxhYmVsc1Jlc3BvbnNlEkkKCkRlbGV0ZU5vZGUSHC5wb2RpdW0udjEuRGVsZXRlTm9kZVJlcXVlc3QaHS5wb2RpdW0udjEuRGVsZXRlTm9kZVJlc3BvbnNlQqQBCg1jb20ucG9kaXVtLnYxQgpBZG1pblByb3RvUAFaQmdpdGh1Yi5jb20vYWx2YXJvaWJhcmd1ZW4vcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.Node
@@ -325,6 +325,54 @@ export const SetNodeSlotsResponseSchema: GenMessage<SetNodeSlotsResponse> = /*@_
   messageDesc(file_podium_v1_admin, 12);
 
 /**
+ * @generated from message podium.v1.SetNodeLabelsRequest
+ */
+export type SetNodeLabelsRequest = Message<"podium.v1.SetNodeLabelsRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * add and remove are applied to the labels the node already has, in that order: a label
+   * named in both ends up removed. The result is sorted and deduplicated, exactly as
+   * enrollment produces it.
+   *
+   * @generated from field: repeated string add = 2;
+   */
+  add: string[];
+
+  /**
+   * @generated from field: repeated string remove = 3;
+   */
+  remove: string[];
+};
+
+/**
+ * Describes the message podium.v1.SetNodeLabelsRequest.
+ * Use `create(SetNodeLabelsRequestSchema)` to create a new message.
+ */
+export const SetNodeLabelsRequestSchema: GenMessage<SetNodeLabelsRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 13);
+
+/**
+ * @generated from message podium.v1.SetNodeLabelsResponse
+ */
+export type SetNodeLabelsResponse = Message<"podium.v1.SetNodeLabelsResponse"> & {
+  /**
+   * @generated from field: podium.v1.Node node = 1;
+   */
+  node?: Node | undefined;
+};
+
+/**
+ * Describes the message podium.v1.SetNodeLabelsResponse.
+ * Use `create(SetNodeLabelsResponseSchema)` to create a new message.
+ */
+export const SetNodeLabelsResponseSchema: GenMessage<SetNodeLabelsResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_admin, 14);
+
+/**
  * @generated from message podium.v1.DeleteNodeRequest
  */
 export type DeleteNodeRequest = Message<"podium.v1.DeleteNodeRequest"> & {
@@ -346,7 +394,7 @@ export type DeleteNodeRequest = Message<"podium.v1.DeleteNodeRequest"> & {
  * Use `create(DeleteNodeRequestSchema)` to create a new message.
  */
 export const DeleteNodeRequestSchema: GenMessage<DeleteNodeRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_admin, 13);
+  messageDesc(file_podium_v1_admin, 15);
 
 /**
  * @generated from message podium.v1.DeleteNodeResponse
@@ -359,7 +407,7 @@ export type DeleteNodeResponse = Message<"podium.v1.DeleteNodeResponse"> & {
  * Use `create(DeleteNodeResponseSchema)` to create a new message.
  */
 export const DeleteNodeResponseSchema: GenMessage<DeleteNodeResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_admin, 14);
+  messageDesc(file_podium_v1_admin, 16);
 
 /**
  * NodeAdminService is the operator-facing node API.
@@ -425,6 +473,18 @@ export const NodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof SetNodeSlotsRequestSchema;
     output: typeof SetNodeSlotsResponseSchema;
+  },
+  /**
+   * SetNodeLabels changes what a node is eligible for after it has enrolled. Labels are
+   * added and removed rather than replaced, so two operators tagging different things
+   * cannot clobber each other.
+   *
+   * @generated from rpc podium.v1.NodeAdminService.SetNodeLabels
+   */
+  setNodeLabels: {
+    methodKind: "unary";
+    input: typeof SetNodeLabelsRequestSchema;
+    output: typeof SetNodeLabelsResponseSchema;
   },
   /**
    * DeleteNode forgets a node. It refuses a node that is still online and not drained.

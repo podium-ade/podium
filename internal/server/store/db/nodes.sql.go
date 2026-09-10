@@ -175,6 +175,37 @@ func (q *Queries) SetNodeDraining(ctx context.Context, arg SetNodeDrainingParams
 	return result.RowsAffected(), nil
 }
 
+const setNodeLabels = `-- name: SetNodeLabels :one
+update nodes set labels = $1 where id = $2
+returning id, name, tags, labels, capacity, node_key_hash, status, version, last_heartbeat_at, created_at, ts_stable_id, draining, max_tasks_override
+`
+
+type SetNodeLabelsParams struct {
+	Labels []byte
+	ID     string
+}
+
+func (q *Queries) SetNodeLabels(ctx context.Context, arg SetNodeLabelsParams) (Node, error) {
+	row := q.db.QueryRow(ctx, setNodeLabels, arg.Labels, arg.ID)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Tags,
+		&i.Labels,
+		&i.Capacity,
+		&i.NodeKeyHash,
+		&i.Status,
+		&i.Version,
+		&i.LastHeartbeatAt,
+		&i.CreatedAt,
+		&i.TsStableID,
+		&i.Draining,
+		&i.MaxTasksOverride,
+	)
+	return i, err
+}
+
 const setNodeMaxTasks = `-- name: SetNodeMaxTasks :execrows
 update nodes set max_tasks_override = $1::int where id = $2
 `

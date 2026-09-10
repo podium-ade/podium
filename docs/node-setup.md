@@ -153,7 +153,8 @@ TOKEN=$(podium --server http://127.0.0.1:8080 --token "$PODIUM_DEV_TOKEN" \
 `enroll-token` prints the token to **stdout and nothing else**, so `$( )` captures it cleanly; the
 expiry note goes to stderr. Repeat `--label` for each label. Labels decide what the node is
 eligible for: a task whose spec lists `labels: [browser]` only ever goes to a node advertising
-`browser`.
+`browser`. They are not fixed at enrollment — see
+[Changing a node's labels](#changing-a-nodes-labels).
 
 You can also mint one from the web UI under **Nodes → Add a node**, which hands you the whole
 command with the token filled in.
@@ -222,7 +223,7 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_TS_HOSTNAME` | `ts_hostname` | `podium-node-<hostname>` | `tailnet` only. The Tailscale device name |
 | `PODIUM_NODE_ENROLL_TOKEN` | `enroll_token` | — | First run only |
 | `PODIUM_NODE_DATA_DIR` | `data_dir` | `/var/lib/podium-node` | Identity + per-task state |
-| `PODIUM_NODE_LABELS` | `labels` | — | Comma-separated in env, a list in YAML |
+| `PODIUM_NODE_LABELS` | `labels` | — | Comma-separated in env, a list in YAML. **Read at enrollment only** — an already-enrolled node is relabelled from the control plane, see [Changing a node's labels](#changing-a-nodes-labels) |
 | `PODIUM_NODE_MAX_TASKS` | `max_tasks` | `4` | Concurrency budget. **`0` means the node never gets work.** An operator can override it from the control plane — see [Changing a node's slots](#changing-a-nodes-slots) |
 | `PODIUM_NODE_METRICS_LISTEN` | `metrics_listen` | `127.0.0.1:9091` | Health and metrics |
 | `PODIUM_NODE_DOCKER_HOST` | `docker_host` | — | Engine endpoint; empty uses the normal Docker resolution |
@@ -285,6 +286,29 @@ Three things are worth knowing about it:
 
 `podium nodes` marks an overridden count with `*`, so a machine configured for 4 and capped
 at 2 never reads as a machine with two slots.
+
+### Changing a node's labels
+
+`PODIUM_NODE_LABELS` is read once, at enrollment. `podium node label NODE` changes the set
+afterwards, from the control plane, without touching the node's configuration or restarting
+anything:
+
+```sh
+podium node label worker-3 --add monorepo      # this box has the checkout; pin work to it
+podium node label worker-3 --remove browser    # it no longer has a display
+```
+
+Labels are added and removed rather than replaced, so two operators tagging different things
+cannot clobber each other. The stored set is sorted and deduplicated, exactly as enrollment
+leaves it, and `podium nodes` prints it.
+
+A node that is connected is retagged on the spot — the labels the scheduler matches on live
+on the node's session, and this changes them there as well as on the row, so work routes on
+the new set from the scheduler's next tick. A node that is offline is relabelled just the
+same, and reads the change on its next connection: the row is what a stream copies its labels
+from, and the `labels` a node re-advertises in its Hello never overwrite it.
+
+Nothing is taken away from a task already running, whichever label went.
 
 ### The image cache — pruning is off by default, and why
 

@@ -13,7 +13,7 @@ token today, Tailscale `WhoIs` later — and never travels inside a message.
 |---|---|
 | `NodeService` | `Enroll`, `Stream`, `UploadArtifact` |
 | `TaskService` | `CreateTask`, `GetTask`, `ListTasks`, `CancelTask`, `StreamTaskEvents` |
-| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `SetNodeSlots`, `DeleteNode` |
+| `NodeAdminService` | `CreateEnrollmentToken`, `ListNodes`, `RekeyNode`, `DrainNode`, `UndrainNode`, `SetNodeSlots`, `SetNodeLabels`, `DeleteNode` |
 | `SecretService` | `SetSecret`, `ListSecrets`, `DeleteSecret` |
 | `ArtifactService` | `ListArtifacts`, `GetArtifactURL` |
 | `IdentityService` | `WhoAmI` |
