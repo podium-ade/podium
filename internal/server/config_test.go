@@ -5,19 +5,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	tsnet "github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
 func TestConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("PODIUM_DATABASE_URL", "postgres://podium:podium@127.0.0.1:5432/podium")
 	t.Setenv("PODIUM_TRANSPORT", "")
-	t.Setenv("PODIUM_DEV_LISTEN", "")
-	t.Setenv("PODIUM_DEV_TOKEN", "devtoken")
+	t.Setenv("PODIUM_LOCAL_LISTEN", "")
+	t.Setenv("PODIUM_LOCAL_TOKEN", "devtoken")
 
 	cfg := ConfigFromEnv()
-	require.Equal(t, TransportDev, cfg.Transport)
-	require.Equal(t, dev.DefaultListen, cfg.DevListen)
+	require.Equal(t, TransportLocal, cfg.Transport)
+	require.Equal(t, local.DefaultListen, cfg.LocalListen)
 	require.Equal(t, tsnet.DefaultHostname, cfg.TSHostname)
 	require.Equal(t, tsnet.DefaultStateDir, cfg.TSStateDir)
 	require.Equal(t, tsnet.DefaultNodeTag, cfg.TSRequiredNodeTag)
@@ -59,7 +59,7 @@ func TestAllowUntaggedNodesOnlyAcceptsABoolean(t *testing.T) {
 }
 
 func TestConfigValidate(t *testing.T) {
-	base := Config{DatabaseURL: "postgres://x", Transport: TransportDev, DevToken: "t"}
+	base := Config{DatabaseURL: "postgres://x", Transport: TransportLocal, LocalToken: "t"}
 
 	require.NoError(t, base.Validate())
 
@@ -68,14 +68,14 @@ func TestConfigValidate(t *testing.T) {
 	require.ErrorContains(t, noURL.Validate(), "PODIUM_DATABASE_URL")
 
 	noToken := base
-	noToken.DevToken = ""
-	require.ErrorContains(t, noToken.Validate(), "PODIUM_DEV_TOKEN")
+	noToken.LocalToken = ""
+	require.ErrorContains(t, noToken.Validate(), "PODIUM_LOCAL_TOKEN")
 
 	ts := base
 	ts.Transport = TransportTailnet
 	ts.TSHostname = "podium"
 	ts.TSStateDir = "/var/lib/podium/tsnet"
-	ts.DevToken = ""
+	ts.LocalToken = ""
 	require.NoError(t, ts.Validate())
 
 	noHostname := ts
@@ -88,7 +88,7 @@ func TestConfigValidate(t *testing.T) {
 
 	host := base
 	host.Transport = TransportHost
-	host.DevToken = ""
+	host.LocalToken = ""
 	require.NoError(t, host.Validate())
 
 	bogus := base
@@ -97,7 +97,7 @@ func TestConfigValidate(t *testing.T) {
 }
 
 func TestAgentProxyConfig(t *testing.T) {
-	base := Config{DatabaseURL: "postgres://x", Transport: TransportDev, DevToken: "t"}
+	base := Config{DatabaseURL: "postgres://x", Transport: TransportLocal, LocalToken: "t"}
 
 	// Unset is the normal case: a control plane with no conductor.
 	require.NoError(t, base.Validate())

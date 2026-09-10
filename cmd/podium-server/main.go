@@ -42,7 +42,7 @@ func newServeCommand() *cobra.Command {
 		Short: "Serve the API, node streams and scheduler",
 		Long: "Serve the API, node streams and scheduler.\n\n" +
 			"Configuration is environment only: PODIUM_DATABASE_URL, PODIUM_TRANSPORT,\n" +
-			"PODIUM_DEV_LISTEN (loopback by default), PODIUM_DEV_TOKEN and PODIUM_MASTER_KEY_FILE.",
+			"PODIUM_LOCAL_LISTEN (loopback by default), PODIUM_LOCAL_TOKEN and PODIUM_MASTER_KEY_FILE.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))

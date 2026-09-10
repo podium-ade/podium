@@ -31,11 +31,11 @@ func TestLoadConfigFileThenEnvironment(t *testing.T) {
 	path := filepath.Join(dir, "node.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(
 		"server: http://from-file:8080\n"+
-			"transport: dev\n"+
+			"transport: local\n"+
 			"data_dir: /var/lib/from-file\n"+
 			"labels: [linux/arm64, browser]\n"+
 			"max_tasks: 2\n"+
-			"dev_token: from-file\n"), 0o600))
+			"local_token: from-file\n"), 0o600))
 
 	cfg, err := LoadConfig(path)
 	require.NoError(t, err)
@@ -46,14 +46,14 @@ func TestLoadConfigFileThenEnvironment(t *testing.T) {
 	t.Setenv("PODIUM_NODE_SERVER", "http://from-env:9090")
 	t.Setenv("PODIUM_NODE_LABELS", "gpu, linux/arm64 ,")
 	t.Setenv("PODIUM_NODE_MAX_TASKS", "7")
-	t.Setenv("PODIUM_NODE_DEV_TOKEN", "from-env")
+	t.Setenv("PODIUM_NODE_LOCAL_TOKEN", "from-env")
 
 	cfg, err = LoadConfig(path)
 	require.NoError(t, err)
 	require.Equal(t, "http://from-env:9090", cfg.Server, "the environment overlays the file")
 	require.Equal(t, []string{"gpu", "linux/arm64"}, cfg.Labels)
 	require.Equal(t, 7, cfg.MaxTasks)
-	require.Equal(t, "from-env", cfg.DevToken)
+	require.Equal(t, "from-env", cfg.LocalToken)
 	require.Equal(t, "/var/lib/from-file", cfg.DataDir, "an unset variable leaves the file alone")
 }
 
@@ -62,16 +62,16 @@ func TestLoadConfigFileThenEnvironment(t *testing.T) {
 func TestEnvironmentOnlyConfiguration(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PODIUM_NODE_SERVER", "http://127.0.0.1:8080")
-	t.Setenv("PODIUM_NODE_TRANSPORT", "dev")
-	t.Setenv("PODIUM_NODE_DEV_TOKEN", "devtoken")
+	t.Setenv("PODIUM_NODE_TRANSPORT", "local")
+	t.Setenv("PODIUM_NODE_LOCAL_TOKEN", "devtoken")
 	t.Setenv("PODIUM_NODE_ENROLL_TOKEN", "etok-fixture")
 	t.Setenv("PODIUM_NODE_DATA_DIR", dir)
 
 	cfg, err := LoadConfig("")
 	require.NoError(t, err)
 	require.Equal(t, "http://127.0.0.1:8080", cfg.Server)
-	require.Equal(t, "dev", cfg.Transport)
-	require.Equal(t, "devtoken", cfg.DevToken)
+	require.Equal(t, "local", cfg.Transport)
+	require.Equal(t, "devtoken", cfg.LocalToken)
 	require.Equal(t, "etok-fixture", cfg.EnrollToken)
 	require.Equal(t, dir, cfg.DataDir)
 	require.NoError(t, cfg.Validate())
@@ -81,7 +81,7 @@ func TestValidateRefusesToStart(t *testing.T) {
 	base := func() Config {
 		c := DefaultConfig()
 		c.DataDir = t.TempDir()
-		c.DevToken = "devtoken"
+		c.LocalToken = "devtoken"
 		return c
 	}
 
@@ -121,8 +121,8 @@ func TestValidateRefusesToStart(t *testing.T) {
 
 	t.Run("no dev token", func(t *testing.T) {
 		c := base()
-		c.DevToken = ""
-		require.ErrorContains(t, c.Validate(), "PODIUM_NODE_DEV_TOKEN")
+		c.LocalToken = ""
+		require.ErrorContains(t, c.Validate(), "PODIUM_NODE_LOCAL_TOKEN")
 	})
 
 	t.Run("no slots", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestValidateRefusesToStart(t *testing.T) {
 		c := base()
 		c.Transport = TransportTailnet
 		c.Server = "https://podium.taila79bf6.ts.net"
-		c.DevToken = ""
+		c.LocalToken = ""
 		require.NoError(t, c.Validate(), "the tailnet transport needs no dev token")
 	})
 
@@ -151,7 +151,7 @@ func TestValidateRefusesToStart(t *testing.T) {
 		c := base()
 		c.Transport = TransportHost
 		c.Server = "https://podium.taila79bf6.ts.net"
-		c.DevToken = ""
+		c.LocalToken = ""
 		require.NoError(t, c.Validate())
 	})
 

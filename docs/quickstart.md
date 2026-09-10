@@ -2,10 +2,14 @@
 
 A control plane, a worker and a task you can watch run — in about ten commands.
 
-This uses the **`dev` transport**: server and worker on one machine, over loopback, with one
+This uses the **`local` transport**: server and worker on one machine, over loopback, with one
 shared token. It is the right thing for a first look, and it is loopback-only — it cannot reach
 a worker on another machine at all. For that you need the tailnet transport, which is the only
 supported way to do it: [`networking.md`](networking.md).
+
+**Everything is configured by one file, `deploy/.env`.** Nothing below exports a variable: each
+daemon, the compose files and your own shell all read that file, so there is only ever one
+place to change something and nothing to keep in step by hand.
 
 > **There is no released binary yet.** Podium has never been tagged, so there is nothing to
 > `curl` and no image to pull, and `deploy/docker-compose.yml` cannot start `podium-server`.
@@ -47,7 +51,42 @@ That builds the web UI, cross-compiles the two Linux `podium-runner` binaries th
 `podium-node` embeds, and writes `podium`, `podium-server`, `podium-node` and `podium-agent`
 into `bin/`.
 
-## 2. Start Postgres
+## 2. Configure it
+
+One file holds everything. Copy the template and set three lines:
+
+```sh
+cp deploy/.env.example deploy/.env
+$EDITOR deploy/.env
+```
+
+```ini
+PODIUM_LOCAL_TOKEN=devtoken             # the one shared secret; pick any string
+PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
+PODIUM_TRANSPORT=local                  # the default, and what this walkthrough uses
+```
+
+That is the whole of it. `PODIUM_LOCAL_TOKEN` is the `local` transport's only credential —
+the server, the worker, the web UI and the CLI all present the same string, and each reads
+it from that one line. Everything else in `.env.example` has a working default and is
+commented with what it does.
+
+> `./bin/podium-server init --dir deploy` writes the same file with fresh random credentials
+> instead of ones you chose, plus the master key, and refuses to overwrite either. Use it for
+> anything real; type your own for a first look.
+
+**Make a master key.** Secrets are optional — Podium is a task runner without them — but it
+costs one command now and saves rediscovering it later:
+
+```sh
+./bin/podium-server gen-master-key --out deploy/master.key
+```
+
+Mode 0600, refuses to overwrite, and **there is no recovery path**: whatever encrypts your
+secrets is only in that file. `make stack-up` looks for it beside the `.env`, which is why no
+variable names it here. On a real deployment put a copy somewhere off the control plane.
+
+## 3. Start Postgres
 
 ```sh
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
@@ -55,18 +94,13 @@ docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
 
 `--wait` matters: a bare port probe races the server's first connection.
 
-> If something already owns `5432` on your machine, set `PODIUM_PG_PORT=55432` here and match
-> the DSN below. The same goes for `8080`: `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and pass
-> `--server http://127.0.0.1:18080` to the CLI.
-
 The image is `pgvector/pgvector:pg16` — Postgres 16 with the `pgvector` extension available.
 Podium's own schema does not use it; the agents' shared memory does. An existing
 `podium-pgdata` volume from an earlier release keeps working: it is the same major version.
 
-If you are going to run the conductor (`podium-agent`, see [`agent.md`](agent.md)), it needs its
-own database beside Podium's — and the shared memory a third. The compose file creates both, but
-Postgres runs init scripts only on an **empty** data directory, so on a volume that already
-exists do it by hand, once:
+The compose file creates the conductor's database and the memory service's alongside Podium's
+own, but Postgres runs init scripts only on an **empty** data directory. On a volume that
+already exists, do it by hand once:
 
 ```sh
 docker exec podium-dev-postgres createdb -U podium podium_agent
@@ -75,41 +109,31 @@ docker exec podium-dev-postgres psql -U podium -d podium_memory \
   -c 'create extension if not exists vector'
 ```
 
-## 3. Make a master key
-
-Secrets are optional — Podium is a task runner without them — but making the key now costs one
-command and saves rediscovering it later.
-
-```sh
-./bin/podium-server gen-master-key --out /tmp/podium-master.key
-```
-
-Mode 0600, refuses to overwrite, and **there is no recovery path**: whatever encrypts your
-secrets is only in that file. On a real deployment put it somewhere backed up, off the control
-plane.
-
 ## 4. Start the control plane
 
-Four variables, one per line:
-
 ```sh
-export PODIUM_TRANSPORT=dev                    # loopback, one shared token
-export PODIUM_DEV_TOKEN=devtoken               # YOURS: pick anything. The only credential there is
-export PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium
-export PODIUM_MASTER_KEY_FILE=/tmp/podium-master.key   # from step 3. Omit to run without secrets
-
-./bin/podium-server &
+make stack-up S=server
 ```
 
-It migrates the schema on start. `PODIUM_DEV_LISTEN` defaults to `127.0.0.1:8080` and **must**
-resolve to loopback — the server refuses to start otherwise, because the shared token is the
-only credential there is.
+`make stack-up` runs [`deploy/run-host.sh`](../deploy/run-host.sh), which sources `deploy/.env`
+and starts the binary `make build` produced. It derives what it can rather than making you
+write it down: `PODIUM_DATABASE_URL` from `PODIUM_PG_PASSWORD` and `PODIUM_PG_PORT`,
+`PODIUM_MASTER_KEY_FILE` from the directory the `.env` is in, and the node's and conductor's
+copies of the shared token from `PODIUM_LOCAL_TOKEN`. Anything already in your environment
+wins over the file, so a one-off `PODIUM_AGENT_PROFILE_DIR=… make stack-up` still works.
 
-## 5. Tell the CLI where to look
+The server migrates the schema on start. `PODIUM_LOCAL_LISTEN` defaults to `127.0.0.1:8080`
+and **must** resolve to loopback — the server refuses to start otherwise, because the shared
+token is the only credential there is.
+
+Logs are in `.podium/log/`, and `make stack-status` says what is up.
+
+## 5. Point your shell at it
+
+The same file configures the CLI:
 
 ```sh
-export PODIUM_SERVER=http://127.0.0.1:8080
-export PODIUM_TOKEN=devtoken
+set -a; . deploy/.env; set +a
 
 ./bin/podium version
 ```
@@ -120,32 +144,29 @@ server dev (none)
 ```
 
 Two lines, and a warning on the third if the CLI and the control plane are different builds.
+(`dev` there is the build version of an untagged binary, not the transport.)
 
-## 6. Mint an enrollment token
+The CLI reads `PODIUM_SERVER` for the address and `PODIUM_LOCAL_TOKEN` for the credential —
+the same line the server reads, so there is no second copy to drift. `PODIUM_TOKEN` exists
+only to point the CLI at some *other* stack, and `--server` / `--token` beat both.
+
+## 6. Enrol a worker
+
+The enrollment token is the one value that cannot be written ahead of time: only a running
+control plane can mint one.
 
 ```sh
-TOKEN=$(./bin/podium node enroll-token --label demo)
+echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
+make stack-up S=node
 ```
 
 Single use, one hour, and the plaintext is printed once and never stored — the database keeps
-only its SHA-256. The token goes on stdout and nothing else does, so `$(...)` works.
+only its SHA-256. It goes to stdout and nothing else does, so `$(...)` captures just the token.
 
-## 7. Start a worker
-
-```sh
-export PODIUM_NODE_SERVER=http://127.0.0.1:8080  # the control plane from step 4
-export PODIUM_NODE_TRANSPORT=dev
-export PODIUM_NODE_DEV_TOKEN=devtoken            # must equal the server's PODIUM_DEV_TOKEN
-export PODIUM_NODE_ENROLL_TOKEN=$TOKEN           # from step 6. First run only
-export PODIUM_NODE_DATA_DIR=/tmp/podium-node     # holds the node's identity
-export PODIUM_NODE_LABELS=demo                   # what task specs match on
-
-./bin/podium-node &
-```
-
-The enrollment token is needed on the **first run only**. After that
-`/tmp/podium-node/identity.json` is the node's identity — a credential the server issued once
-and cannot reissue.
+It is needed on the **first run only**. After that `identity.json` in the node's data directory
+is its identity — a credential the server issued once and cannot reissue. A Tailscale auth key
+and a Podium enrollment token are different things, and everyone confuses them; on the `local`
+transport there is no Tailscale at all.
 
 ```sh
 ./bin/podium nodes
@@ -156,7 +177,11 @@ NAME       ID                              STATUS   LABELS   RUNNING/MAX   HEART
 my-laptop  node_01m1j889e944prdn29s2x2d6pa  online   demo     0/4           1s ago
 ```
 
-## 8. Run something
+This step is optional in the sense that it is a choice, not a formality: it is the machine you
+are already on volunteering to run tasks. Skip it and you have a control plane and a UI with
+nothing to schedule onto, and a submitted task sits in `queued` saying why.
+
+## 7. Run something
 
 ```sh
 ./bin/podium run --image alpine:3 -- \
@@ -177,7 +202,7 @@ tick 3
 a CI step. Podium's own commentary goes to stderr with a `→`, so
 `podium run ... > out.txt` captures exactly the task's stdout.
 
-## 9. Run something with a database beside it
+## 8. Run something with a database beside it
 
 ```sh
 ./bin/podium run --spec examples/postgres-sidecar.yaml
@@ -200,14 +225,16 @@ A sidecar is a sibling container on the task's private network, reachable by the
 keyed under — `psql -h db` — started before the task and waited for. See
 [`task-spec.md`](task-spec.md#sidecars) and the other files in [`examples/`](../examples).
 
-## 10. Open the UI
+## 9. Open the UI
 
 ```sh
 open http://127.0.0.1:8080
 ```
 
-It asks once for the bearer token (`devtoken`) and keeps it in `localStorage`. On a tailnet that
-prompt never appears, because Tailscale has already said who you are.
+It asks once for the bearer token — whatever you put in `PODIUM_LOCAL_TOKEN` — and keeps it in
+`localStorage`, which is per browser origin: `127.0.0.1:8080` and `localhost:8080` each hold
+their own copy, so pick one address and stay on it. On a tailnet that prompt never appears,
+because Tailscale has already said who you are.
 
 The UI runs the fleet rather than just watching it: submit a task from a form or from the same
 YAML `--spec` takes, re-run a finished one, follow live logs with a per-sidecar filter, cancel,
@@ -219,9 +246,7 @@ still `queued` says which of the scheduler's reasons is keeping it there.
 ## Tearing it down
 
 ```sh
-pkill -f bin/podium-node
-pkill -f bin/podium-server
-pkill -f bin/podium-agent
+make stack-down
 docker compose -f deploy/docker-compose.dev.yml down -v
 ```
 
@@ -249,10 +274,11 @@ podium-server init             # writes master.key and a .env with fresh credent
 docker compose up -d --wait    # postgres, objectstore, server
 ```
 
-`podium-server init` generates the master key, generates the Postgres password, the dev token
-and the object-store credentials, and writes them into a `0600` `.env`. Every variable it does
-not set is documented in [`deploy/.env.example`](../deploy/.env.example) — and a test fails the
-build if the code ever reads one that file does not mention.
+`podium-server init` generates the master key, the Postgres password, the shared token and the
+object-store credentials, and writes them into a `0600` `.env`. Every variable it does not set
+is documented in [`deploy/.env.example`](../deploy/.env.example) — and a test fails the build if
+anything in the tree reads one that file does not mention. Which of them you actually have to
+decide is [`deploy/README.md`](../deploy/README.md#what-you-have-to-configure).
 
 For a tailnet deployment, two values are yours to supply:
 

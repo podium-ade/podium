@@ -1,4 +1,4 @@
-package dev
+package local
 
 import (
 	"errors"
@@ -15,7 +15,7 @@ func TestNewRefusesNonLoopbackListenAddress(t *testing.T) {
 		t.Run(addr, func(t *testing.T) {
 			_, err := New(Options{Listen: addr, Token: "t"})
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "dev transport")
+			require.Contains(t, err.Error(), "local transport")
 			require.Contains(t, err.Error(), addr)
 		})
 	}
@@ -33,7 +33,7 @@ func TestNewAcceptsLoopbackListenAddress(t *testing.T) {
 
 func TestNewRequiresToken(t *testing.T) {
 	_, err := New(Options{Listen: "127.0.0.1:8080"})
-	require.ErrorContains(t, err, "PODIUM_DEV_TOKEN")
+	require.ErrorContains(t, err, "PODIUM_LOCAL_TOKEN")
 }
 
 func TestNewDefaultsToLoopback(t *testing.T) {
@@ -52,8 +52,8 @@ func TestIdentify(t *testing.T) {
 		r.RemoteAddr = "127.0.0.1:54321"
 		id, err := l.Identify(r)
 		require.NoError(t, err)
-		require.Equal(t, transport.KindDevToken, id.Kind)
-		require.Equal(t, "dev", id.Login)
+		require.Equal(t, transport.KindLocalToken, id.Kind)
+		require.Equal(t, "local", id.Login)
 		require.Equal(t, "127.0.0.1:54321", id.RemoteAddr)
 	})
 
@@ -102,7 +102,7 @@ func TestTheWaiverStillRequiresAHostPort(t *testing.T) {
 				require.NoError(t, err, "empty means the default, which is loopback")
 				return
 			}
-			require.ErrorContains(t, err, "dev transport")
+			require.ErrorContains(t, err, "local transport")
 		})
 	}
 }

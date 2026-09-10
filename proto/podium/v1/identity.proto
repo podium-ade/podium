@@ -4,7 +4,7 @@ package podium.v1;
 
 // IdentityService answers "who does the server think I am". Under the tailnet transport the
 // answer comes from Tailscale's WhoIs and the call needs no credential at all, which is how the
-// web UI knows it can skip its dev-token prompt: if WhoAmI succeeds unauthenticated, identity is
+// web UI knows it can skip its token prompt: if WhoAmI succeeds unauthenticated, identity is
 // already established.
 service IdentityService {
   rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
@@ -17,18 +17,18 @@ enum IdentityKind {
   IDENTITY_KIND_USER = 1;
   // A worker, proved by its Tailscale ACL tag.
   IDENTITY_KIND_NODE = 2;
-  // The dev transport's shared bearer token, which has no per-user identity.
-  IDENTITY_KIND_DEV_TOKEN = 3;
+  // The local transport's shared bearer token, which has no per-user identity.
+  IDENTITY_KIND_LOCAL_TOKEN = 3;
 }
 
 message WhoAmIRequest {}
 
 message WhoAmIResponse {
-  // login is the Tailscale login name of a user, the device name of a node, or "dev".
+  // login is the Tailscale login name of a user, the device name of a node, or "local".
   string login = 1;
   string display_name = 2;
   IdentityKind kind = 3;
-  // tags are the calling device's ACL tags. Empty for a human and under the dev transport.
+  // tags are the calling device's ACL tags. Empty for a human and under the local transport.
   repeated string tags = 4;
   // server_version is the control plane's build version: a release tag such as "v0.3.1", or
   // "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.

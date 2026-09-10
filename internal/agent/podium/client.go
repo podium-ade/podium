@@ -17,7 +17,7 @@ import (
 
 	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
 	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
@@ -52,7 +52,7 @@ type Client struct {
 // WhoIs names it; a token is still sent when one is configured, which keeps a mixed setup
 // working.
 func New(serverURL, token string) *Client {
-	httpClient := dev.NewClient(token)
+	httpClient := local.NewClient(token)
 	if strings.HasPrefix(serverURL, "https://") && token == "" {
 		httpClient = tailnet.NewUserClient()
 	}

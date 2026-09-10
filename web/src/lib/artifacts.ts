@@ -20,7 +20,7 @@ export function downloadURL(artifactID: string): string {
  * copy-link affordance uses.
  *
  * The route sits behind the same identity middleware as every RPC, so a plain <a download> would
- * be answered with 401 under the dev transport. Hence fetch with the header, then a blob URL.
+ * be answered with 401 under the local transport. Hence fetch with the header, then a blob URL.
  */
 export async function download(artifact: Artifact): Promise<void> {
   const headers = new Headers();

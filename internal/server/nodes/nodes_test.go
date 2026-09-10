@@ -138,9 +138,9 @@ func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)
 
 	cfg := server.Config{
 		DatabaseURL:   databaseURL,
-		Transport:     server.TransportDev,
-		DevListen:     "127.0.0.1:0",
-		DevToken:      devToken,
+		Transport:     server.TransportLocal,
+		LocalListen:   "127.0.0.1:0",
+		LocalToken:    devToken,
 		MasterKeyFile: masterKeyFile(t),
 		Rollup:        logs.DefaultRollupConfig(),
 	}
@@ -172,7 +172,7 @@ func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)
 }
 
 // bearer presents the dev token on every request, which is how both operators and nodes
-// authenticate under the dev transport.
+// authenticate under the local transport.
 type bearer struct {
 	rt    http.RoundTripper
 	token string
@@ -532,7 +532,7 @@ func TestFakeNodeRunsATaskEndToEnd(t *testing.T) {
 
 	task := h.createTask(nil, "sh", "-c", "echo hi")
 	require.Equal(t, podiumv1.TaskStatus_TASK_STATUS_QUEUED, task.GetStatus())
-	require.Equal(t, "dev", task.GetRequestedBy())
+	require.Equal(t, "local", task.GetRequestedBy())
 
 	assign := node.awaitAssign(assignTimeout)
 	require.Equal(t, task.GetId(), assign.GetTaskId())
@@ -893,7 +893,7 @@ func TestConnectJSONWithoutTheCLI(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 	require.Contains(t, decoded.Task.ID, "task_")
 	require.Equal(t, "TASK_STATUS_QUEUED", decoded.Task.Status)
-	require.Equal(t, "dev", decoded.Task.RequestedBy)
+	require.Equal(t, "local", decoded.Task.RequestedBy)
 
 	t.Run("without a token", func(t *testing.T) {
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewBufferString(body))
@@ -990,14 +990,14 @@ func TestANodeStreamOutlivesTheServersHeaderTimeout(t *testing.T) {
 	require.Equal(t, task.GetId(), assign.GetTaskId())
 }
 
-// TestServerRefusesNonLoopbackDevListen proves the refusal happens in the real start path, not
+// TestServerRefusesNonLoopbackLocalListen proves the refusal happens in the real start path, not
 // only in the dev package's own unit test.
-func TestServerRefusesNonLoopbackDevListen(t *testing.T) {
+func TestServerRefusesNonLoopbackLocalListen(t *testing.T) {
 	_, err := server.New(context.Background(), server.Config{
 		DatabaseURL: newDatabase(t),
-		Transport:   server.TransportDev,
-		DevListen:   "0.0.0.0:8080",
-		DevToken:    devToken,
+		Transport:   server.TransportLocal,
+		LocalListen: "0.0.0.0:8080",
+		LocalToken:  devToken,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "0.0.0.0:8080")

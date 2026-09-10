@@ -1,6 +1,6 @@
 ---
 name: run-dev-stack
-description: Bring up a Podium development stack from nothing — Postgres, podium-server, a worker, and optionally the conductor — and drive a task through it. Use when asked to run, start, or smoke-test Podium locally, to reproduce a bug against a real stack, or to attach a remote worker. Covers both the loopback-only dev transport and the tailnet transport, which is the only supported way to reach a worker on another machine. To put new code on a stack that is already up, see update-live-stack.
+description: Bring up a Podium development stack from nothing — Postgres, podium-server, a worker, and optionally the conductor — and drive a task through it. Use when asked to run, start, or smoke-test Podium locally, to reproduce a bug against a real stack, or to attach a remote worker. Covers both the loopback-only local transport and the tailnet transport, which is the only supported way to reach a worker on another machine. To put new code on a stack that is already up, see update-live-stack.
 ---
 
 # Running a Podium development stack
@@ -17,8 +17,8 @@ image build.
 | Local only | `dev` | Everything on one box. Simplest. |
 | Remote worker | `tailnet` | A worker on another machine. **The only supported way.** |
 
-The `dev` transport **refuses to listen on anything but loopback**, so a remote node cannot
-reach it. That is a deliberate check, not a bug: the dev transport authenticates with one shared
+The `local` transport **refuses to listen on anything but loopback**, so a remote node cannot
+reach it. That is a deliberate check, not a bug: the local transport authenticates with one shared
 static token, and binding that to a real interface publishes the whole API. Do not work around
 it with a TCP relay.
 
@@ -47,13 +47,13 @@ testcontainers, so they never collide with your dev database.
 ## The one command that writes the configuration
 
 ```sh
-./bin/podium-server init --dir deploy                    # dev transport
+./bin/podium-server init --dir deploy                    # local transport
 ./bin/podium-server init --dir deploy --transport tailnet --tailnet <suffix>
 ```
 
 It writes `deploy/master.key` and `deploy/.env`, both 0600, and never overwrites either. The
 `.env` carries freshly generated credentials — the Postgres password, the object store's keys,
-and every token the stack needs: `PODIUM_DEV_TOKEN`, `PODIUM_AGENT_TOKEN` and
+and every token the stack needs: `PODIUM_LOCAL_TOKEN`, `PODIUM_AGENT_TOKEN` and
 **`PODIUM_NODE_ENROLL_TOKEN`**. There is no separate `podium node enroll-token` step for a
 fresh stack; the node in the launcher below picks that value up on its own.
 
@@ -68,7 +68,7 @@ export.
 
 ---
 
-## Local only — the `dev` transport
+## Local only — the `local` transport
 
 ```sh
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
@@ -85,7 +85,7 @@ Then talk to it:
 
 ```sh
 export PODIUM_SERVER=http://127.0.0.1:8080
-export PODIUM_TOKEN=$(sed -n 's/^PODIUM_DEV_TOKEN=//p' deploy/.env)
+export PODIUM_TOKEN=$(sed -n 's/^PODIUM_LOCAL_TOKEN=//p' deploy/.env)
 ./bin/podium nodes
 ./bin/podium run --image alpine:3 -- echo hello
 ```
@@ -194,7 +194,7 @@ machine. Building and shipping them is [update-live-stack](../update-live-stack/
 ## Things that will cost you an hour
 
 - **The dev token is stored per browser origin.** It lives in `localStorage` under
-  `podium.devToken`, so `127.0.0.1:8080` and `localhost:8080` are different origins with
+  `podium.localToken`, so `127.0.0.1:8080` and `localhost:8080` are different origins with
   different copies. Pick one address and stay on it. The tailnet transport removes the token
   entirely.
 - **A secret is only readable under the master key it was written with.** Point the server at a
@@ -208,7 +208,7 @@ machine. Building and shipping them is [update-live-stack](../update-live-stack/
 - **The first HTTPS request after starting a tailnet server can take 30 s** while the certificate
   is issued, and logs as `TLS handshake error … i/o timeout`. It is not a failure; retry. A
   `curl: (28)` from the launcher's first health probe is the same thing.
-- **Ports.** If 5432 or 8080 are taken, put `PODIUM_PG_PORT` and `PODIUM_DEV_LISTEN` in the
+- **Ports.** If 5432 or 8080 are taken, put `PODIUM_PG_PORT` and `PODIUM_LOCAL_LISTEN` in the
   `.env` — the launcher derives the database URL and the server URL from them, so nothing else
   has to change.
 - **`ps aux | grep podium` can match nothing while the stack is plainly up.** Use `pgrep -fl`.

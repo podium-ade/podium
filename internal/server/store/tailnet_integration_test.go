@@ -48,7 +48,7 @@ func TestNodeTailscaleDeviceBinding(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	// A node enrolled over the dev transport has no device to bind to.
+	// A node enrolled over the local transport has no device to bind to.
 	dev, err := s.CreateNode(ctx, NewNode{Name: "local", NodeKeyHash: HashToken("k-local")})
 	require.NoError(t, err)
 	require.Empty(t, dev.TSStableID)

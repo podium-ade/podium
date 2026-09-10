@@ -30,8 +30,8 @@ const (
 	IdentityKind_IDENTITY_KIND_USER IdentityKind = 1
 	// A worker, proved by its Tailscale ACL tag.
 	IdentityKind_IDENTITY_KIND_NODE IdentityKind = 2
-	// The dev transport's shared bearer token, which has no per-user identity.
-	IdentityKind_IDENTITY_KIND_DEV_TOKEN IdentityKind = 3
+	// The local transport's shared bearer token, which has no per-user identity.
+	IdentityKind_IDENTITY_KIND_LOCAL_TOKEN IdentityKind = 3
 )
 
 // Enum value maps for IdentityKind.
@@ -40,13 +40,13 @@ var (
 		0: "IDENTITY_KIND_UNSPECIFIED",
 		1: "IDENTITY_KIND_USER",
 		2: "IDENTITY_KIND_NODE",
-		3: "IDENTITY_KIND_DEV_TOKEN",
+		3: "IDENTITY_KIND_LOCAL_TOKEN",
 	}
 	IdentityKind_value = map[string]int32{
 		"IDENTITY_KIND_UNSPECIFIED": 0,
 		"IDENTITY_KIND_USER":        1,
 		"IDENTITY_KIND_NODE":        2,
-		"IDENTITY_KIND_DEV_TOKEN":   3,
+		"IDENTITY_KIND_LOCAL_TOKEN": 3,
 	}
 )
 
@@ -115,11 +115,11 @@ func (*WhoAmIRequest) Descriptor() ([]byte, []int) {
 
 type WhoAmIResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// login is the Tailscale login name of a user, the device name of a node, or "dev".
+	// login is the Tailscale login name of a user, the device name of a node, or "local".
 	Login       string       `protobuf:"bytes,1,opt,name=login,proto3" json:"login,omitempty"`
 	DisplayName string       `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	Kind        IdentityKind `protobuf:"varint,3,opt,name=kind,proto3,enum=podium.v1.IdentityKind" json:"kind,omitempty"`
-	// tags are the calling device's ACL tags. Empty for a human and under the dev transport.
+	// tags are the calling device's ACL tags. Empty for a human and under the local transport.
 	Tags []string `protobuf:"bytes,4,rep,name=tags,proto3" json:"tags,omitempty"`
 	// server_version is the control plane's build version: a release tag such as "v0.3.1", or
 	// "dev" for an unstamped build. `podium version` compares it with its own and warns on skew.
@@ -226,12 +226,12 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12%\n" +
 	"\x0eserver_version\x18\x05 \x01(\tR\rserverVersion\x12#\n" +
 	"\rserver_commit\x18\x06 \x01(\tR\fserverCommit\x12#\n" +
-	"\ragent_enabled\x18\a \x01(\bR\fagentEnabled*z\n" +
+	"\ragent_enabled\x18\a \x01(\bR\fagentEnabled*|\n" +
 	"\fIdentityKind\x12\x1d\n" +
 	"\x19IDENTITY_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12IDENTITY_KIND_USER\x10\x01\x12\x16\n" +
-	"\x12IDENTITY_KIND_NODE\x10\x02\x12\x1b\n" +
-	"\x17IDENTITY_KIND_DEV_TOKEN\x10\x032P\n" +
+	"\x12IDENTITY_KIND_NODE\x10\x02\x12\x1d\n" +
+	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x032P\n" +
 	"\x0fIdentityService\x12=\n" +
 	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponseB\xa7\x01\n" +
 	"\rcom.podium.v1B\rIdentityProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +

@@ -38,7 +38,7 @@ limitations rather than vulnerabilities. Reporting them tells us nothing we have
   root on every worker.
 - **A `podium-node` is root-equivalent on its host** — it holds the Docker socket. Running it as a
   non-root user in the `docker` group would be the same power with a longer name.
-- **The `dev` transport is unencrypted**, and resolved secret values cross it. It is loopback-only
+- **The `local` transport is unencrypted**, and resolved secret values cross it. It is loopback-only
   and the server refuses to bind anywhere else.
 - **There is no egress policy for task containers.** Assume a task can reach whatever its worker
   can reach.

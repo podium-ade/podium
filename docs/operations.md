@@ -12,7 +12,7 @@ and not what a credential allows.
 
 | | `podium-server` | `podium-node` | `podium-agent` |
 |---|---|---|---|
-| where | the API listener (`127.0.0.1:8080` under `dev`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` | `PODIUM_AGENT_LISTEN`, default `127.0.0.1:8090` |
+| where | the API listener (`127.0.0.1:8080` under `local`; port 443 of the tailnet device otherwise) | `PODIUM_NODE_METRICS_LISTEN`, default `127.0.0.1:9091` | `PODIUM_AGENT_LISTEN`, default `127.0.0.1:8090` |
 | `/healthz` | 200 while the process is up | 200 while the process is up | 200 while the process is up |
 | `/readyz` | 200 `ok`; **503** with `postgres unreachable`, `object store unreachable: ...`, or (tailnet) a transport problem such as a node key within 30 days of expiring | 200 only while the **stream to the control plane is up**; 503 with `control plane stream is down` | 200 `ok, podium as <login>`; **503** with `agent database unreachable`, `podium api unreachable` or `memory unreachable` |
 | `/metrics` | Prometheus | Prometheus | Prometheus, with `podium_agent_*` |
@@ -465,7 +465,7 @@ likelihood:
 
 ```sh
 curl -s http://127.0.0.1:8080/podium.v1.IdentityService/WhoAmI \
-  -H 'Authorization: Bearer $PODIUM_DEV_TOKEN' -H 'Content-Type: application/json' -d '{}'
+  -H 'Authorization: Bearer $PODIUM_LOCAL_TOKEN' -H 'Content-Type: application/json' -d '{}'
 ```
 
 ### Agent settings say "podium-agent is not reachable"

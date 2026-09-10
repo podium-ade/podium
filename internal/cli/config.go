@@ -20,7 +20,7 @@ const DefaultServer = "http://127.0.0.1:8080"
 // disk.
 type Config struct {
 	Server string `yaml:"server"`
-	// SENSITIVE: never printed. Under the dev transport this is PODIUM_DEV_TOKEN.
+	// SENSITIVE: never printed. Under the local transport this is PODIUM_LOCAL_TOKEN.
 	Token string `yaml:"token"`
 }
 
@@ -37,7 +37,7 @@ func ConfigPath() string {
 }
 
 // LoadConfig resolves the effective configuration: the file, then PODIUM_SERVER and
-// PODIUM_TOKEN (or PODIUM_DEV_TOKEN, which is the same secret under the server's name for
+// PODIUM_TOKEN (or PODIUM_LOCAL_TOKEN, which is the same secret under the server's name for
 // it), then the --server and --token flags. A missing file is not an error.
 func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	cfg := Config{Server: DefaultServer}
@@ -67,8 +67,8 @@ func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	}
 	if v := os.Getenv("PODIUM_TOKEN"); v != "" {
 		cfg.Token = v
-	} else if v := os.Getenv("PODIUM_DEV_TOKEN"); v != "" {
-		// The dev transport has exactly one bearer, and PODIUM_DEV_TOKEN is the name the
+	} else if v := os.Getenv("PODIUM_LOCAL_TOKEN"); v != "" {
+		// The local transport has exactly one bearer, and PODIUM_LOCAL_TOKEN is the name the
 		// server reads it under. A shell that sourced a stack's .env is therefore already
 		// holding the CLI's token, and asking for the same secret again under a second
 		// name only creates a pair that can drift apart.
@@ -88,7 +88,7 @@ func LoadConfig(serverFlag, tokenFlag string) (Config, error) {
 	// MagicDNS name and Tailscale's WhoIs names the caller, so there is nothing to present and
 	// asking for one would be wrong.
 	if cfg.Token == "" && !cfg.Tailnet() {
-		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN or PODIUM_DEV_TOKEN, " +
+		return Config{}, errors.New("no token: pass --token, set PODIUM_TOKEN or PODIUM_LOCAL_TOKEN, " +
 			"or put `token:` in " + ConfigPath() +
 			" (a tailnet control plane needs none: use its https:// MagicDNS URL)")
 	}

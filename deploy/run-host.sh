@@ -66,7 +66,7 @@ STOP_TIMEOUT=30
 # --- the derivations the compose files do in YAML -------------------------------------------
 env_dir=$(dirname "$ENV_FILE")
 pg_host=127.0.0.1:${PODIUM_PG_PORT:-5432}
-: "${PODIUM_TRANSPORT:=dev}"
+: "${PODIUM_TRANSPORT:=local}"
 : "${PODIUM_MASTER_KEY_FILE:=$env_dir/master.key}"
 # The same default docker-compose.dev.yml gives POSTGRES_PASSWORD, so a .env copied from
 # .env.example — where the line is present and empty — still reaches the database that
@@ -132,7 +132,7 @@ if [ "${PODIUM_AGENT_RUNNER_BIN:-}" = auto ]; then
 fi
 
 # Where the server is reached, which differs by transport: a tailnet device name, or the
-# dev transport's loopback listener.
+# local transport's loopback listener.
 if [ "$PODIUM_TRANSPORT" = tailnet ]; then
 	# PODIUM_TAILNET is only ever used to build this URL, so a deployment that names the
 	# server outright — a CNAME, a device that is not called `podium` — needs neither.
@@ -144,22 +144,22 @@ if [ "$PODIUM_TRANSPORT" = tailnet ]; then
 		PODIUM_SERVER=https://podium.${PODIUM_TAILNET}.ts.net
 	fi
 else
-	: "${PODIUM_SERVER:=http://${PODIUM_DEV_LISTEN:-127.0.0.1:8080}}"
+	: "${PODIUM_SERVER:=http://${PODIUM_LOCAL_LISTEN:-127.0.0.1:8080}}"
 fi
 : "${PODIUM_AGENT_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_TRANSPORT:=$PODIUM_TRANSPORT}"
-# The dev transport has one token and three processes that need it, which is why
-# docker-compose.yml fans PODIUM_DEV_TOKEN out into these two. Doing it here as well
+# The local transport has one token and three processes that need it, which is why
+# docker-compose.yml fans PODIUM_LOCAL_TOKEN out into these two. Doing it here as well
 # keeps the host-binary path configured by the same one line of .env. Under tailnet
 # there is no dev token and both land empty, which is what that transport wants.
-: "${PODIUM_NODE_DEV_TOKEN:=${PODIUM_DEV_TOKEN:-}}"
-: "${PODIUM_AGENT_API_TOKEN:=${PODIUM_DEV_TOKEN:-}}"
+: "${PODIUM_NODE_LOCAL_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
+: "${PODIUM_AGENT_API_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
 export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_DATABASE_URL \
 	PODIUM_S3_ENDPOINT PODIUM_S3_BUCKET PODIUM_S3_ACCESS_KEY PODIUM_S3_USE_SSL \
 	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_NODE_DATA_DIR PODIUM_TS_STATE_DIR \
 	PODIUM_SERVER PODIUM_AGENT_SERVER PODIUM_NODE_SERVER PODIUM_NODE_TRANSPORT \
-	PODIUM_NODE_DEV_TOKEN PODIUM_AGENT_API_TOKEN
+	PODIUM_NODE_LOCAL_TOKEN PODIUM_AGENT_API_TOKEN
 # Exported explicitly rather than relying on the `set -a` that read the file: an `auto` above
 # was reassigned after that, and a variable this script resolved must reach the child whether
 # the .env named it or the operator did.

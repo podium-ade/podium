@@ -68,7 +68,7 @@ function imageMIME(a: ChatAttachment): string {
  * `GET /artifacts/{id}` sits behind the same identity middleware as every RPC, and an
  * `<img src>` cannot carry an Authorization header — so an image is fetched with the bearer
  * and shown from a blob URL. That is also why the src is never the artifact route directly:
- * under the dev transport it would be a 401 and a broken-image icon.
+ * under the local transport it would be a 401 and a broken-image icon.
  */
 export function ChatAttachments({ attachments }: { attachments: ChatAttachment[] }) {
   if (attachments.length === 0) return null;

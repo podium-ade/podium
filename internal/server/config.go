@@ -10,14 +10,14 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/server/artifacts"
 	"github.com/alvaroibarguen/podium/internal/server/logs"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
 // The transports PODIUM_TRANSPORT accepts.
 const (
-	// TransportDev is the loopback bearer-token transport: one machine, no Tailscale.
-	TransportDev = "dev"
+	// TransportLocal is the shared bearer-token transport: one machine, no Tailscale.
+	TransportLocal = "local"
 	// TransportTailnet embeds a Tailscale device (tsnet) and serves HTTPS on its MagicDNS name.
 	TransportTailnet = "tailnet"
 	// TransportHost uses the machine's existing tailscaled instead of embedding a device.
@@ -30,16 +30,16 @@ type Config struct {
 	DatabaseURL string
 	// Transport is PODIUM_TRANSPORT: dev (default), tailnet or host.
 	Transport string
-	// DevListen is PODIUM_DEV_LISTEN, default 127.0.0.1:8080. It must be loopback.
-	DevListen string
-	// DevToken is PODIUM_DEV_TOKEN, the shared bearer token of the dev transport.
-	DevToken string
-	// DevAllowUnsafeListen is PODIUM_DEV_ALLOW_UNSAFE_LISTEN: let DevListen bind an address
+	// LocalListen is PODIUM_LOCAL_LISTEN, default 127.0.0.1:8080. It must be loopback.
+	LocalListen string
+	// LocalToken is PODIUM_LOCAL_TOKEN, the shared bearer token of the local transport.
+	LocalToken string
+	// LocalAllowUnsafeListen is PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN: let LocalListen bind an address
 	// that is not loopback. A container deployment needs it — loopback inside a container is
 	// the container's own, so nothing could reach the server — and the published port is the
 	// boundary there. On a host it publishes the whole API to anything that can route to the
 	// address, guarded by one static token, so the server warns loudly when it is on.
-	DevAllowUnsafeListen bool
+	LocalAllowUnsafeListen bool
 
 	// MasterKeyFile is PODIUM_MASTER_KEY_FILE: the file holding the 32-byte AES-256 key
 	// every stored secret is encrypted under. The file must not be readable by other
@@ -91,22 +91,22 @@ type Config struct {
 // ConfigFromEnv reads the canonical environment variables and applies the defaults.
 func ConfigFromEnv() Config {
 	return Config{
-		DatabaseURL:          os.Getenv("PODIUM_DATABASE_URL"),
-		Transport:            envOr("PODIUM_TRANSPORT", TransportDev),
-		DevListen:            envOr("PODIUM_DEV_LISTEN", dev.DefaultListen),
-		DevToken:             os.Getenv("PODIUM_DEV_TOKEN"),
-		DevAllowUnsafeListen: envBool(dev.UnsafeListenVar),
-		MasterKeyFile:        os.Getenv("PODIUM_MASTER_KEY_FILE"),
-		MasterKey:            os.Getenv("PODIUM_MASTER_KEY"),
-		TSHostname:           envOr("PODIUM_TS_HOSTNAME", tailnet.DefaultHostname),
-		TSStateDir:           envOr("PODIUM_TS_STATE_DIR", tailnet.DefaultStateDir),
-		TSAuthKey:            os.Getenv("TS_AUTHKEY"),
-		TSRequiredNodeTag:    envOr("PODIUM_TS_REQUIRED_NODE_TAG", tailnet.DefaultNodeTag),
-		TSAllowUntaggedNodes: envBool("PODIUM_TS_ALLOW_UNTAGGED_NODES"),
-		AgentURL:             os.Getenv("PODIUM_AGENT_URL"),
-		AgentToken:           os.Getenv("PODIUM_AGENT_TOKEN"),
-		S3:                   artifacts.ConfigFromEnv(),
-		Rollup:               logs.RollupConfigFromEnv(),
+		DatabaseURL:            os.Getenv("PODIUM_DATABASE_URL"),
+		Transport:              envOr("PODIUM_TRANSPORT", TransportLocal),
+		LocalListen:            envOr("PODIUM_LOCAL_LISTEN", local.DefaultListen),
+		LocalToken:             os.Getenv("PODIUM_LOCAL_TOKEN"),
+		LocalAllowUnsafeListen: envBool(local.UnsafeListenVar),
+		MasterKeyFile:          os.Getenv("PODIUM_MASTER_KEY_FILE"),
+		MasterKey:              os.Getenv("PODIUM_MASTER_KEY"),
+		TSHostname:             envOr("PODIUM_TS_HOSTNAME", tailnet.DefaultHostname),
+		TSStateDir:             envOr("PODIUM_TS_STATE_DIR", tailnet.DefaultStateDir),
+		TSAuthKey:              os.Getenv("TS_AUTHKEY"),
+		TSRequiredNodeTag:      envOr("PODIUM_TS_REQUIRED_NODE_TAG", tailnet.DefaultNodeTag),
+		TSAllowUntaggedNodes:   envBool("PODIUM_TS_ALLOW_UNTAGGED_NODES"),
+		AgentURL:               os.Getenv("PODIUM_AGENT_URL"),
+		AgentToken:             os.Getenv("PODIUM_AGENT_TOKEN"),
+		S3:                     artifacts.ConfigFromEnv(),
+		Rollup:                 logs.RollupConfigFromEnv(),
 	}
 }
 
@@ -116,11 +116,11 @@ func (c Config) Validate() error {
 		return errors.New("PODIUM_DATABASE_URL is required")
 	}
 	switch c.Transport {
-	case TransportDev:
-		if c.DevToken == "" {
-			return errors.New("PODIUM_DEV_TOKEN is required for PODIUM_TRANSPORT=dev")
+	case TransportLocal:
+		if c.LocalToken == "" {
+			return errors.New("PODIUM_LOCAL_TOKEN is required for PODIUM_TRANSPORT=local")
 		}
-		if err := dev.CheckListen(c.DevListen, c.DevAllowUnsafeListen); err != nil {
+		if err := local.CheckListen(c.LocalListen, c.LocalAllowUnsafeListen); err != nil {
 			return err
 		}
 	case TransportTailnet:
@@ -135,7 +135,7 @@ func (c Config) Validate() error {
 		// there is nothing left to configure.
 	default:
 		return fmt.Errorf("PODIUM_TRANSPORT=%q is not a transport (want %s, %s or %s)",
-			c.Transport, TransportDev, TransportTailnet, TransportHost)
+			c.Transport, TransportLocal, TransportTailnet, TransportHost)
 	}
 	if err := c.validateAgent(); err != nil {
 		return err
