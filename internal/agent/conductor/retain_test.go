@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 func TestOnlyASucceededTurnWithAnAnswerIsRetained(t *testing.T) {

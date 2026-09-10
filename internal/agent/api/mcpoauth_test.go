@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/mcp"
 )
 
 // fakeMcpServer is an MCP server that advertises OAuth the way the specification says to: a

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // noted runs noteMessage against buffers, which is also the non-terminal case: nothing may

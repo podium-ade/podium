@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // Pagination bounds for ListTasks.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // leaseSlack is how far a stored lease expiry may fall short of the computed one before it

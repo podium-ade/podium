@@ -16,12 +16,12 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/nodes"
-	"github.com/alvaroibarguen/podium/internal/server/secrets"
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/ids"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/nodes"
+	"github.com/podium-ade/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // The reasons a task is told it is still queued, and the reasons it is failed. They are

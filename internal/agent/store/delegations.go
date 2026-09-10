@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
-	"github.com/alvaroibarguen/podium/internal/ids"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
+	"github.com/podium-ade/podium/internal/ids"
 )
 
 // Delegation is one delegated task. Status shares the turns table's vocabulary, so the same

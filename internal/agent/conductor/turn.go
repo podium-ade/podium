@@ -9,8 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // KindDev is the test-only in-process source's kind. The conductor honours a source's

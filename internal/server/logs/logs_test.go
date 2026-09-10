@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // fakeRetries records what the ingest handed back, which is the whole of what this package

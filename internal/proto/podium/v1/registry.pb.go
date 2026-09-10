@@ -398,8 +398,8 @@ const file_podium_v1_registry_proto_rawDesc = "" +
 	"\x0fRegistryService\x12L\n" +
 	"\vSetRegistry\x12\x1d.podium.v1.SetRegistryRequest\x1a\x1e.podium.v1.SetRegistryResponse\x12U\n" +
 	"\x0eListRegistries\x12 .podium.v1.ListRegistriesRequest\x1a!.podium.v1.ListRegistriesResponse\x12U\n" +
-	"\x0eDeleteRegistry\x12 .podium.v1.DeleteRegistryRequest\x1a!.podium.v1.DeleteRegistryResponseB\xa7\x01\n" +
-	"\rcom.podium.v1B\rRegistryProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x0eDeleteRegistry\x12 .podium.v1.DeleteRegistryRequest\x1a!.podium.v1.DeleteRegistryResponseB\xa3\x01\n" +
+	"\rcom.podium.v1B\rRegistryProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

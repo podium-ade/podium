@@ -14,14 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/config"
-	"github.com/alvaroibarguen/podium/internal/agent/mcp"
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	"github.com/alvaroibarguen/podium/internal/agent/podium"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/podium"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/skills"
+	"github.com/podium-ade/podium/internal/agent/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // Placeholder is the first thing a human sees, posted before any work starts. Progress

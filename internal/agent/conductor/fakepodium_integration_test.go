@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 )
 
 // fakePodium is a Podium control plane as much as the conductor can tell: CreateTask,

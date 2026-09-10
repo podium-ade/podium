@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // ErrMissing is what Resolve returns when a task names a secret that does not exist. It is

@@ -7687,9 +7687,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"StreamChat\x12\".podium.agent.v1.StreamChatRequest\x1a\x1a.podium.agent.v1.ChatFrame0\x01\x12v\n" +
 	"\x15AttachChatPullRequest\x12-.podium.agent.v1.AttachChatPullRequestRequest\x1a..podium.agent.v1.AttachChatPullRequestResponse\x12v\n" +
-	"\x15DetachChatPullRequest\x12-.podium.agent.v1.DetachChatPullRequestRequest\x1a..podium.agent.v1.DetachChatPullRequestResponseB\xc8\x01\n" +
+	"\x15DetachChatPullRequest\x12-.podium.agent.v1.DetachChatPullRequestRequest\x1a..podium.agent.v1.DetachChatPullRequestResponseB\xc4\x01\n" +
 	"\x13com.podium.agent.v1B\n" +
-	"AgentProtoP\x01ZGgithub.com/alvaroibarguen/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
+	"AgentProtoP\x01ZCgithub.com/podium-ade/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
 var (
 	file_podium_agent_v1_agent_proto_rawDescOnce sync.Once

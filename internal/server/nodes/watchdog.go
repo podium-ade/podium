@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // Watchdog is how node health is decided. The numbers come from the scheduler's Timing so

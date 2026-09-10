@@ -13,7 +13,7 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
-	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
 // DefaultConfigPath is where podium-node looks for its config file when --config is not

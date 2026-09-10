@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 const saKey = `{"type":"service_account","project_id":"acme","private_key":"-----BEGIN PRIVATE KEY-----"}`

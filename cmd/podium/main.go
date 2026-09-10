@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/alvaroibarguen/podium/internal/cli"
+	"github.com/podium-ade/podium/internal/cli"
 )
 
 func main() {

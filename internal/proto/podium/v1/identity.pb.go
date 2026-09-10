@@ -233,8 +233,8 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	"\x12IDENTITY_KIND_NODE\x10\x02\x12\x1d\n" +
 	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x032P\n" +
 	"\x0fIdentityService\x12=\n" +
-	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponseB\xa7\x01\n" +
-	"\rcom.podium.v1B\rIdentityProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponseB\xa3\x01\n" +
+	"\rcom.podium.v1B\rIdentityProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

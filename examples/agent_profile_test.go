@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // TestAgentProfileLoads runs examples/agent through the same loader podium-agent uses at

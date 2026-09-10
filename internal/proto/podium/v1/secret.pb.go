@@ -387,8 +387,8 @@ const file_podium_v1_secret_proto_rawDesc = "" +
 	"\rSecretService\x12F\n" +
 	"\tSetSecret\x12\x1b.podium.v1.SetSecretRequest\x1a\x1c.podium.v1.SetSecretResponse\x12L\n" +
 	"\vListSecrets\x12\x1d.podium.v1.ListSecretsRequest\x1a\x1e.podium.v1.ListSecretsResponse\x12O\n" +
-	"\fDeleteSecret\x12\x1e.podium.v1.DeleteSecretRequest\x1a\x1f.podium.v1.DeleteSecretResponseB\xa5\x01\n" +
-	"\rcom.podium.v1B\vSecretProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\fDeleteSecret\x12\x1e.podium.v1.DeleteSecretRequest\x1a\x1f.podium.v1.DeleteSecretResponseB\xa1\x01\n" +
+	"\rcom.podium.v1B\vSecretProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

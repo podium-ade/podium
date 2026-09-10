@@ -20,7 +20,7 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // Ports the control plane serves on inside the tailnet. They are fixed because the ACL in

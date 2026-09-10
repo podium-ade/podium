@@ -1,4 +1,4 @@
-module github.com/alvaroibarguen/podium
+module github.com/podium-ade/podium
 
 // The floor is 1.27 because of a defect in 1.26's net/http, not a preference. conn.serve
 // arms Server.ReadHeaderTimeout on the raw connection and then hands a cleartext HTTP/2

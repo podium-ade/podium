@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alvaroibarguen/podium/internal/node"
-	"github.com/alvaroibarguen/podium/internal/version"
+	"github.com/podium-ade/podium/internal/node"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 func main() {
