@@ -2429,8 +2429,8 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\vNodeService\x12=\n" +
 	"\x06Enroll\x12\x18.podium.v1.EnrollRequest\x1a\x19.podium.v1.EnrollResponse\x12>\n" +
 	"\x06Stream\x12\x16.podium.v1.NodeMessage\x1a\x18.podium.v1.ServerMessage(\x010\x01\x12W\n" +
-	"\x0eUploadArtifact\x12 .podium.v1.UploadArtifactRequest\x1a!.podium.v1.UploadArtifactResponse(\x01B\xa3\x01\n" +
-	"\rcom.podium.v1B\tNodeProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x0eUploadArtifact\x12 .podium.v1.UploadArtifactRequest\x1a!.podium.v1.UploadArtifactResponse(\x01B\x9f\x01\n" +
+	"\rcom.podium.v1B\tNodeProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

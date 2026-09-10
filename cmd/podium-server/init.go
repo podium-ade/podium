@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/secrets"
 )
 
 // initSecrets are the values `init` mints. They are separated from the rendering so the

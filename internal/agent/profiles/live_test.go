@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // stored is a minimally valid playbook of the kind the web UI creates.

@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
-	"github.com/alvaroibarguen/podium/internal/ids"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
+	"github.com/podium-ade/podium/internal/ids"
 )
 
 // ErrNotFound is what the readers return for a row that is not there.

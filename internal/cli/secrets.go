@@ -12,8 +12,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 func newSecretCommand(e *env) *cobra.Command {

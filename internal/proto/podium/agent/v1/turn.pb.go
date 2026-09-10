@@ -556,8 +556,8 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"\bDelegate\x12 .podium.agent.v1.DelegateRequest\x1a!.podium.agent.v1.DelegateResponse\x12^\n" +
 	"\rGetDelegation\x12%.podium.agent.v1.GetDelegationRequest\x1a&.podium.agent.v1.GetDelegationResponse\x12d\n" +
 	"\x0fListDelegations\x12'.podium.agent.v1.ListDelegationsRequest\x1a(.podium.agent.v1.ListDelegationsResponse\x12g\n" +
-	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponseB\xc7\x01\n" +
-	"\x13com.podium.agent.v1B\tTurnProtoP\x01ZGgithub.com/alvaroibarguen/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
+	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponseB\xc3\x01\n" +
+	"\x13com.podium.agent.v1B\tTurnProtoP\x01ZCgithub.com/podium-ade/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
 var (
 	file_podium_agent_v1_turn_proto_rawDescOnce sync.Once

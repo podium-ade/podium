@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // stepReattached mirrors docker.StepReattached. The CLI never links the Docker SDK — it

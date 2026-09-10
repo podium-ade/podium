@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/proto/podium/v1/podiumv1connect"
-	"github.com/alvaroibarguen/podium/internal/transport/local"
-	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/internal/node/docker"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/transport/local"
+	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
 // adoptSeqFloor is where an adopted task restarts its sequence space when the control

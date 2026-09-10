@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // Sentinel errors every caller is expected to match with errors.Is.

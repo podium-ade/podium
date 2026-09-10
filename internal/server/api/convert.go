@@ -5,9 +5,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/nodes"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/nodes"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 var taskStatusProto = map[store.Status]podiumv1.TaskStatus{

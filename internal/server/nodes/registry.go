@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // sendBuffer is how many server messages may queue for a node before Send blocks. A node that

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // CreateNode registers an enrolled node. NodeKeyHash is the SHA-256 of the node key; the key

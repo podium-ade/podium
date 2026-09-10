@@ -8,7 +8,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	v1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	http "net/http"
 	strings "strings"
 )

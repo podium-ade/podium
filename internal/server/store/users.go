@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // UpsertUser records a login the first time the tailnet transport sees it, and refreshes the

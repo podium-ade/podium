@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // A session's labels are copied off the node's row when the stream opens, so relabelling a

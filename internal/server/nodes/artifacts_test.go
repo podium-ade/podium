@@ -17,12 +17,12 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts/fakes3"
-	"github.com/alvaroibarguen/podium/internal/server/logs"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/artifacts/fakes3"
+	"github.com/podium-ade/podium/internal/server/logs"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // withFakeS3 points a harness at an in-process S3 endpoint. Podium's own tests may not pull

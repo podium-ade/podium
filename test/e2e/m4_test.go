@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server/scheduler"
+	"github.com/podium-ade/podium/internal/server/scheduler"
 )
 
 // fastTiming is the shrunk policy PODIUM_TEST_FAST_TIMERS=1 gives the control plane. The

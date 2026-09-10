@@ -12,10 +12,10 @@ import (
 
 	"connectrpc.com/connect"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/internal/transport"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/transport"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // Canceller is the node registry's cancel path.

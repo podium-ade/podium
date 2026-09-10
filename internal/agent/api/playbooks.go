@@ -7,8 +7,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // maxPlaybookHintChars caps the description a playbook's prompt contributes to the UI. It is one

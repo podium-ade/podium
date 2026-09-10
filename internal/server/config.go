@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
-	"github.com/alvaroibarguen/podium/internal/server/logs"
-	"github.com/alvaroibarguen/podium/internal/transport/local"
-	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/logs"
+	"github.com/podium-ade/podium/internal/transport/local"
+	"github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
 // The transports PODIUM_TRANSPORT accepts.

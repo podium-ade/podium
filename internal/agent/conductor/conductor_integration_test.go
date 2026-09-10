@@ -25,13 +25,13 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor/fakesource"
-	"github.com/alvaroibarguen/podium/internal/agent/podium"
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/podium"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // postgresImage is pgvector's build of Postgres 16 — where the whole repository is going in

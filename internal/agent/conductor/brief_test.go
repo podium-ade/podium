@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // goldenBrief is step 16's fixture, and agent/runtime/src/brief.ts is the schema it follows.

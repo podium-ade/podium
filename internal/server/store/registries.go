@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // Registry is one row of the registries table: the login for one registry host, with the

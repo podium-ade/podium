@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // fakeKey is an obvious fake. There is no real Anthropic key anywhere in this repository.

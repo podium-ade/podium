@@ -9,8 +9,8 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
-	agentv1 "github.com/alvaroibarguen/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/agent/memory"
+	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 // notConfigured is what all three memory RPCs answer on an install with no Hindsight. It is

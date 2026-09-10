@@ -33,7 +33,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/memory"
 )
 
 // memoryImage is the version this build was written against, pinned by tag AND digest the

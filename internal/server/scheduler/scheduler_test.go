@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server/nodes"
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/server/nodes"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 func node(id string, slots int32, labels ...string) nodes.Snapshot {

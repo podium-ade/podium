@@ -8,9 +8,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/internal/transport"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // received is one result of stream.Receive, handed to the handler by the reader goroutine so

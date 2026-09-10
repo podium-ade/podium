@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // fakeListener identifies anyone presenting the header, and nobody else.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types/mount"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // secretFileMode is the mode of a staged secret file, on the node's disk and inside the

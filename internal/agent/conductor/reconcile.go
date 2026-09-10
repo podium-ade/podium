@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/memory"
 )
 
 // extractionCheckInterval is how often the conductor asks the shared memory what became of

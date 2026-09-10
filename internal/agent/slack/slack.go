@@ -18,7 +18,7 @@ import (
 	"github.com/slack-go/slack/socketmode"
 	"golang.org/x/time/rate"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
 // Kind is the source kind Slack sessions are recorded under.

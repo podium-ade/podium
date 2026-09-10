@@ -31,8 +31,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/skills"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // TurnTokenEnv holds a host turn's delegation token in its runtime's environment, and its

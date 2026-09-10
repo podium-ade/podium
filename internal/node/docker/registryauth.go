@@ -3,7 +3,7 @@ package docker
 import (
 	"github.com/docker/docker/api/types/registry"
 
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // RegistryCredential is the login for one registry host, as the Assign delivered it.

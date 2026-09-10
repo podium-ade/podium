@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/node/docker"
 )
 
 // pruneInterval is how often the image cache is considered, on top of the check every

@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/transport/local"
-	tsnet "github.com/alvaroibarguen/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/internal/transport/local"
+	tsnet "github.com/podium-ade/podium/internal/transport/tailnet"
 )
 
 func TestConfigFromEnvDefaults(t *testing.T) {

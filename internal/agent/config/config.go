@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
+	"github.com/podium-ade/podium/internal/agent/skills"
 )
 
 // DefaultListen is where the conductor serves its API, health and metrics. Loopback,

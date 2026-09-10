@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	"github.com/alvaroibarguen/podium/internal/agent/store"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // The reasons a delegation call is refused. The API layer maps them onto Connect codes and

@@ -13,9 +13,9 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts"
-	"github.com/alvaroibarguen/podium/internal/server/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/store"
 )
 
 // pollInterval bounds how long a subscriber waits before re-reading the store without a

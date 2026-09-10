@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server"
 )
 
 // requiredByCompose is every variable the compose files interpolate with `:?`, which makes
