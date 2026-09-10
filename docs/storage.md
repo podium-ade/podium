@@ -256,6 +256,9 @@ image_cache_high_watermark: 0.80
 - **Postgres**: real storage, real backups, not on a worker.
 - **The object store**: real storage, backed up, not a cache.
 - **`master.key`**: backed up somewhere that is not the control plane. No escrow, no recovery.
+  Under `deploy/docker-compose.yml` it lives in the `server-state` volume rather than on the
+  host — `docker compose cp server:/var/lib/podium/master.key ./master.key` — so it is
+  destroyed by `down -v` like any other volume.
 - **A worker's `data_dir`**: local disk, short path, `0600`, never copied.
 - **The server's `PODIUM_TS_STATE_DIR`**: must persist across restarts, or the MagicDNS name
   drifts to `podium-1`, `podium-2`, …

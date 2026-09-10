@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| `docker-compose.yml` | Postgres, the object store and the control plane. A plain `up` is those three; the `cli`, `node` and `conductor` compose profiles add the CLI as a one-shot, a worker on this machine, and podium-agent with the agents' shared memory |
+| `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is five containers; the `cli`, `node` and `memory` compose profiles add the CLI as a one-shot, a worker on this machine, and the agents' shared memory |
 | `docker-compose.tailnet.yml` | the same on a tailnet: no published ports at all |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
@@ -136,35 +136,49 @@ reads as `PODIUM_NODE_LABELS`.
 
 ## A single machine, with Docker
 
-This is the way in, and it needs no Go toolchain and no binary on the host. Two files, then up:
+One file, one command, and no Go toolchain or binary on the host:
 
 ```sh
 mkdir podium && cd podium
 curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
-curl -fsSL --create-dirs -o postgres/init.sql \
-  https://raw.githubusercontent.com/podium-ade/podium/main/deploy/postgres/init.sql
-
-docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
-  ghcr.io/podium-ade/podium-server:latest init --dir /out
-echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env          # pin it; `latest` moves under you
-
-docker compose up -d --wait                     # postgres, objectstore, server
+docker compose up -d --wait
+open http://127.0.0.1:8080          # the token is `podium`
 ```
 
-`init` generates the master key, the Postgres password, the local transport's token and the
-object-store secret, and writes `.env` mode 0600. `--user` matters: the image runs as uid
-65532, so without it both files land owned by someone you are not. **Back `master.key` up
-somewhere that is not this machine** — there is no recovery path, and losing it loses every
-secret encrypted under it.
+Five containers: Postgres, the object store, a one-shot that generates the master key into the
+`server-state` volume, the control plane, and the conductor. Three things that used to need a
+file on disk no longer do — the Postgres bootstrap script is inline in the compose file, the
+conductor's profile directory ships in its image, and the master key is generated rather than
+carried.
 
-Everything past the control plane is behind a profile, so that `up` is exactly three
-containers:
+**It ships default credentials**, which is the trade that makes that one command possible.
+`PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY` and `PODIUM_AGENT_TOKEN` are reachable only from
+inside the compose network. `PODIUM_LOCAL_TOKEN` is the exception and the one that matters: it
+is the only thing between a caller and the whole API, and 8080 is published — on `127.0.0.1`
+alone, so the exposure is anyone on that machine. Override them in a `.env` beside the compose
+file **before the first `up`**, because `PODIUM_PG_PASSWORD` is baked into the Postgres volume
+when it is initialised:
+
+```sh
+printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\n' \
+  "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
+echo "PODIUM_IMAGE_TAG=v0.1.0" >> .env          # pin it; `latest` moves under you
+```
+
+**Back up the `server-state` volume.** It holds the master key every stored secret is
+encrypted under, and there is no recovery path:
+
+```sh
+docker compose cp server:/var/lib/podium/master.key ./master.key
+```
+
+Three things stay behind a compose profile:
 
 | profile | what it adds |
 |---|---|
 | `cli` | the `podium` CLI as a one-shot. `docker compose run` turns it on by itself: `docker compose run --rm cli nodes`. A `--spec` has to be mounted where the container can see it |
 | `node` | a worker on **this** machine. Needs a `PODIUM_NODE_ENROLL_TOKEN` in `.env` first, and mounts the host's Docker socket — root-equivalent on that host |
-| `agent` | the conductor and the agents' shared memory. Needs a profile directory at `./agent` and `PODIUM_AGENT_URL=http://agent:8090` |
+| `memory` | Hindsight, the agents' shared memory. Behind a profile because it exits at boot without an Anthropic key of its own for fact extraction, which no compose file can default. Needs `PODIUM_MEMORY_LLM_API_KEY` and `PODIUM_AGENT_MEMORY_URL` |
 
 Then a worker, on this machine:
 
@@ -177,11 +191,11 @@ docker compose --profile node up -d
 or on another machine — for which the `local` transport is the wrong tool, being loopback-only.
 Use [a tailnet](#a-tailnet-host) and then [`../docs/node-setup.md`](../docs/node-setup.md).
 
-Two things worth knowing before you rely on this:
+Two things worth knowing before you rely on the worker:
 
-- **The worker's data directory is a host path**, `/var/lib/podium-node`, at the same absolute
-  path inside the container and out. It has to be: the node drives the *host's* daemon, so
-  every bind mount it asks for — including the `podium-runner` that is PID 1 in every task
+- **Its data directory is a host path**, `/var/lib/podium-node`, at the same absolute path
+  inside the container and out. It has to be: the node drives the *host's* daemon, so every
+  bind mount it asks for — including the `podium-runner` that is PID 1 in every task
   container — is resolved by that daemon against the host filesystem. From a named volume,
   every task dies at creation with `bind source path does not exist`.
 - **`docker compose down -v` does not remove it.** Bring a fresh stack up against an old data

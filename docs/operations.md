@@ -150,6 +150,18 @@ without it is a backup of unreadable secrets, and there is no recovery path.**
 Copy it somewhere that is not the control plane, and — if the point of the backup is surviving
 the loss of that machine — not the same place as the database dump.
 
+**Under `deploy/docker-compose.yml` the key is inside a volume, not a file you put there.** A
+one-shot `init` service generates it into `server-state` on the first `up`, so there is nothing
+on the host to copy until you ask for it:
+
+```sh
+docker compose cp server:/var/lib/podium/master.key ./master.key
+```
+
+That also means `docker compose down -v` destroys it along with everything else in that volume.
+Under `run-host.sh` and the tailnet compose file it is still a file beside the `.env`, which is
+where `podium-server init` wrote it.
+
 ```sh
 # Rotating, which is the only safe way to replace one:
 podium-server gen-master-key --out /etc/podium/master.key.new
