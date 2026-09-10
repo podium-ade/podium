@@ -257,13 +257,33 @@ Full reference, including the Slack app manifest and the Linear setup:
 | `podium` | The CLI. Talks only to the server, never to Docker, so it runs anywhere |
 | `podium-runner` | PID 1 inside every task container: runs the command, forwards signals, reaps orphans, reports events. Embedded in `podium-node` and bind-mounted in; never installed by hand |
 
+## Transports
+
+`PODIUM_TRANSPORT` decides how clients and workers reach the control plane. The two supported
+values differ on one thing — who names the caller — and everything else follows from it.
+
+| | `dev` | `tailnet` |
+|---|---|---|
+| The wire | HTTP on loopback | HTTPS on the server's MagicDNS name |
+| Who the caller is | nobody. One shared bearer and no identity behind it | a Tailscale identity, from `WhoIs` |
+| What you present | `PODIUM_DEV_TOKEN` — from the CLI, the browser and every node | nothing. There is no token to hold |
+| Where a worker can be | the same machine | anywhere on your tailnet |
+| Set up | the [Quickstart](#quickstart) | [Running across machines](#running-across-machines), below |
+
+The `dev` transport refuses to bind anywhere but loopback, because that one token is the only
+thing between a caller and the whole API. It is for one machine you are sitting at, and it is
+what the Quickstart runs. Anything else is `tailnet`, including a second machine on the same
+desk — see below.
+
+There is a third value, `host`, which serves the same HTTPS over the machine's existing
+`tailscaled` rather than an embedded device. It has never been run.
+
 ## Running across machines
 
-The `dev` transport above is loopback-only, so node and server share a host. **The tailnet
-transport is the only supported way to reach a worker on another machine** — in development as
-much as in production, and not merely the recommended one. Podium joins your Tailscale network:
-the server serves HTTPS on its MagicDNS name, workers dial out, and there is no login page, no
-API token and no public ingress.
+**The tailnet transport is the only supported way to reach a worker on another machine** — in
+development as much as in production, and not merely the recommended one. Podium joins your
+Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial out, and there is
+no login page, no API token and no public ingress.
 
 ```sh
 ./bin/podium-server init --dir deploy --transport tailnet --tailnet <magicdns-suffix>
@@ -276,7 +296,8 @@ make stack-up S=server
 
 Read **[docs/networking.md](docs/networking.md)** first: what to create in the Tailscale admin
 console, the ACL, and the two different keys involved (a Tailscale auth key and a Podium
-enrollment token are not the same thing).
+enrollment token are not the same thing). Then **[docs/node-setup.md](docs/node-setup.md)** for
+the worker at the other end.
 
 ## What happens when things go wrong
 
