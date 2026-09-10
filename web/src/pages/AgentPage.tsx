@@ -182,7 +182,8 @@ export function AgentPage() {
       {chat ? (
         <div className="min-h-0 flex-1 overflow-hidden">{routed}</div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 lg:px-8">
+        // relative for the same reason as the shell's main — see App.tsx.
+        <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-7 lg:px-8">
           <div key={pathname} className="mx-auto w-full max-w-7xl animate-in fade-in-0 duration-200">
             {routed}
           </div>
