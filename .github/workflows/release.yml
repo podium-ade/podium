@@ -108,13 +108,10 @@ jobs:
       # the release archive: an operator untars a release to set up a worker, and the conductor
       # runs on the control plane's host from its image.
       #
-      # TODO(step 16 → step 14's owner): the two agent runtime images are not published.
-      # ghcr.io/podium-ade/podium-agent-runtime and -dev, tagged like every other image
-      # ({{ .Version }}, v{{ .Major }}.{{ .Minor }}, sha-<short>, latest off a prerelease).
-      # See the TODO in .goreleaser.yaml for the two things that make them unlike the Go
-      # images. Whoever wires it up needs pnpm and Node 22 in this job for the build stage —
-      # both are already set up above — and should expect -dev (a Go toolchain and a Docker
-      # client, ~1.7 GB per architecture) to dominate the release's runtime under qemu.
+      # podium-agent-runtime is NOT built here. It builds from agent/runtime rather than from
+      # a Go binary, and its Dockerfile's COPY paths are relative to that directory, which
+      # goreleaser's extra_files cannot reproduce — extra_files keeps paths relative to the
+      # project root. It gets its own job below instead.
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           version: "~> v2"
@@ -124,3 +121,92 @@ jobs:
           # Keyless signing: cosign reads the workflow's OIDC identity, so the signature
           # names this repository and this workflow rather than a key somebody holds.
           COSIGN_EXPERIMENTAL: "1"
+
+  # ===========================================================================
+  # podium-agent-runtime — the image an agent turn runs in.
+  #
+  # Its own job, not a goreleaser entry, because it builds from agent/runtime as its context
+  # and its Dockerfile COPYs package.json / src relative to that directory. goreleaser's
+  # extra_files stages paths relative to the PROJECT ROOT, so the COPYs would not resolve
+  # without either duplicating the Dockerfile or making the whole repo the build context.
+  # buildx with the right context is simpler and honest.
+  #
+  # -dev is deliberately NOT published. It layers on this image (ARG RUNTIME_IMAGE), so a
+  # published build would have to pass the pushed base by digest — a dependency between two
+  # image builds that neither goreleaser nor a parallel job expresses well — and it carries a
+  # Go toolchain, a Docker client and golangci-lint at ~1.7 GB per architecture. It is a
+  # development image; `make agent-runtime` builds it locally, which is where it is used.
+  # ===========================================================================
+  agent-runtime:
+    name: podium-agent-runtime
+    needs: [license]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # push to ghcr.io
+      id-token: write # cosign keyless signing
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The tag set has to match the Go images exactly, or a version-matched default cannot
+      # find its runtime. `latest` moves only on a real release, like every other image:
+      # a prerelease tag carries a `-`, which is the whole test.
+      - name: Work out the tags
+        id: tags
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"          # v0.1.0, or v0.1.0-rc.1
+          version="${ref#v}"
+          major_minor="v$(echo "$version" | cut -d. -f1-2)"
+          image=ghcr.io/${{ github.repository_owner }}/podium-agent-runtime
+          tags="$image:$version,$image:$major_minor,$image:sha-${GITHUB_SHA::7}"
+          case "$version" in
+            *-*) echo "prerelease: not moving :latest" ;;
+            *)   tags="$tags,$image:latest" ;;
+          esac
+          echo "image=$image"     >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags"       >> "$GITHUB_OUTPUT"
+          echo "$tags"
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The three toolchains this image installs are already per-arch pinned in the
+      # Dockerfile, so amd64 + arm64 under qemu needs no extra build-args, only patience.
+      # sbom and provenance are attached as OCI attestations, which is this image's
+      # equivalent of the `sbom: true` the goreleaser entries carry.
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: agent/runtime
+          file: agent/runtime/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: v2.6.1
+
+      # The manifest is what a node pulls, so the digest is what is signed — the same choice
+      # `docker_signs` makes for the Go images.
+      - name: Sign the manifest
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes \
+            "${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}"

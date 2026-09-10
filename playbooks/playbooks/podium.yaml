@@ -13,6 +13,11 @@
 #
 # It has WRITE ACCESS TO THIS REPOSITORY and a Docker daemon of its own. Read
 # docs/security.md before pointing it anywhere else.
+# The -dev image, named explicitly and deliberately: this bot builds and tests Podium, so it
+# needs the Go toolchain, the Docker client and golangci-lint that only -dev carries. That
+# image is NOT published — it layers on the base, so a release would have to pass the pushed
+# base by digest, and it is ~1.7 GB per architecture — so `make agent-runtime` on the node is
+# what puts it there. Every other playbook omits `image:` and gets the published base.
 image: podium-agent-runtime-dev:dev
 docker: true
 # A headless Chrome beside the turn, and the browser* tools to drive it. `docker: true` is
