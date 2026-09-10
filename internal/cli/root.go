@@ -11,8 +11,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
-	"github.com/alvaroibarguen/podium/internal/version"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 // Exit codes the CLI is contractual about; see docs/cli.md.

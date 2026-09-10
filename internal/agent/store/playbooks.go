@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
+	"github.com/podium-ade/podium/internal/agent/profiles"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
 // ErrConflict is what a write returns when the name it wanted is already taken.

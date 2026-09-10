@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/runner"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts/fakes3"
+	"github.com/podium-ade/podium/internal/runner"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/artifacts/fakes3"
 )
 
 // agentRuntimeImage is local and tagged :dev on purpose. The e2e node runs against the

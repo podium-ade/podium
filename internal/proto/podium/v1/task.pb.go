@@ -838,8 +838,8 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\tListTasks\x12\x1b.podium.v1.ListTasksRequest\x1a\x1c.podium.v1.ListTasksResponse\x12I\n" +
 	"\n" +
 	"CancelTask\x12\x1c.podium.v1.CancelTaskRequest\x1a\x1d.podium.v1.CancelTaskResponse\x12N\n" +
-	"\x10StreamTaskEvents\x12\".podium.v1.StreamTaskEventsRequest\x1a\x14.podium.v1.TaskEvent0\x01B\xa3\x01\n" +
-	"\rcom.podium.v1B\tTaskProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x10StreamTaskEvents\x12\".podium.v1.StreamTaskEventsRequest\x1a\x14.podium.v1.TaskEvent0\x01B\x9f\x01\n" +
+	"\rcom.podium.v1B\tTaskProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

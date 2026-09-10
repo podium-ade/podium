@@ -13,10 +13,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
-	"github.com/alvaroibarguen/podium/internal/server"
-	"github.com/alvaroibarguen/podium/internal/server/artifacts/fakes3"
-	"github.com/alvaroibarguen/podium/internal/server/logs"
+	"github.com/podium-ade/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/server"
+	"github.com/podium-ade/podium/internal/server/artifacts/fakes3"
+	"github.com/podium-ade/podium/internal/server/logs"
 )
 
 // TestArtifactsAreCollectedAndDownloaded is the step's acceptance path driven the way an

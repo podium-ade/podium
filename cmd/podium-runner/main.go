@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/alvaroibarguen/podium/internal/runner"
-	"github.com/alvaroibarguen/podium/internal/version"
+	"github.com/podium-ade/podium/internal/runner"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // subscriberBuffer is how many frames a subscriber may fall behind by before frames start

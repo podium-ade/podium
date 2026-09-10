@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
-	"github.com/alvaroibarguen/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
 )
 
 // Dev source routes. They exist only when PODIUM_AGENT_DEV_SOURCE is true and they sit

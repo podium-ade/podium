@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/ids"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/ids"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // fakeUploader stands in for the control plane. It keeps every artifact's bytes so a test

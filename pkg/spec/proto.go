@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // ToProto converts a TaskSpec to its wire form.

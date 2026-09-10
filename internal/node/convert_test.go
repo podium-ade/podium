@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/node/docker"
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/node/docker"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 func TestToWireTagsSidecarLogs(t *testing.T) {

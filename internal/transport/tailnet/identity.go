@@ -11,7 +11,7 @@ import (
 
 	"tailscale.com/client/tailscale/apitype"
 
-	"github.com/alvaroibarguen/podium/internal/transport"
+	"github.com/podium-ade/podium/internal/transport"
 )
 
 // The canonical ACL tags from the design (§4.1). One device per install carries the server tag;

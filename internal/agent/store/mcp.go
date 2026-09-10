@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/mcp"
-	db "github.com/alvaroibarguen/podium/internal/agent/store/db"
+	"github.com/podium-ade/podium/internal/agent/mcp"
+	db "github.com/podium-ade/podium/internal/agent/store/db"
 )
 
 // The MCP server registry. There is no file half to merge with — see internal/agent/mcp —

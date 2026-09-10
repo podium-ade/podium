@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/version"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 // A conductor and the runtime its turns run in ship as a matched pair, so the default image

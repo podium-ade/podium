@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alvaroibarguen/podium/internal/agent"
-	"github.com/alvaroibarguen/podium/internal/agent/config"
-	"github.com/alvaroibarguen/podium/internal/version"
+	"github.com/podium-ade/podium/internal/agent"
+	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/version"
 )
 
 func main() {

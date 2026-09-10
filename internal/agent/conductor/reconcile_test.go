@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvaroibarguen/podium/internal/agent/memory"
+	"github.com/podium-ade/podium/internal/agent/memory"
 )
 
 // stubMemory answers FailedOperations and nothing else: watchExtractions is the only caller

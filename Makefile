@@ -3,7 +3,7 @@
 # all three, so put both directories on PATH here.
 export PATH := $(CURDIR)/web/node_modules/.bin:$(shell go env GOPATH)/bin:$(PATH)
 
-MODULE   := github.com/alvaroibarguen/podium
+MODULE   := github.com/podium-ade/podium
 BINARIES := podium podium-server podium-node podium-agent
 
 # podium-runner is embedded into podium-node, not linked into it.

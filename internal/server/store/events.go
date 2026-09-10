@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/alvaroibarguen/podium/internal/server/store/db"
+	"github.com/podium-ade/podium/internal/server/store/db"
 )
 
 // AppendEvents writes a batch of task events and returns the task's high-water mark: the

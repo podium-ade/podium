@@ -39,8 +39,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
-      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/podium-ade/podium/internal/version.Version={{ .Version }}
+      - -X github.com/podium-ade/podium/internal/version.Commit={{ .ShortCommit }}
 
   - id: podium-server
     main: ./cmd/podium-server
@@ -55,8 +55,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
-      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/podium-ade/podium/internal/version.Version={{ .Version }}
+      - -X github.com/podium-ade/podium/internal/version.Commit={{ .ShortCommit }}
 
   # The conductor. Same shape as the server: a static binary and a distroless image, run on
   # the control plane's host. It is not in the archive below on purpose — an operator who
@@ -75,8 +75,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
-      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/podium-ade/podium/internal/version.Version={{ .Version }}
+      - -X github.com/podium-ade/podium/internal/version.Commit={{ .ShortCommit }}
 
   - id: podium-node
     main: ./cmd/podium-node
@@ -91,8 +91,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
-      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/podium-ade/podium/internal/version.Version={{ .Version }}
+      - -X github.com/podium-ade/podium/internal/version.Commit={{ .ShortCommit }}
 
   # The runner is PID 1 inside a Linux task container, so it is Linux only. It is also
   # embedded into podium-node by the runner-embed hook above; it is shipped separately so
@@ -107,8 +107,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X github.com/alvaroibarguen/podium/internal/version.Version={{ .Version }}
-      - -X github.com/alvaroibarguen/podium/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/podium-ade/podium/internal/version.Version={{ .Version }}
+      - -X github.com/podium-ade/podium/internal/version.Commit={{ .ShortCommit }}
 
 archives:
   - id: podium

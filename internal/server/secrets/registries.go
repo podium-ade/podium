@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alvaroibarguen/podium/internal/server/store"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // RegistryCredential is one registry login with its password attached. Password is

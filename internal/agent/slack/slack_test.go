@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
 func TestSplitLeavesShortTextAlone(t *testing.T) {

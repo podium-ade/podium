@@ -359,8 +359,8 @@ const file_podium_v1_artifact_proto_rawDesc = "" +
 	"\bartifact\x18\x03 \x01(\v2\x13.podium.v1.ArtifactR\bartifact2\xbc\x01\n" +
 	"\x0fArtifactService\x12R\n" +
 	"\rListArtifacts\x12\x1f.podium.v1.ListArtifactsRequest\x1a .podium.v1.ListArtifactsResponse\x12U\n" +
-	"\x0eGetArtifactURL\x12 .podium.v1.GetArtifactURLRequest\x1a!.podium.v1.GetArtifactURLResponseB\xa7\x01\n" +
-	"\rcom.podium.v1B\rArtifactProtoP\x01ZBgithub.com/alvaroibarguen/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
+	"\x0eGetArtifactURL\x12 .podium.v1.GetArtifactURLRequest\x1a!.podium.v1.GetArtifactURLResponseB\xa3\x01\n" +
+	"\rcom.podium.v1B\rArtifactProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
 var (

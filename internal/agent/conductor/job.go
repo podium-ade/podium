@@ -3,7 +3,7 @@ package conductor
 import (
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // job is what one turn does, as everything below accept needs it: a prompt, a tool list, a

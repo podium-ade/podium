@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // Reaction is the three states a source can show on the message that started a turn.

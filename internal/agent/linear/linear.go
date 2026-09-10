@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alvaroibarguen/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
 // Kind is the source kind Linear sessions are recorded under.

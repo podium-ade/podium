@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 
-	podiumv1 "github.com/alvaroibarguen/podium/internal/proto/podium/v1"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 )
 
 // idleStop is how long `podium logs` without -f waits for another event before deciding

@@ -22,10 +22,10 @@ import (
 
 	yaml "go.yaml.in/yaml/v3"
 
-	"github.com/alvaroibarguen/podium/internal/agent/mcp"
-	"github.com/alvaroibarguen/podium/internal/agent/skills"
-	"github.com/alvaroibarguen/podium/internal/version"
-	"github.com/alvaroibarguen/podium/pkg/spec"
+	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/skills"
+	"github.com/podium-ade/podium/internal/version"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // The range a playbook's priority may sit in. The bound is a guard against a typo rather

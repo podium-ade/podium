@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/alvaroibarguen/podium/internal/agent/store"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // The mirror is a read-only COPY, in chats/chat_messages, of a conversation that lives
