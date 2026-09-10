@@ -121,7 +121,7 @@ services:
       - server
       - hindsight
     environment:
-      PODIUM_AGENT_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
+      PODIUM_AGENT_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
@@ -155,7 +155,7 @@ services:
   node:
     image: ghcr.io/alvaroibarguen/podium-node:${PODIUM_IMAGE_TAG:-latest}
     environment:
-      PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. taila79bf6}.ts.net
+      PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
       PODIUM_NODE_TRANSPORT: tailnet
       # The *Tailscale* auth key for workers: reusable, pre-approved, tagged tag:podium-node.
       # A different key from the server's, and a completely different thing from the Podium

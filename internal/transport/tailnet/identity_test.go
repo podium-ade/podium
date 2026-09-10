@@ -28,7 +28,7 @@ import (
 func who(name string, tags []string, login, display string) *apitype.WhoIsResponse {
 	return &apitype.WhoIsResponse{
 		Node: &tailcfg.Node{
-			Name:     name + ".taila79bf6.ts.net.",
+			Name:     name + ".tail0a1b2c.ts.net.",
 			StableID: tailcfg.StableNodeID("n" + name + "CNTRL"),
 			Tags:     tags,
 		},
@@ -50,7 +50,7 @@ func TestClassify(t *testing.T) {
 			who:  who("podiumbot1", []string{"tag:podium-node"}, "tagged-devices", ""),
 			want: transport.Identity{
 				Kind:         transport.KindNode,
-				Login:        "podiumbot1.taila79bf6.ts.net",
+				Login:        "podiumbot1.tail0a1b2c.ts.net",
 				NodeTags:     []string{"tag:podium-node"},
 				NodeStableID: "npodiumbot1CNTRL",
 				RemoteAddr:   "100.105.227.25:41234",
@@ -61,7 +61,7 @@ func TestClassify(t *testing.T) {
 			who:  who("podiumbot1", []string{"tag:prod", "tag:podium-node"}, "tagged-devices", ""),
 			want: transport.Identity{
 				Kind:         transport.KindNode,
-				Login:        "podiumbot1.taila79bf6.ts.net",
+				Login:        "podiumbot1.tail0a1b2c.ts.net",
 				NodeTags:     []string{"tag:prod", "tag:podium-node"},
 				NodeStableID: "npodiumbot1CNTRL",
 				RemoteAddr:   "100.105.227.25:41234",
@@ -114,7 +114,7 @@ func TestClassify(t *testing.T) {
 			opts: IdentityOptions{NodeTag: "tag:worker"},
 			want: transport.Identity{
 				Kind:         transport.KindNode,
-				Login:        "podiumbot1.taila79bf6.ts.net",
+				Login:        "podiumbot1.tail0a1b2c.ts.net",
 				NodeTags:     []string{"tag:worker"},
 				NodeStableID: "npodiumbot1CNTRL",
 				RemoteAddr:   "100.105.227.25:41234",
@@ -252,7 +252,7 @@ func TestReadyDetail(t *testing.T) {
 	self := func(expiry *time.Time) *ipnstate.Status {
 		return &ipnstate.Status{
 			BackendState: "Running",
-			Self:         &ipnstate.PeerStatus{DNSName: "podium.taila79bf6.ts.net.", KeyExpiry: expiry},
+			Self:         &ipnstate.PeerStatus{DNSName: "podium.tail0a1b2c.ts.net.", KeyExpiry: expiry},
 		}
 	}
 
@@ -260,7 +260,7 @@ func TestReadyDetail(t *testing.T) {
 		t.Parallel()
 		detail, err := readyDetail(self(nil), now)
 		require.NoError(t, err)
-		require.Equal(t, "tailnet podium.taila79bf6.ts.net", detail)
+		require.Equal(t, "tailnet podium.tail0a1b2c.ts.net", detail)
 	})
 
 	t.Run("a distant expiry is reported and healthy", func(t *testing.T) {
@@ -299,9 +299,9 @@ func TestNodeHostname(t *testing.T) {
 func TestCheckHTTPSExplainsWhatToEnable(t *testing.T) {
 	t.Parallel()
 	base := &ipnstate.Status{
-		Self:           &ipnstate.PeerStatus{HostName: "podium", DNSName: "podium.taila79bf6.ts.net."},
+		Self:           &ipnstate.PeerStatus{HostName: "podium", DNSName: "podium.tail0a1b2c.ts.net."},
 		CurrentTailnet: &ipnstate.TailnetStatus{MagicDNSEnabled: true},
-		CertDomains:    []string{"podium.taila79bf6.ts.net"},
+		CertDomains:    []string{"podium.tail0a1b2c.ts.net"},
 	}
 	require.NoError(t, checkHTTPS(base))
 

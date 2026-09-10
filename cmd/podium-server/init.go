@@ -105,7 +105,7 @@ func newInitCommand() *cobra.Command {
 	cmd.Flags().StringVar(&transport, "transport", server.TransportLocal,
 		"which deployment this is: dev (loopback) or tailnet")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "",
-		"your tailnet's MagicDNS suffix without .ts.net (for example taila79bf6); tailnet transport only")
+		"your tailnet's MagicDNS suffix without .ts.net (for example tail0a1b2c); tailnet transport only")
 	cmd.Flags().BoolVar(&force, "force", false, "write .env even if one already exists")
 	return cmd
 }

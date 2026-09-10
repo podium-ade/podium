@@ -41,7 +41,7 @@ describe("enrollCommand", () => {
   });
 
   it("switches to the tailnet transport for an https control plane, and names no secret", () => {
-    const cmd = enrollCommand("https://podium.taila79bf6.ts.net", "tok_abc");
+    const cmd = enrollCommand("https://podium.tail0a1b2c.ts.net", "tok_abc");
     expect(cmd).toContain("PODIUM_NODE_TRANSPORT=tailnet");
     expect(cmd).toContain("PODIUM_NODE_TS_AUTHKEY=$TS_AUTHKEY");
     expect(cmd).not.toContain("PODIUM_NODE_LOCAL_TOKEN");
