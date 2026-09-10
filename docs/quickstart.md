@@ -53,8 +53,22 @@ curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/dock
 
 Nothing else needs to be beside it. The Postgres bootstrap script that creates the conductor's
 database and the memory service's is inline at the bottom of that file; the conductor's profile
-directory ships inside its image; and the master key is generated into a volume on first `up`
-by a one-shot `init` service.
+directory ships inside its image; and the master key is generated on first `up` by a one-shot
+`init` service — meaning a container that runs a single command and exits rather than staying
+up.
+
+That key is worth one decision before you start. By default it is generated *inside* a Docker
+volume, which means copying it out is a command you have to remember and `docker compose
+down -v` destroys it. Point `PODIUM_STATE_DIR` at a path instead and it is an ordinary file you
+can see:
+
+```sh
+echo 'PODIUM_STATE_DIR=./state' >> .env      # then master.key is ./state/master.key
+```
+
+Compose reads a bare name as a Docker volume and a path as a bind mount, so that one variable
+switches between them. Do it **before the first `up`** — afterwards you are copying a key
+between two places rather than choosing where it goes.
 
 ## 2. Up
 
@@ -470,9 +484,22 @@ podium --server https://podium.tail0a1b2c.ts.net nodes   # no --token: WhoIs nam
 
 ### 5. Back up the master key, now, before you store a secret
 
-It is generated into the `server-state` volume on first `up`, and there is **no recovery
-path** — losing it loses every secret encrypted under it, and a database backup without it is
-a backup of unreadable ciphertext.
+There is **no recovery path** — losing it loses every secret encrypted under it, and a database
+backup without it is a backup of unreadable ciphertext.
+
+On a host you intend to keep, put it on the host filesystem from the start rather than inside a
+volume. Add this to the `.env` above **before the first `up`**:
+
+```ini
+PODIUM_STATE_DIR=/srv/podium/state
+```
+
+`master.key` is then `/srv/podium/state/master.key`, mode `0600` and owned by uid 65532 on a
+Linux engine, so reading it takes `sudo`. It also survives `docker compose down -v`, which is
+the failure this avoids. Under this file the same directory holds the tsnet device identity
+too, so it is two unrecoverable credentials and one backup job.
+
+If you left it in the volume, copy it out:
 
 ```sh
 docker compose -f docker-compose.tailnet.yml cp \
@@ -565,6 +592,9 @@ there is no recovery path:
 ```sh
 docker compose cp server:/var/lib/podium/master.key ./master.key
 ```
+
+Unless you set `PODIUM_STATE_DIR` to a path back in step 1 — in which case the key is already a
+file on the host and `-v` cannot reach it. That is the whole reason to do it.
 
 ```sh
 docker compose --profile node --profile cli down -v

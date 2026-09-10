@@ -127,7 +127,10 @@ services:
   init:
     image: busybox:1.37@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
     volumes:
-      - server-state:/state
+      # PODIUM_STATE_DIR=./state puts the master key and the tsnet identity on the HOST — files
+      # you can see and back up, and ones `down -v` cannot take. Compose reads a path as a bind
+      # mount and a bare name as a named volume. Must match the server's below.
+      - ${PODIUM_STATE_DIR:-server-state}:/state
     command:
       - sh
       - -ec
@@ -169,10 +172,12 @@ services:
       PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
     volumes:
-      # The tsnet state must outlive the container. Without it the server registers a brand new
-      # Tailscale device on every restart, the MagicDNS name drifts to podium-1, podium-2, ...
-      # and the admin console fills with ghosts.
-      - server-state:/var/lib/podium
+      # Two unrecoverable credentials in one place: the master key `init` generated, and the
+      # tsnet device identity. The latter MUST outlive the container — without it the server
+      # registers a brand new Tailscale device on every restart, the MagicDNS name drifts to
+      # podium-1, podium-2, ... and the admin console fills with ghosts. Set PODIUM_STATE_DIR
+      # to a path to keep both on the host; same value as `init` above.
+      - ${PODIUM_STATE_DIR:-server-state}:/var/lib/podium
     # Also no published ports: the server listens only inside the tailnet, on 443 of its own
     # Tailscale device. There is no host port to firewall and no public ingress to protect.
     restart: unless-stopped
