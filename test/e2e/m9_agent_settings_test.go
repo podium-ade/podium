@@ -153,7 +153,7 @@ func TestAgentSettingsThroughTheServerProxy(t *testing.T) {
 	assert.Contains(t, body, `"keySet":true`)
 	assert.Contains(t, body, `"keyHint":"good"`)
 	assert.Contains(t, body, "claude-opus-5")
-	assert.Contains(t, body, `"setBy":"dev"`, "the dev transport has no per-user identity")
+	assert.Contains(t, body, `"setBy":"local"`, "the local transport has no per-user identity")
 	assert.NotContains(t, body, "root", "a client-supplied X-Podium-Login must be dropped")
 	assert.NotContains(t, body, goodKey, "the response must never carry the key back")
 

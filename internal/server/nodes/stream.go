@@ -169,8 +169,8 @@ func (s *Service) authenticate(ctx context.Context, hello *podiumv1.Hello) (stor
 // to, which is a machine the operator already controls.
 //
 // A node with no binding is bound on the first tailnet Hello it sends — that is how a node that
-// enrolled over the dev transport, or one an admin has rekeyed, picks up its device. Under the
-// dev transport there is no device to bind to, so nothing happens at all.
+// enrolled over the local transport, or one an admin has rekeyed, picks up its device. Under the
+// local transport there is no device to bind to, so nothing happens at all.
 func (s *Service) checkDeviceBinding(ctx context.Context, node store.Node) error {
 	id, _ := transport.From(ctx)
 	switch decideBinding(node.TSStableID, id.NodeStableID) {
@@ -198,7 +198,7 @@ func (s *Service) checkDeviceBinding(ctx context.Context, node store.Node) error
 type bindingDecision int
 
 const (
-	// bindingNoop: nothing to bind and nothing to check — the dev transport, or a node
+	// bindingNoop: nothing to bind and nothing to check — the local transport, or a node
 	// already on its own device.
 	bindingNoop bindingDecision = iota
 	// bindingBind: the node has no device yet and the caller has one. Trust on first use.
@@ -210,8 +210,8 @@ const (
 // decideBinding is the whole rule, in one place so the table of cases is testable.
 //
 // stored is nodes.ts_stable_id; presented is the Tailscale device the current connection came
-// from, empty under the dev transport. An unbound node binds to whatever device it first
-// arrives from — that is how a node enrolled over the dev transport, or one an admin has
+// from, empty under the local transport. An unbound node binds to whatever device it first
+// arrives from — that is how a node enrolled over the local transport, or one an admin has
 // rekeyed, picks up its device. A bound node must keep arriving from the same one.
 func decideBinding(stored, presented string) bindingDecision {
 	switch {

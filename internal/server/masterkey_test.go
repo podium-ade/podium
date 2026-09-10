@@ -31,9 +31,9 @@ func keyFile(t *testing.T, mode os.FileMode) string {
 func TestServerRefusesToStartWithAWorldReadableKeyFile(t *testing.T) {
 	cfg := Config{
 		DatabaseURL:   "postgres://nobody@127.0.0.1:1/none",
-		Transport:     TransportDev,
-		DevListen:     "127.0.0.1:0",
-		DevToken:      "devtoken",
+		Transport:     TransportLocal,
+		LocalListen:   "127.0.0.1:0",
+		LocalToken:    "devtoken",
 		MasterKeyFile: keyFile(t, 0o644),
 	}
 	_, err := New(context.Background(), cfg, quietLogger())
@@ -45,9 +45,9 @@ func TestServerRefusesToStartWithAWorldReadableKeyFile(t *testing.T) {
 func TestServerRefusesAMissingOrMalformedKeyFile(t *testing.T) {
 	base := Config{
 		DatabaseURL: "postgres://nobody@127.0.0.1:1/none",
-		Transport:   TransportDev,
-		DevListen:   "127.0.0.1:0",
-		DevToken:    "devtoken",
+		Transport:   TransportLocal,
+		LocalListen: "127.0.0.1:0",
+		LocalToken:  "devtoken",
 	}
 
 	missing := base
@@ -92,7 +92,7 @@ func TestNoMasterKeyDisablesSecretsRatherThanFailing(t *testing.T) {
 
 func TestConfigReadsTheMasterKeyEnvironment(t *testing.T) {
 	t.Setenv("PODIUM_DATABASE_URL", "postgres://podium@127.0.0.1:5432/podium")
-	t.Setenv("PODIUM_DEV_TOKEN", "devtoken")
+	t.Setenv("PODIUM_LOCAL_TOKEN", "devtoken")
 	t.Setenv("PODIUM_MASTER_KEY_FILE", "/etc/podium/master.key")
 	t.Setenv("PODIUM_MASTER_KEY", "inline")
 

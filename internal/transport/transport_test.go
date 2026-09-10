@@ -21,7 +21,7 @@ func (f fakeListener) Identify(*http.Request) (transport.Identity, error) {
 	if !f.ok {
 		return transport.Identity{}, transport.ErrUnauthenticated
 	}
-	return transport.Identity{Kind: transport.KindDevToken, Login: "dev"}, nil
+	return transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, nil
 }
 
 func TestWithIdentityPassesIdentityThrough(t *testing.T) {
@@ -36,8 +36,8 @@ func TestWithIdentityPassesIdentityThrough(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.True(t, ok)
-	require.Equal(t, "dev", seen.Login)
-	require.Equal(t, transport.KindDevToken, seen.Kind)
+	require.Equal(t, "local", seen.Login)
+	require.Equal(t, transport.KindLocalToken, seen.Kind)
 }
 
 func TestWithIdentityRejectsUnauthenticated(t *testing.T) {

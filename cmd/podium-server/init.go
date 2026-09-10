@@ -19,7 +19,7 @@ import (
 // rendering is a pure function and can be tested without touching the filesystem.
 type initSecrets struct {
 	PGPassword  string
-	DevToken    string
+	LocalToken  string
 	S3SecretKey string
 	AgentToken  string
 	MasterKey   string // the path the key was written to
@@ -47,10 +47,10 @@ func newInitCommand() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			switch transport {
-			case server.TransportDev, server.TransportTailnet:
+			case server.TransportLocal, server.TransportTailnet:
 			default:
 				return fmt.Errorf("--transport %q is not a transport (want %s or %s)",
-					transport, server.TransportDev, server.TransportTailnet)
+					transport, server.TransportLocal, server.TransportTailnet)
 			}
 
 			keyPath := filepath.Join(dir, "master.key")
@@ -78,7 +78,7 @@ func newInitCommand() *cobra.Command {
 				bytes int
 			}{
 				{&values.PGPassword, 24},
-				{&values.DevToken, 32},
+				{&values.LocalToken, 32},
 				{&values.S3SecretKey, 24},
 				{&values.AgentToken, 32},
 			} {
@@ -97,12 +97,12 @@ func newInitCommand() *cobra.Command {
 			fmt.Fprintf(out, "\nBack up %s. Losing it loses every secret encrypted under it.\n", keyPath)
 			reportTailscalePrereqs(out, values)
 			fmt.Fprintf(out, "\nNext: docker compose -f docker-compose%s.yml up -d --wait\n",
-				map[string]string{server.TransportDev: "", server.TransportTailnet: ".tailnet"}[transport])
+				map[string]string{server.TransportLocal: "", server.TransportTailnet: ".tailnet"}[transport])
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "directory to write master.key and .env into")
-	cmd.Flags().StringVar(&transport, "transport", server.TransportDev,
+	cmd.Flags().StringVar(&transport, "transport", server.TransportLocal,
 		"which deployment this is: dev (loopback) or tailnet")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "",
 		"your tailnet's MagicDNS suffix without .ts.net (for example taila79bf6); tailnet transport only")
@@ -161,9 +161,9 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("TS_AUTHKEY=\n")
 		b.WriteString("PODIUM_NODE_TS_AUTHKEY=\n\n")
 	} else {
-		b.WriteString("# The dev transport's shared bearer token. Every API call and the web UI\n")
+		b.WriteString("# The local transport's shared bearer token. Every API call and the web UI\n")
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
-		b.WriteString("PODIUM_DEV_TOKEN=" + v.DevToken + "\n\n")
+		b.WriteString("PODIUM_LOCAL_TOKEN=" + v.LocalToken + "\n\n")
 		// Where the CLI looks. Its token is the dev token above, which it reads under that
 		// name, so sourcing this file is all it takes to configure a shell.
 		b.WriteString("# Where the CLI looks for the control plane. It presents the token above.\n")

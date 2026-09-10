@@ -85,12 +85,12 @@ $EDITOR deploy/.env
 ```
 
 ```ini
-PODIUM_DEV_TOKEN=devtoken               # the one shared secret; pick any string
+PODIUM_LOCAL_TOKEN=devtoken               # the one shared secret; pick any string
 PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
 ```
 
 Two lines, because the `dev` transport has exactly one secret: the server, the worker, the
-conductor, the web UI and the CLI all present `PODIUM_DEV_TOKEN`, and every one of them
+conductor, the web UI and the CLI all present `PODIUM_LOCAL_TOKEN`, and every one of them
 reads it from that single line. Everything else in the file has a working default and is
 commented with what it does. If you would rather not choose your own credentials,
 `./bin/podium-server init --dir deploy` writes the same file with fresh random ones, plus
@@ -128,7 +128,7 @@ control plane can mint one, and it is single-use — a worker that has enrolled 
 same `S=` to name one service. Logs are in `.podium/log/`. Full walkthrough:
 **[docs/quickstart.md](docs/quickstart.md)**.
 
-> If 5432 or 8080 are taken on your machine, set `PODIUM_PG_PORT`, `PODIUM_DEV_LISTEN` and a
+> If 5432 or 8080 are taken on your machine, set `PODIUM_PG_PORT`, `PODIUM_LOCAL_LISTEN` and a
 > matching `PODIUM_SERVER` in `deploy/.env`. The compose file, the daemons and the CLI all
 > read that one file, so there is nothing else to keep in step.
 
@@ -223,7 +223,7 @@ Full reference, including the Slack app manifest and the Linear setup:
 ### Things that will trip you up locally
 
 - **The dev token is stored per browser origin.** It lives in `localStorage` under
-  `podium.devToken`, so it persists — but `127.0.0.1:8080` and `localhost:8080` and any other
+  `podium.localToken`, so it persists — but `127.0.0.1:8080` and `localhost:8080` and any other
   port are each a different origin with their own copy. Pick one address and stay on it, or you
   will be asked for the token again every time.
 - **A secret is only readable under the master key it was written with.** `secrets.key_id` records
@@ -266,7 +266,7 @@ values differ on one thing — who names the caller — and everything else foll
 |---|---|---|
 | The wire | HTTP on loopback | HTTPS on the server's MagicDNS name |
 | Who the caller is | nobody. One shared bearer and no identity behind it | a Tailscale identity, from `WhoIs` |
-| What you present | `PODIUM_DEV_TOKEN` — from the CLI, the browser and every node | nothing. There is no token to hold |
+| What you present | `PODIUM_LOCAL_TOKEN` — from the CLI, the browser and every node | nothing. There is no token to hold |
 | Where a worker can be | the same machine | anywhere on your tailnet |
 | Set up | the [Quickstart](#quickstart) | [Running across machines](#running-across-machines), below |
 
@@ -381,7 +381,7 @@ and the third from the file's own directory:
 | | |
 |---|---|
 | `PODIUM_DATABASE_URL` | the Postgres DSN. The server migrates on start |
-| `PODIUM_DEV_TOKEN` | the `dev` transport's shared bearer token |
+| `PODIUM_LOCAL_TOKEN` | the `dev` transport's shared bearer token |
 | `PODIUM_MASTER_KEY_FILE` | the AES-256 key secrets are encrypted under. Mode 0600/0400 enforced. Unset means secrets are unavailable, which is supported |
 | `PODIUM_S3_*` | the object store artifacts and rolled-up logs live in. Unset disables artifacts entirely, which is also supported |
 

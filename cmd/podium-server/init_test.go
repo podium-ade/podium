@@ -20,9 +20,9 @@ import (
 // TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY are deliberately absent: they are Tailscale's keys,
 // only the operator can produce them, and init writes them empty and says so.
 var requiredByCompose = map[string][]string{
-	server.TransportDev: {
+	server.TransportLocal: {
 		"PODIUM_PG_PASSWORD",
-		"PODIUM_DEV_TOKEN",
+		"PODIUM_LOCAL_TOKEN",
 		"PODIUM_S3_SECRET_KEY",
 		"PODIUM_AGENT_TOKEN",
 	},
@@ -41,7 +41,7 @@ func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
 				Transport:   transport,
 				Tailnet:     "taila79bf6",
 				PGPassword:  "pg",
-				DevToken:    "dev",
+				LocalToken:  "dev",
 				S3SecretKey: "s3",
 				AgentToken:  "agent",
 			}))
@@ -65,16 +65,16 @@ func TestInitLeavesTailscaleKeysEmpty(t *testing.T) {
 
 // TestInitConfiguresTheCLI guards the reason the quickstart can say "source this file and
 // you are done". The CLI needs an address and a token: the address is written here, and the
-// token is PODIUM_DEV_TOKEN, which the CLI reads directly. Writing a second copy under
+// token is PODIUM_LOCAL_TOKEN, which the CLI reads directly. Writing a second copy under
 // PODIUM_TOKEN would only create a pair that can drift apart.
 func TestInitConfiguresTheCLI(t *testing.T) {
 	env := parseEnv(t, renderEnv(initSecrets{
-		Transport: server.TransportDev, PGPassword: "pg", DevToken: "dev",
+		Transport: server.TransportLocal, PGPassword: "pg", LocalToken: "dev",
 		S3SecretKey: "s3", AgentToken: "agent",
 	}))
 	require.NotEmpty(t, env["PODIUM_SERVER"])
-	require.NotEmpty(t, env["PODIUM_DEV_TOKEN"])
-	require.NotContains(t, env, "PODIUM_TOKEN", "the CLI reads PODIUM_DEV_TOKEN; one secret, one line")
+	require.NotEmpty(t, env["PODIUM_LOCAL_TOKEN"])
+	require.NotContains(t, env, "PODIUM_TOKEN", "the CLI reads PODIUM_LOCAL_TOKEN; one secret, one line")
 }
 
 // TestInitCommandWritesUsableCredentials runs the command itself, because the bug this
@@ -92,11 +92,11 @@ func TestInitCommandWritesUsableCredentials(t *testing.T) {
 	require.NoError(t, err)
 	env := parseEnv(t, string(raw))
 
-	for _, name := range requiredByCompose[server.TransportDev] {
+	for _, name := range requiredByCompose[server.TransportLocal] {
 		require.NotEmpty(t, env[name], "%s was written with no value", name)
 	}
 	// Distinct values, not one secret reused: they guard different things.
-	require.NotEqual(t, env["PODIUM_DEV_TOKEN"], env["PODIUM_AGENT_TOKEN"])
+	require.NotEqual(t, env["PODIUM_LOCAL_TOKEN"], env["PODIUM_AGENT_TOKEN"])
 }
 
 func parseEnv(t *testing.T, body string) map[string]string {

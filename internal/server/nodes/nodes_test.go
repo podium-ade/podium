@@ -138,9 +138,9 @@ func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)
 
 	cfg := server.Config{
 		DatabaseURL:   databaseURL,
-		Transport:     server.TransportDev,
-		DevListen:     "127.0.0.1:0",
-		DevToken:      devToken,
+		Transport:     server.TransportLocal,
+		LocalListen:   "127.0.0.1:0",
+		LocalToken:    devToken,
 		MasterKeyFile: masterKeyFile(t),
 		Rollup:        logs.DefaultRollupConfig(),
 	}
@@ -172,7 +172,7 @@ func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)
 }
 
 // bearer presents the dev token on every request, which is how both operators and nodes
-// authenticate under the dev transport.
+// authenticate under the local transport.
 type bearer struct {
 	rt    http.RoundTripper
 	token string
@@ -908,14 +908,14 @@ func TestANodeStreamOutlivesTheServersHeaderTimeout(t *testing.T) {
 	require.Equal(t, task.GetId(), assign.GetTaskId())
 }
 
-// TestServerRefusesNonLoopbackDevListen proves the refusal happens in the real start path, not
+// TestServerRefusesNonLoopbackLocalListen proves the refusal happens in the real start path, not
 // only in the dev package's own unit test.
-func TestServerRefusesNonLoopbackDevListen(t *testing.T) {
+func TestServerRefusesNonLoopbackLocalListen(t *testing.T) {
 	_, err := server.New(context.Background(), server.Config{
 		DatabaseURL: newDatabase(t),
-		Transport:   server.TransportDev,
-		DevListen:   "0.0.0.0:8080",
-		DevToken:    devToken,
+		Transport:   server.TransportLocal,
+		LocalListen: "0.0.0.0:8080",
+		LocalToken:  devToken,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "0.0.0.0:8080")

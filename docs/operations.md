@@ -465,7 +465,7 @@ likelihood:
 
 ```sh
 curl -s http://127.0.0.1:8080/podium.v1.IdentityService/WhoAmI \
-  -H 'Authorization: Bearer $PODIUM_DEV_TOKEN' -H 'Content-Type: application/json' -d '{}'
+  -H 'Authorization: Bearer $PODIUM_LOCAL_TOKEN' -H 'Content-Type: application/json' -d '{}'
 ```
 
 ### Agent settings say "podium-agent is not reachable"

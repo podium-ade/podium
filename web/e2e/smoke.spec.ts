@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 const SERVER = process.env.PODIUM_UI_URL ?? "http://127.0.0.1:8080";
-const TOKEN = process.env.PODIUM_DEV_TOKEN ?? "devtoken";
+const TOKEN = process.env.PODIUM_LOCAL_TOKEN ?? "devtoken";
 const CLI = process.env.PODIUM_CLI ?? "../bin/podium";
 
 function podium(...args: string[]): string {
@@ -13,10 +13,10 @@ function podium(...args: string[]): string {
   }).trim();
 }
 
-/** The dev transport has no session; seed the token the UI would otherwise prompt for. */
+/** The local transport has no session; seed the token the UI would otherwise prompt for. */
 async function authenticate(page: Page) {
   await page.addInitScript(
-    ([token]) => window.localStorage.setItem("podium.devToken", token),
+    ([token]) => window.localStorage.setItem("podium.localToken", token),
     [TOKEN],
   );
 }

@@ -15,8 +15,8 @@ import { Label } from "./ui/label";
  *
  * It probes WhoAmI once. Under the tailnet transport the call succeeds with no header: Tailscale
  * named the caller at the transport layer, so there is nothing to ask for and the gate never
- * shows — the answer goes straight into the header. Under the dev transport the same probe comes
- * back Unauthenticated, and only then does the UI ask for PODIUM_DEV_TOKEN, keep it in
+ * shows — the answer goes straight into the header. Under the local transport the same probe comes
+ * back Unauthenticated, and only then does the UI ask for PODIUM_LOCAL_TOKEN, keep it in
  * localStorage and probe again.
  *
  * The probe is deliberately the same authenticated endpoint as everything else. Relaxing the
@@ -108,7 +108,7 @@ export function TokenGate({ children }: { children: ReactNode }) {
             type="password"
             autoFocus
             autoComplete="off"
-            placeholder="PODIUM_DEV_TOKEN"
+            placeholder="PODIUM_LOCAL_TOKEN"
             aria-invalid={rejected || undefined}
             value={value}
             onChange={(e) => setValue(e.target.value)}

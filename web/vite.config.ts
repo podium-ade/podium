@@ -25,7 +25,7 @@ function keepDist(): Plugin {
 // `pnpm dev` never asks for it. The embedded production build has no proxy and no token, which
 // is why the UI prompts for one (see src/lib/auth.ts).
 const target = process.env.PODIUM_SERVER ?? "http://127.0.0.1:8080";
-const devToken = process.env.PODIUM_DEV_TOKEN ?? "";
+const devToken = process.env.PODIUM_LOCAL_TOKEN ?? "";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), keepDist()],

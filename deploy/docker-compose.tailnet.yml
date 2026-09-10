@@ -111,7 +111,7 @@ services:
   # sidecar container cannot reach it — this service works only on a host where the conductor
   # can route into the tailnet (the `host` transport with the machine's own tailscaled, or
   # podium-agent run on the host rather than in compose). Left here as the recipe; the tested
-  # path is the dev transport in docker-compose.yml. PODIUM_AGENT_API_TOKEN is empty on
+  # path is the local transport in docker-compose.yml. PODIUM_AGENT_API_TOKEN is empty on
   # purpose: over the tailnet, WhoIs names the caller.
   #
   # It needs a profile directory: `cp -r ../examples/agent ./agent` before the first `up`.

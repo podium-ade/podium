@@ -197,9 +197,9 @@ func (h *harness) startServer() {
 	for {
 		cfg := server.Config{
 			DatabaseURL:   h.databaseURL,
-			Transport:     server.TransportDev,
-			DevListen:     h.addr,
-			DevToken:      devToken,
+			Transport:     server.TransportLocal,
+			LocalListen:   h.addr,
+			LocalToken:    devToken,
 			MasterKeyFile: h.masterKeyFile,
 			Rollup:        logs.DefaultRollupConfig(),
 		}
@@ -362,8 +362,8 @@ func (n *nodeProc) start(enrollToken string) {
 	cmd := exec.CommandContext(ctx, filepath.Join(binDir, "podium-node")) //nolint:gosec // the path is this test's own build output
 	cmd.Env = append(os.Environ(),
 		"PODIUM_NODE_SERVER="+n.h.url(),
-		"PODIUM_NODE_TRANSPORT=dev",
-		"PODIUM_NODE_DEV_TOKEN="+devToken,
+		"PODIUM_NODE_TRANSPORT=local",
+		"PODIUM_NODE_LOCAL_TOKEN="+devToken,
 		"PODIUM_NODE_ENROLL_TOKEN="+enrollToken,
 		"PODIUM_NODE_DATA_DIR="+n.dataDir,
 		"PODIUM_NODE_METRICS_LISTEN="+n.metrics,

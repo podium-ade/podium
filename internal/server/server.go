@@ -27,7 +27,7 @@ import (
 	"github.com/alvaroibarguen/podium/internal/server/secrets"
 	"github.com/alvaroibarguen/podium/internal/server/store"
 	"github.com/alvaroibarguen/podium/internal/transport"
-	"github.com/alvaroibarguen/podium/internal/transport/dev"
+	"github.com/alvaroibarguen/podium/internal/transport/local"
 	"github.com/alvaroibarguen/podium/internal/transport/tailnet"
 )
 
@@ -142,16 +142,16 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	return s, nil
 }
 
-// newListener builds the transport named by PODIUM_TRANSPORT. The dev transport keeps its
+// newListener builds the transport named by PODIUM_TRANSPORT. The local transport keeps its
 // loopback-only guard: the tailnet transports are additions beside it, not a loosening of it,
 // and the one waiver is an environment variable an operator has to set on purpose.
 func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Listener, error) {
 	identity := tailnet.IdentityOptions{NodeTag: cfg.TSRequiredNodeTag}
-	if cfg.Transport == TransportDev && cfg.DevAllowUnsafeListen {
-		logger.Warn(dev.UnsafeListenVar+" is on: the dev transport may bind an address that is "+
+	if cfg.Transport == TransportLocal && cfg.LocalAllowUnsafeListen {
+		logger.Warn(local.UnsafeListenVar+" is on: the local transport may bind an address that is "+
 			"not loopback, and one static bearer token is the only thing guarding the whole API "+
 			"on it. This is meant for a container, where the published port is the boundary. "+
-			"Publish that port on 127.0.0.1, never 0.0.0.0.", "listen", cfg.DevListen)
+			"Publish that port on 127.0.0.1, never 0.0.0.0.", "listen", cfg.LocalListen)
 	}
 	if cfg.TSAllowUntaggedNodes {
 		logger.Warn("PODIUM_TS_ALLOW_UNTAGGED_NODES is on: any untagged tailnet device may " +
@@ -177,10 +177,10 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 			Logger:   logger,
 		})
 	default:
-		return dev.New(dev.Options{
-			Listen:           cfg.DevListen,
-			Token:            cfg.DevToken,
-			AllowNonLoopback: cfg.DevAllowUnsafeListen,
+		return local.New(local.Options{
+			Listen:           cfg.LocalListen,
+			Token:            cfg.LocalToken,
+			AllowNonLoopback: cfg.LocalAllowUnsafeListen,
 		})
 	}
 }
@@ -252,13 +252,13 @@ func loadMasterKey(cfg Config, logger *slog.Logger) (*secrets.Key, error) {
 	return nil, nil
 }
 
-// warnAboutPlaintextTransport says out loud what the dev transport costs once real secrets
+// warnAboutPlaintextTransport says out loud what the local transport costs once real secrets
 // exist. Assign carries resolved secret values in the clear and relies on the transport to
-// protect them: the tailnet transport is WireGuard, but the dev transport is plain HTTP.
+// protect them: the tailnet transport is WireGuard, but the local transport is plain HTTP.
 // It is bound to loopback for exactly this reason, and that is a property worth stating
 // rather than assuming. It never blocks startup.
 func warnAboutPlaintextTransport(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) {
-	if cfg.Transport != TransportDev {
+	if cfg.Transport != TransportLocal {
 		return
 	}
 	rows, err := st.ListSecrets(ctx)
@@ -270,7 +270,7 @@ func warnAboutPlaintextTransport(ctx context.Context, cfg Config, st *store.Stor
 		"process on this machine, a packet capture, a proxy — sees them. This is why the dev "+
 		"transport refuses to bind anything but loopback. Use PODIUM_TRANSPORT=tailnet, whose "+
 		"WireGuard tunnel is what actually protects them, for anything beyond development.",
-		"secrets", len(rows), "listen", cfg.DevListen)
+		"secrets", len(rows), "listen", cfg.LocalListen)
 }
 
 // readyProber is the optional half of a transport that has something of its own to report on
@@ -451,7 +451,7 @@ func (s *Server) Start(ctx context.Context) error {
 // Addr is the bound address, valid once Start has returned.
 func (s *Server) Addr() string {
 	if s.ln == nil {
-		return s.cfg.DevListen
+		return s.cfg.LocalListen
 	}
 	return s.ln.Addr().String()
 }
