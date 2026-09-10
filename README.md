@@ -166,15 +166,19 @@ Full walkthrough, including tearing it down: **[docs/quickstart.md](docs/quickst
 
 The conductor is a second process, and an ordinary API client of `podium-server`: its own
 database, its own token, and it never touches Docker. It turns a Slack mention, a Linear
-assignment or a web-chat message into one turn. It is behind the `agent` profile, together with
-the agents' shared memory, and needs a profile directory — a tree of YAML with no default
-content, so it is the one step that wants a clone:
+assignment or a web-chat message into one turn. It is behind the `conductor` compose profile,
+together with the agents' shared memory.
+
+It also needs an **agent profile directory** — an unrelated thing that unluckily shares the
+word. That is a tree of `profile.yaml`, playbooks and prompts naming what a turn may do, and
+it has no default content. You cannot `curl` a directory, so this is the one step that wants a
+clone:
 
 ```sh
 git clone --depth 1 https://github.com/podium-ade/podium.git /tmp/podium
 cp -r /tmp/podium/examples/agent ./agent
 echo "PODIUM_AGENT_URL=http://agent:8090" >> .env
-docker compose --profile agent up -d
+docker compose --profile conductor up -d
 ```
 
 Setting `PODIUM_AGENT_URL` is what mounts the conductor's API behind the server's identity
