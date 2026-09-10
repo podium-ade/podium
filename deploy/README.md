@@ -283,7 +283,7 @@ Three things stay behind a compose profile:
 
 | profile | what it adds |
 |---|---|
-| `cli` | the `podium` CLI as a one-shot. `docker compose run` turns it on by itself: `docker compose run --rm cli nodes`. A `--spec` has to be mounted where the container can see it |
+| `cli` | the `podium` CLI. A **one-shot**: the container runs one command and exits rather than staying up, so `up` never starts it and you invoke it per command — `docker compose run --rm cli nodes`, which turns the profile on by itself. Each call is a fresh container that exits with the command's own code, which is why a `--spec` has to be mounted where it can see it |
 | `node` | a worker on **this** machine. Needs a `PODIUM_NODE_ENROLL_TOKEN` in `.env` first, and mounts the host's Docker socket — root-equivalent on that host |
 
 
