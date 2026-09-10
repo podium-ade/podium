@@ -225,7 +225,7 @@ services:
     restart: "no"
 
   server:
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_SERVER_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -267,7 +267,7 @@ services:
   # master key, no Docker socket. Its profile directory ships in the image at /etc/podium/agent
   # — mount your own over it, read-only, to run your own bot. See ../docs/agent.md.
   agent:
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_AGENT_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       - server
     environment:
@@ -298,7 +298,7 @@ services:
   # use docker-compose.tailnet.yml. See ../docs/networking.md.
   node:
     profiles: ["node"]
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_NODE_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       - server
     environment:
@@ -322,7 +322,7 @@ services:
   # profile on by itself. A --spec is read here, so mount it: -v "$PWD/specs:/specs:ro"
   cli:
     profiles: ["cli"]
-    image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium:${PODIUM_IMAGE_TAG:-latest}
+    image: ${PODIUM_CLI_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
       - server
     environment:

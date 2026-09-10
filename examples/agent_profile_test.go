@@ -35,9 +35,17 @@ func TestAgentProfileLoads(t *testing.T) {
 	general := p.Playbooks["general"]
 	require.NotEmpty(t, general.SystemPrompt, "the playbook prompt must be read from prompts/general.md")
 	require.NotEmpty(t, general.AllowedTools)
-	// The example is what the e2e suite runs, and the e2e node has only the locally built
-	// image. Nothing here may reference a tag that has to be pulled.
-	require.Equal(t, "podium-agent-runtime:dev", general.Image)
+	// The playbook names NO image, so this is the default filling it in: the runtime published
+	// alongside the conductor's own version, or the locally built tag on an unstamped build.
+	// Asserted against DefaultRuntimeImage rather than the literal, because the literal is
+	// only right for one of those two cases and a test that passes for the wrong reason is
+	// worse than none.
+	//
+	// The e2e suite runs this example on a node that has only the locally built image, which
+	// is exactly what an unstamped test binary resolves to.
+	require.Equal(t, profiles.DefaultRuntimeImage(), general.Image)
+	require.Equal(t, "podium-agent-runtime:dev", general.Image,
+		"an unstamped test build must resolve to the local tag, or the e2e node cannot pull it")
 	require.Empty(t, general.Secrets, "the example playbook holds no credentials of its own")
 	require.Empty(t, general.Labels, "the example runs on any node")
 	require.Empty(t, general.Repos, "the example clones nothing, so it needs no GitHub token")
