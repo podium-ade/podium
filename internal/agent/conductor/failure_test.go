@@ -72,7 +72,7 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name:       "a cancelled turn says so",
-			task:       task(podiumv1.TaskStatus_TASK_STATUS_CANCELLED, "cancelled by alvaro", nil),
+			task:       task(podiumv1.TaskStatus_TASK_STATUS_CANCELLED, "cancelled by user", nil),
 			wantStatus: store.TurnCancelled,
 			wantPost:   []string{"cancelled", "task_01"},
 		},
