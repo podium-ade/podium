@@ -464,8 +464,22 @@ Podium ships the base image `podium-agent-runtime`, and `-dev` beside it for tur
 Podium itself. A playbook needing any other tools names an image **you** built `FROM` the base —
 see *Extending the runtime image* below.
 
+**`image` is optional, and leaving it out is usually right.** A playbook that names none runs
+in `ghcr.io/podium-ade/podium-agent-runtime` at *the conductor's own version*, so the two are a
+matched pair by construction: a v0.1.0 conductor runs a v0.1.0 runtime, and upgrading one
+upgrades the other. Nothing in the tree names a tag that a release has to remember to edit,
+which is why no playbook Podium ships has an `image:` line except the one that needs `-dev`.
+
+An unstamped build — anything not from a `v*` tag, including `make build`, which stamps `git
+describe` — falls back to the local `podium-agent-runtime:dev` that `make agent-runtime`
+produces. A node runs tasks on its own engine, so that local tag is visible to a task with no
+registry involved.
+
+Name one to override it, and a production deployment reasonably does: a pinned **digest** is
+the only immutable reference, and your own image is how a playbook gets tools the base lacks.
+
 ```yaml
-image: ghcr.io/podium-ade/podium-agent-runtime:latest   # required
+image: ghcr.io/podium-ade/podium-agent-runtime:0.1.0   # optional — see below
 system_prompt: file:../prompts/general.md                    # required
 allowed_tools: [read, grep, glob, webfetch, bash]            # required, non-empty
 max_turns: 50                                                # default 50

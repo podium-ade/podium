@@ -24,6 +24,7 @@ import (
 
 	"github.com/alvaroibarguen/podium/internal/agent/mcp"
 	"github.com/alvaroibarguen/podium/internal/agent/skills"
+	"github.com/alvaroibarguen/podium/internal/version"
 	"github.com/alvaroibarguen/podium/pkg/spec"
 )
 
@@ -442,12 +443,48 @@ func resolvePrompt(owner, value string) (string, error) {
 	return string(raw), nil
 }
 
+// RuntimeImageRepo is where the published agent runtime images live. The repository name is
+// fixed; the tag is this build's own version.
+const RuntimeImageRepo = "ghcr.io/podium-ade/podium-agent-runtime"
+
+// LocalRuntimeImage is the tag `make agent-runtime` writes. A node runs tasks on its own
+// Docker engine, so a local tag is visible to a task without any registry — which is exactly
+// what a development stack wants and exactly what a fleet cannot use.
+const LocalRuntimeImage = "podium-agent-runtime:dev"
+
+// releaseVersion matches a version that came from a v* tag, which is the only kind that has a
+// published runtime image behind it. GoReleaser sets internal/version.Version to the tag
+// without its leading v, so a release reads `0.1.0` or `0.1.0-rc.1`.
+//
+// It has to be this rather than `!= "dev"`: the Makefile stamps `git describe --tags --always
+// --dirty`, so an ordinary local build carries a short commit like `04d190f`, and one made
+// after a tag carries `v0.1.0-5-gabc123`. Neither has an image published under it, and both
+// would otherwise send a node looking for one.
+var releaseVersion = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+
+// DefaultRuntimeImage is the image a playbook that names none will run in: the runtime
+// published alongside THIS build, so a conductor and its runtime are a matched pair by
+// construction rather than by whoever last edited a tag into a YAML file.
+//
+// This is why no playbook in the tree names an image any more. `latest` would drift out from
+// under a pinned conductor, and a hard-coded version has to be edited every release — which
+// is a promise to remember something, and those are the ones that rot.
+func DefaultRuntimeImage() string {
+	if releaseVersion.MatchString(version.Version) {
+		return RuntimeImageRepo + ":" + version.Version
+	}
+	return LocalRuntimeImage
+}
+
 func (s *Playbook) applyDefaults() {
 	if s.MaxTurns == 0 {
 		s.MaxTurns = DefaultMaxTurns
 	}
 	if s.Timeout == 0 {
 		s.Timeout = DefaultTimeout
+	}
+	if strings.TrimSpace(s.Image) == "" {
+		s.Image = DefaultRuntimeImage()
 	}
 }
 
