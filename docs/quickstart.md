@@ -323,30 +323,228 @@ setting `PODIUM_MEMORY_BIND`, and setting a real key at the same moment. See
 ## Workers on other machines
 
 **The tailnet transport is the only supported way to reach a worker on another machine** — in
-development as much as in production. The `local` transport above refuses to bind anything but
-loopback, because that one token is all that stands between a caller and the whole API.
+development as much as in production. The `local` transport used above refuses to bind anything
+but loopback, because that one token is all that stands between a caller and the whole API. So
+this is not a recommendation; it is what the two transports will and will not do.
+
+That is a different compose file, [`docker-compose.tailnet.yml`](../deploy/docker-compose.tailnet.yml),
+and the next section walks one through end to end. Two things about it are worth knowing before
+you get there:
+
+- **It fails closed on every credential**, unlike the file above. Six variables have no
+  default and `up` names any you leave out. `podium-server init --transport tailnet --tailnet
+  <suffix>` writes a `.env` with the ones it can generate and reports which Tailscale
+  prerequisites it can see.
+- **There is no `cli` profile in it**, and that is not an oversight: the server listens on port
+  443 of its own Tailscale device and has no address on the compose network, so a sibling
+  container cannot reach it. Run the CLI from any device on the tailnet instead, where it needs
+  no token at all.
+
+For the worker at the other end, [`node-setup.md`](node-setup.md) has both paths: a container
+like the one in step 4, or `install-node.sh`, which verifies the download against the release's
+`checksums.txt` and installs a hardened systemd unit.
+
+---
+
+## A production stack, concretely
+
+A worked example rather than a checklist: one Linux host as the control plane, workers on other
+machines, Tailscale between them. Everything below is a real command; substitute your own names
+where they are obviously yours.
+
+**Why the tailnet transport.** The `local` transport used above refuses to bind anything but
+loopback, because its one shared token is all that stands between a caller and the whole API.
+So it cannot reach a worker on another machine — not as a matter of preference, as a matter of
+what it will do. On a tailnet there is no token at all: Tailscale's `WhoIs` names every caller,
+the server serves HTTPS on its own device, and nothing is published to the internet.
+
+### 1. Tailscale first — Podium cannot do any of this for you
+
+In the admin console, four things:
+
+| | |
+|---|---|
+| **DNS → MagicDNS** | on. Names like `podium.tail0a1b2c.ts.net` do not exist without it |
+| **DNS → HTTPS Certificates** | on. The server fetches a real certificate for its own name and **refuses to start** without this, with a message naming it |
+| **Access Controls** | merge [`tailscale-acl.example.json`](../deploy/tailscale-acl.example.json) into your policy |
+| **Settings → Keys** | two auth keys, both **Reusable** and **Pre-approved** — one tagged `tag:podium-server`, one `tag:podium-node` |
+
+A Tailscale auth key and a Podium enrollment token are different things and everyone confuses
+them. A new worker needs both. Get your suffix and this host's tailnet address:
 
 ```sh
-docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
-  ghcr.io/podium-ade/podium-server:latest \
-  init --dir /out --transport tailnet --tailnet <your MagicDNS suffix>
-# then fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
+tailscale status --json | jq -r '.MagicDNSSuffix, .Self.TailscaleIPs[0]'
+```
+
+```
+tail0a1b2c
+100.101.102.103
+```
+
+### 2. The control plane host
+
+Docker Engine 24+ and cgroup v2. One file:
+
+```sh
+sudo install -d -m 0750 /srv/podium && cd /srv/podium
+sudo curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/v0.1.0/deploy/docker-compose.tailnet.yml
+```
+
+Fetch it at the **tag**, not `main`: the compose file and the images it names should come from
+the same release.
+
+### 3. The `.env`, in full
+
+This file is the whole configuration. `umask 077` first — it holds every credential:
+
+```sh
+umask 077
+cat > /srv/podium/.env <<'EOF'
+# --- pin the release. `latest` moves, and a control plane and a worker from different
+# --- releases can disagree about the wire.
+PODIUM_IMAGE_TAG=v0.1.0
+
+# --- Tailscale. Both keys reusable + pre-approved; read on first run only.
+PODIUM_TAILNET=tail0a1b2c
+TS_AUTHKEY=tskey-auth-REPLACE-ME
+PODIUM_NODE_TS_AUTHKEY=tskey-auth-REPLACE-ME
+
+# --- credentials. This file fails closed on all four: `up` names any you leave out.
+PODIUM_PG_PASSWORD=REPLACE-ME
+PODIUM_S3_SECRET_KEY=REPLACE-ME
+PODIUM_AGENT_TOKEN=REPLACE-ME
+PODIUM_AGENT_MEMORY_API_KEY=REPLACE-ME
+
+# --- shared memory. The key can be from any of ~25 providers; a local ollama keeps fact
+# --- extraction off the network entirely.
+PODIUM_MEMORY_LLM_API_KEY=REPLACE-ME
+
+# --- memory placement: workers must reach 8888, and they are not on this machine. Both of
+# --- these are THIS HOST'S TAILNET ADDRESS, not loopback and not host.docker.internal.
+PODIUM_MEMORY_BIND=100.101.102.103
+PODIUM_AGENT_MEMORY_TASK_URL=http://100.101.102.103:8888
+EOF
+```
+
+Generate the four credentials in place rather than inventing them:
+
+```sh
+for v in PODIUM_PG_PASSWORD PODIUM_S3_SECRET_KEY PODIUM_AGENT_TOKEN PODIUM_AGENT_MEMORY_API_KEY; do
+  sudo sed -i "s|^$v=REPLACE-ME$|$v=$(openssl rand -hex 32)|" /srv/podium/.env
+done
+```
+
+**`PODIUM_PG_PASSWORD` has to be right before the first `up`**, because Postgres bakes it into
+the data volume when it initialises. Changing it afterwards means `down -v` or an `ALTER ROLE`.
+
+The two memory lines are the ones people get wrong. `PODIUM_MEMORY_BIND` is which interface
+8888 is published on, and it cannot be loopback here because the containers that need it are on
+other machines. `PODIUM_AGENT_MEMORY_TASK_URL` is that same service **as a task container sees
+it** — a worker elsewhere on the tailnet, so this host's tailnet address. Pair it with
+`tag:podium-node -> 8888` in the ACL, and note that `PODIUM_AGENT_MEMORY_API_KEY` is the only
+thing guarding it.
+
+### 4. Up
+
+```sh
+cd /srv/podium
 docker compose -f docker-compose.tailnet.yml up -d --wait
 ```
 
-`init` reports which Tailscale prerequisites it can see and names the two it cannot check from
-a shell — MagicDNS and HTTPS Certificates both have to be on. Read
-[`networking.md`](networking.md) **before** you run it, and note that a Tailscale auth key and
-a Podium enrollment token are different things that everyone confuses.
+Then confirm it from another device on the tailnet — which also proves the certificate, the
+ACL and MagicDNS in one go:
 
-There is no `cli` profile in the tailnet compose file, and that is not an oversight: the server
-listens on port 443 of its own Tailscale device and has no address on the compose network, so a
-sibling container cannot reach it. Run the CLI from a device on the tailnet instead, where it
-needs no token at all.
+```sh
+curl -fsS https://podium.tail0a1b2c.ts.net/readyz     # ok
+podium --server https://podium.tail0a1b2c.ts.net nodes   # no --token: WhoIs names you
+```
 
-Then the worker itself, on the other machine — [`node-setup.md`](node-setup.md) has both paths:
-a container like the one in step 5, or `install-node.sh`, which verifies the download against
-the release's `checksums.txt` and installs a hardened systemd unit.
+### 5. Back up the master key, now, before you store a secret
+
+It is generated into the `server-state` volume on first `up`, and there is **no recovery
+path** — losing it loses every secret encrypted under it, and a database backup without it is
+a backup of unreadable ciphertext.
+
+```sh
+docker compose -f docker-compose.tailnet.yml cp \
+  server:/var/lib/podium/master.key /srv/podium/master.key
+```
+
+Then get that file **off this host**, and not into the same place as the database dumps.
+
+### 6. Workers, on other machines
+
+On each worker, mint a single-use token from the control plane first:
+
+```sh
+# on any device on the tailnet
+podium --server https://podium.tail0a1b2c.ts.net node enroll-token --label linux/amd64
+```
+
+Then on the worker itself:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/podium-ade/podium/v0.1.0/deploy/install-node.sh \
+  | sudo PODIUM_SERVER=https://podium.tail0a1b2c.ts.net \
+         PODIUM_ENROLL_TOKEN=<the token> \
+         TS_AUTHKEY=tskey-auth-...          \
+         PODIUM_LABELS=linux/amd64          \
+         PODIUM_VERSION=v0.1.0              \
+         bash
+```
+
+That verifies the download against the release's `checksums.txt` before unpacking, writes
+`/etc/podium/node.yaml` mode 0600, installs a hardened systemd unit from the same archive, and
+waits for the node's own `/readyz`. A worker is **a machine you are willing to let arbitrary
+containers run on** — it drives its own Docker daemon as root-equivalent. Read
+[`security.md`](security.md) before choosing which machines those are.
+
+### 7. What to watch
+
+| | |
+|---|---|
+| `https://podium.<suffix>.ts.net/readyz` | `503` while Postgres or the object store is unreachable. This is the liveness signal, because the image is distroless and has no compose healthcheck |
+| `/metrics` on the server | queue depth, task outcomes, and `podium_agent_memory_extraction_failed`, which is non-zero when the memory key is wrong — the failure that otherwise reports success |
+| `127.0.0.1:9091/readyz` on each worker | the node's own, and what `install-node.sh` polls |
+| `docker compose ps` | `hindsight` restarting means its LLM key is missing or rejected |
+
+### 8. Back up, in this order of consequence
+
+| | why |
+|---|---|
+| `master.key` | no recovery path. Everything else is replaceable; this is not |
+| the `pgdata` volume | tasks, nodes, secrets, audit. `pg_dump` or a volume snapshot |
+| the `objectstore-data` volume | the only copy of a finished task's artifacts and rolled-up logs once the hot rows are pruned. Not a cache |
+| the `server-state` volume | holds the tsnet device identity as well as the key. Losing it means the server registers a new device and its name drifts to `podium-1` |
+
+A worker's data directory is deliberately **not** on that list: `identity.json` cannot be
+reissued, so a lost worker re-enrols rather than restores.
+
+### 9. Upgrading
+
+Change `PODIUM_IMAGE_TAG`, then pull and recreate. The server migrates its schema on start:
+
+```sh
+sudo sed -i 's/^PODIUM_IMAGE_TAG=.*/PODIUM_IMAGE_TAG=v0.2.0/' /srv/podium/.env
+docker compose -f docker-compose.tailnet.yml pull
+docker compose -f docker-compose.tailnet.yml up -d --wait
+```
+
+Workers are separate, and drain rather than restart — a node with `--exit-on-drain` exits 0
+when its last task finishes, and systemd brings it back on the new binary:
+
+```sh
+podium node drain <node-id>     # wait for `podium nodes` to show 0 running
+```
+
+> **Verification status, plainly.** The tailnet *transport* has been exercised against a real
+> tailnet: a server device plus two workers, one on another machine, reconnecting across
+> restarts. **This compose file has not been brought up** — it needs a real auth key and a
+> tailnet to join, which no test here can supply. Its local-transport sibling has been run end
+> to end. And the `agent` service cannot work as written on this network: under this transport
+> the server has no address on the compose network, so the conductor cannot reach it from a
+> sibling container. Run the conductor on the host, or on the machine's own `tailscaled`, until
+> that is fixed.
 
 ---
 

@@ -1,20 +1,40 @@
-# A Podium control plane on a tailnet, plus a worker node. Everything here is about
-# *placement and state*, which is the part that is easy to get wrong.
+# A Podium control plane on a tailnet, with workers on other machines. One file, like
+# docker-compose.yml — but unlike that file this one FAILS CLOSED on every credential, because
+# a deployment that workers on other machines can reach is not a place for a default password.
 #
-#   cd deploy
-#   podium-server init --transport tailnet --tailnet <your MagicDNS suffix>
-#   # fill TS_AUTHKEY and PODIUM_NODE_TS_AUTHKEY in .env
 #   docker compose -f docker-compose.tailnet.yml up -d --wait
 #
-# UNVERIFIED, but narrower than it used to be. The tailnet TRANSPORT has been exercised
-# against a real tailnet — a server device plus two workers, one of them a Linux box on
-# another machine, reconnecting across server restarts. This FILE still has not: the images
-# it names have never been published, so `up` cannot pull them, and the agent service below
-# cannot work as written for the reason given where it is defined. Until the images exist,
-# the tailnet path that runs is `make build` plus deploy/run-host.sh.
+# Six variables have no default and `up` will name any you leave out:
 #
-# HTTPS on the tailnet must be enabled first (admin console -> DNS -> HTTPS Certificates), and
-# so must MagicDNS. The server refuses to start with an actionable message if either is off.
+#   TS_AUTHKEY              reusable, pre-approved, tagged tag:podium-server. First run only —
+#                           after that the server-state volume IS the device identity.
+#   PODIUM_NODE_TS_AUTHKEY  the same for a co-located worker, tagged tag:podium-node
+#   PODIUM_TAILNET          your MagicDNS suffix without .ts.net, e.g. tail0a1b2c
+#   PODIUM_PG_PASSWORD      set it BEFORE the first `up`: it is baked into the volume
+#   PODIUM_S3_SECRET_KEY    at least 8 characters
+#   PODIUM_AGENT_TOKEN      what the server presents to the conductor
+#
+# `podium-server init --transport tailnet --tailnet <suffix>` writes a .env with the last three
+# generated and the Tailscale ones left for you. A worked example, end to end, is in
+# ../docs/quickstart.md#a-production-stack-concretely
+#
+# NO PUBLISHED PORTS AT ALL. The server listens on 443 of its own Tailscale device, so there is
+# no host port to firewall and no public ingress. The exception is Hindsight's 8888, which
+# workers must reach: set PODIUM_MEMORY_BIND to this host's tailnet address and allow
+# tag:podium-node -> 8888 in the ACL. See ../docs/networking.md.
+#
+# Enable MagicDNS and HTTPS Certificates in the admin console first, or the server refuses to
+# start and says which one is missing.
+#
+# ---------------------------------------------------------------------------------------
+# UNVERIFIED, and narrower than it looks. The tailnet TRANSPORT has been exercised against a
+# real tailnet — a server device plus two workers, one on another machine, reconnecting across
+# restarts. THIS FILE has not been brought up: it needs a real auth key and a tailnet to join.
+# Its local-transport sibling, docker-compose.yml, has been run end to end.
+#
+# The `agent` service in particular cannot work as written on this network, for the reason
+# given where it is defined — the server has no address on the compose network here.
+# ---------------------------------------------------------------------------------------
 name: podium
 
 services:
@@ -26,11 +46,9 @@ services:
       POSTGRES_DB: podium
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Creates podium_agent (the conductor's) and podium_memory (Hindsight's), and the
-      # pgvector extension in the latter. Init scripts run ONLY when the data directory is
-      # empty, so on an existing install create them by hand — the recipe is in
-      # docs/operations.md and at the top of this script.
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
+    configs:
+      - source: postgres-init               # inline below; runs only on an EMPTY volume
+        target: /docker-entrypoint-initdb.d/10-databases.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
       interval: 2s
@@ -61,14 +79,16 @@ services:
       # and "LLM API key is required" — which is fail-closed and names the fix.
       HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
       HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
-      HINDSIGHT_API_LLM_PROVIDER: anthropic
+      # Any of Hindsight's ~25 providers; change the model to match.
+      # https://hindsight.vectorize.io/developer/models
+      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-anthropic}
       HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
       HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}
       HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
       HINDSIGHT_ENABLE_CP: "false"
       HINDSIGHT_API_WORKER_ID: hindsight
     ports:
-      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:8888:8888"
+      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:${PODIUM_MEMORY_PORT:-8888}:8888"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888/health >/dev/null || exit 1"]
       interval: 10s
@@ -77,14 +97,67 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Artifacts and rolled-up logs. Without this the server starts, says "artifacts are off",
+  # and every upload fails failed_precondition — including an agent turn's transcript.jsonl.
+  # Nodes never talk to it: an artifact goes node -> server -> here.
+  objectstore:
+    image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+    volumes:
+      - objectstore-data:/data            # the only copy of a finished task's output. Back it up.
+    healthcheck:
+      test: ["CMD", "sh", "-ec", "wget -q -O- http://127.0.0.1:9000/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # Generates the master key into server-state on first `up`, then exits. Idempotent.
+  # Without it the server runs with secrets DISABLED — every secret call answers
+  # FailedPrecondition, which includes the conductor storing a model key from the UI.
+  init:
+    image: busybox:1.37@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    volumes:
+      - server-state:/state
+    command:
+      - sh
+      - -ec
+      - |
+        if [ ! -s /state/master.key ]; then
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d '[:space:]' > /state/master.key
+          echo "init: generated a master key — back up the server-state volume"
+        fi
+        chmod 0600 /state/master.key
+        chown -R 65532:65532 /state
+    restart: "no"
+
   server:
     image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
+      objectstore:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
     environment:
       PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium
       PODIUM_TRANSPORT: tailnet
+      PODIUM_MASTER_KEY_FILE: /var/lib/podium/master.key   # written by `init`; NO recovery path
+      PODIUM_S3_ENDPOINT: objectstore:9000
+      PODIUM_S3_BUCKET: ${PODIUM_S3_BUCKET:-podium}
+      PODIUM_S3_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?}
       PODIUM_TS_HOSTNAME: podium
       PODIUM_TS_STATE_DIR: /var/lib/podium/tsnet
       # The Tailscale auth key. Read on the first run only: after that the state volume below
@@ -114,12 +187,10 @@ services:
   # path is the local transport in docker-compose.yml. PODIUM_AGENT_API_TOKEN is empty on
   # purpose: over the tailnet, WhoIs names the caller.
   #
-  # It needs a profile directory: `cp -r ../examples/agent ./agent` before the first `up`.
   agent:
     image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}
     depends_on:
       - server
-      - hindsight
     environment:
       PODIUM_AGENT_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
@@ -146,13 +217,14 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
-    volumes:
-      - ./agent:/etc/podium/agent:ro
+    # No volumes: the image ships the worked example at /etc/podium/agent. Mount your own
+    # profile directory over it, read-only, to run your own bot.
     restart: unless-stopped
 
   # A worker. In practice this runs on a *different machine* — that is the whole point of the
   # tailnet transport — so treat this service as the recipe rather than as a co-located node.
   node:
+    profiles: ["node"]
     image: ${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}
     environment:
       PODIUM_NODE_SERVER: https://podium.${PODIUM_TAILNET:?set PODIUM_TAILNET, e.g. tail0a1b2c}.ts.net
@@ -184,4 +256,21 @@ services:
 
 volumes:
   pgdata:
+  objectstore-data:
   server-state:
+
+# Inline, so this file needs nothing beside it. Byte-identical to postgres/init.sql, which
+# docker-compose.dev.yml mounts from disk; `go test ./deploy/...` fails if they drift.
+configs:
+  postgres-init:
+    content: |
+      -- The databases beside podium's own. Postgres runs this ONLY on an empty data directory;
+      -- to add them to an existing install, see docs/operations.md.
+      create database podium_agent owner podium;   -- the conductor's, migrated by podium-agent
+      create database podium_memory owner podium;  -- Hindsight's, migrated by Hindsight
+
+      \connect podium_memory
+
+      -- Hindsight needs pgvector in `public` and would otherwise DROP EXTENSION ... CASCADE and
+      -- recreate it there itself. podium and podium_agent stay extension-free.
+      create extension if not exists vector;
