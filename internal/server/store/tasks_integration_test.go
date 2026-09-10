@@ -19,12 +19,12 @@ func TestCreateTaskStoresSpecVerbatim(t *testing.T) {
 	s := newStore(t)
 
 	in := testSpec()
-	task, err := s.CreateTask(ctx, NewTask{Spec: in, Priority: 7, RequestedBy: "alvaro"})
+	task, err := s.CreateTask(ctx, NewTask{Spec: in, Priority: 7, RequestedBy: "user"})
 	require.NoError(t, err)
 	require.NotEmpty(t, task.ID)
 	require.Equal(t, StatusQueued, task.Status)
 	require.Equal(t, int32(7), task.Priority)
-	require.Equal(t, "alvaro", task.RequestedBy)
+	require.Equal(t, "user", task.RequestedBy)
 	require.Equal(t, int32(0), task.Attempts)
 	require.Equal(t, int32(in.MaxAttempts), task.MaxAttempts)
 	require.Equal(t, in, task.Spec)
@@ -59,7 +59,7 @@ func TestListTasksFiltersAndPaginates(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		task, err := s.CreateTask(ctx, NewTask{
 			Spec:        testSpec(),
-			RequestedBy: []string{"alvaro", "bot"}[i%2],
+			RequestedBy: []string{"user", "bot"}[i%2],
 			MaxAttempts: 3,
 		})
 		require.NoError(t, err)

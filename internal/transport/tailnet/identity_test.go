@@ -79,17 +79,17 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name:    "some other tag is 403, not a user",
-			who:     who("ci-runner", []string{"tag:ci"}, "alvaro@example.com", "Alvaro"),
+			who:     who("ci-runner", []string{"tag:ci"}, "user@example.com", "Example User"),
 			wantErr: transport.ErrForbidden,
 		},
 		{
 			name: "untagged device with a login is a user",
-			who:  who("alvaros-macbook-pro", nil, "alvaro@example.com", "Alvaro Ibarguen"),
+			who:  who("devs-macbook-pro", nil, "user@example.com", "Example User"),
 			want: transport.Identity{
 				Kind:         transport.KindUser,
-				Login:        "alvaro@example.com",
-				DisplayName:  "Alvaro Ibarguen",
-				NodeStableID: "nalvaros-macbook-proCNTRL",
+				Login:        "user@example.com",
+				DisplayName:  "Example User",
+				NodeStableID: "ndevs-macbook-proCNTRL",
 				RemoteAddr:   "100.105.227.25:41234",
 			},
 		},
@@ -179,7 +179,7 @@ func identifierFor(answer *apitype.WhoIsResponse, err error, users UserStore) *i
 func TestIdentifyRecordsAUserOnce(t *testing.T) {
 	t.Parallel()
 	users := &fakeUsers{}
-	id := identifierFor(who("laptop", nil, "alvaro@example.com", "Alvaro"), nil, users)
+	id := identifierFor(who("laptop", nil, "user@example.com", "Example User"), nil, users)
 
 	req := httptest.NewRequest(http.MethodPost, "/podium.v1.TaskService/ListTasks", nil)
 	req.RemoteAddr = "100.84.71.97:52000"
@@ -187,9 +187,9 @@ func TestIdentifyRecordsAUserOnce(t *testing.T) {
 		got, err := id.Identify(req)
 		require.NoError(t, err)
 		require.Equal(t, transport.KindUser, got.Kind)
-		require.Equal(t, "alvaro@example.com", got.Login)
+		require.Equal(t, "user@example.com", got.Login)
 	}
-	require.Equal(t, [][2]string{{"alvaro@example.com", "Alvaro"}}, users.calls())
+	require.Equal(t, [][2]string{{"user@example.com", "Example User"}}, users.calls())
 }
 
 func TestIdentifyDoesNotRecordANode(t *testing.T) {
@@ -208,13 +208,13 @@ func TestIdentifyDoesNotRecordANode(t *testing.T) {
 func TestIdentifyStillAuthenticatesWhenTheUserWriteFails(t *testing.T) {
 	t.Parallel()
 	users := &fakeUsers{fail: errors.New("postgres is down")}
-	id := identifierFor(who("laptop", nil, "alvaro@example.com", "Alvaro"), nil, users)
+	id := identifierFor(who("laptop", nil, "user@example.com", "Example User"), nil, users)
 
 	req := httptest.NewRequest(http.MethodPost, "/podium.v1.TaskService/ListTasks", nil)
 	req.RemoteAddr = "100.84.71.97:52000"
 	got, err := id.Identify(req)
 	require.NoError(t, err)
-	require.Equal(t, "alvaro@example.com", got.Login)
+	require.Equal(t, "user@example.com", got.Login)
 }
 
 func TestIdentifyWhoIsFailureIsUnauthenticated(t *testing.T) {
@@ -291,7 +291,7 @@ func TestNodeHostname(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "podium-node-podiumbot1", NodeHostname("podiumbot1"))
 	require.Equal(t, "podium-node-podiumbot1", NodeHostname("podiumbot1.local"))
-	require.Equal(t, "podium-node-alvaros-macbook-pro", NodeHostname("Alvaros-MacBook-Pro.local"))
+	require.Equal(t, "podium-node-devs-macbook-pro", NodeHostname("Devs-MacBook-Pro.local"))
 	require.Equal(t, "podium-node-worker", NodeHostname("!!!"))
 	require.Equal(t, "podium-node-web-01", NodeHostname("web_01"))
 }

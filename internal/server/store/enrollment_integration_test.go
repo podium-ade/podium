@@ -19,7 +19,7 @@ func TestEnrollmentTokenPlaintextNeverReachesTheDatabase(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "alvaro")
+	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "user")
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 
@@ -47,7 +47,7 @@ func TestConsumeEnrollmentTokenIsSingleUse(t *testing.T) {
 	s := newStore(t)
 	node := mustCreateNode(t, s, "n1", nil)
 
-	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo", "browser"}, time.Hour, "alvaro")
+	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo", "browser"}, time.Hour, "user")
 	require.NoError(t, err)
 
 	labels, err := s.ConsumeEnrollmentToken(ctx, plaintext, node.ID)
@@ -74,7 +74,7 @@ func TestConsumeEnrollmentTokenRejectsExpired(t *testing.T) {
 	s := newStore(t)
 	node := mustCreateNode(t, s, "n1", nil)
 
-	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "alvaro")
+	plaintext, id, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "user")
 	require.NoError(t, err)
 	_, err = s.pool.Exec(ctx,
 		"update enrollment_tokens set expires_at = now() - interval '1 second' where id = $1", id)
@@ -93,7 +93,7 @@ func TestConsumeEnrollmentTokenIsAtomicUnderRace(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	plaintext, _, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "alvaro")
+	plaintext, _, err := s.CreateEnrollmentToken(ctx, []string{"demo"}, time.Hour, "user")
 	require.NoError(t, err)
 
 	const racers = 8
@@ -131,7 +131,7 @@ func TestCreateEnrollmentTokenDefaultsTTL(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 
-	_, id, err := s.CreateEnrollmentToken(ctx, nil, 0, "alvaro")
+	_, id, err := s.CreateEnrollmentToken(ctx, nil, 0, "user")
 	require.NoError(t, err)
 
 	var expires time.Time

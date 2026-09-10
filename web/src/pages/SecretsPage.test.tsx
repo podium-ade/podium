@@ -52,7 +52,7 @@ const row = {
   name: "DB_PASSWORD",
   version: 3,
   keyId: "k_01abc",
-  createdBy: "alvaro@example.com",
+  createdBy: "user@example.com",
   updatedAt: timestampFromDate(new Date(Date.now() - 60_000)),
 };
 
@@ -68,7 +68,7 @@ describe("SecretsPage", () => {
     mount();
     expect(await screen.findByText("DB_PASSWORD")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
-    expect(screen.getByText("alvaro@example.com")).toBeInTheDocument();
+    expect(screen.getByText("user@example.com")).toBeInTheDocument();
     expect(screen.getByText("k_01abc")).toBeInTheDocument();
     expect(
       screen.getByText(/value cannot be viewed after it is saved/i),

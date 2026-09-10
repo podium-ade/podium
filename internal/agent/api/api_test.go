@@ -75,10 +75,10 @@ func TestLoginComesFromTheProxyHeader(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer t")
-	req.Header.Set(LoginHeader, "alvaro")
+	req.Header.Set(LoginHeader, "user")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	assert.Equal(t, "alvaro", rec.Body.String())
+	assert.Equal(t, "user", rec.Body.String())
 
 	// Absent is "unknown", as internal/server/api does.
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
