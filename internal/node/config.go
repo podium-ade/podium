@@ -24,7 +24,7 @@ const DefaultConfigPath = "/etc/podium/node.yaml"
 // Config defaults. Mirrored in docs/node-setup.md; keep the two in step.
 const (
 	DefaultServer                  = "http://127.0.0.1:8080"
-	DefaultTransport               = "dev"
+	DefaultTransport               = "local"
 	DefaultDataDir                 = "/var/lib/podium-node"
 	DefaultMaxTasks                = 4
 	DefaultImageCacheHighWatermark = 0.80
@@ -34,7 +34,7 @@ const (
 // The transports podium-node understands.
 const (
 	// TransportLocal dials a loopback server with a shared bearer token.
-	TransportLocal = "dev"
+	TransportLocal = "local"
 	// TransportTailnet embeds the node's own Tailscale device (tsnet) and dials the control
 	// plane's MagicDNS name over it. The node listens for nothing.
 	TransportTailnet = "tailnet"

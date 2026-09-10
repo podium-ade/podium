@@ -265,7 +265,7 @@ func warnAboutPlaintextTransport(ctx context.Context, cfg Config, st *store.Stor
 	if err != nil || len(rows) == 0 {
 		return
 	}
-	logger.WarnContext(ctx, "PODIUM_TRANSPORT=dev serves plain HTTP, and an assignment carries "+
+	logger.WarnContext(ctx, "PODIUM_TRANSPORT=local serves plain HTTP, and an assignment carries "+
 		"resolved secret values in the clear. Anything that can read the loopback socket — another "+
 		"process on this machine, a packet capture, a proxy — sees them. This is why the dev "+
 		"transport refuses to bind anything but loopback. Use PODIUM_TRANSPORT=tailnet, whose "+

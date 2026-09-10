@@ -62,7 +62,7 @@ func TestLoadConfigFileThenEnvironment(t *testing.T) {
 func TestEnvironmentOnlyConfiguration(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PODIUM_NODE_SERVER", "http://127.0.0.1:8080")
-	t.Setenv("PODIUM_NODE_TRANSPORT", "dev")
+	t.Setenv("PODIUM_NODE_TRANSPORT", "local")
 	t.Setenv("PODIUM_NODE_LOCAL_TOKEN", "devtoken")
 	t.Setenv("PODIUM_NODE_ENROLL_TOKEN", "etok-fixture")
 	t.Setenv("PODIUM_NODE_DATA_DIR", dir)
@@ -70,7 +70,7 @@ func TestEnvironmentOnlyConfiguration(t *testing.T) {
 	cfg, err := LoadConfig("")
 	require.NoError(t, err)
 	require.Equal(t, "http://127.0.0.1:8080", cfg.Server)
-	require.Equal(t, "dev", cfg.Transport)
+	require.Equal(t, "local", cfg.Transport)
 	require.Equal(t, "devtoken", cfg.LocalToken)
 	require.Equal(t, "etok-fixture", cfg.EnrollToken)
 	require.Equal(t, dir, cfg.DataDir)
