@@ -164,6 +164,13 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# The dev transport's shared bearer token. Every API call and the web UI\n")
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
 		b.WriteString("PODIUM_DEV_TOKEN=" + v.DevToken + "\n\n")
+		// The CLI's own copy of the same two facts. Written so that sourcing this file is
+		// all it takes to configure a shell — otherwise the daemons are configured from
+		// .env and `podium` alone still needs two exports typed by hand.
+		b.WriteString("# The CLI reads these two. Same token as above, under the name `podium`\n")
+		b.WriteString("# looks for, so `set -a; . .env; set +a` configures a shell completely.\n")
+		b.WriteString("PODIUM_SERVER=http://127.0.0.1:8080\n")
+		b.WriteString("PODIUM_TOKEN=" + v.DevToken + "\n\n")
 	}
 
 	b.WriteString("# The conductor's API token. podium-server presents it on every proxied call and\n")

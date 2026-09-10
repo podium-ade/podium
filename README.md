@@ -70,28 +70,53 @@ Needs Go 1.27+, Docker (Engine 24+, **cgroup v2**), Node 22+ and pnpm.
 ```sh
 git clone https://github.com/alvaroibarguen/podium.git && cd podium
 make build
+```
+
+**Configure it.** Every daemon is configured by environment, and one file holds all of it.
+Copy the template and set the handful of values it names at the top:
+
+```sh
+cp deploy/.env.example deploy/.env
+$EDITOR deploy/.env
+```
+
+```ini
+PODIUM_DEV_TOKEN=devtoken               # the one shared secret; pick any string
+PODIUM_TOKEN=devtoken                   # the same value, under the name the CLI reads
+PODIUM_SERVER=http://127.0.0.1:8080     # where the CLI looks for the control plane
+```
+
+Everything else in that file has a working default and is commented with what it does. If you
+would rather not choose your own credentials, `./bin/podium-server init --dir deploy` writes
+the same file with fresh random ones, plus the master key, and never overwrites either.
+
+**Run it.** `make stack-up` reads `deploy/.env`, so nothing below declares a variable:
+
+```sh
+./bin/podium-server gen-master-key --out deploy/master.key   # found beside the .env
 docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
+set -a; . deploy/.env; set +a           # the same file configures this shell's CLI
 
-PODIUM_TRANSPORT=dev PODIUM_DEV_TOKEN=devtoken \
-PODIUM_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium \
-  ./bin/podium-server &
-
-export PODIUM_SERVER=http://127.0.0.1:8080 PODIUM_TOKEN=devtoken
-TOKEN=$(./bin/podium node enroll-token --label demo)
-
-PODIUM_NODE_SERVER=$PODIUM_SERVER PODIUM_NODE_TRANSPORT=dev PODIUM_NODE_DEV_TOKEN=devtoken \
-PODIUM_NODE_ENROLL_TOKEN=$TOKEN PODIUM_NODE_DATA_DIR=/tmp/podium-node \
-  ./bin/podium-node &
+make stack-up S=server
+echo "PODIUM_NODE_ENROLL_TOKEN=$(./bin/podium node enroll-token --label demo)" >> deploy/.env
+make stack-up S=node
 
 ./bin/podium nodes
 ./bin/podium run --image alpine:3 -- echo hello
 open http://127.0.0.1:8080
 ```
 
-Full walkthrough: **[docs/quickstart.md](docs/quickstart.md)**.
+The enrollment token is the one value that cannot be written ahead of time: only a running
+control plane can mint one, and it is single-use — a worker that has enrolled has
+`identity.json` and never reads it again.
 
-> If 5432 or 8080 are taken on your machine, set `PODIUM_PG_PORT` and
-> `PODIUM_DEV_LISTEN=127.0.0.1:18080`, and match `PODIUM_DATABASE_URL` and `--server` to them.
+`make stack-down` stops everything, `make stack-status` says what is up, and both take the
+same `S=` to name one service. Logs are in `.podium/log/`. Full walkthrough:
+**[docs/quickstart.md](docs/quickstart.md)**.
+
+> If 5432 or 8080 are taken on your machine, set `PODIUM_PG_PORT`, `PODIUM_DEV_LISTEN` and a
+> matching `PODIUM_SERVER` in `deploy/.env`. The compose file, the daemons and the CLI all
+> read that one file, so there is nothing else to keep in step.
 
 A task can bring its own environment with it:
 
@@ -122,23 +147,28 @@ The conductor is a second process. It is an ordinary API client of `podium-serve
 database and its own token, so the server has to be told where it is before the **Agent** tab
 appears in the UI.
 
+It needs one more value in `deploy/.env` — the token the two present to each other. Both
+sides read the same line, which is why it is one line:
+
+```ini
+PODIUM_AGENT_TOKEN=agenttoken           # or: openssl rand -hex 32
+```
+
 ```sh
-docker exec podium-dev-postgres createdb -U podium podium_agent   # once
-make build agent-runtime                                          # + the agent runtime images
+make agent-runtime                      # the images a turn runs in
 
-# the server needs these two, or /agent stays hidden
-PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken \
-  ./bin/podium-server &                                           # plus its usual variables
-
-PODIUM_AGENT_SERVER=http://127.0.0.1:8080 PODIUM_AGENT_API_TOKEN=devtoken \
-PODIUM_AGENT_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium_agent \
-PODIUM_AGENT_TOKEN=agenttoken PODIUM_AGENT_PROFILE_DIR=examples/agent \
-  ./bin/podium-agent &
+make stack-down S=server                # the server reads that token at start
+make stack-up S="server agent"
 
 open http://127.0.0.1:8080/agent
 ```
 
-Five variables are mandatory and the conductor names the missing one and exits:
+The conductor's database, `podium_agent`, is created by the dev compose file on a fresh
+Postgres volume. On one that predates it, `docker exec podium-dev-postgres createdb -U podium
+podium_agent` once.
+
+Five variables are mandatory and the conductor names the missing one and exits. `make
+stack-up` derives every one of them except `PODIUM_AGENT_TOKEN`, which is the one you set:
 
 | | |
 |---|---|
@@ -146,7 +176,7 @@ Five variables are mandatory and the conductor names the missing one and exits:
 | `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`; empty on a tailnet, where WhoIs supplies identity |
 | `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
 | `PODIUM_AGENT_TOKEN` | the bearer `podium-server` presents on proxied `AgentService` calls. The same value goes in the server's environment |
-| `PODIUM_AGENT_PROFILE_DIR` | defaults to `/etc/podium/agent`, so in a checkout you must point it at `examples/agent`. Must contain `profile.yaml` |
+| `PODIUM_AGENT_PROFILE_DIR` | defaults to `/etc/podium/agent`; `make stack-up` points it at `examples/agent` in a checkout. Must contain `profile.yaml` |
 
 Everything else is optional and switches a feature on: both Slack tokens together (one alone is
 an error naming the other), `PODIUM_AGENT_LINEAR_API_KEY`, and the `PODIUM_AGENT_MEMORY_*` set.
@@ -222,7 +252,9 @@ the server serves HTTPS on its MagicDNS name, workers dial out, and there is no 
 API token and no public ingress.
 
 ```sh
-PODIUM_TRANSPORT=tailnet TS_AUTHKEY=tskey-auth-... PODIUM_DATABASE_URL=... ./bin/podium-server
+./bin/podium-server init --dir deploy --transport tailnet --tailnet <magicdns-suffix>
+$EDITOR deploy/.env                     # paste TS_AUTHKEY; init reports what else is missing
+make stack-up S=server
 
 # from any device on the tailnet — no token, no login
 ./bin/podium --server https://podium.<tailnet>.ts.net nodes
@@ -341,12 +373,18 @@ commit.
 
 ## Configuration
 
-Every daemon is configured entirely by environment. **Every variable is documented in
-[`deploy/.env.example`](deploy/.env.example)** — and `go test ./deploy/...` fails the build if
-the code reads one that file does not mention, or if that file documents one nothing reads any
-more.
+Every daemon is configured entirely by environment, and **one file is the whole of it**:
+copy [`deploy/.env.example`](deploy/.env.example) to `deploy/.env` and edit it. The compose
+files interpolate that file, `make stack-up` sources it before starting a host binary, and
+`set -a; . deploy/.env; set +a` configures your shell's CLI from the same lines. Nothing in
+this repository asks you to declare a variable anywhere else.
 
-The four you cannot skip:
+`.env.example` documents every variable there is, with its default, and `go test ./deploy/...`
+fails the build if the code reads one that file does not mention, or if that file documents
+one nothing reads any more.
+
+The four you cannot skip — though `make stack-up` derives the first from `PODIUM_PG_PASSWORD`
+and the third from the file's own directory:
 
 | | |
 |---|---|
