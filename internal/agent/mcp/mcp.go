@@ -40,6 +40,7 @@ const (
 	ReservedMemory   = "memory"
 	ReservedBrowser  = "browser"
 	ReservedDelegate = "podium"
+	ReservedHuman    = "human"
 )
 
 // MaxServers is how many MCP servers one playbook may name. Each one is a connection the
@@ -175,7 +176,7 @@ func ValidateName(name string) error {
 		return errors.New("an MCP server name is required")
 	case !NameRE.MatchString(name):
 		return fmt.Errorf("MCP server name %q must match %s", name, NameRE.String())
-	case name == ReservedMemory, name == ReservedBrowser, name == ReservedDelegate:
+	case name == ReservedMemory, name == ReservedBrowser, name == ReservedDelegate, name == ReservedHuman:
 		return fmt.Errorf("MCP server name %q is reserved: the runtime gives that name to "+
 			"a server it wires up itself", name)
 	}

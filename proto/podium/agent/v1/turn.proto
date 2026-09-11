@@ -26,12 +26,19 @@ service TurnService {
   // one. This is what a turn polls.
   rpc GetDelegation(GetDelegationRequest) returns (GetDelegationResponse);
 
-  // ListDelegations is everything this turn has delegated, oldest first.
+  // ListDelegations is this conversation's delegated tasks: everything this turn has
+  // started, plus any still running from an earlier turn of the same conversation.
   rpc ListDelegations(ListDelegationsRequest) returns (ListDelegationsResponse);
 
   // CancelDelegation stops a delegated task. The same cancel `podium task cancel` performs,
   // so the node sends the same SIGTERM and honours the same grace.
   rpc CancelDelegation(CancelDelegationRequest) returns (CancelDelegationResponse);
+
+  // InjectDelegation delivers one human message into a running delegated task of this
+  // conversation. The container stays up; the runtime treats the text as a new user
+  // message in the same workspace. Use it to correct or add to in-flight work rather
+  // than starting a second task.
+  rpc InjectDelegation(InjectDelegationRequest) returns (InjectDelegationResponse);
 }
 
 // Delegation is one task a turn asked for.
@@ -95,5 +102,15 @@ message CancelDelegationRequest {
 }
 
 message CancelDelegationResponse {
+  Delegation delegation = 1;
+}
+
+message InjectDelegationRequest {
+  string id = 1;
+  // text is what the person said, handed to the running task as a new user message.
+  string text = 2;
+}
+
+message InjectDelegationResponse {
   Delegation delegation = 1;
 }

@@ -39,10 +39,11 @@ var (
 	// ErrPlaybookNotOffered means the name is not one this turn's brief listed. A turn may
 	// only delegate to the playbooks it was shown, so a name cannot be reached by guessing.
 	ErrPlaybookNotOffered = errors.New("conductor: that playbook was not offered to this turn")
-	// ErrDelegationNotFound covers both "no such delegation" and "not this turn's", which
-	// are the same answer on purpose: one turn may not learn about another's work by
-	// probing ids.
-	ErrDelegationNotFound = errors.New("conductor: no such delegation for this turn")
+	// ErrDelegationNotFound covers both "no such delegation" and "not this conversation's",
+	// which are the same answer on purpose: one turn may not learn about another
+	// conversation's work by probing ids. In-flight work of THIS conversation is visible,
+	// including from an earlier turn — a follow-up has to be able to inject into it.
+	ErrDelegationNotFound = errors.New("conductor: no such delegation for this conversation")
 	// ErrDelegationOver means the delegation is already terminal, so there is nothing to
 	// cancel.
 	ErrDelegationOver = errors.New("conductor: that delegation has already finished")
@@ -419,7 +420,8 @@ func (c *Conductor) followDelegation(
 }
 
 // GetDelegation is where a delegated task has got to, and the last thing it said on the way.
-// A turn may only ask about its own.
+// A turn may ask about work of this conversation, including a task an earlier turn started
+// that is still running — that is how a follow-up injects into it.
 func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
@@ -431,21 +433,58 @@ func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	case err != nil:
 		return store.Delegation{}, "", err
-	case dlg.TurnID != g.turnID:
-		// Deliberately the same answer as "no such delegation": one turn does not get to
-		// discover another's work by probing ids.
+	case dlg.TriggerRef != g.ref:
+		// Deliberately the same answer as "no such delegation": one conversation does not
+		// get to discover another's work by probing ids.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	}
 	return dlg, c.delegationProgress(id), nil
 }
 
-// Delegations is everything this turn has delegated, oldest first.
+// Delegations is this conversation's delegated tasks: everything this turn has started,
+// plus any still running from an earlier turn of the same conversation, oldest first.
 func (c *Conductor) Delegations(ctx context.Context, token string) ([]store.Delegation, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
 		return nil, ErrNoTurn
 	}
-	return c.store.DelegationsForTurn(ctx, g.turnID)
+	mine, err := c.store.DelegationsForTurn(ctx, g.turnID)
+	if err != nil {
+		return nil, err
+	}
+	running, err := c.store.RunningDelegationsForRef(ctx, g.ref)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(mine))
+	out := make([]store.Delegation, 0, len(mine)+len(running))
+	for _, dlg := range mine {
+		seen[dlg.ID] = struct{}{}
+		out = append(out, dlg)
+	}
+	for _, dlg := range running {
+		if _, ok := seen[dlg.ID]; ok {
+			continue
+		}
+		out = append(out, dlg)
+	}
+	return out, nil
+}
+
+// InjectDelegation delivers one human message into a running delegated task of this
+// conversation. The container stays up.
+func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error) {
+	dlg, _, err := c.GetDelegation(ctx, token, id)
+	if err != nil {
+		return store.Delegation{}, err
+	}
+	if dlg.Status != store.TurnRunning || dlg.TaskID == "" {
+		return store.Delegation{}, ErrDelegationOver
+	}
+	if err := c.podium.InjectTask(ctx, dlg.TaskID, text); err != nil {
+		return store.Delegation{}, fmt.Errorf("conductor: injecting into the delegated task failed: %w", err)
+	}
+	return dlg, nil
 }
 
 // CancelDelegation stops a delegated task. It is the same cancel `podium task cancel`
@@ -591,10 +630,24 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	// The same rule the sink applies: anything that is not a final is progress. It is
 	// recorded here as well as relayed, because a turn polling GetDelegation wants to see
 	// movement rather than only "running".
-	if msg.GetType() != OutFinal {
+	if msg.GetType() != OutFinal && msg.GetType() != OutQuestion && msg.GetType() != MsgQuestion {
 		r.setProgress(msg.GetText())
 	}
 	r.relay(ctx, e)
+	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
+		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)
+		if err := r.src.React(ctx, r.ref, ReactionAwaiting); err != nil {
+			r.c.logger.WarnContext(ctx, "marking a delegated task as awaiting a reply failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
+		return
+	}
+	if r.c.clearAwaiting(r.dlg.SessionID, r.dlg.TaskID) {
+		if err := r.src.React(ctx, r.ref, ReactionWorking); err != nil {
+			r.c.logger.WarnContext(ctx, "marking a delegated task as working again failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
+	}
 }
 
 // settle resolves the files the task's answer asked for. Unlike a turn's settle there is no
@@ -617,6 +670,7 @@ func (r *delegationRun) settle(ctx context.Context, task *podiumv1.Task) {
 }
 
 func (r *delegationRun) finish(ctx context.Context, status string) {
+	r.c.clearAwaiting(r.dlg.SessionID, r.dlg.TaskID)
 	answer := r.answer()
 	var numTurns *int
 	var cost *float64

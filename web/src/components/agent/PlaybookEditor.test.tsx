@@ -59,6 +59,7 @@ describe("PlaybookEditor", () => {
       maxTurns: 50,
       timeout: "30m",
       linear: false,
+      interactive: false,
       secrets: [
         { name: "podium.agent.warehouse_url", target: "env", key: "WAREHOUSE_URL" },
       ],
@@ -98,6 +99,17 @@ describe("PlaybookEditor", () => {
     mount();
     await fill();
     expect(onSubmit.mock.calls[0][0].mcpServers).toEqual([]);
+  });
+
+  it("sends interactive when the switch is on", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
+    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
+    await userEvent.type(screen.getByLabelText("System prompt"), "Write the weekly report.");
+    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
+    await userEvent.click(screen.getByLabelText("Ask and wait in the same turn"));
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+    expect(onSubmit.mock.calls[0][0].interactive).toBe(true);
   });
 
   // Same three states a skill has, because the turn fails the same way in two of them: a

@@ -716,6 +716,94 @@ func (x *CancelTaskResponse) GetTask() *Task {
 	return nil
 }
 
+type InjectTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Text          string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InjectTaskRequest) Reset() {
+	*x = InjectTaskRequest{}
+	mi := &file_podium_v1_task_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InjectTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InjectTaskRequest) ProtoMessage() {}
+
+func (x *InjectTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_task_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InjectTaskRequest.ProtoReflect.Descriptor instead.
+func (*InjectTaskRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *InjectTaskRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *InjectTaskRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type InjectTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InjectTaskResponse) Reset() {
+	*x = InjectTaskResponse{}
+	mi := &file_podium_v1_task_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InjectTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InjectTaskResponse) ProtoMessage() {}
+
+func (x *InjectTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_task_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InjectTaskResponse.ProtoReflect.Descriptor instead.
+func (*InjectTaskResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{12}
+}
+
 type StreamTaskEventsRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -727,7 +815,7 @@ type StreamTaskEventsRequest struct {
 
 func (x *StreamTaskEventsRequest) Reset() {
 	*x = StreamTaskEventsRequest{}
-	mi := &file_podium_v1_task_proto_msgTypes[11]
+	mi := &file_podium_v1_task_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -739,7 +827,7 @@ func (x *StreamTaskEventsRequest) String() string {
 func (*StreamTaskEventsRequest) ProtoMessage() {}
 
 func (x *StreamTaskEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_task_proto_msgTypes[11]
+	mi := &file_podium_v1_task_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -752,7 +840,7 @@ func (x *StreamTaskEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamTaskEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamTaskEventsRequest) Descriptor() ([]byte, []int) {
-	return file_podium_v1_task_proto_rawDescGZIP(), []int{11}
+	return file_podium_v1_task_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *StreamTaskEventsRequest) GetTaskId() string {
@@ -827,17 +915,23 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"9\n" +
 	"\x12CancelTaskResponse\x12#\n" +
-	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"M\n" +
+	"\x04task\x18\x01 \x01(\v2\x0f.podium.v1.TaskR\x04task\"@\n" +
+	"\x11InjectTaskRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\x14\n" +
+	"\x12InjectTaskResponse\"M\n" +
 	"\x17StreamTaskEventsRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
-	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\xfd\x02\n" +
+	"\bfrom_seq\x18\x02 \x01(\x04R\afromSeq2\xc8\x03\n" +
 	"\vTaskService\x12I\n" +
 	"\n" +
 	"CreateTask\x12\x1c.podium.v1.CreateTaskRequest\x1a\x1d.podium.v1.CreateTaskResponse\x12@\n" +
 	"\aGetTask\x12\x19.podium.v1.GetTaskRequest\x1a\x1a.podium.v1.GetTaskResponse\x12F\n" +
 	"\tListTasks\x12\x1b.podium.v1.ListTasksRequest\x1a\x1c.podium.v1.ListTasksResponse\x12I\n" +
 	"\n" +
-	"CancelTask\x12\x1c.podium.v1.CancelTaskRequest\x1a\x1d.podium.v1.CancelTaskResponse\x12N\n" +
+	"CancelTask\x12\x1c.podium.v1.CancelTaskRequest\x1a\x1d.podium.v1.CancelTaskResponse\x12I\n" +
+	"\n" +
+	"InjectTask\x12\x1c.podium.v1.InjectTaskRequest\x1a\x1d.podium.v1.InjectTaskResponse\x12N\n" +
 	"\x10StreamTaskEvents\x12\".podium.v1.StreamTaskEventsRequest\x1a\x14.podium.v1.TaskEvent0\x01B\x9f\x01\n" +
 	"\rcom.podium.v1B\tTaskProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
@@ -854,7 +948,7 @@ func file_podium_v1_task_proto_rawDescGZIP() []byte {
 	return file_podium_v1_task_proto_rawDescData
 }
 
-var file_podium_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_podium_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_podium_v1_task_proto_goTypes = []any{
 	(*Task)(nil),                    // 0: podium.v1.Task
 	(*CreateTaskRequest)(nil),       // 1: podium.v1.CreateTaskRequest
@@ -867,27 +961,29 @@ var file_podium_v1_task_proto_goTypes = []any{
 	(*ListTasksResponse)(nil),       // 8: podium.v1.ListTasksResponse
 	(*CancelTaskRequest)(nil),       // 9: podium.v1.CancelTaskRequest
 	(*CancelTaskResponse)(nil),      // 10: podium.v1.CancelTaskResponse
-	(*StreamTaskEventsRequest)(nil), // 11: podium.v1.StreamTaskEventsRequest
-	(*TaskSpec)(nil),                // 12: podium.v1.TaskSpec
-	(TaskStatus)(0),                 // 13: podium.v1.TaskStatus
-	(*timestamppb.Timestamp)(nil),   // 14: google.protobuf.Timestamp
-	(*Usage)(nil),                   // 15: podium.v1.Usage
-	(*TaskEvent)(nil),               // 16: podium.v1.TaskEvent
+	(*InjectTaskRequest)(nil),       // 11: podium.v1.InjectTaskRequest
+	(*InjectTaskResponse)(nil),      // 12: podium.v1.InjectTaskResponse
+	(*StreamTaskEventsRequest)(nil), // 13: podium.v1.StreamTaskEventsRequest
+	(*TaskSpec)(nil),                // 14: podium.v1.TaskSpec
+	(TaskStatus)(0),                 // 15: podium.v1.TaskStatus
+	(*timestamppb.Timestamp)(nil),   // 16: google.protobuf.Timestamp
+	(*Usage)(nil),                   // 17: podium.v1.Usage
+	(*TaskEvent)(nil),               // 18: podium.v1.TaskEvent
 }
 var file_podium_v1_task_proto_depIdxs = []int32{
-	12, // 0: podium.v1.Task.spec:type_name -> podium.v1.TaskSpec
-	13, // 1: podium.v1.Task.status:type_name -> podium.v1.TaskStatus
-	14, // 2: podium.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	14, // 3: podium.v1.Task.started_at:type_name -> google.protobuf.Timestamp
-	14, // 4: podium.v1.Task.finished_at:type_name -> google.protobuf.Timestamp
-	15, // 5: podium.v1.Task.usage:type_name -> podium.v1.Usage
-	14, // 6: podium.v1.Task.last_schedule_attempt_at:type_name -> google.protobuf.Timestamp
-	12, // 7: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
+	14, // 0: podium.v1.Task.spec:type_name -> podium.v1.TaskSpec
+	15, // 1: podium.v1.Task.status:type_name -> podium.v1.TaskStatus
+	16, // 2: podium.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	16, // 3: podium.v1.Task.started_at:type_name -> google.protobuf.Timestamp
+	16, // 4: podium.v1.Task.finished_at:type_name -> google.protobuf.Timestamp
+	17, // 5: podium.v1.Task.usage:type_name -> podium.v1.Usage
+	16, // 6: podium.v1.Task.last_schedule_attempt_at:type_name -> google.protobuf.Timestamp
+	14, // 7: podium.v1.CreateTaskRequest.spec:type_name -> podium.v1.TaskSpec
 	0,  // 8: podium.v1.CreateTaskResponse.task:type_name -> podium.v1.Task
 	0,  // 9: podium.v1.GetTaskResponse.task:type_name -> podium.v1.Task
-	13, // 10: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
-	14, // 11: podium.v1.TaskFilter.created_after:type_name -> google.protobuf.Timestamp
-	14, // 12: podium.v1.TaskFilter.created_before:type_name -> google.protobuf.Timestamp
+	15, // 10: podium.v1.TaskFilter.status:type_name -> podium.v1.TaskStatus
+	16, // 11: podium.v1.TaskFilter.created_after:type_name -> google.protobuf.Timestamp
+	16, // 12: podium.v1.TaskFilter.created_before:type_name -> google.protobuf.Timestamp
 	5,  // 13: podium.v1.ListTasksRequest.filter:type_name -> podium.v1.TaskFilter
 	6,  // 14: podium.v1.ListTasksRequest.page:type_name -> podium.v1.Page
 	0,  // 15: podium.v1.ListTasksResponse.tasks:type_name -> podium.v1.Task
@@ -896,14 +992,16 @@ var file_podium_v1_task_proto_depIdxs = []int32{
 	3,  // 18: podium.v1.TaskService.GetTask:input_type -> podium.v1.GetTaskRequest
 	7,  // 19: podium.v1.TaskService.ListTasks:input_type -> podium.v1.ListTasksRequest
 	9,  // 20: podium.v1.TaskService.CancelTask:input_type -> podium.v1.CancelTaskRequest
-	11, // 21: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
-	2,  // 22: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
-	4,  // 23: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
-	8,  // 24: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
-	10, // 25: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
-	16, // 26: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
-	22, // [22:27] is the sub-list for method output_type
-	17, // [17:22] is the sub-list for method input_type
+	11, // 21: podium.v1.TaskService.InjectTask:input_type -> podium.v1.InjectTaskRequest
+	13, // 22: podium.v1.TaskService.StreamTaskEvents:input_type -> podium.v1.StreamTaskEventsRequest
+	2,  // 23: podium.v1.TaskService.CreateTask:output_type -> podium.v1.CreateTaskResponse
+	4,  // 24: podium.v1.TaskService.GetTask:output_type -> podium.v1.GetTaskResponse
+	8,  // 25: podium.v1.TaskService.ListTasks:output_type -> podium.v1.ListTasksResponse
+	10, // 26: podium.v1.TaskService.CancelTask:output_type -> podium.v1.CancelTaskResponse
+	12, // 27: podium.v1.TaskService.InjectTask:output_type -> podium.v1.InjectTaskResponse
+	18, // 28: podium.v1.TaskService.StreamTaskEvents:output_type -> podium.v1.TaskEvent
+	23, // [23:29] is the sub-list for method output_type
+	17, // [17:23] is the sub-list for method input_type
 	17, // [17:17] is the sub-list for extension type_name
 	17, // [17:17] is the sub-list for extension extendee
 	0,  // [0:17] is the sub-list for field type_name
@@ -923,7 +1021,7 @@ func file_podium_v1_task_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_task_proto_rawDesc), len(file_podium_v1_task_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

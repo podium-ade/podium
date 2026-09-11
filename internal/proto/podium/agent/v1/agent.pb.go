@@ -2828,7 +2828,8 @@ type Chat struct {
 	// preview is the first 80 characters of the last message, for the chat list.
 	Preview string `protobuf:"bytes,5,opt,name=preview,proto3" json:"preview,omitempty"`
 	// turn_running is true while a turn of this chat is in flight, which is when the
-	// composer is disabled and SendChatMessage answers FailedPrecondition.
+	// composer is disabled and SendChatMessage answers FailedPrecondition — except while
+	// the turn is awaiting a human reply, which a status frame of "awaiting" reports.
 	TurnRunning bool `protobuf:"varint,6,opt,name=turn_running,json=turnRunning,proto3" json:"turn_running,omitempty"`
 	// agent, model and effort are what this chat is answered on, so the composer opens on the
 	// model it was last asked for instead of making somebody pick again.
@@ -3177,7 +3178,9 @@ func (x *ChatMessage) GetAuthor() string {
 // re-derives it from Chat.turn_running.
 type ChatStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// state is started, finished or failed.
+	// state is started, finished, failed or awaiting. awaiting means an interactive
+	// turn posted a question and is waiting for a human reply; the composer is enabled
+	// and SendChatMessage injects into the running task instead of starting a new turn.
 	State         string `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	TaskId        string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -4711,7 +4714,11 @@ type PlaybookDefinition struct {
 	// A server is somebody else's API with a credential attached, and a turn that has it can
 	// read and write whatever that credential can. This list is the whole of what decides
 	// which turns do — see docs/security.md.
-	McpServers    []string `protobuf:"bytes,24,rep,name=mcp_servers,json=mcpServers,proto3" json:"mcp_servers,omitempty"`
+	McpServers []string `protobuf:"bytes,24,rep,name=mcp_servers,json=mcpServers,proto3" json:"mcp_servers,omitempty"`
+	// interactive lets a turn ask a human a question and wait for the answer in the same
+	// container, instead of ending the turn. Off by default: a waiting container still
+	// holds a node slot, and a playbook that did not ask for this must not grow one.
+	Interactive   bool `protobuf:"varint,25,opt,name=interactive,proto3" json:"interactive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4912,6 +4919,13 @@ func (x *PlaybookDefinition) GetMcpServers() []string {
 		return x.McpServers
 	}
 	return nil
+}
+
+func (x *PlaybookDefinition) GetInteractive() bool {
+	if x != nil {
+		return x.Interactive
+	}
+	return false
 }
 
 type GetProfileRequest struct {
@@ -7466,7 +7480,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\fPlaybookRepo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12%\n" +
-	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\x86\a\n" +
+	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"\xa8\a\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -7495,7 +7509,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06skills\x18\x16 \x03(\tR\x06skills\x12\x1a\n" +
 	"\bpriority\x18\x17 \x01(\x05R\bpriority\x12\x1f\n" +
 	"\vmcp_servers\x18\x18 \x03(\tR\n" +
-	"mcpServers\x1a6\n" +
+	"mcpServers\x12 \n" +
+	"\vinteractive\x18\x19 \x01(\bR\vinteractive\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +

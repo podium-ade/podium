@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/turn.proto.
  */
 export const file_podium_agent_v1_turn: GenFile = /*@__PURE__*/
-  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjgKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCSJDChBEZWxlZ2F0ZVJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIiChRHZXREZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCSJaChVHZXREZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uEhAKCHByb2dyZXNzGAIgASgJIhgKFkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QiSwoXTGlzdERlbGVnYXRpb25zUmVzcG9uc2USMAoLZGVsZWdhdGlvbnMYASADKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiI1ChdDYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiSwoYQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbjKNAwoLVHVyblNlcnZpY2USTwoIRGVsZWdhdGUSIC5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGVSZXF1ZXN0GiEucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRlUmVzcG9uc2USXgoNR2V0RGVsZWdhdGlvbhIlLnBvZGl1bS5hZ2VudC52MS5HZXREZWxlZ2F0aW9uUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5HZXREZWxlZ2F0aW9uUmVzcG9uc2USZAoPTGlzdERlbGVnYXRpb25zEicucG9kaXVtLmFnZW50LnYxLkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuTGlzdERlbGVnYXRpb25zUmVzcG9uc2USZwoQQ2FuY2VsRGVsZWdhdGlvbhIoLnBvZGl1bS5hZ2VudC52MS5DYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DYW5jZWxEZWxlZ2F0aW9uUmVzcG9uc2VCwwEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCVR1cm5Qcm90b1ABWkNnaXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS9hZ2VudC92MTthZ2VudHYxogIDUEFYqgIPUG9kaXVtLkFnZW50LlYxygIPUG9kaXVtXEFnZW50XFYx4gIbUG9kaXVtXEFnZW50XFYxXEdQQk1ldGFkYXRh6gIRUG9kaXVtOjpBZ2VudDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjgKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCSJDChBEZWxlZ2F0ZVJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIiChRHZXREZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCSJaChVHZXREZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uEhAKCHByb2dyZXNzGAIgASgJIhgKFkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QiSwoXTGlzdERlbGVnYXRpb25zUmVzcG9uc2USMAoLZGVsZWdhdGlvbnMYASADKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiI1ChdDYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiSwoYQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIzChdJbmplY3REZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIksKGEluamVjdERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24y9gMKC1R1cm5TZXJ2aWNlEk8KCERlbGVnYXRlEiAucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRlUmVxdWVzdBohLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlc3BvbnNlEl4KDUdldERlbGVnYXRpb24SJS5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlcXVlc3QaJi5wb2RpdW0uYWdlbnQudjEuR2V0RGVsZWdhdGlvblJlc3BvbnNlEmQKD0xpc3REZWxlZ2F0aW9ucxInLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXF1ZXN0GigucG9kaXVtLmFnZW50LnYxLkxpc3REZWxlZ2F0aW9uc1Jlc3BvbnNlEmcKEENhbmNlbERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEmcKEEluamVjdERlbGVnYXRpb24SKC5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlcXVlc3QaKS5wb2RpdW0uYWdlbnQudjEuSW5qZWN0RGVsZWdhdGlvblJlc3BvbnNlQsMBChNjb20ucG9kaXVtLmFnZW50LnYxQglUdXJuUHJvdG9QAVpDZ2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vYWdlbnQvdjE7YWdlbnR2MaICA1BBWKoCD1BvZGl1bS5BZ2VudC5WMcoCD1BvZGl1bVxBZ2VudFxWMeICG1BvZGl1bVxBZ2VudFxWMVxHUEJNZXRhZGF0YeoCEVBvZGl1bTo6QWdlbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * Delegation is one task a turn asked for.
@@ -244,6 +244,47 @@ export const CancelDelegationResponseSchema: GenMessage<CancelDelegationResponse
   messageDesc(file_podium_agent_v1_turn, 8);
 
 /**
+ * @generated from message podium.agent.v1.InjectDelegationRequest
+ */
+export type InjectDelegationRequest = Message<"podium.agent.v1.InjectDelegationRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * text is what the person said, handed to the running task as a new user message.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.InjectDelegationRequest.
+ * Use `create(InjectDelegationRequestSchema)` to create a new message.
+ */
+export const InjectDelegationRequestSchema: GenMessage<InjectDelegationRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 9);
+
+/**
+ * @generated from message podium.agent.v1.InjectDelegationResponse
+ */
+export type InjectDelegationResponse = Message<"podium.agent.v1.InjectDelegationResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.Delegation delegation = 1;
+   */
+  delegation?: Delegation | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.InjectDelegationResponse.
+ * Use `create(InjectDelegationResponseSchema)` to create a new message.
+ */
+export const InjectDelegationResponseSchema: GenMessage<InjectDelegationResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 10);
+
+/**
  * TurnService is what a TURN may ask of the conductor, and it is deliberately a service of
  * its own rather than more methods on AgentService.
  *
@@ -284,7 +325,8 @@ export const TurnService: GenService<{
     output: typeof GetDelegationResponseSchema;
   },
   /**
-   * ListDelegations is everything this turn has delegated, oldest first.
+   * ListDelegations is this conversation's delegated tasks: everything this turn has
+   * started, plus any still running from an earlier turn of the same conversation.
    *
    * @generated from rpc podium.agent.v1.TurnService.ListDelegations
    */
@@ -303,6 +345,19 @@ export const TurnService: GenService<{
     methodKind: "unary";
     input: typeof CancelDelegationRequestSchema;
     output: typeof CancelDelegationResponseSchema;
+  },
+  /**
+   * InjectDelegation delivers one human message into a running delegated task of this
+   * conversation. The container stays up; the runtime treats the text as a new user
+   * message in the same workspace. Use it to correct or add to in-flight work rather
+   * than starting a second task.
+   *
+   * @generated from rpc podium.agent.v1.TurnService.InjectDelegation
+   */
+  injectDelegation: {
+    methodKind: "unary";
+    input: typeof InjectDelegationRequestSchema;
+    output: typeof InjectDelegationResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_turn, 0);

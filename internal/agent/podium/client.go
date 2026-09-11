@@ -102,6 +102,19 @@ func (c *Client) CancelTask(ctx context.Context, taskID, reason string) error {
 	return nil
 }
 
+// InjectTask delivers one human message into a running task. It does not wait
+// for the runtime to read it.
+func (c *Client) InjectTask(ctx context.Context, taskID, text string) error {
+	_, err := c.Tasks.InjectTask(ctx, connect.NewRequest(&podiumv1.InjectTaskRequest{
+		TaskId: taskID,
+		Text:   text,
+	}))
+	if err != nil {
+		return fmt.Errorf("inject into task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // GetTask reads a task back, which is how a follow learns the terminal status.
 func (c *Client) GetTask(ctx context.Context, taskID string) (*podiumv1.Task, error) {
 	res, err := c.Tasks.GetTask(ctx, connect.NewRequest(&podiumv1.GetTaskRequest{TaskId: taskID}))

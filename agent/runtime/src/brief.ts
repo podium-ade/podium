@@ -151,6 +151,9 @@ const briefSchema = z.strictObject({
     // gets: writeConfig writes one entry per server here beside the ones the conductor
     // wires up itself, and no others.
     mcp_servers: z.array(mcpServerSchema).optional(),
+    // Absent means the turn cannot wait for a human: the default, and what every brief
+    // before interactive playbooks described.
+    interactive: z.boolean().optional(),
   }),
   transcript: z.array(transcriptEntrySchema),
   transcript_truncated: z.boolean(),
