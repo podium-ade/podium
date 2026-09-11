@@ -630,6 +630,13 @@ timeout: 30m
 The web chat composer stays enabled while the turn is awaiting a reply. Slack and Linear keep
 the working reaction; the question is the message in the thread.
 
+A follow-up after the assistant has already stopped — `@podium actually change xyz` while
+the delegated task is still running — is a new assistant turn. That turn can see in-flight
+work of this conversation and **inject** the person's words into the running container
+(`podium_inject_delegation`) instead of starting a second task. The runtime interrupts the
+harness and continues the same session, workspace kept. A playbook does not have to be
+`interactive` for that: inject is steering, `human_ask` is parking.
+
 #### `skills:` — third-party Agent Skills
 
 An **Agent Skill** is a directory holding a `SKILL.md` with YAML frontmatter: a procedure somebody

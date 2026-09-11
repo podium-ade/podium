@@ -16,6 +16,9 @@ function stubClient(overrides: Partial<Record<keyof Client, unknown>> = {}): Cli
       progress: "reading the handler",
     })),
     list: vi.fn(async () => ({ delegations: [] })),
+    inject: vi.fn(async (id: string) => ({
+      delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "running" },
+    })),
     cancel: vi.fn(async (id: string) => ({
       delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "running" },
     })),
@@ -62,13 +65,14 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("offers exactly the four delegation tools, each with a schema", async () => {
+  it("offers exactly the delegation tools, each with a schema", async () => {
     const h = newHandler(stubClient());
     const res = (await h("tools/list", {})) as { tools: typeof tools };
     expect(res.tools.map((t) => t.name)).toEqual([
       "delegate",
       "check_delegation",
       "list_delegations",
+      "inject_delegation",
       "cancel_delegation",
     ]);
     for (const tool of res.tools) {
@@ -153,7 +157,7 @@ describe("tools/call check_delegation", () => {
 describe("tools/call list_delegations", () => {
   it("says so plainly when there are none", async () => {
     const res = await h_call(stubClient(), { name: "list_delegations", arguments: {} });
-    expect(text(res)).toContain("delegated nothing");
+    expect(text(res)).toContain("No delegated tasks in this conversation");
   });
 
   it("lists each one with its status", async () => {
@@ -169,6 +173,20 @@ describe("tools/call list_delegations", () => {
     expect(text(res)).toContain("dlg_01");
     expect(text(res)).toContain("dlg_02");
     expect(text(res)).toContain("task_02");
+  });
+});
+
+describe("tools/call inject_delegation", () => {
+  it("passes the id and the text through", async () => {
+    const client = stubClient();
+    const res = await h_call(client, {
+      name: "inject_delegation",
+      arguments: { delegation_id: "dlg_01", text: "use main" },
+    });
+    expect(client.inject).toHaveBeenCalledWith("dlg_01", "use main");
+    expect(text(res)).toContain("dlg_01");
+    expect(text(res)).toContain("same container");
+    expect(isError(res)).toBe(false);
   });
 });
 
@@ -215,7 +233,7 @@ describe("the stdio transport", () => {
     await done;
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
-    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(4);
+    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(5);
   });
 
   it("says NOTHING to a notification, because answering one breaks the client", async () => {

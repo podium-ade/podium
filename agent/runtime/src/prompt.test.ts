@@ -149,6 +149,7 @@ describe("buildSystemPrompt", () => {
     const flat = prompt.replace(/\s+/g, " ");
     expect(flat).toContain("Delegate, then stop");
     expect(flat).toContain("Do not poll");
+    expect(flat).toContain("podium_inject_delegation");
     expect(flat).not.toContain("Poll `podium_check_delegation` for the outcome");
   });
 

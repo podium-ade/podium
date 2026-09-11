@@ -99,8 +99,30 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: "list_delegations",
-    description: "Every task you have delegated in this turn, oldest first, with their status.",
+    description:
+      "Delegated tasks of this conversation: everything this turn started, plus any still " +
+      "running from an earlier turn. Use it to find an in-flight task before injecting.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "inject_delegation",
+    description:
+      "Send more instruction into a running delegated task of this conversation, as a new " +
+      "user message in the same container. Use it when the person is correcting or adding " +
+      "to work already in flight — \"actually change xyz\", \"use main\" — instead of " +
+      "starting a second task. The workspace is kept. The task must still be running.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        delegation_id: { type: "string" },
+        text: {
+          type: "string",
+          description: "What the person said, as the task should hear it.",
+        },
+      },
+      required: ["delegation_id", "text"],
+      additionalProperties: false,
+    },
   },
   {
     name: "cancel_delegation",
@@ -186,9 +208,18 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
       case "list_delegations": {
         const { delegations } = await client.list();
         if (!delegations || delegations.length === 0) {
-          return ok("You have delegated nothing in this turn.");
+          return ok("No delegated tasks in this conversation.");
         }
         return ok(delegations.map((d) => describe(d)).join("\n\n"));
+      }
+      case "inject_delegation": {
+        const id = requireString(args, "delegation_id");
+        const text = requireString(args, "text");
+        const { delegation } = await client.inject(id, text);
+        return ok(
+          `Sent that to the running \`${delegation.playbook}\` task (${delegation.id}). ` +
+            "It will pick it up in the same container. Do not start another task for this.",
+        );
       }
       case "cancel_delegation": {
         const id = requireString(args, "delegation_id");

@@ -168,6 +168,11 @@ How to do it well:
   because the answer is delivered without you.
 - One task per piece of work. If you need two things done, delegate twice; do not fold two
   unrelated jobs into one instruction.
+- A task this conversation already started may still be running after you stop. If the
+  person is correcting or adding to that work — "actually change xyz", "use main" —
+  \`podium_list_delegations\` then \`podium_inject_delegation\` with their words. Do not
+  start a second task for the same job. Inject is a new user message inside the running
+  container; the workspace is kept. Delegate only for a new piece of work.
 - \`podium_cancel_delegation\` when the work is no longer wanted. A task nobody is waiting for
   still holds a machine and still costs money.`;
 }
