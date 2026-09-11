@@ -120,14 +120,14 @@ func TestHostComposeSharesTheHostNetwork(t *testing.T) {
 // deployment rather than describing it. Two copies of anything drift, so this is the test
 // that says so: the fenced block between the BEGIN/END markers must be the file itself.
 func TestReadmeEmbedsTheComposeFileVerbatim(t *testing.T) {
-	want, err := os.ReadFile("docker-compose.yml")
+	want, err := os.ReadFile("docker-compose.host.yml")
 	require.NoError(t, err)
 
 	readme, err := os.ReadFile("../README.md")
 	require.NoError(t, err)
 
-	const begin = "<!-- BEGIN deploy/docker-compose.yml -->\n```yaml\n"
-	const end = "```\n<!-- END deploy/docker-compose.yml -->"
+	const begin = "<!-- BEGIN deploy/docker-compose.host.yml -->\n```yaml\n"
+	const end = "```\n<!-- END deploy/docker-compose.host.yml -->"
 	i := strings.Index(string(readme), begin)
 	require.GreaterOrEqual(t, i, 0, "README.md has no BEGIN marker for the compose file")
 	rest := string(readme)[i+len(begin):]
@@ -135,6 +135,6 @@ func TestReadmeEmbedsTheComposeFileVerbatim(t *testing.T) {
 	require.GreaterOrEqual(t, j, 0, "README.md has no END marker for the compose file")
 
 	require.Equal(t, string(want), rest[:j],
-		"README.md's embedded compose file and deploy/docker-compose.yml have drifted. Copy "+
+		"README.md's embedded compose file and deploy/docker-compose.host.yml have drifted. Copy "+
 			"the file into the fenced block between the markers; do not edit the README copy.")
 }
