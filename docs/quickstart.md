@@ -5,9 +5,9 @@ toolchain, no Node, and no Podium binary on the host: `podium-server init` and t
 CLI both run from the published images.
 
 This uses the **`local` transport**: server and worker on one machine, over loopback, with one
-shared token. It is the right thing for a first look, and it is loopback-only — it cannot reach
-a worker on another machine at all. For that you need the tailnet transport, which is the only
-supported way to do it: [`networking.md`](networking.md).
+shared token. It is the right thing for a first look, and it is loopback-only. A worker on
+another machine is either the tailnet transport, or host network if you already have WireGuard
+or a corporate VPN: [`networking.md`](networking.md).
 
 **Everything is configured by one file, `.env`.** `init` writes it with fresh credentials, the
 compose file interpolates it, and there is only ever one place to change something.
@@ -345,10 +345,12 @@ setting `PODIUM_MEMORY_BIND`, and setting a real key at the same moment. See
 
 ## Workers on other machines
 
-**The tailnet transport is the only supported way to reach a worker on another machine** — in
-development as much as in production. The `local` transport used above refuses to bind anything
-but loopback, because that one token is all that stands between a caller and the whole API. So
-this is not a recommendation; it is what the two transports will and will not do.
+**The tailnet transport is how Podium names the caller on another machine.** The `local`
+transport used above refuses to bind anything but loopback, because that one token is all that
+stands between a caller and the whole API. If the machines already share a network Podium did
+not create — WireGuard, a corporate VPN, a LAN — that is the host-network path in
+[`networking.md`](networking.md#host-network-bring-your-own-routing), still the local token,
+bound to this machine's interfaces.
 
 That is a different compose file, [`docker-compose.tailnet.yml`](../deploy/docker-compose.tailnet.yml),
 and the next section walks one through end to end. Two things about it are worth knowing before

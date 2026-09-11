@@ -501,7 +501,7 @@ between matching releases; see [operations.md](operations.md#upgrading) for the 
 [`deploy/.env.example`](../deploy/.env.example)), and has four subcommands. A bare
 `podium-server` and `podium-server serve` both serve.
 
-### `podium-server init [--dir DIR] [--transport dev|tailnet] [--tailnet SUFFIX] [--force]`
+### `podium-server init [--dir DIR] [--transport local|tailnet|host] [--tailnet SUFFIX] [--force]`
 
 Turns a copied `deploy/` directory into a deployment. It writes two files and **never**
 overwrites either:
@@ -519,6 +519,11 @@ cd deploy
 podium-server init
 docker compose up -d --wait
 ```
+
+With `--transport host` the `.env` still uses the local token (a VPN does not name the caller)
+and leaves `PODIUM_SERVER` for you to fill with this machine's address on the network you
+already have. Next is `docker compose -f docker-compose.host.yml up`. See
+[docs/networking.md](networking.md#host-network-bring-your-own-routing).
 
 With `--transport tailnet` the `.env` instead carries `PODIUM_TAILNET`, `TS_AUTHKEY` and
 `PODIUM_NODE_TS_AUTHKEY` — the values only you can supply — and the command reports which

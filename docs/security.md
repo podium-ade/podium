@@ -614,8 +614,10 @@ key where the server offers one — and name it only in playbooks you would trus
   for exactly that reason.
 - The web UI keeps the token in `localStorage`.
 
-Loopback is doing all the work. Do not publish a `local`-transport port to anything but
-`127.0.0.1`, and do not use the local transport across a network under any circumstances.
+Loopback is doing all the work on the Quickstart path. Do not publish a `local`-transport port
+to anything but `127.0.0.1` unless this is a host-network deployment, where the boundary is a
+network you already trust (WireGuard, a corporate VPN, a LAN) and the same token is still the
+only credential. See [`networking.md`](networking.md#host-network-bring-your-own-routing).
 
 ### `tailnet` — the one to use for real workers
 

@@ -496,18 +496,25 @@ values differ on one thing — who names the caller — and everything else foll
 
 The `local` transport refuses to bind anywhere but loopback, because that one token is the only
 thing between a caller and the whole API. It is for one machine you are sitting at, and it is
-what the Quickstart runs. Anything else is `tailnet`, including a second machine on the same
-desk — see below.
+what the Quickstart runs.
 
-There is a third value, `host`, which serves the same HTTPS over the machine's existing
-`tailscaled` rather than an embedded device. It has never been run.
+A worker on another machine is usually `tailnet`. If the machines already share a network
+Podium did not create — WireGuard, a corporate VPN, a LAN — use the **host-network**
+deployment instead: still the local token, bound to this machine's interfaces, no Tailscale
+device. `podium-server init --transport host` writes that `.env`; the compose file is
+`docker-compose.host.yml`. See [docs/networking.md](docs/networking.md#host-network-bring-your-own-routing).
+
+There is a third `PODIUM_TRANSPORT` value, `host`, which serves the same HTTPS over the
+machine's existing `tailscaled` rather than an embedded device. It has never been run, and it
+is not the host-network deployment above.
 
 ## Running across machines
 
-**The tailnet transport is the only supported way to reach a worker on another machine** — in
-development as much as in production, and not merely the recommended one. Podium joins your
-Tailscale network: the server serves HTTPS on its MagicDNS name, workers dial out, and there is
-no login page, no API token and no public ingress.
+**The tailnet transport is how Podium names the caller on another machine.** The server joins
+your Tailscale network, serves HTTPS on its MagicDNS name, workers dial out, and there is no
+login page, no API token and no public ingress. If you already have WireGuard or a corporate
+VPN and do not want a tailnet, that is the host-network path in
+[docs/networking.md](docs/networking.md#host-network-bring-your-own-routing).
 
 ```sh
 docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \

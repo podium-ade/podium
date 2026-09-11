@@ -32,6 +32,12 @@ var requiredByCompose = map[string][]string{
 		"PODIUM_AGENT_TOKEN",
 		"PODIUM_TAILNET",
 	},
+	hostNetworkTransport: {
+		"PODIUM_PG_PASSWORD",
+		"PODIUM_LOCAL_TOKEN",
+		"PODIUM_S3_SECRET_KEY",
+		"PODIUM_AGENT_TOKEN",
+	},
 }
 
 func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
@@ -75,6 +81,26 @@ func TestInitConfiguresTheCLI(t *testing.T) {
 	require.NotEmpty(t, env["PODIUM_SERVER"])
 	require.NotEmpty(t, env["PODIUM_LOCAL_TOKEN"])
 	require.NotContains(t, env, "PODIUM_TOKEN", "the CLI reads PODIUM_LOCAL_TOKEN; one secret, one line")
+}
+
+// TestInitHostNetworkUsesTheLocalTransport is the naming trap: --transport host is
+// Docker's network_mode, not PODIUM_TRANSPORT=host (which borrows tailscaled). A VPN
+// does not name the caller, so the shared token is still the credential, and
+// PODIUM_SERVER is left blank for the operator's address on that network.
+func TestInitHostNetworkUsesTheLocalTransport(t *testing.T) {
+	body := renderEnv(initSecrets{
+		Transport: hostNetworkTransport, PGPassword: "pg", LocalToken: "dev",
+		S3SecretKey: "s3", AgentToken: "agent",
+	})
+	env := parseEnv(t, body)
+	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"],
+		"--transport host must not write PODIUM_TRANSPORT=host; that value talks to tailscaled")
+	require.Equal(t, "true", env["PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN"])
+	require.Equal(t, "0.0.0.0:8080", env["PODIUM_LOCAL_LISTEN"])
+	require.Equal(t, "dev", env["PODIUM_LOCAL_TOKEN"])
+	require.Contains(t, body, "PODIUM_SERVER=\n",
+		"PODIUM_SERVER should be present and empty so there is a line to fill in")
+	require.Empty(t, env["PODIUM_SERVER"])
 }
 
 // TestInitCommandWritesUsableCredentials runs the command itself, because the bug this

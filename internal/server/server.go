@@ -150,8 +150,10 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 	if cfg.Transport == TransportLocal && cfg.LocalAllowUnsafeListen {
 		logger.Warn(local.UnsafeListenVar+" is on: the local transport may bind an address that is "+
 			"not loopback, and one static bearer token is the only thing guarding the whole API "+
-			"on it. This is meant for a container, where the published port is the boundary. "+
-			"Publish that port on 127.0.0.1, never 0.0.0.0.", "listen", cfg.LocalListen)
+			"on it. Inside a container the published port is the boundary; on a host this is the "+
+			"host-network deployment, and the boundary is whatever already routes to this machine "+
+			"(a WireGuard interface, a corporate VPN, a LAN you trust). Do not bind a public address.",
+			"listen", cfg.LocalListen)
 	}
 	if cfg.TSAllowUntaggedNodes {
 		logger.Warn("PODIUM_TS_ALLOW_UNTAGGED_NODES is on: any untagged tailnet device may " +
