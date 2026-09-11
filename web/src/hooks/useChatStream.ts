@@ -18,6 +18,8 @@ export interface ChatStreamState {
   progress?: string;
   /** running is true while a turn of this chat is in flight. */
   running: boolean;
+  /** awaiting is true while an interactive turn has asked a question and is waiting. */
+  awaiting: boolean;
   /** chat is the latest title/playbook row, when the stream said so. */
   chat?: Chat;
   /**
@@ -45,6 +47,7 @@ const empty: ChatStreamState = {
   messages: [],
   pullRequests: [],
   running: false,
+  awaiting: false,
   phase: "connecting",
 };
 
@@ -118,13 +121,15 @@ export function useChatStream(chatId: string): ChatStreamState {
               case "status": {
                 const status = frame.frame.value;
                 const started = status.state === "started";
+                const awaiting = status.state === "awaiting";
                 update((prev) => ({
                   ...prev,
                   phase: "streaming",
                   error: undefined,
-                  running: started,
+                  running: started || awaiting,
+                  awaiting,
                   taskId: status.taskId === "" ? undefined : status.taskId,
-                  progress: started ? prev.progress : undefined,
+                  progress: started || awaiting ? prev.progress : undefined,
                 }));
                 break;
               }

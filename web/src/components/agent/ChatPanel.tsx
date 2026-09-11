@@ -769,7 +769,7 @@ function Conversation({
   }, [stick, stream.gone]);
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
-  const busy = stream.running || send.isPending;
+  const busy = (stream.running && !stream.awaiting) || send.isPending;
   const connecting = stream.phase === "connecting" && stream.messages.length === 0 && !stream.gone;
 
   if (stream.gone) {

@@ -268,6 +268,11 @@ type Playbook struct {
 	// so at start-up, where the key is known.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
+	// Interactive lets a turn ask a human a question and wait for the answer in the same
+	// container, instead of ending the turn. Off by default: a waiting container still
+	// holds a node slot (and a dind sidecar, if the playbook asked for one).
+	Interactive bool `yaml:"interactive" json:"interactive,omitempty"`
+
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
 	// Origin is where this copy of the playbook came from: OriginFile or OriginStored. It is

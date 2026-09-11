@@ -591,10 +591,24 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	// The same rule the sink applies: anything that is not a final is progress. It is
 	// recorded here as well as relayed, because a turn polling GetDelegation wants to see
 	// movement rather than only "running".
-	if msg.GetType() != OutFinal {
+	if msg.GetType() != OutFinal && msg.GetType() != OutQuestion && msg.GetType() != MsgQuestion {
 		r.setProgress(msg.GetText())
 	}
 	r.relay(ctx, e)
+	if msg.GetType() == MsgQuestion || msg.GetType() == OutQuestion {
+		r.c.setAwaiting(r.dlg.SessionID, r.dlg.TaskID)
+		if err := r.src.React(ctx, r.ref, ReactionAwaiting); err != nil {
+			r.c.logger.WarnContext(ctx, "marking a delegated task as awaiting a reply failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
+		return
+	}
+	if r.c.clearAwaiting(r.dlg.SessionID, r.dlg.TaskID) {
+		if err := r.src.React(ctx, r.ref, ReactionWorking); err != nil {
+			r.c.logger.WarnContext(ctx, "marking a delegated task as working again failed",
+				"delegation_id", r.dlg.ID, "error", err)
+		}
+	}
 }
 
 // settle resolves the files the task's answer asked for. Unlike a turn's settle there is no
@@ -617,6 +631,7 @@ func (r *delegationRun) settle(ctx context.Context, task *podiumv1.Task) {
 }
 
 func (r *delegationRun) finish(ctx context.Context, status string) {
+	r.c.clearAwaiting(r.dlg.SessionID, r.dlg.TaskID)
 	answer := r.answer()
 	var numTurns *int
 	var cost *float64

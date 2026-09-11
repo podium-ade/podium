@@ -282,6 +282,24 @@ func (s *Service) Cancel(ctx context.Context, nodeID, taskID, reason string) err
 	return nil
 }
 
+// Inject delivers one human message into a running task on a node. It does not
+// wait: the node writes the text to the task's inbox, and whatever is blocked
+// on a read — an interactive playbook's ask tool — picks it up.
+func (s *Service) Inject(ctx context.Context, nodeID, taskID, text string) error {
+	sess, ok := s.reg.Get(nodeID)
+	if !ok {
+		return fmt.Errorf("inject into task %s on node %s: %w", taskID, nodeID, ErrNoSession)
+	}
+	msg := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_Inject{
+		Inject: &podiumv1.Inject{TaskId: taskID, Text: text},
+	}}
+	if err := sess.Send(ctx, msg); err != nil {
+		return fmt.Errorf("inject into task %s on node %s: %w", taskID, nodeID, err)
+	}
+	s.logger.InfoContext(ctx, "task inject sent", "node_id", nodeID, "task_id", taskID)
+	return nil
+}
+
 // Candidates is what the scheduler matches against.
 func (s *Service) Candidates() []Snapshot { return s.reg.Snapshot() }
 

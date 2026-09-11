@@ -208,6 +208,21 @@ describe("useChatStream", () => {
     await waitFor(() => expect(result.current.running).toBe(false));
     expect(result.current.progress).toBeUndefined();
     expect(result.current.taskId).toBeUndefined();
+    expect(result.current.awaiting).toBe(false);
+  });
+
+  it("keeps the composer enabled while an interactive turn is awaiting a reply", async () => {
+    const stream = feed();
+    streamChat.mockImplementation(() => stream);
+    const { result } = renderHook(() => useChatStream("chat_01abc"));
+
+    stream.push(
+      create(ChatFrameSchema, {
+        frame: { case: "status", value: { state: "awaiting", taskId: "task_01xyz" } },
+      }),
+    );
+    await waitFor(() => expect(result.current.awaiting).toBe(true));
+    expect(result.current.running).toBe(true);
   });
 
   it("drops progress as soon as the answer lands", async () => {

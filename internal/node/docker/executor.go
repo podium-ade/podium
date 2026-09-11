@@ -90,6 +90,7 @@ type runState struct {
 	mu          sync.Mutex
 	containerID string
 	cancelled   bool
+	inbox       *inboxLink
 
 	once sync.Once
 }

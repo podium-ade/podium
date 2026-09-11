@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/task.proto.
  */
 export const file_podium_v1_task: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb2RpdW0vdjEvdGFzay5wcm90bxIJcG9kaXVtLnYxIuwDCgRUYXNrEgoKAmlkGAEgASgJEiEKBHNwZWMYAiABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSJQoGc3RhdHVzGAMgASgOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgEIAEoCRIQCghhdHRlbXB0cxgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJZXhpdF9jb2RlGAkgASgFSACIAQESHwoFdXNhZ2UYCiABKAsyEC5wb2RpdW0udjEuVXNhZ2USFAoMcmVxdWVzdGVkX2J5GAsgASgJEhYKDmZhaWx1cmVfcmVhc29uGAwgASgJEhUKDXF1ZXVlZF9yZWFzb24YDSABKAkSPAoYbGFzdF9zY2hlZHVsZV9hdHRlbXB0X2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghwcmlvcml0eRgPIAEoBUIMCgpfZXhpdF9jb2RlIkgKEUNyZWF0ZVRhc2tSZXF1ZXN0EiEKBHNwZWMYASABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSEAoIcHJpb3JpdHkYAiABKAUiMwoSQ3JlYXRlVGFza1Jlc3BvbnNlEh0KBHRhc2sYASABKAsyDy5wb2RpdW0udjEuVGFzayIhCg5HZXRUYXNrUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJIjAKD0dldFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2si0QEKClRhc2tGaWx0ZXISJQoGc3RhdHVzGAEgAygOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgCIAEoCRIUCgxyZXF1ZXN0ZWRfYnkYAyABKAkSDgoGc2VhcmNoGAQgASgJEjEKDWNyZWF0ZWRfYWZ0ZXIYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKDmNyZWF0ZWRfYmVmb3JlGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIlCgRQYWdlEg0KBWxpbWl0GAEgASgFEg4KBmN1cnNvchgCIAEoCSJYChBMaXN0VGFza3NSZXF1ZXN0EiUKBmZpbHRlchgBIAEoCzIVLnBvZGl1bS52MS5UYXNrRmlsdGVyEh0KBHBhZ2UYAiABKAsyDy5wb2RpdW0udjEuUGFnZSJIChFMaXN0VGFza3NSZXNwb25zZRIeCgV0YXNrcxgBIAMoCzIPLnBvZGl1bS52MS5UYXNrEhMKC25leHRfY3Vyc29yGAIgASgJIjQKEUNhbmNlbFRhc2tSZXF1ZXN0Eg8KB3Rhc2tfaWQYASABKAkSDgoGcmVhc29uGAIgASgJIjMKEkNhbmNlbFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2siPAoXU3RyZWFtVGFza0V2ZW50c1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoBDL9AgoLVGFza1NlcnZpY2USSQoKQ3JlYXRlVGFzaxIcLnBvZGl1bS52MS5DcmVhdGVUYXNrUmVxdWVzdBodLnBvZGl1bS52MS5DcmVhdGVUYXNrUmVzcG9uc2USQAoHR2V0VGFzaxIZLnBvZGl1bS52MS5HZXRUYXNrUmVxdWVzdBoaLnBvZGl1bS52MS5HZXRUYXNrUmVzcG9uc2USRgoJTGlzdFRhc2tzEhsucG9kaXVtLnYxLkxpc3RUYXNrc1JlcXVlc3QaHC5wb2RpdW0udjEuTGlzdFRhc2tzUmVzcG9uc2USSQoKQ2FuY2VsVGFzaxIcLnBvZGl1bS52MS5DYW5jZWxUYXNrUmVxdWVzdBodLnBvZGl1bS52MS5DYW5jZWxUYXNrUmVzcG9uc2USTgoQU3RyZWFtVGFza0V2ZW50cxIiLnBvZGl1bS52MS5TdHJlYW1UYXNrRXZlbnRzUmVxdWVzdBoULnBvZGl1bS52MS5UYXNrRXZlbnQwAUKfAQoNY29tLnBvZGl1bS52MUIJVGFza1Byb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_podium_v1_common, file_podium_v1_node]);
+  fileDesc("ChRwb2RpdW0vdjEvdGFzay5wcm90bxIJcG9kaXVtLnYxIuwDCgRUYXNrEgoKAmlkGAEgASgJEiEKBHNwZWMYAiABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSJQoGc3RhdHVzGAMgASgOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgEIAEoCRIQCghhdHRlbXB0cxgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJZXhpdF9jb2RlGAkgASgFSACIAQESHwoFdXNhZ2UYCiABKAsyEC5wb2RpdW0udjEuVXNhZ2USFAoMcmVxdWVzdGVkX2J5GAsgASgJEhYKDmZhaWx1cmVfcmVhc29uGAwgASgJEhUKDXF1ZXVlZF9yZWFzb24YDSABKAkSPAoYbGFzdF9zY2hlZHVsZV9hdHRlbXB0X2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghwcmlvcml0eRgPIAEoBUIMCgpfZXhpdF9jb2RlIkgKEUNyZWF0ZVRhc2tSZXF1ZXN0EiEKBHNwZWMYASABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSEAoIcHJpb3JpdHkYAiABKAUiMwoSQ3JlYXRlVGFza1Jlc3BvbnNlEh0KBHRhc2sYASABKAsyDy5wb2RpdW0udjEuVGFzayIhCg5HZXRUYXNrUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJIjAKD0dldFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2si0QEKClRhc2tGaWx0ZXISJQoGc3RhdHVzGAEgAygOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgCIAEoCRIUCgxyZXF1ZXN0ZWRfYnkYAyABKAkSDgoGc2VhcmNoGAQgASgJEjEKDWNyZWF0ZWRfYWZ0ZXIYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKDmNyZWF0ZWRfYmVmb3JlGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIlCgRQYWdlEg0KBWxpbWl0GAEgASgFEg4KBmN1cnNvchgCIAEoCSJYChBMaXN0VGFza3NSZXF1ZXN0EiUKBmZpbHRlchgBIAEoCzIVLnBvZGl1bS52MS5UYXNrRmlsdGVyEh0KBHBhZ2UYAiABKAsyDy5wb2RpdW0udjEuUGFnZSJIChFMaXN0VGFza3NSZXNwb25zZRIeCgV0YXNrcxgBIAMoCzIPLnBvZGl1bS52MS5UYXNrEhMKC25leHRfY3Vyc29yGAIgASgJIjQKEUNhbmNlbFRhc2tSZXF1ZXN0Eg8KB3Rhc2tfaWQYASABKAkSDgoGcmVhc29uGAIgASgJIjMKEkNhbmNlbFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2siMgoRSW5qZWN0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhQKEkluamVjdFRhc2tSZXNwb25zZSI8ChdTdHJlYW1UYXNrRXZlbnRzUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEMsgDCgtUYXNrU2VydmljZRJJCgpDcmVhdGVUYXNrEhwucG9kaXVtLnYxLkNyZWF0ZVRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkNyZWF0ZVRhc2tSZXNwb25zZRJACgdHZXRUYXNrEhkucG9kaXVtLnYxLkdldFRhc2tSZXF1ZXN0GhoucG9kaXVtLnYxLkdldFRhc2tSZXNwb25zZRJGCglMaXN0VGFza3MSGy5wb2RpdW0udjEuTGlzdFRhc2tzUmVxdWVzdBocLnBvZGl1bS52MS5MaXN0VGFza3NSZXNwb25zZRJJCgpDYW5jZWxUYXNrEhwucG9kaXVtLnYxLkNhbmNlbFRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkNhbmNlbFRhc2tSZXNwb25zZRJJCgpJbmplY3RUYXNrEhwucG9kaXVtLnYxLkluamVjdFRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkluamVjdFRhc2tSZXNwb25zZRJOChBTdHJlYW1UYXNrRXZlbnRzEiIucG9kaXVtLnYxLlN0cmVhbVRhc2tFdmVudHNSZXF1ZXN0GhQucG9kaXVtLnYxLlRhc2tFdmVudDABQp8BCg1jb20ucG9kaXVtLnYxQglUYXNrUHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_podium_v1_common, file_podium_v1_node]);
 
 /**
  * @generated from message podium.v1.Task
@@ -352,6 +352,41 @@ export const CancelTaskResponseSchema: GenMessage<CancelTaskResponse> = /*@__PUR
   messageDesc(file_podium_v1_task, 10);
 
 /**
+ * @generated from message podium.v1.InjectTaskRequest
+ */
+export type InjectTaskRequest = Message<"podium.v1.InjectTaskRequest"> & {
+  /**
+   * @generated from field: string task_id = 1;
+   */
+  taskId: string;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message podium.v1.InjectTaskRequest.
+ * Use `create(InjectTaskRequestSchema)` to create a new message.
+ */
+export const InjectTaskRequestSchema: GenMessage<InjectTaskRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_task, 11);
+
+/**
+ * @generated from message podium.v1.InjectTaskResponse
+ */
+export type InjectTaskResponse = Message<"podium.v1.InjectTaskResponse"> & {
+};
+
+/**
+ * Describes the message podium.v1.InjectTaskResponse.
+ * Use `create(InjectTaskResponseSchema)` to create a new message.
+ */
+export const InjectTaskResponseSchema: GenMessage<InjectTaskResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_task, 12);
+
+/**
  * @generated from message podium.v1.StreamTaskEventsRequest
  */
 export type StreamTaskEventsRequest = Message<"podium.v1.StreamTaskEventsRequest"> & {
@@ -373,7 +408,7 @@ export type StreamTaskEventsRequest = Message<"podium.v1.StreamTaskEventsRequest
  * Use `create(StreamTaskEventsRequestSchema)` to create a new message.
  */
 export const StreamTaskEventsRequestSchema: GenMessage<StreamTaskEventsRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 11);
+  messageDesc(file_podium_v1_task, 13);
 
 /**
  * TaskService is the operator-facing API used by the CLI and the web UI.
@@ -412,6 +447,19 @@ export const TaskService: GenService<{
     methodKind: "unary";
     input: typeof CancelTaskRequestSchema;
     output: typeof CancelTaskResponseSchema;
+  },
+  /**
+   * InjectTask delivers one human message into a running task's inbox. It does not
+   * cancel, finish, or otherwise move the task: the container stays up, and whatever
+   * is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+   * Refused if the task is not running or has no node.
+   *
+   * @generated from rpc podium.v1.TaskService.InjectTask
+   */
+  injectTask: {
+    methodKind: "unary";
+    input: typeof InjectTaskRequestSchema;
+    output: typeof InjectTaskResponseSchema;
   },
   /**
    * StreamTaskEvents replays stored events from from_seq and then follows live ones.

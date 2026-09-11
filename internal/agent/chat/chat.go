@@ -94,6 +94,9 @@ type live struct {
 	// spoke records whether anything durable has been stored since this turn started, so a
 	// failure with no words of its own still leaves something behind for a reload.
 	spoke bool
+	// awaiting is true while an interactive turn has asked a question and is waiting for
+	// a reply. Send is allowed then: the text is injected into the running task.
+	awaiting bool
 }
 
 // Source is the chat as the conductor sees it: a conductor.Source like any other.
@@ -183,8 +186,11 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		// login's chat is itself something this caller has no business learning.
 		return store.ChatMessage{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, req.ChatID)
 	}
-	if err := s.claim(ctx, req.ChatID); err != nil {
-		return store.ChatMessage{}, err
+	reply := s.awaiting(req.ChatID)
+	if !reply {
+		if err := s.claim(ctx, req.ChatID); err != nil {
+			return store.ChatMessage{}, err
+		}
 	}
 
 	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
@@ -194,7 +200,9 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		TS:     time.Now().UTC(),
 	})
 	if err != nil {
-		s.release(req.ChatID)
+		if !reply {
+			s.release(req.ChatID)
+		}
 		return store.ChatMessage{}, err
 	}
 	s.bcast.Publish(req.ChatID, Frame{Kind: FrameMessage, Message: msg})
@@ -218,7 +226,9 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	case <-ctx.Done():
 		// The message is stored and will be in the next turn's transcript, but nothing is
 		// going to answer it, so the composer must not stay disabled.
-		s.release(req.ChatID)
+		if !reply {
+			s.release(req.ChatID)
+		}
 		return store.ChatMessage{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
 	return msg, nil
@@ -320,7 +330,31 @@ func (s *Source) release(chatID string) {
 	defer s.mu.Unlock()
 	if st := s.live[chatID]; st != nil {
 		st.busy = false
+		st.awaiting = false
 	}
+}
+
+func (s *Source) awaiting(chatID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.live[chatID] != nil && s.live[chatID].awaiting
+}
+
+// Awaiting reports whether this chat is parked on a human reply, so a browser that
+// reconnects can enable the composer instead of treating the turn as busy.
+func (s *Source) Awaiting(chatID string) bool {
+	return s.awaiting(chatID)
+}
+
+func (s *Source) setAwaiting(chatID string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.live[chatID]
+	if st == nil {
+		st = &live{}
+		s.live[chatID] = st
+	}
+	st.awaiting = on
 }
 
 // noteSpoke records that something durable was stored for the turn in flight.
@@ -484,13 +518,20 @@ func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachme
 func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction) error {
 	switch kind {
 	case conductor.ReactionWorking:
+		s.setAwaiting(ref, false)
 		s.bcast.Publish(ref, Frame{Kind: FrameStatus, State: StatusStarted})
 		return nil
+	case conductor.ReactionAwaiting:
+		s.setAwaiting(ref, true)
+		s.bcast.Publish(ref, Frame{Kind: FrameStatus, State: StatusAwaiting})
+		return nil
 	case conductor.ReactionDone:
+		s.setAwaiting(ref, false)
 		s.release(ref)
 		s.bcast.Publish(ref, Frame{Kind: FrameStatus, State: StatusFinished})
 		return nil
 	case conductor.ReactionFailed:
+		s.setAwaiting(ref, false)
 		spoke := s.tookSpoke(ref)
 		s.release(ref)
 		var err error

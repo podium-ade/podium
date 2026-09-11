@@ -133,6 +133,7 @@ func TestContainerEnvIsDeterministic(t *testing.T) {
 		"PODIUM_LEASE_ID=lease_1",
 		"PODIUM_WORKDIR=/workspace",
 		"PODIUM_EVENTS_SOCK=/podium/events.sock",
+		"PODIUM_INBOX_SOCK=/podium/inbox.sock",
 	}, containerEnv(req, "/workspace"))
 }
 

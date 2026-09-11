@@ -41,6 +41,8 @@ const (
 	TaskServiceListTasksProcedure = "/podium.v1.TaskService/ListTasks"
 	// TaskServiceCancelTaskProcedure is the fully-qualified name of the TaskService's CancelTask RPC.
 	TaskServiceCancelTaskProcedure = "/podium.v1.TaskService/CancelTask"
+	// TaskServiceInjectTaskProcedure is the fully-qualified name of the TaskService's InjectTask RPC.
+	TaskServiceInjectTaskProcedure = "/podium.v1.TaskService/InjectTask"
 	// TaskServiceStreamTaskEventsProcedure is the fully-qualified name of the TaskService's
 	// StreamTaskEvents RPC.
 	TaskServiceStreamTaskEventsProcedure = "/podium.v1.TaskService/StreamTaskEvents"
@@ -52,6 +54,11 @@ type TaskServiceClient interface {
 	GetTask(context.Context, *connect.Request[v1.GetTaskRequest]) (*connect.Response[v1.GetTaskResponse], error)
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// InjectTask delivers one human message into a running task's inbox. It does not
+	// cancel, finish, or otherwise move the task: the container stays up, and whatever
+	// is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+	// Refused if the task is not running or has no node.
+	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.
 	StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest]) (*connect.ServerStreamForClient[v1.TaskEvent], error)
 }
@@ -91,6 +98,12 @@ func NewTaskServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(taskServiceMethods.ByName("CancelTask")),
 			connect.WithClientOptions(opts...),
 		),
+		injectTask: connect.NewClient[v1.InjectTaskRequest, v1.InjectTaskResponse](
+			httpClient,
+			baseURL+TaskServiceInjectTaskProcedure,
+			connect.WithSchema(taskServiceMethods.ByName("InjectTask")),
+			connect.WithClientOptions(opts...),
+		),
 		streamTaskEvents: connect.NewClient[v1.StreamTaskEventsRequest, v1.TaskEvent](
 			httpClient,
 			baseURL+TaskServiceStreamTaskEventsProcedure,
@@ -106,6 +119,7 @@ type taskServiceClient struct {
 	getTask          *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
 	listTasks        *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
 	cancelTask       *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
+	injectTask       *connect.Client[v1.InjectTaskRequest, v1.InjectTaskResponse]
 	streamTaskEvents *connect.Client[v1.StreamTaskEventsRequest, v1.TaskEvent]
 }
 
@@ -129,6 +143,11 @@ func (c *taskServiceClient) CancelTask(ctx context.Context, req *connect.Request
 	return c.cancelTask.CallUnary(ctx, req)
 }
 
+// InjectTask calls podium.v1.TaskService.InjectTask.
+func (c *taskServiceClient) InjectTask(ctx context.Context, req *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error) {
+	return c.injectTask.CallUnary(ctx, req)
+}
+
 // StreamTaskEvents calls podium.v1.TaskService.StreamTaskEvents.
 func (c *taskServiceClient) StreamTaskEvents(ctx context.Context, req *connect.Request[v1.StreamTaskEventsRequest]) (*connect.ServerStreamForClient[v1.TaskEvent], error) {
 	return c.streamTaskEvents.CallServerStream(ctx, req)
@@ -140,6 +159,11 @@ type TaskServiceHandler interface {
 	GetTask(context.Context, *connect.Request[v1.GetTaskRequest]) (*connect.Response[v1.GetTaskResponse], error)
 	ListTasks(context.Context, *connect.Request[v1.ListTasksRequest]) (*connect.Response[v1.ListTasksResponse], error)
 	CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error)
+	// InjectTask delivers one human message into a running task's inbox. It does not
+	// cancel, finish, or otherwise move the task: the container stays up, and whatever
+	// is waiting on the inbox — an interactive playbook's ask tool — reads the text.
+	// Refused if the task is not running or has no node.
+	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.
 	StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest], *connect.ServerStream[v1.TaskEvent]) error
 }
@@ -175,6 +199,12 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(taskServiceMethods.ByName("CancelTask")),
 		connect.WithHandlerOptions(opts...),
 	)
+	taskServiceInjectTaskHandler := connect.NewUnaryHandler(
+		TaskServiceInjectTaskProcedure,
+		svc.InjectTask,
+		connect.WithSchema(taskServiceMethods.ByName("InjectTask")),
+		connect.WithHandlerOptions(opts...),
+	)
 	taskServiceStreamTaskEventsHandler := connect.NewServerStreamHandler(
 		TaskServiceStreamTaskEventsProcedure,
 		svc.StreamTaskEvents,
@@ -191,6 +221,8 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 			taskServiceListTasksHandler.ServeHTTP(w, r)
 		case TaskServiceCancelTaskProcedure:
 			taskServiceCancelTaskHandler.ServeHTTP(w, r)
+		case TaskServiceInjectTaskProcedure:
+			taskServiceInjectTaskHandler.ServeHTTP(w, r)
 		case TaskServiceStreamTaskEventsProcedure:
 			taskServiceStreamTaskEventsHandler.ServeHTTP(w, r)
 		default:
@@ -216,6 +248,10 @@ func (UnimplementedTaskServiceHandler) ListTasks(context.Context, *connect.Reque
 
 func (UnimplementedTaskServiceHandler) CancelTask(context.Context, *connect.Request[v1.CancelTaskRequest]) (*connect.Response[v1.CancelTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.CancelTask is not implemented"))
+}
+
+func (UnimplementedTaskServiceHandler) InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.InjectTask is not implemented"))
 }
 
 func (UnimplementedTaskServiceHandler) StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest], *connect.ServerStream[v1.TaskEvent]) error {

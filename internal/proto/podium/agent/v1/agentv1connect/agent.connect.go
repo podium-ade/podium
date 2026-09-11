@@ -275,8 +275,9 @@ type AgentServiceClient interface {
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running: one turn at a time
-	// per conversation is the whole model.
+	// FailedPrecondition while a turn for that chat is already running, unless that turn is
+	// awaiting a human reply (an interactive playbook asked a question): then the text is
+	// injected into the running task and no second turn starts.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.
@@ -920,8 +921,9 @@ type AgentServiceHandler interface {
 	// chat started are kept — they are the audit, not the transcript.
 	DeleteChat(context.Context, *connect.Request[v1.DeleteChatRequest]) (*connect.Response[v1.DeleteChatResponse], error)
 	// SendChatMessage stores one human message and starts a turn on it. It is refused with
-	// FailedPrecondition while a turn for that chat is already running: one turn at a time
-	// per conversation is the whole model.
+	// FailedPrecondition while a turn for that chat is already running, unless that turn is
+	// awaiting a human reply (an interactive playbook asked a question): then the text is
+	// injected into the running task and no second turn starts.
 	SendChatMessage(context.Context, *connect.Request[v1.SendChatMessageRequest]) (*connect.Response[v1.SendChatMessageResponse], error)
 	// StreamChat replays a chat from from_seq and then follows it live. It never ends on its
 	// own; the client cancels. Progress frames are ephemeral and are not replayed.

@@ -26,6 +26,23 @@ type OwnedContainer struct {
 	CreatedAt time.Time
 }
 
+// Inject delivers one human message into a running task's inbox. It does not
+// cancel the task. A task this executor is not running is an error, so the
+// caller can fall back to queueing the message as a new turn.
+func (e *Executor) Inject(taskID, text string) error {
+	rs := e.lookup(taskID)
+	if rs == nil {
+		return fmt.Errorf("inject: task %s is not running on this node", taskID)
+	}
+	rs.mu.Lock()
+	inbox := rs.inbox
+	rs.mu.Unlock()
+	if err := inbox.write(text); err != nil {
+		return fmt.Errorf("inject into task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // Cancel asks the task's container to stop: SIGTERM, then SIGKILL after a 30s
 // grace period. It is idempotent, returns immediately, and does nothing for a
 // task this executor is not running. The run reports the resulting exit
@@ -172,6 +189,9 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, keepWorkspace bo
 	// executor that had to keep its sockets elsewhere removes this one by hand.
 	if err := os.Remove(e.eventsSocketPath(taskID)); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("remove event socket for %s: %w", taskID, err))
+	}
+	if err := os.Remove(e.inboxSocketPath(taskID)); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("remove inbox socket for %s: %w", taskID, err))
 	}
 
 	return errors.Join(errs...)

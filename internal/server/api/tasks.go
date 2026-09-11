@@ -23,6 +23,11 @@ type Canceller interface {
 	Cancel(ctx context.Context, nodeID, taskID, reason string) error
 }
 
+// Injector is the node registry's path for a human message into a running task.
+type Injector interface {
+	Inject(ctx context.Context, nodeID, taskID, text string) error
+}
+
 // Events is the logs service, as much of it as the API needs.
 type Events interface {
 	Subscribe(ctx context.Context, taskID string, fromSeq uint64) (<-chan *podiumv1.TaskEvent, error)
@@ -40,16 +45,22 @@ type TaskService struct {
 	store   *store.Store
 	events  Events
 	nodes   Canceller
+	inject  Injector
 	secrets SecretChecker
 	logger  *slog.Logger
 }
 
-// NewTaskService returns the task API.
+// NewTaskService returns the task API. injector may be the same object as canceller
+// (the node registry implements both); nil means InjectTask is unavailable.
 func NewTaskService(st *store.Store, events Events, canceller Canceller, checker SecretChecker, logger *slog.Logger) *TaskService {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &TaskService{store: st, events: events, nodes: canceller, secrets: checker, logger: logger}
+	s := &TaskService{store: st, events: events, nodes: canceller, secrets: checker, logger: logger}
+	if inj, ok := canceller.(Injector); ok {
+		s.inject = inj
+	}
+	return s
 }
 
 // CreateTask validates the spec and queues the task. Scheduling is the scheduler's problem.
@@ -209,6 +220,45 @@ func (s *TaskService) CancelTask(
 	}
 	s.logger.InfoContext(ctx, "task cancel requested", "task_id", taskID, "status", task.Status, "reason", reason)
 	return connect.NewResponse(&podiumv1.CancelTaskResponse{Task: taskToProto(task)}), nil
+}
+
+// InjectTask delivers one human message into a running task. The container stays up.
+func (s *TaskService) InjectTask(
+	ctx context.Context,
+	req *connect.Request[podiumv1.InjectTaskRequest],
+) (*connect.Response[podiumv1.InjectTaskResponse], error) {
+	taskID := req.Msg.GetTaskId()
+	text := strings.TrimSpace(req.Msg.GetText())
+	if taskID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: task_id is required"))
+	}
+	if text == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("inject task: text is required"))
+	}
+	if s.inject == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("inject task: this server cannot reach a node"))
+	}
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if task.Status.Terminal() {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("inject task %s: it is already %s", taskID, task.Status))
+	}
+	if task.Status != store.StatusRunning {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("inject task %s: it is %s, not running", taskID, task.Status))
+	}
+	if task.NodeID == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("inject task %s: it has no node", taskID))
+	}
+	if err := s.inject.Inject(ctx, task.NodeID, taskID, text); err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	s.logger.InfoContext(ctx, "task inject requested", "task_id", taskID, "node_id", task.NodeID)
+	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
 }
 
 // StreamTaskEvents replays everything stored after from_seq and then follows the task live. The

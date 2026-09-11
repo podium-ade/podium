@@ -25,9 +25,10 @@ sees the master key, and never touches Docker.
 - **Not a resident model session.** Every inbound message becomes one turn that reads its
   context, works, reports and exits. Nothing about the model is long-lived. Identity, personality
   and memory are; the model context is not.
-- **Not interactive.** A turn ends with an answer, a pull request, or a question for the human.
-  There is no stdin, exec, attach or port-forward into a running task — see
-  [`concepts.md#what-a-task-is-not`](concepts.md).
+- **Not a shell.** There is no stdin, exec, attach or port-forward into a running task — see
+  [`concepts.md#what-a-task-is-not`](concepts.md). A playbook may opt into **interactive**
+  turns (`interactive: true`): the agent asks a question with a tool, the container stays
+  up, and the next human message is injected into that same task. Off by default.
 - **Not the owner of the conversation.** A Slack thread *is* the conversation. The conductor
   fetches it and hands it to the turn; it stores turn records, not transcripts.
 - **Not a log consumer.** It reads a task's `message` events and nothing else. If you want the
@@ -77,7 +78,10 @@ costs a container.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
-and the next turn starts from it as soon as the running one ends.
+and the next turn starts from it as soon as the running one ends. An **interactive** playbook
+is the exception: a `question` message parks the turn, and the next human message is injected
+into the same container instead of queued. Waiting still counts against the playbook timeout,
+and one ask waits at most ten minutes.
 
 **Progress.** The placeholder is exactly `👀 working…`. Each `progress` message the runtime emits
 replaces it by an edit, prefixed `⏳ `, at most one edit every two seconds — the newest text wins,
@@ -495,6 +499,7 @@ secrets:                                                     # verbatim into the
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
+interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
 skills: []                                                   # Agent Skills this playbook may use
@@ -605,6 +610,25 @@ Two things a playbook using it has to know:
 - **Serve on `0.0.0.0`, and address your own container as `task`.** A server the turn starts on
   loopback is reachable by nothing else; the browser is somewhere else. `http://task:8080` is
   what it should be told to open.
+
+#### `interactive:` — ask and wait in the same container
+
+Off by default. When on, a turn of this playbook gets a `human_ask` tool: the model posts a
+question into the conversation and **waits** for the next human message, in the same container,
+with the same clones and sidecars. The reply is injected over the node stream; it does not
+start a second turn.
+
+Waiting still counts against the playbook's `timeout`. One ask waits at most ten minutes, then
+the tool returns an error and the model can continue or stop. A playbook that did not set this
+must not grow a wait: a parked container still holds a node slot.
+
+```yaml
+interactive: true
+timeout: 30m
+```
+
+The web chat composer stays enabled while the turn is awaiting a reply. Slack and Linear keep
+the working reaction; the question is the message in the thread.
 
 #### `skills:` — third-party Agent Skills
 

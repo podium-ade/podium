@@ -468,6 +468,10 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 		add = emojiDone
 	case conductor.ReactionFailed:
 		add = emojiFailed
+	case conductor.ReactionAwaiting:
+		// The question is in the thread; keep the working emoji so the mention still
+		// looks in-flight rather than done.
+		return nil
 	default:
 		return fmt.Errorf("slack: %q is not a reaction", kind)
 	}

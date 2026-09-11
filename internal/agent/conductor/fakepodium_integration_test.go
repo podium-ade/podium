@@ -50,6 +50,8 @@ type fakePodium struct {
 	// cancelled by their conversation being deleted and by the turn that started them, so
 	// the fake records rather than refuses.
 	cancels []*podiumv1.CancelTaskRequest
+	// injects is every InjectTask the conductor asked for, in order.
+	injects []*podiumv1.InjectTaskRequest
 
 	srv *httptest.Server
 }
@@ -262,6 +264,24 @@ func (f *fakePodium) Cancels() []*podiumv1.CancelTaskRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]*podiumv1.CancelTaskRequest(nil), f.cancels...)
+}
+
+func (f *fakePodium) InjectTask(
+	_ context.Context, req *connect.Request[podiumv1.InjectTaskRequest],
+) (*connect.Response[podiumv1.InjectTaskResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.injects = append(f.injects, req.Msg)
+	if _, ok := f.tasks[req.Msg.GetTaskId()]; !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
+	}
+	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
+}
+
+func (f *fakePodium) Injects() []*podiumv1.InjectTaskRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*podiumv1.InjectTaskRequest(nil), f.injects...)
 }
 
 func (f *fakePodium) ListArtifacts(
