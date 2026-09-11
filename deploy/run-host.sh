@@ -131,8 +131,22 @@ if [ "${PODIUM_AGENT_RUNNER_BIN:-}" = auto ]; then
 	}
 fi
 
-# Where the server is reached, which differs by transport: a tailnet device name, or the
-# local transport's loopback listener.
+# Turn a bind address into something curl can dial on this machine. 0.0.0.0 and :: are
+# listen-any, not URLs; the host-network deployment binds them and names the real URL
+# as PODIUM_SERVER.
+dialable_listen() {
+	addr=${1:-127.0.0.1:8080}
+	host=${addr%:*}
+	port=${addr##*:}
+	case $host in
+	0.0.0.0|\[::\]|"") echo "127.0.0.1:$port" ;;
+	*) echo "$addr" ;;
+	esac
+}
+
+# Where the server is reached, which differs by transport: a tailnet device name, the
+# local transport's loopback listener, or — on a host-network deployment — the URL
+# clients dial on the network this machine is already on.
 if [ "$PODIUM_TRANSPORT" = tailnet ]; then
 	# PODIUM_TAILNET is only ever used to build this URL, so a deployment that names the
 	# server outright — a CNAME, a device that is not called `podium` — needs neither.
@@ -144,7 +158,18 @@ if [ "$PODIUM_TRANSPORT" = tailnet ]; then
 		PODIUM_SERVER=https://podium.${PODIUM_TAILNET}.ts.net
 	fi
 else
-	: "${PODIUM_SERVER:=http://${PODIUM_LOCAL_LISTEN:-127.0.0.1:8080}}"
+	listen=${PODIUM_LOCAL_LISTEN:-127.0.0.1:8080}
+	case ${listen%:*} in
+	0.0.0.0|\[::\]|"")
+		[ -n "${PODIUM_SERVER:-}" ] || {
+			echo "PODIUM_LOCAL_LISTEN=$listen binds every interface; set PODIUM_SERVER to the URL clients dial (this host's VPN, WireGuard or LAN address)" >&2
+			exit 1
+		}
+		;;
+	*)
+		: "${PODIUM_SERVER:=http://$listen}"
+		;;
+	esac
 fi
 : "${PODIUM_AGENT_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_SERVER:=$PODIUM_SERVER}"
@@ -169,7 +194,16 @@ export PODIUM_AGENT_HOST_RUNTIME PODIUM_AGENT_RUNNER_BIN
 # was given a metrics listener, so it is started and not waited on.
 health_url() {
 	case $1 in
-	server) echo "$PODIUM_SERVER/healthz" ;;
+	server)
+		# Probe the socket this process bound, not PODIUM_SERVER: on a host-network
+		# deployment that URL is the VPN name clients use, which may not resolve here
+		# yet. Tailnet has no other address.
+		if [ "$PODIUM_TRANSPORT" = tailnet ]; then
+			echo "$PODIUM_SERVER/healthz"
+		else
+			echo "http://$(dialable_listen "${PODIUM_LOCAL_LISTEN:-127.0.0.1:8080}")/healthz"
+		fi
+		;;
 	agent) echo "$PODIUM_AGENT_URL/readyz" ;;
 	*) echo "" ;;
 	esac

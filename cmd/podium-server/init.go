@@ -13,7 +13,16 @@ import (
 
 	"github.com/podium-ade/podium/internal/server"
 	"github.com/podium-ade/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/transport/local"
 )
+
+// hostNetworkTransport is init's --transport value for a host-network deployment:
+// the stack uses this machine's routing table (LAN, WireGuard, a corporate VPN)
+// instead of joining a Tailscale tailnet. The server still runs
+// PODIUM_TRANSPORT=local — a VPN does not name the caller, so the shared token
+// is the credential. The string "host" here is Docker's network_mode, not
+// server.TransportHost, which borrows the machine's tailscaled.
+const hostNetworkTransport = "host"
 
 // initSecrets are the values `init` mints. They are separated from the rendering so the
 // rendering is a pure function and can be tested without touching the filesystem.
@@ -33,24 +42,30 @@ func newInitCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Generate a master key and a filled .env for deploy/docker-compose.yml",
-		Long: "Generate a master key and a filled .env for deploy/docker-compose.yml.\n\n" +
+		Short: "Generate a master key and a filled .env for the matching compose file",
+		Long: "Generate a master key and a filled .env for the matching compose file.\n\n" +
 			"Run it in the directory holding the compose file — the deploy/ directory you\n" +
 			"copied onto the host. It writes two files and never overwrites either:\n\n" +
 			"  master.key   the AES-256 key every stored secret is encrypted under, mode 0600\n" +
 			"  .env         the compose file's variables, with fresh random credentials\n\n" +
+			"--transport selects the deployment:\n\n" +
+			"  local    loopback, one shared token. docker-compose.yml\n" +
+			"  tailnet  HTTPS on a MagicDNS name, no token. docker-compose.tailnet.yml\n" +
+			"  host     this machine's routing (LAN, WireGuard, a corporate VPN),\n" +
+			"           still the shared token. docker-compose.host.yml\n\n" +
 			"With --transport tailnet the .env also carries the two values only you can\n" +
 			"supply — TS_AUTHKEY and PODIUM_TAILNET — and the command reports whether the\n" +
-			"Tailscale prerequisites are in place.\n\n" +
+			"Tailscale prerequisites are in place. With --transport host it leaves\n" +
+			"PODIUM_SERVER for you: the URL clients dial on the network you already have.\n\n" +
 			"Back master.key up somewhere that is not this machine. There is no recovery\n" +
 			"path: losing it loses every secret encrypted under it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			switch transport {
-			case server.TransportLocal, server.TransportTailnet:
+			case server.TransportLocal, server.TransportTailnet, hostNetworkTransport:
 			default:
-				return fmt.Errorf("--transport %q is not a transport (want %s or %s)",
-					transport, server.TransportLocal, server.TransportTailnet)
+				return fmt.Errorf("--transport %q is not a transport (want %s, %s or %s)",
+					transport, server.TransportLocal, server.TransportTailnet, hostNetworkTransport)
 			}
 
 			keyPath := filepath.Join(dir, "master.key")
@@ -96,14 +111,19 @@ func newInitCommand() *cobra.Command {
 			fmt.Fprintf(out, "wrote %s (mode 0600)\n", envPath)
 			fmt.Fprintf(out, "\nBack up %s. Losing it loses every secret encrypted under it.\n", keyPath)
 			reportTailscalePrereqs(out, values)
+			reportHostNetworkNotes(out, values)
 			fmt.Fprintf(out, "\nNext: docker compose -f docker-compose%s.yml up -d --wait\n",
-				map[string]string{server.TransportLocal: "", server.TransportTailnet: ".tailnet"}[transport])
+				map[string]string{
+					server.TransportLocal:   "",
+					server.TransportTailnet: ".tailnet",
+					hostNetworkTransport:    ".host",
+				}[transport])
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "directory to write master.key and .env into")
 	cmd.Flags().StringVar(&transport, "transport", server.TransportLocal,
-		"which deployment this is: dev (loopback) or tailnet")
+		"which deployment this is: local (loopback), tailnet, or host (this machine's routing)")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "",
 		"your tailnet's MagicDNS suffix without .ts.net (for example tail0a1b2c); tailnet transport only")
 	cmd.Flags().BoolVar(&force, "force", false, "write .env even if one already exists")
@@ -160,6 +180,20 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# afterwards.\n")
 		b.WriteString("TS_AUTHKEY=\n")
 		b.WriteString("PODIUM_NODE_TS_AUTHKEY=\n\n")
+	} else if v.Transport == hostNetworkTransport {
+		// PODIUM_TRANSPORT stays local: a VPN does not name the caller. `host` as a
+		// PODIUM_TRANSPORT value means borrow tailscaled, which is a different deployment.
+		b.WriteString("# Host-network deployment: this machine's routing table (LAN, WireGuard,\n")
+		b.WriteString("# a corporate VPN). Podium does not add a tunnel. Authentication is the\n")
+		b.WriteString("# local transport's shared token — a VPN does not name the caller.\n")
+		b.WriteString("PODIUM_TRANSPORT=local\n")
+		b.WriteString("PODIUM_LOCAL_LISTEN=0.0.0.0:8080\n")
+		b.WriteString(local.UnsafeListenVar + "=true\n")
+		b.WriteString("PODIUM_LOCAL_TOKEN=" + v.LocalToken + "\n\n")
+		b.WriteString("# The URL clients and remote workers dial — this host's address on the\n")
+		b.WriteString("# network you already have. 0.0.0.0 is a bind address, not a URL.\n")
+		b.WriteString("# Example: http://10.8.0.2:8080  or  http://podium.corp.example:8080\n")
+		b.WriteString("PODIUM_SERVER=\n\n")
 	} else {
 		b.WriteString("# The local transport's shared bearer token. Every API call and the web UI\n")
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
@@ -212,4 +246,22 @@ func reportTailscalePrereqs(w io.Writer, v initSecrets) {
 		"      https://tailscale.com/kb/1153/enabling-https\n")
 	fmt.Fprintf(w, "  [?] Apply deploy/tailscale-acl.example.json to your Access Controls, merged\n"+
 		"      with whatever policy you already have.\n")
+}
+
+// reportHostNetworkNotes is the host-network equivalent of reportTailscalePrereqs: what
+// only the operator can fill in, because Podium cannot see their VPN from here.
+func reportHostNetworkNotes(w io.Writer, v initSecrets) {
+	if v.Transport != hostNetworkTransport {
+		return
+	}
+	fmt.Fprintf(w, "\nHost-network deployment:\n")
+	fmt.Fprintf(w, "  [ ] PODIUM_SERVER is empty in .env. Set it to the URL clients dial on\n"+
+		"      your network (this host's WireGuard, VPN or LAN address), for example\n"+
+		"      http://10.8.0.2:8080. 0.0.0.0 is not a dial address.\n")
+	fmt.Fprintf(w, "  [?] This machine's routing already reaches the workers, and theirs\n"+
+		"      already reaches this machine. Podium will not add a tunnel.\n")
+	fmt.Fprintf(w, "  [?] docker-compose.host.yml uses network_mode: host for the server,\n"+
+		"      conductor and node. That is a Linux Engine feature; on Docker Desktop\n"+
+		"      use `make stack-up` instead — host binaries already use this machine's\n"+
+		"      routes. Same .env either way.\n")
 }

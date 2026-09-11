@@ -281,6 +281,7 @@ func TestTheComposeServerConfigurationStarts(t *testing.T) {
 	}{
 		{file: "docker-compose.yml", transport: server.TransportLocal},
 		{file: "docker-compose.tailnet.yml", transport: server.TransportTailnet},
+		{file: "docker-compose.host.yml", transport: server.TransportLocal},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			env := composeServiceEnv(t, tc.file, "server", map[string]string{
@@ -323,6 +324,23 @@ func TestTheComposeServerBindsEveryInterfaceOnPurpose(t *testing.T) {
 
 	require.Error(t, local.CheckListen(env["PODIUM_LOCAL_LISTEN"], false),
 		"the loopback rule still stands for everyone who has not asked for the waiver")
+	require.NoError(t, local.CheckListen(env["PODIUM_LOCAL_LISTEN"], true))
+}
+
+// TestTheHostComposeServerBindsTheHost is the same waiver, for a different reason:
+// docker-compose.host.yml puts the server in the host's network namespace so a worker
+// on the other side of a WireGuard (or VPN, or LAN) has a real address to dial.
+func TestTheHostComposeServerBindsTheHost(t *testing.T) {
+	env := composeServiceEnv(t, "docker-compose.host.yml", "server", map[string]string{
+		"PODIUM_PG_PASSWORD":   "pgpassword",
+		"PODIUM_LOCAL_TOKEN":   "devtoken",
+		"PODIUM_S3_SECRET_KEY": "s3secretkey",
+		"PODIUM_AGENT_TOKEN":   "agenttoken",
+	})
+	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"],
+		"host-network auth is still the local token; PODIUM_TRANSPORT=host talks to tailscaled")
+	require.Equal(t, "0.0.0.0:8080", env["PODIUM_LOCAL_LISTEN"])
+	require.Equal(t, "true", env[local.UnsafeListenVar])
 	require.NoError(t, local.CheckListen(env["PODIUM_LOCAL_LISTEN"], true))
 }
 
