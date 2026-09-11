@@ -138,8 +138,9 @@ service AgentService {
   // chat started are kept — they are the audit, not the transcript.
   rpc DeleteChat(DeleteChatRequest) returns (DeleteChatResponse);
   // SendChatMessage stores one human message and starts a turn on it. It is refused with
-  // FailedPrecondition while a turn for that chat is already running: one turn at a time
-  // per conversation is the whole model.
+  // FailedPrecondition while a turn for that chat is already running, unless that turn is
+  // awaiting a human reply (an interactive playbook asked a question): then the text is
+  // injected into the running task and no second turn starts.
   rpc SendChatMessage(SendChatMessageRequest) returns (SendChatMessageResponse);
   // StreamChat replays a chat from from_seq and then follows it live. It never ends on its
   // own; the client cancels. Progress frames are ephemeral and are not replayed.
@@ -606,7 +607,8 @@ message Chat {
   // preview is the first 80 characters of the last message, for the chat list.
   string preview = 5;
   // turn_running is true while a turn of this chat is in flight, which is when the
-  // composer is disabled and SendChatMessage answers FailedPrecondition.
+  // composer is disabled and SendChatMessage answers FailedPrecondition — except while
+  // the turn is awaiting a human reply, which a status frame of "awaiting" reports.
   bool turn_running = 6;
   // 7 was playbook, the playbook this chat's last message ran. A chat runs no playbook:
   // the assistant answers it and delegates the work, so there was never one answer to
@@ -685,7 +687,9 @@ message ChatMessage {
 // ChatStatus is a turn's state, pushed to whoever is watching. It is never stored: a reload
 // re-derives it from Chat.turn_running.
 message ChatStatus {
-  // state is started, finished or failed.
+  // state is started, finished, failed or awaiting. awaiting means an interactive
+  // turn posted a question and is waiting for a human reply; the composer is enabled
+  // and SendChatMessage injects into the running task instead of starting a new turn.
   string state = 1;
   string task_id = 2;
 }
@@ -959,6 +963,10 @@ message PlaybookDefinition {
   // read and write whatever that credential can. This list is the whole of what decides
   // which turns do — see docs/security.md.
   repeated string mcp_servers = 24;
+  // interactive lets a turn ask a human a question and wait for the answer in the same
+  // container, instead of ending the turn. Off by default: a waiting container still
+  // holds a node slot, and a playbook that did not ask for this must not grow one.
+  bool interactive = 25;
 }
 
 message GetProfileRequest {}

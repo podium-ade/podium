@@ -407,6 +407,7 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		Env:           s.Env,
 		Origin:        s.Origin,
 		Editable:      s.Origin == profiles.OriginStored,
+		Interactive:   s.Interactive,
 	}
 	if s.Timeout > 0 {
 		out.Timeout = s.Timeout.String()
@@ -448,6 +449,7 @@ func playbookFromProto(in *agentv1.PlaybookDefinition) (profiles.Playbook, error
 		Skills:        in.GetSkills(),
 		MCPServers:    in.GetMcpServers(),
 		Env:           in.GetEnv(),
+		Interactive:   in.GetInteractive(),
 	}
 	if t := strings.TrimSpace(in.GetTimeout()); t != "" {
 		d, err := time.ParseDuration(t)

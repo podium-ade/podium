@@ -44,6 +44,9 @@ const (
 	// TurnServiceCancelDelegationProcedure is the fully-qualified name of the TurnService's
 	// CancelDelegation RPC.
 	TurnServiceCancelDelegationProcedure = "/podium.agent.v1.TurnService/CancelDelegation"
+	// TurnServiceInjectDelegationProcedure is the fully-qualified name of the TurnService's
+	// InjectDelegation RPC.
+	TurnServiceInjectDelegationProcedure = "/podium.agent.v1.TurnService/InjectDelegation"
 )
 
 // TurnServiceClient is a client for the podium.agent.v1.TurnService service.
@@ -54,11 +57,17 @@ type TurnServiceClient interface {
 	// GetDelegation reports where a delegated task has got to, and its answer once it has
 	// one. This is what a turn polls.
 	GetDelegation(context.Context, *connect.Request[v1.GetDelegationRequest]) (*connect.Response[v1.GetDelegationResponse], error)
-	// ListDelegations is everything this turn has delegated, oldest first.
+	// ListDelegations is this conversation's delegated tasks: everything this turn has
+	// started, plus any still running from an earlier turn of the same conversation.
 	ListDelegations(context.Context, *connect.Request[v1.ListDelegationsRequest]) (*connect.Response[v1.ListDelegationsResponse], error)
 	// CancelDelegation stops a delegated task. The same cancel `podium task cancel` performs,
 	// so the node sends the same SIGTERM and honours the same grace.
 	CancelDelegation(context.Context, *connect.Request[v1.CancelDelegationRequest]) (*connect.Response[v1.CancelDelegationResponse], error)
+	// InjectDelegation delivers one human message into a running delegated task of this
+	// conversation. The container stays up; the runtime treats the text as a new user
+	// message in the same workspace. Use it to correct or add to in-flight work rather
+	// than starting a second task.
+	InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error)
 }
 
 // NewTurnServiceClient constructs a client for the podium.agent.v1.TurnService service. By default,
@@ -96,6 +105,12 @@ func NewTurnServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(turnServiceMethods.ByName("CancelDelegation")),
 			connect.WithClientOptions(opts...),
 		),
+		injectDelegation: connect.NewClient[v1.InjectDelegationRequest, v1.InjectDelegationResponse](
+			httpClient,
+			baseURL+TurnServiceInjectDelegationProcedure,
+			connect.WithSchema(turnServiceMethods.ByName("InjectDelegation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -105,6 +120,7 @@ type turnServiceClient struct {
 	getDelegation    *connect.Client[v1.GetDelegationRequest, v1.GetDelegationResponse]
 	listDelegations  *connect.Client[v1.ListDelegationsRequest, v1.ListDelegationsResponse]
 	cancelDelegation *connect.Client[v1.CancelDelegationRequest, v1.CancelDelegationResponse]
+	injectDelegation *connect.Client[v1.InjectDelegationRequest, v1.InjectDelegationResponse]
 }
 
 // Delegate calls podium.agent.v1.TurnService.Delegate.
@@ -127,6 +143,11 @@ func (c *turnServiceClient) CancelDelegation(ctx context.Context, req *connect.R
 	return c.cancelDelegation.CallUnary(ctx, req)
 }
 
+// InjectDelegation calls podium.agent.v1.TurnService.InjectDelegation.
+func (c *turnServiceClient) InjectDelegation(ctx context.Context, req *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error) {
+	return c.injectDelegation.CallUnary(ctx, req)
+}
+
 // TurnServiceHandler is an implementation of the podium.agent.v1.TurnService service.
 type TurnServiceHandler interface {
 	// Delegate starts a Podium task for this turn's conversation and returns immediately. A
@@ -135,11 +156,17 @@ type TurnServiceHandler interface {
 	// GetDelegation reports where a delegated task has got to, and its answer once it has
 	// one. This is what a turn polls.
 	GetDelegation(context.Context, *connect.Request[v1.GetDelegationRequest]) (*connect.Response[v1.GetDelegationResponse], error)
-	// ListDelegations is everything this turn has delegated, oldest first.
+	// ListDelegations is this conversation's delegated tasks: everything this turn has
+	// started, plus any still running from an earlier turn of the same conversation.
 	ListDelegations(context.Context, *connect.Request[v1.ListDelegationsRequest]) (*connect.Response[v1.ListDelegationsResponse], error)
 	// CancelDelegation stops a delegated task. The same cancel `podium task cancel` performs,
 	// so the node sends the same SIGTERM and honours the same grace.
 	CancelDelegation(context.Context, *connect.Request[v1.CancelDelegationRequest]) (*connect.Response[v1.CancelDelegationResponse], error)
+	// InjectDelegation delivers one human message into a running delegated task of this
+	// conversation. The container stays up; the runtime treats the text as a new user
+	// message in the same workspace. Use it to correct or add to in-flight work rather
+	// than starting a second task.
+	InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error)
 }
 
 // NewTurnServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -173,6 +200,12 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(turnServiceMethods.ByName("CancelDelegation")),
 		connect.WithHandlerOptions(opts...),
 	)
+	turnServiceInjectDelegationHandler := connect.NewUnaryHandler(
+		TurnServiceInjectDelegationProcedure,
+		svc.InjectDelegation,
+		connect.WithSchema(turnServiceMethods.ByName("InjectDelegation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.TurnService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TurnServiceDelegateProcedure:
@@ -183,6 +216,8 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 			turnServiceListDelegationsHandler.ServeHTTP(w, r)
 		case TurnServiceCancelDelegationProcedure:
 			turnServiceCancelDelegationHandler.ServeHTTP(w, r)
+		case TurnServiceInjectDelegationProcedure:
+			turnServiceInjectDelegationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -206,4 +241,8 @@ func (UnimplementedTurnServiceHandler) ListDelegations(context.Context, *connect
 
 func (UnimplementedTurnServiceHandler) CancelDelegation(context.Context, *connect.Request[v1.CancelDelegationRequest]) (*connect.Response[v1.CancelDelegationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.CancelDelegation is not implemented"))
+}
+
+func (UnimplementedTurnServiceHandler) InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.InjectDelegation is not implemented"))
 }

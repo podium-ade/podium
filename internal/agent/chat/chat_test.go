@@ -318,6 +318,25 @@ func TestASecondMessageWhileATurnRunsIsRefused(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAReplyWhileAwaitingIsAccepted(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	_, err := src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "first"})
+	require.NoError(t, err)
+	require.NoError(t, src.React(ctx, "chat_1", conductor.ReactionAwaiting))
+
+	_, err = src.Send(ctx, SendRequest{ChatID: "chat_1", Login: "alice", Text: "the answer"})
+	require.NoError(t, err)
+
+	msgs, err := st.ListChatMessages(ctx, "chat_1", 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "the answer", msgs[1].Text)
+}
+
 func TestATurnLeftRunningByADeadProcessStillRefusesASend(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")

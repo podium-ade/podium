@@ -8,7 +8,7 @@
 //   3  max turns reached
 //   4  harness or API error, a missing key, a failed clone, a network failure
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
+import { AskHub, AskWaitEnv, InboxSockEnv, askEntrypoint, inboxSock, readInbox } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -248,6 +249,7 @@ async function main(): Promise<number> {
       delegation: brief.delegation
         ? { url: brief.delegation.url, entry: mcpEntrypoint() }
         : undefined,
+      interactive: brief.playbook.interactive ? { entry: askEntrypoint() } : undefined,
       mcpServers,
     });
   } catch (err) {
@@ -267,92 +269,153 @@ async function main(): Promise<number> {
     delete env[ref.bundle_env];
   }
 
-  let steps = 0;
+  const hub = new AskHub();
+  const askPath = join(configDir, "ask.sock");
   try {
-    const run = oc.start({
-      configDir,
-      workdir: workspace,
-      providerID: brief.provider.id,
-      model: brief.profile.model,
-      effort: brief.profile.effort,
-      instruction: brief.instruction,
-      env,
-    });
-    // A cancel forwards to the harness rather than killing this process, so the turn still
-    // reports what it managed and leaves its artifacts.
-    const stop = () => run.child.kill("SIGTERM");
-    controller.signal.addEventListener("abort", stop, { once: true });
+    unlinkSync(askPath);
+  } catch {
+    // none yet
+  }
+  const stopHub = hub.listen(askPath);
+  env[AskWaitEnv] = askPath;
 
-    // stderr is the harness's own diagnostics. It goes to the task log — which is where an
-    // operator looks — and never into the answer.
-    run.child.stderr.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
+  const inboxIter = onHost(brief)
+    ? undefined
+    : readInbox(process.env[InboxSockEnv] || inboxSock(), controller.signal)[Symbol.asyncIterator]();
+  let pendingInject: Promise<IteratorResult<string>> | undefined;
 
-    for await (const { event, raw } of oc.events(run.child)) {
-      appendTranscriptSafely(raw, artifacts);
+  let steps = 0;
+  let instruction = brief.instruction;
+  let sessionID: string | undefined;
+  try {
+    for (;;) {
+      const run = oc.start({
+        configDir,
+        workdir: workspace,
+        providerID: brief.provider.id,
+        model: brief.profile.model,
+        effort: brief.profile.effort,
+        instruction,
+        sessionID,
+        env,
+      });
+      // A cancel forwards to the harness rather than killing this process, so the turn still
+      // reports what it managed and leaves its artifacts.
+      const stop = () => run.child.kill("SIGTERM");
+      controller.signal.addEventListener("abort", stop, { once: true });
 
-      switch (event.type) {
-        case "step_start":
-          steps += 1;
-          // The harness has no turn cap of its own, so this is the cap: stop it, and say
-          // plainly that the answer is incomplete rather than relaying a half-finished one.
-          // No cap in the brief means exactly that — see brief.ts.
-          if (brief.playbook.max_turns !== undefined && steps > brief.playbook.max_turns) {
-            summary.code = ExitMaxTurns;
-            finalText =
-              `I ran out of turns. I am allowed ${brief.playbook.max_turns} and the work was ` +
-              `not finished, so nothing here is a complete answer.`;
-            run.child.kill("SIGTERM");
+      // stderr is the harness's own diagnostics. It goes to the task log — which is where an
+      // operator looks — and never into the answer.
+      run.child.stderr.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
+
+      const eventIter = oc.events(run.child)[Symbol.asyncIterator]();
+      let pendingEvent: ReturnType<typeof eventIter.next> | undefined;
+      let steered: string | undefined;
+
+      for (;;) {
+        pendingEvent ??= eventIter.next();
+        const waiters: Promise<
+          { kind: "event"; r: Awaited<ReturnType<typeof eventIter.next>> } | { kind: "inject"; r: IteratorResult<string> }
+        >[] = [pendingEvent.then((r) => ({ kind: "event" as const, r }))];
+        if (inboxIter) {
+          pendingInject ??= inboxIter.next();
+          waiters.push(pendingInject.then((r) => ({ kind: "inject" as const, r })));
+        }
+        const winner = await Promise.race(waiters);
+        if (winner.kind === "inject") {
+          pendingInject = undefined;
+          if (winner.r.done) {
+            continue;
           }
+          const text = winner.r.value;
+          if (hub.tryDeliver(text)) {
+            continue;
+          }
+          steered = text;
+          run.child.kill("SIGTERM");
           break;
+        }
+        pendingEvent = undefined;
+        if (winner.r.done) {
+          break;
+        }
+        const { event, raw } = winner.r.value;
+        appendTranscriptSafely(raw, artifacts);
 
-        case "text": {
-          const text = (event.part?.text ?? "").trim();
-          if (text !== "") {
+        switch (event.type) {
+          case "step_start":
+            steps += 1;
+            // The harness has no turn cap of its own, so this is the cap: stop it, and say
+            // plainly that the answer is incomplete rather than relaying a half-finished one.
+            // No cap in the brief means exactly that — see brief.ts.
+            if (brief.playbook.max_turns !== undefined && steps > brief.playbook.max_turns) {
+              summary.code = ExitMaxTurns;
+              finalText =
+                `I ran out of turns. I am allowed ${brief.playbook.max_turns} and the work was ` +
+                `not finished, so nothing here is a complete answer.`;
+              run.child.kill("SIGTERM");
+            }
+            break;
+
+          case "text": {
+            const text = (event.part?.text ?? "").trim();
+            if (text !== "") {
+              await tryProgress();
+              // The last text of the turn is the answer; the ones before it are progress.
+              // Which is which is only known when the stream ends, so every one is held.
+              held = text;
+              finalText = text;
+            }
+            break;
+          }
+
+          case "tool_use":
+            // A tool call is a sign of life rather than something to say, so it only releases
+            // whatever text is already held.
             await tryProgress();
-            // The last text of the turn is the answer; the ones before it are progress.
-            // Which is which is only known when the stream ends, so every one is held.
-            held = text;
-            finalText = text;
+            break;
+
+          case "step_finish": {
+            const part = event.part;
+            summary.turns = steps;
+            summary.cost += part?.cost ?? 0;
+            if (event.sessionID) {
+              summary.sdkSessionID = event.sessionID;
+              sessionID = event.sessionID;
+            }
+            break;
           }
-          break;
+
+          default:
+            break;
         }
+      }
 
-        case "tool_use":
-          // A tool call is a sign of life rather than something to say, so it only releases
-          // whatever text is already held.
-          await tryProgress();
-          break;
-
-        case "step_finish": {
-          const part = event.part;
-          summary.turns = steps;
-          summary.cost += part?.cost ?? 0;
-          if (event.sessionID) {
-            summary.sdkSessionID = event.sessionID;
-          }
-          break;
+      controller.signal.removeEventListener("abort", stop);
+      const code = await exitOf(run.child);
+      if (steered && !cancelled) {
+        await say(invoke, "progress", `continuing with: ${steered}`);
+        instruction = steered;
+        continue;
+      }
+      // A non-zero exit with an answer already in hand is a harness that failed after saying
+      // something useful; the answer is still the thing to relay, and the code says it ended
+      // badly. With no answer at all there is nothing to relay but the failure.
+      if (code !== 0 && summary.code === ExitOK && !cancelled) {
+        summary.code = ExitHarnessError;
+        if (finalText.trim() === "") {
+          finalText = `The turn failed before I could answer: the harness exited ${code}.`;
         }
-
-        default:
-          break;
       }
-    }
-
-    const code = await exitOf(run.child);
-    // A non-zero exit with an answer already in hand is a harness that failed after saying
-    // something useful; the answer is still the thing to relay, and the code says it ended
-    // badly. With no answer at all there is nothing to relay but the failure.
-    if (code !== 0 && summary.code === ExitOK && !cancelled) {
-      summary.code = ExitHarnessError;
-      if (finalText.trim() === "") {
-        finalText = `The turn failed before I could answer: the harness exited ${code}.`;
-      }
+      break;
     }
   } catch (err) {
     if (!cancelled) {
       summary.code = ExitHarnessError;
       finalText = `The turn failed before I could answer: ${redact(messageOf(err), token)}`;
     }
+  } finally {
+    stopHub();
   }
 
   if (cancelled) {

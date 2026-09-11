@@ -38,6 +38,18 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   return sections.map((s) => s.trim()).filter((s) => s !== "").join("\n\n");
 }
 
+function interactiveRule(brief: TurnBrief): string {
+  if (brief.playbook.interactive) {
+    return `You can ask a question and wait for the answer: call the \`human_ask\` tool with
+the question. The person in ${sourceLabels[brief.source.kind]} will see it, and their
+reply comes back as the tool result. Do not end the turn with a question — ask, then
+continue. Waiting still counts against this playbook's timeout.`;
+  }
+  return `You cannot ask a question and wait for the answer: there is no interactive channel and
+nobody is watching this container. If you need something from a human, end the turn with the
+question as your last message.`;
+}
+
 function runtimeBlock(brief: TurnBrief): string {
   const where = sourceLabels[brief.source.kind];
   return `# This turn
@@ -57,9 +69,7 @@ If you produce files for the reader — a screenshot, a report, a patch — save
 ${ArtifactsDir}/ and name each one you want attached, by its exact file name, in your last
 message. Only files you name are attached.
 
-You cannot ask a question and wait for the answer: there is no interactive channel and
-nobody is watching this container. If you need something from a human, end the turn with the
-question as your last message.
+${interactiveRule(brief)}
 
 Never print a credential, a token, or the contents of an environment variable that holds
 one. They were injected into this container for your tools to use and they must not leave
@@ -102,7 +112,8 @@ turn is your user message. When you stop, your last message is posted back to ${
 verbatim: a direct answer, no preamble, no commentary about being an agent.
 
 You cannot ask a question and wait for the answer. If you need something from a human, end
-the turn with the question as your last message.
+the turn with the question as your last message. Delegation can, when the playbook is
+interactive — that is the container's job, not yours.
 
 Never print a credential, a token, or the contents of an environment variable that holds
 one.`;
@@ -157,6 +168,11 @@ How to do it well:
   because the answer is delivered without you.
 - One task per piece of work. If you need two things done, delegate twice; do not fold two
   unrelated jobs into one instruction.
+- A task this conversation already started may still be running after you stop. If the
+  person is correcting or adding to that work — "actually change xyz", "use main" —
+  \`podium_list_delegations\` then \`podium_inject_delegation\` with their words. Do not
+  start a second task for the same job. Inject is a new user message inside the running
+  container; the workspace is kept. Delegate only for a new piece of work.
 - \`podium_cancel_delegation\` when the work is no longer wanted. A task nobody is waiting for
   still holds a machine and still costs money.`;
 }

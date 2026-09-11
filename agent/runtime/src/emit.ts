@@ -28,7 +28,7 @@ export const MaxMessageBytes = 32 * 1024;
  * `progress` and `final` are read by a human, `accounting` is turn.json for the conductor
  * and is never posted anywhere.
  */
-export type MessageType = "progress" | "final" | "accounting";
+export type MessageType = "progress" | "final" | "accounting" | "question";
 
 /** RunnerInvoke runs one `podium-runner message` with the text on its stdin. */
 export type RunnerInvoke = (argv: string[], text: string) => Promise<void>;

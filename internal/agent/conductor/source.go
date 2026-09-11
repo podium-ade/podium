@@ -13,9 +13,10 @@ type Reaction string
 
 // The reactions. Slack maps them onto eyes / white_check_mark / x.
 const (
-	ReactionWorking Reaction = "working"
-	ReactionDone    Reaction = "done"
-	ReactionFailed  Reaction = "failed"
+	ReactionWorking  Reaction = "working"
+	ReactionDone     Reaction = "done"
+	ReactionFailed   Reaction = "failed"
+	ReactionAwaiting Reaction = "awaiting"
 )
 
 // Outbound types. Type is what the source may use to style a post; nothing branches on it
@@ -24,6 +25,7 @@ const (
 	OutProgress = "progress"
 	OutFinal    = "final"
 	OutFailure  = "failure"
+	OutQuestion = "question"
 )
 
 // Outbound is one thing the conductor wants said. Text is untrusted content when it came

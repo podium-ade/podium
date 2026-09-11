@@ -102,6 +102,16 @@ func (s *sink) relay(ctx context.Context, e *podiumv1.TaskEvent) {
 func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []string) {
 	s.c.metrics.RelayedMessages.WithLabelValues(msgType).Inc()
 
+	if msgType == OutQuestion || msgType == MsgQuestion {
+		// A question is a durable post, not progress: the human has to see it, and the
+		// next progress line must not replace it. It is not a final either — the turn
+		// is still running, waiting for a reply.
+		s.flushProgress(ctx)
+		if strings.TrimSpace(text) != "" {
+			s.c.post(ctx, s.src, s.ref, Outbound{Type: OutQuestion, TaskID: s.taskID, Text: text})
+		}
+		return
+	}
 	if msgType != OutFinal {
 		// Anything that is not a final is progress, whatever it called itself.
 		s.heldProgress = text

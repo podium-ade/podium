@@ -14,7 +14,7 @@ import (
 // map keyed by name, so a second `memory` would replace the shared memory a turn cannot opt
 // out of — which is why this is refused at the name and not merely documented.
 func TestTheRuntimesOwnServerNamesAreReserved(t *testing.T) {
-	for _, name := range []string{ReservedMemory, ReservedBrowser, ReservedDelegate} {
+	for _, name := range []string{ReservedMemory, ReservedBrowser, ReservedDelegate, ReservedHuman} {
 		err := ValidateName(name)
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "reserved")

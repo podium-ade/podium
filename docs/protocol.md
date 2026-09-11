@@ -68,6 +68,7 @@ operator      podium node                       podium server
    |               |  TaskEvent{seq: 1..n} ---------> |   batched ~100ms / 64KB
    |               | <-- Ack{task_id, seq}            |   high-water mark
    |               | <-- Cancel{task_id, reason}      |   idempotent
+   |               | <-- Inject{task_id, text}        |   human reply into a running task
    |               | <-- Drain{}                      |   stop accepting new work
    |               | <-- Slots{max_tasks}             |   one on every stream; 0 = the node's own
 ```

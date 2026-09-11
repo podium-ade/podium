@@ -149,11 +149,25 @@ describe("buildSystemPrompt", () => {
     const flat = prompt.replace(/\s+/g, " ");
     expect(flat).toContain("Delegate, then stop");
     expect(flat).toContain("Do not poll");
+    expect(flat).toContain("podium_inject_delegation");
     expect(flat).not.toContain("Poll `podium_check_delegation` for the outcome");
   });
 
   // The assistant has no repository and no shell, so working anything out about code here is
   // a guess that costs a turn and gets redone by the task.
+  it("tells an interactive turn to ask and wait, and a default turn not to", () => {
+    const brief = golden();
+    expect(buildSystemPrompt(brief)).toContain("You cannot ask a question and wait");
+    const interactive = {
+      ...brief,
+      playbook: { ...brief.playbook, interactive: true },
+    };
+    const prompt = buildSystemPrompt(interactive);
+    expect(prompt).toContain("You can ask a question and wait");
+    expect(prompt).toContain("human_ask");
+    expect(prompt).not.toContain("You cannot ask a question and wait");
+  });
+
   it("tells a host turn to delegate rather than investigate", () => {
     const prompt = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
     const flat = prompt.replace(/\s+/g, " ");

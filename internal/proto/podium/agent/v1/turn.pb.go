@@ -510,6 +510,103 @@ func (x *CancelDelegationResponse) GetDelegation() *Delegation {
 	return nil
 }
 
+type InjectDelegationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// text is what the person said, handed to the running task as a new user message.
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InjectDelegationRequest) Reset() {
+	*x = InjectDelegationRequest{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InjectDelegationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InjectDelegationRequest) ProtoMessage() {}
+
+func (x *InjectDelegationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InjectDelegationRequest.ProtoReflect.Descriptor instead.
+func (*InjectDelegationRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *InjectDelegationRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *InjectDelegationRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type InjectDelegationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Delegation    *Delegation            `protobuf:"bytes,1,opt,name=delegation,proto3" json:"delegation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InjectDelegationResponse) Reset() {
+	*x = InjectDelegationResponse{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InjectDelegationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InjectDelegationResponse) ProtoMessage() {}
+
+func (x *InjectDelegationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InjectDelegationResponse.ProtoReflect.Descriptor instead.
+func (*InjectDelegationResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *InjectDelegationResponse) GetDelegation() *Delegation {
+	if x != nil {
+		return x.Delegation
+	}
+	return nil
+}
+
 var File_podium_agent_v1_turn_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_turn_proto_rawDesc = "" +
@@ -551,12 +648,20 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"\x18CancelDelegationResponse\x12;\n" +
 	"\n" +
 	"delegation\x18\x01 \x01(\v2\x1b.podium.agent.v1.DelegationR\n" +
-	"delegation2\x8d\x03\n" +
+	"delegation\"=\n" +
+	"\x17InjectDelegationRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"W\n" +
+	"\x18InjectDelegationResponse\x12;\n" +
+	"\n" +
+	"delegation\x18\x01 \x01(\v2\x1b.podium.agent.v1.DelegationR\n" +
+	"delegation2\xf6\x03\n" +
 	"\vTurnService\x12O\n" +
 	"\bDelegate\x12 .podium.agent.v1.DelegateRequest\x1a!.podium.agent.v1.DelegateResponse\x12^\n" +
 	"\rGetDelegation\x12%.podium.agent.v1.GetDelegationRequest\x1a&.podium.agent.v1.GetDelegationResponse\x12d\n" +
 	"\x0fListDelegations\x12'.podium.agent.v1.ListDelegationsRequest\x1a(.podium.agent.v1.ListDelegationsResponse\x12g\n" +
-	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponseB\xc3\x01\n" +
+	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponse\x12g\n" +
+	"\x10InjectDelegation\x12(.podium.agent.v1.InjectDelegationRequest\x1a).podium.agent.v1.InjectDelegationResponseB\xc3\x01\n" +
 	"\x13com.podium.agent.v1B\tTurnProtoP\x01ZCgithub.com/podium-ade/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
 var (
@@ -571,7 +676,7 @@ func file_podium_agent_v1_turn_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_turn_proto_rawDescData
 }
 
-var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*Delegation)(nil),               // 0: podium.agent.v1.Delegation
 	(*DelegateRequest)(nil),          // 1: podium.agent.v1.DelegateRequest
@@ -582,28 +687,33 @@ var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*ListDelegationsResponse)(nil),  // 6: podium.agent.v1.ListDelegationsResponse
 	(*CancelDelegationRequest)(nil),  // 7: podium.agent.v1.CancelDelegationRequest
 	(*CancelDelegationResponse)(nil), // 8: podium.agent.v1.CancelDelegationResponse
-	(*timestamppb.Timestamp)(nil),    // 9: google.protobuf.Timestamp
+	(*InjectDelegationRequest)(nil),  // 9: podium.agent.v1.InjectDelegationRequest
+	(*InjectDelegationResponse)(nil), // 10: podium.agent.v1.InjectDelegationResponse
+	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_turn_proto_depIdxs = []int32{
-	9,  // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
+	11, // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
+	11, // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: podium.agent.v1.DelegateResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 3: podium.agent.v1.GetDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 4: podium.agent.v1.ListDelegationsResponse.delegations:type_name -> podium.agent.v1.Delegation
 	0,  // 5: podium.agent.v1.CancelDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
-	1,  // 6: podium.agent.v1.TurnService.Delegate:input_type -> podium.agent.v1.DelegateRequest
-	3,  // 7: podium.agent.v1.TurnService.GetDelegation:input_type -> podium.agent.v1.GetDelegationRequest
-	5,  // 8: podium.agent.v1.TurnService.ListDelegations:input_type -> podium.agent.v1.ListDelegationsRequest
-	7,  // 9: podium.agent.v1.TurnService.CancelDelegation:input_type -> podium.agent.v1.CancelDelegationRequest
-	2,  // 10: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
-	4,  // 11: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
-	6,  // 12: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
-	8,  // 13: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	0,  // 6: podium.agent.v1.InjectDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
+	1,  // 7: podium.agent.v1.TurnService.Delegate:input_type -> podium.agent.v1.DelegateRequest
+	3,  // 8: podium.agent.v1.TurnService.GetDelegation:input_type -> podium.agent.v1.GetDelegationRequest
+	5,  // 9: podium.agent.v1.TurnService.ListDelegations:input_type -> podium.agent.v1.ListDelegationsRequest
+	7,  // 10: podium.agent.v1.TurnService.CancelDelegation:input_type -> podium.agent.v1.CancelDelegationRequest
+	9,  // 11: podium.agent.v1.TurnService.InjectDelegation:input_type -> podium.agent.v1.InjectDelegationRequest
+	2,  // 12: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
+	4,  // 13: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
+	6,  // 14: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
+	8,  // 15: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
+	10, // 16: podium.agent.v1.TurnService.InjectDelegation:output_type -> podium.agent.v1.InjectDelegationResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_turn_proto_init() }
@@ -617,7 +727,7 @@ func file_podium_agent_v1_turn_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_turn_proto_rawDesc), len(file_podium_agent_v1_turn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

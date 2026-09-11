@@ -44,6 +44,7 @@ export type PlaybookDraft = {
   repos: { name: string; url: string; defaultBranch: string }[];
   slackChannels: string[];
   linear: boolean;
+  interactive: boolean;
   skills: string[];
   mcpServers: string[];
   env: Record<string, string>;
@@ -160,6 +161,7 @@ export function PlaybookEditor({
   const [priority, setPriority] = useState(String(playbook?.priority ?? 0));
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
+  const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
   const [mcpServers, setMcpServers] = useState((playbook?.mcpServers ?? []).join("\n"));
   const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
@@ -219,6 +221,7 @@ export function PlaybookEditor({
         .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
       slackChannels: splitList(channels),
       linear,
+      interactive,
       skills: skillList,
       mcpServers: mcpList,
       env: Object.fromEntries(
@@ -799,6 +802,26 @@ export function PlaybookEditor({
               className="font-mono text-xs"
             />
           </Field>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-interactive`}
+              aria-label="Ask and wait in the same turn"
+              checked={interactive}
+              onCheckedChange={setInteractive}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-interactive`} className="text-fg">
+                Ask a question and wait in the same turn
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                Off by default. When on, the agent can ask you something and keep the
+                container — clones, a Docker daemon, a browser — until you reply. Waiting
+                still counts against the timeout.
+              </p>
+            </div>
+          </div>
 
           <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
             <Switch
