@@ -92,6 +92,7 @@ message ServerMessage {
     Drain drain = 4;
     HelloAck hello_ack = 5;
     Slots slots = 6;
+    Inject inject = 7;
   }
 }
 
@@ -200,6 +201,16 @@ message Ack {
 message Cancel {
   string task_id = 1;
   string reason = 2;
+}
+
+// Inject delivers one human message into a running task. It is how an interactive
+// playbook turn hears a reply without the container exiting: the node writes the text
+// to the task's inbox socket, and the runtime's ask tool reads it. A task that is not
+// running, or whose runtime is not waiting, still accepts the bytes — they sit until
+// the next ask, or vanish when the container dies. It does not change task status.
+message Inject {
+  string task_id = 1;
+  string text = 2;
 }
 
 // Slots changes how many tasks the node runs at once, overriding the max_tasks in its own

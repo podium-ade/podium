@@ -38,6 +38,18 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   return sections.map((s) => s.trim()).filter((s) => s !== "").join("\n\n");
 }
 
+function interactiveRule(brief: TurnBrief): string {
+  if (brief.playbook.interactive) {
+    return `You can ask a question and wait for the answer: call the \`human_ask\` tool with
+the question. The person in ${sourceLabels[brief.source.kind]} will see it, and their
+reply comes back as the tool result. Do not end the turn with a question — ask, then
+continue. Waiting still counts against this playbook's timeout.`;
+  }
+  return `You cannot ask a question and wait for the answer: there is no interactive channel and
+nobody is watching this container. If you need something from a human, end the turn with the
+question as your last message.`;
+}
+
 function runtimeBlock(brief: TurnBrief): string {
   const where = sourceLabels[brief.source.kind];
   return `# This turn
@@ -57,9 +69,7 @@ If you produce files for the reader — a screenshot, a report, a patch — save
 ${ArtifactsDir}/ and name each one you want attached, by its exact file name, in your last
 message. Only files you name are attached.
 
-You cannot ask a question and wait for the answer: there is no interactive channel and
-nobody is watching this container. If you need something from a human, end the turn with the
-question as your last message.
+${interactiveRule(brief)}
 
 Never print a credential, a token, or the contents of an environment variable that holds
 one. They were injected into this container for your tools to use and they must not leave
@@ -102,7 +112,8 @@ turn is your user message. When you stop, your last message is posted back to ${
 verbatim: a direct answer, no preamble, no commentary about being an agent.
 
 You cannot ask a question and wait for the answer. If you need something from a human, end
-the turn with the question as your last message.
+the turn with the question as your last message. Delegation can, when the playbook is
+interactive — that is the container's job, not yours.
 
 Never print a credential, a token, or the contents of an environment variable that holds
 one.`;

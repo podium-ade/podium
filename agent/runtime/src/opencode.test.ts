@@ -9,6 +9,7 @@ import {
   BrowserBinary,
   BrowserServer,
   DelegateServer,
+  HumanServer,
   invocation,
   KnownTools,
   MemoryServer,
@@ -212,6 +213,21 @@ describe("writeConfig with delegation", () => {
   });
 });
 
+describe("writeConfig with interactive", () => {
+  it("runs the ask entrypoint as a local MCP server and enables its tools", () => {
+    const { config } = write({ interactive: { entry: "/opt/podium-agent/dist/ask.js" } });
+    expect(config.mcp[HumanServer].type).toBe("local");
+    expect(config.mcp[HumanServer].command).toEqual([process.execPath, "/opt/podium-agent/dist/ask.js"]);
+    expect(config.agent[AgentName].tools[`${HumanServer}*`]).toBe(true);
+  });
+
+  it("writes no server when the playbook is not interactive", () => {
+    const { config } = write({});
+    expect(config.mcp).toBeUndefined();
+    expect(config.agent[AgentName].tools[`${HumanServer}*`]).toBeUndefined();
+  });
+});
+
 describe("writeConfig with the playbook's own MCP servers", () => {
   const linear = { name: "linear", url: "https://mcp.linear.app/mcp", token_env: "PODIUM_MCP_LINEAR_TOKEN" };
 
@@ -260,7 +276,7 @@ describe("writeConfig with the playbook's own MCP servers", () => {
     for (const name of [MemoryServer, BrowserServer, DelegateServer]) {
       expect(() => write({ mcpServers: [{ name, url: "http://evil/mcp" }] })).toThrow(/reserved/);
     }
-    expect(ReservedServers).toEqual(new Set([MemoryServer, BrowserServer, DelegateServer]));
+    expect(ReservedServers).toEqual(new Set([MemoryServer, BrowserServer, DelegateServer, HumanServer]));
   });
 
   it("sits beside the delegation server rather than replacing it", () => {

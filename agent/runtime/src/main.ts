@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
+import { askEntrypoint } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
@@ -248,6 +249,7 @@ async function main(): Promise<number> {
       delegation: brief.delegation
         ? { url: brief.delegation.url, entry: mcpEntrypoint() }
         : undefined,
+      interactive: brief.playbook.interactive ? { entry: askEntrypoint() } : undefined,
       mcpServers,
     });
   } catch (err) {

@@ -656,6 +656,7 @@ func TestContainerShapePutsTheRunnerAtPID1(t *testing.T) {
 	require.Equal(t, strslice.StrSlice{"/podium/runner", "--", "sh", "-c", "echo $$ >&2; cat /proc/1/comm"}, insp.Config.Cmd)
 	require.Empty(t, insp.Config.Entrypoint, "the image entrypoint must be cleared")
 	require.Contains(t, insp.Config.Env, "PODIUM_EVENTS_SOCK=/podium/events.sock")
+	require.Contains(t, insp.Config.Env, "PODIUM_INBOX_SOCK=/podium/inbox.sock")
 	require.Contains(t, insp.Config.Env, "PODIUM_TASK_ID="+taskID)
 
 	targets := map[string]bool{}
@@ -665,7 +666,10 @@ func TestContainerShapePutsTheRunnerAtPID1(t *testing.T) {
 	ro, ok := targets["/podium/runner"]
 	require.True(t, ok, "the runner binary must be bind-mounted: %v", targets)
 	require.True(t, ro, "the runner must be mounted read-only")
-	require.Equal(t, []string{e.eventsSocketPath(taskID) + ":/podium/events.sock"}, insp.HostConfig.Binds)
+	require.Equal(t, []string{
+		e.eventsSocketPath(taskID) + ":/podium/events.sock",
+		e.inboxSocketPath(taskID) + ":/podium/inbox.sock",
+	}, insp.HostConfig.Binds)
 
 	// A short data dir keeps the socket in the task's own state directory.
 	require.Empty(t, e.sockDir)

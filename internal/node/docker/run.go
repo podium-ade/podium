@@ -234,6 +234,15 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	defer link.close()
 
+	inbox, err := e.listenInbox(req.TaskID)
+	if err != nil {
+		return Result{}, err
+	}
+	defer inbox.close()
+	rs.mu.Lock()
+	rs.inbox = inbox
+	rs.mu.Unlock()
+
 	// Secrets are staged last, so the smallest possible window exists between a
 	// plaintext landing on the node's disk and the container that consumes it starting.
 	secretsStaged, err := e.stageSecrets(req.TaskID, req.Secrets)
@@ -278,7 +287,10 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		// with "bind source path does not exist". Binds is the path `docker run -v` takes
 		// and the one that makes /var/run/docker.sock mountable; it works on both Docker
 		// Desktop and a native Linux engine.
-		Binds: []string{link.path + ":" + eventsTarget},
+		Binds: []string{
+			link.path + ":" + eventsTarget,
+			inbox.path + ":" + inboxTarget,
+		},
 		// gid 0 as a supplementary group, so a task image that runs as a non-root user can
 		// still open that socket. On a native Linux engine the socket keeps the host
 		// ownership and the 0666 mode listenRunner sets, and any user could reach it; Docker
@@ -474,7 +486,7 @@ func (e *Executor) mkTaskDir(taskID string) error {
 	return nil
 }
 
-// containerEnv is a pure function of the spec: the spec's own env, sorted, plus the four
+// containerEnv is a pure function of the spec: the spec's own env, sorted, plus the
 // PODIUM_ variables. Secret env entries are deliberately appended by the caller instead,
 // so this stays sorted and reproducible.
 func containerEnv(req Request, workdir string) []string {
@@ -484,7 +496,7 @@ func containerEnv(req Request, workdir string) []string {
 	}
 	sort.Strings(keys)
 
-	env := make([]string, 0, len(keys)+3)
+	env := make([]string, 0, len(keys)+5)
 	for _, k := range keys {
 		env = append(env, k+"="+req.Spec.Env[k])
 	}
@@ -493,6 +505,7 @@ func containerEnv(req Request, workdir string) []string {
 		"PODIUM_LEASE_ID="+req.LeaseID,
 		"PODIUM_WORKDIR="+workdir,
 		"PODIUM_EVENTS_SOCK="+eventsTarget,
+		"PODIUM_INBOX_SOCK="+inboxTarget,
 	)
 	return env
 }

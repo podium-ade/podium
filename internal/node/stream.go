@@ -275,6 +275,12 @@ func (n *Node) handle(
 		if !n.dropPendingContainer(ctx, c.GetTaskId(), c.GetReason()) {
 			n.exec.Cancel(c.GetTaskId())
 		}
+	case msg.GetInject() != nil:
+		in := msg.GetInject()
+		if err := n.exec.Inject(in.GetTaskId(), in.GetText()); err != nil {
+			n.logger.WarnContext(ctx, "inject into task failed",
+				"task_id", in.GetTaskId(), "error", err)
+		}
 	case msg.GetSlots() != nil:
 		// Every stream carries one of these, so only a change is worth saying out loud.
 		if inForce, changed := n.setSlots(msg.GetSlots().GetMaxTasks()); changed {

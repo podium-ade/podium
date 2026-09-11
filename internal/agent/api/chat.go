@@ -30,6 +30,7 @@ type ChatSource interface {
 	Send(ctx context.Context, req chat.SendRequest) (store.ChatMessage, error)
 	Subscribe(ctx context.Context, chatID string) *chat.Subscriber
 	Running(ctx context.Context, chatID string) (bool, error)
+	Awaiting(chatID string) bool
 	AttachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 	DetachPullRequest(ctx context.Context, chatID, login, url string) ([]store.ChatPullRequest, error)
 }
@@ -448,7 +449,10 @@ func (s *AgentService) StreamChat(
 		return storeError(err)
 	}
 	state := chat.StatusFinished
-	if running {
+	switch {
+	case s.chat.Awaiting(chatID):
+		state = chat.StatusAwaiting
+	case running:
 		state = chat.StatusStarted
 	}
 	if err := stream.Send(&agentv1.ChatFrame{

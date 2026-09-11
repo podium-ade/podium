@@ -59,6 +59,19 @@ func TestLoadReadsTheProfileAndItsPlaybooks(t *testing.T) {
 	assert.Equal(t, DefaultMaxTurns, general.MaxTurns)
 	assert.Equal(t, 30*time.Minute, general.Timeout.Std())
 	assert.Equal(t, "claude-opus-5", p.ModelFor(general), "a playbook with no model uses the profile's")
+	assert.False(t, general.Interactive, "interactive is off unless the playbook asks for it")
+}
+
+func TestAPlaybookMayOptIntoInteractiveTurns(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = `image: alpine:3
+system_prompt: answer
+allowed_tools: [read]
+interactive: true
+`
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.True(t, p.Playbooks["general"].Interactive)
 }
 
 // A `file:` prompt is relative to the file that names it, which is not the same directory

@@ -53,6 +53,12 @@ export const BrowserBinary = "chrome-devtools-mcp";
  */
 export const DelegateServer = "podium";
 
+/**
+ * HumanServer is the MCP server an interactive turn asks a person through. The name is
+ * the prefix its tools carry (`human_ask`).
+ */
+export const HumanServer = "human";
+
 /** DelegateURLFlag matches UrlFlag in mcp.ts. */
 export const DelegateURLFlag = "--url";
 
@@ -106,10 +112,11 @@ async function defaultLookup(host: string): Promise<string> {
  * ReservedServers are the MCP server names this runtime wires up itself. A playbook's own
  * `mcp_servers` may not take one: the harness config is a single map keyed by name, so a
  * registration reusing one would silently replace something the conductor decided the turn
- * gets — the shared memory, the sidecar browser, or the delegation a host turn works
- * through. internal/agent/mcp holds the same list, and refuses a registration much earlier.
+ * gets — the shared memory, the sidecar browser, the delegation a host turn works
+ * through, or the ask tool an interactive turn waits on. internal/agent/mcp holds the
+ * same list, and refuses a registration much earlier.
  */
-export const ReservedServers = new Set([MemoryServer, BrowserServer, DelegateServer]);
+export const ReservedServers = new Set([MemoryServer, BrowserServer, DelegateServer, HumanServer]);
 
 /** ConfigName and PromptName are what is written into the config directory. */
 const ConfigName = "opencode.json";
@@ -163,6 +170,11 @@ export interface Config {
   delegation?: { url: string; entry: string };
   /** mcpServers is the playbook's own MCP servers, already resolved by the conductor. */
   mcpServers?: McpServerRef[];
+  /**
+   * interactive is how a playbook turn asks a human a question and waits. It becomes a
+   * local MCP server beside the turn (ask.ts) and the `human*` tools that go with it.
+   */
+  interactive?: { entry: string };
 }
 
 /**
@@ -226,6 +238,9 @@ export function writeConfig(cfg: Config): string {
   if (cfg.delegation) {
     tools[`${DelegateServer}*`] = true;
   }
+  if (cfg.interactive) {
+    tools[`${HumanServer}*`] = true;
+  }
   // And the playbook's own servers. Each one's tools are enabled wholesale, because naming
   // the server in `mcp_servers` is what granting it means — the conductor already decided
   // which turns get which, and a playbook cannot describe individual tools of a server
@@ -279,6 +294,13 @@ export function writeConfig(cfg: Config): string {
     mcp[DelegateServer] = {
       type: "local",
       command: [process.execPath, cfg.delegation.entry, DelegateURLFlag, cfg.delegation.url],
+      enabled: true,
+    };
+  }
+  if (cfg.interactive) {
+    mcp[HumanServer] = {
+      type: "local",
+      command: [process.execPath, cfg.interactive.entry],
       enabled: true,
     };
   }

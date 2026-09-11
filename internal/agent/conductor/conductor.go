@@ -174,6 +174,11 @@ type sessionState struct {
 	// next is the latest thing said while a turn was running. Only the latest becomes the
 	// next turn's instruction; the earlier ones are in the transcript.
 	next InboundEvent
+	// awaitingTaskID is the running task that posted a question and is waiting for a
+	// human reply. Empty means this session is not parked. It outlives the host turn
+	// that started a delegated task, which is why a reply can land after the assistant
+	// has already finished.
+	awaitingTaskID string
 }
 
 // New validates the options and returns a Conductor.
@@ -295,6 +300,37 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		st = &sessionState{}
 		c.sessions[sess.ID] = st
 	}
+	if st.awaitingTaskID != "" {
+		taskID := st.awaitingTaskID
+		c.mu.Unlock()
+		if err := c.podium.InjectTask(ctx, taskID, ev.Text); err != nil {
+			c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
+				"session_id", sess.ID, "task_id", taskID, "error", err)
+			c.mu.Lock()
+			st = c.sessions[sess.ID]
+			if st == nil {
+				st = &sessionState{}
+				c.sessions[sess.ID] = st
+			}
+			if st.running {
+				st.pending = true
+				st.next = ev
+				c.mu.Unlock()
+				return
+			}
+			st.running = true
+			c.mu.Unlock()
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				c.serve(ctx, src, sess, j, ev)
+			}()
+			return
+		}
+		c.logger.InfoContext(ctx, "injected a reply into a running interactive turn",
+			"session_id", sess.ID, "task_id", taskID)
+		return
+	}
 	if st.running {
 		// Nothing is lost and nothing runs twice: the message is in the thread, so it will
 		// be in the next turn's transcript, and the next turn starts from it.
@@ -313,6 +349,33 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		defer c.wg.Done()
 		c.serve(ctx, src, sess, j, ev)
 	}()
+}
+
+// setAwaiting records that this session's running task asked a question and is
+// waiting. The next inbound is injected into that task instead of starting a turn.
+func (c *Conductor) setAwaiting(sessionID, taskID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil {
+		st = &sessionState{}
+		c.sessions[sessionID] = st
+	}
+	st.awaitingTaskID = taskID
+}
+
+// clearAwaiting drops a parked question once the task speaks again, or ends.
+// It reports whether this session was waiting on that task, so the caller can
+// tell the source the turn is working again.
+func (c *Conductor) clearAwaiting(sessionID, taskID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil || st.awaitingTaskID != taskID {
+		return false
+	}
+	st.awaitingTaskID = ""
+	return true
 }
 
 // answersHere reports whether this conductor answers that source itself. It needs both
@@ -661,6 +724,7 @@ func (c *Conductor) brief(
 			SystemPrompt: j.systemPrompt,
 			AllowedTools: append([]string{}, j.allowedTools...),
 			MaxTurns:     j.maxTurns,
+			Interactive:  j.playbook.Interactive,
 		},
 		Transcript:  entries,
 		Instruction: ev.Text,

@@ -22,6 +22,11 @@ const KindDev = "dev"
 // is not a thing to say: the conductor reads it and posts nothing.
 const MsgAccounting = "accounting"
 
+// MsgQuestion is the message type an interactive turn emits when it is asking a human
+// something and waiting. The conductor posts it as a durable message and injects the
+// next inbound into the same task instead of starting a new turn.
+const MsgQuestion = "question"
+
 // Where a turn's accounting came from. It goes in the log, because "the store was off and
 // the message did not arrive either" is a different problem from "the runtime said nothing".
 const (
@@ -111,6 +116,25 @@ func (r *turnRun) run(ctx context.Context) {
 	r.finish(ctx, result.Status)
 }
 
+// noteInteractive parks or unparks this session for a human reply. A question is a
+// wait; anything else the task says means it is working again.
+func (r *turnRun) noteInteractive(ctx context.Context, msgType string) {
+	if msgType == MsgQuestion || msgType == OutQuestion {
+		r.c.setAwaiting(r.sess.ID, r.turn.TaskID)
+		if err := r.src.React(ctx, r.ref, ReactionAwaiting); err != nil {
+			r.c.logger.WarnContext(ctx, "marking the turn as awaiting a reply failed",
+				"turn_id", r.turn.ID, "error", err)
+		}
+		return
+	}
+	if r.c.clearAwaiting(r.sess.ID, r.turn.TaskID) {
+		if err := r.src.React(ctx, r.ref, ReactionWorking); err != nil {
+			r.c.logger.WarnContext(ctx, "marking the turn as working again failed",
+				"turn_id", r.turn.ID, "error", err)
+		}
+	}
+}
+
 // cancelAbandoned stops a task the conductor can no longer follow. It is the same
 // CancelTask `podium task cancel` calls, so the node gets the same SIGTERM and the same 30s
 // grace; nothing here waits for it.
@@ -131,6 +155,7 @@ func (r *turnRun) cancelAbandoned(ctx context.Context, cause error) {
 
 // finish records the turn, shows the outcome and counts it.
 func (r *turnRun) finish(ctx context.Context, status string) {
+	r.c.clearAwaiting(r.sess.ID, r.turn.TaskID)
 	var numTurns *int
 	var cost *float64
 	if r.acct != nil {
@@ -220,6 +245,9 @@ func (r *turnRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 			return
 		}
 		r.relay(ctx, e)
+		if msg := e.GetMessage(); msg != nil {
+			r.noteInteractive(ctx, msg.GetType())
+		}
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:
 		if err := e.GetError(); err != nil && !err.GetRetryable() {
 			r.errText = err.GetMessage()

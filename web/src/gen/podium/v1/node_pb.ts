@@ -14,7 +14,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file podium/v1/node.proto.
  */
 export const file_podium_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyLvAQoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAEiEKBXNsb3RzGAYgASgLMhAucG9kaXVtLnYxLlNsb3RzSABCBQoDbXNnIpABCgVIZWxsbxIPCgdub2RlX2lkGAEgASgJEhAKCG5vZGVfa2V5GAIgASgJEg4KBmxhYmVscxgDIAMoCRIpCghjYXBhY2l0eRgEIAEoCzIXLnBvZGl1bS52MS5Ob2RlQ2FwYWNpdHkSGAoQcnVubmluZ190YXNrX2lkcxgFIAMoCRIPCgd2ZXJzaW9uGAYgASgJIjQKCEhlbGxvQWNrEigKBXRhc2tzGAEgAygLMhkucG9kaXVtLnYxLlRhc2tDaGVja3BvaW50InAKDlRhc2tDaGVja3BvaW50Eg8KB3Rhc2tfaWQYASABKAkSDQoFYWRvcHQYAiABKAgSEAoIaGlnaF9zZXEYAyABKAQSFQoNc3Rkb3V0X29mZnNldBgEIAEoAxIVCg1zdGRlcnJfb2Zmc2V0GAUgASgDIkMKCE5vZGVMb2FkEhUKDXJ1bm5pbmdfdGFza3MYASABKAUSDwoHY3B1X3BjdBgCIAEoARIPCgdtZW1fcGN0GAMgASgBIoMBCglIZWFydGJlYXQSIQoEbG9hZBgBIAEoCzITLnBvZGl1bS52MS5Ob2RlTG9hZBISCgpmcmVlX3Nsb3RzGAIgASgFEhcKD2Rpc2tfZnJlZV9ieXRlcxgDIAEoAxImCgJ0cxgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi7gEKBkFzc2lnbhIPCgd0YXNrX2lkGAEgASgJEhAKCGxlYXNlX2lkGAIgASgJEiEKBHNwZWMYAyABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSLAoIZGVhZGxpbmUYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjMKEHJlc29sdmVkX3NlY3JldHMYBSADKAsyGS5wb2RpdW0udjEuUmVzb2x2ZWRTZWNyZXQSOwoUcmVnaXN0cnlfY3JlZGVudGlhbHMYBiADKAsyHS5wb2RpdW0udjEuUmVnaXN0cnlDcmVkZW50aWFsIkYKElJlZ2lzdHJ5Q3JlZGVudGlhbBIMCgRob3N0GAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEhAKCHBhc3N3b3JkGAMgASgMIkoKDlJlc29sdmVkU2VjcmV0EgwKBG5hbWUYASABKAkSDgoGdGFyZ2V0GAIgASgJEgsKA2tleRgDIAEoCRINCgV2YWx1ZRgEIAEoDCIjCgNBY2sSDwoHdGFza19pZBgBIAEoCRILCgNzZXEYAiABKAQiKQoGQ2FuY2VsEg8KB3Rhc2tfaWQYASABKAkSDgoGcmVhc29uGAIgASgJIhoKBVNsb3RzEhEKCW1heF90YXNrcxgBIAEoBSIVCgVEcmFpbhIMCgR1bmRvGAEgASgIIs4BCghMb2dDaHVuaxIqCgZzdHJlYW0YASABKA4yGi5wb2RpdW0udjEuTG9nQ2h1bmsuU3RyZWFtEhQKDHNpZGVjYXJfbmFtZRgCIAEoCRINCgVieXRlcxgDIAEoDBIVCg1zb3VyY2Vfb2Zmc2V0GAQgASgDIloKBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABIRCg1TVFJFQU1fU1RET1VUEAESEQoNU1RSRUFNX1NUREVSUhACEhIKDlNUUkVBTV9TSURFQ0FSEAMibgoLQXJ0aWZhY3RSZWYSEwoLYXJ0aWZhY3RfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpvYmplY3Rfa2V5GAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMSFAoMY29udGVudF90eXBlGAUgASgJIjoKB01lc3NhZ2USDAoEdHlwZRgBIAEoCRIMCgR0ZXh0GAIgASgJEhMKC2F0dGFjaG1lbnRzGAMgAygJIjcKBFN0ZXASDAoEbmFtZRgBIAEoCRIOCgZzdGF0dXMYAiABKAkSEQoJZXhpdF9jb2RlGAMgASgFIi8KBkV4aXRlZBIRCglleGl0X2NvZGUYASABKAUSEgoKb29tX2tpbGxlZBgCIAEoCCI+CghGaW5pc2hlZBIRCglleGl0X2NvZGUYASABKAUSHwoFdXNhZ2UYAiABKAsyEC5wb2RpdW0udjEuVXNhZ2UiPwoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRIRCglyZXRyeWFibGUYAiABKAgSEgoKYWJvcnRzX3J1bhgDIAEoCCKfAwoJVGFza0V2ZW50Eg8KB3Rhc2tfaWQYASABKAkSEAoIbGVhc2VfaWQYAiABKAkSCwoDc2VxGAMgASgEEiYKAnRzGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBImCgRraW5kGAUgASgOMhgucG9kaXVtLnYxLlRhc2tFdmVudEtpbmQSIgoDbG9nGAYgASgLMhMucG9kaXVtLnYxLkxvZ0NodW5rSAASHwoEc3RlcBgHIAEoCzIPLnBvZGl1bS52MS5TdGVwSAASIwoGZXhpdGVkGAggASgLMhEucG9kaXVtLnYxLkV4aXRlZEgAEicKCGZpbmlzaGVkGAkgASgLMhMucG9kaXVtLnYxLkZpbmlzaGVkSAASIQoFZXJyb3IYCiABKAsyEC5wb2RpdW0udjEuRXJyb3JIABIqCghhcnRpZmFjdBgLIAEoCzIWLnBvZGl1bS52MS5BcnRpZmFjdFJlZkgAEiUKB21lc3NhZ2UYDCABKAsyEi5wb2RpdW0udjEuTWVzc2FnZUgAQgkKB3BheWxvYWQqzwIKDVRhc2tFdmVudEtpbmQSHwobVEFTS19FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASIAocVEFTS19FVkVOVF9LSU5EX1BST1ZJU0lPTklORxABEhsKF1RBU0tfRVZFTlRfS0lORF9QVUxMSU5HEAISGwoXVEFTS19FVkVOVF9LSU5EX1NUQVJURUQQAxIXChNUQVNLX0VWRU5UX0tJTkRfTE9HEAQSGAoUVEFTS19FVkVOVF9LSU5EX1NURVAQBRIcChhUQVNLX0VWRU5UX0tJTkRfQVJUSUZBQ1QQBhIaChZUQVNLX0VWRU5UX0tJTkRfRVhJVEVEEAcSHAoYVEFTS19FVkVOVF9LSU5EX0ZJTklTSEVEEAgSGQoVVEFTS19FVkVOVF9LSU5EX0VSUk9SEAkSGwoXVEFTS19FVkVOVF9LSU5EX01FU1NBR0UQCjLlAQoLTm9kZVNlcnZpY2USPQoGRW5yb2xsEhgucG9kaXVtLnYxLkVucm9sbFJlcXVlc3QaGS5wb2RpdW0udjEuRW5yb2xsUmVzcG9uc2USPgoGU3RyZWFtEhYucG9kaXVtLnYxLk5vZGVNZXNzYWdlGhgucG9kaXVtLnYxLlNlcnZlck1lc3NhZ2UoATABElcKDlVwbG9hZEFydGlmYWN0EiAucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVxdWVzdBohLnBvZGl1bS52MS5VcGxvYWRBcnRpZmFjdFJlc3BvbnNlKAFCnwEKDWNvbS5wb2RpdW0udjFCCU5vZGVQcm90b1ABWj5naXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyKUAgoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAEiEKBXNsb3RzGAYgASgLMhAucG9kaXVtLnYxLlNsb3RzSAASIwoGaW5qZWN0GAcgASgLMhEucG9kaXVtLnYxLkluamVjdEgAQgUKA21zZyKQAQoFSGVsbG8SDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCRIOCgZsYWJlbHMYAyADKAkSKQoIY2FwYWNpdHkYBCABKAsyFy5wb2RpdW0udjEuTm9kZUNhcGFjaXR5EhgKEHJ1bm5pbmdfdGFza19pZHMYBSADKAkSDwoHdmVyc2lvbhgGIAEoCSI0CghIZWxsb0FjaxIoCgV0YXNrcxgBIAMoCzIZLnBvZGl1bS52MS5UYXNrQ2hlY2twb2ludCJwCg5UYXNrQ2hlY2twb2ludBIPCgd0YXNrX2lkGAEgASgJEg0KBWFkb3B0GAIgASgIEhAKCGhpZ2hfc2VxGAMgASgEEhUKDXN0ZG91dF9vZmZzZXQYBCABKAMSFQoNc3RkZXJyX29mZnNldBgFIAEoAyJDCghOb2RlTG9hZBIVCg1ydW5uaW5nX3Rhc2tzGAEgASgFEg8KB2NwdV9wY3QYAiABKAESDwoHbWVtX3BjdBgDIAEoASKDAQoJSGVhcnRiZWF0EiEKBGxvYWQYASABKAsyEy5wb2RpdW0udjEuTm9kZUxvYWQSEgoKZnJlZV9zbG90cxgCIAEoBRIXCg9kaXNrX2ZyZWVfYnl0ZXMYAyABKAMSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIu4BCgZBc3NpZ24SDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRIhCgRzcGVjGAMgASgLMhMucG9kaXVtLnYxLlRhc2tTcGVjEiwKCGRlYWRsaW5lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzChByZXNvbHZlZF9zZWNyZXRzGAUgAygLMhkucG9kaXVtLnYxLlJlc29sdmVkU2VjcmV0EjsKFHJlZ2lzdHJ5X2NyZWRlbnRpYWxzGAYgAygLMh0ucG9kaXVtLnYxLlJlZ2lzdHJ5Q3JlZGVudGlhbCJGChJSZWdpc3RyeUNyZWRlbnRpYWwSDAoEaG9zdBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIQCghwYXNzd29yZBgDIAEoDCJKCg5SZXNvbHZlZFNlY3JldBIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAwiIwoDQWNrEg8KB3Rhc2tfaWQYASABKAkSCwoDc2VxGAIgASgEIikKBkNhbmNlbBIPCgd0YXNrX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSInCgZJbmplY3QSDwoHdGFza19pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhoKBVNsb3RzEhEKCW1heF90YXNrcxgBIAEoBSIVCgVEcmFpbhIMCgR1bmRvGAEgASgIIs4BCghMb2dDaHVuaxIqCgZzdHJlYW0YASABKA4yGi5wb2RpdW0udjEuTG9nQ2h1bmsuU3RyZWFtEhQKDHNpZGVjYXJfbmFtZRgCIAEoCRINCgVieXRlcxgDIAEoDBIVCg1zb3VyY2Vfb2Zmc2V0GAQgASgDIloKBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABIRCg1TVFJFQU1fU1RET1VUEAESEQoNU1RSRUFNX1NUREVSUhACEhIKDlNUUkVBTV9TSURFQ0FSEAMibgoLQXJ0aWZhY3RSZWYSEwoLYXJ0aWZhY3RfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpvYmplY3Rfa2V5GAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMSFAoMY29udGVudF90eXBlGAUgASgJIjoKB01lc3NhZ2USDAoEdHlwZRgBIAEoCRIMCgR0ZXh0GAIgASgJEhMKC2F0dGFjaG1lbnRzGAMgAygJIjcKBFN0ZXASDAoEbmFtZRgBIAEoCRIOCgZzdGF0dXMYAiABKAkSEQoJZXhpdF9jb2RlGAMgASgFIi8KBkV4aXRlZBIRCglleGl0X2NvZGUYASABKAUSEgoKb29tX2tpbGxlZBgCIAEoCCI+CghGaW5pc2hlZBIRCglleGl0X2NvZGUYASABKAUSHwoFdXNhZ2UYAiABKAsyEC5wb2RpdW0udjEuVXNhZ2UiPwoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRIRCglyZXRyeWFibGUYAiABKAgSEgoKYWJvcnRzX3J1bhgDIAEoCCKfAwoJVGFza0V2ZW50Eg8KB3Rhc2tfaWQYASABKAkSEAoIbGVhc2VfaWQYAiABKAkSCwoDc2VxGAMgASgEEiYKAnRzGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBImCgRraW5kGAUgASgOMhgucG9kaXVtLnYxLlRhc2tFdmVudEtpbmQSIgoDbG9nGAYgASgLMhMucG9kaXVtLnYxLkxvZ0NodW5rSAASHwoEc3RlcBgHIAEoCzIPLnBvZGl1bS52MS5TdGVwSAASIwoGZXhpdGVkGAggASgLMhEucG9kaXVtLnYxLkV4aXRlZEgAEicKCGZpbmlzaGVkGAkgASgLMhMucG9kaXVtLnYxLkZpbmlzaGVkSAASIQoFZXJyb3IYCiABKAsyEC5wb2RpdW0udjEuRXJyb3JIABIqCghhcnRpZmFjdBgLIAEoCzIWLnBvZGl1bS52MS5BcnRpZmFjdFJlZkgAEiUKB21lc3NhZ2UYDCABKAsyEi5wb2RpdW0udjEuTWVzc2FnZUgAQgkKB3BheWxvYWQqzwIKDVRhc2tFdmVudEtpbmQSHwobVEFTS19FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASIAocVEFTS19FVkVOVF9LSU5EX1BST1ZJU0lPTklORxABEhsKF1RBU0tfRVZFTlRfS0lORF9QVUxMSU5HEAISGwoXVEFTS19FVkVOVF9LSU5EX1NUQVJURUQQAxIXChNUQVNLX0VWRU5UX0tJTkRfTE9HEAQSGAoUVEFTS19FVkVOVF9LSU5EX1NURVAQBRIcChhUQVNLX0VWRU5UX0tJTkRfQVJUSUZBQ1QQBhIaChZUQVNLX0VWRU5UX0tJTkRfRVhJVEVEEAcSHAoYVEFTS19FVkVOVF9LSU5EX0ZJTklTSEVEEAgSGQoVVEFTS19FVkVOVF9LSU5EX0VSUk9SEAkSGwoXVEFTS19FVkVOVF9LSU5EX01FU1NBR0UQCjLlAQoLTm9kZVNlcnZpY2USPQoGRW5yb2xsEhgucG9kaXVtLnYxLkVucm9sbFJlcXVlc3QaGS5wb2RpdW0udjEuRW5yb2xsUmVzcG9uc2USPgoGU3RyZWFtEhYucG9kaXVtLnYxLk5vZGVNZXNzYWdlGhgucG9kaXVtLnYxLlNlcnZlck1lc3NhZ2UoATABElcKDlVwbG9hZEFydGlmYWN0EiAucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVxdWVzdBohLnBvZGl1bS52MS5VcGxvYWRBcnRpZmFjdFJlc3BvbnNlKAFCnwEKDWNvbS5wb2RpdW0udjFCCU5vZGVQcm90b1ABWj5naXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.EnrollRequest
@@ -304,6 +304,12 @@ export type ServerMessage = Message$1<"podium.v1.ServerMessage"> & {
      */
     value: Slots;
     case: "slots";
+  } | {
+    /**
+     * @generated from field: podium.v1.Inject inject = 7;
+     */
+    value: Inject;
+    case: "inject";
   } | { case: undefined; value?: undefined };
 };
 
@@ -676,6 +682,34 @@ export const CancelSchema: GenMessage<Cancel> = /*@__PURE__*/
   messageDesc(file_podium_v1_node, 16);
 
 /**
+ * Inject delivers one human message into a running task. It is how an interactive
+ * playbook turn hears a reply without the container exiting: the node writes the text
+ * to the task's inbox socket, and the runtime's ask tool reads it. A task that is not
+ * running, or whose runtime is not waiting, still accepts the bytes — they sit until
+ * the next ask, or vanish when the container dies. It does not change task status.
+ *
+ * @generated from message podium.v1.Inject
+ */
+export type Inject = Message$1<"podium.v1.Inject"> & {
+  /**
+   * @generated from field: string task_id = 1;
+   */
+  taskId: string;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message podium.v1.Inject.
+ * Use `create(InjectSchema)` to create a new message.
+ */
+export const InjectSchema: GenMessage<Inject> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 17);
+
+/**
  * Slots changes how many tasks the node runs at once, overriding the max_tasks in its own
  * configuration. The node is the only thing that can enforce a concurrency budget — it
  * rejects an assignment it has no slot for — so raising the number has to reach the node
@@ -701,7 +735,7 @@ export type Slots = Message$1<"podium.v1.Slots"> & {
  * Use `create(SlotsSchema)` to create a new message.
  */
 export const SlotsSchema: GenMessage<Slots> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 17);
+  messageDesc(file_podium_v1_node, 18);
 
 /**
  * Drain tells the node to stop accepting work and finish what it is running.
@@ -723,7 +757,7 @@ export type Drain = Message$1<"podium.v1.Drain"> & {
  * Use `create(DrainSchema)` to create a new message.
  */
 export const DrainSchema: GenMessage<Drain> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 18);
+  messageDesc(file_podium_v1_node, 19);
 
 /**
  * @generated from message podium.v1.LogChunk
@@ -763,7 +797,7 @@ export type LogChunk = Message$1<"podium.v1.LogChunk"> & {
  * Use `create(LogChunkSchema)` to create a new message.
  */
 export const LogChunkSchema: GenMessage<LogChunk> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 19);
+  messageDesc(file_podium_v1_node, 20);
 
 /**
  * @generated from enum podium.v1.LogChunk.Stream
@@ -794,7 +828,7 @@ export enum LogChunk_Stream {
  * Describes the enum podium.v1.LogChunk.Stream.
  */
 export const LogChunk_StreamSchema: GenEnum<LogChunk_Stream> = /*@__PURE__*/
-  enumDesc(file_podium_v1_node, 19, 0);
+  enumDesc(file_podium_v1_node, 20, 0);
 
 /**
  * ArtifactRef names an artifact the control plane has already stored. The node emits one
@@ -835,7 +869,7 @@ export type ArtifactRef = Message$1<"podium.v1.ArtifactRef"> & {
  * Use `create(ArtifactRefSchema)` to create a new message.
  */
 export const ArtifactRefSchema: GenMessage<ArtifactRef> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 20);
+  messageDesc(file_podium_v1_node, 21);
 
 /**
  * Message is something the task wants a human (or a relay) to read while it runs. `type` is
@@ -868,7 +902,7 @@ export type Message = Message$1<"podium.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 21);
+  messageDesc(file_podium_v1_node, 22);
 
 /**
  * Step is emitted by the runner. Reserved: unused in MVP-0.
@@ -897,7 +931,7 @@ export type Step = Message$1<"podium.v1.Step"> & {
  * Use `create(StepSchema)` to create a new message.
  */
 export const StepSchema: GenMessage<Step> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 22);
+  messageDesc(file_podium_v1_node, 23);
 
 /**
  * @generated from message podium.v1.Exited
@@ -919,7 +953,7 @@ export type Exited = Message$1<"podium.v1.Exited"> & {
  * Use `create(ExitedSchema)` to create a new message.
  */
 export const ExitedSchema: GenMessage<Exited> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 23);
+  messageDesc(file_podium_v1_node, 24);
 
 /**
  * @generated from message podium.v1.Finished
@@ -941,7 +975,7 @@ export type Finished = Message$1<"podium.v1.Finished"> & {
  * Use `create(FinishedSchema)` to create a new message.
  */
 export const FinishedSchema: GenMessage<Finished> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 24);
+  messageDesc(file_podium_v1_node, 25);
 
 /**
  * @generated from message podium.v1.Error
@@ -979,7 +1013,7 @@ export type Error = Message$1<"podium.v1.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 25);
+  messageDesc(file_podium_v1_node, 26);
 
 /**
  * TaskEvent is ordered per task by seq, starting at 1. The server deduplicates on
@@ -1066,7 +1100,7 @@ export type TaskEvent = Message$1<"podium.v1.TaskEvent"> & {
  * Use `create(TaskEventSchema)` to create a new message.
  */
 export const TaskEventSchema: GenMessage<TaskEvent> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 26);
+  messageDesc(file_podium_v1_node, 27);
 
 /**
  * TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04),

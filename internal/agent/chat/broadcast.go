@@ -43,6 +43,7 @@ const (
 	StatusStarted  = "started"
 	StatusFinished = "finished"
 	StatusFailed   = "failed"
+	StatusAwaiting = "awaiting"
 )
 
 // Frame is one thing that happened in a chat.

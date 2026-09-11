@@ -142,6 +142,9 @@ type BriefPlaybook struct {
 	// writes the harness one entry per server here and no others — so a playbook that names
 	// none has no MCP tools beyond the ones the conductor wires up itself.
 	MCPServers []BriefMCPServer `json:"mcp_servers,omitempty"`
+	// Interactive is true when this turn may ask a human a question and wait. Absent
+	// (false) is the default: the runtime has no ask tool and the prompt says so.
+	Interactive bool `json:"interactive,omitempty"`
 }
 
 // BriefMCPServer points the runtime at one MCP server. It carries an address and the NAME of
