@@ -59,6 +59,15 @@ func (f *fakeDelegator) CancelDelegation(_ context.Context, token, id, _ string)
 	return f.dlg, nil
 }
 
+func (f *fakeDelegator) InjectDelegation(_ context.Context, token, id, _ string) (store.Delegation, error) {
+	f.tokens = append(f.tokens, token)
+	if f.err != nil {
+		return store.Delegation{}, f.err
+	}
+	f.dlg.ID = id
+	return f.dlg, nil
+}
+
 // withToken is a request carrying a turn's token, as the MCP server sends it.
 func withToken[T any](msg *T, token string) *connect.Request[T] {
 	req := connect.NewRequest(msg)
@@ -174,6 +183,20 @@ func TestGetAndCancelNeedAnId(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	_, err = svc.CancelDelegation(ctx, withToken(&agentv1.CancelDelegationRequest{}, "tok"))
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	_, err = svc.InjectDelegation(ctx, withToken(&agentv1.InjectDelegationRequest{Id: "dlg_01"}, "tok"))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "inject without text is refused")
+	_, err = svc.InjectDelegation(ctx, withToken(&agentv1.InjectDelegationRequest{Text: "use main"}, "tok"))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err), "inject without id is refused")
+}
+
+func TestInjectDelegationHandsTheTextToTheConductor(t *testing.T) {
+	f := &fakeDelegator{dlg: running()}
+	svc := NewTurnService(f, quietLogger())
+	res, err := svc.InjectDelegation(context.Background(),
+		withToken(&agentv1.InjectDelegationRequest{Id: "dlg_01", Text: "use main"}, "tok"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tok"}, f.tokens)
+	assert.Equal(t, "dlg_01", res.Msg.GetDelegation().GetId())
 }
 
 func TestListDelegationsReturnsEveryOneOfThisTurns(t *testing.T) {

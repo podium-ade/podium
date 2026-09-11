@@ -336,6 +336,14 @@ describe("invocation", () => {
     expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
     expect(invocation(base).argv).not.toContain("--variant");
   });
+
+  it("continues a session when one is named, so an inject does not start from scratch", () => {
+    const { argv } = invocation({ ...base, sessionID: "ses_01", instruction: "use main" });
+    expect(argv).toContain("--session");
+    expect(argv).toContain("ses_01");
+    expect(argv.at(-1)).toBe("use main");
+    expect(invocation(base).argv).not.toContain("--session");
+  });
 });
 
 describe("resolveBrowserURL", () => {

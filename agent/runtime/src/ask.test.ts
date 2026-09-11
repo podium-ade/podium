@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { newHandler, waitOnSocket } from "./ask.js";
+import { AskHub, newHandler, waitOnSocket } from "./ask.js";
 
 describe("ask tool", () => {
   it("emits a question and returns the inbox reply", async () => {
@@ -39,6 +39,25 @@ describe("ask tool", () => {
     })) as { content: { text: string }[]; isError?: boolean };
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("nobody answered");
+  });
+});
+
+describe("AskHub", () => {
+  it("delivers to a waiter and otherwise refuses", async () => {
+    const hub = new AskHub();
+    expect(hub.tryDeliver("nope")).toBe(false);
+    const dir = mkdtempSync(join(tmpdir(), "ask-hub-"));
+    const path = join(dir, "ask.sock");
+    const stop = hub.listen(path);
+    try {
+      const pending = waitOnSocket(path)(2_000);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(hub.tryDeliver("use main")).toBe(true);
+      expect(await pending).toBe("use main");
+      expect(hub.tryDeliver("again")).toBe(false);
+    } finally {
+      stop();
+    }
   });
 });
 

@@ -39,10 +39,11 @@ var (
 	// ErrPlaybookNotOffered means the name is not one this turn's brief listed. A turn may
 	// only delegate to the playbooks it was shown, so a name cannot be reached by guessing.
 	ErrPlaybookNotOffered = errors.New("conductor: that playbook was not offered to this turn")
-	// ErrDelegationNotFound covers both "no such delegation" and "not this turn's", which
-	// are the same answer on purpose: one turn may not learn about another's work by
-	// probing ids.
-	ErrDelegationNotFound = errors.New("conductor: no such delegation for this turn")
+	// ErrDelegationNotFound covers both "no such delegation" and "not this conversation's",
+	// which are the same answer on purpose: one turn may not learn about another
+	// conversation's work by probing ids. In-flight work of THIS conversation is visible,
+	// including from an earlier turn — a follow-up has to be able to inject into it.
+	ErrDelegationNotFound = errors.New("conductor: no such delegation for this conversation")
 	// ErrDelegationOver means the delegation is already terminal, so there is nothing to
 	// cancel.
 	ErrDelegationOver = errors.New("conductor: that delegation has already finished")
@@ -419,7 +420,8 @@ func (c *Conductor) followDelegation(
 }
 
 // GetDelegation is where a delegated task has got to, and the last thing it said on the way.
-// A turn may only ask about its own.
+// A turn may ask about work of this conversation, including a task an earlier turn started
+// that is still running — that is how a follow-up injects into it.
 func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
@@ -431,21 +433,58 @@ func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	case err != nil:
 		return store.Delegation{}, "", err
-	case dlg.TurnID != g.turnID:
-		// Deliberately the same answer as "no such delegation": one turn does not get to
-		// discover another's work by probing ids.
+	case dlg.TriggerRef != g.ref:
+		// Deliberately the same answer as "no such delegation": one conversation does not
+		// get to discover another's work by probing ids.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	}
 	return dlg, c.delegationProgress(id), nil
 }
 
-// Delegations is everything this turn has delegated, oldest first.
+// Delegations is this conversation's delegated tasks: everything this turn has started,
+// plus any still running from an earlier turn of the same conversation, oldest first.
 func (c *Conductor) Delegations(ctx context.Context, token string) ([]store.Delegation, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
 		return nil, ErrNoTurn
 	}
-	return c.store.DelegationsForTurn(ctx, g.turnID)
+	mine, err := c.store.DelegationsForTurn(ctx, g.turnID)
+	if err != nil {
+		return nil, err
+	}
+	running, err := c.store.RunningDelegationsForRef(ctx, g.ref)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(mine))
+	out := make([]store.Delegation, 0, len(mine)+len(running))
+	for _, dlg := range mine {
+		seen[dlg.ID] = struct{}{}
+		out = append(out, dlg)
+	}
+	for _, dlg := range running {
+		if _, ok := seen[dlg.ID]; ok {
+			continue
+		}
+		out = append(out, dlg)
+	}
+	return out, nil
+}
+
+// InjectDelegation delivers one human message into a running delegated task of this
+// conversation. The container stays up.
+func (c *Conductor) InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error) {
+	dlg, _, err := c.GetDelegation(ctx, token, id)
+	if err != nil {
+		return store.Delegation{}, err
+	}
+	if dlg.Status != store.TurnRunning || dlg.TaskID == "" {
+		return store.Delegation{}, ErrDelegationOver
+	}
+	if err := c.podium.InjectTask(ctx, dlg.TaskID, text); err != nil {
+		return store.Delegation{}, fmt.Errorf("conductor: injecting into the delegated task failed: %w", err)
+	}
+	return dlg, nil
 }
 
 // CancelDelegation stops a delegated task. It is the same cancel `podium task cancel`

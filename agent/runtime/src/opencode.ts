@@ -382,6 +382,7 @@ export function start(opts: {
   model: string;
   effort?: string;
   instruction: string;
+  sessionID?: string;
   env: NodeJS.ProcessEnv;
 }): Run {
   const { argv, cwd, env } = invocation(opts);
@@ -411,6 +412,7 @@ export function invocation(opts: {
   model: string;
   effort?: string;
   instruction: string;
+  sessionID?: string;
   env: NodeJS.ProcessEnv;
 }): { argv: string[]; cwd: string; env: NodeJS.ProcessEnv } {
   const argv = [
@@ -427,6 +429,9 @@ export function invocation(opts: {
   ];
   if (opts.effort) {
     argv.push("--variant", opts.effort);
+  }
+  if (opts.sessionID) {
+    argv.push("--session", opts.sessionID);
   }
   argv.push(opts.instruction);
 

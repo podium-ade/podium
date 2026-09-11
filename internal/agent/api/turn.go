@@ -39,6 +39,7 @@ type Delegator interface {
 	GetDelegation(ctx context.Context, token, id string) (store.Delegation, string, error)
 	Delegations(ctx context.Context, token string) ([]store.Delegation, error)
 	CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error)
+	InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error)
 }
 
 // TurnService implements podium.agent.v1.TurnService.
@@ -143,6 +144,32 @@ func (s *TurnService) CancelDelegation(
 	s.logger.InfoContext(ctx, "a turn cancelled a delegated task",
 		"delegation_id", dlg.ID, "turn_id", dlg.TurnID, "task_id", dlg.TaskID)
 	return connect.NewResponse(&agentv1.CancelDelegationResponse{Delegation: delegationProto(dlg)}), nil
+}
+
+// InjectDelegation delivers one human message into a running delegated task.
+func (s *TurnService) InjectDelegation(
+	ctx context.Context,
+	req *connect.Request[agentv1.InjectDelegationRequest],
+) (*connect.Response[agentv1.InjectDelegationResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.GetId())
+	text := strings.TrimSpace(req.Msg.GetText())
+	switch {
+	case id == "":
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("id is required"))
+	case text == "":
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("text is required"))
+	}
+	dlg, err := s.delegator.InjectDelegation(ctx, token, id, text)
+	if err != nil {
+		return nil, delegationError(err)
+	}
+	s.logger.InfoContext(ctx, "a turn injected into a delegated task",
+		"delegation_id", dlg.ID, "turn_id", dlg.TurnID, "task_id", dlg.TaskID)
+	return connect.NewResponse(&agentv1.InjectDelegationResponse{Delegation: delegationProto(dlg)}), nil
 }
 
 // token is the caller's turn token, or the reason there is nothing to do.

@@ -78,6 +78,10 @@ export class Client {
     return this.call("CancelDelegation", { id, reason });
   }
 
+  inject(id: string, text: string): Promise<{ delegation: Delegation }> {
+    return this.call("InjectDelegation", { id, text });
+  }
+
   private async call<T>(method: string, body: unknown): Promise<T> {
     const res = await this.fetchImpl(`${this.url}/${Service}/${method}`, {
       method: "POST",
