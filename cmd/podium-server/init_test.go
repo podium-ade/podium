@@ -118,11 +118,13 @@ func TestInitCommandWritesUsableCredentials(t *testing.T) {
 	require.NoError(t, err)
 	env := parseEnv(t, string(raw))
 
-	for _, name := range requiredByCompose[server.TransportLocal] {
+	for _, name := range requiredByCompose[hostNetworkTransport] {
 		require.NotEmpty(t, env[name], "%s was written with no value", name)
 	}
 	// Distinct values, not one secret reused: they guard different things.
 	require.NotEqual(t, env["PODIUM_LOCAL_TOKEN"], env["PODIUM_AGENT_TOKEN"])
+	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"])
+	require.Empty(t, env["PODIUM_SERVER"], "PODIUM_SERVER is this machine's address on the network; init cannot guess it")
 }
 
 func parseEnv(t *testing.T, body string) map[string]string {

@@ -48,15 +48,15 @@ func newInitCommand() *cobra.Command {
 			"copied onto the host. It writes two files and never overwrites either:\n\n" +
 			"  master.key   the AES-256 key every stored secret is encrypted under, mode 0600\n" +
 			"  .env         the compose file's variables, with fresh random credentials\n\n" +
-			"--transport selects the deployment:\n\n" +
-			"  local    loopback, one shared token. docker-compose.yml\n" +
-			"  tailnet  HTTPS on a MagicDNS name, no token. docker-compose.tailnet.yml\n" +
-			"  host     this machine's routing (LAN, WireGuard, a corporate VPN),\n" +
-			"           still the shared token. docker-compose.host.yml\n\n" +
+			"The default is docker-compose.host.yml: this machine's interfaces, a shared\n" +
+			"token, and PODIUM_SERVER left for you to fill with the address clients dial.\n\n" +
+			"--transport selects a different deployment:\n\n" +
+			"  host     the default. docker-compose.host.yml\n" +
+			"  local    loopback only. docker-compose.yml\n" +
+			"  tailnet  HTTPS on a MagicDNS name, no token. docker-compose.tailnet.yml\n\n" +
 			"With --transport tailnet the .env also carries the two values only you can\n" +
 			"supply — TS_AUTHKEY and PODIUM_TAILNET — and the command reports whether the\n" +
-			"Tailscale prerequisites are in place. With --transport host it leaves\n" +
-			"PODIUM_SERVER for you: the URL clients dial on the network you already have.\n\n" +
+			"Tailscale prerequisites are in place.\n\n" +
 			"Back master.key up somewhere that is not this machine. There is no recovery\n" +
 			"path: losing it loses every secret encrypted under it.",
 		Args: cobra.NoArgs,
@@ -122,8 +122,8 @@ func newInitCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", ".", "directory to write master.key and .env into")
-	cmd.Flags().StringVar(&transport, "transport", server.TransportLocal,
-		"which deployment this is: local (loopback), tailnet, or host (this machine's routing)")
+	cmd.Flags().StringVar(&transport, "transport", hostNetworkTransport,
+		"which deployment this is: host (this machine's routing, the default), local (loopback), or tailnet")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "",
 		"your tailnet's MagicDNS suffix without .ts.net (for example tail0a1b2c); tailnet transport only")
 	cmd.Flags().BoolVar(&force, "force", false, "write .env even if one already exists")
