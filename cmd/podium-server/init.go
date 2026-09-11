@@ -169,7 +169,8 @@ func renderEnv(v initSecrets) string {
 	b.WriteString("PODIUM_S3_SECRET_KEY=" + v.S3SecretKey + "\n")
 	b.WriteString("PODIUM_S3_BUCKET=podium\n\n")
 
-	if v.Transport == server.TransportTailnet {
+	switch v.Transport {
+	case server.TransportTailnet:
 		b.WriteString("# Your tailnet's MagicDNS suffix, without .ts.net. `tailscale status --json`\n")
 		b.WriteString("# reports it as MagicDNSSuffix; the server is served at\n")
 		b.WriteString("# https://podium.<this>.ts.net.\n")
@@ -180,7 +181,7 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# afterwards.\n")
 		b.WriteString("TS_AUTHKEY=\n")
 		b.WriteString("PODIUM_NODE_TS_AUTHKEY=\n\n")
-	} else if v.Transport == hostNetworkTransport {
+	case hostNetworkTransport:
 		// PODIUM_TRANSPORT stays local: a VPN does not name the caller. `host` as a
 		// PODIUM_TRANSPORT value means borrow tailscaled, which is a different deployment.
 		b.WriteString("# Host-network deployment: this machine's routing table (LAN, WireGuard,\n")
@@ -194,7 +195,7 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("# network you already have. 0.0.0.0 is a bind address, not a URL.\n")
 		b.WriteString("# Example: http://10.8.0.2:8080  or  http://podium.corp.example:8080\n")
 		b.WriteString("PODIUM_SERVER=\n\n")
-	} else {
+	default:
 		b.WriteString("# The local transport's shared bearer token. Every API call and the web UI\n")
 		b.WriteString("# present it; it is the only thing between a caller and the whole API.\n")
 		b.WriteString("PODIUM_LOCAL_TOKEN=" + v.LocalToken + "\n\n")
