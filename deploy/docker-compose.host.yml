@@ -1,0 +1,240 @@
+# A Podium control plane on this machine's own network — LAN, WireGuard, a corporate VPN,
+# whatever already routes here. One file, like the others, and it FAILS CLOSED on every
+# credential because a deployment that other machines can reach is not a place for a
+# default password.
+#
+#   docker compose -f docker-compose.host.yml up -d --wait
+#
+# `podium-server init --transport host` writes a .env with the credentials generated and
+# PODIUM_SERVER left for you: that is the URL clients actually dial (this host's address on
+# the network you already have). 0.0.0.0 is a bind address, not a URL.
+#
+# The server, conductor and a co-located worker share the host's network namespace
+# (`network_mode: host`), so they inherit this machine's routing table instead of Docker's
+# bridge NAT. Podium does not add a tunnel. A worker on the other side of your WireGuard
+# (or VPN, or LAN) dials PODIUM_SERVER the same way any other host process would.
+#
+# Authentication is the local transport's shared token. A VPN does not name the caller the
+# way Tailscale WhoIs does, so there is no per-user identity here. Anyone who can route to
+# the listen address and holds the token can do everything.
+#
+# Linux Engine. Docker Desktop's "host networking" is not the same thing — on a Mac run
+# the binaries with `make stack-up` instead; they already use this machine's routes.
+#
+# PODIUM_TRANSPORT is local, not host. `host` as a PODIUM_TRANSPORT value means something
+# else: borrow the machine's tailscaled. This file's "host" is Docker's network_mode.
+name: podium
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: ${PODIUM_PG_PASSWORD:?set PODIUM_PG_PASSWORD}
+      POSTGRES_DB: podium
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    configs:
+      - source: postgres-init               # inline below; runs only on an EMPTY volume
+        target: /docker-entrypoint-initdb.d/10-databases.sql
+    ports:
+      # Loopback on the host, because the server is in the host's network namespace and
+      # reaches Postgres at 127.0.0.1. Not published off the machine.
+      - "127.0.0.1:${PODIUM_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium -d podium"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:0.9.2@sha256:84ab276b8f501546deb6ea9c64a57291718b4e16a59dd9e02a02fdd5adfe9028
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: 1g
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_memory
+      HINDSIGHT_API_TENANT_EXTENSION: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
+      # `:-` not `:?`: a `:?` here makes compose refuse to interpolate the WHOLE file, so
+      # `docker compose up postgres` would stop working on a deployment with no memory.
+      # Left empty, the container refuses to start and names the variable.
+      HINDSIGHT_API_TENANT_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      HINDSIGHT_API_LLM_PROVIDER: ${PODIUM_MEMORY_LLM_PROVIDER:-anthropic}
+      HINDSIGHT_API_LLM_MODEL: ${PODIUM_MEMORY_LLM_MODEL:-claude-opus-5}
+      HINDSIGHT_API_LLM_API_KEY: ${PODIUM_MEMORY_LLM_API_KEY:-}
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: local
+      HINDSIGHT_ENABLE_CP: "false"
+      HINDSIGHT_API_WORKER_ID: hindsight
+    ports:
+      # Workers on the other side of the VPN reach this at the host's VPN address. Set a
+      # real PODIUM_AGENT_MEMORY_API_KEY before widening the bind; the default below is
+      # every interface because that is the point of this file.
+      - "${PODIUM_MEMORY_BIND:-0.0.0.0}:${PODIUM_MEMORY_PORT:-8888}:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+  objectstore:
+    image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      RUSTFS_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?set PODIUM_S3_SECRET_KEY, at least 8 characters}
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+    volumes:
+      - objectstore-data:/data
+    ports:
+      # Same reason as Postgres: the server is on the host network and dials 127.0.0.1.
+      - "127.0.0.1:${PODIUM_S3_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD", "sh", "-ec", "wget -q -O- http://127.0.0.1:9000/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  init:
+    image: busybox:1.37@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    volumes:
+      - ${PODIUM_STATE_DIR:-server-state}:/state
+    command:
+      - sh
+      - -ec
+      - |
+        if [ ! -s /state/master.key ]; then
+          umask 077
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d '[:space:]' > /state/master.key
+          echo "init: generated a master key — back up the server-state volume"
+        fi
+        chmod 0600 /state/master.key
+        chown -R 65532:65532 /state
+    restart: "no"
+
+  server:
+    image: ${PODIUM_SERVER_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-server:${PODIUM_IMAGE_TAG:-latest}}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      objectstore:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    network_mode: host
+    environment:
+      # Host network has no compose DNS, so the dependencies are the ports they publish
+      # on this machine's loopback.
+      PODIUM_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@127.0.0.1:${PODIUM_PG_PORT:-5432}/podium
+      PODIUM_TRANSPORT: local
+      # Binds every interface of the HOST, because that is this file's whole point: a
+      # worker on the other side of your WireGuard (or VPN, or LAN) has to have something
+      # to dial. The token is the only credential. Do not bind a public address.
+      PODIUM_LOCAL_LISTEN: ${PODIUM_LOCAL_LISTEN:-0.0.0.0:8080}
+      PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN: "true"
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?set PODIUM_LOCAL_TOKEN}
+      PODIUM_MASTER_KEY_FILE: /var/lib/podium/master.key
+      PODIUM_S3_ENDPOINT: 127.0.0.1:${PODIUM_S3_PORT:-9000}
+      PODIUM_S3_BUCKET: ${PODIUM_S3_BUCKET:-podium}
+      PODIUM_S3_ACCESS_KEY: ${PODIUM_S3_ACCESS_KEY:-podium}
+      PODIUM_S3_SECRET_KEY: ${PODIUM_S3_SECRET_KEY:?}
+      PODIUM_S3_USE_SSL: "false"
+      PODIUM_LOG_ROLLUP_INTERVAL: ${PODIUM_LOG_ROLLUP_INTERVAL:-1m}
+      PODIUM_LOG_PRUNE_INTERVAL: ${PODIUM_LOG_PRUNE_INTERVAL:-1h}
+      PODIUM_LOG_CHUNK_GRACE: ${PODIUM_LOG_CHUNK_GRACE:-24h}
+      PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://127.0.0.1:8090}
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+    volumes:
+      - ${PODIUM_STATE_DIR:-server-state}:/var/lib/podium
+    restart: unless-stopped
+    # No ports: host network binds PODIUM_LOCAL_LISTEN on the machine itself.
+
+  agent:
+    image: ${PODIUM_AGENT_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}}
+    depends_on:
+      - server
+    network_mode: host
+    environment:
+      PODIUM_AGENT_SERVER: http://127.0.0.1:8080
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@127.0.0.1:${PODIUM_PG_PORT:-5432}/podium_agent
+      PODIUM_AGENT_LISTEN: 127.0.0.1:8090   # only the server on this host talks to it
+      PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
+      PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
+      PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
+      PODIUM_AGENT_LINEAR_POLL_INTERVAL: ${PODIUM_AGENT_LINEAR_POLL_INTERVAL:-30s}
+      PODIUM_AGENT_LINEAR_URL: ${PODIUM_AGENT_LINEAR_URL:-https://api.linear.app/graphql}
+      PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}
+      PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://127.0.0.1:8888}
+      # A task container on a WORKER. Co-located, host.docker.internal is this machine;
+      # a worker elsewhere needs this host's address on your network.
+      PODIUM_AGENT_MEMORY_TASK_URL: ${PODIUM_AGENT_MEMORY_TASK_URL:-http://host.docker.internal:8888}
+      PODIUM_AGENT_MEMORY_BANK: ${PODIUM_AGENT_MEMORY_BANK:-podium}
+      PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
+      PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
+      PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
+      PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
+    restart: unless-stopped
+
+  node:
+    profiles: ["node"]
+    image: ${PODIUM_NODE_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-node:${PODIUM_IMAGE_TAG:-latest}}
+    depends_on:
+      - server
+    network_mode: host
+    environment:
+      PODIUM_NODE_SERVER: http://127.0.0.1:8080
+      PODIUM_NODE_TRANSPORT: local
+      PODIUM_NODE_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_NODE_ENROLL_TOKEN: ${PODIUM_NODE_ENROLL_TOKEN:-}
+      PODIUM_NODE_DATA_DIR: /var/lib/podium-node
+      PODIUM_NODE_MAX_TASKS: ${PODIUM_NODE_MAX_TASKS:-4}
+      PODIUM_NODE_LABELS: ${PODIUM_NODE_LABELS:-}
+    volumes:
+      - /var/lib/podium-node:/var/lib/podium-node
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  cli:
+    profiles: ["cli"]
+    image: ${PODIUM_CLI_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium:${PODIUM_IMAGE_TAG:-latest}}
+    depends_on:
+      - server
+    network_mode: host
+    environment:
+      PODIUM_SERVER: http://127.0.0.1:8080
+      PODIUM_LOCAL_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+    restart: "no"
+
+volumes:
+  pgdata:
+  objectstore-data:
+  server-state:
+
+# Inline, so this file needs nothing beside it. Byte-identical to postgres/init.sql, which
+# docker-compose.dev.yml mounts from disk; `go test ./deploy/...` fails if they drift.
+configs:
+  postgres-init:
+    content: |
+      -- The databases beside podium's own. Postgres runs this ONLY on an empty data directory;
+      -- to add them to an existing install, see docs/operations.md.
+      create database podium_agent owner podium;   -- the conductor's, migrated by podium-agent
+      create database podium_memory owner podium;  -- Hindsight's, migrated by Hindsight
+
+      \connect podium_memory
+
+      -- Hindsight needs pgvector in `public` and would otherwise DROP EXTENSION ... CASCADE and
+      -- recreate it there itself. podium and podium_agent stay extension-free.
+      create extension if not exists vector;

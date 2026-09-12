@@ -10,10 +10,10 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 )
 
-// docker-compose.yml carries the Postgres bootstrap script inline, as a compose `config`,
-// so that a deployment is one file with nothing to fetch beside it. docker-compose.dev.yml
-// and docker-compose.tailnet.yml mount the same script from postgres/init.sql instead,
-// because neither is distributed as a single file.
+// docker-compose.yml, docker-compose.tailnet.yml and docker-compose.host.yml carry the
+// Postgres bootstrap script inline, as a compose `config`, so that a deployment is one
+// file with nothing to fetch beside it. docker-compose.dev.yml mounts the same script
+// from postgres/init.sql instead, because it is only ever used inside a clone.
 //
 // Two copies of anything drift. This is the test that says so: the inline content and the
 // file must be byte-identical, and the fix when this fails is to copy the file into the
@@ -22,9 +22,9 @@ func TestInlinePostgresInitMatchesTheFile(t *testing.T) {
 	onDisk, err := os.ReadFile("postgres/init.sql")
 	require.NoError(t, err)
 
-	// Both distributed files carry it inline, because both are meant to be saved on their
+	// The distributed files carry it inline, because they are meant to be saved on their
 	// own. docker-compose.dev.yml mounts the file instead: it is only ever used in a clone.
-	for _, name := range []string{"docker-compose.yml", "docker-compose.tailnet.yml"} {
+	for _, name := range []string{"docker-compose.yml", "docker-compose.tailnet.yml", "docker-compose.host.yml"} {
 		t.Run(name, func(t *testing.T) {
 			raw, err := os.ReadFile(name)
 			require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestInlinePostgresInitMatchesTheFile(t *testing.T) {
 // PODIUM_IMAGE_TAG, so an operator pins the version and a digest here would defeat that.
 func TestBaseImagesArePinnedByDigest(t *testing.T) {
 	image := regexp.MustCompile(`(?m)^\s+image:\s*(\S+)`)
-	for _, name := range []string{"docker-compose.yml", "docker-compose.dev.yml", "docker-compose.tailnet.yml"} {
+	for _, name := range []string{"docker-compose.yml", "docker-compose.dev.yml", "docker-compose.tailnet.yml", "docker-compose.host.yml"} {
 		t.Run(name, func(t *testing.T) {
 			raw, err := os.ReadFile(name)
 			require.NoError(t, err)
@@ -93,18 +93,41 @@ func TestTheSingleFileNeedsNoConfiguration(t *testing.T) {
 			"operator sets them. Give each a default instead.", names)
 }
 
+// TestHostComposeSharesTheHostNetwork is the reason docker-compose.host.yml exists:
+// the server, conductor and a co-located node inherit this machine's routing table
+// (WireGuard, a corporate VPN, the LAN) instead of Docker's bridge NAT.
+func TestHostComposeSharesTheHostNetwork(t *testing.T) {
+	raw, err := os.ReadFile("docker-compose.host.yml")
+	require.NoError(t, err)
+
+	var file struct {
+		Services map[string]struct {
+			NetworkMode string `yaml:"network_mode"`
+		} `yaml:"services"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &file))
+	for _, name := range []string{"server", "agent", "node", "cli"} {
+		require.Equal(t, "host", file.Services[name].NetworkMode,
+			"%s must use the host network so it sees this machine's routes", name)
+	}
+	for _, name := range []string{"postgres", "objectstore", "hindsight", "init"} {
+		require.Empty(t, file.Services[name].NetworkMode,
+			"%s stays on the compose network; the host-networked server reaches it on loopback", name)
+	}
+}
+
 // README.md carries the compose file verbatim, so that the front page shows the whole
 // deployment rather than describing it. Two copies of anything drift, so this is the test
 // that says so: the fenced block between the BEGIN/END markers must be the file itself.
 func TestReadmeEmbedsTheComposeFileVerbatim(t *testing.T) {
-	want, err := os.ReadFile("docker-compose.yml")
+	want, err := os.ReadFile("docker-compose.host.yml")
 	require.NoError(t, err)
 
 	readme, err := os.ReadFile("../README.md")
 	require.NoError(t, err)
 
-	const begin = "<!-- BEGIN deploy/docker-compose.yml -->\n```yaml\n"
-	const end = "```\n<!-- END deploy/docker-compose.yml -->"
+	const begin = "<!-- BEGIN deploy/docker-compose.host.yml -->\n```yaml\n"
+	const end = "```\n<!-- END deploy/docker-compose.host.yml -->"
 	i := strings.Index(string(readme), begin)
 	require.GreaterOrEqual(t, i, 0, "README.md has no BEGIN marker for the compose file")
 	rest := string(readme)[i+len(begin):]
@@ -112,6 +135,6 @@ func TestReadmeEmbedsTheComposeFileVerbatim(t *testing.T) {
 	require.GreaterOrEqual(t, j, 0, "README.md has no END marker for the compose file")
 
 	require.Equal(t, string(want), rest[:j],
-		"README.md's embedded compose file and deploy/docker-compose.yml have drifted. Copy "+
+		"README.md's embedded compose file and deploy/docker-compose.host.yml have drifted. Copy "+
 			"the file into the fenced block between the markers; do not edit the README copy.")
 }

@@ -1,6 +1,6 @@
 ---
 name: run-dev-stack
-description: Bring up a Podium development stack from nothing — Postgres, podium-server, a worker, and optionally the conductor — and drive a task through it. Use when asked to run, start, or smoke-test Podium locally, to reproduce a bug against a real stack, or to attach a remote worker. Covers both the loopback-only local transport and the tailnet transport, which is the only supported way to reach a worker on another machine. To put new code on a stack that is already up, see update-live-stack.
+description: Bring up a Podium development stack from nothing — Postgres, podium-server, a worker, and optionally the conductor — and drive a task through it. Use when asked to run, start, or smoke-test Podium locally, to reproduce a bug against a real stack, or to attach a remote worker. Covers the loopback-only local transport, the tailnet transport, and host-network mode (WireGuard, a corporate VPN, a LAN — this machine's existing routes, no Tailscale device). To put new code on a stack that is already up, see update-live-stack.
 ---
 
 # Running a Podium development stack
@@ -14,13 +14,15 @@ image build.
 
 | | Transport | Use when |
 |---|---|---|
-| Local only | `dev` | Everything on one box. Simplest. |
-| Remote worker | `tailnet` | A worker on another machine. **The only supported way.** |
+| Local only | `local` | Everything on one box. Simplest. |
+| Remote worker, you have a tailnet | `tailnet` | A worker on another machine. Identity from Tailscale WhoIs. |
+| Remote worker, you already have a network | host network | WireGuard, a corporate VPN, a LAN. Same token as `local`, bound to this machine's interfaces. |
 
-The `local` transport **refuses to listen on anything but loopback**, so a remote node cannot
-reach it. That is a deliberate check, not a bug: the local transport authenticates with one shared
-static token, and binding that to a real interface publishes the whole API. Do not work around
-it with a TCP relay.
+The `local` transport **refuses to listen on anything but loopback** unless
+`PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` is on. That waiver is the host-network path, not a
+workaround: `podium-server init --transport host` writes it, and `make stack-up` in a worktree
+uses the host's existing routes (VPN, WireGuard) without embedding a Tailscale device. Do not
+relay the loopback listener with `socat` or an SSH forward.
 
 ---
 
@@ -49,6 +51,7 @@ testcontainers, so they never collide with your dev database.
 ```sh
 ./bin/podium-server init --dir deploy                    # local transport
 ./bin/podium-server init --dir deploy --transport tailnet --tailnet <suffix>
+./bin/podium-server init --dir deploy --transport host    # this machine's routing; fill PODIUM_SERVER
 ```
 
 It writes `deploy/master.key` and `deploy/.env`, both 0600, and never overwrites either. The
@@ -92,6 +95,33 @@ export PODIUM_TOKEN=$(sed -n 's/^PODIUM_LOCAL_TOKEN=//p' deploy/.env)
 
 For UI work run `pnpm dev` in `web/` instead of opening the embedded build: Vite hot-reloads and
 its proxy injects the token, so the UI never prompts for one.
+
+---
+
+## With a remote worker — host network (WireGuard, a corporate VPN, a LAN)
+
+When the machines already share a network Podium did not create, do not join a tailnet. Host
+binaries already use this machine's routes, which is why a worktree can reach a deployment over
+WireGuard without embedding a Tailscale device.
+
+```sh
+./bin/podium-server init --dir deploy --transport host
+# fill PODIUM_SERVER in deploy/.env — this host's address on your network,
+# for example http://10.8.0.2:8080
+docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
+make stack-up
+```
+
+`init --transport host` writes `PODIUM_TRANSPORT=local`, `PODIUM_LOCAL_LISTEN=0.0.0.0:8080` and
+the unsafe-listen waiver. The token is still the only credential. A remote node's
+`PODIUM_NODE_SERVER` is that same `PODIUM_SERVER`, `PODIUM_NODE_TRANSPORT=local`, and
+`PODIUM_NODE_LOCAL_TOKEN` is the token `init` minted.
+
+On Linux, `docker compose -f deploy/docker-compose.host.yml up` is the containerised equivalent
+(`network_mode: host` so the server inherits the host's routing table). Docker Desktop's host
+networking is not that feature; stay on `make stack-up` on a Mac.
+
+This is **not** `PODIUM_TRANSPORT=host`, which borrows tailscaled.
 
 ---
 

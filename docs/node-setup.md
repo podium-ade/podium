@@ -4,31 +4,29 @@ A node is any machine with a Docker engine that runs Podium tasks. It dials the 
 advertises its capacity, runs containers, and streams logs back. It never listens for inbound
 connections.
 
-There are two ways to run one:
+There are three ways to run one:
 
 | | When | Guide |
 |---|---|---|
-| **`tailnet`** | The node is on a **different machine** from the server. This is the normal case. | [Multi-machine](#multi-machine-the-tailnet-transport) below, then [docs/networking.md](networking.md) |
+| **`tailnet`** | The node is on a **different machine** from the server, on your tailnet. The normal case. | [Multi-machine](#multi-machine-the-tailnet-transport) below, then [docs/networking.md](networking.md) |
+| **host network** | The node is on a different machine, on a network you already have (WireGuard, a corporate VPN, a LAN). Still the local token. | [docs/networking.md](networking.md#host-network-bring-your-own-routing) |
 | **`local`** | Node and server share one machine. | [Single machine](#single-machine-the-local-transport) below |
 
 The `local` transport is loopback-only by design — the server refuses to bind anything else,
-because a shared static token is not an authentication system. Multi-machine means the tailnet
-transport, which has now run against a real tailnet: a `tag:podium-node` worker enrolled with no
-bearer token anywhere and ran a linux/amd64 task with live logs and its exit code. What that run
-did **not** prove is the ACL — read [`networking.md`](networking.md#the-acl) before relying on
-the network to refuse server → node.
+because a shared static token is not an authentication system. Its one waiver,
+`PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN`, has two sanctioned uses: a **container**, where loopback is
+the container's own and the published port is the boundary, and a **host-network deployment**,
+where the boundary is a network you already trust. A TCP relay in front of the loopback
+listener is the same exposure by another route and is not a substitute for either.
 
-**The `local` transport cannot reach a node on another machine.** Not "is discouraged": the server
-refuses to bind anything but loopback, so a remote `podium-node` pointed at `http://<host>:8080`
-finds nothing to connect to.
+Multi-machine with identity is the tailnet transport, which has now run against a real
+tailnet: a `tag:podium-node` worker enrolled with no bearer token anywhere and ran a
+linux/amd64 task with live logs and its exit code. What that run did **not** prove is the ACL
+— read [`networking.md`](networking.md#the-acl) before relying on the network to refuse
+server → node.
 
-Its one waiver, `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN`, is for **a container**, where loopback is the
-container's own and the published port is the boundary. Set on a host it publishes the whole API
-behind one static token; a TCP relay in front of the loopback listener is the same exposure by
-another route. **Neither is a sanctioned way to run a remote worker.**
-
-**A worker on another machine means the tailnet transport** — in development as much as in
-production. See [`networking.md`](networking.md#this-is-not-only-the-production-option).
+**A remote `podium-node` pointed at `http://<host>:8080` only works if the server opted into
+host network.** Otherwise the listen address is loopback and there is nothing to connect to.
 
 ## Requirements
 
