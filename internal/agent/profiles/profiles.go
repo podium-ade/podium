@@ -73,6 +73,15 @@ const XAIRefreshSecret = "podium.agent.xai_refresh_token"
 // operator can, by leaving PODIUM_AGENT_MEMORY_URL empty.
 const MemoryKeySecret = "podium.agent.memory_api_key"
 
+// GitCapabilityPrefix is the reserved prefix of the per-turn secret that carries a turn's
+// authority to mint a GitHub token. The conductor writes one before it creates the task and
+// deletes it when the turn ends, so the name is a turn id and never an operator's choice.
+//
+// A playbook may not name one: the capability is scoped to the repositories the conductor
+// signed into it, and a playbook that could name another turn's would be a playbook with
+// that turn's repositories. See internal/agent/conductor/gitcred.go.
+const GitCapabilityPrefix = "podium.agent.git_capability."
+
 // MemoryKeyEnv is where that secret lands in the task container. The brief's
 // memory.api_key_env names it, and the runtime reads it to authenticate its MCP client.
 const MemoryKeyEnv = "PODIUM_MEMORY_API_KEY"
@@ -120,6 +129,11 @@ type Profile struct {
 	// means the model's own default, which is what the provider picks.
 	Effort          string `yaml:"effort"`
 	DefaultPlaybook string `yaml:"default_playbook"`
+	// Git is who every playbook's turns commit as unless the playbook names its own. It is
+	// the DEFAULT and not the rule: the identity has to match the account behind the token
+	// that pushes, and the GitHub token is a per-playbook secret, so a second playbook
+	// pushing with a second token needs a persona of its own.
+	Git GitPersona `yaml:"git"`
 	// Skills is the Agent Skills the ASSISTANT may use — the turn the conductor answers a
 	// conversation with, on this host. A playbook names its own; this is the other end of
 	// that list and not a default for it, because the two turns are nothing alike: one has
@@ -195,6 +209,73 @@ type Repo struct {
 	DefaultBranch string `yaml:"default_branch" json:"default_branch"`
 }
 
+// GitPersona is who a turn's commits are BY: the user.name and user.email the runtime writes
+// into every clone it makes.
+//
+// It has to be an identity GitHub can resolve to an ACCOUNT, and that is a stronger
+// requirement than "a well-formed address". GitHub links a commit to an account by this
+// email; an @users.noreply.github.com address belonging to no account — which is what the
+// runtime's own fallback is — leaves every commit attributed to nobody, and a deployment
+// gate that checks the author's access refuses the pull request. The account whose token the
+// playbook pushes with is the right answer, as <id>+<login>@users.noreply.github.com.
+//
+// Empty is allowed and means the runtime's fallback, because a profile written before this
+// field existed must still load.
+type GitPersona struct {
+	Name  string `yaml:"name" json:"name"`
+	Email string `yaml:"email" json:"email"`
+}
+
+// Set reports whether this persona says anything at all. validate has already refused a
+// half-written one, so a persona that is Set always has both halves.
+func (g GitPersona) Set() bool { return g != GitPersona{} }
+
+func (g GitPersona) trim() GitPersona {
+	return GitPersona{Name: strings.TrimSpace(g.Name), Email: strings.TrimSpace(g.Email)}
+}
+
+// validate refuses a persona git could not write and one written only half-way.
+func (g GitPersona) validate() []error {
+	if !g.Set() {
+		return nil
+	}
+	var errs []error
+	if g.Name == "" || g.Email == "" {
+		errs = append(errs, errors.New("git needs both name and email, or neither"))
+	}
+	for _, f := range []struct{ key, value string }{{"name", g.Name}, {"email", g.Email}} {
+		if strings.ContainsAny(f.value, "<>\n") {
+			errs = append(errs, fmt.Errorf("git %s %q may not hold <, > or a newline: "+
+				"git writes the two into a commit header as `Name <email>`", f.key, f.value))
+		}
+	}
+	if g.Email != "" && !strings.Contains(g.Email, "@") {
+		errs = append(errs, fmt.Errorf("git email %q is not an address: GitHub links a commit "+
+			"to an account by it, so an address that resolves to none attributes the commit "+
+			"to nobody", g.Email))
+	}
+	return errs
+}
+
+// GitEnv is the environment git takes an identity from. Every one of these OVERRIDES
+// user.name and user.email, which is why a playbook may not set one alongside a persona:
+// there would be two answers and the quieter one would win.
+var GitEnv = []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"}
+
+func gitEnvConflicts(env map[string]string, g GitPersona) []error {
+	if !g.Set() {
+		return nil
+	}
+	var errs []error
+	for _, key := range GitEnv {
+		if _, ok := env[key]; ok {
+			errs = append(errs, fmt.Errorf("env may not set %s alongside git: it overrides "+
+				"user.name and user.email, so the persona would be written and then ignored", key))
+		}
+	}
+	return errs
+}
+
 // Playbook is one job the bot can do: which image, which prompt, which tools, which secrets.
 //
 // The json tags are the on-disk shape of a stored playbook in the conductor's database. They
@@ -217,10 +298,14 @@ type Playbook struct {
 	//
 	// It is a sort key and not a budget: it changes what runs next when the fleet is full,
 	// and nothing at all about what a turn is given or how long it may take.
-	Priority      int               `yaml:"priority" json:"priority,omitempty"`
-	Resources     spec.Resources    `yaml:"resources" json:"resources,omitempty"`
-	Secrets       []spec.SecretRef  `yaml:"secrets" json:"secrets,omitempty"`
-	Repos         []Repo            `yaml:"repos" json:"repos,omitempty"`
+	Priority  int              `yaml:"priority" json:"priority,omitempty"`
+	Resources spec.Resources   `yaml:"resources" json:"resources,omitempty"`
+	Secrets   []spec.SecretRef `yaml:"secrets" json:"secrets,omitempty"`
+	Repos     []Repo           `yaml:"repos" json:"repos,omitempty"`
+	// Git is who this playbook's turns commit as: it overrides the profile's, and unset
+	// inherits it. Unset in both leaves the runtime's fallback, which belongs to no GitHub
+	// account — see GitPersona for why that is a deployment failure rather than a cosmetic one.
+	Git           GitPersona        `yaml:"git" json:"git,omitzero"`
 	SlackChannels []string          `yaml:"slack_channels" json:"slack_channels,omitempty"`
 	Env           map[string]string `yaml:"env" json:"env,omitempty"`
 	// Skills is the Agent Skills a turn of this playbook may use, by name, out of
@@ -362,6 +447,7 @@ func loadProfileFile(path string) (*Profile, error) {
 		return nil, err
 	}
 	p.SystemPrompt = prompt
+	p.Git = p.Git.trim()
 	return &p, nil
 }
 
@@ -491,6 +577,7 @@ func (s *Playbook) applyDefaults() {
 	if strings.TrimSpace(s.Image) == "" {
 		s.Image = DefaultRuntimeImage()
 	}
+	s.Git = s.Git.trim()
 }
 
 // validateSkills checks an Agent Skills allow-list against the harness's own naming rule and
@@ -591,6 +678,11 @@ func (s Playbook) validate(path string) error {
 			errs = append(errs, fmt.Errorf("secrets may not name %s: the conductor decides what "+
 				"credential a turn gets, from the agent the playbook runs on", ref.Name))
 		}
+		if strings.HasPrefix(ref.Name, GitCapabilityPrefix) {
+			errs = append(errs, fmt.Errorf("secrets may not name %s: a turn's authority to mint "+
+				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
+				"repositories that turn's playbook listed", ref.Name))
+		}
 		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) {
 			// The registry is what grants an MCP server to a playbook, and the token is
 			// how a turn uses one. A playbook that could name the secret directly would
@@ -602,6 +694,8 @@ func (s Playbook) validate(path string) error {
 	}
 	errs = append(errs, validateSkills(s.Skills)...)
 	errs = append(errs, validateMCPServers(s.MCPServers)...)
+	errs = append(errs, s.Git.validate()...)
+	errs = append(errs, gitEnvConflicts(s.Env, s.Git)...)
 	for key := range s.Env {
 		if strings.HasPrefix(key, skills.EnvPrefix) {
 			errs = append(errs, fmt.Errorf("env may not set %s: the conductor writes one %s* "+
@@ -701,6 +795,19 @@ func (p *Profile) validate(path string) error {
 	// document to a YAML decoder, and both mean no cap; a negative one is the only shape
 	// that can be refused, and it is.
 	errs = append(errs, validateSkills(p.Skills)...)
+	errs = append(errs, p.Git.validate()...)
+	// The profile's persona against the env of every playbook that INHERITS it. A playbook
+	// with its own has already been checked against that one by Playbook.validate, and
+	// checking it twice would report the same line twice.
+	for _, name := range p.PlaybookNames() {
+		s := p.Playbooks[name]
+		if s.Git.Set() {
+			continue
+		}
+		for _, err := range gitEnvConflicts(s.Env, p.Git) {
+			errs = append(errs, fmt.Errorf("playbook %q: %w", name, err))
+		}
+	}
 	if p.MaxTurns < 0 {
 		errs = append(errs, fmt.Errorf("max_turns must be at least 1, got %d", p.MaxTurns))
 	}
@@ -893,6 +1000,15 @@ func (p *Profile) AgentFor(s Playbook) string {
 	default:
 		return DefaultAgent
 	}
+}
+
+// GitFor is who a turn of a playbook commits as: the playbook's own persona, then the
+// profile's. An empty one is a real answer — it leaves the runtime's fallback in place.
+func (p *Profile) GitFor(s Playbook) GitPersona {
+	if s.Git.Set() {
+		return s.Git
+	}
+	return p.Git
 }
 
 // EffortFor is the reasoning effort a playbook runs at, or "" for the model's own default.

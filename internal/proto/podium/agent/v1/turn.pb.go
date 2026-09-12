@@ -607,6 +607,130 @@ func (x *InjectDelegationResponse) GetDelegation() *Delegation {
 	return nil
 }
 
+// MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
+// mint is in the capability the caller presents in the X-Podium-Turn header.
+type MintTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MintTokenRequest) Reset() {
+	*x = MintTokenRequest{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MintTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MintTokenRequest) ProtoMessage() {}
+
+func (x *MintTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MintTokenRequest.ProtoReflect.Descriptor instead.
+func (*MintTokenRequest) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{11}
+}
+
+type MintTokenResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// token is the installation token. SENSITIVE: it is a GitHub credential with write
+	// access to the repositories the turn's playbook listed.
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// username is the basic-auth username the token is paired with. GitHub ignores the
+	// value and requires the pair.
+	Username string `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	// expires_at is when the token stops working, an hour or so out. The caller uses it to
+	// decide when the copy it keeps for the `gh` CLI has to be replaced.
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// author_name and author_email are the App's bot account, as a commit author. They are
+	// returned with the token rather than configured anywhere because they are a fact about
+	// the App: GitHub links a commit to an account by the email, and getting it wrong leaves
+	// every commit attributed to nobody.
+	AuthorName    string `protobuf:"bytes,4,opt,name=author_name,json=authorName,proto3" json:"author_name,omitempty"`
+	AuthorEmail   string `protobuf:"bytes,5,opt,name=author_email,json=authorEmail,proto3" json:"author_email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MintTokenResponse) Reset() {
+	*x = MintTokenResponse{}
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MintTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MintTokenResponse) ProtoMessage() {}
+
+func (x *MintTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_agent_v1_turn_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MintTokenResponse.ProtoReflect.Descriptor instead.
+func (*MintTokenResponse) Descriptor() ([]byte, []int) {
+	return file_podium_agent_v1_turn_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *MintTokenResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *MintTokenResponse) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *MintTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *MintTokenResponse) GetAuthorName() string {
+	if x != nil {
+		return x.AuthorName
+	}
+	return ""
+}
+
+func (x *MintTokenResponse) GetAuthorEmail() string {
+	if x != nil {
+		return x.AuthorEmail
+	}
+	return ""
+}
+
 var File_podium_agent_v1_turn_proto protoreflect.FileDescriptor
 
 const file_podium_agent_v1_turn_proto_rawDesc = "" +
@@ -655,13 +779,24 @@ const file_podium_agent_v1_turn_proto_rawDesc = "" +
 	"\x18InjectDelegationResponse\x12;\n" +
 	"\n" +
 	"delegation\x18\x01 \x01(\v2\x1b.podium.agent.v1.DelegationR\n" +
-	"delegation2\xf6\x03\n" +
+	"delegation\"\x12\n" +
+	"\x10MintTokenRequest\"\xc4\x01\n" +
+	"\x11MintTokenResponse\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x129\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x1f\n" +
+	"\vauthor_name\x18\x04 \x01(\tR\n" +
+	"authorName\x12!\n" +
+	"\fauthor_email\x18\x05 \x01(\tR\vauthorEmail2\xf6\x03\n" +
 	"\vTurnService\x12O\n" +
 	"\bDelegate\x12 .podium.agent.v1.DelegateRequest\x1a!.podium.agent.v1.DelegateResponse\x12^\n" +
 	"\rGetDelegation\x12%.podium.agent.v1.GetDelegationRequest\x1a&.podium.agent.v1.GetDelegationResponse\x12d\n" +
 	"\x0fListDelegations\x12'.podium.agent.v1.ListDelegationsRequest\x1a(.podium.agent.v1.ListDelegationsResponse\x12g\n" +
 	"\x10CancelDelegation\x12(.podium.agent.v1.CancelDelegationRequest\x1a).podium.agent.v1.CancelDelegationResponse\x12g\n" +
-	"\x10InjectDelegation\x12(.podium.agent.v1.InjectDelegationRequest\x1a).podium.agent.v1.InjectDelegationResponseB\xc3\x01\n" +
+	"\x10InjectDelegation\x12(.podium.agent.v1.InjectDelegationRequest\x1a).podium.agent.v1.InjectDelegationResponse2j\n" +
+	"\x14GitCredentialService\x12R\n" +
+	"\tMintToken\x12!.podium.agent.v1.MintTokenRequest\x1a\".podium.agent.v1.MintTokenResponseB\xc3\x01\n" +
 	"\x13com.podium.agent.v1B\tTurnProtoP\x01ZCgithub.com/podium-ade/podium/internal/proto/podium/agent/v1;agentv1\xa2\x02\x03PAX\xaa\x02\x0fPodium.Agent.V1\xca\x02\x0fPodium\\Agent\\V1\xe2\x02\x1bPodium\\Agent\\V1\\GPBMetadata\xea\x02\x11Podium::Agent::V1b\x06proto3"
 
 var (
@@ -676,7 +811,7 @@ func file_podium_agent_v1_turn_proto_rawDescGZIP() []byte {
 	return file_podium_agent_v1_turn_proto_rawDescData
 }
 
-var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_podium_agent_v1_turn_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*Delegation)(nil),               // 0: podium.agent.v1.Delegation
 	(*DelegateRequest)(nil),          // 1: podium.agent.v1.DelegateRequest
@@ -689,31 +824,36 @@ var file_podium_agent_v1_turn_proto_goTypes = []any{
 	(*CancelDelegationResponse)(nil), // 8: podium.agent.v1.CancelDelegationResponse
 	(*InjectDelegationRequest)(nil),  // 9: podium.agent.v1.InjectDelegationRequest
 	(*InjectDelegationResponse)(nil), // 10: podium.agent.v1.InjectDelegationResponse
-	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
+	(*MintTokenRequest)(nil),         // 11: podium.agent.v1.MintTokenRequest
+	(*MintTokenResponse)(nil),        // 12: podium.agent.v1.MintTokenResponse
+	(*timestamppb.Timestamp)(nil),    // 13: google.protobuf.Timestamp
 }
 var file_podium_agent_v1_turn_proto_depIdxs = []int32{
-	11, // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
-	11, // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
+	13, // 0: podium.agent.v1.Delegation.created_at:type_name -> google.protobuf.Timestamp
+	13, // 1: podium.agent.v1.Delegation.finished_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: podium.agent.v1.DelegateResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 3: podium.agent.v1.GetDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 4: podium.agent.v1.ListDelegationsResponse.delegations:type_name -> podium.agent.v1.Delegation
 	0,  // 5: podium.agent.v1.CancelDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
 	0,  // 6: podium.agent.v1.InjectDelegationResponse.delegation:type_name -> podium.agent.v1.Delegation
-	1,  // 7: podium.agent.v1.TurnService.Delegate:input_type -> podium.agent.v1.DelegateRequest
-	3,  // 8: podium.agent.v1.TurnService.GetDelegation:input_type -> podium.agent.v1.GetDelegationRequest
-	5,  // 9: podium.agent.v1.TurnService.ListDelegations:input_type -> podium.agent.v1.ListDelegationsRequest
-	7,  // 10: podium.agent.v1.TurnService.CancelDelegation:input_type -> podium.agent.v1.CancelDelegationRequest
-	9,  // 11: podium.agent.v1.TurnService.InjectDelegation:input_type -> podium.agent.v1.InjectDelegationRequest
-	2,  // 12: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
-	4,  // 13: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
-	6,  // 14: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
-	8,  // 15: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
-	10, // 16: podium.agent.v1.TurnService.InjectDelegation:output_type -> podium.agent.v1.InjectDelegationResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	13, // 7: podium.agent.v1.MintTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 8: podium.agent.v1.TurnService.Delegate:input_type -> podium.agent.v1.DelegateRequest
+	3,  // 9: podium.agent.v1.TurnService.GetDelegation:input_type -> podium.agent.v1.GetDelegationRequest
+	5,  // 10: podium.agent.v1.TurnService.ListDelegations:input_type -> podium.agent.v1.ListDelegationsRequest
+	7,  // 11: podium.agent.v1.TurnService.CancelDelegation:input_type -> podium.agent.v1.CancelDelegationRequest
+	9,  // 12: podium.agent.v1.TurnService.InjectDelegation:input_type -> podium.agent.v1.InjectDelegationRequest
+	11, // 13: podium.agent.v1.GitCredentialService.MintToken:input_type -> podium.agent.v1.MintTokenRequest
+	2,  // 14: podium.agent.v1.TurnService.Delegate:output_type -> podium.agent.v1.DelegateResponse
+	4,  // 15: podium.agent.v1.TurnService.GetDelegation:output_type -> podium.agent.v1.GetDelegationResponse
+	6,  // 16: podium.agent.v1.TurnService.ListDelegations:output_type -> podium.agent.v1.ListDelegationsResponse
+	8,  // 17: podium.agent.v1.TurnService.CancelDelegation:output_type -> podium.agent.v1.CancelDelegationResponse
+	10, // 18: podium.agent.v1.TurnService.InjectDelegation:output_type -> podium.agent.v1.InjectDelegationResponse
+	12, // 19: podium.agent.v1.GitCredentialService.MintToken:output_type -> podium.agent.v1.MintTokenResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_podium_agent_v1_turn_proto_init() }
@@ -727,9 +867,9 @@ func file_podium_agent_v1_turn_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_agent_v1_turn_proto_rawDesc), len(file_podium_agent_v1_turn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_podium_agent_v1_turn_proto_goTypes,
 		DependencyIndexes: file_podium_agent_v1_turn_proto_depIdxs,

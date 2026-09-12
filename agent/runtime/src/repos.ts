@@ -35,8 +35,25 @@ export const CloneDepth = 50;
 /** TokenEnv is the environment variable the credential helper reads. */
 export const TokenEnv = "GITHUB_TOKEN";
 
+/**
+ * GitUserName and GitUserEmail are the FALLBACK persona, used only when the brief names
+ * none. They belong to no GitHub account, and that has a consequence worth stating: GitHub
+ * links a commit to an account by the author's email, so a commit written by this persona is
+ * attributed to nobody, and a deployment gate that checks the author's access — Vercel's —
+ * refuses the pull request it is on. A playbook or profile that pushes anywhere real should
+ * set `git:` to the account whose token it pushes with.
+ */
 export const GitUserName = "podium-agent";
 export const GitUserEmail = "podium-agent@users.noreply.github.com";
+
+/** GitPersona is the user.name and user.email one clone is configured with. */
+export interface GitPersona {
+  name: string;
+  email: string;
+}
+
+/** FallbackPersona is what a brief naming no persona gets. */
+export const FallbackPersona: GitPersona = { name: GitUserName, email: GitUserEmail };
 
 /**
  * CredentialHelper is a one-line shell helper: git runs it with the operation as $1 and
@@ -75,16 +92,26 @@ export function redact(text: string, token: string | undefined): string {
  * of the arguments: with a token the clone borrows the credential helper through `-c`, and
  * the clone then keeps it in its own config so the agent's `git push` works too.
  */
-export function repoCommands(repo: RepoRef, tokenAvailable: boolean, root = WorkspaceDir): string[][] {
+export function repoCommands(
+  repo: RepoRef,
+  tokenAvailable: boolean,
+  root = WorkspaceDir,
+  git: GitPersona = FallbackPersona,
+  helper = "",
+): string[][] {
   const dest = join(root, repo.name);
   const clone = ["clone", "--depth", String(CloneDepth), "--branch", repo.default_branch, repo.url, dest];
+  // A minting helper beats the static one: with a GitHub App there is no static token to
+  // fall back to, and a turn that used one would be a turn using a credential the
+  // conductor stopped issuing.
+  const credential = helper !== "" ? helper : tokenAvailable ? CredentialHelper : "";
   const out: string[][] = [
-    tokenAvailable ? ["-c", `credential.helper=${CredentialHelper}`, ...clone] : clone,
-    ["-C", dest, "config", "user.name", GitUserName],
-    ["-C", dest, "config", "user.email", GitUserEmail],
+    credential !== "" ? ["-c", `credential.helper=${credential}`, ...clone] : clone,
+    ["-C", dest, "config", "user.name", git.name],
+    ["-C", dest, "config", "user.email", git.email],
   ];
-  if (tokenAvailable) {
-    out.push(["-C", dest, "config", "credential.helper", CredentialHelper]);
+  if (credential !== "") {
+    out.push(["-C", dest, "config", "credential.helper", credential]);
   }
   return out;
 }
@@ -92,13 +119,26 @@ export function repoCommands(repo: RepoRef, tokenAvailable: boolean, root = Work
 /** cloneRepos checks every repo in the brief out under /workspace. */
 export function cloneRepos(
   repos: RepoRef[],
-  opts: { token?: string | undefined; root?: string; run?: GitRun } = {},
+  opts: {
+    token?: string | undefined;
+    root?: string;
+    run?: GitRun;
+    git?: GitPersona | undefined;
+    /** The credential.helper value from gitcred.installHelper, when this turn mints. */
+    helper?: string | undefined;
+  } = {},
 ): void {
   const token = opts.token;
   const has = token !== undefined && token !== "";
   const run = opts.run ?? gitRun(token);
   for (const repo of repos) {
-    for (const argv of repoCommands(repo, has, opts.root ?? WorkspaceDir)) {
+    for (const argv of repoCommands(
+      repo,
+      has,
+      opts.root ?? WorkspaceDir,
+      opts.git ?? FallbackPersona,
+      opts.helper ?? "",
+    )) {
       run(argv);
     }
   }

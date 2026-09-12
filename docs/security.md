@@ -715,6 +715,44 @@ shape and the same rotation. `podium-server gen-master-key` mints it.
 no value, no ciphertext, in the message at all. A "reveal" button is not a feature that could be
 added later without changing the threat model.
 
+### The minting endpoint
+
+**With a GitHub App configured, a task container can reach the conductor.** Before this it could
+reach the control plane, its own node and the shared memory, and the conductor not at all. That is
+a new edge in the trust model and it is worth being explicit about, because a task is
+[untrusted](#3-a-task-container--untrusted).
+
+What is exposed is one method — `podium.agent.v1.GitCredentialService/MintToken`, on the
+conductor's own listener at `PODIUM_AGENT_TASK_URL` — and nothing else. Everything that keeps it
+narrow is in the shape of the call:
+
+- **It takes no arguments.** The repositories are inside the capability the conductor signed, so
+  there is nothing for a caller to ask for differently. A turn cannot widen its own scope; the
+  worst it can do is spend its own.
+- **The capability is signed, not stored.** It is an HMAC over the turn id and the scope, keyed
+  from the conductor's own bearer. Editing the scope invalidates it rather than widening it, and
+  because it is derived rather than generated it survives a conductor restart — as the turn
+  holding it does.
+- **It stops working when the turn ends.** Every mint checks the turn's status in the conductor's
+  database, which is the actual truth about whether the turn is still running rather than a second
+  copy of it that could disagree. The secret carrying it is deleted at the same point.
+- **It is not the operator bearer.** `RequireBearer` guards `AgentService`; this path is
+  deliberately outside it, and `podium-server` proxies `AgentService` only — so nothing else on
+  the conductor's listener is reachable from a task, and the operator token is never sent to one.
+- **A minted token is narrower than the PAT it replaces**: one hour, and only the repositories
+  that playbook listed, whatever the App itself is installed on.
+
+What it costs, stated plainly:
+
+- **The App private key is on the conductor's host**, and it can mint for every repository the App
+  is installed on. It is the most valuable thing that process holds — treat it as you treat
+  `PODIUM_MASTER_KEY`. It is never attached to a turn, put in a brief or a task spec, or logged.
+- **A task that leaks its capability** leaks the ability to mint tokens for its own repositories,
+  for as long as its turn runs. That is a real exposure, and it is bounded by the same repositories
+  the task already had a credential for.
+- **`PODIUM_AGENT_LISTEN` must be an address a node can route to.** A conductor on loopback cannot
+  serve this, and start-up refuses the combination rather than letting every clone fail.
+
 ### The credentials that are not only in the secret store
 
 Every OAuth sign-in this conductor does issues an access token **and** a refresh token. The
@@ -884,6 +922,9 @@ Everything below is a real hole, not a hypothetical:
   host, plus gid 0 as a supplementary group on the container so a non-root image can open it at
   all — so a task can forge `step`, `artifact` and `message` events.
 - **A sidecar cannot use a secret**, so credentials for one end up in plaintext `env:`.
+- **With a GitHub App configured, a task can reach the conductor** — one method, authenticated by
+  a signed per-turn capability, and nothing else on that listener. See
+  [the minting endpoint](#the-minting-endpoint) for what bounds it and what it costs.
 - **A node started with `--allow-privileged-sidecars` runs a spec's chosen image as root on its
   own kernel**, and every other task on that machine shares the consequences of an escape. The
   flag is off by default; nothing but an operator's care keeps a privileged node from also

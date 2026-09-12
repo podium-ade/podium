@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// TurnServiceName is the fully-qualified name of the TurnService service.
 	TurnServiceName = "podium.agent.v1.TurnService"
+	// GitCredentialServiceName is the fully-qualified name of the GitCredentialService service.
+	GitCredentialServiceName = "podium.agent.v1.GitCredentialService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -47,6 +49,9 @@ const (
 	// TurnServiceInjectDelegationProcedure is the fully-qualified name of the TurnService's
 	// InjectDelegation RPC.
 	TurnServiceInjectDelegationProcedure = "/podium.agent.v1.TurnService/InjectDelegation"
+	// GitCredentialServiceMintTokenProcedure is the fully-qualified name of the GitCredentialService's
+	// MintToken RPC.
+	GitCredentialServiceMintTokenProcedure = "/podium.agent.v1.GitCredentialService/MintToken"
 )
 
 // TurnServiceClient is a client for the podium.agent.v1.TurnService service.
@@ -245,4 +250,77 @@ func (UnimplementedTurnServiceHandler) CancelDelegation(context.Context, *connec
 
 func (UnimplementedTurnServiceHandler) InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.InjectDelegation is not implemented"))
+}
+
+// GitCredentialServiceClient is a client for the podium.agent.v1.GitCredentialService service.
+type GitCredentialServiceClient interface {
+	// MintToken issues a GitHub installation token for the calling turn.
+	MintToken(context.Context, *connect.Request[v1.MintTokenRequest]) (*connect.Response[v1.MintTokenResponse], error)
+}
+
+// NewGitCredentialServiceClient constructs a client for the podium.agent.v1.GitCredentialService
+// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
+// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
+// the connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewGitCredentialServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) GitCredentialServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	gitCredentialServiceMethods := v1.File_podium_agent_v1_turn_proto.Services().ByName("GitCredentialService").Methods()
+	return &gitCredentialServiceClient{
+		mintToken: connect.NewClient[v1.MintTokenRequest, v1.MintTokenResponse](
+			httpClient,
+			baseURL+GitCredentialServiceMintTokenProcedure,
+			connect.WithSchema(gitCredentialServiceMethods.ByName("MintToken")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// gitCredentialServiceClient implements GitCredentialServiceClient.
+type gitCredentialServiceClient struct {
+	mintToken *connect.Client[v1.MintTokenRequest, v1.MintTokenResponse]
+}
+
+// MintToken calls podium.agent.v1.GitCredentialService.MintToken.
+func (c *gitCredentialServiceClient) MintToken(ctx context.Context, req *connect.Request[v1.MintTokenRequest]) (*connect.Response[v1.MintTokenResponse], error) {
+	return c.mintToken.CallUnary(ctx, req)
+}
+
+// GitCredentialServiceHandler is an implementation of the podium.agent.v1.GitCredentialService
+// service.
+type GitCredentialServiceHandler interface {
+	// MintToken issues a GitHub installation token for the calling turn.
+	MintToken(context.Context, *connect.Request[v1.MintTokenRequest]) (*connect.Response[v1.MintTokenResponse], error)
+}
+
+// NewGitCredentialServiceHandler builds an HTTP handler from the service implementation. It returns
+// the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewGitCredentialServiceHandler(svc GitCredentialServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	gitCredentialServiceMethods := v1.File_podium_agent_v1_turn_proto.Services().ByName("GitCredentialService").Methods()
+	gitCredentialServiceMintTokenHandler := connect.NewUnaryHandler(
+		GitCredentialServiceMintTokenProcedure,
+		svc.MintToken,
+		connect.WithSchema(gitCredentialServiceMethods.ByName("MintToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/podium.agent.v1.GitCredentialService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case GitCredentialServiceMintTokenProcedure:
+			gitCredentialServiceMintTokenHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedGitCredentialServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedGitCredentialServiceHandler struct{}
+
+func (UnimplementedGitCredentialServiceHandler) MintToken(context.Context, *connect.Request[v1.MintTokenRequest]) (*connect.Response[v1.MintTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.GitCredentialService.MintToken is not implemented"))
 }

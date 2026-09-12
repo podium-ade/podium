@@ -18,6 +18,7 @@ import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } fro
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
 import { AskHub, AskWaitEnv, InboxSockEnv, askEntrypoint, inboxSock, readInbox } from "./ask.js";
 import { runnerInvoke, type RunnerInvoke } from "./emit.js";
+import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
@@ -178,9 +179,41 @@ async function main(): Promise<number> {
     process.env.GH_TOKEN ??= token;
   }
 
+  // The minting path, when the conductor has a GitHub App. git gets a helper that mints
+  // per ask; `gh` gets a copy of one token, kept fresh by refreshGhToken, because it reads
+  // a plain variable and cannot ask for itself.
+  let helper: string | undefined;
+  let persona = brief.git;
+  let stopRefresh: (() => void) | undefined;
+  if (brief.git_credentials) {
+    const { url, token_env: capabilityEnv } = brief.git_credentials;
+    try {
+      helper = installHelper(mkdtempSync(join(tmpdir(), "podium-git-")), url, capabilityEnv);
+      const capability = process.env[capabilityEnv] ?? "";
+      const minted = await mint(url, capability);
+      process.env.GH_TOKEN = minted.token;
+      // The App's own bot account. It is the identity GitHub links a commit to, and it is
+      // a fact about the App rather than anything an operator configured, so it wins over
+      // a persona the brief carried.
+      if (minted.authorEmail !== "") {
+        persona = { name: minted.authorName, email: minted.authorEmail };
+      }
+      stopRefresh = refreshGhToken(url, capabilityEnv, minted);
+    } catch (err) {
+      // Fail here rather than at the clone. Every repository in this brief is on the App's
+      // installation, so a turn that cannot mint cannot do the work it was given, and the
+      // git error it would hit instead says far less than this does.
+      const why = messageOf(err);
+      warn(why);
+      summary.code = ExitHarnessError;
+      await reportTurn(invoke, summary, `I could not get a GitHub credential for this work: ${why}`);
+      return ExitHarnessError;
+    }
+  }
+
   if (brief.repos && brief.repos.length > 0) {
     try {
-      cloneRepos(brief.repos, { token });
+      cloneRepos(brief.repos, { token, git: persona, helper });
     } catch (err) {
       const why = err instanceof CloneError ? err.message : redact(messageOf(err), token);
       warn(why);
@@ -426,6 +459,9 @@ async function main(): Promise<number> {
     finalText = "The turn ended without an answer.";
   }
 
+  // Nothing else needs a GitHub token now, and the turn's capability stops working the
+  // moment the conductor records this turn as finished anyway.
+  stopRefresh?.();
   await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
   return summary.code;
 }
