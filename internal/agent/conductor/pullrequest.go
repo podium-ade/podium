@@ -8,11 +8,14 @@ import (
 
 // PullRequest is one pull request, described by nothing but its own URL.
 //
-// There is no title and no state here on purpose. Learning either means calling GitHub,
-// and the conductor holds no GitHub credential: podium.agent.github_token is a secret
-// attached to TASKS, so the process that would make the call cannot read it. Giving it one
-// would couple the conductor to a vendor for a convenience feature. Owner, Repo and Number
-// are enough to render owner/repo#number, which is what a human scanning a chat reads.
+// There is no title and no state here on purpose. Learning either means calling GitHub, and
+// that would couple the conductor to a vendor for a convenience feature. Owner, Repo and
+// Number are enough to render owner/repo#number, which is what a human scanning a chat reads.
+//
+// On the personal-access-token path the conductor cannot make the call at all:
+// podium.agent.github_token is a secret attached to TASKS, so this process cannot read it.
+// With a GitHub App configured it could — gitcred.go mints from a key on this host — and
+// deliberately does not. The reason above is the reason, not the missing credential.
 type PullRequest struct {
 	// URL is canonical — https://github.com/<owner>/<repo>/pull/<number> — whatever the
 	// text actually said. It is the identity of a link, so /pull/12/files, /pull/12 and

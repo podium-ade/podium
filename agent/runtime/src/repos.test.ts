@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { RepoRef } from "./brief.js";
-import { CloneError, CredentialHelper, GitUserEmail, cloneRepos, redact, repoCommands } from "./repos.js";
+import {
+  CloneError,
+  CredentialHelper,
+  FallbackPersona,
+  GitUserEmail,
+  TokenEnv,
+  cloneRepos,
+  redact,
+  repoCommands,
+} from "./repos.js";
 
 const token = "ghp_ThisIsNotARealToken0000000000000000";
 
@@ -62,6 +71,37 @@ describe("repoCommands", () => {
   it("puts each repo under its own directory", () => {
     expect(repoCommands({ ...repo, name: "other" }, false)[0]?.at(-1)).toBe("/workspace/other");
     expect(repoCommands(repo, false, "/tmp/ws")[0]?.at(-1)).toBe("/tmp/ws/podium");
+  });
+});
+
+describe("repoCommands with a minting helper", () => {
+  const helper = "!/tmp/podium-git-xyz/podium-git-credential.mjs";
+
+  it("uses the helper for the clone and keeps it in the clone's own config", () => {
+    const argv = repoCommands(repo, false, "/workspace", FallbackPersona, helper);
+    expect(argv[0]?.slice(0, 2)).toEqual(["-c", `credential.helper=${helper}`]);
+    expect(argv.at(-1)).toEqual(["-C", "/workspace/podium", "config", "credential.helper", helper]);
+  });
+
+  // With a GitHub App there is no static token to fall back to, so a turn that preferred
+  // one would be a turn using a credential the conductor stopped issuing.
+  it("beats the static token helper when both are available", () => {
+    const flat = repoCommands(repo, true, "/workspace", FallbackPersona, helper).flat().join(" ");
+    expect(flat).toContain(helper);
+    expect(flat).not.toContain(TokenEnv);
+  });
+
+  it("writes the persona the mint reported, so commits carry the app's bot account", () => {
+    const bot = { name: "podium-agent[bot]", email: "987654+podium-agent[bot]@users.noreply.github.com" };
+    const argv = repoCommands(repo, false, "/workspace", bot, helper);
+    expect(argv).toContainEqual(["-C", "/workspace/podium", "config", "user.name", bot.name]);
+    expect(argv).toContainEqual(["-C", "/workspace/podium", "config", "user.email", bot.email]);
+  });
+
+  it("passes the helper through cloneRepos", () => {
+    const seen: string[][] = [];
+    cloneRepos([repo], { run: (argv) => seen.push(argv), helper });
+    expect(seen.flat().join(" ")).toContain(helper);
   });
 });
 

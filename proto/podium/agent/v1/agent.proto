@@ -902,6 +902,18 @@ message PlaybookRepo {
   string default_branch = 3;
 }
 
+// PlaybookGit is who a turn of this playbook commits as: the user.name and user.email the
+// runtime writes into every clone it makes.
+//
+// GitHub links a commit to an ACCOUNT by this email, and an address belonging to no account
+// leaves every commit attributed to nobody — which is what a deployment gate that checks the
+// author's access refuses. The account whose token this playbook pushes with is the value
+// that works, as <id>+<login>@users.noreply.github.com.
+message PlaybookGit {
+  string name = 1;
+  string email = 2;
+}
+
 // PlaybookDefinition is one playbook in full: everything playbooks/<name>.yaml holds, plus where
 // this copy came from and whether a browser may change it.
 message PlaybookDefinition {
@@ -967,6 +979,9 @@ message PlaybookDefinition {
   // container, instead of ending the turn. Off by default: a waiting container still
   // holds a node slot, and a playbook that did not ask for this must not grow one.
   bool interactive = 25;
+  // git is who a turn of this playbook commits as. Unset inherits the profile's persona,
+  // which is set in profile.yaml and is what most playbooks should use.
+  PlaybookGit git = 26;
 }
 
 message GetProfileRequest {}

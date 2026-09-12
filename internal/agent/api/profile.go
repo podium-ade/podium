@@ -429,6 +429,11 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 			Name: r.Name, Url: r.URL, DefaultBranch: r.DefaultBranch,
 		})
 	}
+	// Absent rather than empty when the playbook names none: the field means "inherits the
+	// profile's persona", and a pair of empty strings would read as a persona of its own.
+	if s.Git.Set() {
+		out.Git = &agentv1.PlaybookGit{Name: s.Git.Name, Email: s.Git.Email}
+	}
 	return out
 }
 
@@ -472,6 +477,9 @@ func playbookFromProto(in *agentv1.PlaybookDefinition) (profiles.Playbook, error
 		out.Repos = append(out.Repos, profiles.Repo{
 			Name: r.GetName(), URL: r.GetUrl(), DefaultBranch: r.GetDefaultBranch(),
 		})
+	}
+	if g := in.GetGit(); g != nil {
+		out.Git = profiles.GitPersona{Name: g.GetName(), Email: g.GetEmail()}
 	}
 	if len(out.Env) == 0 {
 		out.Env = nil
