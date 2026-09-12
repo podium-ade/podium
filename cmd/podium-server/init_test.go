@@ -32,6 +32,12 @@ var requiredByCompose = map[string][]string{
 		"PODIUM_AGENT_TOKEN",
 		"PODIUM_TAILNET",
 	},
+	hostNetworkTransport: {
+		"PODIUM_PG_PASSWORD",
+		"PODIUM_LOCAL_TOKEN",
+		"PODIUM_S3_SECRET_KEY",
+		"PODIUM_AGENT_TOKEN",
+	},
 }
 
 func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
@@ -77,6 +83,26 @@ func TestInitConfiguresTheCLI(t *testing.T) {
 	require.NotContains(t, env, "PODIUM_TOKEN", "the CLI reads PODIUM_LOCAL_TOKEN; one secret, one line")
 }
 
+// TestInitHostNetworkUsesTheLocalTransport is the naming trap: --transport host is
+// Docker's network_mode, not PODIUM_TRANSPORT=host (which borrows tailscaled). A VPN
+// does not name the caller, so the shared token is still the credential, and
+// PODIUM_SERVER is left blank for the operator's address on that network.
+func TestInitHostNetworkUsesTheLocalTransport(t *testing.T) {
+	body := renderEnv(initSecrets{
+		Transport: hostNetworkTransport, PGPassword: "pg", LocalToken: "dev",
+		S3SecretKey: "s3", AgentToken: "agent",
+	})
+	env := parseEnv(t, body)
+	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"],
+		"--transport host must not write PODIUM_TRANSPORT=host; that value talks to tailscaled")
+	require.Equal(t, "true", env["PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN"])
+	require.Equal(t, "0.0.0.0:8080", env["PODIUM_LOCAL_LISTEN"])
+	require.Equal(t, "dev", env["PODIUM_LOCAL_TOKEN"])
+	require.Contains(t, body, "PODIUM_SERVER=\n",
+		"PODIUM_SERVER should be present and empty so there is a line to fill in")
+	require.Empty(t, env["PODIUM_SERVER"])
+}
+
 // TestInitCommandWritesUsableCredentials runs the command itself, because the bug this
 // guards was in the generation loop rather than in the rendering: renderEnv would have
 // happily written PODIUM_AGENT_TOKEN= with nothing after it.
@@ -92,11 +118,13 @@ func TestInitCommandWritesUsableCredentials(t *testing.T) {
 	require.NoError(t, err)
 	env := parseEnv(t, string(raw))
 
-	for _, name := range requiredByCompose[server.TransportLocal] {
+	for _, name := range requiredByCompose[hostNetworkTransport] {
 		require.NotEmpty(t, env[name], "%s was written with no value", name)
 	}
 	// Distinct values, not one secret reused: they guard different things.
 	require.NotEqual(t, env["PODIUM_LOCAL_TOKEN"], env["PODIUM_AGENT_TOKEN"])
+	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"])
+	require.Empty(t, env["PODIUM_SERVER"], "PODIUM_SERVER is this machine's address on the network; init cannot guess it")
 }
 
 func parseEnv(t *testing.T, body string) map[string]string {

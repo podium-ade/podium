@@ -13,6 +13,7 @@
 |---|---|
 | `docker-compose.yml` | **the whole deployment in one file** — Postgres, the object store, the control plane and the conductor, with the Postgres bootstrap script inline and nothing to fetch beside it. A plain `up` is the whole control plane, the conductor and the agents' shared memory; the `cli` and `node` compose profiles add the CLI as a one-shot and a worker on this machine |
 | `docker-compose.tailnet.yml` | the same deployment on a tailnet, so workers can be on other machines: no published ports at all, no token anywhere, and it **fails closed** on every credential rather than shipping defaults. Also one file — the Postgres script is inline in it too |
+| `docker-compose.host.yml` | the same deployment on **this machine's network** (LAN, WireGuard, a corporate VPN): `network_mode: host` for the server, conductor and a co-located worker, local-transport token, fails closed. Linux Engine; on a Mac use `make stack-up` |
 | `docker-compose.dev.yml` | Postgres, with Hindsight and the object store behind profiles, for running the binaries by hand |
 | `run-host.sh` | runs `podium-server`, `podium-agent` and `podium-node` as host binaries from the same `.env`. `make stack-up` |
 | `.env.example` | **every** `PODIUM_*` variable, commented. A test fails the build if the code reads one this file does not mention |
@@ -25,32 +26,34 @@
 
 ### Which compose file
 
-Three, and they are not variations on one theme — they answer different questions.
+Four, and they are not variations on one theme — they answer different questions.
 
-| | `docker-compose.yml` | `docker-compose.tailnet.yml` | `docker-compose.dev.yml` |
-|---|---|---|---|
-| **for** | running Podium on one machine | running it across machines | working **on** Podium |
-| **Podium itself** | in containers | in containers | **on your host**, as binaries you built |
-| **transport** | `local` — loopback, one shared token | `tailnet` — HTTPS on a MagicDNS name, no token at all | whichever you configure the binary for |
-| **services** | postgres, hindsight, objectstore, init, server, agent, +`node`/`cli` profiles | the same, +`node` profile, no `cli` (see below) | postgres, +hindsight/objectstore behind `memory`/`artifacts` |
-| **published ports** | server on `127.0.0.1:8080` | **none**; the server is on :443 of its own Tailscale device | postgres, objectstore, hindsight — all loopback, so host binaries can reach them |
-| **credentials** | **defaults**, so `up` needs nothing | **fails closed** — six variables with no default | dev values |
-| **workers** | this machine only | anywhere on your tailnet | your own `make stack-up` node |
-| **files needed** | one | one | the repo you are working in |
-| **tested path** | yes | the transport, but not this file | yes |
+| | `docker-compose.yml` | `docker-compose.tailnet.yml` | `docker-compose.host.yml` | `docker-compose.dev.yml` |
+|---|---|---|---|---|
+| **for** | running Podium on one machine | running it across a tailnet | running it on a network you already have | working **on** Podium |
+| **Podium itself** | in containers | in containers | in containers, host network | **on your host**, as binaries you built |
+| **transport** | `local` — loopback, one shared token | `tailnet` — HTTPS on a MagicDNS name, no token at all | `local` — host interfaces, one shared token | whichever you configure the binary for |
+| **services** | postgres, hindsight, objectstore, init, server, agent, +`node`/`cli` profiles | the same, +`node` profile, no `cli` (see below) | the same, +`node`/`cli` | postgres, +hindsight/objectstore behind `memory`/`artifacts` |
+| **published ports** | server on `127.0.0.1:8080` | **none**; the server is on :443 of its own Tailscale device | server binds `0.0.0.0:8080` on the host; postgres/objectstore on loopback | postgres, objectstore, hindsight — all loopback, so host binaries can reach them |
+| **credentials** | **defaults**, so `up` needs nothing | **fails closed** | **fails closed** | dev values |
+| **workers** | this machine only | anywhere on your tailnet | anywhere that can already route here | your own `make stack-up` node |
+| **files needed** | one | one | one | the repo you are working in |
+| **tested path** | yes | the transport, but not this file | the configuration, not a live VPN | yes |
 
 The differences that look like inconsistencies and are not:
 
-- **Postgres is published in `dev.yml` and nowhere else.** A host binary has to reach it; a
-  container reaches it by service name over the compose network.
-- **Only the tailnet file fails closed on credentials.** A single machine on loopback can
+- **Postgres is published in `dev.yml` and `host.yml`, and nowhere else.** A host binary, and a
+  container in the host's network namespace, have to reach it on loopback; a bridge container
+  reaches it by service name over the compose network.
+- **The tailnet and host files fail closed on credentials.** A single machine on loopback can
   afford a default token; a deployment that workers on other machines can reach cannot.
 - **There is no `cli` profile in the tailnet file.** Under that transport the server has no
   address on the compose network at all, so a sibling container could not reach it. Run the
-  CLI from any device on the tailnet, where it needs no token.
-- **`dev.yml` mounts `postgres/init.sql`; the other two inline it.** Those two are meant to be
-  saved on their own; `dev.yml` is only ever used inside a clone. A test keeps all three
-  copies identical.
+  CLI from any device on the tailnet, where it needs no token. The host file has one: the
+  server is on `127.0.0.1:8080` of the host.
+- **`dev.yml` mounts `postgres/init.sql`; the other three inline it.** Those three are meant to
+  be saved on their own; `dev.yml` is only ever used inside a clone. A test keeps the copies
+  identical.
 
 ## What you have to configure
 
@@ -137,7 +140,7 @@ The rest of this section is the same ground by component, with the per-variable 
 | | |
 |---|---|
 | `PODIUM_DATABASE_URL` | the Postgres DSN. The server migrates on start. The compose files and `run-host.sh` both build it from ⚙ `PODIUM_PG_PASSWORD` instead, so you set one or the other, never both |
-| `PODIUM_TRANSPORT` | `local` or `tailnet`. Decides everything in the next table |
+| `PODIUM_TRANSPORT` | `local` or `tailnet`. Decides everything in the next table. `init --transport host` still writes `local`: that flag is Docker's network_mode, not this value |
 | `PODIUM_MASTER_KEY_FILE` | the file holding the AES-256 key every secret is encrypted under. Leaving it unset is supported and means secrets are unavailable — the server starts and every secret call answers `FailedPrecondition`. **There is no recovery path.** Back the file up somewhere that is not the control plane |
 | `PODIUM_SERVER` | where the **CLI** looks for the control plane. Sourcing this file is what configures a shell: `set -a; . deploy/.env; set +a`. The CLI's token is `PODIUM_LOCAL_TOKEN`, which it reads directly — `PODIUM_TOKEN` exists only to point it at some other stack |
 
@@ -147,7 +150,7 @@ The rest of this section is the same ground by component, with the per-variable 
 |---|---|
 | ⚙ `PODIUM_LOCAL_TOKEN` | the one shared bearer. The server, every node, the conductor, the web UI and the CLI all present it. Whoever holds it can do everything |
 | `PODIUM_LOCAL_LISTEN` | defaults to `127.0.0.1:8080` and **must** be loopback — the token is the only credential there is |
-| `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` | waives that rule. Set by `docker-compose.yml`, because loopback inside a container is the container's own. **Never set it on a host** |
+| `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` | waives that rule. Set by `docker-compose.yml` (loopback inside a container is the container's own) and by `docker-compose.host.yml` (the boundary is a network you already trust). On a public address it publishes the whole API behind one static token |
 
 | `PODIUM_TRANSPORT=tailnet` | |
 |---|---|
@@ -358,6 +361,27 @@ sibling container cannot reach it. `docker-compose.tailnet.yml` says as much whe
 its `agent` service.
 
 ---
+
+## A host-network host
+
+When the machines already share a network Podium did not create — WireGuard, a corporate VPN,
+a LAN — this is the path. The stack uses this machine's routing table. Authentication is
+still the local token.
+
+```sh
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest \
+  init --dir /out --transport host
+# fill PODIUM_SERVER in .env — this host's address on your network,
+# for example http://10.8.0.2:8080
+docker compose -f docker-compose.host.yml up -d --wait
+```
+
+Linux Engine. On a Mac, the same `.env` drives `make stack-up`: host binaries already use
+this machine's routes, which is the worktree case. See
+[`../docs/networking.md`](../docs/networking.md#host-network-bring-your-own-routing).
+
+`PODIUM_TRANSPORT` in that `.env` is `local`, not `host`. The latter borrows tailscaled.
 
 ## A tailnet host
 

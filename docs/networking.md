@@ -1,25 +1,30 @@
-# Networking: the tailnet transport
+# Networking
 
-Podium's control plane has no public address, no login page and no API token. The server joins
-your Tailscale network as a device, serves HTTPS on its MagicDNS name, and asks Tailscale who is
-on the other end of every connection. Workers dial out and never listen.
+Podium's control plane is reached three ways:
 
-This document covers the two keys you need, the ACL, the two ways to join the tailnet, and what
-to do when it does not work.
+| | Wire | Who the caller is | Use when |
+|---|---|---|---|
+| **`local`** | HTTP on loopback | nobody. One shared token | one machine |
+| **`tailnet`** | HTTPS on a MagicDNS name | a Tailscale identity, from `WhoIs` | workers on your tailnet |
+| **host network** | HTTP on this machine's interfaces | nobody. The same shared token | you already have a network — WireGuard, a corporate VPN, a LAN |
 
-## This is not only the production option
+The tailnet transport is the one with no public address, no login page and no API token. The
+server joins your Tailscale network as a device, serves HTTPS on its MagicDNS name, and asks
+Tailscale who is on the other end of every connection. Workers dial out and never listen. That
+path is documented below.
 
-**The tailnet transport is the only supported way to reach a worker on another machine — in
-development as much as in production.** There is no "use the local transport across the LAN while
-I try this out" path. `local.CheckListen` refuses any listen address that is not unambiguously
-loopback, and its one waiver, `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN`, is for **a container**, where
-loopback is the container's own and the published port is the boundary.
+Host network is the other way to reach a worker on another machine. It does **not** add a
+tunnel: the stack uses this machine's routing table, so whatever already gets a packet here
+(a `wg0` address, a VPN hostname, a LAN IP) is how clients and workers dial. Authentication
+stays the local transport's shared token, because a VPN does not name the caller. See
+[Host network: bring your own routing](#host-network-bring-your-own-routing).
 
-Set that waiver on a host and you publish the whole API — task submission, which is code as root
-on every worker, plus secrets and node admin — to anything that can route to the address, behind
-one static token. A TCP relay in front of the loopback listener (`socat`, an SSH forward, a
-proxy) is the same exposure by another route. **Neither is a sanctioned workaround.** If a
-worker is on another machine, put it on the tailnet.
+`local.CheckListen` still refuses any listen address that is not unambiguously loopback, unless
+`PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` is on. That waiver has two sanctioned uses: a **container**,
+where loopback is the container's own and the published port is the boundary, and a
+**host-network deployment**, where the boundary is a network you already trust. A TCP relay in
+front of the loopback listener (`socat`, an SSH forward, a proxy) is the same exposure by
+another route and is not a substitute for either.
 
 ## The two keys, which are not the same thing
 
@@ -196,7 +201,77 @@ reconnect the node key alone is enough, so rekey immediately before moving a wor
 matter of routine. A node that enrolled over the local transport has no binding and picks one up on
 its first tailnet connection.
 
+## Host network: bring your own routing
+
+Use this when the machines already share a network Podium did not create. Typical cases:
+
+- a WireGuard mesh you already run
+- a corporate VPN that puts workers and the control plane on the same overlay
+- a LAN you trust, for a worktree or a lab that should not join a tailnet
+
+Podium does not add a tunnel, does not issue certificates, and does not name the caller. The
+shared token is the whole of authentication, and the wire is plain HTTP — the VPN's encryption,
+if any, is what is between the machines. Anyone who can route to the listen address and holds
+the token can submit tasks (which is code as root on every worker), read secrets, and administer
+nodes. Bind a VPN or LAN address, never a public one.
+
+This is **not** `PODIUM_TRANSPORT=host`. That value borrows the machine's `tailscaled` and is
+documented under [tsnet or host mode](#tsnet-or-host-mode). Host-network deployments run
+`PODIUM_TRANSPORT=local`.
+
+### Compose, on Linux
+
+```sh
+podium-server init --dir deploy --transport host
+# fill PODIUM_SERVER in .env — this host's address on your network,
+# for example http://10.8.0.2:8080
+docker compose -f docker-compose.host.yml up -d --wait
+```
+
+`docker-compose.host.yml` puts the server, the conductor and a co-located worker in the
+host's network namespace (`network_mode: host`), so they inherit this machine's routing table
+instead of Docker's bridge NAT. Postgres and the object store stay on the compose network and
+publish only on loopback; the host-networked server reaches them at `127.0.0.1`.
+
+It fails closed on credentials, like the tailnet file: there is no default token.
+
+Linux Engine. Docker Desktop's "host networking" is not the same feature — containers do not
+get the Mac's VPN addresses. On a Mac, run the binaries:
+
+### Host binaries, including a worktree
+
+```sh
+# in deploy/.env, from `init --transport host` or by hand:
+PODIUM_TRANSPORT=local
+PODIUM_LOCAL_LISTEN=0.0.0.0:8080
+PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN=true
+PODIUM_SERVER=http://<this-host-on-your-network>:8080
+PODIUM_LOCAL_TOKEN=…
+
+docker compose -f deploy/docker-compose.dev.yml up -d --wait postgres
+make stack-up
+```
+
+Host binaries already use this machine's routes, which is why a worktree can talk to a
+deployment over WireGuard without embedding a Tailscale device. `run-host.sh` will not
+invent `PODIUM_SERVER` from `0.0.0.0:8080` — that is a bind address, not a URL.
+
+A remote worker is the local transport pointed at that URL:
+
+```sh
+PODIUM_NODE_SERVER=http://<control-plane-on-your-network>:8080
+PODIUM_NODE_TRANSPORT=local
+PODIUM_NODE_LOCAL_TOKEN=<the same token>
+PODIUM_NODE_ENROLL_TOKEN=<from `podium node enroll-token`>
+```
+
+`install-node.sh` already selects `local` for an `http://` `PODIUM_SERVER`.
+
 ## tsnet or host mode
+
+This is how Podium joins a **tailnet**, not the host-network deployment above.
+`PODIUM_TRANSPORT=host` still talks to `tailscaled` and still uses WhoIs. For WireGuard or a
+corporate VPN, stay on `PODIUM_TRANSPORT=local` and [host network](#host-network-bring-your-own-routing).
 
 Podium can join the tailnet two ways. `PODIUM_TRANSPORT` (server) and `transport:` (node) choose.
 

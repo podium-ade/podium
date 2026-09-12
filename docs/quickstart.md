@@ -4,10 +4,9 @@ A control plane, a worker and a task you can watch run — with Docker and nothi
 toolchain, no Node, and no Podium binary on the host: `podium-server init` and the `podium`
 CLI both run from the published images.
 
-This uses the **`local` transport**: server and worker on one machine, over loopback, with one
-shared token. It is the right thing for a first look, and it is loopback-only — it cannot reach
-a worker on another machine at all. For that you need the tailnet transport, which is the only
-supported way to do it: [`networking.md`](networking.md).
+The control plane listens on this machine. Workers anywhere that can already reach it — the
+same LAN, a WireGuard mesh, a corporate VPN — dial `PODIUM_SERVER` with the token `init`
+mints. Tailscale is optional, and covered later.
 
 **Everything is configured by one file, `.env`.** `init` writes it with fresh credentials, the
 compose file interpolates it, and there is only ever one place to change something.
@@ -43,12 +42,13 @@ for.
 
 ## 1. One file
 
-Save [`deploy/docker-compose.yml`](../deploy/docker-compose.yml) into an empty directory. That
-is the only file this deployment has.
+Save [`deploy/docker-compose.host.yml`](../deploy/docker-compose.host.yml) into an empty
+directory as `docker-compose.yml`. That is the only file this deployment has.
 
 ```sh
 mkdir podium && cd podium
-curl -fsSLO https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.yml
+curl -fsSLo docker-compose.yml \
+  https://raw.githubusercontent.com/podium-ade/podium/main/deploy/docker-compose.host.yml
 ```
 
 Nothing else needs to be beside it. The Postgres bootstrap script that creates the conductor's
@@ -70,7 +70,20 @@ Compose reads a bare name as a Docker volume and a path as a bind mount, so that
 switches between them. Do it **before the first `up`** — afterwards you are copying a key
 between two places rather than choosing where it goes.
 
-## 2. Up
+## 2. Credentials, then up
+
+```sh
+docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
+  ghcr.io/podium-ade/podium-server:latest \
+  init --dir /out
+```
+
+`init` writes `master.key` and `.env`, both mode 0600, and never overwrites either. Fill
+`PODIUM_SERVER` — this machine's address on your network, for example `http://10.8.0.2:8080`.
+`0.0.0.0` is a bind address, not a URL.
+
+Linux Engine. On a Mac, clone the repo and `make stack-up` with the same `.env` — the binaries
+already use this machine's network.
 
 ```sh
 docker compose up -d --wait
@@ -102,34 +115,19 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/readyz    # 200
 healthcheck because the image is distroless — there is no shell for one to exec — so `--wait`
 treats it as ready once it is running, and `/readyz` is the real answer.
 
-The server migrates its schema on start, so there is no migration step. It publishes on
-**loopback of the host only**; inside the container it binds every interface, because loopback
-in a container is the container's own and nothing could reach it. The published port is the
-boundary. Set `PODIUM_PORT` if something already owns 8080.
+The server migrates its schema on start, so there is no migration step. It binds this
+machine's interfaces on 8080. Postgres and the object store stay on loopback. Set
+`PODIUM_LOCAL_LISTEN` if something already owns 8080.
 
 ### About those credentials
 
-Nothing above asked you for a password, because the compose file ships defaults. That is what
-makes one command possible, and it has a precise limit:
+The compose file fails closed: `up` names any credential you leave out. `init` minted them.
+`PODIUM_LOCAL_TOKEN` is the only thing between a caller and the whole API — anyone who can
+route to `PODIUM_SERVER` and holds it can do everything. Bind a network you already trust.
 
-| | reachable from | if you change nothing |
-|---|---|---|
-| `PODIUM_PG_PASSWORD` | the compose network | no published port goes near Postgres |
-| `PODIUM_S3_SECRET_KEY` | the compose network | no published port goes near the object store |
-| `PODIUM_AGENT_TOKEN` | the compose network | the conductor is not published either |
-| `PODIUM_LOCAL_TOKEN` | **`127.0.0.1:8080`** | it is the only thing between a caller and the whole API |
-
-Only the last one is exposed at all, and only to whoever is on that machine. For anything you
-would miss, write a `.env` beside the compose file and override them:
-
-```sh
-printf 'PODIUM_LOCAL_TOKEN=%s\nPODIUM_PG_PASSWORD=%s\nPODIUM_S3_SECRET_KEY=%s\n' \
-  "$(openssl rand -hex 32)" "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
-docker compose up -d --wait
-```
-
-Do it **before the first `up`**: `PODIUM_PG_PASSWORD` is baked into the Postgres volume when it
-is initialised, so changing it afterwards means `docker compose down -v` or an `ALTER ROLE`.
+`PODIUM_PG_PASSWORD` is baked into the Postgres volume when it is initialised, so changing it
+afterwards means `docker compose down -v` or an `ALTER ROLE`. Do `init` **before the first
+`up`**.
 
 Then pin the release, because `latest` moves under you and a control plane and a worker from
 different releases can disagree about the wire:
@@ -165,9 +163,9 @@ explains three things that are otherwise puzzling — `run` rather than `exec` (
 running container to exec into), a `--spec` having to be mounted (step 6), and why this is
 usable as a CI step at all.
 
-It reaches the server over the compose network, so it needs neither the published port nor the
-token on your shell: the compose file wires `PODIUM_SERVER` and the bearer from the same `.env`
-the server reads. The CLI never talks to Docker, so it gets no socket and no privileges.
+The `cli` profile shares this machine's network, so it reaches the server at `127.0.0.1:8080`
+with the token from the same `.env`. The CLI never talks to Docker, so it gets no socket and no
+privileges.
 
 > Installing `podium` on the host is still supported and nicer for day-to-day use — it is one
 > static binary from the release archive. Then `set -a; . .env; set +a` configures it from the
@@ -273,9 +271,8 @@ open http://127.0.0.1:8080
 ```
 
 It asks once for the bearer token — `PODIUM_LOCAL_TOKEN` from your `.env` — and keeps it in
-`localStorage`, which is per browser origin: `127.0.0.1:8080` and `localhost:8080` each hold
-their own copy, so pick one address and stay on it. On a tailnet that prompt never appears,
-because Tailscale has already said who you are.
+`localStorage`, which is per browser origin, so pick one address and stay on it. Open
+`PODIUM_SERVER` in the browser, not a mix of that and `localhost`.
 
 The UI runs the fleet rather than just watching it: submit a task from a form or from the same
 YAML `--spec` takes, re-run a finished one, follow live logs with a per-sidecar filter, cancel,
@@ -331,13 +328,10 @@ The defaults are `anthropic` and `claude-opus-5`. Its
 [configuration reference](https://hindsight.vectorize.io/developer/configuration) is the
 authority on which variables each provider wants.
 
-Read this before you turn it on, because it is the one place the defaults are deliberately
-inconvenient: **Hindsight has no authentication beyond `PODIUM_AGENT_MEMORY_API_KEY`**, which
-defaults to `podium`, so its port is published on loopback only. That is fine for the
-conductor, which reaches it by service name over the compose network — but an agent *turn*
-runs in a task container that reaches the host through the bridge gateway
-(`PODIUM_AGENT_MEMORY_TASK_URL`), and loopback is not reachable from there. Widening it means
-setting `PODIUM_MEMORY_BIND`, and setting a real key at the same moment. See
+Read this before you turn it on: **Hindsight has no authentication beyond
+`PODIUM_AGENT_MEMORY_API_KEY`**, and 8888 is published on this machine so a turn's container
+can reach it. Set a real key. A worker on another machine needs
+`PODIUM_AGENT_MEMORY_TASK_URL` pointed at this host, not at `host.docker.internal`. See
 [`agent.md`](agent.md) and [`security.md`](security.md).
 
 > **The shared memory path is not covered.** Bringing Hindsight up needs a paid LLM key, so
@@ -345,41 +339,40 @@ setting `PODIUM_MEMORY_BIND`, and setting a real key at the same moment. See
 
 ## Workers on other machines
 
-**The tailnet transport is the only supported way to reach a worker on another machine** — in
-development as much as in production. The `local` transport used above refuses to bind anything
-but loopback, because that one token is all that stands between a caller and the whole API. So
-this is not a recommendation; it is what the two transports will and will not do.
-
-That is a different compose file, [`docker-compose.tailnet.yml`](../deploy/docker-compose.tailnet.yml),
-and the next section walks one through end to end. Two things about it are worth knowing before
-you get there:
-
-- **It fails closed on every credential**, unlike the file above. Six variables have no
-  default and `up` names any you leave out. `podium-server init --transport tailnet --tailnet
-  <suffix>` writes a `.env` with the ones it can generate and reports which Tailscale
-  prerequisites it can see.
-- **There is no `cli` profile in it**, and that is not an oversight: the server listens on port
-  443 of its own Tailscale device and has no address on the compose network, so a sibling
-  container cannot reach it. Run the CLI from any device on the tailnet instead, where it needs
-  no token at all.
-
-For the worker at the other end, [`node-setup.md`](node-setup.md) has both paths: a container
-like the one in step 4, or `install-node.sh`, which verifies the download against the release's
+A worker on another machine is the same daemon pointed at `PODIUM_SERVER` with the token
+`init` minted. [`node-setup.md`](node-setup.md) has both paths: a container like the one in
+step 4, or `install-node.sh`, which verifies the download against the release's
 `checksums.txt` and installs a hardened systemd unit.
+
+```sh
+PODIUM_NODE_SERVER=<the control plane's PODIUM_SERVER>
+PODIUM_NODE_TRANSPORT=local
+PODIUM_NODE_LOCAL_TOKEN=<the same PODIUM_LOCAL_TOKEN>
+PODIUM_NODE_ENROLL_TOKEN=<from `podium node enroll-token`>
+```
 
 ---
 
-## A production stack, concretely
+## Using Tailscale
+
+Optional. If you want the control plane on a MagicDNS name with no token at all — Tailscale's
+`WhoIs` names every caller, the server serves HTTPS on its own device, nothing is published to
+the internet — that is a different compose file,
+[`docker-compose.tailnet.yml`](../deploy/docker-compose.tailnet.yml).
 
 A worked example rather than a checklist: one Linux host as the control plane, workers on other
 machines, Tailscale between them. Everything below is a real command; substitute your own names
 where they are obviously yours.
 
-**Why the tailnet transport.** The `local` transport used above refuses to bind anything but
-loopback, because its one shared token is all that stands between a caller and the whole API.
-So it cannot reach a worker on another machine — not as a matter of preference, as a matter of
-what it will do. On a tailnet there is no token at all: Tailscale's `WhoIs` names every caller,
-the server serves HTTPS on its own device, and nothing is published to the internet.
+Two things about that file:
+
+- **It fails closed on every credential.** Six variables have no default and `up` names any
+  you leave out. `podium-server init --transport tailnet --tailnet <suffix>` writes a `.env`
+  with the ones it can generate and reports which Tailscale prerequisites it can see.
+- **There is no `cli` profile in it**, and that is not an oversight: the server listens on port
+  443 of its own Tailscale device and has no address on the compose network, so a sibling
+  container cannot reach it. Run the CLI from any device on the tailnet instead, where it needs
+  no token at all.
 
 ### 1. Tailscale first — Podium cannot do any of this for you
 
@@ -576,7 +569,7 @@ podium node drain <node-id>     # wait for `podium nodes` to show 0 running
 > **What is proven here and what is not.** The tailnet transport itself is exercised — a
 > server device and workers on other machines, reconnecting across restarts. The compose file
 > above is not: bringing it up needs a real Tailscale auth key and a tailnet to join, which no
-> test can supply, so treat it as the recipe and `docker-compose.yml` as the proven one.
+> test can supply, so treat it as the recipe.
 >
 > The `agent` service is a known gap rather than an untested one. Under this transport the
 > server listens only on its own Tailscale device and has no address on the compose network, so
