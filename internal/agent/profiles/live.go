@@ -121,8 +121,9 @@ func ValidateStoredPlaybook(s Playbook) (Playbook, error) {
 // silently never runs is worse than one they can see is shadowed.
 //
 // The result is validated exactly as Load validates the directory, so a combination that
-// could not have been written as files — two playbooks claiming one Slack channel, a default
-// naming a playbook that is not there — is refused here too.
+// could not have been written as files — two playbooks claiming one Slack channel — is
+// refused here too. A default_playbook naming a playbook that is not loaded is not a load
+// error: a fresh install has none, and Select refuses the mention instead of refusing to boot.
 func Merge(files *Profile, ov Overrides, stored []Playbook) (merged *Profile, shadowed []string, err error) {
 	if files == nil {
 		return nil, nil, errors.New("agent profile: there is no profile directory to merge into")

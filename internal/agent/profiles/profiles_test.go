@@ -138,15 +138,6 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"no system prompt at all", func(f map[string]string) {
 			f["playbooks/general.yaml"] = "image: alpine:3\nallowed_tools: [read]\n"
 		}, []string{"playbooks/general.yaml", "system_prompt is required"}},
-		{"a default_playbook that does not exist", func(f map[string]string) {
-			f["profile.yaml"] = goodProfile + "" // replaced below
-			f["profile.yaml"] = `name: podium
-display_name: Podium
-system_prompt: hi
-model: claude-opus-5
-default_playbook: coder
-`
-		}, []string{"profile.yaml", "default_playbook"}},
 		{"a bad profile name", func(f map[string]string) {
 			f["profile.yaml"] = `name: Podium
 display_name: Podium
@@ -215,13 +206,32 @@ func TestAPlaybookWithoutDockerMaySetDockerHost(t *testing.T) {
 	assert.False(t, p.Playbooks["general"].Docker)
 }
 
-func TestAProfileWithNoPlaybooksIsRefused(t *testing.T) {
-	_, err := Load(write(t, map[string]string{
+func TestAProfileWithNoPlaybooksLoads(t *testing.T) {
+	p, err := Load(write(t, map[string]string{
 		"profile.yaml":       goodProfile,
 		"prompts/profile.md": "hi",
 	}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "holds no playbooks")
+	require.NoError(t, err)
+	assert.Empty(t, p.PlaybookNames())
+	assert.Equal(t, "general", p.DefaultPlaybook, "the file's default is kept; Select treats a missing name as no playbook")
+
+	sel := p.Select(Routing{Channel: "C1", Text: "hello"})
+	assert.Empty(t, sel.Playbook.Name)
+}
+
+func TestADanglingDefaultPlaybookStillLoads(t *testing.T) {
+	files := base()
+	files["profile.yaml"] = `name: podium
+display_name: Podium
+system_prompt: hi
+model: claude-opus-5
+default_playbook: coder
+`
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"general"}, p.PlaybookNames())
+	assert.Equal(t, "coder", p.DefaultPlaybook)
+	assert.Empty(t, p.Select(Routing{Text: "hello"}).Playbook.Name)
 }
 
 // A profile directory written before the rename holds skills/ and no playbooks/. Loading it

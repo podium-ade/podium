@@ -312,7 +312,7 @@ func TestAPlaybookThatWouldBreakRoutingIsRefused(t *testing.T) {
 	assert.NotContains(t, f.live.Current().Playbooks, "auditor")
 }
 
-func TestDeletingTheDefaultPlaybookIsRefused(t *testing.T) {
+func TestDeletingTheDefaultPlaybookIsAllowed(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
 	f.create(t, newPlaybook("reporter"))
@@ -320,10 +320,8 @@ func TestDeletingTheDefaultPlaybookIsRefused(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = f.svc.DeletePlaybook(ctx, connect.NewRequest(&agentv1.DeletePlaybookRequest{Name: "reporter"}))
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.Contains(t, err.Error(), `default_playbook "reporter" names no playbook`)
-	assert.Contains(t, f.live.Current().Playbooks, "reporter")
+	require.NoError(t, err)
+	assert.NotContains(t, f.live.Current().Playbooks, "reporter")
 }
 
 func TestAProfileOverrideNamingAMissingPlaybookIsRefused(t *testing.T) {
