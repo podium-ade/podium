@@ -42,6 +42,8 @@ export type PlaybookDraft = {
   resources: { cpu: number; memoryMb: number; pids: number };
   secrets: { name: string; target: string; key: string }[];
   repos: { name: string; url: string; defaultBranch: string }[];
+  /** Undefined inherits the profile's persona, which is what a message field must be to mean that. */
+  git?: { name: string; email: string };
   slackChannels: string[];
   linear: boolean;
   interactive: boolean;
@@ -176,6 +178,8 @@ export function PlaybookEditor({
   const [repoRows, setRepoRows] = useState<Row[]>(() =>
     (playbook?.repos ?? []).map((r) => row(r.name, r.url, r.defaultBranch)),
   );
+  const [gitName, setGitName] = useState(playbook?.git?.name ?? "");
+  const [gitEmail, setGitEmail] = useState(playbook?.git?.email ?? "");
   const [tried, setTried] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -196,6 +200,13 @@ export function PlaybookEditor({
   if (toolList.length === 0) problems.push("tools");
 
   const capped = Number(cpu) > 0 || Number(memoryMb) > 0 || Number(pids) > 0;
+  // Undefined and not a pair of empty strings: an empty persona would be a persona, and what
+  // an empty form means is "inherit the profile's".
+  const persona =
+    gitName.trim() === "" && gitEmail.trim() === ""
+      ? undefined
+      : { name: gitName.trim(), email: gitEmail.trim() };
+  if (persona && (persona.name === "" || persona.email === "")) problems.push("commit author");
 
   function submit() {
     setTried(true);
@@ -219,6 +230,7 @@ export function PlaybookEditor({
       repos: repoRows
         .filter((r) => r.a.trim() !== "" || r.b.trim() !== "")
         .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
+      git: persona,
       slackChannels: splitList(channels),
       linear,
       interactive,
@@ -785,6 +797,28 @@ export function PlaybookEditor({
               </div>
             ))}
             <AddRow label="Add a repository" onClick={() => setRepoRows([...repoRows, row()])} />
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Input
+                aria-label="Commit author name"
+                value={gitName}
+                onChange={(e) => setGitName(e.target.value)}
+                placeholder="Ada Lovelace"
+                className="h-8 max-w-40 text-xs"
+              />
+              <Input
+                aria-label="Commit author email"
+                value={gitEmail}
+                onChange={(e) => setGitEmail(e.target.value)}
+                placeholder="1234+ada@users.noreply.github.com"
+                className="h-8 max-w-md font-mono text-xs"
+              />
+            </div>
+            <p className="text-2xs text-faint">
+              Who this playbook&rsquo;s commits are by. Empty inherits the profile&rsquo;s. GitHub links a
+              commit to an account by the email, so use one that belongs to the account whose token
+              this playbook pushes with &mdash; an address owned by nobody leaves every commit
+              unattributed, which is what blocks a Vercel deployment.
+            </p>
           </Disclosure>
         </Section>
 

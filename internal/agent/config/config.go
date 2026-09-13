@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/skills"
 )
 
@@ -53,6 +56,15 @@ const DefaultXAIOAuthScopes = "openid profile email offline_access grok-cli:acce
 // host through the bridge gateway. Correct when the node runs on the same host as the
 // compose stack; with workers elsewhere it has to be an address every node can route to.
 const DefaultMemoryTaskURL = "http://host.docker.internal:8888"
+
+// DefaultTaskURL is where a TASK CONTAINER reaches THIS conductor, for the one thing a task
+// is allowed to ask it: mint me a GitHub token. Same vantage point as DefaultMemoryTaskURL
+// and the same caveat — correct when the node runs on the same host as the conductor, and
+// with workers elsewhere it has to be an address every node can route to.
+//
+// The port is DefaultListen's. A conductor listening on 127.0.0.1 is NOT reachable from a
+// task at all, which Validate says out loud rather than leaving to a turn to discover.
+const DefaultTaskURL = "http://host.docker.internal:8090"
 
 // DefaultMemoryBank is the one memory bank every turn shares. Hindsight creates a bank on
 // its first write, so nothing provisions this.
@@ -172,6 +184,26 @@ type Config struct {
 	// Server. It is used only to build the fallback link to a task page when an
 	// attachment cannot be uploaded into the conversation.
 	UIURL string
+	// GitHubAppID is PODIUM_AGENT_GITHUB_APP_ID: the numeric id of the GitHub App turns
+	// clone and push with. Empty turns the App off and leaves the older path exactly as it
+	// was — a playbook naming podium.agent.github_token in its own secrets: — so this is
+	// additive and can be rolled out one playbook at a time.
+	GitHubAppID string
+	// GitHubAppKeyFile is PODIUM_AGENT_GITHUB_APP_KEY_FILE: the path to the PEM GitHub's
+	// "generate a private key" button produced. A path rather than a value because a PEM is
+	// multi-line, and every way of folding one into an environment variable is a way of
+	// corrupting it. The path is logged; the content never is.
+	GitHubAppKeyFile string
+	// GitHubAppKey is PODIUM_AGENT_GITHUB_APP_KEY: the PEM itself, for a deployment whose
+	// secret delivery is environment-only. SENSITIVE: never log it.
+	GitHubAppKey string
+	// TaskURL is PODIUM_AGENT_TASK_URL: this conductor's own base URL as seen from a TASK
+	// CONTAINER, which is a different vantage point from Listen. Default DefaultTaskURL.
+	//
+	// It is only used when the GitHub App is configured, and it is the address a turn's git
+	// credential helper calls to mint a token. See docs/security.md: it makes one narrow,
+	// turn-authenticated method reachable from a task, where before nothing was.
+	TaskURL string
 	// DevSource is PODIUM_AGENT_DEV_SOURCE. TEST ONLY: it mounts an in-process source and
 	// two unauthenticated-by-anything-but-the-bearer routes that inject inbound events.
 	DevSource bool
@@ -209,6 +241,10 @@ func FromEnv() Config {
 		// every other bad value is reported too.
 		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
 		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
+		GitHubAppID:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_GITHUB_APP_ID")),
+		GitHubAppKeyFile:   os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY_FILE"),
+		GitHubAppKey:       os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY"),
+		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
 		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
@@ -298,6 +334,9 @@ func (c Config) Validate() error {
 	if err := c.validateLinear(); err != nil {
 		return err
 	}
+	if err := c.validateGitHubApp(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -372,8 +411,94 @@ func (c Config) LogValue() slog.Value {
 		slog.String("linear_url", c.LinearURL),
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
 		slog.String("ui_url", c.WebURL()),
+		slog.Bool("github_app", c.GitHubAppEnabled()),
+		slog.String("github_app_id", c.GitHubAppID),
+		slog.String("github_app_key_file", c.GitHubAppKeyFile),
+		slog.Bool("github_app_key_set", c.GitHubAppKey != ""),
+		slog.String("task_url", c.TaskURL),
 		slog.Bool("dev_source", c.DevSource),
 	)
+}
+
+// GitHubAppEnabled reports whether turns get their GitHub credential from an App. Both
+// halves are required and Validate refuses one without the other, so this is the whole test.
+func (c Config) GitHubAppEnabled() bool {
+	return c.GitHubAppID != "" && (c.GitHubAppKeyFile != "" || c.GitHubAppKey != "")
+}
+
+// GitHubAppPrivateKey is the PEM, from the file if one is named and from the environment
+// otherwise. It is read on every call rather than cached: the key is rotated by replacing
+// the file, and a conductor that had to be restarted to notice would be a conductor holding
+// a revoked key.
+func (c Config) GitHubAppPrivateKey() ([]byte, error) {
+	if c.GitHubAppKeyFile == "" {
+		return []byte(c.GitHubAppKey), nil
+	}
+	pem, err := os.ReadFile(c.GitHubAppKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("PODIUM_AGENT_GITHUB_APP_KEY_FILE=%q: %w", c.GitHubAppKeyFile, err)
+	}
+	return pem, nil
+}
+
+// validateGitHubApp refuses a half-configured App. Half-configured is the dangerous state:
+// an app id with no key, or a key with no id, would leave the App silently off and every
+// turn quietly falling back to whatever PAT the playbook still names — which is the failure
+// this whole path was built to end, arriving without a word.
+func (c Config) validateGitHubApp() error {
+	switch {
+	case c.GitHubAppID == "" && c.GitHubAppKeyFile == "" && c.GitHubAppKey == "":
+		return nil
+	case c.GitHubAppID == "":
+		return errors.New("PODIUM_AGENT_GITHUB_APP_ID is required when a GitHub App private " +
+			"key is set: a key without an id names no app")
+	case c.GitHubAppKeyFile == "" && c.GitHubAppKey == "":
+		return errors.New("PODIUM_AGENT_GITHUB_APP_KEY_FILE or PODIUM_AGENT_GITHUB_APP_KEY is " +
+			"required when PODIUM_AGENT_GITHUB_APP_ID is set: an app id alone mints nothing")
+	}
+	if c.GitHubAppKeyFile != "" && c.GitHubAppKey != "" {
+		return errors.New("PODIUM_AGENT_GITHUB_APP_KEY_FILE and PODIUM_AGENT_GITHUB_APP_KEY are " +
+			"both set: set one, so there is no question which key is in use")
+	}
+	// Read and parse it here rather than on the first turn that needs one. A key that is
+	// unreadable or is not a key is an operator's typo, and a typo that surfaces at
+	// start-up costs a restart while one that surfaces on a push costs a turn.
+	pem, err := c.GitHubAppPrivateKey()
+	if err != nil {
+		return err
+	}
+	if _, err := github.ParsePrivateKey(pem); err != nil {
+		return err
+	}
+	if c.TaskURL == "" {
+		return errors.New("PODIUM_AGENT_TASK_URL is empty: with a GitHub App configured it is " +
+			"how a turn's git credential helper reaches this conductor to mint a token")
+	}
+	if err := absoluteURL("PODIUM_AGENT_TASK_URL", c.TaskURL); err != nil {
+		return err
+	}
+	// A loopback listener cannot be reached from a task container's own network namespace,
+	// so the App would be configured and every clone would still fail. Naming it here is
+	// cheaper than reading a git error out of a turn that died at its first command.
+	if host, _, err := net.SplitHostPort(c.Listen); err == nil && isLoopback(host) {
+		return fmt.Errorf("PODIUM_AGENT_LISTEN=%q is loopback, and with a GitHub App configured "+
+			"a task container has to reach this conductor at PODIUM_AGENT_TASK_URL=%q: "+
+			"listen on an address the nodes can route to", c.Listen, c.TaskURL)
+	}
+	return nil
+}
+
+// isLoopback is true for the addresses a task container cannot reach. An empty host is
+// every interface, which is reachable.
+func isLoopback(host string) bool {
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // validateLinear checks the endpoint and the interval. An empty value means the default:

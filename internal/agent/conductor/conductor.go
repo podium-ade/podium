@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/mcp"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
@@ -110,6 +111,18 @@ type Options struct {
 	// DefaultHostMaxTurns. It exists because a host turn is a process on this machine and
 	// Slack decides how many conversations there are: see acquireHostSlot.
 	HostMaxTurns int
+	// GitHub mints the installation tokens turns clone and push with. Nil means this
+	// conductor has no GitHub App, and a playbook naming its own podium.agent.github_token
+	// works exactly as it did. See gitcred.go.
+	GitHub *github.Client
+	// GitTaskURL is this conductor's base URL as a TASK CONTAINER reaches it
+	// (config.TaskURL). It is carried in the brief of every turn that gets a capability,
+	// and it is only read when GitHub is set.
+	GitTaskURL string
+	// MintSecret is what a turn's minting capability is signed with. It is derived from
+	// the conductor's own bearer rather than generated, so a capability outlives a restart
+	// exactly as the turn holding it does. Empty with GitHub set is refused by New.
+	MintSecret string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -140,6 +153,12 @@ type Conductor struct {
 	// hostSlots is the cap on concurrent host turns, one token per slot. Buffered and not
 	// a mutex because a queued turn waits on ctx as well.
 	hostSlots chan struct{}
+	// github mints installation tokens; nil when no GitHub App is configured. gitTaskURL
+	// is where a task reaches this conductor to redeem a capability, and mintSecret is
+	// what those capabilities are signed with. See gitcred.go.
+	github     *github.Client
+	gitTaskURL string
+	mintSecret string
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -196,6 +215,18 @@ func New(opts Options) (*Conductor, error) {
 			return nil, err
 		}
 	}
+	// A capability nobody can verify is a turn that cannot push, discovered at its first
+	// clone. Refuse the combination here instead.
+	if opts.GitHub != nil {
+		switch {
+		case opts.MintSecret == "":
+			return nil, errors.New("conductor: a GitHub App needs a mint secret to sign a turn's " +
+				"capability with")
+		case opts.GitTaskURL == "":
+			return nil, errors.New("conductor: a GitHub App needs the URL a task container " +
+				"reaches this conductor on, to redeem that capability")
+		}
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -218,6 +249,9 @@ func New(opts Options) (*Conductor, error) {
 		host:            opts.Host,
 		mirror:          opts.Mirror,
 		hostSlots:       make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:          opts.GitHub,
+		gitTaskURL:      opts.GitTaskURL,
+		mintSecret:      opts.MintSecret,
 		sessions:        map[string]*sessionState{},
 		hostRuns:        map[string]func(){},
 		turnTokens:      map[string]turnGrant{},
@@ -651,9 +685,24 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice)
+	// The capability, before the task: admission refuses a spec naming a secret the control
+	// plane does not have, so the secret has to exist by the time CreateTask is called.
+	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook)
+	if err != nil {
+		c.logger.WarnContext(ctx, "preparing the turn's github credential failed",
+			"turn_id", turn.ID, "playbook", j.name, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I could not prepare a GitHub credential for this work. An operator should check the logs."})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
+
+	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
+		// The turn never started, so nothing will reach finish to clean this up.
+		if capabilitySecret != "" {
+			c.dropGitCapability(ctx, turn.ID)
+		}
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
 		c.logger.WarnContext(ctx, "creating the turn's task failed",
@@ -731,6 +780,15 @@ func (c *Conductor) brief(
 		Memory:      c.memory,
 	}
 	b.Provider = c.providerFor(choice.Agent)
+	// Where this turn redeems its capability. The capability itself is a secret and is
+	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
+	// carry that either. Set only when there is something to mint for, which
+	// provisionGitCapability decides from the same playbook.
+	if c.github != nil {
+		if scope, err := gitScopeOf(j.playbook); err == nil && len(scope.Repos) > 0 {
+			b.GitCredentials = &BriefGitCredentials{URL: c.gitTaskURL, TokenEnv: GitTokenEnv}
+		}
+	}
 	if j.playbook.Browser {
 		// The same flag that put the sidecar on the task spec puts its address in the
 		// brief. They cannot disagree: a turn with the tools and no browser, or a browser
@@ -739,6 +797,11 @@ func (c *Conductor) brief(
 	}
 	for _, r := range j.playbook.Repos {
 		b.Repos = append(b.Repos, BriefRepo{Name: r.Name, URL: r.URL, DefaultBranch: r.DefaultBranch})
+	}
+	// The playbook's persona, then the profile's. Absent when neither names one, which is
+	// the runtime keeping its fallback rather than the conductor choosing an identity.
+	if g := profile.GitFor(j.playbook); g.Set() {
+		b.Git = &BriefGit{Name: g.Name, Email: g.Email}
 	}
 	for _, s := range bundles {
 		b.Playbook.Skills = append(b.Playbook.Skills, BriefSkill{
@@ -792,7 +855,7 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 // own file names, and the one the backend it runs on needs.
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
-	servers []mcp.Server, choice profiles.Choice,
+	servers []mcp.Server, choice profiles.Choice, capabilitySecret string,
 ) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range playbook.Env {
@@ -825,7 +888,7 @@ func (c *Conductor) taskSpec(
 		Resources: playbook.Resources,
 		Timeout:   playbook.Timeout,
 		Secrets: append(append([]spec.SecretRef(nil), playbook.Secrets...),
-			c.reservedSecrets(choice.Agent, servers)...),
+			c.reservedSecrets(choice.Agent, servers, capabilitySecret)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
@@ -1023,7 +1086,9 @@ func dockerSidecar() spec.Sidecar {
 // The memory key is on every turn of a host that has memory, because a brief with a memory
 // block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
 // optional.
-func (c *Conductor) reservedSecrets(agent string, servers []mcp.Server) []spec.SecretRef {
+func (c *Conductor) reservedSecrets(
+	agent string, servers []mcp.Server, capabilitySecret string,
+) []spec.SecretRef {
 	model := spec.SecretRef{
 		Name:   profiles.AnthropicKeySecret,
 		Target: spec.SecretTargetEnv,
@@ -1055,6 +1120,16 @@ func (c *Conductor) reservedSecrets(agent string, servers []mcp.Server) []spec.S
 			Name:   mcp.TokenSecret(srv.Name),
 			Target: spec.SecretTargetEnv,
 			Key:    mcp.TokenEnv(srv.Name),
+		})
+	}
+	// This turn's authority to mint a GitHub token, when it has one. The playbook cannot
+	// name this secret itself — profiles refuses the prefix — so being handed it here is
+	// the whole of how a turn gets one.
+	if capabilitySecret != "" {
+		refs = append(refs, spec.SecretRef{
+			Name:   capabilitySecret,
+			Target: spec.SecretTargetEnv,
+			Key:    GitTokenEnv,
 		})
 	}
 	return refs

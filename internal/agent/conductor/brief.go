@@ -64,19 +64,26 @@ const (
 // The field order is the schema's order and the encoding is compact, because
 // examples/agent/brief.sh renders the same document with `jq -cn` and a test compares bytes.
 type Brief struct {
-	Version             int            `json:"version"`
-	SessionID           string         `json:"session_id"`
-	TurnID              string         `json:"turn_id"`
-	Source              BriefSource    `json:"source"`
-	Profile             BriefProfile   `json:"profile"`
-	Playbook            BriefPlaybook  `json:"playbook"`
-	Transcript          []BriefEntry   `json:"transcript"`
-	TranscriptTruncated bool           `json:"transcript_truncated"`
-	Instruction         string         `json:"instruction"`
-	Repos               []BriefRepo    `json:"repos,omitempty"`
-	Memory              *BriefMemory   `json:"memory,omitempty"`
-	Browser             *BriefBrowser  `json:"browser,omitempty"`
-	Provider            *BriefProvider `json:"provider,omitempty"`
+	Version             int           `json:"version"`
+	SessionID           string        `json:"session_id"`
+	TurnID              string        `json:"turn_id"`
+	Source              BriefSource   `json:"source"`
+	Profile             BriefProfile  `json:"profile"`
+	Playbook            BriefPlaybook `json:"playbook"`
+	Transcript          []BriefEntry  `json:"transcript"`
+	TranscriptTruncated bool          `json:"transcript_truncated"`
+	Instruction         string        `json:"instruction"`
+	Repos               []BriefRepo   `json:"repos,omitempty"`
+	// Git is who this turn's commits are by. Absent means the runtime's own fallback, which
+	// is an identity no GitHub account owns — see profiles.GitPersona.
+	Git *BriefGit `json:"git,omitempty"`
+	// GitCredentials is where a turn redeems its minting capability for a GitHub token.
+	// Absent means this conductor has no GitHub App, or this playbook has no repositories
+	// to mint for, and the older path — a playbook naming its own token secret — applies.
+	GitCredentials *BriefGitCredentials `json:"git_credentials,omitempty"`
+	Memory         *BriefMemory         `json:"memory,omitempty"`
+	Browser        *BriefBrowser        `json:"browser,omitempty"`
+	Provider       *BriefProvider       `json:"provider,omitempty"`
 	// Delegation is present only on a HOST turn's brief. A task's brief never carries one,
 	// which is what stops a delegated task delegating again.
 	Delegation *BriefDelegation `json:"delegation,omitempty"`
@@ -197,6 +204,22 @@ type BriefRepo struct {
 	Name          string `json:"name"`
 	URL           string `json:"url"`
 	DefaultBranch string `json:"default_branch"`
+}
+
+// BriefGit is the user.name and user.email the runtime writes into every clone.
+type BriefGit struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// BriefGitCredentials points the runtime at this conductor's minting endpoint.
+//
+// It carries an address and the NAME of the variable the capability arrives in, exactly as
+// BriefMemory does and for the same reason: a brief is an environment variable on a task
+// spec, so it may name a credential and must never carry one.
+type BriefGitCredentials struct {
+	URL      string `json:"url"`
+	TokenEnv string `json:"token_env"`
 }
 
 // BriefMemory points the runtime at Hindsight. Step 19 fills it; nothing here does.
