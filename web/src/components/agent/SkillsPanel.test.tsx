@@ -72,14 +72,13 @@ describe("SkillsPanel", () => {
     });
   });
 
-  it("says what a skill is and where it runs, before anything is uploaded", async () => {
+  it("offers a way in before anything is uploaded, without a warning banner", async () => {
     mount();
     expect(await screen.findByText("No skills")).toBeInTheDocument();
-    // The one thing this screen has to carry: a skill is somebody else's code, in the turn's
-    // container, with the turn's credentials.
+    expect(screen.getByTestId("skill-new")).toBeInTheDocument();
     expect(
-      screen.getByText(/runs in the turn's container with the turn's credentials/),
-    ).toBeInTheDocument();
+      screen.queryByText(/runs in the turn's container with the turn's credentials/),
+    ).toBeNull();
   });
 
   it("lists a skill with its size, digest and the playbooks that name it", async () => {
@@ -107,6 +106,10 @@ describe("SkillsPanel", () => {
     await screen.findByText("No skills");
 
     await userEvent.click(screen.getByTestId("skill-new"));
+    expect(screen.getByText("SKILL.md or folder")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose SKILL.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose folder" })).toBeInTheDocument();
+    expect(screen.queryByText(/zip of the skill/i)).toBeNull();
     const body = "---\nname: release-notes\ndescription: Use when writing notes.\n---\n";
     await userEvent.type(screen.getByLabelText("Or paste a SKILL.md"), body);
     await userEvent.click(screen.getByRole("button", { name: "Add skill" }));

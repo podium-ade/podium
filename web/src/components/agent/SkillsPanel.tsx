@@ -1,8 +1,9 @@
 import { useId, useRef, useState } from "react";
-import { Database, FileCode2, Plus, Puzzle, Trash2, Upload } from "lucide-react";
+import { Database, FileCode2, Folder, Plus, Puzzle, Trash2, Upload, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentSkill } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { readDirectoryFiles, zipSkillFolder } from "../../lib/skillZip";
 import { absolute, humanBytes, relative } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
@@ -20,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -31,11 +31,9 @@ import { ConductorDown } from "./ConductorDown";
  * SkillsPanel is the Agent Skill library: what this conductor can hand a turn, and the only
  * way to add one without a shell on its host.
  *
- * The screen has to carry one idea that is not obvious from the list, so it says it out loud
- * rather than in a tooltip: a skill is instructions and scripts somebody else wrote, and they
- * run inside the turn's container with that turn's GitHub token and model credential. Adding
- * one is the same class of decision as giving a playbook a credential, and granting one to a
- * playbook is now a click rather than a file edit — so the person clicking has to be told.
+ * Adding one is the same class of decision as giving a playbook a credential: a skill is
+ * instructions and scripts somebody else wrote, and they run inside the turn's container
+ * with that turn's GitHub token and model credential.
  */
 export function SkillsPanel() {
   const qc = useQueryClient();
@@ -111,13 +109,6 @@ export function SkillsPanel() {
         />
       ) : null}
 
-      <Alert variant="warn" role="note" title="A skill runs in the turn's container with the turn's credentials">
-        It is instructions and shell commands the model is told to follow, sitting beside that
-        turn's GitHub token and model credential. The digest below proves the bytes a turn gets
-        are the bytes stored here; it proves nothing about who wrote them. Read a skill before
-        you upload it, and grant it only to playbooks a public channel cannot reach.
-      </Alert>
-
       {list.isPending ? <SkillsSkeleton /> : null}
 
       {!list.isPending && running.length === 0 ? (
@@ -126,8 +117,8 @@ export function SkillsPanel() {
           title="No skills"
           hint={
             list.data?.skillsDir
-              ? `Upload one here, or put a directory with a SKILL.md in ${list.data.skillsDir} on the conductor's host.`
-              : "Upload a zip of the skill's directory, or paste a SKILL.md."
+              ? `Upload a SKILL.md or a folder here, or put a directory with a SKILL.md in ${list.data.skillsDir} on the conductor's host.`
+              : "Upload a SKILL.md, a folder of the skill's files, or paste the markdown."
           }
           action={
             <Button type="button" size="sm" onClick={() => setAdding(true)}>
@@ -267,20 +258,19 @@ function SkillRow({
             </div>
           ) : null}
           {fromHost ? null : (
-            <Tooltip label={`Delete ${skill.name}`}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                data-testid="skill-delete"
-                aria-label={`Delete ${skill.name}`}
-                disabled={busy}
-                onClick={() => setConfirming(true)}
-                className="hover:bg-err/12 hover:text-err"
-              >
-                <Trash2 />
-              </Button>
-            </Tooltip>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="skill-delete"
+              aria-label={`Delete ${skill.name}`}
+              disabled={busy}
+              onClick={() => setConfirming(true)}
+              className="hover:bg-err/12 hover:text-err"
+            >
+              <Trash2 />
+              Delete
+            </Button>
           )}
         </div>
       </div>
@@ -355,12 +345,13 @@ function SkillRow({
 }
 
 /**
- * AddSkillDialog is the two ways in: a zip of the skill's directory, or a pasted SKILL.md.
+ * AddSkillDialog is the two ways in: a SKILL.md (or a folder of the skill's files), or a
+ * pasted SKILL.md.
  *
- * Which one was sent is not declared — the conductor recognises a zip by its own header — so
- * this form does not have to be right about it, and cannot be wrong about it. The name is not
- * asked for either: it comes out of the frontmatter, because that is the only name the harness
- * will load the skill under.
+ * Which one was sent is not declared — the conductor recognises an archive by its own header
+ * — so this form does not have to be right about it, and cannot be wrong about it. The name
+ * is not asked for either: it comes out of the frontmatter, because that is the only name
+ * the harness will load the skill under.
  */
 function AddSkillDialog({
   open,
@@ -379,25 +370,40 @@ function AddSkillDialog({
 }) {
   const uid = useId();
   const fileInput = useRef<HTMLInputElement>(null);
+  const dirInput = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File>();
+  const [folder, setFolder] = useState<{ name: string; zip: Uint8Array }>();
   const [text, setText] = useState("");
   const [replace, setReplace] = useState(false);
   const [error, setError] = useState<string>();
 
   function reset() {
     setFile(undefined);
+    setFolder(undefined);
     setText("");
     setReplace(false);
     setError(undefined);
     if (fileInput.current) fileInput.current.value = "";
+    if (dirInput.current) dirInput.current.value = "";
+  }
+
+  function clearPicked() {
+    setFile(undefined);
+    setFolder(undefined);
+    setError(undefined);
+    if (fileInput.current) fileInput.current.value = "";
+    if (dirInput.current) dirInput.current.value = "";
   }
 
   const upload = useMutation({
     mutationFn: async () => {
-      const content = file
-        ? new Uint8Array(await file.arrayBuffer())
-        : new TextEncoder().encode(text);
-      return agent.uploadSkill({ content, filename: file?.name ?? "", replace });
+      const content = folder
+        ? folder.zip
+        : file
+          ? new Uint8Array(await file.arrayBuffer())
+          : new TextEncoder().encode(text);
+      const filename = folder ? `${folder.name}.zip` : file?.name ?? "";
+      return agent.uploadSkill({ content, filename, replace });
     },
     onSuccess: async (res) => {
       const name = res.skill?.name ?? "The skill";
@@ -412,7 +418,8 @@ function AddSkillDialog({
   // only reads the obvious case.
   const pastedName = /^---\s*$[\s\S]*?^name:\s*(\S+)\s*$/m.exec(text)?.[1] ?? "";
   const collides = pastedName !== "" && existing.has(pastedName);
-  const ready = (file !== undefined || text.trim() !== "") && !upload.isPending;
+  const picked = file !== undefined || folder !== undefined;
+  const ready = (picked || text.trim() !== "") && !upload.isPending;
 
   return (
     <Dialog
@@ -426,9 +433,9 @@ function AddSkillDialog({
         <DialogHeader>
           <DialogTitle>Add a skill</DialogTitle>
           <DialogDescription>
-            A zip of the skill&apos;s directory, or the text of a <Mono>SKILL.md</Mono>. The name
-            comes from the file&apos;s own frontmatter — it is the only name the harness will load
-            it under.
+            A <Mono>SKILL.md</Mono>, a folder of the skill&apos;s files, or the text pasted
+            below. The name comes from the file&apos;s own frontmatter — it is the only name the
+            harness will load it under.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -439,18 +446,84 @@ function AddSkillDialog({
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor={`${uid}-file`}>A zip of the skill&apos;s directory</Label>
-            <Input
+            <Label>SKILL.md or folder</Label>
+            <input
               id={`${uid}-file`}
               ref={fileInput}
               type="file"
-              accept=".zip,application/zip"
+              accept=".md,text/markdown,.zip,application/zip"
+              className="sr-only"
               disabled={upload.isPending}
               onChange={(e) => {
                 setFile(e.target.files?.[0]);
+                setFolder(undefined);
                 setError(undefined);
               }}
             />
+            <input
+              ref={dirInput}
+              type="file"
+              className="sr-only"
+              disabled={upload.isPending}
+              multiple
+              // Directory picks are a Chromium/WebKit file-picker feature, not a standard
+              // input attribute, so they are passed through rather than typed.
+              {...{ webkitdirectory: "", directory: "" }}
+              onChange={async (e) => {
+                const list = e.target.files;
+                if (!list || list.length === 0) return;
+                try {
+                  const entries = await readDirectoryFiles(list);
+                  if (entries.length === 0) {
+                    setError("that folder has no files to upload");
+                    return;
+                  }
+                  const root = entries[0]?.path.split("/")[0] || "skill";
+                  setFolder({ name: root, zip: zipSkillFolder(entries) });
+                  setFile(undefined);
+                  setError(undefined);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "the folder could not be read");
+                }
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={upload.isPending}
+                onClick={() => fileInput.current?.click()}
+              >
+                <FileCode2 />
+                Choose SKILL.md
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={upload.isPending}
+                onClick={() => dirInput.current?.click()}
+              >
+                <Folder />
+                Choose folder
+              </Button>
+              {picked ? (
+                <span className="inline-flex min-w-0 items-center gap-1 font-mono text-xs text-muted">
+                  <span className="truncate">{file?.name ?? folder?.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Remove selected file"
+                    disabled={upload.isPending}
+                    onClick={clearPicked}
+                  >
+                    <X />
+                  </Button>
+                </span>
+              ) : null}
+            </div>
             <p className="text-2xs leading-relaxed text-faint">
               Up to {maxBytes > 0 ? humanBytes(maxBytes) : "128 KB"} unpacked and {maxFiles || 64}{" "}
               files, UTF-8 text only. Nothing in a bundle is executable: files land 0644 and a
@@ -465,7 +538,7 @@ function AddSkillDialog({
               value={text}
               rows={8}
               spellCheck={false}
-              disabled={file !== undefined || upload.isPending}
+              disabled={picked || upload.isPending}
               onChange={(e) => {
                 setText(e.target.value);
                 setError(undefined);
@@ -473,9 +546,9 @@ function AddSkillDialog({
               placeholder={"---\nname: pr-review\ndescription: Use when reviewing a diff.\n---\n\nRead the diff, then…"}
               className="font-mono text-xs"
             />
-            {file !== undefined ? (
+            {picked ? (
               <p className="text-2xs text-faint">
-                A file is selected, so the text box is ignored. Clear the file to paste instead.
+                A file is selected, so the text box is ignored. Remove it to paste instead.
               </p>
             ) : null}
           </div>

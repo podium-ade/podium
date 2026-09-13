@@ -234,11 +234,11 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByText(/running an older profile/)).toBeInTheDocument();
   });
 
-  it("says a change needs no restart, and points a file playbook at the re-read", async () => {
+  it("offers a reload of the profile files, and no informational banner", async () => {
     mount();
     await screen.findByTestId("playbook-row");
-    expect(screen.getByText(/next turn, with no restart/)).toBeInTheDocument();
-    expect(screen.getByText(/no restart either/)).toBeInTheDocument();
+    expect(screen.queryByText(/next turn, with no restart/)).toBeNull();
+    expect(screen.getByTestId("reload-profile-dir")).toHaveTextContent("Reload");
   });
 
   it("re-reads the profile directory and shows what the files now hold", async () => {
