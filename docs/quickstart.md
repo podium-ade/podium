@@ -290,8 +290,8 @@ Docker.
 
 The playbook a turn runs is a **starter** baked into the agent image at `/etc/podium/agent`
 (one playbook, no credentials). Compose mounts that path from the named volume `agent-profile`
-on a fresh install. Playbooks and skills you create in the UI live in the conductor's database
-and need no files.
+on a fresh install. Playbooks and skills are files in those mounted directories; the UI lists
+them and does not write one.
 
 To run **your** bot from disk instead, point the host binds at directories you own — not this
 repository:

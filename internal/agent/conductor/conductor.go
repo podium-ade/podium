@@ -908,8 +908,8 @@ func (c *Conductor) taskSpec(
 }
 
 // skillBundles reads and packs the Agent Skills this turn's job names. A job that names none
-// reads nothing: neither source has to exist, or be configured, for a bot that does not use
-// skills.
+// reads nothing: the skills directory does not have to exist, or be configured, for a bot
+// that does not use skills.
 func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, error) {
 	if len(j.skills) == 0 {
 		return nil, nil
@@ -925,7 +925,7 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // playbook named them. A playbook that names none reads nothing, so a bot that does not use
 // MCP needs no database for this.
 //
-// An unknown or disabled name fails the turn. It is the same rule a disabled skill follows,
+// An unknown or disabled name fails the turn. It is the same rule a missing skill follows,
 // and for the same reason: a turn that quietly ran with fewer tools than its playbook
 // describes is the one outcome nobody can diagnose afterwards. The error is shown to the
 // human because a server name is the operator's own text, and it is the only part of this
@@ -965,18 +965,10 @@ func resolveMCPServers(names []string, rows []mcp.Server) ([]mcp.Server, error) 
 	return out, nil
 }
 
-// skills is the library one turn resolves its names against: the directory on this host
-// first, then the conductor's database. The directory wins — see skills.Library.
-//
-// The nil check is not decoration. A *store.Store assigned straight into an interface field
-// gives a non-nil interface holding a nil pointer, and the library's "do I have a database"
-// test would then be true on a Conductor built without one.
+// skills is the library one turn resolves its names against: the directories under
+// PODIUM_AGENT_SKILLS_DIR on this host.
 func (c *Conductor) skills() skills.Library {
-	lib := skills.Library{Dir: c.skillsDir}
-	if c.store != nil {
-		lib.Store = c.store
-	}
-	return lib
+	return skills.Library{Dir: c.skillsDir}
 }
 
 // The Docker daemon a `docker: true` playbook gets. It is the conductor's to build rather
