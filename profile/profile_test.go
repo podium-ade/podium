@@ -1,4 +1,4 @@
-// Package bot holds the profile Podium's own bot runs: profile.yaml, the playbooks
+// Package profile holds the profile Podium's own bot runs: profile.yaml, the playbooks
 // beside it and their prompts. It has no Go code — only the tests below, which load the
 // directory the way podium-agent does at start-up and resolve every skill it names against
 // ../skills.
@@ -7,7 +7,7 @@
 // examples/agent_profile_test.go is the same job for the worked example; the two are
 // separate because that one has to load on a machine with no privileged node, no GitHub
 // token and no skill library, and this one describes a bot that has all three.
-package bot
+package profile
 
 import (
 	"testing"
@@ -25,7 +25,7 @@ const skillsDir = "../skills"
 
 func TestTheBotsOwnProfileLoads(t *testing.T) {
 	p, err := profiles.Load(".")
-	require.NoError(t, err, "bot/ does not load; the real deployment would not start")
+	require.NoError(t, err, "profile/ does not load; the real deployment would not start")
 
 	require.Equal(t, "podium", p.Name)
 	require.Equal(t, "Podium", p.DisplayName)
