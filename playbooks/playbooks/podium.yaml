@@ -18,6 +18,14 @@
 # image is NOT published — it layers on the base, so a release would have to pass the pushed
 # base by digest, and it is ~1.7 GB per architecture — so `make agent-runtime` on the node is
 # what puts it there. Every other playbook omits `image:` and gets the published base.
+#
+# The tag `make agent-runtime` writes, and local to the machine that ran it: a node runs tasks
+# on its own engine, so a worker elsewhere cannot see this. That is the right default HERE,
+# because a turn changing the agent runtime has to run the working tree's own image. A
+# developer who is not changing the runtime names the published one instead and skips a
+# ~1.7 GB build per architecture — ../README.md#run-podiums-own-bot-yourself, step 4:
+#
+#   image: ghcr.io/podium-ade/podium-agent-runtime-dev:v0.1.0
 image: podium-agent-runtime-dev:dev
 docker: true
 # A headless Chrome beside the turn, and the browser* tools to drive it. `docker: true` is
