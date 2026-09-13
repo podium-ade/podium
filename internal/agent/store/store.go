@@ -24,6 +24,9 @@ import (
 // ErrNotFound is what the readers return for a row that is not there.
 var ErrNotFound = errors.New("agent store: not found")
 
+// ErrConflict is what a write returns when the name it wanted is already taken.
+var ErrConflict = errors.New("agent store: already exists")
+
 // ErrInvalidChatTitle is a title a rename would not store: empty, too long, or holding
 // a control character. The handler maps it to InvalidArgument.
 var ErrInvalidChatTitle = errors.New("invalid chat title")

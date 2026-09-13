@@ -1,6 +1,5 @@
 // Package profiles is the bot's identity and its playbooks: what a playbook is, how one is
-// validated, and how the directory on disk (PODIUM_AGENT_PROFILE_DIR) merges with the
-// playbooks an operator created in the web UI.
+// validated, and how the directory on disk (PODIUM_AGENT_PROFILE_DIR) is loaded.
 //
 // A playbook declares which image a turn runs, which prompt it is given, which tools it may
 // use and which stored secrets it names. Naming a secret here is not a privilege: a task
@@ -277,10 +276,6 @@ func gitEnvConflicts(env map[string]string, g GitPersona) []error {
 }
 
 // Playbook is one job the bot can do: which image, which prompt, which tools, which secrets.
-//
-// The json tags are the on-disk shape of a stored playbook in the conductor's database. They
-// match the yaml keys deliberately: a playbook read out of Postgres and a playbook read out of
-// playbooks/<name>.yaml are the same document, so there is one schema to reason about.
 type Playbook struct {
 	Image        string        `yaml:"image" json:"image"`
 	SystemPrompt string        `yaml:"system_prompt" json:"system_prompt"`
@@ -360,19 +355,7 @@ type Playbook struct {
 
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
-	// Origin is where this copy of the playbook came from: OriginFile or OriginStored. It is
-	// set by the loader and the merge, never by a document.
-	Origin string `yaml:"-" json:"-"`
 }
-
-// Where a playbook came from.
-const (
-	// OriginFile is a playbooks/<name>.yaml in the profile directory.
-	OriginFile = "file"
-	// OriginStored is a playbook an operator created through the API, kept in the conductor's
-	// own database.
-	OriginStored = "stored"
-)
 
 // Load reads profile.yaml and every playbooks/*.yaml under dir. Every decode uses
 // KnownFields(true), as pkg/spec.ParseTaskSpec does: a misspelt key is an error naming the
@@ -457,9 +440,9 @@ func loadPlaybooks(dir string) (map[string]Playbook, error) {
 		return nil, fmt.Errorf("scan %s: %w", dir, err)
 	}
 	sort.Strings(paths)
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s holds no playbooks: a profile needs at least one playbooks/<name>.yaml", dir)
-	}
+	// Zero files is a fresh install: the assistant still answers chat, and playbooks are
+	// created in the UI (or bind-mounted later). A mention with nothing to route to is
+	// refused at select time, not at boot.
 	out := make(map[string]Playbook, len(paths))
 	for _, path := range paths {
 		s, err := loadPlaybookFile(path)
@@ -492,7 +475,6 @@ func loadPlaybookFile(path string) (Playbook, error) {
 		return Playbook{}, fmt.Errorf("%s: %w", path, err)
 	}
 	s.Name = name
-	s.Origin = OriginFile
 	prompt, err := resolvePrompt(path, s.SystemPrompt)
 	if err != nil {
 		return Playbook{}, err
@@ -785,12 +767,9 @@ func (p *Profile) validate(path string) error {
 			errs = append(errs, fmt.Errorf("playbook %q: %w", name, err))
 		}
 	}
-	if p.DefaultPlaybook == "" {
-		errs = append(errs, errors.New("default_playbook is required"))
-	} else if _, ok := p.Playbooks[p.DefaultPlaybook]; !ok {
-		errs = append(errs, fmt.Errorf("default_playbook %q names no playbook in playbooks/ (have %s)",
-			p.DefaultPlaybook, strings.Join(p.PlaybookNames(), ", ")))
-	}
+	// default_playbook is a routing hint, not a boot requirement. A fresh install has no
+	// playbooks yet; a name that is not loaded is the same as empty — Select returns no
+	// playbook and the mention is refused then, with the profile still running.
 	// The assistant's own two fields. An absent max_turns and a `max_turns: 0` are the same
 	// document to a YAML decoder, and both mean no cap; a negative one is the only shape
 	// that can be refused, and it is.

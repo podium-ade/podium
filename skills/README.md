@@ -24,10 +24,6 @@ sets both variables at once.
 A skill in this directory is **instructions and shell commands that run in a turn's
 container, beside that turn's GitHub token and model credential**. That is the same privilege
 as a change to `profile/`, which is why these are files in the repository and arrive by
-pull request rather than through the Skills screen in the web UI. Read
+pull request. The Skills screen lists this directory; it does not write it. Read
 [`../docs/security.md`](../docs/security.md#a-playbook-that-carries-agent-skills) before
 adding one.
-
-`PODIUM_AGENT_SKILLS_DIR` is also the half of the library that **outranks the browser**: a
-name this directory holds cannot be replaced, disabled or deleted through the API, and it wins
-a clash with an uploaded skill of the same name.
