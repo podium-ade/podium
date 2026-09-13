@@ -3,7 +3,7 @@
 #
 # This is the WORKED EXAMPLE: one playbook, on the one image Podium ships, holding no
 # credential of its own, and it loads and runs on any node. The profile the real bot runs is
-# ../../playbooks, which is a different directory precisely so that neither has to pretend to
+# ../../profile, which is a different directory precisely so that neither has to pretend to
 # be the other.
 #
 # This file describes TWO things at once, and it is worth knowing which is which:

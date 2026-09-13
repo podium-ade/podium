@@ -240,10 +240,10 @@ dockers_v2:
   # .github/workflows/release.yml instead, with the same tag set, an SBOM attestation and a
   # cosign signature on its manifest.
   #
-  # podium-agent-runtime-dev is deliberately not published at all: it layers on that image, so
-  # a released build would need the pushed base by digest, and it carries a Go toolchain, a
-  # Docker client and golangci-lint at ~1.7 GB per architecture. `make agent-runtime` builds
-  # it locally, which is the only place it is used.
+  # podium-agent-runtime-dev is published by the `agent-runtime-dev` job beside it, which needs
+  # that one and builds `FROM` the base it just pushed, by digest. That ordering is the reason
+  # neither is here: goreleaser builds its images in parallel and has no way to say "after,
+  # with the result". profile/README.md is how a developer points a deployment at the result.
 
 # The manifests are what people pull, so they are what is signed. UNVERIFIED: no image has
 # been built or signed from this repository yet, because the build machine may not create
