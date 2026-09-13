@@ -143,6 +143,21 @@ func TestAnOverrideReplacesTheFileValueAndAnEmptyOneClearsIt(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", back.Model)
 }
 
+func TestMergeAcceptsStoredPlaybooksWhenTheDirectoryHasNone(t *testing.T) {
+	files, err := Load(write(t, map[string]string{
+		"profile.yaml":       goodProfile,
+		"prompts/profile.md": "hi",
+	}))
+	require.NoError(t, err)
+	require.Empty(t, files.PlaybookNames())
+
+	got, shadowed, err := Merge(files, Overrides{}, []Playbook{stored("reporter")})
+	require.NoError(t, err)
+	assert.Empty(t, shadowed)
+	assert.Equal(t, []string{"reporter"}, got.PlaybookNames())
+	assert.Equal(t, OriginStored, got.Playbooks["reporter"].Origin)
+}
+
 func TestAnOverrideMayNameAStoredPlaybookAsTheDefault(t *testing.T) {
 	files := fileProfile(t)
 	got, _, err := Merge(files, Overrides{DefaultPlaybook: "reporter"}, []Playbook{stored("reporter")})
@@ -155,13 +170,9 @@ func TestAnOverrideMayNameAStoredPlaybookAsTheDefault(t *testing.T) {
 func TestMergeRefusesWhatLoadWouldRefuse(t *testing.T) {
 	files := fileProfile(t)
 
-	_, _, err := Merge(files, Overrides{DefaultPlaybook: "nope"}, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `default_playbook "nope" names no playbook`)
-
 	a, b := stored("one"), stored("two")
 	a.Linear, b.Linear = true, true
-	_, _, err = Merge(files, Overrides{}, []Playbook{a, b})
+	_, _, err := Merge(files, Overrides{}, []Playbook{a, b})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "all set linear: true")
 

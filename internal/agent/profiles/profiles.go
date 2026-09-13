@@ -457,9 +457,9 @@ func loadPlaybooks(dir string) (map[string]Playbook, error) {
 		return nil, fmt.Errorf("scan %s: %w", dir, err)
 	}
 	sort.Strings(paths)
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s holds no playbooks: a profile needs at least one playbooks/<name>.yaml", dir)
-	}
+	// Zero files is a fresh install: the assistant still answers chat, and playbooks are
+	// created in the UI (or bind-mounted later). A mention with nothing to route to is
+	// refused at select time, not at boot.
 	out := make(map[string]Playbook, len(paths))
 	for _, path := range paths {
 		s, err := loadPlaybookFile(path)
@@ -785,12 +785,9 @@ func (p *Profile) validate(path string) error {
 			errs = append(errs, fmt.Errorf("playbook %q: %w", name, err))
 		}
 	}
-	if p.DefaultPlaybook == "" {
-		errs = append(errs, errors.New("default_playbook is required"))
-	} else if _, ok := p.Playbooks[p.DefaultPlaybook]; !ok {
-		errs = append(errs, fmt.Errorf("default_playbook %q names no playbook in playbooks/ (have %s)",
-			p.DefaultPlaybook, strings.Join(p.PlaybookNames(), ", ")))
-	}
+	// default_playbook is a routing hint, not a boot requirement. A fresh install has no
+	// playbooks yet; a name that is not loaded is the same as empty — Select returns no
+	// playbook and the mention is refused then, with the profile still running.
 	// The assistant's own two fields. An absent max_turns and a `max_turns: 0` are the same
 	// document to a YAML decoder, and both mean no cap; a negative one is the only shape
 	// that can be refused, and it is.

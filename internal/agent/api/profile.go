@@ -102,11 +102,19 @@ func (s *AgentService) UpdateProfile(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	// Validated before it is stored, and by exactly the rules profile.yaml is held to: a
-	// default_playbook naming a playbook that is not loaded is refused here as it would be at
-	// start-up, rather than stored and found at the next restart.
-	if _, _, err := profiles.Merge(files, ov, playbooksOf(stored)); err != nil {
+	// Validated before it is stored. A default_playbook the operator just typed must name a
+	// playbook that is loaded — that is a form error, not a boot error. An empty override
+	// returns the file's value, which may dangle on a fresh install with no playbooks yet.
+	merged, _, err := profiles.Merge(files, ov, playbooksOf(stored))
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if ov.DefaultPlaybook != "" {
+		if _, ok := merged.Playbooks[ov.DefaultPlaybook]; !ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+				"default_playbook %q names no playbook in playbooks/ (have %s)",
+				ov.DefaultPlaybook, strings.Join(merged.PlaybookNames(), ", ")))
+		}
 	}
 	if err := s.store.PutSetting(ctx, overridesSettingKey, ov); err != nil {
 		return nil, storeError(err)
@@ -187,12 +195,13 @@ func (s *AgentService) UpdatePlaybook(
 	}), nil
 }
 
-// DeletePlaybook removes a stored playbook. Deleting the profile's default is refused by the
-// same rule that refuses a profile.yaml naming a default that is not there.
+// DeletePlaybook removes a stored playbook.
 //
 // A shadowed row — one a playbooks/<name>.yaml has since claimed — IS deletable, and has to
 // be: it is a stored row, it never runs, and deleting it is the only way to stop the Playbooks
-// screen reporting a playbook that does nothing.
+// screen reporting a playbook that does nothing. Deleting the current default is allowed: a
+// fresh install has no playbooks, and Select refuses the next mention rather than refusing
+// the delete.
 func (s *AgentService) DeletePlaybook(
 	ctx context.Context, req *connect.Request[agentv1.DeletePlaybookRequest],
 ) (*connect.Response[agentv1.DeletePlaybookResponse], error) {

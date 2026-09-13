@@ -402,6 +402,10 @@ the starter, so the bot comes up and answers rather than failing every turn on a
 Podium developers running the real bot name its two directories themselves. See
 [`../profile/README.md`](../profile/README.md).
 
+`playbooks/` may be empty. The conductor boots; the assistant still answers chat; playbooks
+created in the UI live in the conductor's database. A mention with nothing to route to is
+refused then, not at start-up.
+
 Every file is decoded with unknown keys **rejected**, the same rule `pkg/spec` follows for a task
 spec: a misspelt key is a startup error naming the file, not a field that silently does nothing.
 
