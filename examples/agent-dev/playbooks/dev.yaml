@@ -1,0 +1,99 @@
+# Development work: build it, test it, open a pull request, then attack what you built.
+#
+# THIS FILE IS NOT LOADED BY ANYTHING. It is the copy in the dev setup step in ../README.md —
+# `cp` it into your own profile's `playbooks/` and the prompt beside it into `prompts/`. The
+# conductor image ships `examples/agent` and only that, so a deployment gets this playbook
+# because somebody put it there and never by default. It costs a privileged node, a GitHub
+# token and 8 GB, and none of that should arrive with `docker compose up`.
+#
+# It is the shape `playbooks/playbooks/podium.yaml` runs in production, with the repository
+# and the prompt left for you to fill in. Every field below is documented in
+# ../../../docs/agent.md.
+
+# The -dev runtime: the base image plus Go, make, pnpm, golangci-lint, the Docker CLIENT and
+# the MCP client that drives a browser. Published by the `agent-runtime-dev` job in
+# .github/workflows/release.yml, so you pull it rather than build 1.7 GB per architecture.
+#
+# PIN THIS to the version of the conductor reading this file. `latest` drifts out from under
+# a pinned deployment, and the runtime and the conductor are a matched pair — unlike a
+# playbook that names no image at all, which the conductor fills in with its own version.
+#
+# Its toolchain is pinned to what THIS repository builds with (Go from go.mod, golangci-lint
+# from ci-go.yml). That makes it right for a Go + pnpm project and approximate for anything
+# else: for another stack, build your own `FROM ghcr.io/podium-ade/podium-agent-runtime` and
+# name it here. docs/agent.md#extending-the-runtime-image is that procedure.
+image: ghcr.io/podium-ade/podium-agent-runtime-dev:latest
+
+# A real Docker daemon beside the turn, as a sidecar. This is the whole point of the -dev
+# image: a test suite that boots containers — testcontainers, a compose stack, an integration
+# run — has nothing to talk to without one, and the image carries the client only. The
+# conductor writes DOCKER_HOST; do not set it below.
+docker: true
+# A headless Chrome beside the turn, and the browser* tools to drive it. `docker: true` is
+# what gets your stack running; this is what lets the turn look at it. It is an ordinary
+# unprivileged container, so unlike the daemon it adds no node requirement.
+browser: true
+
+# `docker: true` only runs on a node started with --allow-privileged-sidecars. Podium places
+# on labels alone and knows nothing about which nodes allow privilege, so the operator who
+# sets that flag must also label those nodes — that pairing is what this line matches. A turn
+# that lands on a node without the flag fails at provisioning naming it, rather than hanging.
+labels: [privileged]
+
+# A nested build is heavier than an ordinary turn: the daemon pulls its own images and a full
+# `go test ./...` compiles the world. 8 GB is the floor for this shape of playbook.
+#
+# This is the TASK container's limit and nothing else. Each sidecar carries its own (the
+# daemon's and the browser's are unset, which is unlimited), so Chrome's gigabyte comes out of
+# what the node has free rather than out of this allowance — raising it would buy the build
+# headroom it does not need and Chrome nothing at all.
+resources: { cpu: 4, memory_mb: 8192 }
+
+system_prompt: file:../prompts/dev.md
+allowed_tools: [read, edit, write, bash, grep, glob, webfetch]
+# A long leash, because the work is build-test-fix and each loop is several steps. Both are
+# caps and not budgets: a turn that finishes in 20 steps costs 20 steps.
+max_turns: 200
+timeout: 2h
+
+# It names no agent, model or effort, so it runs on whatever profile.yaml is set to and needs
+# only the credential that profile already has. Podium's own copy pins `agent: grok` with
+# `effort: high`; name yours here if one backend suits this work better than the bot's
+# default.
+# agent: grok
+# model: grok-4.6
+# effort: high
+
+# The adversarial QA procedure the prompt tells a turn to run against its own pull request.
+# NAMING IT HERE IS THE WHOLE GRANT: without this line the turn's harness denies every skill
+# by pattern and has no `skill` tool at all. It has to be resolvable when the turn starts —
+# ../README.md is how it gets there, and a name with nothing behind it fails every turn of
+# this playbook. A skill is executable content running with this turn's credentials; read
+# ../../../docs/security.md#a-playbook-that-carries-agent-skills before adding another.
+skills: [validate-pr]
+
+# The credential that lets the turn push a branch and open the pull request, as an env var in
+# the task container. Set it once with `podium secret set podium.agent.github_token`. NO MODEL
+# KEY GOES HERE — the conductor attaches that to every turn itself.
+#
+# Scope it to the repositories below and nothing else. This is the one place a playbook hands
+# a model's output a credential with write access to your code.
+secrets:
+  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+
+# EDIT THIS. The repositories cloned into /workspace before the turn starts, using the token
+# above. `name` is the directory under /workspace; `default_branch` is what a branch is cut
+# from.
+repos:
+  - { name: your-repo, url: https://github.com/your-org/your-repo, default_branch: main }
+
+# Plain environment for the task container. There is deliberately no DOCKER_HOST: the
+# conductor writes it when it attaches the daemon, and a value here would fight it.
+#
+# The entry below is Podium's own and an example of the class of problem: its docker executor
+# tests bind host paths into containers, and the NESTED daemon resolves those in ITS
+# filesystem. /workspace is the one directory the turn and that daemon share, so a suite's
+# scratch directory has to live there rather than in the task's /tmp. Anything of yours that
+# bind-mounts from a test has the same constraint.
+env:
+  PODIUM_TEST_TMPDIR: /workspace/tmp

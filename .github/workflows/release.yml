@@ -131,11 +131,9 @@ jobs:
   # without either duplicating the Dockerfile or making the whole repo the build context.
   # buildx with the right context is simpler and honest.
   #
-  # -dev is deliberately NOT published. It layers on this image (ARG RUNTIME_IMAGE), so a
-  # published build would have to pass the pushed base by digest — a dependency between two
-  # image builds that neither goreleaser nor a parallel job expresses well — and it carries a
-  # Go toolchain, a Docker client and golangci-lint at ~1.7 GB per architecture. It is a
-  # development image; `make agent-runtime` builds it locally, which is where it is used.
+  # -dev is published too, by the job below. It layers on this image (ARG RUNTIME_IMAGE), so
+  # it cannot be a matrix leg or a second platform here: it has to be a job that runs AFTER
+  # this one and is handed the pushed base by digest. That is what `outputs` is for.
   # ===========================================================================
   agent-runtime:
     name: podium-agent-runtime
@@ -144,6 +142,13 @@ jobs:
     permissions:
       packages: write # push to ghcr.io
       id-token: write # cosign keyless signing
+    # What agent-runtime-dev builds FROM. The digest and not a tag: the dev image must layer
+    # on the bytes this job just pushed, not on whatever that tag resolves to by the time the
+    # next job starts.
+    outputs:
+      image: ${{ steps.tags.outputs.image }}
+      version: ${{ steps.tags.outputs.version }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -204,6 +209,100 @@ jobs:
 
       # The manifest is what a node pulls, so the digest is what is signed — the same choice
       # `docker_signs` makes for the Go images.
+      - name: Sign the manifest
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes \
+            "${{ steps.tags.outputs.image }}@${{ steps.build.outputs.digest }}"
+
+  # ===========================================================================
+  # podium-agent-runtime-dev — the base runtime plus a toolchain that can build, test and lint
+  # a Go + pnpm project, for a playbook whose job is to CHANGE a repository rather than answer
+  # a question about one. examples/agent-dev is the copyable playbook that names it.
+  #
+  # Published because a playbook is only as portable as its image. `make agent-runtime` builds
+  # this locally, and a locally built tag is visible to exactly one machine — so a developer
+  # handed the dev kit would otherwise have to build ~1.7 GB per architecture on every node
+  # before the playbook could be scheduled anywhere.
+  #
+  # It is a SEPARATE JOB and not a second `docker/build-push-action` step in the job above,
+  # because `FROM ${RUNTIME_IMAGE}` has to resolve to the base this release just pushed. Its
+  # digest only exists once that job has finished, and `needs:` is the only thing that
+  # expresses "after, with the result".
+  # ===========================================================================
+  agent-runtime-dev:
+    name: podium-agent-runtime-dev
+    needs: [agent-runtime]
+    runs-on: ubuntu-latest
+    # Two architectures of a Go toolchain, a Docker client, golangci-lint and two global npm
+    # packages, one of them under qemu. It is the slowest thing this workflow builds; the
+    # ceiling is here so a hung download fails the release rather than burning six hours.
+    timeout-minutes: 120
+    permissions:
+      packages: write # push to ghcr.io
+      id-token: write # cosign keyless signing
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The same tag set as the base, computed the same way: a version-matched dev image is
+      # the only kind worth publishing, since its toolchain is pinned to what this commit of
+      # the repository builds with. `latest` moves only on a real release — a prerelease tag
+      # carries a `-`, which is the whole test.
+      - name: Work out the tags
+        id: tags
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_REF_NAME}"          # v0.1.0, or v0.1.0-rc.1
+          version="${ref#v}"
+          major_minor="v$(echo "$version" | cut -d. -f1-2)"
+          image=ghcr.io/${{ github.repository_owner }}/podium-agent-runtime-dev
+          tags="$image:$version,$image:$major_minor,$image:sha-${GITHUB_SHA::7}"
+          case "$version" in
+            *-*) echo "prerelease: not moving :latest" ;;
+            *)   tags="$tags,$image:latest" ;;
+          esac
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags"   >> "$GITHUB_OUTPUT"
+          echo "$tags"
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # RUNTIME_IMAGE is the whole reason this job exists. Pinning the base by digest means the
+      # published dev image is this release's runtime with a toolchain on top, and cannot
+      # silently become "whatever :latest was" if a later release lands mid-build.
+      #
+      # Every version the Dockerfile installs is already pinned in it, per architecture, so
+      # amd64 + arm64 under qemu needs no extra build-args — only patience.
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: agent/runtime
+          file: agent/runtime/Dockerfile.dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            RUNTIME_IMAGE=${{ needs.agent-runtime.outputs.image }}@${{ needs.agent-runtime.outputs.digest }}
+            VERSION=${{ needs.agent-runtime.outputs.version }}
+            REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.agent-runtime.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: v2.6.1
+
       - name: Sign the manifest
         env:
           COSIGN_EXPERIMENTAL: "1"
