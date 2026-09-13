@@ -96,7 +96,7 @@ export function SkillsPanel() {
         actions={
           <Button type="button" size="sm" data-testid="skill-new" onClick={() => setAdding(true)}>
             <Plus />
-            Add skill
+            New skill
           </Button>
         }
       />
@@ -123,7 +123,7 @@ export function SkillsPanel() {
           action={
             <Button type="button" size="sm" onClick={() => setAdding(true)}>
               <Plus />
-              Add skill
+              New skill
             </Button>
           }
         />
