@@ -275,9 +275,12 @@ function ServerRow({
           <p className="truncate font-mono text-xs text-muted" title={server.url}>
             {server.url}
           </p>
-          {server.description ? (
-            <p className="max-w-2xl text-xs leading-relaxed text-muted">{server.description}</p>
-          ) : null}
+          <p
+            className="h-4 max-w-2xl truncate text-xs leading-4 text-muted"
+            title={server.description || undefined}
+          >
+            {server.description || "\u00a0"}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div className="flex items-center gap-2">
