@@ -15,7 +15,7 @@ import (
 // specs.
 //
 // This directory is the worked example and nothing else. The profile the real bot runs is
-// ../playbooks, and playbooks/profile_test.go is its equivalent of this test — the two are
+// ../bot, and bot/profile_test.go is its equivalent of this test — the two are
 // separate because one of them can afford to need a privileged node and a GitHub token and
 // the other cannot.
 func TestAgentProfileLoads(t *testing.T) {
@@ -27,7 +27,7 @@ func TestAgentProfileLoads(t *testing.T) {
 	// One playbook, on the base image Podium ships. Any OTHER set of tools is an image a
 	// reader builds `FROM podium-agent-runtime` and names in a playbook of their own; the
 	// example does not guess at which tools that would be, and the dogfood that does — the
-	// `podium` playbook — lives in ../playbooks because it is configuration and not
+	// `podium` playbook — lives in ../bot because it is configuration and not
 	// documentation.
 	require.Equal(t, []string{"general"}, p.PlaybookNames())
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
@@ -68,7 +68,7 @@ func TestAgentProfileLoads(t *testing.T) {
 	// Nothing here may ask for a privileged node, a browser or a skill. This profile is what
 	// the e2e suite runs and what a reader copies first, so it has to come up on an ordinary
 	// node with an empty skill library — the playbook that needs all three is in
-	// ../playbooks.
+	// ../bot.
 	require.False(t, general.Docker, "the example must not ask for a privileged node")
 	require.False(t, general.Browser, "the example must not need a browser sidecar")
 	require.Empty(t, general.Skills, "the example must load with no skill library at all")
@@ -77,7 +77,7 @@ func TestAgentProfileLoads(t *testing.T) {
 	// what the model is told, an unknown /word is left alone, and a message naming nothing
 	// runs the default. The case where a source's own choice beats a DIFFERENT typed name
 	// needs two playbooks to be worth anything, so it is asserted in
-	// ../playbooks/profile_test.go, which has them.
+	// ../bot/profile_test.go, which has them.
 	typed := p.Select(profiles.Routing{Text: "/general reply with pong"})
 	require.Equal(t, "general", typed.Playbook.Name)
 	require.True(t, typed.Explicit)

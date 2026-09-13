@@ -394,13 +394,13 @@ There are **two** profiles in this repository and they are different kinds of th
 | | |
 |---|---|
 | [`../examples/agent`](../examples/agent) | the worked example. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs and what `deploy/run-host.sh` defaults to |
-| [`../playbooks`](../playbooks) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill |
+| [`../bot`](../bot) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill |
 
 They were one directory until the second one grew all of that, at which point the first stopped
 being an example anybody could copy safely. An operator running the real bot names its two
 directories in `.env`; the default stays the example, so a first `make stack-up` gets a bot that
 comes up and answers rather than one that fails every turn on a node flag. See
-[`../playbooks/README.md`](../playbooks/README.md).
+[`../bot/README.md`](../bot/README.md).
 
 Every file is decoded with unknown keys **rejected**, the same rule `pkg/spec` follows for a task
 spec: a misspelt key is a startup error naming the file, not a field that silently does nothing.
@@ -648,7 +648,7 @@ It is also a different kind of field from the two above it. `docker:` and `brows
 **environment** — a container running beside the turn. `skills:` allows **content** the model may
 load into its own context. A playbook wanting an adversarial review of a pull request supplies the
 environment (`browser: true`, `docker: true`, the token, the repository) and names the skill that
-supplies the method. [`../playbooks/playbooks/podium.yaml`](../playbooks/playbooks/podium.yaml) is
+supplies the method. [`../bot/playbooks/podium.yaml`](../bot/playbooks/podium.yaml) is
 exactly that pairing, with [`validate-pr`](../skills/validate-pr/SKILL.md) as the method.
 
 `skills:` is a playbook's allow-list, by name:
@@ -1740,7 +1740,7 @@ counterpart, that rule lives in a prompt and is therefore a courtesy: see
 `podium-agent-runtime-dev` is the one image Podium ships beside the base, and it
 is also the **worked example** of *Extending the runtime image* above: a real image, built the
 way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
-Node and Docker. `playbooks/playbooks/podium.yaml` is that playbook — it pairs this image with
+Node and Docker. `bot/playbooks/podium.yaml` is that playbook — it pairs this image with
 `docker: true`, which is what gives the turn the daemon the toolchain expects to find, and with
 `browser: true` and `skills: [validate-pr]`, which is what lets the turn look at what it built
 and attack it before saying it is done.
@@ -1752,7 +1752,7 @@ that one just pushed, so the pair can never be mismatched. A local tag is visibl
 machine; the published one is what makes a playbook naming this image schedulable on a fleet.
 
 **To run this playbook on your own deployment, follow
-[`playbooks/README.md`](../playbooks/README.md#run-podiums-own-bot-yourself).** It is the setup
+[`bot/README.md`](../bot/README.md#run-podiums-own-bot-yourself).** It is the setup
 step for a developer working on Podium: which two environment variables to set, the node flags
 `docker: true` requires, the GitHub token it holds, and which of the two `-dev` tags to name.
 Nothing installs it and no default points at it — it costs a privileged node, a credential and

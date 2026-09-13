@@ -171,7 +171,7 @@ Exit codes, and never any others:
 
 `podium-agent-runtime-dev:dev` is the one image Podium ships beside the base, and it exists to
 build Podium itself: Go, the Docker **client**, golangci-lint and the MCP client that drives a
-browser, for the `podium` playbook in [`../../playbooks`](../../playbooks) — which is a different
+browser, for the `podium` playbook in [`../../bot`](../../bot) — which is a different
 profile directory from this one, because that playbook holds a GitHub token and needs a privileged
 node and neither belongs in an example. It carries no daemon and no Chromium: the playbook sets
 `docker: true` and `browser: true`, and the conductor attaches both as sidecars, which is what
@@ -181,7 +181,7 @@ what it built through a browser that does too.
 A `v*` tag publishes it to `ghcr.io/podium-ade/podium-agent-runtime-dev`, like the base and in a
 job that builds `FROM` the base of the same release by digest — so a node pulls it instead of
 spending ~1.7 GB per architecture building it.
-[`../../playbooks/README.md`](../../playbooks/README.md#run-podiums-own-bot-yourself) is the setup
+[`../../bot/README.md`](../../bot/README.md#run-podiums-own-bot-yourself) is the setup
 step for a developer who wants that playbook on their own deployment.
 
 It is also the **worked example** of everything below. Podium ships no image for somebody else's
