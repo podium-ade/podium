@@ -10,9 +10,12 @@ playbooks/podium.yaml   the dogfood: develop Podium itself
 prompts/                one prompt per file above, resolved by `file:`
 ```
 
-The nested `playbooks/playbooks/` is `profiles.Load`'s layout and not a choice — a profile
-directory is a `profile.yaml` and a `playbooks/` beside it. [`docs/agent.md`](../docs/agent.md#the-profile-directory)
-is the reference for every field.
+`playbooks/` inside a profile directory is `profiles.Load`'s layout and not a choice — a
+profile directory is a `profile.yaml` and a `playbooks/` beside it. This directory is called
+`bot/` and not `playbooks/` so that the nested one is the only one:
+`bot/playbooks/podium.yaml` names a thing, where `playbooks/playbooks/podium.yaml` only named
+a level. [`docs/agent.md`](../docs/agent.md#the-profile-directory) is the reference for every
+field.
 
 **This is not the worked example.** [`examples/agent`](../examples/agent) is that, and the two
 are separate directories on purpose: this profile clones this repository, holds a GitHub
@@ -21,7 +24,7 @@ a reader copies. `deploy/run-host.sh` therefore still defaults to `examples/agen
 `make stack-up` gets a bot that loads and runs anywhere; the operator of the real bot sets
 
 ```sh
-PODIUM_AGENT_PROFILE_DIR=/path/to/podium/playbooks
+PODIUM_AGENT_PROFILE_DIR=/path/to/podium/bot
 PODIUM_AGENT_SKILLS_DIR=/path/to/podium/skills
 ```
 
@@ -54,13 +57,13 @@ They travel as a pair: `podium.yaml` names a skill, and a playbook whose skill i
 every turn rather than running without it.
 
 ```sh
-PODIUM_AGENT_PROFILE_DIR=/path/to/your/podium/playbooks   # this directory
-PODIUM_AGENT_SKILLS_DIR=/path/to/your/podium/skills       # ../skills
+PODIUM_AGENT_PROFILE_DIR=/path/to/your/podium/bot      # this directory
+PODIUM_AGENT_SKILLS_DIR=/path/to/your/podium/skills    # ../skills
 ```
 
 Point them at your clone and `git pull` keeps the bot current. A deployment that is not a
-checkout copies both directories instead — `/srv/podium/playbooks` and `/srv/podium/skills` in
-the example — and the conductor only ever reads them.
+checkout copies both directories instead — `/srv/podium/bot` and `/srv/podium/skills` in the
+example — and the conductor only ever reads them.
 
 ### 2. Give it a node it can actually run on
 
@@ -101,7 +104,7 @@ per architecture. A `v*` tag publishes it from `.github/workflows/release.yml`, 
 image of the same release, by digest:
 
 ```yaml
-# playbooks/podium.yaml
+# bot/playbooks/podium.yaml
 image: ghcr.io/podium-ade/podium-agent-runtime-dev:v0.1.0   # pin it; `latest` drifts
 ```
 

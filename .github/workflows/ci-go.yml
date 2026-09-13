@@ -12,7 +12,7 @@ on:
       - "pkg/**"
       - "test/**"
       - "examples/**" # examples_test.go reads the yaml next to it
-      - "playbooks/**" # playbooks/profile_test.go reads the yaml next to it
+      - "bot/**" # bot/profile_test.go reads the yaml next to it
       - "skills/**" # and the skill bundles one directory over, which nothing else validates
       - "deploy/**" # deploy/env_test.go reads the compose files
       - "proto/**"

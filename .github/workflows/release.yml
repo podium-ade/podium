@@ -219,8 +219,8 @@ jobs:
   # ===========================================================================
   # podium-agent-runtime-dev — the base runtime plus a toolchain that can build, test and lint
   # a Go + pnpm project, for a playbook whose job is to CHANGE a repository rather than answer
-  # a question about one. playbooks/playbooks/podium.yaml is that playbook, and
-  # playbooks/README.md is how a Podium developer points their own deployment at it.
+  # a question about one. bot/playbooks/podium.yaml is that playbook, and bot/README.md is
+  # how a Podium developer points their own deployment at it.
   #
   # Published because a playbook is only as portable as its image. `make agent-runtime` builds
   # this locally, and a locally built tag is visible to exactly one machine — so a developer
