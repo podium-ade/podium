@@ -1751,10 +1751,11 @@ signature as the base — its job in `release.yml` needs the base's and builds `
 that one just pushed, so the pair can never be mismatched. A local tag is visible to one
 machine; the published one is what makes a playbook naming this image schedulable on a fleet.
 
-**To use it yourself, copy [`examples/agent-dev`](../examples/agent-dev/README.md).** That is
-the playbook above with the repository and the prompt left blank, plus the `validate-pr` skill
-it names and the node flags it needs, written as a `cp` into your own profile directory.
-Nothing installs it and no default points at it: it costs a privileged node, a GitHub token and
+**To run this playbook on your own deployment, follow
+[`playbooks/README.md`](../playbooks/README.md#run-podiums-own-bot-yourself).** It is the setup
+step for a developer working on Podium: which two environment variables to set, the node flags
+`docker: true` requires, the GitHub token it holds, and which of the two `-dev` tags to name.
+Nothing installs it and no default points at it — it costs a privileged node, a credential and
 8 GB, and a deployment should acquire those because somebody decided to.
 
 On top of the base runtime it carries the toolchain
