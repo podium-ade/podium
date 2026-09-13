@@ -31,15 +31,15 @@ export function PageHeader({
           {back.label}
         </Link>
       ) : null}
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <div className="min-w-0 space-y-1.5">
+      <div className="flex items-start justify-between gap-x-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">{title}</h1>
           {description ? (
             <p className="max-w-2xl text-sm leading-relaxed text-muted">{description}</p>
           ) : null}
         </div>
         {actions ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
         ) : null}
       </div>
       {meta ? <div className="flex flex-wrap items-center gap-2">{meta}</div> : null}

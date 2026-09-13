@@ -1,9 +1,10 @@
 import { useId, useState } from "react";
-import { ChevronLeft, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import {
+  CUSTOM_MCP_DESCRIPTION,
   MCP_PRESETS,
   callbackURL,
   presetFor,
@@ -12,6 +13,7 @@ import {
   type McpPreset,
 } from "../../lib/mcp";
 import { absolute, relative } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageHeader } from "../PageHeader";
@@ -31,7 +33,6 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
-import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import { McpMark } from "./McpMark";
@@ -124,7 +125,7 @@ export function McpPanel() {
         actions={
           <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new")}>
             <Plus />
-            Add server
+            New server
           </Button>
         }
       />
@@ -137,17 +138,6 @@ export function McpPanel() {
         />
       ) : null}
 
-      <Alert
-        variant="warn"
-        role="note"
-        title="A server's token is spent by every turn of every playbook that names it"
-      >
-        The model decides when to call these tools, from the description the server itself
-        advertises. Give a server the narrowest credential it will work with — read-only
-        where read-only will do, and the tightest scope a sign-in offers — and name it only
-        in playbooks you would trust with that credential.
-      </Alert>
-
       {list.isPending ? <McpSkeleton /> : null}
 
       {!list.isPending && servers.length === 0 ? (
@@ -158,7 +148,7 @@ export function McpPanel() {
           action={
             <Button type="button" size="sm" onClick={() => setEditing("new")}>
               <Plus />
-              Add server
+              New server
             </Button>
           }
         />
@@ -285,9 +275,12 @@ function ServerRow({
           <p className="truncate font-mono text-xs text-muted" title={server.url}>
             {server.url}
           </p>
-          {server.description ? (
-            <p className="max-w-2xl text-xs leading-relaxed text-muted">{server.description}</p>
-          ) : null}
+          <p
+            className="h-4 max-w-2xl truncate text-xs leading-4 text-muted"
+            title={server.description || undefined}
+          >
+            {server.description || "\u00a0"}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div className="flex items-center gap-2">
@@ -457,7 +450,6 @@ function ServerDialog({
   const [picked, setPicked] = useState<McpPreset | "custom" | undefined>(creating ? undefined : "custom");
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
-  const [description, setDescription] = useState(server?.description ?? "");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [token, setToken] = useState("");
   const [error, setError] = useState<string>();
@@ -465,6 +457,10 @@ function ServerDialog({
   const preset = picked === undefined || picked === "custom" ? undefined : picked;
   const help = tokenHelp(preset);
   const picking = creating && picked === undefined;
+  const description = creating ? (preset?.description ?? "") : (server.description ?? "");
+  const helper = picking
+    ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
+    : description || CUSTOM_MCP_DESCRIPTION;
 
   function apply(next: McpPreset | "custom") {
     setPicked(next);
@@ -472,12 +468,10 @@ function ServerDialog({
     if (next === "custom") {
       setName("");
       setUrl("");
-      setDescription("");
       return;
     }
     setName(next.name);
     setUrl(next.url);
-    setDescription(next.description);
   }
 
   const save = useMutation({
@@ -520,11 +514,7 @@ function ServerDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {picking
-              ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
-              : "The address is an MCP endpoint the conductor's network can reach. Whether it answers is found out by the first turn that uses it — there is no way to ask a server if it is there that does not also hand it the token."}
-          </DialogDescription>
+          <DialogDescription>{helper}</DialogDescription>
         </DialogHeader>
 
         {picking ? (
@@ -538,20 +528,6 @@ function ServerDialog({
               save.mutate();
             }}
           >
-            {creating ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 text-2xs text-muted hover:text-fg"
-                onClick={() => {
-                  setPicked(undefined);
-                  setError(undefined);
-                }}
-              >
-                <ChevronLeft className="size-3.5" />
-                Choose a different server
-              </button>
-            ) : null}
-
             <Field
               id={`${uid}-name`}
               label="Name"
@@ -585,22 +561,6 @@ function ServerDialog({
                   spellCheck={false}
                   placeholder={preset?.url ?? "https://mcp.example.com/mcp"}
                   className="font-mono text-xs"
-                />
-              )}
-            </Field>
-
-            <Field
-              id={`${uid}-description`}
-              label="Description"
-              hint="Your own note. It is shown here and sent nowhere."
-            >
-              {(control) => (
-                <Textarea
-                  {...control}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  placeholder={preset?.description ?? "Issues and projects."}
                 />
               )}
             </Field>
@@ -645,10 +605,17 @@ function ServerDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  if (creating) {
+                    setPicked(undefined);
+                    setError(undefined);
+                    return;
+                  }
+                  onOpenChange(false);
+                }}
                 disabled={save.isPending}
               >
-                Cancel
+                {creating ? "Back" : "Cancel"}
               </Button>
               <Button type="submit" size="sm" data-testid="mcp-save" disabled={!ready || save.isPending}>
                 {save.isPending ? "Saving…" : creating ? "Add server" : "Save"}
@@ -663,37 +630,46 @@ function ServerDialog({
 
 function ProductPicker({ onPick }: { onPick: (next: McpPreset | "custom") => void }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
       {MCP_PRESETS.map((p) => (
-        <button
+        <ProductTile
           key={p.name}
-          type="button"
-          data-testid="mcp-preset"
+          name={p.name}
+          label={p.label}
+          testId="mcp-preset"
           onClick={() => onPick(p)}
-          className="flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
-        >
-          <McpMark name={p.name} />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-fg">{p.label}</span>
-            <span className="mt-0.5 block text-2xs leading-relaxed text-muted">{p.description}</span>
-          </span>
-        </button>
+        />
       ))}
-      <button
-        type="button"
-        data-testid="mcp-preset-custom"
-        onClick={() => onPick("custom")}
-        className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
-      >
-        <McpMark name="custom" />
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-fg">Custom</span>
-          <span className="mt-0.5 block text-2xs leading-relaxed text-muted">
-            Your own MCP server URL.
-          </span>
-        </span>
-      </button>
+      <ProductTile name="custom" label="Custom" testId="mcp-preset-custom" onClick={() => onPick("custom")} />
     </div>
+  );
+}
+
+function ProductTile({
+  name,
+  label,
+  testId,
+  onClick,
+}: {
+  name: string;
+  label: string;
+  testId: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center gap-2 rounded-lg px-2 py-2.5 text-center",
+        "outline-none transition-colors hover:bg-raised",
+        "focus-visible:ring-2 focus-visible:ring-ring/50",
+      )}
+    >
+      <McpMark name={name} className="size-10 rounded-xl" />
+      <span className="text-xs font-medium text-fg">{label}</span>
+    </button>
   );
 }
 
