@@ -501,7 +501,7 @@ And what none of that gives you:
 - **Both sources are trusted wholesale.** `PODIUM_AGENT_SKILLS_DIR` is a directory on the
   conductor's host, and whoever can write to it decides what runs in every container of every
   playbook that names a skill. The database half is the same, one audience wider: whoever can
-  reach the web UI. Treat either as equivalent to write access to `bot/` — which is to
+  reach the web UI. Treat either as equivalent to write access to `profile/` — which is to
   say, to the bot itself. Review a skill the way you would review a dependency, because that is
   what it is.
 - **There is no review step and no diff.** A skill's contents change under it silently. The

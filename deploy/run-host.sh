@@ -94,12 +94,12 @@ if [ -n "${PODIUM_AGENT_TOKEN:-}" ]; then
 fi
 # The WORKED EXAMPLE, deliberately, and not the profile this repository's own bot runs.
 # examples/agent loads and runs on any node: one playbook, the base image, no credential and
-# no skill library. ../bot is the real bot — a privileged node, a Docker daemon, a
+# no skill library. ../profile is the real bot — a privileged node, a Docker daemon, a
 # browser, a GitHub token and a skill out of ../skills — so a first `make stack-up` pointed
 # there would come up fine and then fail every turn at provisioning, naming a node flag the
 # newcomer has never set. The real deployment names it in .env instead, together with
 # PODIUM_AGENT_SKILLS_DIR; those two travel as a pair, because a playbook whose skill is
-# missing fails its turns. See deploy/.env.example and bot/README.md.
+# missing fails its turns. See deploy/.env.example and profile/README.md.
 : "${PODIUM_AGENT_PROFILE_DIR:=$root/examples/agent}"
 : "${PODIUM_NODE_DATA_DIR:=$STATE/node}"
 : "${PODIUM_TS_STATE_DIR:=$STATE/tsnet}"

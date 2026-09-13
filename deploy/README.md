@@ -347,13 +347,13 @@ its skills in `.env` — the two travel together, because its `podium` playbook 
 and a playbook whose skill is missing fails its turns:
 
 ```sh
-PODIUM_AGENT_PROFILE_DIR=/srv/podium/bot
+PODIUM_AGENT_PROFILE_DIR=/srv/podium/profile
 PODIUM_AGENT_SKILLS_DIR=/srv/podium/skills
 ```
 
 That bot wants a node started with `--allow-privileged-sidecars` and labelled `privileged`, a
 `podium.agent.github_token` secret, and roughly 9 GB free for the turn and its two sidecars.
-See [`../bot/README.md`](../bot/README.md).
+See [`../profile/README.md`](../profile/README.md).
 
 Under `PODIUM_TRANSPORT=tailnet` this is the **only** way to run the conductor: the server
 listens on :443 of its own Tailscale device and has no port on the compose network, so a
