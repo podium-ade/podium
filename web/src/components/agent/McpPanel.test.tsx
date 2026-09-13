@@ -114,6 +114,23 @@ describe("McpPanel", () => {
     expect(within(row).getByText("/coder")).toBeInTheDocument();
   });
 
+  it("keeps a long description to one ellipsized line on the card, and the full text in edit", async () => {
+    const description =
+      "Issues, projects and cycles, plus a great deal more that would wrap the card if it were allowed to.";
+    listMcpServers.mockResolvedValue({
+      servers: [server({ description })],
+      maxPerPlaybook: 8,
+    });
+    mount();
+    const row = await screen.findByTestId("mcp-row");
+    const clipped = within(row).getByText(description);
+    expect(clipped).toHaveClass("truncate");
+    expect(clipped).toHaveAttribute("title", description);
+
+    await userEvent.click(within(row).getByTestId("mcp-edit"));
+    expect(screen.getByLabelText("Description")).toHaveValue(description);
+  });
+
   // A registration nothing names is the state right after adding one, and the row is where
   // somebody finds out they are not done.
   it("says so when no playbook names a server", async () => {
