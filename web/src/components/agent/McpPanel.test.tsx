@@ -128,7 +128,8 @@ describe("McpPanel", () => {
     expect(clipped).toHaveAttribute("title", description);
 
     await userEvent.click(within(row).getByTestId("mcp-edit"));
-    expect(screen.getByLabelText("Description")).toHaveValue(description);
+    expect(screen.queryByLabelText("Description")).toBeNull();
+    expect(screen.getByRole("dialog")).toHaveTextContent(description);
   });
 
   // A registration nothing names is the state right after adding one, and the row is where
@@ -144,6 +145,8 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
+    expect(screen.getByText("Turns can work with Linear issues, projects and cycles.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Description")).toBeNull();
     expect(screen.getByPlaceholderText("lin_api_…")).toBeInTheDocument();
     expect(screen.getByText(/starts with lin_api_/)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Token"), "lin_api_secret");
@@ -151,10 +154,11 @@ describe("McpPanel", () => {
 
     await waitFor(() => expect(createMcpServer).toHaveBeenCalled());
     const [req] = createMcpServer.mock.calls[0] as [
-      { server: { name: string; url: string }; token: string },
+      { server: { name: string; url: string; description: string }; token: string },
     ];
     expect(req.server.name).toBe("linear");
     expect(req.server.url).toBe("https://mcp.linear.app/mcp");
+    expect(req.server.description).toBe("Turns can work with Linear issues, projects and cycles.");
     expect(req.token).toBe("lin_api_secret");
   });
 

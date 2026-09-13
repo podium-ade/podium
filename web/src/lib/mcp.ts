@@ -27,7 +27,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Linear",
     name: "linear",
     url: "https://mcp.linear.app/mcp",
-    description: "Issues, projects and cycles.",
+    description: "Turns can work with Linear issues, projects and cycles.",
     tokenPlaceholder: "lin_api_…",
     tokenHint:
       "A Linear personal API key from Settings → Security & access. It starts with lin_api_. Leave empty to sign in later.",
@@ -36,7 +36,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Notion",
     name: "notion",
     url: "https://mcp.notion.com/mcp",
-    description: "Pages and databases.",
+    description: "Turns can read and write Notion pages and databases.",
     tokenPlaceholder: "ntn_…",
     tokenHint:
       "A Notion internal integration token from notion.so/my-integrations. It starts with ntn_ (older ones, secret_). Leave empty to sign in later.",
@@ -45,7 +45,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Sentry",
     name: "sentry",
     url: "https://mcp.sentry.dev/mcp",
-    description: "Issues and stack traces.",
+    description: "Turns can inspect Sentry issues and stack traces.",
     tokenPlaceholder: "sntryu_…",
     tokenHint:
       "A Sentry User Auth Token from Settings → Account → API → Auth Tokens. Organization tokens start with sntrys_. Leave empty to sign in later.",
@@ -54,7 +54,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "GitHub",
     name: "github",
     url: "https://api.githubcopilot.com/mcp/",
-    description: "Repositories, issues and pull requests.",
+    description: "Turns can work with GitHub repositories, issues and pull requests.",
     tokenPlaceholder: "ghp_…",
     tokenHint:
       "A GitHub personal access token. Classic tokens start with ghp_, fine-grained with github_pat_. Leave empty to sign in later.",
@@ -63,7 +63,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Slack",
     name: "slack",
     url: "https://mcp.slack.com/mcp",
-    description: "Channels, messages and search.",
+    description: "Turns can search Slack channels and messages.",
     tokenPlaceholder: "xoxb-…",
     tokenHint:
       "A Slack bot token from api.slack.com/apps. It starts with xoxb- (bot) or xoxp- (user). Leave empty to sign in later.",
@@ -72,7 +72,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Stripe",
     name: "stripe",
     url: "https://mcp.stripe.com",
-    description: "Customers, payments and invoices.",
+    description: "Turns can look up Stripe customers, payments and invoices.",
     tokenPlaceholder: "sk_live_…",
     tokenHint:
       "A Stripe secret key from Dashboard → Developers → API keys. It starts with sk_live_ or sk_test_. Leave empty to sign in later.",
@@ -81,7 +81,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Figma",
     name: "figma",
     url: "https://mcp.figma.com/mcp",
-    description: "Files, components and design context.",
+    description: "Turns can read Figma files, components and design context.",
     tokenPlaceholder: "figd_…",
     tokenHint:
       "A Figma personal access token from Settings → Security. It starts with figd_. Leave empty to sign in later.",

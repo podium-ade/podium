@@ -32,7 +32,6 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
-import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import { McpMark } from "./McpMark";
@@ -450,7 +449,6 @@ function ServerDialog({
   const [picked, setPicked] = useState<McpPreset | "custom" | undefined>(creating ? undefined : "custom");
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
-  const [description, setDescription] = useState(server?.description ?? "");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [token, setToken] = useState("");
   const [error, setError] = useState<string>();
@@ -458,6 +456,11 @@ function ServerDialog({
   const preset = picked === undefined || picked === "custom" ? undefined : picked;
   const help = tokenHelp(preset);
   const picking = creating && picked === undefined;
+  const description = creating ? (preset?.description ?? "") : (server.description ?? "");
+  const helper = picking
+    ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
+    : description ||
+      "A custom MCP endpoint the conductor can reach. Playbooks that name it get its tools.";
 
   function apply(next: McpPreset | "custom") {
     setPicked(next);
@@ -465,12 +468,10 @@ function ServerDialog({
     if (next === "custom") {
       setName("");
       setUrl("");
-      setDescription("");
       return;
     }
     setName(next.name);
     setUrl(next.url);
-    setDescription(next.description);
   }
 
   const save = useMutation({
@@ -513,11 +514,7 @@ function ServerDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {picking
-              ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
-              : "The address is an MCP endpoint the conductor's network can reach. Whether it answers is found out by the first turn that uses it — there is no way to ask a server if it is there that does not also hand it the token."}
-          </DialogDescription>
+          <DialogDescription>{helper}</DialogDescription>
         </DialogHeader>
 
         {picking ? (
@@ -564,22 +561,6 @@ function ServerDialog({
                   spellCheck={false}
                   placeholder={preset?.url ?? "https://mcp.example.com/mcp"}
                   className="font-mono text-xs"
-                />
-              )}
-            </Field>
-
-            <Field
-              id={`${uid}-description`}
-              label="Description"
-              hint="Your own note. It is shown here and sent nowhere."
-            >
-              {(control) => (
-                <Textarea
-                  {...control}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  placeholder={preset?.description ?? "Issues and projects."}
                 />
               )}
             </Field>
