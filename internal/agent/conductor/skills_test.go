@@ -107,6 +107,7 @@ func TestASkillThatCannotBeDeliveredFailsTheTurn(t *testing.T) {
 		c := skillsConductor(t, skillsDir(t, "pr-review"), profiles.Playbook{Skills: []string{"missing"}})
 		_, err := c.skillBundles(context.Background(), playbookJob(c.profiles.Current().Playbooks["coder"]))
 		require.ErrorContains(t, err, `no skill named "missing"`)
+		require.ErrorContains(t, err, skills.DirEnv)
 		require.ErrorContains(t, err, "coder")
 	})
 }

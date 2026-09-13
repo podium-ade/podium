@@ -197,7 +197,7 @@ Then, each switching on one feature and each optional:
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
 | `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
-| `PODIUM_AGENT_SKILLS_DIR` | file skills, one directory per skill. Compose default `/etc/podium/skills`. Unset on host binaries until `run-host.sh` creates `.podium/skills`. A playbook naming a skill that is in neither this directory nor the UI fails every turn |
+| `PODIUM_AGENT_SKILLS_DIR` | file skills, one directory per skill. Compose default `/etc/podium/skills`. Unset on host binaries until `run-host.sh` creates `.podium/skills`. A playbook naming a skill that is not in this directory fails every turn |
 | `PODIUM_AGENT_PROFILE_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_PROFILE_DIR`. Unset is the named volume `agent-profile` |
 | `PODIUM_AGENT_SKILLS_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_SKILLS_DIR`. Unset is the named volume `agent-skills` |
 | `PODIUM_AGENT_HOST_RUNTIME` + `PODIUM_AGENT_RUNNER_BIN` | answer a turn as a child process instead of a container. Opt-in, and a security decision — read [`../docs/security.md`](../docs/security.md) first. `auto` under `make stack-up` means this checkout's own build |
@@ -345,7 +345,8 @@ derivations the compose files do in YAML. Anything already exported wins over th
 
 The conductor comes up on a **starter** bot (one playbook, no credentials): compose uses the
 copy baked into the agent image, `make stack-up` copies that starter into `.podium/agent`
-once. Playbooks and skills you add in the UI live in `podium_agent` and need no path.
+once. Playbooks and skills are files in the mounted profile and skills directories; the UI
+lists them and does not write one.
 
 To supply **your** files instead, bind directories you own — never this checkout:
 

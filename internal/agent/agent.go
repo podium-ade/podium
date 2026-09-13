@@ -94,13 +94,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
-	// The stored half, before anything reads the profile. A failure here is not fatal: the
-	// files alone are a working bot, and starting on them beats refusing to start because a
-	// playbook somebody made in the browser no longer merges.
+	// Apply stored overrides before anything reads the profile. A failure here is not
+	// fatal: the files alone are a working bot, and starting on them beats refusing to
+	// start because an override no longer applies.
 	if _, err := api.ReloadProfile(ctx, st, live); err != nil {
-		logger.WarnContext(ctx, "the playbooks stored in the conductor's database could not be "+
-			"merged into the profile; running the profile directory alone. Fix it on the "+
-			"Agent → Playbooks screen", "error", err)
+		logger.WarnContext(ctx, "the stored profile overrides could not be applied; running the "+
+			"profile directory alone. Fix it on Agent → Assistant", "error", err)
 	}
 	profile := live.Current()
 

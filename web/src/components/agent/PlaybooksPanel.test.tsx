@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToastHost } from "../Toast";
 import { PlaybooksPanel } from "./PlaybooksPanel";
 
 const getProfile = vi.fn();
-const createPlaybook = vi.fn();
-const updatePlaybook = vi.fn();
-const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
 const reloadProfileDir = vi.fn();
@@ -20,10 +17,9 @@ vi.mock("../../lib/client", async () => {
     ...actual,
     agent: {
       getProfile: (...a: unknown[]) => getProfile(...a),
-      createPlaybook: (...a: unknown[]) => createPlaybook(...a),
-      updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
-      deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
       listSkills: (...a: unknown[]) => listSkills(...a),
+      listMcpServers: () => Promise.resolve({ servers: [] }),
+      listAgents: () => Promise.resolve({ agents: [], defaultAgent: "claude" }),
       reloadProfileDir: (...a: unknown[]) => reloadProfileDir(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
@@ -46,10 +42,6 @@ function playbook(over: Record<string, unknown> = {}) {
     slackChannels: [],
     linear: false,
     env: {},
-    origin: "file",
-    editable: false,
-    shadowed: false,
-    updatedBy: "",
     ...over,
   };
 }
@@ -83,9 +75,6 @@ function mount() {
 describe("PlaybooksPanel", () => {
   beforeEach(() => {
     getProfile.mockReset();
-    createPlaybook.mockReset();
-    updatePlaybook.mockReset();
-    deletePlaybook.mockReset();
     listSecrets.mockReset();
     listSkills.mockResolvedValue({ skills: [], skillsDir: "" });
     listSecrets.mockResolvedValue({
@@ -104,127 +93,28 @@ describe("PlaybooksPanel", () => {
       "podium-agent-runtime:dev",
     );
     expect(screen.getByText("/general")).toBeInTheDocument();
-    // The heading of the prompt says less than the line under it.
     expect(screen.getByText("Answer the question in the thread.")).toBeInTheDocument();
   });
 
-  it("renders a file-defined playbook read-only and says where it lives", async () => {
+  it("renders a playbook as a file and says where it lives", async () => {
     mount();
     await screen.findByTestId("playbook-row");
-    expect(screen.getByText("file · read-only")).toBeInTheDocument();
+    expect(screen.getByText("file")).toBeInTheDocument();
     expect(screen.getByText(/playbooks\/general\.yaml/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit general" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete general" })).toBeNull();
+    expect(screen.queryByTestId("playbook-new")).toBeNull();
   });
 
-  it("deletes a stored playbook from the editor, and offers no delete in the list", async () => {
-    getProfile.mockResolvedValue({
-      profile: baseProfile,
-      playbooks: [playbook({ name: "reporter", origin: "stored", editable: true })],
-      staleReason: "",
-    });
-    deletePlaybook.mockResolvedValue({});
+  it("opens a playbook read-only", async () => {
     mount();
-    // The list edits. Deleting is a decision taken with the definition on the screen.
-    expect(await screen.findByRole("button", { name: "Edit reporter" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete reporter" })).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: "Edit reporter" }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
-    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
-    await waitFor(() => expect(deletePlaybook).toHaveBeenCalledWith({ name: "reporter" }));
-    // A delete closes the editor; the list is what comes back.
-    await waitFor(() => expect(screen.queryByTestId("playbook-editor")).toBeNull());
-  });
-
-  it("keeps the operator in the editor and shows why a delete was refused", async () => {
-    const { ConnectError, Code } = await import("@connectrpc/connect");
-    getProfile.mockResolvedValue({
-      profile: baseProfile,
-      playbooks: [playbook({ name: "reporter", origin: "stored", editable: true })],
-      staleReason: "",
-    });
-    deletePlaybook.mockRejectedValue(
-      new ConnectError('default_playbook "reporter" names no playbook', Code.FailedPrecondition),
-    );
-    mount();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
-    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("names no playbook");
+    await userEvent.click(await screen.findByRole("button", { name: "View general" }));
     expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
-  });
-
-  it("says a shadowed playbook never runs, and deletes it through the editor", async () => {
-    getProfile.mockResolvedValue({
-      profile: baseProfile,
-      playbooks: [
-        playbook(),
-        playbook({ name: "general", origin: "stored", editable: true, shadowed: true }),
-      ],
-      staleReason: "",
-    });
-    deletePlaybook.mockResolvedValue({});
-    mount();
-    const row = await screen.findByTestId("playbook-shadowed");
-    expect(row).toHaveTextContent("never runs");
-    expect(row).toHaveTextContent("the file wins");
-
-    await userEvent.click(screen.getByRole("button", { name: "Review general" }));
-    // A shadowed playbook cannot be written over, so the editor offers no save at all.
     expect(screen.queryByRole("button", { name: "Save playbook" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Delete general" }));
-    await userEvent.click(screen.getByRole("button", { name: "Confirm deleting general" }));
-    await waitFor(() => expect(deletePlaybook).toHaveBeenCalledWith({ name: "general" }));
+    expect(screen.queryByRole("button", { name: "Create playbook" })).toBeNull();
   });
 
-  it("creates a playbook through the RPC with the secret it names", async () => {
-    createPlaybook.mockResolvedValue({});
-    mount();
-    await userEvent.click(await screen.findByTestId("playbook-new"));
-
-    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
-    await userEvent.type(screen.getByLabelText("Image"), "ghcr.io/example/reporter:v1");
-    await userEvent.type(screen.getByLabelText("System prompt"), "Write the report.");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
-    await userEvent.click(screen.getByRole("button", { name: "Add a secret" }));
-    await userEvent.type(
-      screen.getByLabelText("Secret name 1"),
-      "podium.agent.github_token",
-    );
-    await userEvent.type(screen.getByLabelText("Secret key 1"), "GITHUB_TOKEN");
-    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
-
-    await waitFor(() => expect(createPlaybook).toHaveBeenCalledTimes(1));
-    expect(createPlaybook.mock.calls[0][0].playbook).toMatchObject({
-      name: "reporter",
-      image: "ghcr.io/example/reporter:v1",
-      allowedTools: ["read"],
-      secrets: [
-        { name: "podium.agent.github_token", target: "env", key: "GITHUB_TOKEN" },
-      ],
-    });
-  });
-
-  it("keeps the operator in the form and shows why the server refused", async () => {
-    const { ConnectError, Code } = await import("@connectrpc/connect");
-    createPlaybook.mockRejectedValue(
-      new ConnectError('playbook "reporter": image is required', Code.InvalidArgument),
-    );
-    mount();
-    await userEvent.click(await screen.findByTestId("playbook-new"));
-    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
-    await userEvent.type(screen.getByLabelText("Image"), "x");
-    await userEvent.type(screen.getByLabelText("System prompt"), "hi");
-    await userEvent.type(screen.getByLabelText("Allowed tools"), "read");
-    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("image is required");
-    expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
-  });
-
-  it("warns when the conductor is running an older profile than the database holds", async () => {
+  it("warns when the conductor is running an older profile than the overrides would produce", async () => {
     getProfile.mockResolvedValue({
       profile: baseProfile,
       playbooks: [playbook()],
@@ -234,11 +124,11 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByText(/running an older profile/)).toBeInTheDocument();
   });
 
-  it("offers a reload of the profile files, and no informational banner", async () => {
+  it("says playbooks are files and points at the re-read", async () => {
     mount();
     await screen.findByTestId("playbook-row");
-    expect(screen.queryByText(/next turn, with no restart/)).toBeNull();
-    expect(screen.getByTestId("reload-profile-dir")).toHaveTextContent("Reload");
+    expect(screen.getByText(/Playbooks are files on the conductor's host/)).toBeInTheDocument();
+    expect(screen.getByTestId("reload-profile-dir")).toBeInTheDocument();
   });
 
   it("re-reads the profile directory and shows what the files now hold", async () => {
@@ -258,8 +148,6 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByText("/reporter")).toBeInTheDocument();
   });
 
-  // A half-saved file is the case the button has to survive: it is refused, and the screen
-  // still shows the profile the conductor is actually running.
   it("reports a profile directory that does not load and keeps the current one", async () => {
     reloadProfileDir.mockRejectedValue(new Error("playbooks/broken.yaml: line 1: bad YAML"));
     mount();

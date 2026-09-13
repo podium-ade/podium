@@ -1,6 +1,5 @@
 // Package profiles is the bot's identity and its playbooks: what a playbook is, how one is
-// validated, and how the directory on disk (PODIUM_AGENT_PROFILE_DIR) merges with the
-// playbooks an operator created in the web UI.
+// validated, and how the directory on disk (PODIUM_AGENT_PROFILE_DIR) is loaded.
 //
 // A playbook declares which image a turn runs, which prompt it is given, which tools it may
 // use and which stored secrets it names. Naming a secret here is not a privilege: a task
@@ -277,10 +276,6 @@ func gitEnvConflicts(env map[string]string, g GitPersona) []error {
 }
 
 // Playbook is one job the bot can do: which image, which prompt, which tools, which secrets.
-//
-// The json tags are the on-disk shape of a stored playbook in the conductor's database. They
-// match the yaml keys deliberately: a playbook read out of Postgres and a playbook read out of
-// playbooks/<name>.yaml are the same document, so there is one schema to reason about.
 type Playbook struct {
 	Image        string        `yaml:"image" json:"image"`
 	SystemPrompt string        `yaml:"system_prompt" json:"system_prompt"`
@@ -360,19 +355,7 @@ type Playbook struct {
 
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
-	// Origin is where this copy of the playbook came from: OriginFile or OriginStored. It is
-	// set by the loader and the merge, never by a document.
-	Origin string `yaml:"-" json:"-"`
 }
-
-// Where a playbook came from.
-const (
-	// OriginFile is a playbooks/<name>.yaml in the profile directory.
-	OriginFile = "file"
-	// OriginStored is a playbook an operator created through the API, kept in the conductor's
-	// own database.
-	OriginStored = "stored"
-)
 
 // Load reads profile.yaml and every playbooks/*.yaml under dir. Every decode uses
 // KnownFields(true), as pkg/spec.ParseTaskSpec does: a misspelt key is an error naming the
@@ -492,7 +475,6 @@ func loadPlaybookFile(path string) (Playbook, error) {
 		return Playbook{}, fmt.Errorf("%s: %w", path, err)
 	}
 	s.Name = name
-	s.Origin = OriginFile
 	prompt, err := resolvePrompt(path, s.SystemPrompt)
 	if err != nil {
 		return Playbook{}, err
