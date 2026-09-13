@@ -27,7 +27,6 @@ function mount(p = profile()) {
   return render(
     <ProfileCard
       profile={p}
-      playbooks={["analyst", "general"]}
       agents={catalogue()}
       onSave={onSave}
     />,
@@ -38,7 +37,7 @@ describe("ProfileCard", () => {
   it("shows the file's value beside every field and leaves the inputs empty when nothing overrides it", () => {
     mount();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
-    expect(screen.getByLabelText("Default playbook")).toHaveTextContent("the file's value (general)");
+    expect(screen.queryByLabelText("Default playbook")).toBeNull();
     // The model is a picker now, and with nothing overriding it it offers the file's value.
     expect(screen.getByTestId("agent-picker-trigger")).toHaveTextContent("Use profile.yaml's");
     // The file is what is in force, so it has to be on the screen.
@@ -66,10 +65,9 @@ describe("ProfileCard", () => {
     });
   });
 
-  it("picks a default playbook from the loaded playbooks rather than free text", async () => {
-    mount();
-    await userEvent.click(screen.getByLabelText("Default playbook"));
-    await userEvent.click(await screen.findByRole("option", { name: "analyst" }));
+  it("sends a stored default-playbook override back unchanged, without offering it as a setting", async () => {
+    mount(profile({ defaultPlaybook: "analyst", overridden: ["default_playbook"] }));
+    expect(screen.queryByLabelText("Default playbook")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSave).toHaveBeenCalledWith(

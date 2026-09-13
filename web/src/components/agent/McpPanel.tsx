@@ -1,9 +1,16 @@
 import { useId, useState } from "react";
-import { KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { MCP_PRESETS, callbackURL, rememberPending, type McpPreset } from "../../lib/mcp";
+import {
+  MCP_PRESETS,
+  callbackURL,
+  presetFor,
+  rememberPending,
+  tokenHelp,
+  type McpPreset,
+} from "../../lib/mcp";
 import { absolute, relative } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
@@ -27,6 +34,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
+import { McpMark } from "./McpMark";
 
 /**
  * McpPanel is the MCP server registry: the tools this bot can reach that are not built into
@@ -252,6 +260,7 @@ function ServerRow({
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
+            <McpMark name={presetFor(server)?.name ?? "unknown"} className="size-6 rounded-md" />
             <span className="font-mono text-sm font-medium text-fg">{server.name}</span>
             {server.tokenSet && server.authKind === "oauth" ? (
               <Badge tone="ok" dot={false}>
@@ -426,9 +435,9 @@ function ServerRow({
  * what playbooks name and what the token's secret is called, so renaming would silently
  * detach both.
  *
- * The presets exist because the hard part of adding a well-known server is remembering its
- * URL, and getting that wrong produces a turn that fails on a tool call rather than a form
- * that says no.
+ * Adding starts on a product picker — known MCP endpoints with their icons, plus Custom —
+ * because the hard part of a well-known server is remembering its URL. A wrong URL produces
+ * a turn that fails on a tool call rather than a form that says no.
  */
 function ServerDialog({
   server,
@@ -445,6 +454,7 @@ function ServerDialog({
 }) {
   const uid = useId();
   const creating = server === undefined;
+  const [picked, setPicked] = useState<McpPreset | "custom" | undefined>(creating ? undefined : "custom");
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
   const [description, setDescription] = useState(server?.description ?? "");
@@ -452,10 +462,22 @@ function ServerDialog({
   const [token, setToken] = useState("");
   const [error, setError] = useState<string>();
 
-  function apply(preset: McpPreset) {
-    setName(preset.name);
-    setUrl(preset.url);
-    setDescription(preset.description);
+  const preset = picked === undefined || picked === "custom" ? undefined : picked;
+  const help = tokenHelp(preset);
+  const picking = creating && picked === undefined;
+
+  function apply(next: McpPreset | "custom") {
+    setPicked(next);
+    setError(undefined);
+    if (next === "custom") {
+      setName("");
+      setUrl("");
+      setDescription("");
+      return;
+    }
+    setName(next.name);
+    setUrl(next.url);
+    setDescription(next.description);
   }
 
   const save = useMutation({
@@ -485,155 +507,193 @@ function ServerDialog({
   }
   const ready = name.trim() !== "" && url.trim() !== "" && problems.length === 0;
 
+  const title = !creating
+    ? `Edit ${server.name}`
+    : picking
+      ? "Add an MCP server"
+      : preset
+        ? `Add ${preset.label}`
+        : "Add a custom server";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{creating ? "Add an MCP server" : `Edit ${server.name}`}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            The address is an MCP endpoint the conductor&apos;s network can reach. Whether it
-            answers is found out by the first turn that uses it — there is no way to ask a
-            server if it is there that does not also hand it the token.
+            {picking
+              ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
+              : "The address is an MCP endpoint the conductor's network can reach. Whether it answers is found out by the first turn that uses it — there is no way to ask a server if it is there that does not also hand it the token."}
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setError(undefined);
-            save.mutate();
-          }}
-        >
-          {creating ? (
-            <div className="space-y-1.5">
-              <Label>Start from</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {MCP_PRESETS.map((p) => (
-                  <Button
-                    key={p.name}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    data-testid="mcp-preset"
-                    onClick={() => apply(p)}
-                  >
-                    {p.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <Field
-            id={`${uid}-name`}
-            label="Name"
-            required
-            problems={problems}
-            hint={
-              creating
-                ? "Lower case, letters, digits and hyphens. Playbooks name this, and the model sees its tools as mcp__<name>__*."
-                : "The name cannot change: playbooks name it, and so does its stored token."
-            }
+        {picking ? (
+          <ProductPicker onPick={apply} />
+        ) : (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError(undefined);
+              save.mutate();
+            }}
           >
-            {(control) => (
-              <Input
-                {...control}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                disabled={!creating}
-                spellCheck={false}
-                placeholder="linear"
-                className="font-mono"
-              />
-            )}
-          </Field>
+            {creating ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-2xs text-muted hover:text-fg"
+                onClick={() => {
+                  setPicked(undefined);
+                  setError(undefined);
+                }}
+              >
+                <ChevronLeft className="size-3.5" />
+                Choose a different server
+              </button>
+            ) : null}
 
-          <Field id={`${uid}-url`} label="URL" required>
-            {(control) => (
-              <Input
-                {...control}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                spellCheck={false}
-                placeholder="https://mcp.linear.app/mcp"
-                className="font-mono text-xs"
-              />
-            )}
-          </Field>
-
-          <Field
-            id={`${uid}-description`}
-            label="Description"
-            hint="Your own note. It is shown here and sent nowhere."
-          >
-            {(control) => (
-              <Textarea
-                {...control}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Issues and projects."
-              />
-            )}
-          </Field>
-
-          {creating ? (
             <Field
-              id={`${uid}-token`}
-              label="Token"
-              hint="Sent as Authorization: Bearer. Stored as a Podium secret; only the last four characters are ever read back. Leave it empty for a server that needs no credential."
+              id={`${uid}-name`}
+              label="Name"
+              required
+              problems={problems}
+              hint={
+                creating
+                  ? "Lower case, letters, digits and hyphens. Playbooks name this, and the model sees its tools as mcp__<name>__*."
+                  : "The name cannot change: playbooks name it, and so does its stored token."
+              }
             >
               {(control) => (
                 <Input
                   {...control}
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  autoComplete="off"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={!creating}
                   spellCheck={false}
-                  placeholder="lin_api_…"
+                  placeholder={preset?.name ?? "linear"}
+                  className="font-mono"
+                />
+              )}
+            </Field>
+
+            <Field id={`${uid}-url`} label="URL" required>
+              {(control) => (
+                <Input
+                  {...control}
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  spellCheck={false}
+                  placeholder={preset?.url ?? "https://mcp.example.com/mcp"}
                   className="font-mono text-xs"
                 />
               )}
             </Field>
-          ) : null}
 
-          <div className="flex items-center gap-2">
-            <Switch
-              id={`${uid}-enabled`}
-              checked={enabled}
-              onCheckedChange={setEnabled}
-              aria-label="Enabled"
-            />
-            <Label htmlFor={`${uid}-enabled`} className="cursor-pointer">
-              Enabled
-            </Label>
-          </div>
-
-          {error ? (
-            <Alert variant="destructive" role="alert">
-              {error}
-            </Alert>
-          ) : null}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-              disabled={save.isPending}
+            <Field
+              id={`${uid}-description`}
+              label="Description"
+              hint="Your own note. It is shown here and sent nowhere."
             >
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" data-testid="mcp-save" disabled={!ready || save.isPending}>
-              {save.isPending ? "Saving…" : creating ? "Add server" : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
+              {(control) => (
+                <Textarea
+                  {...control}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  placeholder={preset?.description ?? "Issues and projects."}
+                />
+              )}
+            </Field>
+
+            {creating ? (
+              <Field id={`${uid}-token`} label="Token" hint={help.hint}>
+                {(control) => (
+                  <Input
+                    {...control}
+                    type="password"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={help.placeholder}
+                    className="font-mono text-xs"
+                  />
+                )}
+              </Field>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${uid}-enabled`}
+                checked={enabled}
+                onCheckedChange={setEnabled}
+                aria-label="Enabled"
+              />
+              <Label htmlFor={`${uid}-enabled`} className="cursor-pointer">
+                Enabled
+              </Label>
+            </div>
+
+            {error ? (
+              <Alert variant="destructive" role="alert">
+                {error}
+              </Alert>
+            ) : null}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+                disabled={save.isPending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" data-testid="mcp-save" disabled={!ready || save.isPending}>
+                {save.isPending ? "Saving…" : creating ? "Add server" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ProductPicker({ onPick }: { onPick: (next: McpPreset | "custom") => void }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {MCP_PRESETS.map((p) => (
+        <button
+          key={p.name}
+          type="button"
+          data-testid="mcp-preset"
+          onClick={() => onPick(p)}
+          className="flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
+        >
+          <McpMark name={p.name} />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-fg">{p.label}</span>
+            <span className="mt-0.5 block text-2xs leading-relaxed text-muted">{p.description}</span>
+          </span>
+        </button>
+      ))}
+      <button
+        type="button"
+        data-testid="mcp-preset-custom"
+        onClick={() => onPick("custom")}
+        className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
+      >
+        <McpMark name="custom" />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-fg">Custom</span>
+          <span className="mt-0.5 block text-2xs leading-relaxed text-muted">
+            Your own MCP server URL.
+          </span>
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -657,6 +717,7 @@ function TokenDialog({
   const toast = useToast();
   const [token, setToken] = useState("");
   const [error, setError] = useState<string>();
+  const help = tokenHelp(presetFor(server));
 
   // Every path out of this dialog empties the field, so a token typed and abandoned is not
   // sitting in a form the next person to open it inherits.
@@ -719,7 +780,7 @@ function TokenDialog({
             id={`${uid}-token`}
             label="Token"
             required
-            hint="Sent as Authorization: Bearer <token>."
+            hint={help.placeholder ? help.hint : "Sent as Authorization: Bearer <token>."}
           >
             {(control) => (
               <Input
@@ -729,6 +790,7 @@ function TokenDialog({
                 onChange={(e) => setToken(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
+                placeholder={help.placeholder}
                 className="font-mono text-xs"
               />
             )}

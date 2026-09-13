@@ -155,7 +155,6 @@ export function PlaybooksPanel() {
   const all = profile.data?.playbooks ?? [];
   const running = all.filter((s) => !s.shadowed);
   const shadowed = all.filter((s) => s.shadowed);
-  const p = profile.data?.profile;
 
   const open = (playbook: PlaybookDefinition | undefined) => {
     setSaveError(undefined);
@@ -192,20 +191,13 @@ export function PlaybooksPanel() {
         </Alert>
       ) : null}
 
-      <Alert variant="info" title="A playbook saved here takes effect on the next turn, with no restart">
-        The conductor rebuilds its profile on every write. A{" "}
-        <code className="font-mono">playbooks/&lt;name&gt;.yaml</code> in the profile directory is
-        read at start-up only, so after editing one of those press{" "}
-        <span className="font-medium">Re-read the files</span> above — no restart either.
-      </Alert>
-
       {profile.isPending ? <TableSkeleton rows={3} cols={3} /> : null}
 
       {!profile.isPending && running.length === 0 ? (
         <Empty
           icon={Sparkles}
           title="No playbooks"
-          hint="Nothing is loaded, so the bot has no job it can do. Create one, or drop a playbooks/<name>.yaml in the profile directory and restart the conductor."
+          hint="Nothing is loaded, so the bot has no job it can do. Create one, or drop a playbooks/<name>.yaml in the profile directory and press Reload."
           action={
             <Button type="button" size="sm" onClick={() => open(undefined)}>
               <Plus />
@@ -227,7 +219,6 @@ export function PlaybooksPanel() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
                   <Provenance playbook={s} />
-                  {s.name === p?.defaultPlaybook ? <Badge tone="ok">default playbook</Badge> : null}
                   {s.linear ? <Chip>Linear tickets</Chip> : null}
                 </div>
                 {/* The image is the unit of capability: what a turn of this playbook can do at
@@ -292,8 +283,8 @@ export function PlaybooksPanel() {
             {s.editable ? null : (
               <p className="mt-2.5 text-2xs leading-relaxed text-faint">
                 Defined by <code className="font-mono text-muted">playbooks/{s.name}.yaml</code> on
-                the conductor&apos;s host. Change it by editing that file and restarting
-                podium-agent; this screen will not write over it.
+                the conductor&apos;s host. Change it by editing that file and pressing Reload; this
+                screen will not write over it.
               </p>
             )}
           </li>
