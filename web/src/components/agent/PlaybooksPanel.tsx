@@ -167,15 +167,16 @@ export function PlaybooksPanel() {
         title="Playbooks"
         description="A playbook is a machine job the assistant can start: an image, a workspace and the tools that come with them. It picks one per piece of work — a conversation never runs one directly."
         actions={
-          <>
-            <ReloadProfileDirButton />
-            <Button type="button" size="sm" data-testid="playbook-new" onClick={() => open(undefined)}>
-              <Plus />
-              New playbook
-            </Button>
-          </>
+          <Button type="button" size="sm" data-testid="playbook-new" onClick={() => open(undefined)}>
+            <Plus />
+            New playbook
+          </Button>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <ReloadProfileDirButton />
+      </div>
 
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown
