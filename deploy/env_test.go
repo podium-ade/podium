@@ -149,6 +149,30 @@ func TestEnvExampleDocumentsNothingImaginary(t *testing.T) {
 			"Delete them, or fix the spelling.", envExample)
 }
 
+// TestEnvExampleDoesNotPointAtThisCheckout: a customer's .env is not this git tree.
+// Assigned values (commented or not) must not be examples/agent, playbooks/, skills/, or
+// any other path that only exists inside a Podium clone.
+func TestEnvExampleDoesNotPointAtThisCheckout(t *testing.T) {
+	raw, err := os.ReadFile(envExample)
+	require.NoError(t, err)
+	for i, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimPrefix(trimmed, "#")
+		trimmed = strings.TrimSpace(trimmed)
+		name, val, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(name, "PODIUM_") && name != "TS_AUTHKEY" {
+			continue
+		}
+		require.NotContainsf(t, val, "examples/",
+			"%s:%d: %s points at this checkout (%q)", envExample, i+1, name, val)
+		require.NotContainsf(t, val, "playbooks/playbooks",
+			"%s:%d: %s points at this checkout (%q)", envExample, i+1, name, val)
+	}
+}
+
 // documentedVars is every variable named in .env.example.
 func documentedVars(t *testing.T) map[string]bool {
 	t.Helper()
