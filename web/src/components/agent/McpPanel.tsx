@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { ChevronLeft, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -531,22 +531,6 @@ function ServerDialog({
               save.mutate();
             }}
           >
-            {creating ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="-ml-2 w-fit"
-                onClick={() => {
-                  setPicked(undefined);
-                  setError(undefined);
-                }}
-              >
-                <ChevronLeft />
-                Back
-              </Button>
-            ) : null}
-
             <Field
               id={`${uid}-name`}
               label="Name"
@@ -640,10 +624,17 @@ function ServerDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  if (creating) {
+                    setPicked(undefined);
+                    setError(undefined);
+                    return;
+                  }
+                  onOpenChange(false);
+                }}
                 disabled={save.isPending}
               >
-                Cancel
+                {creating ? "Back" : "Cancel"}
               </Button>
               <Button type="submit" size="sm" data-testid="mcp-save" disabled={!ready || save.isPending}>
                 {save.isPending ? "Saving…" : creating ? "Add server" : "Save"}

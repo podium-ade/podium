@@ -179,7 +179,7 @@ describe("McpPanel", () => {
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     expect(screen.getByRole("heading", { name: "Add a custom server" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
-    expect(screen.queryByText(/Choose a different server/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(screen.getByLabelText("Name")).toHaveValue("");
     expect(screen.getByLabelText("URL")).toHaveValue("");
     expect(screen.getByLabelText("Token")).toHaveAttribute("placeholder", "");
@@ -192,6 +192,7 @@ describe("McpPanel", () => {
     await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
     expect(screen.getByRole("heading", { name: "Add Linear" })).toBeInTheDocument();
 
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByText("Slack")).toBeInTheDocument();
     expect(screen.getByText("Stripe")).toBeInTheDocument();
