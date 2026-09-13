@@ -7,13 +7,20 @@
  * operator ends up saving is the one this list would have given them, or their own.
  */
 export type McpPreset = {
-  /** label is what the button says. */
+  /** label is the product name on the picker. */
   label: string;
   /** name becomes the registration's name and the prefix its tools carry. */
   name: string;
   url: string;
   description: string;
+  /** tokenPlaceholder is the product's own key shape, shown in the token field. */
+  tokenPlaceholder: string;
+  /** tokenHint is how to get that key, and what format it has. */
+  tokenHint: string;
 };
+
+const GENERIC_TOKEN_HINT =
+  "Sent as Authorization: Bearer. Stored as a Podium secret; only the last four characters are ever read back. Leave it empty for a server that needs no credential, or to sign in later.";
 
 export const MCP_PRESETS: McpPreset[] = [
   {
@@ -21,26 +28,70 @@ export const MCP_PRESETS: McpPreset[] = [
     name: "linear",
     url: "https://mcp.linear.app/mcp",
     description: "Issues, projects and cycles.",
+    tokenPlaceholder: "lin_api_…",
+    tokenHint:
+      "A Linear personal API key from Settings → Security & access. It starts with lin_api_. Leave empty to sign in later.",
   },
   {
     label: "Notion",
     name: "notion",
     url: "https://mcp.notion.com/mcp",
     description: "Pages and databases.",
+    tokenPlaceholder: "ntn_…",
+    tokenHint:
+      "A Notion internal integration token from notion.so/my-integrations. It starts with ntn_ (older ones, secret_). Leave empty to sign in later.",
   },
   {
     label: "Sentry",
     name: "sentry",
     url: "https://mcp.sentry.dev/mcp",
     description: "Issues and stack traces.",
+    tokenPlaceholder: "sntryu_…",
+    tokenHint:
+      "A Sentry User Auth Token from Settings → Account → API → Auth Tokens. Organization tokens start with sntrys_. Leave empty to sign in later.",
   },
   {
     label: "GitHub",
     name: "github",
     url: "https://api.githubcopilot.com/mcp/",
     description: "Repositories, issues and pull requests.",
+    tokenPlaceholder: "ghp_…",
+    tokenHint:
+      "A GitHub personal access token. Classic tokens start with ghp_, fine-grained with github_pat_. Leave empty to sign in later.",
   },
 ];
+
+/** tokenHelp is the placeholder and hint for a picked product, or the generic custom ones. */
+export function tokenHelp(preset?: McpPreset): { placeholder: string; hint: string } {
+  if (!preset) {
+    return { placeholder: "", hint: GENERIC_TOKEN_HINT };
+  }
+  return { placeholder: preset.tokenPlaceholder, hint: preset.tokenHint };
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * presetFor matches a registration to a known product, by name first and then by the
+ * endpoint's host. Used to keep the token field's hint in the product's own format after
+ * the server already exists.
+ */
+export function presetFor(server: { name?: string; url?: string }): McpPreset | undefined {
+  const name = (server.name ?? "").trim().toLowerCase();
+  if (name) {
+    const byName = MCP_PRESETS.find((p) => p.name === name);
+    if (byName) return byName;
+  }
+  const host = hostnameOf(server.url ?? "");
+  if (!host) return undefined;
+  return MCP_PRESETS.find((p) => hostnameOf(p.url) === host);
+}
 
 /**
  * MCP_CALLBACK_PATH is the route an authorization server redirects back to, and the
