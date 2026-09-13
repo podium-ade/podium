@@ -46,7 +46,10 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     proxy: {
-      "^/podium\\.v1\\.": {
+      // podium.v1.* is the control plane; podium.agent.v1.* is proxied by podium-server
+      // to the conductor. A tighter `^/podium\\.v1\\.` left the agent screens talking
+      // to Vite itself, which 404s.
+      "^/podium\\.": {
         target,
         changeOrigin: false,
         configure: (proxy) => {
