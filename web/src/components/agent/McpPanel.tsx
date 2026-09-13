@@ -125,7 +125,7 @@ export function McpPanel() {
         actions={
           <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new")}>
             <Plus />
-            Add server
+            New server
           </Button>
         }
       />
@@ -148,7 +148,7 @@ export function McpPanel() {
           action={
             <Button type="button" size="sm" onClick={() => setEditing("new")}>
               <Plus />
-              Add server
+              New server
             </Button>
           }
         />
