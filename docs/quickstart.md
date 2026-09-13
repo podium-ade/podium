@@ -288,15 +288,24 @@ reverse-proxied behind the server's identity middleware, so one origin and one l
 ordinary API client of `podium-server`: its own database, its own token, and it never touches
 Docker.
 
-The playbook a turn runs is the worked example baked into the agent image at
-`/etc/podium/agent`, which is where `PODIUM_AGENT_PROFILE_DIR` points. To run your own bot,
-mount a profile directory over it — read-only, because a playbook names the image, the tools
-and the secrets its turns get:
+The playbook a turn runs is a **starter** baked into the agent image at `/etc/podium/agent`
+(one playbook, no credentials). Compose mounts that path from the named volume `agent-profile`
+on a fresh install. Playbooks and skills are files in those mounted directories; the UI lists
+them and does not write one.
 
-```yaml
-    volumes:
-      - ./my-profile:/etc/podium/agent:ro
+To run **your** bot from disk instead, point the host binds at directories you own — not this
+repository:
+
+```sh
+echo 'PODIUM_AGENT_PROFILE_HOST=/srv/podium/agent' >> .env
+echo 'PODIUM_AGENT_SKILLS_HOST=/srv/podium/skills' >> .env
+docker compose up -d
 ```
+
+`PODIUM_AGENT_PROFILE_DIR` / `PODIUM_AGENT_SKILLS_DIR` are the paths *inside* the container
+(defaults `/etc/podium/agent` and `/etc/podium/skills`). The `*_HOST` variables are what
+compose bind-mounts; a bare name is a Docker volume, a path is a bind, the same rule as
+`PODIUM_STATE_DIR`.
 
 Two things the conductor does not have out of the box, both credentials:
 

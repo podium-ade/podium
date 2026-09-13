@@ -201,7 +201,8 @@ services:
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@postgres:5432/podium_agent
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
-      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_PROFILE_DIR: ${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      PODIUM_AGENT_SKILLS_DIR: ${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
       PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
@@ -222,8 +223,10 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
-    # No volumes: the image ships the worked example at /etc/podium/agent. Mount your own
-    # profile directory over it, read-only, to run your own bot.
+    volumes:
+      # Bare name → named volume (starter copied from the image on first up). A path → bind.
+      - ${PODIUM_AGENT_PROFILE_HOST:-agent-profile}:${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      - ${PODIUM_AGENT_SKILLS_HOST:-agent-skills}:${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
     restart: unless-stopped
 
   # A worker. In practice this runs on a *different machine* — that is the whole point of the
@@ -263,6 +266,8 @@ volumes:
   pgdata:
   objectstore-data:
   server-state:
+  agent-profile:
+  agent-skills:
 
 # Inline, so this file needs nothing beside it. Byte-identical to postgres/init.sql, which
 # docker-compose.dev.yml mounts from disk; `go test ./deploy/...` fails if they drift.

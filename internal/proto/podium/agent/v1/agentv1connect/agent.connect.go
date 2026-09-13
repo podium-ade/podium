@@ -189,9 +189,9 @@ type AgentServiceClient interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and
+	// playbooks/*.yaml, with the Assistant-screen overrides on top — and every playbook in
+	// full, so a browser can read them. Playbooks are files; this RPC does not write one.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
 	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
@@ -205,28 +205,18 @@ type AgentServiceClient interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
-	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
-	// already defines is refused: the files are authoritative for the names they hold.
+	// CreatePlaybook, UpdatePlaybook and DeletePlaybook are kept for wire compatibility.
+	// Playbooks are files; these RPCs refuse with failed_precondition.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
-	// UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
 	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
-	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
-	// stored playbook that is not there is not an error.
 	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
-	// ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
-	// uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
-	// The directory wins a name clash, and a stored skill it shadows is reported as such.
+	// ListSkills reports every Agent Skill under PODIUM_AGENT_SKILLS_DIR on this host. Skills
+	// are directories with a SKILL.md; this RPC does not write one.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
-	// UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
-	// held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
-	// path it may not, or with a SKILL.md the harness would not load is refused with the rule
-	// it broke.
+	// UploadSkill, SetSkillEnabled and DeleteSkill are kept for wire compatibility.
+	// Skills are directories; these RPCs refuse with failed_precondition.
 	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
-	// SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
-	// names a disabled skill fails its turns saying so rather than running without it.
 	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
-	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
-	// file on the conductor's host and this API does not delete those.
 	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// ListMcpServers reports every MCP server registered on this conductor, with which
 	// playbooks name each one. It never carries a token: a server's credential is a Podium
@@ -835,9 +825,9 @@ type AgentServiceHandler interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the profile a turn actually runs from — profile.yaml and
+	// playbooks/*.yaml, with the Assistant-screen overrides on top — and every playbook in
+	// full, so a browser can read them. Playbooks are files; this RPC does not write one.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
 	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
 	// empty field clears the override and returns that field to the file's value.
@@ -851,28 +841,18 @@ type AgentServiceHandler interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
-	// CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
-	// already defines is refused: the files are authoritative for the names they hold.
+	// CreatePlaybook, UpdatePlaybook and DeletePlaybook are kept for wire compatibility.
+	// Playbooks are files; these RPCs refuse with failed_precondition.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
-	// UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
 	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
-	// DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
-	// stored playbook that is not there is not an error.
 	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
-	// ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
-	// uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
-	// The directory wins a name clash, and a stored skill it shadows is reported as such.
+	// ListSkills reports every Agent Skill under PODIUM_AGENT_SKILLS_DIR on this host. Skills
+	// are directories with a SKILL.md; this RPC does not write one.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
-	// UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
-	// held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
-	// path it may not, or with a SKILL.md the harness would not load is refused with the rule
-	// it broke.
+	// UploadSkill, SetSkillEnabled and DeleteSkill are kept for wire compatibility.
+	// Skills are directories; these RPCs refuse with failed_precondition.
 	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
-	// SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
-	// names a disabled skill fails its turns saying so rather than running without it.
 	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
-	// DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
-	// file on the conductor's host and this API does not delete those.
 	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// ListMcpServers reports every MCP server registered on this conductor, with which
 	// playbooks name each one. It never carries a token: a server's credential is a Podium

@@ -21,7 +21,7 @@ import (
 //
 // There is one source, unlike playbooks and Agent Skills: a server is an address and a
 // credential rather than a document anybody would keep in version control, so there is no
-// file half on the conductor's host to shadow a row or be shadowed by one.
+// directory on the conductor's host that defines one.
 //
 // A registration is not a grant. Registering `linear` here says this conductor CAN reach
 // Linear; a playbook's mcp_servers list is what says which turns do. That split is the whole

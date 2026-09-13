@@ -218,8 +218,6 @@ describe("PlaybookEditor", () => {
         allowedTools: ["read"],
         maxTurns: 12,
         timeout: "5m",
-        origin: "stored",
-        editable: true,
       }),
     });
     expect(screen.getByLabelText("Playbook name")).toBeDisabled();
@@ -240,8 +238,6 @@ describe("PlaybookEditor", () => {
       playbook: create(PlaybookDefinitionSchema, {
         name: "reporter",
         image: "ghcr.io/example/reporter:v1",
-        origin: "stored",
-        editable: true,
       }),
       onDelete,
     });
@@ -252,21 +248,17 @@ describe("PlaybookEditor", () => {
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a shadowed playbook read-only, with the delete as the only thing to do to it", () => {
+  it("shows a file playbook read-only", () => {
     mount({
       playbook: create(PlaybookDefinitionSchema, {
         name: "general",
         image: "ghcr.io/example/general:v1",
-        origin: "stored",
-        editable: true,
-        shadowed: true,
       }),
-      onDelete: vi.fn(),
+      readOnly: true,
     });
     expect(screen.queryByRole("button", { name: "Save playbook" })).toBeNull();
     expect(screen.getByLabelText("Image")).toBeDisabled();
-    expect(screen.getByText(/never runs and cannot be written over/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete general" })).toBeInTheDocument();
+    expect(screen.getByText(/playbooks\/general\.yaml/)).toBeInTheDocument();
   });
 
   it("shows the server's refusal verbatim", () => {

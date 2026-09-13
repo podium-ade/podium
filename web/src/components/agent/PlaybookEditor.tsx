@@ -53,7 +53,7 @@ export type PlaybookDraft = {
 };
 
 export type PlaybookEditorProps = {
-  /** Undefined creates; a definition edits it. Only a stored playbook is ever passed. */
+  /** Undefined creates; a definition views or edits it. */
   playbook?: PlaybookDefinition;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
@@ -144,10 +144,7 @@ export function PlaybookEditor({
   readOnly,
 }: PlaybookEditorProps) {
   const creating = playbook === undefined;
-  // A shadowed row is a stored playbook a playbooks/<name>.yaml has since claimed. The conductor
-  // refuses to write over one, so the form shows what it holds and offers only the delete.
-  const shadowed = playbook?.shadowed ?? false;
-  const locked = shadowed || (readOnly ?? false);
+  const locked = readOnly ?? false;
   const uid = useId();
 
   const [name, setName] = useState(playbook?.name ?? "");
@@ -268,12 +265,11 @@ export function PlaybookEditor({
             {locked ? (
               <>
                 Defined by <code className="font-mono">playbooks/{playbook?.name}.yaml</code> on the
-                conductor&apos;s host. The files win, so this is read-only here — edit the file
-                and restart the conductor, or make a new playbook to change one in the browser.
+                conductor&apos;s host. Edit that file and press Re-read the files.
               </>
             ) : (
               <>
-                Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
+                Validated by exactly the rules a{" "}
                 <code className="font-mono">playbooks/&lt;name&gt;.yaml</code> is held to.
               </>
             )}
@@ -281,16 +277,9 @@ export function PlaybookEditor({
         </div>
       </header>
 
-      {playbook && shadowed ? (
-        <Alert variant="warn" title={`playbooks/${playbook.name}.yaml defines this name, and the file wins`}>
-          This stored definition never runs and cannot be written over. It is shown so you can
-          see what deleting it throws away.
-        </Alert>
-      ) : null}
-
-      {/* One fieldset rather than a disabled prop on every input: a shadowed playbook and a
-          file playbook are both read-only as a whole, and no field of either could usefully be
-          changed. It disables the picker's buttons too, which a per-input prop would miss. */}
+      {/* One fieldset rather than a disabled prop on every input: a file playbook is
+          read-only as a whole. It disables the picker's buttons too, which a per-input
+          prop would miss. */}
       <fieldset disabled={locked} className="space-y-5">
         <Section
           title="Identity"

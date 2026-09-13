@@ -19,16 +19,16 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/podium-agent /usr/local/bin/podium-agent
 
-# A DEFAULT AGENT PROFILE, at the path PODIUM_AGENT_PROFILE_DIR already defaults to. The
+# A STARTER AGENT PROFILE, at the path PODIUM_AGENT_PROFILE_DIR already defaults to. The
 # conductor refuses to start without a profile directory holding profile.yaml, and there is no
-# sensible way for a compose file to conjure a tree of YAML and prompts — which meant every
-# deployment began by copying examples/agent out of a clone. Shipping the worked example in
-# the image instead is what makes `docker compose up` enough.
+# sensible way for a compose file to conjure a tree of YAML and prompts. Shipping a starter
+# in the image is what makes `docker compose up` enough on a machine that has never seen this
+# repository.
 #
-# It is the example, not this repository's own bot: one playbook, on the one runtime image
-# Podium publishes, holding no credential of its own. Mount your own over /etc/podium/agent to
-# replace it, which is what a real deployment does — and note the conductor reads this
-# directory and never writes it.
+# It is a blank bot, not this repository's own: one playbook, on the one runtime image Podium
+# publishes, holding no credential of its own. Compose bind-mounts the operator's tree over
+# /etc/podium/agent when PODIUM_AGENT_PROFILE_HOST is a path; unset, a named volume gets a
+# copy of this starter on first up. The conductor reads the directory and never writes it.
 #
 # goreleaser puts examples/agent into the build context via `extra_files` in .goreleaser.yaml.
 # Both have to change together or this COPY fails the build, which is the failure mode you

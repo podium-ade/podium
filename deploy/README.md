@@ -188,7 +188,7 @@ forwards an unauthenticated request into the conductor is worse than no proxy.
 | `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`. Unset on a tailnet |
 | `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
 | ⚙ `PODIUM_AGENT_TOKEN` | the same value as above. One line, both sides |
-| `PODIUM_AGENT_PROFILE_DIR` | must contain `profile.yaml`. Defaults to `/etc/podium/agent`, so in a checkout point it at `examples/agent` |
+| `PODIUM_AGENT_PROFILE_DIR` | must contain `profile.yaml`. In compose this is the path **inside** the container (default `/etc/podium/agent`). On `make stack-up` it defaults to `.podium/agent`, seeded once from the starter |
 
 Then, each switching on one feature and each optional:
 
@@ -197,7 +197,9 @@ Then, each switching on one feature and each optional:
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
 | `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
-| `PODIUM_AGENT_SKILLS_DIR` | travels with `PODIUM_AGENT_PROFILE_DIR`: a playbook naming a skill that is not there fails every turn |
+| `PODIUM_AGENT_SKILLS_DIR` | file skills, one directory per skill. Compose default `/etc/podium/skills`. Unset on host binaries until `run-host.sh` creates `.podium/skills`. A playbook naming a skill that is not in this directory fails every turn |
+| `PODIUM_AGENT_PROFILE_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_PROFILE_DIR`. Unset is the named volume `agent-profile` |
+| `PODIUM_AGENT_SKILLS_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_SKILLS_DIR`. Unset is the named volume `agent-skills` |
 | `PODIUM_AGENT_HOST_RUNTIME` + `PODIUM_AGENT_RUNNER_BIN` | answer a turn as a child process instead of a container. Opt-in, and a security decision — read [`../docs/security.md`](../docs/security.md) first. `auto` under `make stack-up` means this checkout's own build |
 
 The memory service is a container of its own, and its key is **not** the one above:
@@ -341,19 +343,23 @@ holding `PODIUM_PG_PASSWORD` rather than a whole `PODIUM_DATABASE_URL` — and d
 derivations the compose files do in YAML. Anything already exported wins over the file, so
 `PODIUM_AGENT_PROFILE_DIR=… make stack-up` works for a one-off.
 
-The conductor comes up on [`../examples/agent`](../examples/agent), the worked example, which
-loads and runs on any node. To run **this repository's own bot** instead, name its profile and
-its skills in `.env` — the two travel together, because its `podium` playbook names a skill
-and a playbook whose skill is missing fails its turns:
+The conductor comes up on a **starter** bot (one playbook, no credentials): compose uses the
+copy baked into the agent image, `make stack-up` copies that starter into `.podium/agent`
+once. Playbooks and skills are files in the mounted profile and skills directories; the UI
+lists them and does not write one.
+
+To supply **your** files instead, bind directories you own — never this checkout:
 
 ```sh
-PODIUM_AGENT_PROFILE_DIR=/srv/podium/profile
-PODIUM_AGENT_SKILLS_DIR=/srv/podium/skills
+PODIUM_AGENT_PROFILE_HOST=/srv/podium/agent     # compose: bind over /etc/podium/agent
+PODIUM_AGENT_SKILLS_HOST=/srv/podium/skills     # compose: bind over /etc/podium/skills
 ```
 
-That bot wants a node started with `--allow-privileged-sidecars` and labelled `privileged`, a
-`podium.agent.github_token` secret, and roughly 9 GB free for the turn and its two sidecars.
-See [`../profile/README.md`](../profile/README.md).
+On host binaries the same trees are `PODIUM_AGENT_PROFILE_DIR` and `PODIUM_AGENT_SKILLS_DIR`.
+
+Podium's **own** bot — [`../profile`](../profile), not the starter — is a separate profile:
+privileged node, GitHub token, ~9 GB. It is not what a fresh install runs. See
+[`../profile/README.md`](../profile/README.md).
 
 Under `PODIUM_TRANSPORT=tailnet` this is the **only** way to run the conductor: the server
 listens on :443 of its own Tailscale device and has no port on the compose network, so a

@@ -101,9 +101,8 @@ type Bundle struct {
 	Encoded string
 	// Files is how many files the bundle carries. For the log line.
 	Files int
-	// Document is the bundle document itself: the JSON file map SHA256 is over. It is what
-	// the conductor's database stores, because it is the form the digest means something
-	// about — a gzip stream is one of many encodings of it, and base64 is a delivery detail.
+	// Document is the bundle document itself: the JSON file map SHA256 is over. A gzip
+	// stream is one of many encodings of it, and base64 is a delivery detail.
 	Document []byte
 }
 
@@ -178,11 +177,7 @@ func Load(dir, name string) (Bundle, error) {
 }
 
 // Build is every rule a bundle has to pass, applied to a file map that is already in hand.
-//
-// It is the single validator. Load calls it after walking a directory on the conductor's
-// host; Parse's callers call it after reading an upload out of a browser. A skill uploaded
-// through the API is therefore refused for exactly the reasons a skill on disk is, and there
-// is no second copy of the rules to drift.
+// Load calls it after walking a directory on the conductor's host.
 func Build(name string, files map[string]string) (Bundle, error) {
 	if err := ValidateName(name); err != nil {
 		return Bundle{}, err
@@ -247,28 +242,6 @@ func Build(name string, files map[string]string) (Bundle, error) {
 		Files:       len(files),
 		Document:    raw,
 	}, nil
-}
-
-// FromDocument rebuilds a Bundle from a stored bundle document — the bytes Build produced
-// and the conductor's database kept.
-//
-// It re-runs Build rather than trusting the row, so a document that has been corrupted,
-// truncated or edited in the database fails the turn instead of reaching a container. The
-// digest is over the same canonical JSON either way, so a round trip through Postgres
-// changes nothing about it.
-func FromDocument(name string, doc []byte) (Bundle, error) {
-	if len(doc) > MaxBytes {
-		return Bundle{}, fmt.Errorf("skill %q: the stored bundle is %d bytes; the limit is %d",
-			name, len(doc), MaxBytes)
-	}
-	var d document
-	if err := json.Unmarshal(doc, &d); err != nil {
-		return Bundle{}, fmt.Errorf("skill %q: the stored bundle is not a bundle document: %w", name, err)
-	}
-	if len(d.Files) == 0 {
-		return Bundle{}, fmt.Errorf("skill %q: the stored bundle has no files", name)
-	}
-	return Build(name, d.Files)
 }
 
 // collect walks one skill directory into the bundle's file map. Everything that is not a
