@@ -23,7 +23,7 @@ export function ReloadProfileDirButton() {
   const reload = useMutation({
     mutationFn: () => agent.reloadProfileDir({}),
     onSuccess: async () => {
-      toast("The profile directory was re-read. It applies to the next turn.", "ok");
+      toast("The profile directory was reloaded. It applies to the next turn.", "ok");
       await qc.invalidateQueries({ queryKey: ["agent", "profile"] });
     },
     onError: (err) => toast(errorMessage(err)),
@@ -39,7 +39,7 @@ export function ReloadProfileDirButton() {
       onClick={() => reload.mutate()}
     >
       <RotateCw />
-      {reload.isPending ? "Re-reading…" : "Re-read the files"}
+      {reload.isPending ? "Reloading…" : "Reload"}
     </Button>
   );
 }

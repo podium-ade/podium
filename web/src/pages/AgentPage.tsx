@@ -324,13 +324,12 @@ function ProfileTab() {
   }
 
   const p = profile.data?.profile;
-  const playbooks = (profile.data?.playbooks ?? []).filter((s) => !s.shadowed).map((s) => s.name);
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Assistant"
-        description="Who answers a conversation, which model it answers on, and which playbook a Slack mention or a Linear ticket runs. Every editable field here overrides profile.yaml on the conductor's host."
+        description="Who answers a conversation, and which model it answers on. Every editable field here overrides profile.yaml on the conductor's host."
         actions={<ReloadProfileDirButton />}
       />
       {isAgentUnreachable(profile.error) ? (
@@ -343,7 +342,6 @@ function ProfileTab() {
       <ProfileCard
         key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
         profile={p}
-        playbooks={playbooks}
         agents={agents}
         loading={profile.isPending}
         saving={save.isPending}

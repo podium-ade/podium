@@ -126,6 +126,8 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
+    expect(screen.getByPlaceholderText("lin_api_…")).toBeInTheDocument();
+    expect(screen.getByText(/starts with lin_api_/)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Token"), "lin_api_secret");
     await userEvent.click(screen.getByTestId("mcp-save"));
 
@@ -142,11 +144,26 @@ describe("McpPanel", () => {
     listMcpServers.mockResolvedValue({ servers: [server()], maxPerPlaybook: 8 });
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
+    await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     await userEvent.type(screen.getByLabelText("Name"), "linear");
     await userEvent.type(screen.getByLabelText("URL"), "https://mcp.linear.app/mcp");
     expect(screen.getByText(/already registered/)).toBeInTheDocument();
     expect(screen.getByTestId("mcp-save")).toBeDisabled();
     expect(createMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("offers Custom as its own option, with a generic token hint", async () => {
+    mount();
+    await userEvent.click(await screen.findByTestId("mcp-new"));
+    expect(screen.getByText("Custom")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Start from")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("mcp-preset-custom"));
+    expect(screen.getByRole("heading", { name: "Add a custom server" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("");
+    expect(screen.getByLabelText("URL")).toHaveValue("");
+    expect(screen.getByLabelText("Token")).toHaveAttribute("placeholder", "");
+    expect(screen.getByText(/Leave it empty for a server that needs no credential/)).toBeInTheDocument();
   });
 
   // The switch sends back the registration with one field flipped, and nothing the conductor

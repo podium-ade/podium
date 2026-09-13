@@ -12,13 +12,6 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
 
 /** The profile.yaml keys a browser may override, as the API names them. */
 export const FIELDS = {
@@ -39,8 +32,6 @@ export type ProfileFields = {
 
 export type ProfileCardProps = {
   profile?: AgentProfile;
-  /** The playbooks that are actually loaded, for the two default pickers. */
-  playbooks: string[];
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
   loading?: boolean;
@@ -50,15 +41,15 @@ export type ProfileCardProps = {
 
 /**
  * ProfileCard edits the ASSISTANT: the thing a conversation talks to, answering in the
- * conductor's own process. Its name, its model and what it delegates to by default are all
- * here, and so — read-only — is what it may execute.
+ * conductor's own process. Its name and its model are here, and so — read-only — is what it
+ * may execute. Which playbook a piece of work runs is the host's decision, not a setting.
  *
  * Every editable field is an **override** of profile.yaml, not a replacement for it: the
  * file stays on the conductor's host and stays the default, and an empty field means "use
  * what the file says". That is why each row shows the file's value beside the input — an
  * operator has to be able to see what they are overriding, and get back to it in one click.
  */
-export function ProfileCard({ profile, playbooks, agents, loading, saving, onSave }: ProfileCardProps) {
+export function ProfileCard({ profile, agents, loading, saving, onSave }: ProfileCardProps) {
   const overridden = new Set(profile?.overridden ?? []);
   const held = (key: string, effective: string) => (overridden.has(key) ? effective : "");
 
@@ -74,9 +65,10 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
     model: held(FIELDS.model, profile?.model ?? ""),
     effort: held(FIELDS.effort, profile?.effort ?? ""),
   }));
-  const [defaultPlaybook, setDefaultPlaybook] = useState(() =>
-    held(FIELDS.defaultPlaybook, profile?.defaultPlaybook ?? ""),
-  );
+  // default_playbook is still an override the API accepts, but it is not a setting here: the
+  // host picks a playbook per piece of work. The current override is sent back unchanged so
+  // saving the name or the model cannot silently clear it.
+  const defaultPlaybook = held(FIELDS.defaultPlaybook, profile?.defaultPlaybook ?? "");
 
   if (loading) {
     return (
@@ -88,7 +80,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2].map((i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-3 w-28" />
               <Skeleton className="h-9 w-full max-w-sm" />
@@ -100,7 +92,7 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
     );
   }
 
-  const overrideCount = overridden.size;
+  const overrideCount = [...overridden].filter((k) => k !== FIELDS.defaultPlaybook).length;
 
   return (
     <form
@@ -187,23 +179,6 @@ export function ProfileCard({ profile, playbooks, agents, loading, saving, onSav
                 model: profile?.fileModel ?? "",
                 effort: profile?.fileEffort ?? "",
               }}
-            />
-          </Field>
-
-          <Field
-            id="profile-default-playbook"
-            label="Default playbook"
-            fileValue={profile?.fileDefaultPlaybook ?? ""}
-            overridden={overridden.has(FIELDS.defaultPlaybook)}
-            onUseFile={() => setDefaultPlaybook("")}
-            hint="Which playbook a Slack mention or a Linear ticket runs when no slash prefix and no channel picks one. A conversation runs none: the assistant answers it."
-          >
-            <PlaybookSelect
-              id="profile-default-playbook"
-              value={defaultPlaybook}
-              playbooks={playbooks}
-              fileValue={profile?.fileDefaultPlaybook ?? ""}
-              onChange={setDefaultPlaybook}
             />
           </Field>
 
@@ -328,40 +303,4 @@ function Field({
   );
 }
 
-/** Radix Select refuses an empty string as a value, so the file fallback is this sentinel. */
-const FILE_VALUE = "__file__";
 
-function PlaybookSelect({
-  id,
-  value,
-  playbooks,
-  fileValue,
-  onChange,
-}: {
-  id: string;
-  value: string;
-  playbooks: string[];
-  fileValue: string;
-  onChange: (v: string) => void;
-}) {
-  // A playbook that is no longer loaded must still be selectable to be seen; dropping it would
-  // silently rewrite the override the moment the form is saved.
-  const options = playbooks.includes(value) || value === "" ? playbooks : [value, ...playbooks];
-  return (
-    <Select value={value === "" ? FILE_VALUE : value} onValueChange={(v) => onChange(v === FILE_VALUE ? "" : v)}>
-      <SelectTrigger id={id} size="sm" className="w-full max-w-sm font-mono">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={FILE_VALUE}>
-          {fileValue ? `the file's value (${fileValue})` : "the file's value"}
-        </SelectItem>
-        {options.map((s) => (
-          <SelectItem key={s} value={s}>
-            {s}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
