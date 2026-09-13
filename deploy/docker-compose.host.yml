@@ -170,7 +170,8 @@ services:
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@127.0.0.1:${PODIUM_PG_PORT:-5432}/podium_agent
       PODIUM_AGENT_LISTEN: 127.0.0.1:8090   # only the server on this host talks to it
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
-      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_PROFILE_DIR: ${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      PODIUM_AGENT_SKILLS_DIR: ${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
       PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
@@ -186,6 +187,10 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
+    volumes:
+      # Bare name → named volume (starter copied from the image on first up). A path → bind.
+      - ${PODIUM_AGENT_PROFILE_HOST:-agent-profile}:${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      - ${PODIUM_AGENT_SKILLS_HOST:-agent-skills}:${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
     restart: unless-stopped
 
   node:
@@ -222,6 +227,8 @@ volumes:
   pgdata:
   objectstore-data:
   server-state:
+  agent-profile:
+  agent-skills:
 
 # Inline, so this file needs nothing beside it. Byte-identical to postgres/init.sql, which
 # docker-compose.dev.yml mounts from disk; `go test ./deploy/...` fails if they drift.

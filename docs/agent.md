@@ -301,8 +301,8 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
-| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
-| `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
+| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/`. In compose this is the path inside the container; bind your own tree with `PODIUM_AGENT_PROFILE_HOST` |
+| `PODIUM_AGENT_SKILLS_DIR` | no | — (`/etc/podium/skills` in compose) | one directory per Agent Skill, each with a `SKILL.md`. The Skills screen stores them in the database — this is the *other* source, and it wins a name clash. Bind your own tree with `PODIUM_AGENT_SKILLS_HOST` |
 | `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and every CONVERSATION — a web chat and a Slack thread alike — is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
 | `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn — a Slack thread sits on its ⏳ for longer, a web chat on its `👀 working…` — and `podium_agent_host_turns_queued_total` counts how often that happens |
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all |
@@ -393,13 +393,13 @@ There are **two** profiles in this repository and they are different kinds of th
 
 | | |
 |---|---|
-| [`../examples/agent`](../examples/agent) | the worked example. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs and what `deploy/run-host.sh` defaults to |
-| [`../profile`](../profile) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill |
+| [`../examples/agent`](../examples/agent) | the starter baked into the agent image and copied once into `.podium/agent` on `make stack-up`. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs |
+| [`../profile`](../profile) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill. It is not the product default |
 
 They were one directory until the second one grew all of that, at which point the first stopped
-being an example anybody could copy safely. An operator running the real bot names its two
-directories in `.env`; the default stays the example, so a first `make stack-up` gets a bot that
-comes up and answers rather than one that fails every turn on a node flag. See
+being an example anybody could copy safely. A first `make stack-up` or `docker compose up` gets
+the starter, so the bot comes up and answers rather than failing every turn on a node flag.
+Podium developers running the real bot name its two directories themselves. See
 [`../profile/README.md`](../profile/README.md).
 
 Every file is decoded with unknown keys **rejected**, the same rule `pkg/spec` follows for a task
@@ -1001,8 +1001,8 @@ The three decisions worth knowing before you use it:
 (`podium_agent`), table `playbooks`, one row per playbook. The `definition` column holds the same
 document a `playbooks/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
 profile overrides are one row in `settings`, under the key `profile.overrides`. Nothing is
-written to the profile directory: `PODIUM_AGENT_PROFILE_DIR` is mounted read-only in the shipped
-compose file and stays that way.
+written to the profile directory: compose bind-mounts `PODIUM_AGENT_PROFILE_HOST` (or the
+named volume `agent-profile`) there, and the conductor never writes it.
 
 **The files win.** A `playbooks/<name>.yaml` is authoritative for the name it holds:
 

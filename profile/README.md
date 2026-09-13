@@ -17,18 +17,20 @@ names a thing, where `playbooks/playbooks/podium.yaml` only named a level. It is
 `PODIUM_AGENT_PROFILE_DIR` is called, which is the variable that points here.
 [`docs/agent.md`](../docs/agent.md#the-profile-directory) is the reference for every field.
 
-**This is not the worked example.** [`examples/agent`](../examples/agent) is that, and the two
-are separate directories on purpose: this profile clones this repository, holds a GitHub
-token, asks for a privileged node and a browser, and none of that belongs in the first thing
-a reader copies. `deploy/run-host.sh` therefore still defaults to `examples/agent`, so a first
-`make stack-up` gets a bot that loads and runs anywhere; the operator of the real bot sets
+**This is not the starter a customer gets.** [`examples/agent`](../examples/agent) is that
+(baked into the agent image, copied once into `.podium/agent` on `make stack-up`), and the
+two are separate directories on purpose: this profile clones this repository, holds a GitHub
+token, asks for a privileged node and a browser, and none of that belongs in a fresh install.
+A first `make stack-up` / `docker compose up` uses the starter; Podium developers running
+*this* bot set
 
 ```sh
-PODIUM_AGENT_PROFILE_DIR=/path/to/podium/profile
-PODIUM_AGENT_SKILLS_DIR=/path/to/podium/skills
+PODIUM_AGENT_PROFILE_DIR=/srv/podium/profile
+PODIUM_AGENT_SKILLS_DIR=/srv/podium/skills
 ```
 
-in `deploy/.env`, and both are commented in [`../deploy/.env.example`](../deploy/.env.example).
+to directories they own — not this checkout — and both variables are documented in
+[`../deploy/.env.example`](../deploy/.env.example).
 
 Changing a file here needs the conductor to re-read this directory: **Re-read the files**, on the
 Playbooks screen or on Agent → Assistant. No restart, and no SIGHUP reload. A skill in
@@ -45,8 +47,9 @@ attacks it in a browser before saying it is done. `playbooks/podium.yaml` is tha
 `prompts/podium.md` is what it is told.
 
 **Nothing installs it.** The `podium-agent` image ships `examples/agent` at `/etc/podium/agent`
-and only that, and `deploy/run-host.sh` defaults there too — so a first `make stack-up` gets a
-bot that runs anywhere and holds nothing. The four steps below are how this one arrives instead,
+and only that, and `make stack-up` copies that starter into `.podium/agent` once — so a first
+bring-up gets a bot that runs anywhere and holds nothing. The four steps below are how this
+one arrives instead,
 and they are four steps rather than a default because a privileged node, a GitHub token with
 write access to Podium and 8 GB of RAM are things you should have decided to hand over.
 

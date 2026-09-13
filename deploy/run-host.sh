@@ -92,15 +92,30 @@ fi
 if [ -n "${PODIUM_AGENT_TOKEN:-}" ]; then
 	: "${PODIUM_AGENT_URL:=http://127.0.0.1:8090}"
 fi
-# The WORKED EXAMPLE, deliberately, and not the profile this repository's own bot runs.
-# examples/agent loads and runs on any node: one playbook, the base image, no credential and
-# no skill library. ../profile is the real bot — a privileged node, a Docker daemon, a
-# browser, a GitHub token and a skill out of ../skills — so a first `make stack-up` pointed
-# there would come up fine and then fail every turn at provisioning, naming a node flag the
-# newcomer has never set. The real deployment names it in .env instead, together with
-# PODIUM_AGENT_SKILLS_DIR; those two travel as a pair, because a playbook whose skill is
-# missing fails its turns. See deploy/.env.example and profile/README.md.
-: "${PODIUM_AGENT_PROFILE_DIR:=$root/examples/agent}"
+# A fresh bot lives in the state dir, not in this checkout. examples/agent is only the
+# TEMPLATE copied once into $STATE/agent; after that the operator owns those files (or
+# replaces the directory). Pointing PODIUM_AGENT_PROFILE_DIR at the repository would make
+# every clone's default the same shared tree, and a compose .env must never do that either.
+# ../profile is the real bot — a privileged node, a Docker daemon, a browser, a GitHub
+# token and a skill out of ../skills — so a first `make stack-up` pointed there would come
+# up fine and then fail every turn at provisioning. See deploy/.env.example and
+# profile/README.md.
+if [ -z "${PODIUM_AGENT_PROFILE_DIR:-}" ]; then
+	PODIUM_AGENT_PROFILE_DIR=$STATE/agent
+	if [ ! -f "$PODIUM_AGENT_PROFILE_DIR/profile.yaml" ]; then
+		starter=$root/examples/agent
+		[ -f "$starter/profile.yaml" ] || {
+			echo "no starter profile at $starter and $PODIUM_AGENT_PROFILE_DIR/profile.yaml is missing" >&2
+			exit 1
+		}
+		mkdir -p "$PODIUM_AGENT_PROFILE_DIR"
+		cp -a "$starter/." "$PODIUM_AGENT_PROFILE_DIR/"
+	fi
+fi
+if [ -z "${PODIUM_AGENT_SKILLS_DIR:-}" ]; then
+	PODIUM_AGENT_SKILLS_DIR=$STATE/skills
+	mkdir -p "$PODIUM_AGENT_SKILLS_DIR"
+fi
 : "${PODIUM_NODE_DATA_DIR:=$STATE/node}"
 : "${PODIUM_TS_STATE_DIR:=$STATE/tsnet}"
 
@@ -182,7 +197,8 @@ fi
 : "${PODIUM_AGENT_API_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
 export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_DATABASE_URL \
 	PODIUM_S3_ENDPOINT PODIUM_S3_BUCKET PODIUM_S3_ACCESS_KEY PODIUM_S3_USE_SSL \
-	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_NODE_DATA_DIR PODIUM_TS_STATE_DIR \
+	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_AGENT_SKILLS_DIR \
+	PODIUM_NODE_DATA_DIR PODIUM_TS_STATE_DIR \
 	PODIUM_SERVER PODIUM_AGENT_SERVER PODIUM_NODE_SERVER PODIUM_NODE_TRANSPORT \
 	PODIUM_NODE_LOCAL_TOKEN PODIUM_AGENT_API_TOKEN
 # Exported explicitly rather than relying on the `set -a` that read the file: an `auto` above

@@ -158,8 +158,10 @@ services:
     # No healthcheck: distroless, so nothing to exec. Probe /readyz instead.
 
   # The conductor. An ordinary API client of the server: its own database, its own token, no
-  # master key, no Docker socket. Its profile directory ships in the image at /etc/podium/agent
-  # — mount your own over it, read-only, to run your own bot. See ../docs/agent.md.
+  # master key, no Docker socket. A starter profile ships in the image at /etc/podium/agent.
+  # Bind your own playbooks and skills over it with PODIUM_AGENT_PROFILE_HOST and
+  # PODIUM_AGENT_SKILLS_HOST — host paths, never this repository. Unset, those names are
+  # Docker volumes: a fresh install. See ../docs/agent.md.
   agent:
     image: ${PODIUM_AGENT_IMAGE:-${PODIUM_IMAGE_REPO:-ghcr.io/podium-ade}/podium-agent:${PODIUM_IMAGE_TAG:-latest}}
     depends_on:
@@ -170,7 +172,8 @@ services:
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:-podium}@postgres:5432/podium_agent
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090   # no ports: the server proxies it, one origin one login
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
-      PODIUM_AGENT_PROFILE_DIR: /etc/podium/agent
+      PODIUM_AGENT_PROFILE_DIR: ${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      PODIUM_AGENT_SKILLS_DIR: ${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
       PODIUM_AGENT_SLACK_APP_TOKEN: ${PODIUM_AGENT_SLACK_APP_TOKEN:-}   # both or neither
       PODIUM_AGENT_SLACK_BOT_TOKEN: ${PODIUM_AGENT_SLACK_BOT_TOKEN:-}
       PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
@@ -184,6 +187,10 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
+    volumes:
+      # Bare name → named volume (starter copied from the image on first up). A path → bind.
+      - ${PODIUM_AGENT_PROFILE_HOST:-agent-profile}:${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
+      - ${PODIUM_AGENT_SKILLS_HOST:-agent-skills}:${PODIUM_AGENT_SKILLS_DIR:-/etc/podium/skills}
     restart: unless-stopped
     # A turn needs an Anthropic key, set in the UI so it lands in the encrypted secret store.
 
@@ -228,6 +235,8 @@ volumes:
   pgdata:
   objectstore-data:
   server-state:
+  agent-profile:
+  agent-skills:
 
 # Inline, so this deployment is one file. Byte-identical to postgres/init.sql, which the dev
 # and tailnet compose files mount from disk; `go test ./deploy/...` fails if they drift.
