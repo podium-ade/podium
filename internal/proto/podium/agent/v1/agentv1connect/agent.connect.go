@@ -79,8 +79,26 @@ const (
 	// AgentServiceReloadProfileDirProcedure is the fully-qualified name of the AgentService's
 	// ReloadProfileDir RPC.
 	AgentServiceReloadProfileDirProcedure = "/podium.agent.v1.AgentService/ReloadProfileDir"
+	// AgentServiceCreatePlaybookProcedure is the fully-qualified name of the AgentService's
+	// CreatePlaybook RPC.
+	AgentServiceCreatePlaybookProcedure = "/podium.agent.v1.AgentService/CreatePlaybook"
+	// AgentServiceUpdatePlaybookProcedure is the fully-qualified name of the AgentService's
+	// UpdatePlaybook RPC.
+	AgentServiceUpdatePlaybookProcedure = "/podium.agent.v1.AgentService/UpdatePlaybook"
+	// AgentServiceDeletePlaybookProcedure is the fully-qualified name of the AgentService's
+	// DeletePlaybook RPC.
+	AgentServiceDeletePlaybookProcedure = "/podium.agent.v1.AgentService/DeletePlaybook"
 	// AgentServiceListSkillsProcedure is the fully-qualified name of the AgentService's ListSkills RPC.
 	AgentServiceListSkillsProcedure = "/podium.agent.v1.AgentService/ListSkills"
+	// AgentServiceUploadSkillProcedure is the fully-qualified name of the AgentService's UploadSkill
+	// RPC.
+	AgentServiceUploadSkillProcedure = "/podium.agent.v1.AgentService/UploadSkill"
+	// AgentServiceSetSkillEnabledProcedure is the fully-qualified name of the AgentService's
+	// SetSkillEnabled RPC.
+	AgentServiceSetSkillEnabledProcedure = "/podium.agent.v1.AgentService/SetSkillEnabled"
+	// AgentServiceDeleteSkillProcedure is the fully-qualified name of the AgentService's DeleteSkill
+	// RPC.
+	AgentServiceDeleteSkillProcedure = "/podium.agent.v1.AgentService/DeleteSkill"
 	// AgentServiceListMcpServersProcedure is the fully-qualified name of the AgentService's
 	// ListMcpServers RPC.
 	AgentServiceListMcpServersProcedure = "/podium.agent.v1.AgentService/ListMcpServers"
@@ -187,9 +205,19 @@ type AgentServiceClient interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
+	// CreatePlaybook, UpdatePlaybook and DeletePlaybook are kept for wire compatibility.
+	// Playbooks are files; these RPCs refuse with failed_precondition.
+	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
+	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
+	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
 	// ListSkills reports every Agent Skill under PODIUM_AGENT_SKILLS_DIR on this host. Skills
 	// are directories with a SKILL.md; this RPC does not write one.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// UploadSkill, SetSkillEnabled and DeleteSkill are kept for wire compatibility.
+	// Skills are directories; these RPCs refuse with failed_precondition.
+	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
+	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// ListMcpServers reports every MCP server registered on this conductor, with which
 	// playbooks name each one. It never carries a token: a server's credential is a Podium
 	// secret and the last four characters kept at save time are all any client ever sees.
@@ -367,10 +395,46 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
 			connect.WithClientOptions(opts...),
 		),
+		createPlaybook: connect.NewClient[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse](
+			httpClient,
+			baseURL+AgentServiceCreatePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreatePlaybook")),
+			connect.WithClientOptions(opts...),
+		),
+		updatePlaybook: connect.NewClient[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse](
+			httpClient,
+			baseURL+AgentServiceUpdatePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdatePlaybook")),
+			connect.WithClientOptions(opts...),
+		),
+		deletePlaybook: connect.NewClient[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse](
+			httpClient,
+			baseURL+AgentServiceDeletePlaybookProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
+			connect.WithClientOptions(opts...),
+		),
 		listSkills: connect.NewClient[v1.ListSkillsRequest, v1.ListSkillsResponse](
 			httpClient,
 			baseURL+AgentServiceListSkillsProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+			connect.WithClientOptions(opts...),
+		),
+		uploadSkill: connect.NewClient[v1.UploadSkillRequest, v1.UploadSkillResponse](
+			httpClient,
+			baseURL+AgentServiceUploadSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UploadSkill")),
+			connect.WithClientOptions(opts...),
+		),
+		setSkillEnabled: connect.NewClient[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse](
+			httpClient,
+			baseURL+AgentServiceSetSkillEnabledProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetSkillEnabled")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSkill: connect.NewClient[v1.DeleteSkillRequest, v1.DeleteSkillResponse](
+			httpClient,
+			baseURL+AgentServiceDeleteSkillProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
 			connect.WithClientOptions(opts...),
 		),
 		listMcpServers: connect.NewClient[v1.ListMcpServersRequest, v1.ListMcpServersResponse](
@@ -491,7 +555,13 @@ type agentServiceClient struct {
 	getProfile            *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile         *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
 	reloadProfileDir      *connect.Client[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse]
+	createPlaybook        *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
+	updatePlaybook        *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
+	deletePlaybook        *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
 	listSkills            *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	uploadSkill           *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
+	setSkillEnabled       *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
+	deleteSkill           *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
 	listMcpServers        *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
 	createMcpServer       *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
 	updateMcpServer       *connect.Client[v1.UpdateMcpServerRequest, v1.UpdateMcpServerResponse]
@@ -595,9 +665,39 @@ func (c *agentServiceClient) ReloadProfileDir(ctx context.Context, req *connect.
 	return c.reloadProfileDir.CallUnary(ctx, req)
 }
 
+// CreatePlaybook calls podium.agent.v1.AgentService.CreatePlaybook.
+func (c *agentServiceClient) CreatePlaybook(ctx context.Context, req *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
+	return c.createPlaybook.CallUnary(ctx, req)
+}
+
+// UpdatePlaybook calls podium.agent.v1.AgentService.UpdatePlaybook.
+func (c *agentServiceClient) UpdatePlaybook(ctx context.Context, req *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error) {
+	return c.updatePlaybook.CallUnary(ctx, req)
+}
+
+// DeletePlaybook calls podium.agent.v1.AgentService.DeletePlaybook.
+func (c *agentServiceClient) DeletePlaybook(ctx context.Context, req *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error) {
+	return c.deletePlaybook.CallUnary(ctx, req)
+}
+
 // ListSkills calls podium.agent.v1.AgentService.ListSkills.
 func (c *agentServiceClient) ListSkills(ctx context.Context, req *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
 	return c.listSkills.CallUnary(ctx, req)
+}
+
+// UploadSkill calls podium.agent.v1.AgentService.UploadSkill.
+func (c *agentServiceClient) UploadSkill(ctx context.Context, req *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error) {
+	return c.uploadSkill.CallUnary(ctx, req)
+}
+
+// SetSkillEnabled calls podium.agent.v1.AgentService.SetSkillEnabled.
+func (c *agentServiceClient) SetSkillEnabled(ctx context.Context, req *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error) {
+	return c.setSkillEnabled.CallUnary(ctx, req)
+}
+
+// DeleteSkill calls podium.agent.v1.AgentService.DeleteSkill.
+func (c *agentServiceClient) DeleteSkill(ctx context.Context, req *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return c.deleteSkill.CallUnary(ctx, req)
 }
 
 // ListMcpServers calls podium.agent.v1.AgentService.ListMcpServers.
@@ -741,9 +841,19 @@ type AgentServiceHandler interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
+	// CreatePlaybook, UpdatePlaybook and DeletePlaybook are kept for wire compatibility.
+	// Playbooks are files; these RPCs refuse with failed_precondition.
+	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
+	UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error)
+	DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error)
 	// ListSkills reports every Agent Skill under PODIUM_AGENT_SKILLS_DIR on this host. Skills
 	// are directories with a SKILL.md; this RPC does not write one.
 	ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error)
+	// UploadSkill, SetSkillEnabled and DeleteSkill are kept for wire compatibility.
+	// Skills are directories; these RPCs refuse with failed_precondition.
+	UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error)
+	SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error)
+	DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error)
 	// ListMcpServers reports every MCP server registered on this conductor, with which
 	// playbooks name each one. It never carries a token: a server's credential is a Podium
 	// secret and the last four characters kept at save time are all any client ever sees.
@@ -917,10 +1027,46 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceCreatePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceCreatePlaybookProcedure,
+		svc.CreatePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("CreatePlaybook")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdatePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceUpdatePlaybookProcedure,
+		svc.UpdatePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("UpdatePlaybook")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeletePlaybookHandler := connect.NewUnaryHandler(
+		AgentServiceDeletePlaybookProcedure,
+		svc.DeletePlaybook,
+		connect.WithSchema(agentServiceMethods.ByName("DeletePlaybook")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceListSkillsHandler := connect.NewUnaryHandler(
 		AgentServiceListSkillsProcedure,
 		svc.ListSkills,
 		connect.WithSchema(agentServiceMethods.ByName("ListSkills")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUploadSkillHandler := connect.NewUnaryHandler(
+		AgentServiceUploadSkillProcedure,
+		svc.UploadSkill,
+		connect.WithSchema(agentServiceMethods.ByName("UploadSkill")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetSkillEnabledHandler := connect.NewUnaryHandler(
+		AgentServiceSetSkillEnabledProcedure,
+		svc.SetSkillEnabled,
+		connect.WithSchema(agentServiceMethods.ByName("SetSkillEnabled")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeleteSkillHandler := connect.NewUnaryHandler(
+		AgentServiceDeleteSkillProcedure,
+		svc.DeleteSkill,
+		connect.WithSchema(agentServiceMethods.ByName("DeleteSkill")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceListMcpServersHandler := connect.NewUnaryHandler(
@@ -1055,8 +1201,20 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceUpdateProfileHandler.ServeHTTP(w, r)
 		case AgentServiceReloadProfileDirProcedure:
 			agentServiceReloadProfileDirHandler.ServeHTTP(w, r)
+		case AgentServiceCreatePlaybookProcedure:
+			agentServiceCreatePlaybookHandler.ServeHTTP(w, r)
+		case AgentServiceUpdatePlaybookProcedure:
+			agentServiceUpdatePlaybookHandler.ServeHTTP(w, r)
+		case AgentServiceDeletePlaybookProcedure:
+			agentServiceDeletePlaybookHandler.ServeHTTP(w, r)
 		case AgentServiceListSkillsProcedure:
 			agentServiceListSkillsHandler.ServeHTTP(w, r)
+		case AgentServiceUploadSkillProcedure:
+			agentServiceUploadSkillHandler.ServeHTTP(w, r)
+		case AgentServiceSetSkillEnabledProcedure:
+			agentServiceSetSkillEnabledHandler.ServeHTTP(w, r)
+		case AgentServiceDeleteSkillProcedure:
+			agentServiceDeleteSkillHandler.ServeHTTP(w, r)
 		case AgentServiceListMcpServersProcedure:
 			agentServiceListMcpServersHandler.ServeHTTP(w, r)
 		case AgentServiceCreateMcpServerProcedure:
@@ -1166,8 +1324,32 @@ func (UnimplementedAgentServiceHandler) ReloadProfileDir(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ReloadProfileDir is not implemented"))
 }
 
+func (UnimplementedAgentServiceHandler) CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreatePlaybook is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdatePlaybook(context.Context, *connect.Request[v1.UpdatePlaybookRequest]) (*connect.Response[v1.UpdatePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdatePlaybook is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeletePlaybook(context.Context, *connect.Request[v1.DeletePlaybookRequest]) (*connect.Response[v1.DeletePlaybookResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePlaybook is not implemented"))
+}
+
 func (UnimplementedAgentServiceHandler) ListSkills(context.Context, *connect.Request[v1.ListSkillsRequest]) (*connect.Response[v1.ListSkillsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSkills is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UploadSkill(context.Context, *connect.Request[v1.UploadSkillRequest]) (*connect.Response[v1.UploadSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UploadSkill is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetSkillEnabled(context.Context, *connect.Request[v1.SetSkillEnabledRequest]) (*connect.Response[v1.SetSkillEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSkillEnabled is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeleteSkill(context.Context, *connect.Request[v1.DeleteSkillRequest]) (*connect.Response[v1.DeleteSkillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeleteSkill is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
