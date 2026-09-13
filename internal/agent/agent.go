@@ -23,6 +23,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/agent/github"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
@@ -56,6 +57,7 @@ type Agent struct {
 	profiles  *profiles.Live
 	svc       *api.AgentService
 	turns     *api.TurnService
+	gitcred   *api.GitCredentialService
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
@@ -258,6 +260,24 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"conversations on this host.")
 	}
 
+	// The GitHub App, when one is configured. Nil leaves every playbook on the older
+	// path — its own podium.agent.github_token — untouched.
+	var gh *github.Client
+	if a.cfg.GitHubAppEnabled() {
+		pem, err := a.cfg.GitHubAppPrivateKey()
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		gh, err = github.New(github.Options{AppID: a.cfg.GitHubAppID, PrivateKeyPEM: pem})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		logger.Info("github app configured: turns will mint their own installation tokens",
+			"app_id", a.cfg.GitHubAppID, "task_url", a.cfg.TaskURL)
+	}
+
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
@@ -272,6 +292,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Host:         host,
 		HostMaxTurns: a.cfg.HostMaxTurns,
 		Mirror:       a.chat,
+		GitHub:       gh,
+		GitTaskURL:   a.cfg.TaskURL,
+		// The conductor's own bearer, as the seed for the key a turn's capability is
+		// signed with. Derived and not generated so a capability survives a restart, as
+		// the turn holding it does. See conductor/gitcred.go.
+		MintSecret: a.cfg.Token,
 	})
 	if err != nil {
 		st.Close()
@@ -301,6 +327,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// call to it answers FailedPrecondition.
 	if host != nil {
 		a.turns = api.NewTurnService(a.conductor, logger)
+	}
+	// The minting surface, which unlike the turn surface is reached from a TASK. Only
+	// mounted when there is an App to mint from: without one there is nothing to serve and
+	// no reason to answer on the path at all.
+	if gh != nil {
+		a.gitcred = api.NewGitCredentialService(a.conductor, logger)
 	}
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
@@ -349,6 +381,16 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 		// podium-server proxies the AgentService path only, so this stays on loopback.
 		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
 		root.Handle(turnPath, turnHandler)
+	}
+	if a.gitcred != nil {
+		// Not behind RequireBearer either, and for a sharper reason than the turn surface
+		// above: this one is reached from a TASK CONTAINER, over the network, at
+		// PODIUM_AGENT_TASK_URL. Its whole authentication is the signed capability the
+		// caller presents, which names one turn and the repositories that turn's playbook
+		// listed. Nothing else on this listener is reachable from there — podium-server
+		// proxies AgentService only, and the operator bearer is never sent to a task.
+		gitPath, gitHandler := agentv1connect.NewGitCredentialServiceHandler(a.gitcred, opts...)
+		root.Handle(gitPath, gitHandler)
 	}
 	if a.dev != nil {
 		dev := api.RequireBearer(a.cfg.Token, a.dev.Handler())

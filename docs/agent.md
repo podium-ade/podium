@@ -1084,6 +1084,7 @@ allow-list. These three are simply the names Podium's own docs and defaults use.
 | `podium.agent.xai_api_key` | `XAI_API_KEY` | every turn on the `grok` backend; likewise. It holds an xAI API key **or** the access token of a subscription sign-in — both are bearers for the same endpoint |
 | `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A playbook may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a playbook with `repos:` — and only the playbooks whose files name it. See *Playbooks that clone repositories* |
+| `podium.agent.git_capability.<turn>` | `PODIUM_GIT_CAPABILITY` | every turn of a playbook with `repos:`, when a GitHub App is configured. Written by the conductor before the task and deleted when the turn ends; a playbook may not name one |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 
 The model credential must **exist** before a turn on that backend can run, even a dry run: the
@@ -1630,7 +1631,62 @@ repos:
 deploys on merge, and have its prompt open a **draft** pull request so a human reads the diff
 before anything happens.
 
-### The GitHub token
+### The GitHub credential
+
+There are two ways a turn gets one, and the second is better in every respect that matters. Both
+work; a playbook needs no change to move between them.
+
+#### A GitHub App — short-lived, scoped, nobody's personal access
+
+Configure an App on the conductor and a turn stops carrying a GitHub token at all. It carries a
+**capability** — a string the conductor signed, naming that turn and the repositories its
+playbook listed — and it redeems that capability for a fresh installation token whenever git asks
+for one.
+
+That indirection is the whole design, and the reason for it is arithmetic. An installation token
+lives **one hour** and cannot be renewed. An agent commits and pushes at the **end** of its turn,
+and `podium.yaml` sets `timeout: 2h`. A token handed to the container at the start would be dead
+exactly when the push needed it. So `credential.helper` is a program git runs *every time* it
+wants a password — once per clone, once per fetch, once per push — and each call returns a token
+minted seconds earlier.
+
+```sh
+# In deploy/.env, on the conductor's host:
+PODIUM_AGENT_GITHUB_APP_ID=123456
+PODIUM_AGENT_GITHUB_APP_KEY_FILE=/etc/podium/github-app.pem
+PODIUM_AGENT_TASK_URL=http://host.docker.internal:8090
+```
+
+On GitHub: create an App, give it **Contents: read and write** and **Pull requests: read and
+write** and nothing else, install it on the accounts holding the repositories your playbooks
+name, and generate a private key.
+
+What you get over a personal access token:
+
+- **An hour, not for ever.** Every token expires on its own, so a leaked one is a leaked hour.
+- **Only the playbook's repositories.** The token is scoped to that playbook's `repos:` list at
+  mint time, whatever the App itself is installed on.
+- **Nobody's personal access.** It is not tied to a human, so it does not carry their other
+  repositories and does not die when they leave.
+- **Revoked centrally**, by uninstalling the App, rather than by somebody remembering to.
+
+Two things to know before you turn it on:
+
+- **Commits are authored by the App's bot account** — `<slug>[bot]`, with the address GitHub
+  links commits by. That is a change in who your history says wrote the work, and if a deployment
+  gate checks the commit author's access to a team (Vercel does), you should confirm it accepts a
+  bot author before relying on it.
+- **All of a playbook's repos must belong to one account.** One installation token covers one
+  installation and the container has one credential helper, so a playbook spanning two accounts is
+  refused at the start of the turn rather than half-working.
+- **The private key can mint for every repository the App is installed on**, which makes it more
+  valuable than the token it replaces. It stays on the conductor's host and is never handed to a
+  task. Treat it like `PODIUM_MASTER_KEY`.
+
+A task also becomes able to reach the conductor, at `PODIUM_AGENT_TASK_URL`, for that one method
+and no other. See [`security.md`](security.md#the-minting-endpoint).
+
+#### A personal access token — the older path, still supported
 
 A playbook only ever gets the secrets its own file names, so the token reaches the turns of the
 playbooks that name it and no others.
@@ -1656,9 +1712,16 @@ loss of.
 ### Repositories
 
 `repos:` is copied into the brief and the runtime shallow-clones each one into
-`/workspace/<name>` at the start of the turn, on its `default_branch`, with `user.name
-podium-agent` and `user.email podium-agent@users.noreply.github.com`. Only `https` with a token is
-supported: no SSH, no GitHub App, no GitLab.
+`/workspace/<name>` at the start of the turn, on its `default_branch`. Only `https` is supported:
+no SSH, no GitLab.
+
+Who the commits are by depends on which credential the turn got. With a **GitHub App** it is the
+App's own bot account, which the runtime learns when it mints and writes into each clone. With a
+**personal access token** it is `user.name podium-agent` and `user.email
+podium-agent@users.noreply.github.com` — and that address belongs to **no GitHub account**, so
+GitHub cannot link those commits to one. Anything that resolves a commit author will report them
+as unattributed; a deployment gate that checks the author's access to a team will refuse the pull
+request outright. If you are on the token path and that matters, use the App.
 
 There is no working tree carried between turns. Every turn clones again. A follow-up comment that
 says "now also do X" starts from the default branch, and the agent has to find its own earlier
@@ -2093,9 +2156,10 @@ task it delegates, and may choose several while answering once.
   `https://github.com/<owner>/<repo>/pull/<number>` — and it is canonicalised, so `/pull/12/files`
   and `/pull/12` are one link and one row. A bare `#123` is not a reference this can resolve, an
   issue is not a pull request, and neither is another host. One turn may link at most 20.
-  **Nothing calls GitHub.** The conductor holds no GitHub credential — `podium.agent.github_token`
-  is a secret attached to *tasks* — so there is no title and no open/merged state, only what the
-  URL itself said. A person can also attach one by hand (`AttachChatPullRequest`) and detach one
+  **Nothing calls GitHub.** There is no title and no open/merged state here, only what the URL
+  itself said. On the token path the conductor holds no GitHub credential at all
+  (`podium.agent.github_token` is a secret attached to *tasks*); with a GitHub App it holds one
+  and still does not use it for this — a link in a chat is not worth coupling to a vendor. A person can also attach one by hand (`AttachChatPullRequest`) and detach one
   (`DetachChatPullRequest`); the row records which of the two it was. **A detach sticks against
   the bot**: a later turn in the same chat that mentions the same pull request does not put it
   back, because a person removing a link means it. Attaching it again by hand is how it returns.

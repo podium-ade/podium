@@ -2,6 +2,10 @@ package config
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -214,4 +218,136 @@ func TestLoggingAConfigLeaksNoMemoryKey(t *testing.T) {
 	assert.NotContains(t, out, "memtoken-secret")
 	assert.Contains(t, out, "memory_api_key_set=true")
 	assert.Contains(t, out, "http://hindsight:8888")
+}
+
+// ---------------------------------------------------------------------------
+// the GitHub App
+// ---------------------------------------------------------------------------
+
+// appKeyPEM writes a real RSA key to a file and returns the path. Real rather than a
+// placeholder because Validate parses it: a fake would test the wrong branch.
+func appKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "app.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}), 0o600))
+	return path
+}
+
+// withApp is a valid config that mints through an App. Listen is not the default: a
+// loopback listener is unreachable from a task, which Validate refuses on purpose.
+func withApp(t *testing.T) Config {
+	t.Helper()
+	cfg := valid(t)
+	cfg.Listen = "0.0.0.0:8090"
+	cfg.GitHubAppID = "123456"
+	cfg.GitHubAppKeyFile = appKeyPEM(t)
+	cfg.TaskURL = DefaultTaskURL
+	return cfg
+}
+
+// The App is additive: an install that never heard of it keeps the PAT path untouched.
+func TestGitHubAppIsOffUnlessConfigured(t *testing.T) {
+	cfg := valid(t)
+	assert.False(t, cfg.GitHubAppEnabled())
+	require.NoError(t, cfg.Validate(), "no GitHub App is a supported configuration")
+}
+
+func TestGitHubAppDefaults(t *testing.T) {
+	t.Setenv("PODIUM_AGENT_GITHUB_APP_ID", "  123456  ")
+	cfg := FromEnv()
+
+	assert.Equal(t, "123456", cfg.GitHubAppID, "an id pasted with whitespace is still an id")
+	assert.Equal(t, DefaultTaskURL, cfg.TaskURL,
+		"a task reaches this conductor through the bridge gateway, as it reaches Hindsight")
+}
+
+func TestGitHubAppAcceptsAWholeConfiguration(t *testing.T) {
+	cfg := withApp(t)
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.GitHubAppEnabled())
+
+	got, err := cfg.GitHubAppPrivateKey()
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "BEGIN RSA PRIVATE KEY")
+}
+
+func TestGitHubAppReadsTheKeyFromTheEnvironmentToo(t *testing.T) {
+	cfg := withApp(t)
+	raw, err := os.ReadFile(cfg.GitHubAppKeyFile)
+	require.NoError(t, err)
+	cfg.GitHubAppKeyFile = ""
+	cfg.GitHubAppKey = string(raw)
+
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.GitHubAppEnabled())
+}
+
+// Half-configured is the state worth refusing loudly: it leaves the App off and every turn
+// quietly back on whatever PAT the playbook still names.
+func TestGitHubAppValidationNamesTheVariableThatIsWrong(t *testing.T) {
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		{"key without an id", func(c *Config) { c.GitHubAppID = "" }, "PODIUM_AGENT_GITHUB_APP_ID"},
+		{"id without a key", func(c *Config) { c.GitHubAppKeyFile = "" },
+			"PODIUM_AGENT_GITHUB_APP_KEY_FILE"},
+		{"both key forms at once", func(c *Config) { c.GitHubAppKey = "-----BEGIN RSA PRIVATE KEY-----" },
+			"both set"},
+		{"key file that is not there", func(c *Config) { c.GitHubAppKeyFile = "/nope/app.pem" },
+			"PODIUM_AGENT_GITHUB_APP_KEY_FILE"},
+		{"relative task url", func(c *Config) { c.TaskURL = "host.docker.internal:8090" },
+			"PODIUM_AGENT_TASK_URL"},
+		{"empty task url", func(c *Config) { c.TaskURL = "" }, "PODIUM_AGENT_TASK_URL"},
+		// The App would be configured and every clone would still fail, at the first
+		// command of the turn, with a git error rather than a sentence.
+		{"loopback listener", func(c *Config) { c.Listen = DefaultListen }, "PODIUM_AGENT_LISTEN"},
+		{"localhost listener", func(c *Config) { c.Listen = "localhost:8090" }, "PODIUM_AGENT_LISTEN"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := withApp(t)
+			tc.mut(&cfg)
+
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// A key that is not a key is an operator's typo, and Validate is where a typo should cost a
+// restart rather than a turn.
+func TestGitHubAppRefusesAKeyThatIsNotOne(t *testing.T) {
+	cfg := withApp(t)
+	require.NoError(t, os.WriteFile(cfg.GitHubAppKeyFile, []byte("ghp_this_is_a_pat"), 0o600))
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "BEGIN RSA PRIVATE KEY")
+}
+
+// The private key mints a token for every repository the App is installed on, which makes
+// it the most valuable thing this process holds. It must never be printed.
+func TestLoggingAConfigLeaksNoAppKey(t *testing.T) {
+	cfg := withApp(t)
+	raw, err := os.ReadFile(cfg.GitHubAppKeyFile)
+	require.NoError(t, err)
+	cfg.GitHubAppKeyFile = ""
+	cfg.GitHubAppKey = string(raw)
+
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
+
+	out := buf.String()
+	assert.NotContains(t, out, "BEGIN RSA PRIVATE KEY")
+	assert.NotContains(t, out, "PRIVATE")
+	assert.Contains(t, out, "github_app_key_set=true")
+	assert.Contains(t, out, "github_app_id=123456")
 }

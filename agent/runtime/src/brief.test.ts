@@ -288,3 +288,28 @@ describe("decodeBrief", () => {
     }
   });
 });
+
+describe("git_credentials", () => {
+  it("accepts an address and the name of the variable the capability arrives in", () => {
+    const brief = decodeBrief(encode({ ...minimal, git_credentials: { url: "http://host.docker.internal:8090", token_env: "PODIUM_GIT_CAPABILITY" } }));
+    expect(brief.git_credentials?.url).toBe("http://host.docker.internal:8090");
+    expect(brief.git_credentials?.token_env).toBe("PODIUM_GIT_CAPABILITY");
+  });
+
+  it("is optional: a playbook on the older token path carries none", () => {
+    expect(decodeBrief(encode(minimal)).git_credentials).toBeUndefined();
+  });
+
+  it("refuses a half-written one rather than failing at the first clone", () => {
+    expect(() => decodeBrief(encode({ ...minimal, git_credentials: { url: "http://c:8090" } }))).toThrow(BriefError);
+    expect(() => decodeBrief(encode({ ...minimal, git_credentials: { token_env: "X" } }))).toThrow(BriefError);
+  });
+
+  // A brief is an environment variable on a task spec. It may name a credential and must
+  // never carry one, so an unknown key here is exit 2 rather than something ignored.
+  it("refuses an unknown key", () => {
+    expect(() =>
+      decodeBrief(encode({ ...minimal, git_credentials: { url: "http://c:8090", token_env: "X", token: "ghs_leaked" } })),
+    ).toThrow(BriefError);
+  });
+});

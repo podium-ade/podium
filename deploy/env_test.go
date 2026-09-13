@@ -38,6 +38,12 @@ var notConfiguration = map[string]string{
 	// turn can delegate a task in its own conversation. It lives as long as the turn and
 	// an operator never sets one.
 	"PODIUM_TURN_TOKEN": "minted by the conductor for one host turn",
+	// Signed per TASK turn by the conductor and delivered as that turn's own secret: the
+	// authority to mint a GitHub token for the repositories its playbook listed. It is read
+	// by the git credential helper inside the container, it stops working when the turn
+	// ends, and an operator never sets one. What an operator sets is
+	// PODIUM_AGENT_GITHUB_APP_ID and its key.
+	"PODIUM_GIT_CAPABILITY": "signed by the conductor for one turn, delivered as a secret",
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",
