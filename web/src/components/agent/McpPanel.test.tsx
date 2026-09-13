@@ -145,7 +145,9 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
-    expect(screen.getByText("Create, search and update issues, projects and cycles.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Search, create and update issues, projects and cycles. Comment on issues and change status."),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("Description")).toBeNull();
     expect(screen.getByPlaceholderText("lin_api_…")).toBeInTheDocument();
     expect(screen.getByText(/starts with lin_api_/)).toBeInTheDocument();
@@ -158,7 +160,9 @@ describe("McpPanel", () => {
     ];
     expect(req.server.name).toBe("linear");
     expect(req.server.url).toBe("https://mcp.linear.app/mcp");
-    expect(req.server.description).toBe("Create, search and update issues, projects and cycles.");
+    expect(req.server.description).toBe(
+      "Search, create and update issues, projects and cycles. Comment on issues and change status.",
+    );
     expect(req.token).toBe("lin_api_secret");
   });
 
@@ -178,13 +182,14 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     expect(screen.getByText("Custom")).toBeInTheDocument();
-    expect(screen.getByText("Issues and cycles")).toBeInTheDocument();
-    expect(screen.getByText("Repos, issues, PRs")).toBeInTheDocument();
-    expect(screen.getByText("Your own URL")).toBeInTheDocument();
+    expect(screen.queryByText("Issues and cycles")).toBeNull();
     expect(screen.queryByLabelText("Start from")).toBeNull();
 
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     expect(screen.getByRole("heading", { name: "Add a custom server" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Point at any MCP endpoint the conductor can reach/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(screen.getByLabelText("Name")).toHaveValue("");

@@ -12,8 +12,6 @@ export type McpPreset = {
   /** name becomes the registration's name and the prefix its tools carry. */
   name: string;
   url: string;
-  /** blurb is the one-line note on the picker tile. */
-  blurb: string;
   /** description is the helper under the title once a product is picked. */
   description: string;
   /** tokenPlaceholder is the product's own key shape, shown in the token field. */
@@ -25,13 +23,16 @@ export type McpPreset = {
 const GENERIC_TOKEN_HINT =
   "Sent as Authorization: Bearer. Stored as a Podium secret; only the last four characters are ever read back. Leave it empty for a server that needs no credential, or to sign in later.";
 
+export const CUSTOM_MCP_DESCRIPTION =
+  "Point at any MCP endpoint the conductor can reach. Playbooks that name it get the tools that server advertises.";
+
 export const MCP_PRESETS: McpPreset[] = [
   {
     label: "Linear",
     name: "linear",
     url: "https://mcp.linear.app/mcp",
-    blurb: "Issues and cycles",
-    description: "Create, search and update issues, projects and cycles.",
+    description:
+      "Search, create and update issues, projects and cycles. Comment on issues and change status.",
     tokenPlaceholder: "lin_api_…",
     tokenHint:
       "A Linear personal API key from Settings → Security & access. It starts with lin_api_. Leave empty to sign in later.",
@@ -40,8 +41,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Notion",
     name: "notion",
     url: "https://mcp.notion.com/mcp",
-    blurb: "Pages and databases",
-    description: "Read and write pages, databases and comments.",
+    description: "Read and write pages and databases. Search the workspace and add comments.",
     tokenPlaceholder: "ntn_…",
     tokenHint:
       "A Notion internal integration token from notion.so/my-integrations. It starts with ntn_ (older ones, secret_). Leave empty to sign in later.",
@@ -50,8 +50,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Sentry",
     name: "sentry",
     url: "https://mcp.sentry.dev/mcp",
-    blurb: "Errors and traces",
-    description: "Inspect issues, stack traces and recent errors.",
+    description: "Inspect issues and stack traces. List recent errors and pull event details.",
     tokenPlaceholder: "sntryu_…",
     tokenHint:
       "A Sentry User Auth Token from Settings → Account → API → Auth Tokens. Organization tokens start with sntrys_. Leave empty to sign in later.",
@@ -60,8 +59,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "GitHub",
     name: "github",
     url: "https://api.githubcopilot.com/mcp/",
-    blurb: "Repos, issues, PRs",
-    description: "Work with repositories, issues, pull requests and checks.",
+    description: "List and search repositories, issues and pull requests. Read files and checks.",
     tokenPlaceholder: "ghp_…",
     tokenHint:
       "A GitHub personal access token. Classic tokens start with ghp_, fine-grained with github_pat_. Leave empty to sign in later.",
@@ -70,8 +68,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Slack",
     name: "slack",
     url: "https://mcp.slack.com/mcp",
-    blurb: "Channels and messages",
-    description: "Search channels and read or post messages.",
+    description: "Search channels, read threads and post messages.",
     tokenPlaceholder: "xoxb-…",
     tokenHint:
       "A Slack bot token from api.slack.com/apps. It starts with xoxb- (bot) or xoxp- (user). Leave empty to sign in later.",
@@ -80,7 +77,6 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Stripe",
     name: "stripe",
     url: "https://mcp.stripe.com",
-    blurb: "Payments and invoices",
     description: "Look up customers, payments, subscriptions and invoices.",
     tokenPlaceholder: "sk_live_…",
     tokenHint:
@@ -90,8 +86,7 @@ export const MCP_PRESETS: McpPreset[] = [
     label: "Figma",
     name: "figma",
     url: "https://mcp.figma.com/mcp",
-    blurb: "Files and components",
-    description: "Read files, components and design context.",
+    description: "Read file structure, components and design context from selected frames.",
     tokenPlaceholder: "figd_…",
     tokenHint:
       "A Figma personal access token from Settings → Security. It starts with figd_. Leave empty to sign in later.",

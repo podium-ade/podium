@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import {
+  CUSTOM_MCP_DESCRIPTION,
   MCP_PRESETS,
   callbackURL,
   presetFor,
@@ -459,8 +460,7 @@ function ServerDialog({
   const description = creating ? (preset?.description ?? "") : (server.description ?? "");
   const helper = picking
     ? "Pick a known server to fill in its endpoint, or Custom to enter your own."
-    : description ||
-      "A custom MCP endpoint the conductor can reach. Playbooks that name it get its tools.";
+    : description || CUSTOM_MCP_DESCRIPTION;
 
   function apply(next: McpPreset | "custom") {
     setPicked(next);
@@ -636,18 +636,11 @@ function ProductPicker({ onPick }: { onPick: (next: McpPreset | "custom") => voi
           key={p.name}
           name={p.name}
           label={p.label}
-          blurb={p.blurb}
           testId="mcp-preset"
           onClick={() => onPick(p)}
         />
       ))}
-      <ProductTile
-        name="custom"
-        label="Custom"
-        blurb="Your own URL"
-        testId="mcp-preset-custom"
-        onClick={() => onPick("custom")}
-      />
+      <ProductTile name="custom" label="Custom" testId="mcp-preset-custom" onClick={() => onPick("custom")} />
     </div>
   );
 }
@@ -655,13 +648,11 @@ function ProductPicker({ onPick }: { onPick: (next: McpPreset | "custom") => voi
 function ProductTile({
   name,
   label,
-  blurb,
   testId,
   onClick,
 }: {
   name: string;
   label: string;
-  blurb: string;
   testId: string;
   onClick: () => void;
 }) {
@@ -671,16 +662,13 @@ function ProductTile({
       data-testid={testId}
       onClick={onClick}
       className={cn(
-        "flex h-[5.75rem] flex-col items-center gap-1 rounded-lg px-1.5 py-2 text-center",
+        "flex flex-col items-center gap-2 rounded-lg px-2 py-2.5 text-center",
         "outline-none transition-colors hover:bg-raised",
         "focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
     >
-      <McpMark name={name} className="size-9 rounded-xl" />
+      <McpMark name={name} className="size-10 rounded-xl" />
       <span className="text-xs font-medium text-fg">{label}</span>
-      <span className="w-full truncate text-2xs leading-4 text-muted" title={blurb}>
-        {blurb}
-      </span>
     </button>
   );
 }
