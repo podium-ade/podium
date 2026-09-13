@@ -95,12 +95,13 @@ describe("McpPanel", () => {
     listMcpServers.mockResolvedValue({ servers: [], maxPerPlaybook: 8 });
   });
 
-  it("says whose credential these tools spend, before anything is registered", async () => {
+  it("offers a way in before anything is registered, without a warning banner", async () => {
     mount();
     expect(await screen.findByText("No MCP servers")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
     expect(
-      screen.getByText(/token is spent by every turn of every playbook that names it/),
-    ).toBeInTheDocument();
+      screen.queryByText(/token is spent by every turn of every playbook that names it/),
+    ).toBeNull();
   });
 
   it("lists a server with its address, the four characters of its token, and who names it", async () => {
@@ -160,10 +161,25 @@ describe("McpPanel", () => {
 
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     expect(screen.getByRole("heading", { name: "Add a custom server" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(screen.queryByText(/Choose a different server/)).toBeNull();
     expect(screen.getByLabelText("Name")).toHaveValue("");
     expect(screen.getByLabelText("URL")).toHaveValue("");
     expect(screen.getByLabelText("Token")).toHaveAttribute("placeholder", "");
     expect(screen.getByText(/Leave it empty for a server that needs no credential/)).toBeInTheDocument();
+  });
+
+  it("goes back to the product picker from a chosen server", async () => {
+    mount();
+    await userEvent.click(await screen.findByTestId("mcp-new"));
+    await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
+    expect(screen.getByRole("heading", { name: "Add Linear" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.getByText("Stripe")).toBeInTheDocument();
+    expect(screen.getByText("Figma")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).toBeNull();
   });
 
   // The switch sends back the registration with one field flipped, and nothing the conductor

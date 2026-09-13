@@ -12,6 +12,7 @@ import {
   type McpPreset,
 } from "../../lib/mcp";
 import { absolute, relative } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageHeader } from "../PageHeader";
@@ -136,17 +137,6 @@ export function McpPanel() {
           retrying={list.isFetching}
         />
       ) : null}
-
-      <Alert
-        variant="warn"
-        role="note"
-        title="A server's token is spent by every turn of every playbook that names it"
-      >
-        The model decides when to call these tools, from the description the server itself
-        advertises. Give a server the narrowest credential it will work with — read-only
-        where read-only will do, and the tightest scope a sign-in offers — and name it only
-        in playbooks you would trust with that credential.
-      </Alert>
 
       {list.isPending ? <McpSkeleton /> : null}
 
@@ -539,17 +529,19 @@ function ServerDialog({
             }}
           >
             {creating ? (
-              <button
+              <Button
                 type="button"
-                className="inline-flex items-center gap-1 text-2xs text-muted hover:text-fg"
+                variant="ghost"
+                size="sm"
+                className="-ml-2 w-fit"
                 onClick={() => {
                   setPicked(undefined);
                   setError(undefined);
                 }}
               >
-                <ChevronLeft className="size-3.5" />
-                Choose a different server
-              </button>
+                <ChevronLeft />
+                Back
+              </Button>
             ) : null}
 
             <Field
@@ -663,37 +655,46 @@ function ServerDialog({
 
 function ProductPicker({ onPick }: { onPick: (next: McpPreset | "custom") => void }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
       {MCP_PRESETS.map((p) => (
-        <button
+        <ProductTile
           key={p.name}
-          type="button"
-          data-testid="mcp-preset"
+          name={p.name}
+          label={p.label}
+          testId="mcp-preset"
           onClick={() => onPick(p)}
-          className="flex items-start gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
-        >
-          <McpMark name={p.name} />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-fg">{p.label}</span>
-            <span className="mt-0.5 block text-2xs leading-relaxed text-muted">{p.description}</span>
-          </span>
-        </button>
+        />
       ))}
-      <button
-        type="button"
-        data-testid="mcp-preset-custom"
-        onClick={() => onPick("custom")}
-        className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-card px-3 py-3 text-left shadow-xs transition-colors hover:border-accent/40 hover:bg-raised"
-      >
-        <McpMark name="custom" />
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-fg">Custom</span>
-          <span className="mt-0.5 block text-2xs leading-relaxed text-muted">
-            Your own MCP server URL.
-          </span>
-        </span>
-      </button>
+      <ProductTile name="custom" label="Custom" testId="mcp-preset-custom" onClick={() => onPick("custom")} />
     </div>
+  );
+}
+
+function ProductTile({
+  name,
+  label,
+  testId,
+  onClick,
+}: {
+  name: string;
+  label: string;
+  testId: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center gap-2 rounded-lg px-2 py-2.5 text-center",
+        "outline-none transition-colors hover:bg-raised",
+        "focus-visible:ring-2 focus-visible:ring-ring/50",
+      )}
+    >
+      <McpMark name={name} className="size-10 rounded-xl" />
+      <span className="text-xs font-medium text-fg">{label}</span>
+    </button>
   );
 }
 

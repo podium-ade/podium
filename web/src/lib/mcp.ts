@@ -59,6 +59,33 @@ export const MCP_PRESETS: McpPreset[] = [
     tokenHint:
       "A GitHub personal access token. Classic tokens start with ghp_, fine-grained with github_pat_. Leave empty to sign in later.",
   },
+  {
+    label: "Slack",
+    name: "slack",
+    url: "https://mcp.slack.com/mcp",
+    description: "Channels, messages and search.",
+    tokenPlaceholder: "xoxb-…",
+    tokenHint:
+      "A Slack bot token from api.slack.com/apps. It starts with xoxb- (bot) or xoxp- (user). Leave empty to sign in later.",
+  },
+  {
+    label: "Stripe",
+    name: "stripe",
+    url: "https://mcp.stripe.com",
+    description: "Customers, payments and invoices.",
+    tokenPlaceholder: "sk_live_…",
+    tokenHint:
+      "A Stripe secret key from Dashboard → Developers → API keys. It starts with sk_live_ or sk_test_. Leave empty to sign in later.",
+  },
+  {
+    label: "Figma",
+    name: "figma",
+    url: "https://mcp.figma.com/mcp",
+    description: "Files, components and design context.",
+    tokenPlaceholder: "figd_…",
+    tokenHint:
+      "A Figma personal access token from Settings → Security. It starts with figd_. Leave empty to sign in later.",
+  },
 ];
 
 /** tokenHelp is the placeholder and hint for a picked product, or the generic custom ones. */

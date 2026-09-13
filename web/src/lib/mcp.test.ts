@@ -5,6 +5,9 @@ describe("presetFor", () => {
   it("matches a known product by registration name", () => {
     expect(presetFor({ name: "linear" })?.label).toBe("Linear");
     expect(presetFor({ name: "notion" })?.tokenPlaceholder).toBe("ntn_…");
+    expect(presetFor({ name: "slack" })?.tokenPlaceholder).toBe("xoxb-…");
+    expect(presetFor({ name: "stripe" })?.url).toBe("https://mcp.stripe.com");
+    expect(presetFor({ name: "figma" })?.url).toBe("https://mcp.figma.com/mcp");
   });
 
   it("matches a known product by endpoint host when the name is custom", () => {
