@@ -1737,13 +1737,25 @@ counterpart, that rule lives in a prompt and is therefore a courtesy: see
 
 ## The dev image
 
-`podium-agent-runtime-dev` is the one image `make agent-runtime` builds beside the base, and it
+`podium-agent-runtime-dev` is the one image Podium ships beside the base, and it
 is also the **worked example** of *Extending the runtime image* above: a real image, built the
 way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
 Node and Docker. `playbooks/playbooks/podium.yaml` is that playbook — it pairs this image with
 `docker: true`, which is what gives the turn the daemon the toolchain expects to find, and with
 `browser: true` and `skills: [validate-pr]`, which is what lets the turn look at what it built
 and attack it before saying it is done.
+
+`make agent-runtime` builds it locally as `podium-agent-runtime-dev:dev`, and a `v*` tag
+publishes it to `ghcr.io/podium-ade/podium-agent-runtime-dev` with the same tag set, SBOM and
+signature as the base — its job in `release.yml` needs the base's and builds `FROM` the digest
+that one just pushed, so the pair can never be mismatched. A local tag is visible to one
+machine; the published one is what makes a playbook naming this image schedulable on a fleet.
+
+**To use it yourself, copy [`examples/agent-dev`](../examples/agent-dev/README.md).** That is
+the playbook above with the repository and the prompt left blank, plus the `validate-pr` skill
+it names and the node flags it needs, written as a `cp` into your own profile directory.
+Nothing installs it and no default points at it: it costs a privileged node, a GitHub token and
+8 GB, and a deployment should acquire those because somebody decided to.
 
 On top of the base runtime it carries the toolchain
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks a human for, at the versions this repository is
