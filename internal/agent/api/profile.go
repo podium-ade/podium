@@ -157,8 +157,10 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		McpServers:    s.MCPServers,
 		Env:           s.Env,
 		Interactive:   s.Interactive,
+		Docker:        s.Docker,
+		Browser:       s.Browser,
 		Origin:        "file",
-		Editable:      false,
+		Editable:      true,
 	}
 	if s.Timeout > 0 {
 		out.Timeout = s.Timeout.String()

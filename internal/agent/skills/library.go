@@ -74,6 +74,7 @@ type DirSkill struct {
 	SizeBytes   int64
 	FileCount   int
 	Problem     string
+	Markdown    string
 }
 
 // ListDir reads every skill directory in dir. An unset or absent directory is not an error:
@@ -97,14 +98,15 @@ func ListDir(dir string) ([]DirSkill, error) {
 			continue
 		}
 		name := e.Name()
+		md := readSkillMD(dir, name)
 		if ValidateName(name) != nil {
-			out = append(out, DirSkill{Name: name, Problem: fmt.Sprintf(
+			out = append(out, DirSkill{Name: name, Markdown: md, Problem: fmt.Sprintf(
 				"the directory name must match %s, so the harness would never load it", NameRE)})
 			continue
 		}
 		b, err := Load(dir, name)
 		if err != nil {
-			out = append(out, DirSkill{Name: name, Problem: err.Error()})
+			out = append(out, DirSkill{Name: name, Markdown: md, Problem: err.Error()})
 			continue
 		}
 		out = append(out, DirSkill{
@@ -113,8 +115,17 @@ func ListDir(dir string) ([]DirSkill, error) {
 			SHA256:      b.SHA256,
 			SizeBytes:   int64(len(b.Document)),
 			FileCount:   b.Files,
+			Markdown:    md,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func readSkillMD(dir, name string) string {
+	raw, err := os.ReadFile(filepath.Join(dir, name, SkillFile)) //nolint:gosec // operator-owned skills dir
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }

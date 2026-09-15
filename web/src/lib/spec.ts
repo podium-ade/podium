@@ -1,6 +1,13 @@
-import { parse, stringify } from "yaml";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { TaskSpec, TaskSpecSchema } from "../gen/podium/v1/common_pb";
+import {
+  YamlReader,
+  docToYaml as encodeYaml,
+  parseYaml,
+  problemText,
+  type LineMap,
+  type YamlProblem,
+} from "./yaml";
 
 /**
  * The browser's half of `podium run --spec file.yaml`.
@@ -22,6 +29,8 @@ export interface ParsedSpec {
   spec?: SpecInit;
   /** Every problem found, in document order. Empty means `spec` is set. */
   problems: string[];
+  /** The same problems with a line, for the YAML editor gutter. */
+  issues: YamlProblem[];
 }
 
 /** The YAML shape, for the editor and for round-tripping a task back into the form. */
@@ -149,92 +158,13 @@ export function formatGoDuration(seconds: number, nanos = 0): string {
   return `${sign}${s}s`;
 }
 
-class Reader {
-  readonly problems: string[] = [];
-
-  bad(path: string, msg: string) {
-    this.problems.push(`${path}: ${msg}`);
-  }
-
-  /** openObject reads a mapping whose keys are names rather than field names. */
-  openObject(path: string, v: unknown): Record<string, unknown> | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v !== "object" || Array.isArray(v)) {
-      this.bad(path, "must be a mapping");
-      return undefined;
-    }
-    return v as Record<string, unknown>;
+class Reader extends YamlReader {
+  constructor(lines: LineMap = new Map()) {
+    super(lines);
   }
 
   object(path: string, v: unknown, known: string[]): Record<string, unknown> | undefined {
-    const obj = this.openObject(path, v);
-    if (!obj) return undefined;
-    for (const k of Object.keys(obj)) {
-      if (!known.includes(k)) {
-        this.bad(path === "" ? k : `${path}.${k}`, `is not a task spec field (known: ${known.join(", ")})`);
-      }
-    }
-    return obj;
-  }
-
-  string(path: string, v: unknown): string | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v === "string") return v;
-    if (typeof v === "number" || typeof v === "boolean") return String(v);
-    this.bad(path, "must be a string");
-    return undefined;
-  }
-
-  number(path: string, v: unknown): number | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v === "number" && Number.isFinite(v)) return v;
-    this.bad(path, "must be a number");
-    return undefined;
-  }
-
-  int(path: string, v: unknown): number | undefined {
-    const n = this.number(path, v);
-    if (n === undefined) return undefined;
-    if (!Number.isInteger(n)) {
-      this.bad(path, "must be a whole number");
-      return undefined;
-    }
-    return n;
-  }
-
-  bool(path: string, v: unknown): boolean | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v === "boolean") return v;
-    this.bad(path, "must be true or false");
-    return undefined;
-  }
-
-  strings(path: string, v: unknown): string[] | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (!Array.isArray(v)) {
-      this.bad(path, "must be a list");
-      return undefined;
-    }
-    const out: string[] = [];
-    v.forEach((item, i) => {
-      const s = this.string(`${path}[${i}]`, item);
-      if (s !== undefined) out.push(s);
-    });
-    return out;
-  }
-
-  stringMap(path: string, v: unknown): Record<string, string> | undefined {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v !== "object" || Array.isArray(v)) {
-      this.bad(path, "must be a mapping");
-      return undefined;
-    }
-    const out: Record<string, string> = {};
-    for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
-      const s = this.string(`${path}.${k}`, raw);
-      if (s !== undefined) out[k] = s;
-    }
-    return out;
+    return super.object(path, v, known, "task spec field");
   }
 
   duration(path: string, v: unknown): { seconds: bigint; nanos: number } | undefined {
@@ -259,6 +189,10 @@ class Reader {
   }
 }
 
+function parsed(spec: SpecInit | undefined, issues: YamlProblem[]): ParsedSpec {
+  return { spec, problems: issues.map(problemText), issues };
+}
+
 /**
  * parseSpecYaml decodes the editor's text into the message CreateTask wants.
  *
@@ -266,24 +200,22 @@ class Reader {
  * server's own validator does, instead of stopping at the first.
  */
 export function parseSpecYaml(text: string): ParsedSpec {
-  if (text.trim() === "") return { problems: ["the spec is empty"] };
-
-  let doc: unknown;
-  try {
-    doc = parse(text);
-  } catch (err) {
-    return { problems: [err instanceof Error ? err.message : String(err)] };
+  const decoded = parseYaml(text, { emptyMessage: "the spec is empty" });
+  if (decoded.problems.length > 0) {
+    return parsed(undefined, decoded.problems);
   }
-  return parseSpecValue(doc);
+  return parseSpecValue(decoded.value, decoded.lines);
 }
 
 /** parseSpecValue is the same check over an already-decoded document, for the built form. */
-export function parseSpecValue(doc: unknown): ParsedSpec {
-  if (doc === null || doc === undefined) return { problems: ["the spec is empty"] };
+export function parseSpecValue(doc: unknown, lines: LineMap = new Map()): ParsedSpec {
+  if (doc === null || doc === undefined) {
+    return parsed(undefined, [{ path: "", message: "the spec is empty" }]);
+  }
 
-  const r = new Reader();
+  const r = new Reader(lines);
   const root = r.object("", doc, TASK_KEYS);
-  if (!root) return { problems: r.problems };
+  if (!root) return parsed(undefined, r.problems);
 
   const spec: SpecInit = {
     image: r.string("image", root.image) ?? "",
@@ -363,8 +295,8 @@ export function parseSpecValue(doc: unknown): ParsedSpec {
   // people actually make, and saying so before a round trip is kinder.
   if ((spec.image ?? "").trim() === "") r.bad("image", "is required");
 
-  if (r.problems.length > 0) return { problems: r.problems };
-  return { spec, problems: [] };
+  if (r.problems.length > 0) return parsed(undefined, r.problems);
+  return parsed(spec, []);
 }
 
 /** specToDoc renders a server-echoed TaskSpec back into the YAML shape, defaults and all. */
@@ -434,7 +366,7 @@ function resourcesDoc(r?: { cpu: number; memoryMb: bigint; pids: number }): Reso
 
 /** docToYaml is the text the editor shows. */
 export function docToYaml(doc: SpecDoc): string {
-  return stringify(doc, { lineWidth: 0 });
+  return encodeYaml(doc);
 }
 
 /** specToYaml renders a task's spec for display and for the re-run editor. */

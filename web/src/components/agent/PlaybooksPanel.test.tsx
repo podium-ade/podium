@@ -10,6 +10,9 @@ const getProfile = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
 const reloadProfileDir = vi.fn();
+const createPlaybook = vi.fn();
+const updatePlaybook = vi.fn();
+const deletePlaybook = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -21,17 +24,19 @@ vi.mock("../../lib/client", async () => {
       listMcpServers: () => Promise.resolve({ servers: [] }),
       listAgents: () => Promise.resolve({ agents: [], defaultAgent: "claude" }),
       reloadProfileDir: (...a: unknown[]) => reloadProfileDir(...a),
+      createPlaybook: (...a: unknown[]) => createPlaybook(...a),
+      updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
+      deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
 });
 
-/** A playbook as GetProfile reports it, with the fields a row reads. */
 function playbook(over: Record<string, unknown> = {}) {
   return {
-    name: "general",
+    name: "reporter",
     image: "podium-agent-runtime:dev",
-    systemPrompt: "# The general playbook\n\nAnswer the question in the thread.",
+    systemPrompt: "# The reporter\n\nWrite the weekly report.",
     allowedTools: ["read", "grep"],
     maxTurns: 50,
     timeout: "30m",
@@ -42,6 +47,7 @@ function playbook(over: Record<string, unknown> = {}) {
     slackChannels: [],
     linear: false,
     env: {},
+    editable: true,
     ...over,
   };
 }
@@ -50,11 +56,11 @@ const baseProfile = {
   name: "podium",
   displayName: "Podium",
   model: "claude-opus-5",
-  defaultPlaybook: "general",
+  defaultPlaybook: "",
   profileDir: "/etc/podium/agent",
   fileDisplayName: "Podium",
   fileModel: "claude-opus-5",
-  fileDefaultPlaybook: "general",
+  fileDefaultPlaybook: "",
   overridden: [],
   updatedBy: "",
 };
@@ -92,25 +98,38 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByTestId("playbook-image")).toHaveTextContent(
       "podium-agent-runtime:dev",
     );
-    expect(screen.getByText("/general")).toBeInTheDocument();
-    expect(screen.getByText("Answer the question in the thread.")).toBeInTheDocument();
+    expect(screen.getByText("/reporter")).toBeInTheDocument();
+    expect(screen.getByText("Write the weekly report.")).toBeInTheDocument();
   });
 
-  it("renders a playbook as a file and says where it lives", async () => {
+  it("uses the same empty state as the other screens", async () => {
+    getProfile.mockResolvedValue({
+      profile: baseProfile,
+      playbooks: [],
+      staleReason: "",
+    });
     mount();
-    await screen.findByTestId("playbook-row");
-    expect(screen.getByText("file")).toBeInTheDocument();
-    expect(screen.getByText(/playbooks\/general\.yaml/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edit general" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete general" })).toBeNull();
-    expect(screen.queryByTestId("playbook-new")).toBeNull();
+    expect(await screen.findByText("No playbooks")).toBeInTheDocument();
+    expect(screen.getByText("Nothing for the assistant to start yet.")).toBeInTheDocument();
+    expect(screen.getByTestId("playbook-new-empty")).toBeInTheDocument();
+    expect(screen.queryByText("Select a playbook, or create one.")).toBeNull();
   });
 
-  it("opens a playbook read-only", async () => {
+  it("offers New playbook and opens the editor", async () => {
     mount();
-    await userEvent.click(await screen.findByRole("button", { name: "View general" }));
+    expect(await screen.findByTestId("playbook-new")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("playbook-new"));
     expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save playbook" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Create playbook" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "YAML" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Form" })).toBeInTheDocument();
+  });
+
+  it("opens an existing playbook for edit, not view-only", async () => {
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
+    expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save playbook" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create playbook" })).toBeNull();
   });
 
@@ -124,37 +143,20 @@ describe("PlaybooksPanel", () => {
     expect(await screen.findByText(/running an older profile/)).toBeInTheDocument();
   });
 
-  it("says playbooks are files and points at the re-read", async () => {
-    mount();
-    await screen.findByTestId("playbook-row");
-    expect(screen.getByText(/Playbooks are files on the conductor's host/)).toBeInTheDocument();
-    expect(screen.getByTestId("reload-profile-dir")).toBeInTheDocument();
-  });
-
   it("re-reads the profile directory and shows what the files now hold", async () => {
     reloadProfileDir.mockResolvedValue({});
     mount();
     await screen.findByTestId("playbook-row");
-    expect(screen.queryByText("/reporter")).toBeNull();
+    expect(screen.queryByText("/analyst")).toBeNull();
 
     getProfile.mockResolvedValue({
       profile: baseProfile,
-      playbooks: [playbook(), playbook({ name: "reporter" })],
+      playbooks: [playbook(), playbook({ name: "analyst" })],
       staleReason: "",
     });
     await userEvent.click(screen.getByTestId("reload-profile-dir"));
 
     expect(reloadProfileDir).toHaveBeenCalled();
-    expect(await screen.findByText("/reporter")).toBeInTheDocument();
-  });
-
-  it("reports a profile directory that does not load and keeps the current one", async () => {
-    reloadProfileDir.mockRejectedValue(new Error("playbooks/broken.yaml: line 1: bad YAML"));
-    mount();
-    await screen.findByTestId("playbook-row");
-
-    await userEvent.click(screen.getByTestId("reload-profile-dir"));
-    expect(await screen.findByText(/playbooks\/broken.yaml/)).toBeInTheDocument();
-    expect(screen.getByTestId("playbook-row")).toBeInTheDocument();
+    expect(await screen.findByText("/analyst")).toBeInTheDocument();
   });
 });

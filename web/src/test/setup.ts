@@ -4,18 +4,6 @@ import { afterEach } from "vitest";
 
 afterEach(cleanup);
 
-// jsdom implements neither of these, and Radix reaches for both: its popper measures with a
-// ResizeObserver, and Switch/Checkbox pull @radix-ui/react-use-size, which throws without one.
-// Without the stubs any screen that unit-tests a menu, a select, a switch or a checkbox fails
-// on mount rather than on anything it asserts.
-if (!("ResizeObserver" in globalThis)) {
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-}
-
 if (!("DOMRect" in globalThis)) {
   globalThis.DOMRect = class {
     constructor(
@@ -44,6 +32,43 @@ if (!("DOMRect" in globalThis)) {
     }
   } as unknown as typeof DOMRect;
 }
+
+const box = () => new DOMRect(0, 0, 800, 400);
+
+// jsdom's ResizeObserver, if it has one, reports 0×0. CodeMirror 6 measures in a
+// loop until the box is non-zero, which hangs the suite. Always replace it.
+globalThis.ResizeObserver = class {
+  private readonly cb: ResizeObserverCallback;
+  constructor(cb: ResizeObserverCallback) {
+    this.cb = cb;
+  }
+  observe(target: Element) {
+    this.cb(
+      [
+        {
+          target,
+          contentRect: box(),
+          borderBoxSize: [{ inlineSize: 800, blockSize: 400 }],
+          contentBoxSize: [{ inlineSize: 800, blockSize: 400 }],
+          devicePixelContentBoxSize: [{ inlineSize: 800, blockSize: 400 }],
+        } as ResizeObserverEntry,
+      ],
+      this,
+    );
+  }
+  unobserve() {}
+  disconnect() {}
+};
+
+const originalBox = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function () {
+  if (this instanceof Element && (this.closest(".cm-editor") || this.closest(".yaml-cm"))) {
+    return box();
+  }
+  return originalBox.call(this);
+};
+Range.prototype.getBoundingClientRect = () => box();
+Range.prototype.getClientRects = () => [box()] as unknown as DOMRectList;
 
 // Radix menus and selects call these on open; jsdom stubs neither.
 if (!Element.prototype.hasPointerCapture) {
