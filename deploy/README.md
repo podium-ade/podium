@@ -82,6 +82,7 @@ is affected.
 | `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
+| `PODIUM_AGENT_GITHUB_APP_ID` + `PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE` + `PODIUM_AGENT_GITHUB_WEBHOOK_SECRET` + `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN` | the GitHub App source | no GitHub reviews. **All four or none** — a partial set is a startup error. Each deploy creates its own App from `github-app-manifest.yaml` |
 | `TS_AUTHKEY` + `PODIUM_TAILNET` | the tailnet transport | `docker-compose.tailnet.yml` refuses to interpolate. Nobody can default these, and failing closed is correct. `PODIUM_NODE_TS_AUTHKEY` is the worker's equivalent |
 | `PODIUM_AGENT_UI_URL` | correct links in Slack and Linear | links point at `http://server:8080`, which is a name only the compose network can resolve. Cosmetic, and immediately visible |
 
@@ -196,6 +197,7 @@ Then, each switching on one feature and each optional:
 |---|---|
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
+| `PODIUM_AGENT_GITHUB_APP_ID` + private key file + webhook secret + webhook listen | the GitHub App source. **All four or none**. Create the App from `github-app-manifest.yaml`; Funnel points at the webhook listen only |
 | `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
 | `PODIUM_AGENT_SKILLS_DIR` | travels with `PODIUM_AGENT_PROFILE_DIR`: a playbook naming a skill that is not there fails every turn |
 | `PODIUM_AGENT_HOST_RUNTIME` + `PODIUM_AGENT_RUNNER_BIN` | answer a turn as a child process instead of a container. Opt-in, and a security decision — read [`../docs/security.md`](../docs/security.md) first. `auto` under `make stack-up` means this checkout's own build |

@@ -283,6 +283,10 @@ services:
       PODIUM_AGENT_LINEAR_API_KEY: ${PODIUM_AGENT_LINEAR_API_KEY:-}
       PODIUM_AGENT_LINEAR_POLL_INTERVAL: ${PODIUM_AGENT_LINEAR_POLL_INTERVAL:-30s}
       PODIUM_AGENT_LINEAR_URL: ${PODIUM_AGENT_LINEAR_URL:-https://api.linear.app/graphql}
+      PODIUM_AGENT_GITHUB_APP_ID: ${PODIUM_AGENT_GITHUB_APP_ID:-}
+      PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: ${PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE:-}
+      PODIUM_AGENT_GITHUB_WEBHOOK_SECRET: ${PODIUM_AGENT_GITHUB_WEBHOOK_SECRET:-}
+      PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN: ${PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN:-}
       PODIUM_AGENT_UI_URL: ${PODIUM_AGENT_UI_URL:-}
       PODIUM_AGENT_MEMORY_URL: ${PODIUM_AGENT_MEMORY_URL-http://127.0.0.1:8888}
       # A task container on a WORKER. Co-located, host.docker.internal is this machine;
@@ -586,7 +590,7 @@ consequences:
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself — this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` / `PODIUM_AGENT_GITHUB_*` (those sources), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs — all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 Running the binaries by hand is the one case with genuinely required variables — seven, which

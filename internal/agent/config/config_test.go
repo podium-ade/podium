@@ -91,6 +91,33 @@ func TestOneSlackTokenNamesTheOtherOne(t *testing.T) {
 	assert.True(t, cfg.SlackEnabled())
 }
 
+func TestGitHubNeedsAllFourFields(t *testing.T) {
+	key := filepath.Join(t.TempDir(), "app.pem")
+	require.NoError(t, os.WriteFile(key, []byte("not-a-real-key"), 0o600))
+
+	cfg := valid(t)
+	cfg.GitHubAppID = "1"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE")
+
+	cfg = valid(t)
+	cfg.GitHubAppID = "1"
+	cfg.GitHubPrivateKeyFile = key
+	cfg.GitHubWebhookSecret = "s"
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN")
+
+	cfg = valid(t)
+	cfg.GitHubAppID = "1"
+	cfg.GitHubPrivateKeyFile = key
+	cfg.GitHubWebhookSecret = "s"
+	cfg.GitHubWebhookListen = "127.0.0.1:8091"
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.GitHubEnabled())
+}
+
 func TestAProfileDirWithoutProfileYAMLIsRefused(t *testing.T) {
 	cfg := valid(t)
 	cfg.ProfileDir = t.TempDir()
@@ -128,12 +155,13 @@ func TestLoggingAConfigLeaksNoToken(t *testing.T) {
 	cfg.Token = "agenttoken-secret"
 	cfg.SlackAppToken = "xapp-secret"
 	cfg.SlackBotToken = "xoxb-secret"
+	cfg.GitHubWebhookSecret = "github-webhook-secret"
 
 	var buf bytes.Buffer
 	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret"} {
+	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret"} {
 		assert.NotContains(t, out, secret)
 	}
 	// And it still says the things an operator needs to see.

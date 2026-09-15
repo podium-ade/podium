@@ -604,6 +604,16 @@ func TestCreateMirrorChatRefusesAWebOrigin(t *testing.T) {
 	require.ErrorContains(t, err, "source key is required")
 }
 
+func TestCreateMirrorChatAcceptsAGitHubOrigin(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	chat, err := s.CreateMirrorChat(ctx, "github:o/r#1", "github", "alice", "review this")
+	require.NoError(t, err)
+	assert.Equal(t, "github", chat.Origin)
+	assert.Empty(t, chat.Login)
+}
+
 // The participants are the humans, in the order they first spoke — and the bot is not one
 // of them however many times it answered.
 func TestChatParticipantsAreThePeopleInFirstAppearanceOrder(t *testing.T) {
