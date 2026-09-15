@@ -227,4 +227,3 @@ func protoToPlaybook(in *agentv1.PlaybookDefinition) (profiles.Playbook, error) 
 	}
 	return out, nil
 }
-
