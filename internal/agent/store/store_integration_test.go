@@ -326,6 +326,33 @@ func TestTheLinearCursorRoundTrips(t *testing.T) {
 	assert.True(t, got.Equal(second), "a second put advances the watermark")
 }
 
+func TestReviewSurfacesBindLookupAndRefuseASecondPR(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	const slackRef = "C1/1.1"
+
+	_, err := s.GetReviewSurface(ctx, ReviewSurfaceSlack, slackRef)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, s.BindReviewSurface(ctx, "github:o/r#1", ReviewSurfaceSlack, slackRef))
+	require.NoError(t, s.BindReviewSurface(ctx, "github:o/r#1", ReviewSurfaceSlack, slackRef),
+		"binding the same pair again is a no-op")
+
+	got, err := s.GetReviewSurface(ctx, ReviewSurfaceSlack, slackRef)
+	require.NoError(t, err)
+	assert.Equal(t, "github:o/r#1", got.SourceKey)
+
+	err = s.BindReviewSurface(ctx, "github:o/r#2", ReviewSurfaceSlack, slackRef)
+	require.ErrorIs(t, err, ErrSurfaceBound)
+
+	require.NoError(t, s.BindReviewSurface(ctx, "github:o/r#1", ReviewSurfaceSlack, "C2/2.2"))
+	list, err := s.ListReviewSurfaces(ctx, "github:o/r#1", ReviewSurfaceSlack)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, slackRef, list[0].Ref)
+	assert.Equal(t, "C2/2.2", list[1].Ref)
+}
+
 // Steps 20 and 21 own these; step 17 creates them and leaves them empty so neither step
 // has to ship a migration for a shape that is already decided. linear_cursor is now
 // written by the Linear source, so only the chat tables are still untouched.

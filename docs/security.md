@@ -228,6 +228,11 @@ delete secrets and delete nodes.
   post in every channel the bot is in; the `xapp-` app-level token opens the event connection.
   `PODIUM_AGENT_TOKEN` is the only thing guarding the conductor's API, which lists every session
   and every answer the bot has given.
+- **The GitHub App private key and webhook secret are as sensitive as the Slack tokens.** The
+  private key mints installation tokens that can comment on every repository the App is
+  installed on; the webhook secret is what stops anyone else posting as a delivery. They live
+  on the conductor, never in a task container. Each deployment creates its own App — Podium
+  does not hold a credential to your org.
 - **Text relayed out of a task is untrusted content.** The conductor posts a `final` message
   verbatim and interprets none of it: it never parses an answer for a command, a channel name or
   a user ID, and it cannot be talked into posting somewhere else. The reverse is also true and
@@ -241,7 +246,7 @@ delete secrets and delete nodes.
   means the sandbox in *3. A task container* is the whole of the protection.
 - **The conductor holds no privilege of the control plane's.** It has its own database, its own
   API token, and no master key, no Docker socket and no node key. Compromising it gets an
-  attacker the bot's Slack tokens and the ability to submit tasks — which is already everything,
+  attacker the bot's Slack tokens, GitHub App key and the ability to submit tasks — which is already everything,
   because there is no RBAC.
 - **The provider key is a secret like any other, and the web UI can replace or remove it.**
   Whoever can reach the UI can paste a new Anthropic key over the current one, or remove it and

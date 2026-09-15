@@ -23,6 +23,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
+	agentgithub "github.com/podium-ade/podium/internal/agent/github"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
@@ -59,6 +60,7 @@ type Agent struct {
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
+	github    *agentgithub.Source
 	chat      *chat.Source
 	dev       *api.DevSource
 	memory    memory.Client
@@ -180,6 +182,68 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		sources = append(sources, a.linear)
 	}
+	if cfg.GitHubEnabled() {
+		a.github, err = agentgithub.New(agentgithub.Options{
+			AppID:          cfg.GitHubAppID,
+			PrivateKeyFile: cfg.GitHubPrivateKeyFile,
+			WebhookSecret:  cfg.GitHubWebhookSecret,
+			Listen:         cfg.GitHubWebhookListen,
+			APIURL:         cfg.GitHubAPIURL,
+			Slack:          a.slack,
+			Logger:         logger,
+			TaskURL: func(taskID string) string {
+				if taskID == "" {
+					return ""
+				}
+				return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
+			},
+			Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
+				sess, err := st.GetSessionByKey(ctx, sourceKey)
+				if err != nil {
+					return time.Time{}, false
+				}
+				if sess.LastTurnAt != nil {
+					return *sess.LastTurnAt, true
+				}
+				return time.Time{}, true
+			},
+			Surfaces: agentgithub.Surfaces{
+				LookupSlack: func(ctx context.Context, slackRef string) (string, bool, error) {
+					row, err := st.GetReviewSurface(ctx, store.ReviewSurfaceSlack, slackRef)
+					if errors.Is(err, store.ErrNotFound) {
+						return "", false, nil
+					}
+					if err != nil {
+						return "", false, err
+					}
+					return row.SourceKey, true, nil
+				},
+				BindSlack: func(ctx context.Context, slackRef, sourceKey string) error {
+					err := st.BindReviewSurface(ctx, sourceKey, store.ReviewSurfaceSlack, slackRef)
+					if errors.Is(err, store.ErrSurfaceBound) {
+						return agentgithub.ErrBoundToOther
+					}
+					return err
+				},
+				ListSlack: func(ctx context.Context, sourceKey string) ([]string, error) {
+					rows, err := st.ListReviewSurfaces(ctx, sourceKey, store.ReviewSurfaceSlack)
+					if err != nil {
+						return nil, err
+					}
+					out := make([]string, 0, len(rows))
+					for _, r := range rows {
+						out = append(out, r.Ref)
+					}
+					return out, nil
+				},
+			},
+		})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		sources = append(sources, a.github)
+	}
 	// The web chat is always on: it needs no credential and no external service, and the
 	// UI's Chat tab is only as good as the source behind it.
 	a.chat, err = chat.New(chat.Options{
@@ -193,6 +257,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 	sources = append(sources, a.chat)
+	if a.slack != nil && a.github != nil {
+		a.slack.SetReview(a.github)
+	}
 
 	if cfg.DevSource {
 		logger.Warn("DEV SOURCE ENABLED — TEST ONLY. /dev/inbound injects messages as if a human " +
@@ -314,10 +381,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	logger.Info("conductor configured", "config", cfg,
 		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
 		"assistant_skills", profile.Assistant().Skills, "sources", kinds)
-	if !cfg.SlackEnabled() && !cfg.LinearEnabled() {
-		logger.Info("no Slack or Linear credentials: the web chat at /agent/chat is the only " +
+	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.GitHubEnabled() {
+		logger.Info("no Slack, Linear or GitHub credentials: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
-			"PODIUM_AGENT_SLACK_BOT_TOKEN, or PODIUM_AGENT_LINEAR_API_KEY, to add the others.")
+			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or the four " +
+			"PODIUM_AGENT_GITHUB_* variables, to add the others.")
 	}
 	return a, nil
 }
@@ -502,12 +570,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	// A source's Run returning non-nil is fatal: a bot that cannot reach Slack or Linear
 	// is a bot nobody can talk to, and failing loudly at boot is how a wrong credential is
 	// found in the first minute rather than the first day.
-	sourceErr := make(chan error, 2)
+	sourceErr := make(chan error, 3)
 	if a.slack != nil {
 		go func() { sourceErr <- a.slack.Run(runCtx) }()
 	}
 	if a.linear != nil {
 		go func() { sourceErr <- a.linear.Run(runCtx) }()
+	}
+	if a.github != nil {
+		go func() { sourceErr <- a.github.Run(runCtx) }()
 	}
 	conductorDone := make(chan struct{})
 	go func() {

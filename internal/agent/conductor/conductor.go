@@ -686,11 +686,13 @@ func playbookNames(menu []DelegablePlaybook) []string {
 
 // aConversation is a source that is a chat window rather than a thread. A turn of one is
 // answered by the assistant, in this process, and delegates whatever needs a machine; a
-// Slack thread and a Linear issue are the opposite — nobody is watching a cursor, and one
-// session is one piece of work, so they run a playbook as a task. The dev source is in here
-// because it is how both are tested.
+// Linear issue is the opposite — nobody is watching a cursor, and one session is one piece
+// of work, so it runs a playbook as a task. Slack and GitHub are conversations too: a
+// mention is answered here, and a GitHub pull-request review is one conversation whether
+// it was asked for on the PR or in Slack. The dev source is in here because it is how
+// both are tested.
 func aConversation(kind string) bool {
-	return kind == SourceChat || kind == SourceSlack || kind == KindDev
+	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
 }
 
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:

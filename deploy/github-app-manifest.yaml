@@ -1,0 +1,35 @@
+# The GitHub App podium-agent connects as. Each operator creates THIS app in their own
+# GitHub org — Podium does not ship a Marketplace listing. Create it at
+# https://github.com/settings/apps/new (or the org equivalent) and paste these permissions
+# and events. docs/agent.md walks through the rest: private key, webhook URL, the four
+# environment variables.
+#
+# Replace WEBHOOK_URL with whatever Tailscale Funnel / tunnel points at THIS conductor's
+# PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN, path /webhooks/github. Exposing that mux must not
+# expose the AgentService or the UI; see docs/networking.md.
+#
+# The bot's GitHub identity is this App. Playbook turns still clone with
+# podium.agent.github_token; they must not `gh pr comment`. The App is the only writer
+# on the pull request.
+name: Podium
+url: https://github.com/podium-ade/podium
+hook_attributes:
+  url: WEBHOOK_URL
+  active: true
+description: >-
+  Podium reviews a pull request when you tag it, as one conversation whether you asked
+  on GitHub or in Slack. One turn of the assistant, which may start a playbook. There is
+  no resident model session. Whoever can tag the bot can make it run code with the
+  playbook's credentials — there is no role model. See docs/security.md.
+public: false
+default_permissions:
+  # Conversation-tab comments, including the working comment and the answer.
+  issues: write
+  # Inline review-comment replies, and reading the PR.
+  pull_requests: write
+  # Reading the repository for a transcript. Clone still uses the task GitHub token.
+  contents: read
+default_events:
+  - issue_comment
+  - pull_request_review
+  - pull_request_review_comment

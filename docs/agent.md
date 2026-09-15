@@ -1530,6 +1530,72 @@ Two consequences of using a personal API key, both worth knowing:
 
 ---
 
+## GitHub App reviews
+
+Tag the App on a pull request, or tag Podium in Slack with that PR's URL, and it starts **one**
+assistant conversation for that pull request. Later GitHub traffic that belongs to the review
+is another turn of the same conversation. The App posts on GitHub; bound Slack threads get the
+same answer.
+
+**Each deployment creates its own GitHub App.** Podium ships
+[`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
+listing. A shared public App cannot deliver webhooks to every private conductor, and comments
+must appear as *your* bot.
+
+### Setting it up
+
+1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
+   `pull_requests: write`, `contents: read`. Events: `issue_comment`, `pull_request_review`,
+   `pull_request_review_comment`.
+2. Generate a private key. Put the PEM on the conductor host.
+3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at
+   `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN`, path `/webhooks/github`. That mux is **only** that
+   route — see [`networking.md`](networking.md).
+4. Install the App on the repositories it should review.
+5. Four environment variables, all required together:
+
+```sh
+PODIUM_AGENT_GITHUB_APP_ID=                  # the App id
+PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE=    # path to the PEM
+PODIUM_AGENT_GITHUB_WEBHOOK_SECRET=          # the webhook secret GitHub shows
+PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN=127.0.0.1:8091
+```
+
+A partial set is a start-up error naming the missing one, the same rule as Slack's two tokens.
+
+Then `@your-app review this` on a PR, or in Slack:
+
+```
+@Podium review this PR https://github.com/acme/repo/pull/12
+```
+
+Those are the same session (`github:acme/repo#12`). A leading `/coder` in the mention is left
+in the text; the assistant delegates to that playbook the way it does in Slack.
+
+### What starts a turn, and what does not
+
+| inbound | action |
+|---|---|
+| `ping` | 200, nothing |
+| the App's own comment | dropped |
+| `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
+| a reply in an inline review thread on a PR that already has a session | continue |
+| `lgtm` / other conversation-tab comments without a mention | dropped |
+| a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
+| a second mention in a bound Slack thread, URL or not | continue |
+| two PR URLs in one Slack mention, or a different PR in a bound thread | refused in Slack; not a second session |
+
+Unrelated webhook deliveries still return 200 so GitHub does not retry.
+
+The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
+bound Slack thread.
+
+**The App posts; the playbook token reads.** `podium.agent.github_token` is still how a
+container clones. A playbook must not `gh pr comment` — that would be a second identity on
+the PR.
+
+---
+
 ## Extending the runtime image
 
 `podium-agent-runtime` is a contract rather than a toolbox, and it is the only general-purpose
@@ -1658,7 +1724,8 @@ loss of.
 `repos:` is copied into the brief and the runtime shallow-clones each one into
 `/workspace/<name>` at the start of the turn, on its `default_branch`, with `user.name
 podium-agent` and `user.email podium-agent@users.noreply.github.com`. Only `https` with a token is
-supported: no SSH, no GitHub App, no GitLab.
+supported: no SSH, no GitLab. The GitHub **App** is the conversation identity (comments,
+webhooks); it is not how a turn clones. Clone still uses this token.
 
 There is no working tree carried between turns. Every turn clones again. A follow-up comment that
 says "now also do X" starts from the default branch, and the agent has to find its own earlier

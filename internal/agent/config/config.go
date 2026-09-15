@@ -167,6 +167,18 @@ type Config struct {
 	// Linear is polled and never listened to: the conductor dials out, like every other
 	// thing on this host.
 	LinearPollInterval time.Duration
+	// GitHubAppID is PODIUM_AGENT_GITHUB_APP_ID. Empty turns the GitHub source off.
+	GitHubAppID string
+	// GitHubPrivateKeyFile is PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE, the App's PEM.
+	// SENSITIVE: the file is a credential.
+	GitHubPrivateKeyFile string
+	// GitHubWebhookSecret is PODIUM_AGENT_GITHUB_WEBHOOK_SECRET. SENSITIVE: never log it.
+	GitHubWebhookSecret string
+	// GitHubWebhookListen is PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN, the bind address of the
+	// webhook mux. Empty with the other GitHub fields set is a start-up error.
+	GitHubWebhookListen string
+	// GitHubAPIURL is PODIUM_AGENT_GITHUB_API_URL, default https://api.github.com.
+	GitHubAPIURL string
 	// UIURL is PODIUM_AGENT_UI_URL: the Podium web UI as a HUMAN reaches it, which is not
 	// always how this process reaches the API (a tailnet name, a reverse proxy). Default
 	// Server. It is used only to build the fallback link to a task page when an
@@ -207,9 +219,14 @@ func FromEnv() Config {
 		LinearURL:        envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
-		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
-		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
-		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearPollInterval:   envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		GitHubAppID:          os.Getenv("PODIUM_AGENT_GITHUB_APP_ID"),
+		GitHubPrivateKeyFile: os.Getenv("PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE"),
+		GitHubWebhookSecret:  os.Getenv("PODIUM_AGENT_GITHUB_WEBHOOK_SECRET"),
+		GitHubWebhookListen:  os.Getenv("PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN"),
+		GitHubAPIURL:         envOr("PODIUM_AGENT_GITHUB_API_URL", "https://api.github.com"),
+		UIURL:                os.Getenv("PODIUM_AGENT_UI_URL"),
+		DevSource:            envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -222,6 +239,13 @@ func (c Config) SlackEnabled() bool {
 // LinearEnabled reports whether the Linear source should be started. One variable turns it
 // on: an API key belonging to the bot user.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// GitHubEnabled reports whether the GitHub App source should start. All four fields are
+// required together; Validate has already refused a partial set.
+func (c Config) GitHubEnabled() bool {
+	return c.GitHubAppID != "" && c.GitHubPrivateKeyFile != "" &&
+		c.GitHubWebhookSecret != "" && c.GitHubWebhookListen != ""
+}
 
 // WebURL is the base URL a human uses for the Podium web UI. PODIUM_AGENT_UI_URL when set,
 // the API base URL otherwise — which is right for every dev install and wrong for exactly
@@ -298,6 +322,9 @@ func (c Config) Validate() error {
 	if err := c.validateLinear(); err != nil {
 		return err
 	}
+	if err := c.validateGitHub(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -371,6 +398,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("linear", c.LinearEnabled()),
 		slog.String("linear_url", c.LinearURL),
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
+		slog.Bool("github", c.GitHubEnabled()),
+		slog.String("github_webhook_listen", c.GitHubWebhookListen),
 		slog.String("ui_url", c.WebURL()),
 		slog.Bool("dev_source", c.DevSource),
 	)
@@ -411,6 +440,48 @@ func (c Config) validateLinear() error {
 	}
 	if c.UIURL != "" {
 		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateGitHub refuses a partial App config: one of the four fields without the others
+// is the mistake of creating the App and forgetting the webhook listen, or vice versa.
+func (c Config) validateGitHub() error {
+	n := 0
+	if c.GitHubAppID != "" {
+		n++
+	}
+	if c.GitHubPrivateKeyFile != "" {
+		n++
+	}
+	if c.GitHubWebhookSecret != "" {
+		n++
+	}
+	if c.GitHubWebhookListen != "" {
+		n++
+	}
+	if n == 0 {
+		return nil
+	}
+	if n != 4 {
+		switch {
+		case c.GitHubAppID == "":
+			return errors.New("PODIUM_AGENT_GITHUB_APP_ID is missing: the GitHub App needs the app id, private key file, webhook secret and webhook listen address")
+		case c.GitHubPrivateKeyFile == "":
+			return errors.New("PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE is missing: the GitHub App needs the app id, private key file, webhook secret and webhook listen address")
+		case c.GitHubWebhookSecret == "":
+			return errors.New("PODIUM_AGENT_GITHUB_WEBHOOK_SECRET is missing: the GitHub App needs the app id, private key file, webhook secret and webhook listen address")
+		default:
+			return errors.New("PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN is missing: the GitHub App needs the app id, private key file, webhook secret and webhook listen address")
+		}
+	}
+	if _, err := os.Stat(c.GitHubPrivateKeyFile); err != nil {
+		return fmt.Errorf("PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE=%q: %w", c.GitHubPrivateKeyFile, err)
+	}
+	if c.GitHubAPIURL != "" {
+		if err := absoluteURL("PODIUM_AGENT_GITHUB_API_URL", c.GitHubAPIURL); err != nil {
 			return err
 		}
 	}
