@@ -66,6 +66,9 @@ func ReloadProfileDir(
 func applyOverrides(
 	ctx context.Context, st *store.Store, files *profiles.Profile,
 ) (*profiles.Profile, error) {
+	if st == nil {
+		return files, nil
+	}
 	ov, err := readOverrides(ctx, st)
 	if err != nil {
 		return nil, err

@@ -23,8 +23,9 @@ func TestAgentProfileLoads(t *testing.T) {
 	require.NoError(t, err, "examples/agent does not load; docs/agent.md and this directory disagree")
 
 	require.Equal(t, "podium", p.Name)
-	require.Equal(t, "general", p.DefaultPlaybook)
-	// One playbook, on the base image Podium ships. Any OTHER set of tools is an image a
+	require.Empty(t, p.DefaultPlaybook, "Podium ships no default playbook")
+	// One sample playbook in this directory, on the base image Podium ships. It is not
+	// installed by stack-up; an operator copies it or creates one in the UI. Any OTHER set of tools is an image a
 	// reader builds `FROM podium-agent-runtime` and names in a playbook of their own; the
 	// example does not guess at which tools that would be, and the dogfood that does — the
 	// `podium` playbook — lives in ../profile because it is configuration and not
@@ -84,10 +85,10 @@ func TestAgentProfileLoads(t *testing.T) {
 	require.Equal(t, "reply with pong", typed.Instruction)
 
 	unknown := p.Select(profiles.Routing{Text: "/shrug reply with pong"})
-	require.Equal(t, "general", unknown.Playbook.Name)
+	require.Empty(t, unknown.Playbook.Name, "an unknown prefix does not fall back to a default")
 	require.False(t, unknown.Explicit)
 	require.Equal(t, "/shrug reply with pong", unknown.Instruction, "an unknown prefix is left in the text")
 
 	plain := p.Select(profiles.Routing{Channel: "C1", Text: "how many active accounts"})
-	require.Equal(t, "general", plain.Playbook.Name)
+	require.Empty(t, plain.Playbook.Name, "no default playbook: a mention with no /playbook is refused")
 }
