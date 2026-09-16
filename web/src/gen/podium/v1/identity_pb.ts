@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/identity.proto.
  */
 export const file_podium_v1_identity: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IrABCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgqfAoMSWRlbnRpdHlLaW5kEh0KGUlERU5USVRZX0tJTkRfVU5TUEVDSUZJRUQQABIWChJJREVOVElUWV9LSU5EX1VTRVIQARIWChJJREVOVElUWV9LSU5EX05PREUQAhIdChlJREVOVElUWV9LSU5EX0xPQ0FMX1RPS0VOEAMyUAoPSWRlbnRpdHlTZXJ2aWNlEj0KBldob0FtSRIYLnBvZGl1bS52MS5XaG9BbUlSZXF1ZXN0GhkucG9kaXVtLnYxLldob0FtSVJlc3BvbnNlQqMBCg1jb20ucG9kaXVtLnYxQg1JZGVudGl0eVByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
+  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0Iq0CCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgSDQoFcm9sZXMYCCADKAkSDwoHY2xhaW1lZBgJIAEoCBIVCg1ob3N0ZWRfZG9tYWluGAogASgJEhEKCWNhbl9jbGFpbRgLIAEoCBIbChNnb29nbGVfYXV0aF9lbmFibGVkGAwgASgIEhQKDGNsYWltX2RvbWFpbhgNIAEoCSIlCgxDbGFpbVJlcXVlc3QSFQoNaG9zdGVkX2RvbWFpbhgBIAEoCSI6Cg1DbGFpbVJlc3BvbnNlEhUKDWhvc3RlZF9kb21haW4YASABKAkSEgoKY2xhaW1lZF9ieRgCIAEoCSp8CgxJZGVudGl0eUtpbmQSHQoZSURFTlRJVFlfS0lORF9VTlNQRUNJRklFRBAAEhYKEklERU5USVRZX0tJTkRfVVNFUhABEhYKEklERU5USVRZX0tJTkRfTk9ERRACEh0KGUlERU5USVRZX0tJTkRfTE9DQUxfVE9LRU4QAzKMAQoPSWRlbnRpdHlTZXJ2aWNlEj0KBldob0FtSRIYLnBvZGl1bS52MS5XaG9BbUlSZXF1ZXN0GhkucG9kaXVtLnYxLldob0FtSVJlc3BvbnNlEjoKBUNsYWltEhcucG9kaXVtLnYxLkNsYWltUmVxdWVzdBoYLnBvZGl1bS52MS5DbGFpbVJlc3BvbnNlQqMBCg1jb20ucG9kaXVtLnYxQg1JZGVudGl0eVByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
 
 /**
  * @generated from message podium.v1.WhoAmIRequest
@@ -30,7 +30,8 @@ export const WhoAmIRequestSchema: GenMessage<WhoAmIRequest> = /*@__PURE__*/
  */
 export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
   /**
-   * login is the Tailscale login name of a user, the device name of a node, or "local".
+   * login is the Tailscale login name of a user, a Google Workspace email, the device name of
+   * a node, or "local".
    *
    * @generated from field: string login = 1;
    */
@@ -76,6 +77,53 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
    * @generated from field: bool agent_enabled = 7;
    */
   agentEnabled: boolean;
+
+  /**
+   * roles attached to this login. Empty for a node, the local token, or a user on an
+   * unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
+   * have "member".
+   *
+   * @generated from field: repeated string roles = 8;
+   */
+  roles: string[];
+
+  /**
+   * claimed is true when a Google Workspace domain owns this instance.
+   *
+   * @generated from field: bool claimed = 9;
+   */
+  claimed: boolean;
+
+  /**
+   * hosted_domain is the Workspace the instance is bound to, empty when unclaimed.
+   *
+   * @generated from field: string hosted_domain = 10;
+   */
+  hostedDomain: string;
+
+  /**
+   * can_claim is true when this caller is a human with a domain and the instance has no
+   * owner yet. The web UI uses it to show the claim screen instead of the app.
+   *
+   * @generated from field: bool can_claim = 11;
+   */
+  canClaim: boolean;
+
+  /**
+   * google_auth_enabled is true when PODIUM_GOOGLE_OAUTH_CLIENT_ID is set. The web UI uses
+   * it to offer "Sign in with Google Workspace" and a sign-out control.
+   *
+   * @generated from field: bool google_auth_enabled = 12;
+   */
+  googleAuthEnabled: boolean;
+
+  /**
+   * claim_domain is the domain this caller would bind the instance to. Empty when they
+   * cannot claim (no email domain, or not a human).
+   *
+   * @generated from field: string claim_domain = 13;
+   */
+  claimDomain: string;
 };
 
 /**
@@ -84,6 +132,48 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
  */
 export const WhoAmIResponseSchema: GenMessage<WhoAmIResponse> = /*@__PURE__*/
   messageDesc(file_podium_v1_identity, 1);
+
+/**
+ * @generated from message podium.v1.ClaimRequest
+ */
+export type ClaimRequest = Message<"podium.v1.ClaimRequest"> & {
+  /**
+   * hosted_domain is the Workspace domain the caller is confirming. It must match the
+   * domain on their identity; the UI makes them type it.
+   *
+   * @generated from field: string hosted_domain = 1;
+   */
+  hostedDomain: string;
+};
+
+/**
+ * Describes the message podium.v1.ClaimRequest.
+ * Use `create(ClaimRequestSchema)` to create a new message.
+ */
+export const ClaimRequestSchema: GenMessage<ClaimRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_identity, 2);
+
+/**
+ * @generated from message podium.v1.ClaimResponse
+ */
+export type ClaimResponse = Message<"podium.v1.ClaimResponse"> & {
+  /**
+   * @generated from field: string hosted_domain = 1;
+   */
+  hostedDomain: string;
+
+  /**
+   * @generated from field: string claimed_by = 2;
+   */
+  claimedBy: string;
+};
+
+/**
+ * Describes the message podium.v1.ClaimResponse.
+ * Use `create(ClaimResponseSchema)` to create a new message.
+ */
+export const ClaimResponseSchema: GenMessage<ClaimResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_identity, 3);
 
 /**
  * IdentityKind mirrors the transport's own taxonomy.
@@ -97,7 +187,7 @@ export enum IdentityKind {
   UNSPECIFIED = 0,
 
   /**
-   * A human, named by their Tailscale login.
+   * A human, named by their Tailscale login or a Google Workspace session.
    *
    * @generated from enum value: IDENTITY_KIND_USER = 1;
    */
@@ -128,7 +218,8 @@ export const IdentityKindSchema: GenEnum<IdentityKind> = /*@__PURE__*/
  * IdentityService answers "who does the server think I am". Under the tailnet transport the
  * answer comes from Tailscale's WhoIs and the call needs no credential at all, which is how the
  * web UI knows it can skip its token prompt: if WhoAmI succeeds unauthenticated, identity is
- * already established.
+ * already established. When Google Workspace sign-in is configured, a session cookie is another
+ * way to become a user; WhoAmI then also reports whether this instance has been claimed.
  *
  * @generated from service podium.v1.IdentityService
  */
@@ -140,6 +231,18 @@ export const IdentityService: GenService<{
     methodKind: "unary";
     input: typeof WhoAmIRequestSchema;
     output: typeof WhoAmIResponseSchema;
+  },
+  /**
+   * Claim binds an unclaimed instance to the caller's Google Workspace (or email) domain and
+   * makes them the owner. It is a no-op if they already claimed the same domain. Anyone else,
+   * or a second domain, is FailedPrecondition. KindLocalToken and KindNode cannot claim.
+   *
+   * @generated from rpc podium.v1.IdentityService.Claim
+   */
+  claim: {
+    methodKind: "unary";
+    input: typeof ClaimRequestSchema;
+    output: typeof ClaimResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_identity, 0);

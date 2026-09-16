@@ -11,6 +11,12 @@ const base: Viewer = {
   kind: IdentityKind.LOCAL_TOKEN,
   agentEnabled: false,
   serverVersion: "dev",
+  roles: [],
+  claimed: false,
+  hostedDomain: "",
+  canClaim: false,
+  googleAuthEnabled: false,
+  claimDomain: "",
 };
 
 function mount(who: Viewer | undefined, path = "/") {
@@ -73,6 +79,23 @@ describe("Header", () => {
     expect(agent.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it("offers Sign out for a Google Workspace session", () => {
+    mount({
+      ...base,
+      login: "alice@acme.com",
+      displayName: "Alice",
+      kind: IdentityKind.USER,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    });
+    expect(screen.getByRole("link", { name: "Sign out" })).toHaveAttribute("href", "/auth/logout");
+  });
+
+  it("does not offer Sign out under the local token", () => {
+    mount(base);
+    expect(screen.queryByRole("link", { name: "Sign out" })).toBeNull();
   });
 
   it("puts Settings under the profile picture, not under Agent", () => {

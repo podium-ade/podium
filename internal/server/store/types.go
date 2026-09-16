@@ -20,6 +20,12 @@ var (
 	ErrTokenExpired = errors.New("store: enrollment token expired")
 	// ErrTokenUsed is returned by ConsumeEnrollmentToken for an already-consumed token.
 	ErrTokenUsed = errors.New("store: enrollment token already used")
+	// ErrAlreadyClaimed is returned by ClaimInstance when this control plane already has
+	// an owner, and the caller is not that owner re-confirming the same domain.
+	ErrAlreadyClaimed = errors.New("store: instance already claimed")
+	// ErrDomainMismatch is returned by ClaimInstance when the typed domain is not the
+	// caller's, and by a Google sign-in whose Workspace is not the claimed one.
+	ErrDomainMismatch = errors.New("store: hosted domain does not match")
 )
 
 // Status mirrors the tasks.status column.
@@ -227,14 +233,40 @@ type Node struct {
 	MaxTasksOverride *int32
 }
 
-// User is a person the tailnet transport has seen. Podium never stores a credential for one:
-// Tailscale's WhoIs is the authentication, and this row only carries what can be attached to a
-// login afterwards.
+// Roles stored on users.roles. The first person to claim the instance is RoleOwner;
+// later Google Workspace sign-ins from the same domain are RoleMember. Per-action
+// enforcement of the two is a later slice — today they record who claimed, and who joined.
+const (
+	RoleOwner  = "owner"
+	RoleMember = "member"
+)
+
+// User is a person the tailnet transport or Google Workspace sign-in has seen. Podium never
+// stores a credential for one: identity comes from Tailscale's WhoIs or a Google session, and
+// this row only carries what can be attached to a login afterwards.
 type User struct {
-	Login       string
-	DisplayName string
-	Roles       []string
-	FirstSeenAt time.Time
+	Login        string
+	DisplayName  string
+	Roles        []string
+	HostedDomain string
+	FirstSeenAt  time.Time
+}
+
+// Instance is the singleton claim: which Google Workspace owns this control plane, and who
+// confirmed it. There is no row until the first successful Claim.
+type Instance struct {
+	HostedDomain string
+	ClaimedBy    string
+	ClaimedAt    time.Time
+}
+
+// Session is a Google (later: SAML) browser session. The plaintext token is returned once at
+// creation and never stored; only its SHA-256 is on this row.
+type Session struct {
+	ID        string
+	Login     string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 // NewNode is the input to CreateNode. An empty ID is minted.

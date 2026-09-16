@@ -22,12 +22,14 @@ var expectedTables = []string{
 	"artifacts",
 	// registries arrives with 0007_registries.sql.
 	"registries",
+	// instance and sessions arrive with 0008_google_claim.sql.
+	"instance", "sessions",
 }
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
 var migrationFiles = []string{
 	"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql", "0005_artifacts.sql",
-	"0006_node_slots.sql", "0007_registries.sql",
+	"0006_node_slots.sql", "0007_registries.sql", "0008_google_claim.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

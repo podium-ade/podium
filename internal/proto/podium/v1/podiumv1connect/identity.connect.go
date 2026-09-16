@@ -35,11 +35,17 @@ const (
 const (
 	// IdentityServiceWhoAmIProcedure is the fully-qualified name of the IdentityService's WhoAmI RPC.
 	IdentityServiceWhoAmIProcedure = "/podium.v1.IdentityService/WhoAmI"
+	// IdentityServiceClaimProcedure is the fully-qualified name of the IdentityService's Claim RPC.
+	IdentityServiceClaimProcedure = "/podium.v1.IdentityService/Claim"
 )
 
 // IdentityServiceClient is a client for the podium.v1.IdentityService service.
 type IdentityServiceClient interface {
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
+	// Claim binds an unclaimed instance to the caller's Google Workspace (or email) domain and
+	// makes them the owner. It is a no-op if they already claimed the same domain. Anyone else,
+	// or a second domain, is FailedPrecondition. KindLocalToken and KindNode cannot claim.
+	Claim(context.Context, *connect.Request[v1.ClaimRequest]) (*connect.Response[v1.ClaimResponse], error)
 }
 
 // NewIdentityServiceClient constructs a client for the podium.v1.IdentityService service. By
@@ -59,12 +65,19 @@ func NewIdentityServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(identityServiceMethods.ByName("WhoAmI")),
 			connect.WithClientOptions(opts...),
 		),
+		claim: connect.NewClient[v1.ClaimRequest, v1.ClaimResponse](
+			httpClient,
+			baseURL+IdentityServiceClaimProcedure,
+			connect.WithSchema(identityServiceMethods.ByName("Claim")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // identityServiceClient implements IdentityServiceClient.
 type identityServiceClient struct {
 	whoAmI *connect.Client[v1.WhoAmIRequest, v1.WhoAmIResponse]
+	claim  *connect.Client[v1.ClaimRequest, v1.ClaimResponse]
 }
 
 // WhoAmI calls podium.v1.IdentityService.WhoAmI.
@@ -72,9 +85,18 @@ func (c *identityServiceClient) WhoAmI(ctx context.Context, req *connect.Request
 	return c.whoAmI.CallUnary(ctx, req)
 }
 
+// Claim calls podium.v1.IdentityService.Claim.
+func (c *identityServiceClient) Claim(ctx context.Context, req *connect.Request[v1.ClaimRequest]) (*connect.Response[v1.ClaimResponse], error) {
+	return c.claim.CallUnary(ctx, req)
+}
+
 // IdentityServiceHandler is an implementation of the podium.v1.IdentityService service.
 type IdentityServiceHandler interface {
 	WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error)
+	// Claim binds an unclaimed instance to the caller's Google Workspace (or email) domain and
+	// makes them the owner. It is a no-op if they already claimed the same domain. Anyone else,
+	// or a second domain, is FailedPrecondition. KindLocalToken and KindNode cannot claim.
+	Claim(context.Context, *connect.Request[v1.ClaimRequest]) (*connect.Response[v1.ClaimResponse], error)
 }
 
 // NewIdentityServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -90,10 +112,18 @@ func NewIdentityServiceHandler(svc IdentityServiceHandler, opts ...connect.Handl
 		connect.WithSchema(identityServiceMethods.ByName("WhoAmI")),
 		connect.WithHandlerOptions(opts...),
 	)
+	identityServiceClaimHandler := connect.NewUnaryHandler(
+		IdentityServiceClaimProcedure,
+		svc.Claim,
+		connect.WithSchema(identityServiceMethods.ByName("Claim")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.IdentityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case IdentityServiceWhoAmIProcedure:
 			identityServiceWhoAmIHandler.ServeHTTP(w, r)
+		case IdentityServiceClaimProcedure:
+			identityServiceClaimHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -105,4 +135,8 @@ type UnimplementedIdentityServiceHandler struct{}
 
 func (UnimplementedIdentityServiceHandler) WhoAmI(context.Context, *connect.Request[v1.WhoAmIRequest]) (*connect.Response[v1.WhoAmIResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.IdentityService.WhoAmI is not implemented"))
+}
+
+func (UnimplementedIdentityServiceHandler) Claim(context.Context, *connect.Request[v1.ClaimRequest]) (*connect.Response[v1.ClaimResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.IdentityService.Claim is not implemented"))
 }

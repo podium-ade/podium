@@ -58,7 +58,7 @@ func TestWhoAmI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := transport.NewContext(t.Context(), tc.id)
-			res, err := NewIdentityService(false).WhoAmI(ctx, connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+			res, err := NewIdentityService(nil, false, false).WhoAmI(ctx, connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 			require.NoError(t, err)
 			require.Equal(t, tc.want.GetLogin(), res.Msg.GetLogin())
 			require.Equal(t, tc.want.GetDisplayName(), res.Msg.GetDisplayName())
@@ -70,6 +70,42 @@ func TestWhoAmI(t *testing.T) {
 
 func TestWhoAmIWithoutTheMiddlewareIsUnauthenticated(t *testing.T) {
 	t.Parallel()
-	_, err := NewIdentityService(false).WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+	_, err := NewIdentityService(nil, false, false).WhoAmI(context.Background(), connect.NewRequest(&podiumv1.WhoAmIRequest{}))
 	require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+}
+
+func TestClaimRequiresGoogle(t *testing.T) {
+	t.Parallel()
+	ctx := transport.NewContext(t.Context(), transport.Identity{
+		Kind:  transport.KindUser,
+		Login: "alice@acme.com",
+	})
+	_, err := NewIdentityService(nil, false, false).Claim(ctx, connect.NewRequest(&podiumv1.ClaimRequest{
+		HostedDomain: "acme.com",
+	}))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+func TestClaimRejectsLocalToken(t *testing.T) {
+	t.Parallel()
+	ctx := transport.NewContext(t.Context(), transport.Identity{
+		Kind:  transport.KindLocalToken,
+		Login: "local",
+	})
+	_, err := NewIdentityService(nil, false, true).Claim(ctx, connect.NewRequest(&podiumv1.ClaimRequest{
+		HostedDomain: "acme.com",
+	}))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
+func TestWhoAmIReportsGoogleEnabled(t *testing.T) {
+	t.Parallel()
+	ctx := transport.NewContext(t.Context(), transport.Identity{
+		Kind:  transport.KindUser,
+		Login: "alice@acme.com",
+	})
+	res, err := NewIdentityService(nil, false, true).WhoAmI(ctx, connect.NewRequest(&podiumv1.WhoAmIRequest{}))
+	require.NoError(t, err)
+	require.True(t, res.Msg.GetGoogleAuthEnabled())
+	require.False(t, res.Msg.GetCanClaim(), "without a store there is no claim_domain to offer")
 }

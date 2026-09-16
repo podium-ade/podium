@@ -648,15 +648,17 @@ What Podium does not do, and what will surprise you if nobody says it first.
   engine labelled `podium.task`, whichever daemon created it, and tears down the ones its own
   control plane does not recognise. So two daemons on one engine destroy each other's work.
   Nothing enforces it. **It bites hardest in development** — see [Development](#development).
-- **No RBAC.** The tailnet transport records who is visiting in a `users` table and lets every
-  one of them do everything: submit tasks (and therefore run code as root on every worker),
-  drain nodes, delete secrets. The web UI is the same. **The bot widens this a long way**:
-  anyone who can mention it in a Slack channel it has joined, or assign it a Linear issue, can
-  make it run code on a worker with that playbook's credentials. A playbook's `secrets:` list scopes
-  what one bot hands one turn — keep it minimal — but it is not a boundary around the secret
-  store: `CreateTask` checks only that a named secret exists, so anyone who can reach the API
-  can already mount any registered secret into an image of their own. The agent layer does not
-  change this.
+- **RBAC is a claim, not yet per-action.** When Google Workspace sign-in is configured
+  (`PODIUM_GOOGLE_OAUTH_CLIENT_ID`), the first Workspace user to confirm claims the instance
+  for that domain; later sign-ins from the same Workspace join as members, and other domains
+  are refused. Owner vs member is recorded, not enforced on the API yet — a member can still
+  drain nodes and delete secrets. The local token and every node identity remain fully
+  privileged. **The bot is unchanged**: anyone who can mention it in a Slack channel it has
+  joined, or assign it a Linear issue, can make it run code on a worker with that playbook's
+  credentials. A playbook's `secrets:` list scopes what one bot hands one turn — keep it
+  minimal — but it is not a boundary around the secret store: `CreateTask` checks only that a
+  named secret exists, so anyone who can reach the API can already mount any registered secret
+  into an image of their own. SAML is not implemented.
 - **No egress policy.** A task reaches its sidecars and the internet. Whether it can also reach
   its worker's other networks depends on the host's routing, and Docker's default forwards it —
   **assume it can**, and firewall the host if that matters.

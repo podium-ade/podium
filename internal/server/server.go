@@ -21,6 +21,7 @@ import (
 	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/podium-ade/podium/internal/server/api"
 	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/auth"
 	"github.com/podium-ade/podium/internal/server/logs"
 	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/internal/server/scheduler"
@@ -93,6 +94,10 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	if err != nil {
 		st.Close()
 		return nil, err
+	}
+	listener = auth.Wrap(listener, st)
+	if cfg.GoogleEnabled() {
+		logger.Info("google workspace sign-in enabled")
 	}
 
 	timing := scheduler.TimingFromEnv()
@@ -308,7 +313,7 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
-		api.NewIdentityService(s.cfg.AgentEnabled()), opts...))
+		api.NewIdentityService(s.store, s.cfg.AgentEnabled(), s.cfg.GoogleEnabled()), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
@@ -326,11 +331,26 @@ func (s *Server) mux() http.Handler {
 	root.HandleFunc("/readyz", s.readyz)
 	root.Handle("/metrics", promhttp.HandlerFor(metrics, promhttp.HandlerOpts{}))
 
+	// Google Workspace sign-in. Status is public so the UI can decide between the token
+	// prompt and the Google button without weakening WhoAmI. The start/callback routes
+	// 404 when OAuth is not configured.
+	auth.NewHandler(&auth.Flow{
+		Google: auth.Google{
+			ClientID:     s.cfg.GoogleClientID,
+			ClientSecret: s.cfg.GoogleClientSecret,
+			PublicURL:    s.cfg.PublicURL,
+		},
+		Store: s.store,
+	}, s.logger).Register(root)
+
 	// Every Connect procedure lives under /<fully-qualified service>/, so the identity
 	// middleware is mounted on those three prefixes rather than on "/". That leaves "/" for the
 	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
 	// index.html, and the bundle asks the operator for one before it calls anything.
-	authenticated := transport.WithIdentity(s.transport, rpc)
+	withAuth := func(h http.Handler) http.Handler {
+		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(), h))
+	}
+	authenticated := withAuth(rpc)
 	for _, service := range []string{
 		podiumv1connect.TaskServiceName,
 		podiumv1connect.NodeServiceName,
@@ -355,14 +375,13 @@ func (s *Server) mux() http.Handler {
 			// server; refusing to serve the prefix beats serving it wrongly.
 			s.logger.Error("the agent proxy could not be built; the agent API is not mounted", "error", err)
 		} else {
-			root.Handle("/"+agentv1connect.AgentServiceName+"/",
-				transport.WithIdentity(s.transport, agent))
+			root.Handle("/"+agentv1connect.AgentServiceName+"/", withAuth(agent))
 		}
 	}
 	// The artifact proxy is a plain HTTP route rather than a Connect procedure because a
 	// 512 MB artifact has to stream. It sits behind the same identity middleware.
 	root.Handle(api.ArtifactDownloadPrefix,
-		transport.WithIdentity(s.transport, api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
+		withAuth(api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
 	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
 }
@@ -386,7 +405,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail := "ok"
-	if p, ok := s.transport.(readyProber); ok {
+	if p, ok := unwrapTransport(s.transport).(readyProber); ok {
 		d, err := p.Ready(ctx)
 		if err != nil {
 			s.logger.WarnContext(ctx, "readyz: transport not ready", "error", err)
@@ -461,12 +480,25 @@ func (s *Server) Addr() string {
 // URL is the base URL a Connect client should dial. Under the tailnet transports that is the
 // MagicDNS name the certificate is issued for, not the address the socket is bound to.
 func (s *Server) URL() string {
-	if b, ok := s.transport.(baseURLer); ok {
+	if b, ok := unwrapTransport(s.transport).(baseURLer); ok {
 		if url := b.BaseURL(); url != "" {
 			return url
 		}
 	}
 	return "http://" + s.Addr()
+}
+
+// unwrapTransport walks auth.Layer wrappers so optional transport interfaces (Ready, BaseURL,
+// Close) still resolve to the tailnet or local listener underneath.
+func unwrapTransport(l transport.Listener) transport.Listener {
+	for range 4 {
+		u, ok := l.(interface{ Inner() transport.Listener })
+		if !ok || u.Inner() == nil {
+			return l
+		}
+		l = u.Inner()
+	}
+	return l
 }
 
 // Shutdown stops accepting, closes every node stream so the nodes reconnect elsewhere, and
@@ -486,7 +518,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // Close releases the store and leaves the tailnet. Call it after Shutdown.
 func (s *Server) Close() {
-	if c, ok := s.transport.(io.Closer); ok {
+	if c, ok := unwrapTransport(s.transport).(io.Closer); ok {
 		if err := c.Close(); err != nil {
 			s.logger.Warn("closing the transport failed", "error", err)
 		}

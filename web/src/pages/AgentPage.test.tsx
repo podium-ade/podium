@@ -95,6 +95,12 @@ const viewer: Viewer = {
   kind: IdentityKind.LOCAL_TOKEN,
   agentEnabled: true,
   serverVersion: "dev",
+  roles: [],
+  claimed: false,
+  hostedDomain: "",
+  canClaim: false,
+  googleAuthEnabled: false,
+  claimDomain: "",
 };
 
 function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
