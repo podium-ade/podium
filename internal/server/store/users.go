@@ -16,14 +16,14 @@ import (
 // hostedDomain is recorded on first write only (a later Google hd does not overwrite a
 // tailnet-inferred one, and vice versa). An empty value is ignored.
 func (s *Store) UpsertUser(ctx context.Context, login, displayName string) (User, error) {
-	return s.upsertUser(ctx, login, displayName, EmailDomain(login))
+	return s.upsertUser(ctx, login, displayName, EmailDomain(login), "")
 }
 
 // UpsertGoogleUser records a Google Workspace identity. After the instance is claimed, a
 // brand-new login from the same domain is given RoleMember; an unclaimed instance leaves
-// roles empty until ClaimInstance.
-func (s *Store) UpsertGoogleUser(ctx context.Context, login, displayName, hostedDomain string) (User, error) {
-	user, err := s.upsertUser(ctx, login, displayName, hostedDomain)
+// roles empty until ClaimInstance. pictureURL is the Google avatar; empty is ignored.
+func (s *Store) UpsertGoogleUser(ctx context.Context, login, displayName, hostedDomain, pictureURL string) (User, error) {
+	user, err := s.upsertUser(ctx, login, displayName, hostedDomain, pictureURL)
 	if err != nil {
 		return User{}, err
 	}
@@ -43,7 +43,7 @@ func (s *Store) UpsertGoogleUser(ctx context.Context, login, displayName, hosted
 	return user, nil
 }
 
-func (s *Store) upsertUser(ctx context.Context, login, displayName, hostedDomain string) (User, error) {
+func (s *Store) upsertUser(ctx context.Context, login, displayName, hostedDomain, pictureURL string) (User, error) {
 	if login == "" {
 		return User{}, fmt.Errorf("upsert user: login is required")
 	}
@@ -51,6 +51,7 @@ func (s *Store) upsertUser(ctx context.Context, login, displayName, hostedDomain
 		Login:        login,
 		DisplayName:  ptr(displayName),
 		HostedDomain: ptr(strings.ToLower(strings.TrimSpace(hostedDomain))),
+		PictureUrl:   ptr(pictureURL),
 	})
 	if err != nil {
 		return User{}, fmt.Errorf("upsert user %s: %w", login, err)
@@ -122,6 +123,7 @@ func userFromRow(row db.User) User {
 		DisplayName:  deref(row.DisplayName),
 		Roles:        row.Roles,
 		HostedDomain: deref(row.HostedDomain),
+		PictureURL:   deref(row.PictureUrl),
 		FirstSeenAt:  row.FirstSeenAt.UTC(),
 	}
 }

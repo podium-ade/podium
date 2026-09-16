@@ -150,7 +150,7 @@ The rest of this section is the same ground by component, with the per-variable 
 
 | `PODIUM_TRANSPORT=local` | |
 |---|---|
-| ⚙ `PODIUM_LOCAL_TOKEN` | the one shared bearer. The server, every node, the conductor, the web UI and the CLI all present it. Whoever holds it can do everything |
+| ⚙ `PODIUM_LOCAL_TOKEN` | the one shared bearer. The server, every node, the conductor and the CLI all present it. Whoever holds it can do everything. The web UI does not ask for it when Google sign-in is on |
 | `PODIUM_LOCAL_LISTEN` | defaults to `127.0.0.1:8080` and **must** be loopback — the token is the only credential there is |
 | `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` | waives that rule. Set by `docker-compose.yml` (loopback inside a container is the container's own) and by `docker-compose.host.yml` (the boundary is a network you already trust). On a public address it publishes the whole API behind one static token |
 

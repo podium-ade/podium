@@ -387,6 +387,16 @@ export function start(opts: {
 }): Run {
   const { argv, cwd, env } = invocation(opts);
   const child = spawn(Binary, argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  // ENOENT is an 'error' event, not a non-zero exit. Without a listener Node treats it as
+  // unhandled and kills THIS process with status 1 — before main can emit a final — which
+  // is how a host turn ends as "said nothing at all".
+  child.on("error", (err) => {
+    const why =
+      (err as NodeJS.ErrnoException).code === "ENOENT"
+        ? `${Binary} is not on PATH. Host turns need the same harness the runtime image installs (opencode-ai).`
+        : err.message;
+    process.stderr.write(`podium-agent: ${why}\n`);
+  });
   return { child, argv };
 }
 
