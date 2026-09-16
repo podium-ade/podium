@@ -25,7 +25,7 @@ export function IdentityCard() {
         <CardTitle>Google Workspace</CardTitle>
         <CardDescription>
           {claimed && viewer.hostedDomain
-            ? `This Podium belongs to the ${viewer.hostedDomain} Workspace.`
+            ? `This Podium instance belongs to the ${viewer.hostedDomain} Workspace.`
             : "The first person to confirm claims this instance for their domain. Later sign-ins from that Workspace join as members."}
         </CardDescription>
       </CardHeader>
