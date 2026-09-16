@@ -314,16 +314,20 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	var j job
 	var sess store.Session
 	var ok bool
-	if aConversation(src.Kind()) {
-		if c.host == nil {
-			c.logger.ErrorContext(ctx, "a conversation arrived with no host runtime",
-				"source", src.Kind(), "source_key", ev.SourceKey)
-			c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: this conductor has no host runtime, so it cannot answer a conversation here."})
-			c.finish(ctx, src, ev.Ref, ReactionFailed)
-			return
-		}
+	// A conversation with a host runtime is answered here. A web chat without one is
+	// refused rather than turned into a container task. The test-only KindDev source,
+	// and Slack on a conductor that has no host, still run as tasks so the playbook
+	// loop can be exercised without forking node.
+	switch {
+	case c.host != nil && aConversation(src.Kind()):
 		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
-	} else {
+	case src.Kind() == SourceChat:
+		c.logger.ErrorContext(ctx, "a conversation arrived with no host runtime",
+			"source", src.Kind(), "source_key", ev.SourceKey)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: this conductor has no host runtime, so it cannot answer a conversation here."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
+		return
+	default:
 		j, sess, ok = c.acceptTask(ctx, src, profile, &ev)
 	}
 	if !ok {
@@ -453,9 +457,9 @@ func (c *Conductor) acceptConversation(
 	return assistantJob(profile.Assistant()), sess, true
 }
 
-// acceptTask is a Linear ticket (or any source that is not a conversation). It runs one
-// playbook as a task on a node. Conversations are answered by the assistant and only
-// become a task when that turn delegates.
+// acceptTask is a Linear ticket, or a conversation on a conductor with no host runtime
+// (the test-only KindDev source, and Slack before host turns). It runs one playbook as a
+// task on a node. A web chat without a host runtime is refused instead.
 func (c *Conductor) acceptTask(
 	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
 ) (job, store.Session, bool) {

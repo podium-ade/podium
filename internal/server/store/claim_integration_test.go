@@ -126,7 +126,7 @@ func TestHostedDomainIsFirstWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alias.com", first.HostedDomain)
 
-	google, err := s.upsertUser(ctx, "bob@alias.com", "Bob", "acme.com")
+	google, err := s.upsertUser(ctx, "bob@alias.com", "Bob", "acme.com", "")
 	require.NoError(t, err)
 	require.Equal(t, "alias.com", google.HostedDomain, "a later hd does not overwrite the first write")
 }
