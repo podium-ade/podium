@@ -45,7 +45,7 @@ func TestATurnsMCPServersAreNamedInTheBriefAndCredentialedOnTheSpec(t *testing.T
 	require.NoError(t, err)
 	assert.NotContains(t, encoded, "token")
 
-	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, servers, choice)
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, servers, choice, "")
 	assert.Contains(t, sp.Secrets, spec.SecretRef{
 		Name:   mcp.TokenSecret("linear"),
 		Target: spec.SecretTargetEnv,
@@ -66,7 +66,7 @@ func TestAPlaybookWithNoMCPServersGetsNone(t *testing.T) {
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil, choice)
 	assert.Nil(t, b.Playbook.MCPServers)
 
-	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice)
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "")
 	for _, ref := range sp.Secrets {
 		assert.NotContains(t, ref.Name, mcp.SecretPrefix)
 	}

@@ -93,6 +93,39 @@ func TestTheSingleFileNeedsNoConfiguration(t *testing.T) {
 			"operator sets them. Give each a default instead.", names)
 }
 
+// TestComposeAgentBotMountsAreConfigurable is the product rule: a fresh compose install
+// gets a starter profile from the image (named volume, no path) and an empty skills volume,
+// and an operator binds THEIR directories by setting HOST vars. The defaults must not be
+// paths inside this repository — a customer who curls the compose file has no checkout.
+func TestComposeAgentBotMountsAreConfigurable(t *testing.T) {
+	for _, name := range []string{"docker-compose.yml", "docker-compose.host.yml", "docker-compose.tailnet.yml"} {
+		t.Run(name, func(t *testing.T) {
+			env := composeServiceEnv(t, name, "agent", map[string]string{
+				"PODIUM_PG_PASSWORD": "pgpassword",
+				"PODIUM_LOCAL_TOKEN": "devtoken",
+				"PODIUM_AGENT_TOKEN": "agenttoken",
+				"PODIUM_TAILNET":     "tail0a1b2c",
+			})
+			require.Equal(t, "/etc/podium/agent", env["PODIUM_AGENT_PROFILE_DIR"],
+				"%s: PROFILE_DIR is the path inside the container", name)
+			require.Equal(t, "/etc/podium/skills", env["PODIUM_AGENT_SKILLS_DIR"],
+				"%s: SKILLS_DIR is the path inside the container", name)
+
+			raw, err := os.ReadFile(name)
+			require.NoError(t, err)
+			body := string(raw)
+			require.Contains(t, body, "${PODIUM_AGENT_PROFILE_HOST:-agent-profile}")
+			require.Contains(t, body, "${PODIUM_AGENT_SKILLS_HOST:-agent-skills}")
+			require.NotRegexp(t, `\$\{PODIUM_AGENT_PROFILE_HOST:-[^}]*[./]`, body,
+				"%s: PROFILE_HOST default must be a named volume, not a host path", name)
+			require.NotRegexp(t, `\$\{PODIUM_AGENT_SKILLS_HOST:-[^}]*[./]`, body,
+				"%s: SKILLS_HOST default must be a named volume, not a host path", name)
+			require.NotContains(t, body, "examples/agent",
+				"%s: compose must not name this checkout; the starter is already in the image", name)
+		})
+	}
+}
+
 // TestHostComposeSharesTheHostNetwork is the reason docker-compose.host.yml exists:
 // the server, conductor and a co-located node inherit this machine's routing table
 // (WireGuard, a corporate VPN, the LAN) instead of Docker's bridge NAT.

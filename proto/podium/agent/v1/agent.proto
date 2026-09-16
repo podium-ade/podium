@@ -68,28 +68,24 @@ service AgentService {
   // and a load failure is refused here and changes nothing, so a conductor is never left
   // running half a profile.
   rpc ReloadProfileDir(ReloadProfileDirRequest) returns (ReloadProfileDirResponse);
-  // CreatePlaybook stores a new playbook in the conductor's database. A name a playbooks/*.yaml
-  // already defines is refused: the files are authoritative for the names they hold.
+  // CreatePlaybook writes playbooks/<name>.yaml in the profile directory and re-reads it.
+  // A name that already exists is refused.
   rpc CreatePlaybook(CreatePlaybookRequest) returns (CreatePlaybookResponse);
-  // UpdatePlaybook replaces a stored playbook. A file-defined playbook is refused.
+  // UpdatePlaybook replaces playbooks/<name>.yaml and re-reads the profile directory.
   rpc UpdatePlaybook(UpdatePlaybookRequest) returns (UpdatePlaybookResponse);
-  // DeletePlaybook removes a stored playbook. A file-defined playbook is refused; deleting a
-  // stored playbook that is not there is not an error.
+  // DeletePlaybook removes playbooks/<name>.yaml. A name that is not there is not an error.
   rpc DeletePlaybook(DeletePlaybookRequest) returns (DeletePlaybookResponse);
   // ListSkills reports every Agent Skill this conductor can hand a turn: the bundles
   // uploaded through this API and the directories under PODIUM_AGENT_SKILLS_DIR on its host.
   // The directory wins a name clash, and a stored skill it shadows is reported as such.
   rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
-  // UploadSkill validates a bundle against the same rules a skill on the conductor's disk is
-  // held to and stores it. Nothing partially valid is stored: a skill over a cap, holding a
-  // path it may not, or with a SKILL.md the harness would not load is refused with the rule
-  // it broke.
+  // UploadSkill unpacks a zip (or a bare SKILL.md) into PODIUM_AGENT_SKILLS_DIR. The skill's
+  // name comes from its frontmatter. Nothing partially valid is written.
   rpc UploadSkill(UploadSkillRequest) returns (UploadSkillResponse);
   // SetSkillEnabled takes a stored skill out of service, or puts it back. A playbook that
   // names a disabled skill fails its turns saying so rather than running without it.
   rpc SetSkillEnabled(SetSkillEnabledRequest) returns (SetSkillEnabledResponse);
-  // DeleteSkill removes a stored skill and its bundle. A directory skill is refused: it is a
-  // file on the conductor's host and this API does not delete those.
+  // DeleteSkill removes the skill directory under PODIUM_AGENT_SKILLS_DIR.
   rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
   // ListMcpServers reports every MCP server registered on this conductor, with which
   // playbooks name each one. It never carries a token: a server's credential is a Podium
@@ -902,6 +898,18 @@ message PlaybookRepo {
   string default_branch = 3;
 }
 
+// PlaybookGit is who a turn of this playbook commits as: the user.name and user.email the
+// runtime writes into every clone it makes.
+//
+// GitHub links a commit to an ACCOUNT by this email, and an address belonging to no account
+// leaves every commit attributed to nobody — which is what a deployment gate that checks the
+// author's access refuses. The account whose token this playbook pushes with is the value
+// that works, as <id>+<login>@users.noreply.github.com.
+message PlaybookGit {
+  string name = 1;
+  string email = 2;
+}
+
 // PlaybookDefinition is one playbook in full: everything playbooks/<name>.yaml holds, plus where
 // this copy came from and whether a browser may change it.
 message PlaybookDefinition {
@@ -924,11 +932,10 @@ message PlaybookDefinition {
   repeated string slack_channels = 12;
   bool linear = 13;
   map<string, string> env = 14;
-  // origin is "file" for a playbooks/<name>.yaml on the conductor's host and "stored" for one
-  // created through this API.
+  // origin is "file": every playbook is a playbooks/<name>.yaml on the conductor's host,
+  // whether a human wrote it in a shell or this API wrote it.
   string origin = 15;
-  // editable is false for a file playbook: the files are authoritative for the names they
-  // hold and the write RPCs refuse one.
+  // editable is true: the write RPCs replace the file.
   bool editable = 16;
   // shadowed is true for a stored playbook whose name a file playbook also defines. The file
   // wins, so a shadowed playbook never runs; it is reported so it can be deleted.
@@ -967,6 +974,14 @@ message PlaybookDefinition {
   // container, instead of ending the turn. Off by default: a waiting container still
   // holds a node slot, and a playbook that did not ask for this must not grow one.
   bool interactive = 25;
+  // git is who a turn of this playbook commits as. Unset inherits the profile's persona,
+  // which is set in profile.yaml and is what most playbooks should use.
+  PlaybookGit git = 26;
+  // docker attaches a privileged dind sidecar. Needs a node started with
+  // --allow-privileged-sidecars.
+  bool docker = 27;
+  // browser attaches a headless Chrome sidecar and the tools to drive it.
+  bool browser = 28;
 }
 
 message GetProfileRequest {}
@@ -1066,6 +1081,8 @@ message AgentSkill {
   // playbooks names the playbooks whose skills: list this skill, so a human can see what a
   // delete or a disable would change before doing it.
   repeated string playbooks = 13;
+  // markdown is the SKILL.md body, so the UI can open an existing skill for edit.
+  string markdown = 14;
 }
 
 message ListSkillsRequest {}

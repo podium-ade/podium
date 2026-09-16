@@ -18,7 +18,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
-	agentgithub "github.com/podium-ade/podium/internal/agent/github"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
 )
 
 func TestSplitLeavesShortTextAlone(t *testing.T) {
@@ -204,7 +204,7 @@ func TestInnerEmitsAThreadMention(t *testing.T) {
 
 type fakeReview struct {
 	bound    map[string]string
-	ingested []agentgithub.SlackMention
+	ingested []ghreview.SlackMention
 }
 
 func (f *fakeReview) LookupSlack(_ context.Context, slackRef string) (string, bool, error) {
@@ -217,13 +217,13 @@ func (f *fakeReview) BindSlack(_ context.Context, slackRef, sourceKey string) er
 		f.bound = map[string]string{}
 	}
 	if existing, ok := f.bound[slackRef]; ok && existing != sourceKey {
-		return agentgithub.ErrBoundToOther
+		return ghreview.ErrBoundToOther
 	}
 	f.bound[slackRef] = sourceKey
 	return nil
 }
 
-func (f *fakeReview) IngestSlack(_ context.Context, m agentgithub.SlackMention) error {
+func (f *fakeReview) IngestSlack(_ context.Context, m ghreview.SlackMention) error {
 	f.ingested = append(f.ingested, m)
 	return nil
 }
@@ -248,7 +248,7 @@ func TestAMentionWithOnePRURLIsForwardedToGitHub(t *testing.T) {
 
 	assertNoInbound(t, s)
 	require.Len(t, rev.ingested, 1)
-	assert.Equal(t, "github:acme/repo#12", agentgithub.SourceKeyPR(rev.ingested[0].PR))
+	assert.Equal(t, "github:acme/repo#12", ghreview.SourceKeyPR(rev.ingested[0].PR))
 	assert.Equal(t, "C1/100.1", func() string {
 		for k := range rev.bound {
 			return k

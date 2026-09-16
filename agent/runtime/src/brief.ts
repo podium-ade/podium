@@ -159,6 +159,25 @@ const briefSchema = z.strictObject({
   transcript_truncated: z.boolean(),
   instruction: z.string().min(1),
   repos: z.array(repoSchema).optional(),
+  // Who this turn's commits are by. Absent leaves GitUserName and GitUserEmail, which name
+  // no GitHub account: a commit carrying them is attributed to nobody, and a deployment gate
+  // that resolves the author refuses the pull request. See repos.ts.
+  git: z
+    .strictObject({
+      name: z.string().min(1),
+      email: z.string().min(1),
+    })
+    .optional(),
+  // Where this turn redeems its minting capability for a GitHub token, when the conductor
+  // has a GitHub App. An address and the NAME of the variable the capability arrives in —
+  // never the capability — exactly as memory below. Absent means the older path: a
+  // playbook naming its own token secret, read straight out of GITHUB_TOKEN.
+  git_credentials: z
+    .strictObject({
+      url: z.string().min(1),
+      token_env: z.string().min(1),
+    })
+    .optional(),
   memory: z
     .strictObject({
       mcp_url: z.string().min(1),

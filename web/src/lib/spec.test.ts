@@ -91,11 +91,12 @@ sidecars:
   it("rejects a field the schema does not have rather than dropping it", () => {
     // The whole reason this decoder exists: yaml.parse would happily discard `privileged` and
     // submit a task that does not do what was asked.
-    const { spec, problems } = parseSpecYaml("image: alpine:3\nprivileged: true\n");
+    const { spec, problems, issues } = parseSpecYaml("image: alpine:3\nprivileged: true\n");
     expect(spec).toBeUndefined();
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("privileged");
     expect(problems[0]).toContain("is not a task spec field");
+    expect(issues[0]?.line).toBe(2);
   });
 
   it("rejects an unknown field inside a sidecar, but not the sidecar's own name", () => {

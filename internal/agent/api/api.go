@@ -97,13 +97,11 @@ type AgentServiceOptions struct {
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
 	// memory RPCs then answer FailedPrecondition and the UI says memory is not configured.
 	Memory memory.Client
-	// SkillsDir is PODIUM_AGENT_SKILLS_DIR: the Agent Skills on this host, which the skill
-	// RPCs report and refuse to write over. Empty means the stored half is the only source,
-	// which is a supported configuration — it is what an install with no shell access to the
-	// conductor looks like.
+	// SkillsDir is PODIUM_AGENT_SKILLS_DIR: the Agent Skills on this host. Empty means this
+	// conductor delivers no skills, and a playbook that names one fails that turn.
 	SkillsDir string
-	// Profiles is the profile in force, swapped whenever a stored playbook changes. Nil makes
-	// the playbook and profile RPCs answer FailedPrecondition.
+	// Profiles is the profile in force, swapped when the directory is re-read or an override
+	// changes. Nil makes the playbook and profile RPCs answer FailedPrecondition.
 	Profiles *profiles.Live
 	// ProfileDir is PODIUM_AGENT_PROFILE_DIR, the directory Profiles' file half was read
 	// from. It is what ReloadProfileDir re-reads. Empty means this conductor has no
@@ -155,14 +153,14 @@ type AgentService struct {
 	flows    map[string]*oauthFlow
 	mcpFlows map[string]*mcpFlow
 
-	// writeMu serialises the read-validate-write of a playbook, an override or an MCP
-	// registration, so two browsers saving at once cannot each validate against a set the
-	// other is changing. An MCP write holds it across the call that stores the token in the
-	// control plane, which is what keeps "is this name taken" and "write this secret" one
-	// decision rather than two.
+	// writeMu serialises the read-validate-write of an override or an MCP registration, so
+	// two browsers saving at once cannot each validate against a set the other is changing.
+	// An MCP write holds it across the call that stores the token in the control plane,
+	// which is what keeps "is this name taken" and "write this secret" one decision rather
+	// than two.
 	writeMu sync.Mutex
 	// stale is why the last rebuild of the profile failed, or "". GetProfile reports it:
-	// a conductor running a profile older than its database has to say so.
+	// a conductor running a profile older than its stored overrides has to say so.
 	stale atomic.Pointer[string]
 }
 

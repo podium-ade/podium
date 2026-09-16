@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { MemoryRouter } from "react-router";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlaybookDefinitionSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { catalogue } from "../../test/agents";
@@ -218,8 +218,6 @@ describe("PlaybookEditor", () => {
         allowedTools: ["read"],
         maxTurns: 12,
         timeout: "5m",
-        origin: "stored",
-        editable: true,
       }),
     });
     expect(screen.getByLabelText("Playbook name")).toBeDisabled();
@@ -240,8 +238,6 @@ describe("PlaybookEditor", () => {
       playbook: create(PlaybookDefinitionSchema, {
         name: "reporter",
         image: "ghcr.io/example/reporter:v1",
-        origin: "stored",
-        editable: true,
       }),
       onDelete,
     });
@@ -252,21 +248,17 @@ describe("PlaybookEditor", () => {
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a shadowed playbook read-only, with the delete as the only thing to do to it", () => {
+  it("shows a file playbook read-only", () => {
     mount({
       playbook: create(PlaybookDefinitionSchema, {
         name: "general",
         image: "ghcr.io/example/general:v1",
-        origin: "stored",
-        editable: true,
-        shadowed: true,
       }),
-      onDelete: vi.fn(),
+      readOnly: true,
     });
     expect(screen.queryByRole("button", { name: "Save playbook" })).toBeNull();
     expect(screen.getByLabelText("Image")).toBeDisabled();
-    expect(screen.getByText(/never runs and cannot be written over/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete general" })).toBeInTheDocument();
+    expect(screen.getByText(/playbooks\/general\.yaml/)).toBeInTheDocument();
   });
 
   it("shows the server's refusal verbatim", () => {
@@ -274,5 +266,44 @@ describe("PlaybookEditor", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       'playbook "reporter": allowed_tools is required',
     );
+  });
+
+  it("shows the YAML counterpart of the form, and submits a YAML document", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
+
+    const editor = screen.getByLabelText("Playbook YAML");
+    fireEvent.change(editor, {
+      target: {
+        value:
+          "image: ghcr.io/example/reporter:v1\nsystem_prompt: Write the weekly report.\nallowed_tools:\n  - read\n  - bash\n",
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      name: "reporter",
+      image: "ghcr.io/example/reporter:v1",
+      systemPrompt: "Write the weekly report.",
+      allowedTools: ["read", "bash"],
+    });
+  });
+
+  it("rejects a YAML field the playbook schema does not have", async () => {
+    mount();
+    await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
+    const editor = screen.getByLabelText("Playbook YAML");
+    fireEvent.change(editor, {
+      target: {
+        value: "system_prompt: hi\nallowed_tools:\n  - read\nsytem_prompt: oops\n",
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Create playbook" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByTestId("playbook-problems")).toHaveTextContent("sytem_prompt");
   });
 });

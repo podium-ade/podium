@@ -65,11 +65,6 @@ func TestTheRenameMigrationCarriesWhatIsAlreadyThere(t *testing.T) {
 	t.Cleanup(s.Close)
 	require.NoError(t, s.Migrate(ctx))
 
-	rows, err := s.ListStoredPlaybooks(ctx)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, "analyst", rows[0].Playbook.Name)
-
 	sess, err := s.GetSession(ctx, "sess_1")
 	require.NoError(t, err)
 	require.Equal(t, "analyst", sess.Playbook, "one session, one playbook — the column moved, the value did not")

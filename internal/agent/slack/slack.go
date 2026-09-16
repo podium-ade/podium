@@ -19,7 +19,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
-	agentgithub "github.com/podium-ade/podium/internal/agent/github"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
 )
 
 // Kind is the source kind Slack sessions are recorded under.
@@ -111,7 +111,7 @@ type Source struct {
 type ReviewDoor interface {
 	LookupSlack(ctx context.Context, slackRef string) (sourceKey string, ok bool, err error)
 	BindSlack(ctx context.Context, slackRef, sourceKey string) error
-	IngestSlack(ctx context.Context, m agentgithub.SlackMention) error
+	IngestSlack(ctx context.Context, m ghreview.SlackMention) error
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -289,7 +289,7 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 	prs := conductor.FindPullRequests(text)
 
 	if ok {
-		owner, repo, number, parsed := agentgithub.ParseSourceKey(bound)
+		owner, repo, number, parsed := ghreview.ParseSourceKey(bound)
 		if !parsed {
 			return false
 		}
@@ -300,9 +300,9 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 			})
 			return true
 		}
-		if err := s.review.IngestSlack(ctx, agentgithub.SlackMention{
+		if err := s.review.IngestSlack(ctx, ghreview.SlackMention{
 			PR: conductor.PullRequest{
-				URL: agentgithub.PRURL(owner, repo, number), Owner: owner, Repo: repo, Number: number,
+				URL: ghreview.PRURL(owner, repo, number), Owner: owner, Repo: repo, Number: number,
 			},
 			Channel: channel, Thread: thread, Trigger: ts,
 			Author: author, Text: text, TS: parseTS(ts),
@@ -329,9 +329,9 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 	}
 
 	pr := prs[0]
-	key := agentgithub.SourceKeyPR(pr)
+	key := ghreview.SourceKeyPR(pr)
 	if err := s.review.BindSlack(ctx, slackRef, key); err != nil {
-		if errors.Is(err, agentgithub.ErrBoundToOther) {
+		if errors.Is(err, ghreview.ErrBoundToOther) {
 			_, _ = s.Post(ctx, Ref(channel, thread, ts), conductor.Outbound{
 				Type: conductor.OutFailure,
 				Text: "This thread is already reviewing a different pull request. Start a new thread.",
@@ -341,7 +341,7 @@ func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author,
 		s.logger.WarnContext(ctx, "github: binding a slack thread to a pull request failed", "error", err)
 		return false
 	}
-	if err := s.review.IngestSlack(ctx, agentgithub.SlackMention{
+	if err := s.review.IngestSlack(ctx, ghreview.SlackMention{
 		PR:      pr,
 		Channel: channel, Thread: thread, Trigger: ts,
 		Author: author, Text: text, TS: parseTS(ts),

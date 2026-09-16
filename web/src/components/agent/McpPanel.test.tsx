@@ -95,12 +95,13 @@ describe("McpPanel", () => {
     listMcpServers.mockResolvedValue({ servers: [], maxPerPlaybook: 8 });
   });
 
-  it("says whose credential these tools spend, before anything is registered", async () => {
+  it("offers a way in before anything is registered, without a warning banner", async () => {
     mount();
     expect(await screen.findByText("No MCP servers")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
     expect(
-      screen.getByText(/token is spent by every turn of every playbook that names it/),
-    ).toBeInTheDocument();
+      screen.queryByText(/token is spent by every turn of every playbook that names it/),
+    ).toBeNull();
   });
 
   it("lists a server with its address, the four characters of its token, and who names it", async () => {
@@ -111,6 +112,24 @@ describe("McpPanel", () => {
     expect(within(row).getByText("https://mcp.linear.app/mcp")).toBeInTheDocument();
     expect(within(row).getByText(/9xQ2/)).toBeInTheDocument();
     expect(within(row).getByText("/coder")).toBeInTheDocument();
+  });
+
+  it("keeps a long description to one ellipsized line on the card, and the full text in edit", async () => {
+    const description =
+      "Issues, projects and cycles, plus a great deal more that would wrap the card if it were allowed to.";
+    listMcpServers.mockResolvedValue({
+      servers: [server({ description })],
+      maxPerPlaybook: 8,
+    });
+    mount();
+    const row = await screen.findByTestId("mcp-row");
+    const clipped = within(row).getByText(description);
+    expect(clipped).toHaveClass("truncate");
+    expect(clipped).toHaveAttribute("title", description);
+
+    await userEvent.click(within(row).getByTestId("mcp-edit"));
+    expect(screen.queryByLabelText("Description")).toBeNull();
+    expect(screen.getByRole("dialog")).toHaveTextContent(description);
   });
 
   // A registration nothing names is the state right after adding one, and the row is where
@@ -126,6 +145,10 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
+    expect(
+      screen.getByText("Search, create and update issues, projects and cycles. Comment on issues and change status."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Description")).toBeNull();
     expect(screen.getByPlaceholderText("lin_api_…")).toBeInTheDocument();
     expect(screen.getByText(/starts with lin_api_/)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Token"), "lin_api_secret");
@@ -133,10 +156,13 @@ describe("McpPanel", () => {
 
     await waitFor(() => expect(createMcpServer).toHaveBeenCalled());
     const [req] = createMcpServer.mock.calls[0] as [
-      { server: { name: string; url: string }; token: string },
+      { server: { name: string; url: string; description: string }; token: string },
     ];
     expect(req.server.name).toBe("linear");
     expect(req.server.url).toBe("https://mcp.linear.app/mcp");
+    expect(req.server.description).toBe(
+      "Search, create and update issues, projects and cycles. Comment on issues and change status.",
+    );
     expect(req.token).toBe("lin_api_secret");
   });
 
@@ -156,14 +182,34 @@ describe("McpPanel", () => {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     expect(screen.getByText("Custom")).toBeInTheDocument();
+    expect(screen.queryByText("Issues and cycles")).toBeNull();
     expect(screen.queryByLabelText("Start from")).toBeNull();
 
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     expect(screen.getByRole("heading", { name: "Add a custom server" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Point at any MCP endpoint the conductor can reach/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(screen.getByLabelText("Name")).toHaveValue("");
     expect(screen.getByLabelText("URL")).toHaveValue("");
     expect(screen.getByLabelText("Token")).toHaveAttribute("placeholder", "");
     expect(screen.getByText(/Leave it empty for a server that needs no credential/)).toBeInTheDocument();
+  });
+
+  it("goes back to the product picker from a chosen server", async () => {
+    mount();
+    await userEvent.click(await screen.findByTestId("mcp-new"));
+    await userEvent.click(screen.getAllByTestId("mcp-preset")[0]);
+    expect(screen.getByRole("heading", { name: "Add Linear" })).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.getByText("Stripe")).toBeInTheDocument();
+    expect(screen.getByText("Figma")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).toBeNull();
   });
 
   // The switch sends back the registration with one field flipped, and nothing the conductor

@@ -301,8 +301,8 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
-| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/` |
-| `PODIUM_AGENT_SKILLS_DIR` | no | — | one directory per Agent Skill, each with a `SKILL.md`. No default. It is the *other* source of skills — the Skills screen stores them in the database — and it wins a name clash |
+| `PODIUM_AGENT_PROFILE_DIR` | no | `/etc/podium/agent` | `profile.yaml`, `playbooks/`, `prompts/`. In compose this is the path inside the container; bind your own tree with `PODIUM_AGENT_PROFILE_HOST` |
+| `PODIUM_AGENT_SKILLS_DIR` | no | — (`/etc/podium/skills` in compose) | one directory per Agent Skill, each with a `SKILL.md`. Bind your own tree with `PODIUM_AGENT_SKILLS_HOST` |
 | `PODIUM_AGENT_HOST_RUNTIME` | for the assistant | — | the built runtime's entrypoint on THIS host (`agent/runtime/dist/main.js`). Set it, with the runner below, and every CONVERSATION — a web chat and a Slack thread alike — is answered by the assistant in this process instead of by a playbook in a container; leave it unset and every turn is a task. Read [`security.md`](security.md) first: the assistant has no container around it |
 | `PODIUM_AGENT_HOST_MAX_TURNS` | no | 4 | how many turns this host answers at once. A host turn is a `node` process on the conductor's own machine, and with Slack threads answered here it is a channel's traffic that decides how many conversations exist. Beyond the cap a conversation waits its turn — a Slack thread sits on its ⏳ for longer, a web chat on its `👀 working…` — and `podium_agent_host_turns_queued_total` counts how often that happens |
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | — | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all |
@@ -352,9 +352,10 @@ docker compose exec -T postgres createdb -U podium podium_agent
 docker exec podium-dev-postgres createdb -U podium podium_agent
 ```
 
-Losing this database costs turn records, not conversations: the conversations are in Slack — and
-now also every playbook made in the web UI, which lives in its `playbooks` table. Playbooks that came out
-of the profile directory are unaffected. Back it up if the UI is where your playbooks are defined.
+Losing this database costs turn records, not conversations: the conversations are in Slack.
+Playbooks and skills are files on the conductor's host and are unaffected. The Assistant-screen
+overrides (display name, model, default playbook) live in `settings` and would reset to the
+file. Back it up for the turn history.
 
 The shared memory has a third database, `podium_memory`, on the same Postgres — see *Memory*
 below. Losing **that** one does lose something: it is the only copy.
@@ -393,14 +394,14 @@ There are **two** profiles in this repository and they are different kinds of th
 
 | | |
 |---|---|
-| [`../examples/agent`](../examples/agent) | the worked example. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs and what `deploy/run-host.sh` defaults to |
-| [`../playbooks`](../playbooks) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill |
+| [`../examples/agent`](../examples/agent) | the starter baked into the agent image and copied once into `.podium/agent` on `make stack-up`. One playbook, the base image, no credential, no skill, no label — it loads and runs on any node, and it is what the e2e suite runs |
+| [`../profile`](../profile) | the profile Podium's **own bot** runs, with [`../skills`](../skills) beside it as its `PODIUM_AGENT_SKILLS_DIR`. It clones this repository, holds a GitHub token, asks for a privileged node and a browser, and names an Agent Skill. It is not the product default |
 
 They were one directory until the second one grew all of that, at which point the first stopped
-being an example anybody could copy safely. An operator running the real bot names its two
-directories in `.env`; the default stays the example, so a first `make stack-up` gets a bot that
-comes up and answers rather than one that fails every turn on a node flag. See
-[`../playbooks/README.md`](../playbooks/README.md).
+being an example anybody could copy safely. A first `make stack-up` or `docker compose up` gets
+the starter, so the bot comes up and answers rather than failing every turn on a node flag.
+Podium developers running the real bot name its two directories themselves. See
+[`../profile/README.md`](../profile/README.md).
 
 Every file is decoded with unknown keys **rejected**, the same rule `pkg/spec` follows for a task
 spec: a misspelt key is a startup error naming the file, not a field that silently does nothing.
@@ -648,7 +649,7 @@ It is also a different kind of field from the two above it. `docker:` and `brows
 **environment** — a container running beside the turn. `skills:` allows **content** the model may
 load into its own context. A playbook wanting an adversarial review of a pull request supplies the
 environment (`browser: true`, `docker: true`, the token, the repository) and names the skill that
-supplies the method. [`../playbooks/playbooks/podium.yaml`](../playbooks/playbooks/podium.yaml) is
+supplies the method. [`../profile/playbooks/podium.yaml`](../profile/playbooks/podium.yaml) is
 exactly that pairing, with [`validate-pr`](../skills/validate-pr/SKILL.md) as the method.
 
 `skills:` is a playbook's allow-list, by name:
@@ -662,17 +663,8 @@ skills: [pr-review, release-notes]
 also removes the `skill` tool from the agent altogether — so the skills built into the harness
 itself cannot be loaded either.
 
-The names come out of the conductor's **skill library**, which has two halves.
-
-**Uploaded, in the conductor's database.** The Skills screen in the web UI takes a zip of the
-skill's directory or the text of a `SKILL.md`, validates it, and stores the bundle beside the
-playbooks. This is the way in that needs no shell on the conductor's host, and it is what
-`AgentService.ListSkills`, `UploadSkill`, `SetSkillEnabled` and `DeleteSkill` are for. A stored
-skill can be turned **off** without being deleted; a playbook that names a disabled skill fails
-its turns saying so, because a turn quietly running with fewer skills than its playbook
-describes is the one outcome nobody can diagnose afterwards.
-
-**`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per skill:
+The names come out of **`PODIUM_AGENT_SKILLS_DIR` on the conductor's host**, one directory per
+skill:
 
 ```
 $PODIUM_AGENT_SKILLS_DIR/
@@ -684,7 +676,12 @@ $PODIUM_AGENT_SKILLS_DIR/
 ```
 
 There is no default for that variable, and it is not required: a conductor with no directory
-serves the uploaded half alone.
+delivers no skills. A playbook that names one then fails that turn, naming the directory it
+looked in. Every other playbook keeps running.
+
+A directory that exists and will not load is an **error**, not a missing skill. `ListSkills`
+reports it with the reason attached rather than hiding it. The Skills screen lists this
+directory; it does not write one.
 
 [`../skills`](../skills) is this repository's own, and it is the **worked example** of a
 skill the way `-dev` is of an image: [`validate-pr`](../skills/validate-pr/SKILL.md) is the
@@ -694,23 +691,6 @@ must bind `0.0.0.0`, the browser reaches the turn at `http://task:<port>`), an a
 the order that finds bugs, and a rule for what counts as a finding. A turn rediscovering any
 of that spends turns on it, which is the whole argument for writing a procedure down instead
 of putting it in a prompt.
-
-**When a name is in both places, the directory wins.** It is a file, put there by whoever runs
-the process, and it is the escape hatch for the case where the database or the browser is not
-available — so a browser cannot override one. That is the same rule a `playbooks/<name>.yaml`
-gets, and the consequences are the same three:
-
-- The write RPCs refuse a name the directory holds: upload, disable and delete all answer
-  `failed_precondition` naming the directory.
-- A stored skill the directory has since claimed is **shadowed**. It never runs, and the Skills
-  screen shows it under its own heading so it can be deleted — which is the only way to make
-  that list say what a turn will actually get.
-- A directory that exists and will not load is an **error**, not a reason to serve the
-  database's answer under the same name. `ListSkills` reports it with the reason attached
-  rather than hiding it.
-
-A name that is in neither place fails the turn of the playbook that asked for it, naming both
-places it looked. Every other playbook keeps running.
 
 **Where they land.** Just before the harness starts, the runtime writes each skill to
 `$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
@@ -724,26 +704,16 @@ permission map:
 The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
 does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
 
-**How the bytes get there.** The conductor resolves the playbook's names against the library at
-the start of every turn — the directory first, then the database — packs each bundle, and puts it
-on the task spec as one environment variable per skill: `PODIUM_AGENT_SKILL_PR_REVIEW` for
-`pr-review`. The brief carries only the name, a sha256 digest and the name of that variable, the
-same way it carries the *name* of a credential's variable and never the value. The runtime
-verifies the digest before it writes anything.
+**How the bytes get there.** The conductor resolves the playbook's names against the directory
+at the start of every turn, packs each bundle, and puts it on the task spec as one environment
+variable per skill: `PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the
+name, a sha256 digest and the name of that variable, the same way it carries the *name* of a
+credential's variable and never the value. The runtime verifies the digest before it writes
+anything.
 
-What the database holds is the bundle **document** — the JSON file map the digest is over — and
-not the gzip and base64 a turn travels with. Those are re-derived per turn, so the digest means
-one thing whatever the delivery later becomes, and a document that has been changed under the
-row fails on it rather than reaching a container. It lives in `podium_agent`, table
-`agent_skills`, one row per skill — the table is not called `skills` because 0003 renamed
-that one to `playbooks` precisely to free the word. It is a `bytea` column and not an object:
-`PODIUM_S3_*` belongs to `podium-server`, so putting bundles in the artifact bucket would mean
-handing the conductor read and delete on every artifact any task has ever produced, in order to
-store something capped at 128 KiB.
-
-Resolving per turn rather than at start-up is deliberate: a skill you have just edited or just
-uploaded is the one the next turn gets, with no restart, and a skill that has gone wrong fails
-the playbook that names it instead of taking the conductor down.
+Resolving per turn rather than at start-up is deliberate: a skill you have just edited is the
+one the next turn gets, with no restart, and a skill that has gone wrong fails the playbook
+that names it instead of taking the conductor down.
 
 **What a bundle may contain.** The guards are refusals, not repairs — a skill that trips one fails
 the turn with a message naming what it was:
@@ -773,45 +743,25 @@ Two consequences worth stating plainly:
   unpacked 128 KiB cap is what you hit first. Either way it is a directory of prose and small
   scripts, not a skill that ships a binary, a wheel or an image.
 
-  **Storing a skill did not raise that cap, and could not.** The bytes have to reach a task
-  container, and there are exactly three ways anything does: an environment string, a read-only
-  bind mount of a file the node wrote, and the image itself. The workspace volume is created
-  empty; nothing calls `CopyToContainer`. A task has no object-store credential and no API
-  token, and the node has no way to fetch a blob from the control plane — `NodeService` is
-  `Enroll`, `Stream` and `UploadArtifact`, and nothing else. So lifting the cap means teaching
-  the control plane to carry a file to a node and the node to bind-mount it, exactly as it
-  already does for a `target: file` secret. That is a `podium.v1` wire change, a
-  `podium-server` change and a `podium-node` change; it is not a number that can be raised
-  here.
+  **The cap cannot be raised here.** The bytes have to reach a task container, and there are
+  exactly three ways anything does: an environment string, a read-only bind mount of a file
+  the node wrote, and the image itself. The workspace volume is created empty; nothing calls
+  `CopyToContainer`. A task has no object-store credential and no API token, and the node has
+  no way to fetch a blob from the control plane — `NodeService` is `Enroll`, `Stream` and
+  `UploadArtifact`, and nothing else. So lifting the cap means teaching the control plane to
+  carry a file to a node and the node to bind-mount it, exactly as it already does for a
+  `target: file` secret. That is a `podium.v1` wire change, a `podium-server` change and a
+  `podium-node` change; it is not a number that can be raised here.
 
-**Where the caps are enforced.** All of them, at upload as well as at delivery. A skill too big
-to travel used to be accepted and then fail the first turn that asked for it; it is now refused
-when somebody presses Upload, with the number in the message. Nothing that fails a rule is ever
-stored, so the library cannot hold a skill that will not run.
+**Where the caps are enforced.** All of them, when the conductor packs a directory for a turn.
+A skill that trips a rule fails the playbook that named it, with the number in the message.
 
-An upload has two caps of its own, for the archive rather than the skill: **1 MiB** of bytes
-and **256 entries** before it is read at all. A zip is compressed, so an archive is read as far
-as that and then refused with the unpacked cap it actually failed — the number a human can act
-on. A `__MACOSX/` entry and a `.DS_Store` are skipped rather than refused, because a desktop
-archiver put them there and nobody meant to ship them. Everything else an archive can carry and
-a bundle cannot — a symlink, an absolute path, a `..`, a duplicate path, a non-UTF-8 file — is a
-refusal naming the entry.
+`profiles.Load` deliberately does not check that a named skill exists, because a playbook file
+has to load on a machine that has none. The turn that asks for a missing name is what fails.
 
-#### Granting a skill from the browser
-
-`skills:` is also a field on the playbook editor, so a playbook created in the browser can name
-skills. The editor offers the installed names and warns — rather than refuses — about a name
-with nothing behind it: `profiles.Load` deliberately does not check that a named skill exists,
-because a playbook file has to load on a machine that has none, and the editor refusing where
-the loader accepts would be the only place in Podium the two disagreed.
-
-**Deleting a skill a playbook names is allowed**, for the same reason. `ListSkills` reports
-which playbooks name each skill and the delete dialog says which turns will start failing, so
-it is a decision rather than a surprise.
-
-Who may do any of this: whoever can reach the web UI. There is no per-skill or per-playbook
-permission, and granting a skill to a playbook is exactly as consequential as giving that
-playbook a credential. See `docs/security.md`.
+Who may add a skill: whoever can write `PODIUM_AGENT_SKILLS_DIR`. There is no upload API.
+Granting one to a playbook is editing that playbook's YAML, which is the same class of
+decision as giving it a credential. See `docs/security.md`.
 
 #### `mcp_servers:` — tools that are somebody else's API
 
@@ -981,81 +931,46 @@ select and eating the first word of somebody's question would only lose it.
 
 Changing a playbook **file** needs the conductor to re-read the profile directory: **Re-read the
 files**, on the Playbooks screen or on Agent → Assistant. There is no SIGHUP reload and no
-restart. A playbook made in the web UI needs neither — see *Playbooks in the web UI* below.
+restart.
 
 ### Playbooks in the web UI
 
-A profile does not have to live only on the conductor's host. **Playbooks** in the sidebar
-creates, edits and deletes playbooks, and **Agent → Profile** sets the display name, the model and
-the two default playbooks, so a playbook's image, prompt, tools, limits, environment and the secrets
-it names are defined in a browser instead of by editing YAML over SSH.
+**Playbooks** in the sidebar lists every `playbooks/<name>.yaml` the conductor has loaded, in
+full, read-only. **Agent → Assistant** sets the display name, the model and the default playbook
+as overrides of `profile.yaml`. Neither screen writes a playbook file: compose bind-mounts
+`PODIUM_AGENT_PROFILE_HOST` (or the named volume `agent-profile`) there, and the conductor
+never writes it.
 
-**Deleting is only offered inside the editor.** The list has an *Edit* on each stored playbook and
-nothing destructive; the delete, behind a confirm, sits at the bottom of the edit form, so the
-definition being thrown away is on the screen with the button. A shadowed row opens the same
-form read-only — it cannot be saved over, and the delete is the only thing it offers.
+Profile *settings* are the one thing a browser does write, because they are not definitions
+with a name but single values with one writer: `profile.yaml` supplies the default and a field
+set in the UI overrides it. The screen shows the file's value beside each field, marks which
+are overridden, and clearing a field returns it to the file. Those overrides live in
+`settings` under `profile.overrides`.
 
-The three decisions worth knowing before you use it:
-
-**Where it is stored.** A UI-defined playbook is a row in the conductor's own database
-(`podium_agent`), table `playbooks`, one row per playbook. The `definition` column holds the same
-document a `playbooks/<name>.yaml` holds, as JSON — same keys, same validation, same defaults. The
-profile overrides are one row in `settings`, under the key `profile.overrides`. Nothing is
-written to the profile directory: `PODIUM_AGENT_PROFILE_DIR` is mounted read-only in the shipped
-compose file and stays that way.
-
-**The files win.** A `playbooks/<name>.yaml` is authoritative for the name it holds:
-
-| | |
-|---|---|
-| a name only the files define | the file's playbook runs; the UI shows it **read-only**, because the file is where it is defined |
-| a name only the database holds | the stored playbook runs; the UI edits it, and deletes it from that edit form |
-| a name **both** define | the **file** runs. The stored row is shown as **shadowed**, says so, never runs, and the only thing you can do to it is open it and delete it |
-
-Creating a playbook whose name a file already defines is refused outright, so the shadowed state is
-only ever reached by adding a file for a name the database already had. The rule is deliberately
-not "the most recent write wins": which of two definitions runs must never depend on which was
-saved last, and a GitOps deployment must stay the authority over the names it ships. Editing a
-file-defined playbook means editing the file and pressing **Re-read the files**.
-
-Profile *settings* work the other way round, because they are not definitions with a name but
-single values with one writer: `profile.yaml` supplies the default and a field set in the UI
-overrides it. The screen shows the file's value beside each field, marks which are overridden,
-and clearing a field returns it to the file's.
-
-**How a change reaches a running conductor.** Immediately, with no restart and no signal. The
-conductor holds its profile in a live holder (`profiles.Live`) that every reader takes a snapshot
-from per use; a write through the API validates the change, stores it, rebuilds the whole profile
-and swaps the new one in atomically. The next turn is routed against the new profile. A turn
-already in flight is untouched — it took its playbook by value when it started, so nothing about it
-can change under it. Every conductor also re-reads the stored half every 15 seconds, which is
-what makes a second conductor on the same database, or a row changed with `psql`, land as well.
-
-The profile directory is read at start and **only** re-read when somebody asks — **Re-read the
-files**, on the Playbooks screen or on Agent → Assistant, which is `ReloadProfileDir`. That half
-is a deploy artefact, and re-reading a file somebody is half way through saving on a timer would
-be a way to break a working bot by touching a keyboard; a human pressing a button is the one
-signal that says the editing has finished.
+**How a change reaches a running conductor.** An override write validates, stores, rebuilds the
+profile and swaps it in atomically — the next turn uses it, a turn already in flight is
+untouched. The profile directory is read at start and **only** re-read when somebody asks —
+**Re-read the files**, on the Playbooks screen or on Agent → Assistant, which is
+`ReloadProfileDir`. Re-reading a file somebody is half way through saving on a timer would be
+a way to break a working bot by touching a keyboard; a human pressing a button is the one
+signal that says the editing has finished. Every conductor also re-reads the stored overrides
+every 15 seconds, which is what makes a second conductor on the same database, or a row
+changed with `psql`, land as well.
 
 The re-read is all-or-nothing. `profile.yaml`, every `playbooks/<name>.yaml` and every prompt a
-`file:` names are loaded, merged with the stored playbooks and the overrides, and validated by
+`file:` names are loaded, the stored overrides are applied, and the result is validated by
 exactly the code that runs at start-up — and only then swapped in. A directory that does not load
 is refused with the error naming the file, and the conductor keeps running the profile it already
 had. Nothing an operator can leave half-written on disk can stop a bot that is answering.
 
-**What is refused.** A playbook made in a browser is validated by exactly the code that validates a
-playbook file — same rules, same messages — so nothing is accepted here that a file could not say,
-and nothing is stored that would fail to load at the next restart:
+**What is refused.** A playbook file is validated at load:
 
 - everything in the table above (`image`, `allowed_tools`, `max_turns`, `timeout`, `priority`, `resources`,
   `env`, `labels` and `secrets` are checked by the task-spec validator, because that is where
   they end up);
-- the two reserved secret names and the three reserved env vars, below;
-- `system_prompt` must be the prompt itself. `file:` works only in a `playbooks/<name>.yaml`, which
-  has a file beside it to resolve the path against;
-- anything that would make the merged profile ambiguous: two playbooks claiming one Slack channel,
-  two setting `linear: true`, a default naming a playbook that is not loaded. Deleting the playbook
-  `default_playbook` names is refused for the same reason.
+- the reserved secret names and env vars, below;
+- anything that would make the profile ambiguous: two playbooks claiming one Slack channel,
+  two setting `linear: true`, a default naming a playbook that is not loaded.
 
 **What is not restricted.** A playbook may name **any registered secret**, exactly as a task spec
 may. There is no allow-list and there will not be one: `CreateTask` checks only that a named
@@ -1084,6 +999,7 @@ allow-list. These three are simply the names Podium's own docs and defaults use.
 | `podium.agent.xai_api_key` | `XAI_API_KEY` | every turn on the `grok` backend; likewise. It holds an xAI API key **or** the access token of a subscription sign-in — both are bearers for the same endpoint |
 | `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A playbook may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a playbook with `repos:` — and only the playbooks whose files name it. See *Playbooks that clone repositories* |
+| `podium.agent.git_capability.<turn>` | `PODIUM_GIT_CAPABILITY` | every turn of a playbook with `repos:`, when a GitHub App is configured. Written by the conductor before the task and deleted when the turn ends; a playbook may not name one |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
 
 The model credential must **exist** before a turn on that backend can run, even a dry run: the
@@ -1545,23 +1461,24 @@ must appear as *your* bot.
 ### Setting it up
 
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
-   `pull_requests: write`, `contents: read`. Events: `issue_comment`, `pull_request_review`,
-   `pull_request_review_comment`.
-2. Generate a private key. Put the PEM on the conductor host.
+   `pull_requests: write`, `contents: write` (clone and push use the same App). Events:
+   `issue_comment`, `pull_request_review`, `pull_request_review_comment`.
+2. Generate a private key. Put the PEM on the conductor host. This is
+   `PODIUM_AGENT_GITHUB_APP_KEY_FILE` — the same key clone tokens mint from.
 3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at
    `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN`, path `/webhooks/github`. That mux is **only** that
    route — see [`networking.md`](networking.md).
 4. Install the App on the repositories it should review.
-5. Four environment variables, all required together:
+5. The App id and key turn clone on. Reviews need the extra pair:
 
 ```sh
-PODIUM_AGENT_GITHUB_APP_ID=                  # the App id
-PODIUM_AGENT_GITHUB_APP_PRIVATE_KEY_FILE=    # path to the PEM
+PODIUM_AGENT_GITHUB_APP_ID=                  # already required to mint clone tokens
+PODIUM_AGENT_GITHUB_APP_KEY_FILE=            # path to the PEM
 PODIUM_AGENT_GITHUB_WEBHOOK_SECRET=          # the webhook secret GitHub shows
 PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN=127.0.0.1:8091
 ```
 
-A partial set is a start-up error naming the missing one, the same rule as Slack's two tokens.
+The webhook secret and listen are both-or-neither. The App can mint clone tokens without them.
 
 Then `@your-app review this` on a PR, or in Slack:
 
@@ -1696,7 +1613,62 @@ repos:
 deploys on merge, and have its prompt open a **draft** pull request so a human reads the diff
 before anything happens.
 
-### The GitHub token
+### The GitHub credential
+
+There are two ways a turn gets one, and the second is better in every respect that matters. Both
+work; a playbook needs no change to move between them.
+
+#### A GitHub App — short-lived, scoped, nobody's personal access
+
+Configure an App on the conductor and a turn stops carrying a GitHub token at all. It carries a
+**capability** — a string the conductor signed, naming that turn and the repositories its
+playbook listed — and it redeems that capability for a fresh installation token whenever git asks
+for one.
+
+That indirection is the whole design, and the reason for it is arithmetic. An installation token
+lives **one hour** and cannot be renewed. An agent commits and pushes at the **end** of its turn,
+and `podium.yaml` sets `timeout: 2h`. A token handed to the container at the start would be dead
+exactly when the push needed it. So `credential.helper` is a program git runs *every time* it
+wants a password — once per clone, once per fetch, once per push — and each call returns a token
+minted seconds earlier.
+
+```sh
+# In deploy/.env, on the conductor's host:
+PODIUM_AGENT_GITHUB_APP_ID=123456
+PODIUM_AGENT_GITHUB_APP_KEY_FILE=/etc/podium/github-app.pem
+PODIUM_AGENT_TASK_URL=http://host.docker.internal:8090
+```
+
+On GitHub: create an App, give it **Contents: read and write** and **Pull requests: read and
+write** and nothing else, install it on the accounts holding the repositories your playbooks
+name, and generate a private key.
+
+What you get over a personal access token:
+
+- **An hour, not for ever.** Every token expires on its own, so a leaked one is a leaked hour.
+- **Only the playbook's repositories.** The token is scoped to that playbook's `repos:` list at
+  mint time, whatever the App itself is installed on.
+- **Nobody's personal access.** It is not tied to a human, so it does not carry their other
+  repositories and does not die when they leave.
+- **Revoked centrally**, by uninstalling the App, rather than by somebody remembering to.
+
+Two things to know before you turn it on:
+
+- **Commits are authored by the App's bot account** — `<slug>[bot]`, with the address GitHub
+  links commits by. That is a change in who your history says wrote the work, and if a deployment
+  gate checks the commit author's access to a team (Vercel does), you should confirm it accepts a
+  bot author before relying on it.
+- **All of a playbook's repos must belong to one account.** One installation token covers one
+  installation and the container has one credential helper, so a playbook spanning two accounts is
+  refused at the start of the turn rather than half-working.
+- **The private key can mint for every repository the App is installed on**, which makes it more
+  valuable than the token it replaces. It stays on the conductor's host and is never handed to a
+  task. Treat it like `PODIUM_MASTER_KEY`.
+
+A task also becomes able to reach the conductor, at `PODIUM_AGENT_TASK_URL`, for that one method
+and no other. See [`security.md`](security.md#the-minting-endpoint).
+
+#### A personal access token — the older path, still supported
 
 A playbook only ever gets the secrets its own file names, so the token reaches the turns of the
 playbooks that name it and no others.
@@ -1722,10 +1694,19 @@ loss of.
 ### Repositories
 
 `repos:` is copied into the brief and the runtime shallow-clones each one into
-`/workspace/<name>` at the start of the turn, on its `default_branch`, with `user.name
-podium-agent` and `user.email podium-agent@users.noreply.github.com`. Only `https` with a token is
-supported: no SSH, no GitLab. The GitHub **App** is the conversation identity (comments,
-webhooks); it is not how a turn clones. Clone still uses this token.
+`/workspace/<name>` at the start of the turn, on its `default_branch`. Only `https` is supported:
+no SSH, no GitLab.
+
+Who the commits are by depends on which credential the turn got. With a **GitHub App** it is the
+App's own bot account, which the runtime learns when it mints and writes into each clone. With a
+**personal access token** it is `user.name podium-agent` and `user.email
+podium-agent@users.noreply.github.com` — and that address belongs to **no GitHub account**, so
+GitHub cannot link those commits to one. Anything that resolves a commit author will report them
+as unattributed; a deployment gate that checks the author's access to a team will refuse the pull
+request outright. If you are on the token path and that matters, use the App.
+
+The same App is the conversation identity for reviews (comments and webhooks). A playbook must
+not `gh pr comment` — that would be a second writer on the PR.
 
 There is no working tree carried between turns. Every turn clones again. A follow-up comment that
 says "now also do X" starts from the default branch, and the agent has to find its own earlier
@@ -1804,13 +1785,26 @@ counterpart, that rule lives in a prompt and is therefore a courtesy: see
 
 ## The dev image
 
-`podium-agent-runtime-dev` is the one image `make agent-runtime` builds beside the base, and it
+`podium-agent-runtime-dev` is the one image Podium ships beside the base, and it
 is also the **worked example** of *Extending the runtime image* above: a real image, built the
 way yours should be. It exists for dogfooding: a turn whose job is to change Podium itself, or any project whose build needs Go,
-Node and Docker. `playbooks/playbooks/podium.yaml` is that playbook — it pairs this image with
+Node and Docker. `profile/playbooks/podium.yaml` is that playbook — it pairs this image with
 `docker: true`, which is what gives the turn the daemon the toolchain expects to find, and with
 `browser: true` and `skills: [validate-pr]`, which is what lets the turn look at what it built
 and attack it before saying it is done.
+
+`make agent-runtime` builds it locally as `podium-agent-runtime-dev:dev`, and a `v*` tag
+publishes it to `ghcr.io/podium-ade/podium-agent-runtime-dev` with the same tag set, SBOM and
+signature as the base — its job in `release.yml` needs the base's and builds `FROM` the digest
+that one just pushed, so the pair can never be mismatched. A local tag is visible to one
+machine; the published one is what makes a playbook naming this image schedulable on a fleet.
+
+**To run this playbook on your own deployment, follow
+[`profile/README.md`](../profile/README.md#run-podiums-own-bot-yourself).** It is the setup
+step for a developer working on Podium: which two environment variables to set, the node flags
+`docker: true` requires, the GitHub token it holds, and which of the two `-dev` tags to name.
+Nothing installs it and no default points at it — it costs a privileged node, a credential and
+8 GB, and a deployment should acquire those because somebody decided to.
 
 On top of the base runtime it carries the toolchain
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks a human for, at the versions this repository is
@@ -2160,9 +2154,10 @@ task it delegates, and may choose several while answering once.
   `https://github.com/<owner>/<repo>/pull/<number>` — and it is canonicalised, so `/pull/12/files`
   and `/pull/12` are one link and one row. A bare `#123` is not a reference this can resolve, an
   issue is not a pull request, and neither is another host. One turn may link at most 20.
-  **Nothing calls GitHub.** The conductor holds no GitHub credential — `podium.agent.github_token`
-  is a secret attached to *tasks* — so there is no title and no open/merged state, only what the
-  URL itself said. A person can also attach one by hand (`AttachChatPullRequest`) and detach one
+  **Nothing calls GitHub.** There is no title and no open/merged state here, only what the URL
+  itself said. On the token path the conductor holds no GitHub credential at all
+  (`podium.agent.github_token` is a secret attached to *tasks*); with a GitHub App it holds one
+  and still does not use it for this — a link in a chat is not worth coupling to a vendor. A person can also attach one by hand (`AttachChatPullRequest`) and detach one
   (`DetachChatPullRequest`); the row records which of the two it was. **A detach sticks against
   the bot**: a later turn in the same chat that mentions the same pull request does not put it
   back, because a person removing a link means it. Attaching it again by hand is how it returns.

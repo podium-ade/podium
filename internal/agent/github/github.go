@@ -1,741 +1,469 @@
-// Package github is the bot's GitHub App identity: webhooks turned into inbound events,
-// comments posted back as the App, and Slack threads that asked for the same pull-request
-// review joined onto the same session.
+// Package github is the conductor's client of a GitHub App: it turns an App id and a private
+// key into the short-lived installation tokens a turn clones, fetches and pushes with.
 //
-// The conversation identity is always github:owner/repo#N. Slack is a second door into
-// this source, not a second conversation. The conductor answers it as a conversation —
-// the assistant on the host, playbooks delegated — the way it answers Slack.
+// Why an App rather than the personal access token a playbook's `secrets:` can already
+// carry: an installation token lasts an hour, is scoped to named repositories, belongs to no
+// human, and is revoked centrally by uninstalling the App. A PAT is none of those — it is
+// long-lived, it carries one person's access, and revoking it is somebody remembering to.
+//
+// The cost is that a token has to be MINTED, and minting needs the private key. That key can
+// mint a token for every repository the App is installed on, so it is strictly more valuable
+// than the PAT it replaces and it lives in exactly one place: the conductor's own host,
+// beside the master key. Nothing hands it to a task. See docs/security.md.
+//
+// Nothing here caches a token past its usefulness and nothing here logs one.
 package github
 
 import (
+	"bytes"
 	"context"
+	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
-	"log/slog"
-	"net"
+	"io"
 	"net/http"
-	"regexp"
-	"strconv"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
-// Kind is the source kind GitHub sessions are recorded under.
-const Kind = "github"
+// DefaultBaseURL is github.com's API. GitHub Enterprise Server lives on another host and is
+// not supported: Podium speaks to one GitHub, and pretending otherwise would be a
+// configuration knob with no tested path behind it.
+const DefaultBaseURL = "https://api.github.com"
 
-const (
-	eventBuffer  = 32
-	dedupeTTL    = 5 * time.Minute
-	shutdownWait = 5 * time.Second
-	doneText     = "✅ Done — see below"
-	failedText   = "❌ Failed"
-	EditThrottle = 2 * time.Second
-)
+// DefaultTimeout bounds one call. Minting is two round trips at worst and both are small.
+const DefaultTimeout = 15 * time.Second
 
-// ErrBoundToOther is a Slack thread that is already reviewing a different pull request.
-var ErrBoundToOther = errors.New("this slack thread is already reviewing another pull request")
+// jwtTTL is how long an App JWT is good for. GitHub's ceiling is ten minutes and it refuses
+// one issued in its own future, so this is nine minutes with a minute of backdated iat to
+// pay for clock skew between here and GitHub.
+const jwtTTL = 9 * time.Minute
 
-// SessionLookup reports whether a source key already has a session.
-type SessionLookup func(ctx context.Context, sourceKey string) (lastTurnAt time.Time, ok bool)
+// jwtBackdate is how far iat is moved into the past, for the same clock skew.
+const jwtBackdate = time.Minute
 
-// Surfaces is the bind table for Slack threads that asked for a PR review. Injected so
-// this package never imports the store.
-type Surfaces struct {
-	LookupSlack func(ctx context.Context, slackRef string) (sourceKey string, ok bool, err error)
-	BindSlack   func(ctx context.Context, slackRef, sourceKey string) error
-	ListSlack   func(ctx context.Context, sourceKey string) ([]string, error)
+// renewBefore is how long before expiry a cached token stops being handed out. GitHub gives
+// an hour; a push that starts with two minutes left and takes three loses the push to a 401
+// halfway up, which is a failure a human then has to read a git error to understand.
+//
+// It MUST stay above the runtime's own refresh margin — gitcred.ts's renewBeforeMs, ten
+// minutes — and that is the constraint that sets the number, not the paragraph above.
+//
+// The runtime keeps one token in GH_TOKEN for the `gh` CLI, which reads a plain variable and
+// cannot ask again for itself, and replaces it renewBeforeMs before it expires. If this
+// margin were the smaller of the two, that request would land inside this cache and be
+// answered with the SAME token the runtime was trying to replace — ten minutes from death —
+// and the refresh would have achieved nothing. Fifteen minutes against ten means the ask
+// always misses the cache and always gets a new token.
+//
+// Paying for it is a few more mints per long turn: a cached token is used for about
+// forty-five minutes rather than fifty-five. Installation tokens are not rate limited
+// anywhere near that, so the trade is free.
+const renewBefore = 15 * time.Minute
+
+// maxErrorBody is how much of a failure response is quoted in an error. GitHub answers with
+// {"message": …}, which is short; something else in front of it may not be.
+const maxErrorBody = 2 << 10
+
+// ErrUnauthorized is GitHub refusing the App's own credential: a wrong app id, a key that
+// does not match it, or an App that has been deleted. It is separated because it is the one
+// failure an operator fixes by editing configuration rather than by reading a log.
+var ErrUnauthorized = errors.New("github refused the app credential")
+
+// ErrNotInstalled is a repository owner the App is not installed on. It means the operator
+// created the App and never installed it, or installed it on another account — the most
+// common way this is set up wrong, and unrecoverable without a human.
+var ErrNotInstalled = errors.New("the app is not installed on that account")
+
+// Token is one installation token and the moment it stops working.
+type Token struct {
+	Value     string
+	ExpiresAt time.Time
 }
 
-// SlackBridge is the Slack source, as this package is allowed to see it: enough to fan
-// an answer out to every bound thread and to merge those threads into a transcript.
-type SlackBridge interface {
-	FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error)
-	Post(ctx context.Context, ref string, out conductor.Outbound) (string, error)
-	Edit(ctx context.Context, ref, msgID string, out conductor.Outbound) error
-	Attach(ctx context.Context, ref string, file conductor.Attachment) error
-	React(ctx context.Context, ref string, kind conductor.Reaction) error
+// Identity is the App's bot account as git and GitHub see it.
+//
+// The email is the whole point of the type. GitHub links a commit to an ACCOUNT by the
+// author's email, and a bot account's address is `<user id>+<slug>[bot]@users.noreply.
+// github.com` — an id nothing but the API will tell you. Get it wrong and every commit is
+// attributed to nobody, which is the failure this whole path exists to avoid.
+type Identity struct {
+	Name  string
+	Email string
 }
 
-// SlackMention is one Slack @Podium that named a pull request, or that landed in a
-// thread already bound to one.
-type SlackMention struct {
-	PR      conductor.PullRequest
-	Channel string
-	Thread  string
-	Trigger string
-	Author  string
-	Text    string
-	TS      time.Time
-	// Permalink is the Slack link; the inbound event's URL is the pull request, because
-	// that is the conversation.
-	Permalink string
-}
-
-// Options configures the source.
+// Options builds a Client.
 type Options struct {
-	AppID          string
-	PrivateKey     *rsa.PrivateKey
-	PrivateKeyFile string
-	WebhookSecret  string
-	Listen         string
-	APIURL         string
-	Session        SessionLookup
-	Surfaces       Surfaces
-	Slack          SlackBridge
-	TaskURL        func(string) string
-	Logger         *slog.Logger
-	HTTPClient     *http.Client
-	Clock          func() time.Time
+	// AppID is the App's numeric id, as GitHub's settings page shows it.
+	AppID string
+	// PrivateKeyPEM is the PEM the App's "generate a private key" button produced.
+	PrivateKeyPEM []byte
+	// BaseURL overrides DefaultBaseURL. It exists for tests.
+	BaseURL string
+	// HTTPClient overrides the default. It exists for tests.
+	HTTPClient *http.Client
+	// Now overrides the clock. It exists for tests.
+	Now func() time.Time
 }
 
-// Source is the GitHub App integration.
-type Source struct {
-	client        *Client
-	logger        *slog.Logger
-	events        chan conductor.InboundEvent
-	listen        string
-	webhookSecret string
-	session       SessionLookup
-	surfaces      Surfaces
-	slack         SlackBridge
-	taskURL       func(string) string
-	now           func() time.Time
+// Client mints installation tokens for one GitHub App.
+//
+// It is safe for concurrent use and it caches: an installation id never changes, the bot
+// identity never changes, and a token is reused until renewBefore of its expiry. A conductor
+// running twenty turns of one playbook mints once, not twenty times, which is what keeps
+// this off GitHub's rate limit.
+type Client struct {
+	base  *url.URL
+	appID string
+	key   *rsa.PrivateKey
+	http  *http.Client
+	now   func() time.Time
 
-	slug      string
-	mentionRE *regexp.Regexp
-
-	mu   sync.Mutex
-	seen map[string]time.Time
-	// turns is per-ref bookkeeping for the working comment, keyed by the triggering ref.
-	turns map[string]*turnState
+	mu            sync.Mutex
+	installations map[string]int64
+	tokens        map[string]Token
+	identity      *Identity
 }
 
-type turnState struct {
-	working  string
-	held     string
-	haveHeld bool
-	lastEdit time.Time
-	taskID   string
-}
-
-var _ conductor.Source = (*Source)(nil)
-
-// New builds the source. Nothing is dialled until Run. The webhook listener is bound in Run.
-func New(opts Options) (*Source, error) {
-	key := opts.PrivateKey
-	if key == nil {
-		if opts.PrivateKeyFile == "" {
-			return nil, errors.New("github: a private key file is required")
-		}
-		var err error
-		key, err = LoadPrivateKey(opts.PrivateKeyFile)
-		if err != nil {
-			return nil, err
-		}
-	}
-	switch {
-	case opts.AppID == "":
+// New returns a Client, or an error naming what is missing.
+func New(opts Options) (*Client, error) {
+	if strings.TrimSpace(opts.AppID) == "" {
 		return nil, errors.New("github: an app id is required")
-	case opts.WebhookSecret == "":
-		return nil, errors.New("github: a webhook secret is required")
-	case opts.Listen == "":
-		return nil, errors.New("github: a webhook listen address is required")
-	case opts.Session == nil:
-		return nil, errors.New("github: a session lookup is required")
 	}
-	client, err := NewClient(ClientOptions{
-		BaseURL:    opts.APIURL,
-		AppID:      opts.AppID,
-		PrivateKey: key,
-		HTTPClient: opts.HTTPClient,
-		Clock:      opts.Clock,
-	})
+	key, err := ParsePrivateKey(opts.PrivateKeyPEM)
 	if err != nil {
 		return nil, err
 	}
-	logger := opts.Logger
-	if logger == nil {
-		logger = slog.Default()
+	raw := opts.BaseURL
+	if strings.TrimSpace(raw) == "" {
+		raw = DefaultBaseURL
 	}
-	now := opts.Clock
+	base, err := url.Parse(strings.TrimSuffix(raw, "/"))
+	if err != nil {
+		return nil, fmt.Errorf("github: parse %q: %w", raw, err)
+	}
+	client := opts.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: DefaultTimeout}
+	}
+	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	taskURL := opts.TaskURL
-	if taskURL == nil {
-		taskURL = func(string) string { return "" }
-	}
-	return &Source{
-		client:        client,
-		logger:        logger,
-		events:        make(chan conductor.InboundEvent, eventBuffer),
-		listen:        opts.Listen,
-		webhookSecret: opts.WebhookSecret,
-		session:       opts.Session,
-		surfaces:      opts.Surfaces,
-		slack:         opts.Slack,
-		taskURL:       taskURL,
+	return &Client{
+		base:          base,
+		appID:         strings.TrimSpace(opts.AppID),
+		key:           key,
+		http:          client,
 		now:           now,
-		seen:          map[string]time.Time{},
-		turns:         map[string]*turnState{},
+		installations: map[string]int64{},
+		tokens:        map[string]Token{},
 	}, nil
 }
 
-// Kind implements conductor.Source.
-func (s *Source) Kind() string { return Kind }
-
-// Events implements conductor.Source. The channel closes when Run returns.
-func (s *Source) Events() <-chan conductor.InboundEvent { return s.events }
-
-// Run learns the App's slug and then serves POST /webhooks/github until ctx is cancelled.
-// A slug that cannot be fetched is fatal: mentions would never match.
-func (s *Source) Run(ctx context.Context) error {
-	defer close(s.events)
-
-	if err := s.identify(ctx); err != nil {
-		return err
+// ParsePrivateKey reads the PEM GitHub hands out. GitHub generates PKCS#1 ("BEGIN RSA
+// PRIVATE KEY"); PKCS#8 is accepted too, because a key round-tripped through openssl or a
+// secret manager often comes back in that form and refusing it would be a puzzle rather
+// than a message.
+func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("github: the app private key is not PEM: expected a " +
+			"-----BEGIN RSA PRIVATE KEY----- block, which is what GitHub's " +
+			"\"generate a private key\" button produces")
 	}
-
-	ln, err := net.Listen("tcp", s.listen)
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return fmt.Errorf("github: listen on %s: %w", s.listen, err)
+		return nil, fmt.Errorf("github: the app private key is neither PKCS#1 nor PKCS#8: %w", err)
 	}
-	s.logger.InfoContext(ctx, "github source connected",
-		"slug", s.slug, "listen", ln.Addr().String())
-
-	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
-	serveErr := make(chan error, 1)
-	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- err
-			return
-		}
-		serveErr <- nil
-	}()
-
-	select {
-	case <-ctx.Done():
-	case err := <-serveErr:
-		if err != nil {
-			return fmt.Errorf("github: serve webhooks: %w", err)
-		}
+	key, ok := parsed.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("github: the app private key is %T, and GitHub Apps sign with RSA", parsed)
 	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownWait)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		s.logger.WarnContext(ctx, "github: shutting the webhook listener down failed", "error", err)
-	}
-	return nil
+	return key, nil
 }
 
-func (s *Source) identify(ctx context.Context) error {
-	app, err := s.client.App(ctx)
+// Token is an installation token for exactly the named repositories of one owner.
+//
+// repos are bare repository names ("monorepo"), not "owner/repo": GitHub's parameter is
+// scoped to the installation, which already fixes the owner. An empty list is refused
+// rather than sent, because GitHub reads "no repositories" as EVERY repository the
+// installation has, and a turn that asked for nothing getting everything is the wrong way
+// round for a default.
+func (c *Client) Token(ctx context.Context, owner string, repos []string) (Token, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return Token{}, errors.New("github: an owner is required to find the installation")
+	}
+	if len(repos) == 0 {
+		return Token{}, errors.New("github: at least one repository is required: GitHub reads " +
+			"an empty list as every repository the installation can see")
+	}
+	scope := slices.Clone(repos)
+	slices.Sort(scope)
+	scope = slices.Compact(scope)
+	key := owner + "\x00" + strings.Join(scope, "\x00")
+
+	c.mu.Lock()
+	if tok, ok := c.tokens[key]; ok && c.now().Add(renewBefore).Before(tok.ExpiresAt) {
+		c.mu.Unlock()
+		return tok, nil
+	}
+	c.mu.Unlock()
+
+	id, err := c.installation(ctx, owner)
 	if err != nil {
-		return fmt.Errorf("github: GET /app failed (is the app id and private key right?): %w", err)
+		return Token{}, err
 	}
-	s.slug = app.Slug
-	s.mentionRE = compileMention(app.Slug)
-	return nil
-}
-
-// LookupSlack reports whether this Slack thread is already a door into a PR review.
-func (s *Source) LookupSlack(ctx context.Context, slackRef string) (string, bool, error) {
-	if s.surfaces.LookupSlack == nil {
-		return "", false, nil
-	}
-	return s.surfaces.LookupSlack(ctx, slackRef)
-}
-
-// BindSlack records that this Slack thread is a door into sourceKey.
-func (s *Source) BindSlack(ctx context.Context, slackRef, sourceKey string) error {
-	if s.surfaces.BindSlack == nil {
-		return errors.New("github: no surface store")
-	}
-	return s.surfaces.BindSlack(ctx, slackRef, sourceKey)
-}
-
-// IngestSlack turns a Slack mention that named (or is bound to) a pull request into the
-// same inbound event a GitHub @mention would have produced. Slack's own Events channel
-// never sees it.
-func (s *Source) IngestSlack(ctx context.Context, m SlackMention) error {
-	if m.PR.Owner == "" || m.PR.Number == 0 {
-		return errors.New("github: ingest: a pull request is required")
-	}
-	key := SourceKeyPR(m.PR)
-	_, known := s.session(ctx, key)
-	text := strings.TrimSpace(m.Text)
-	if !known {
-		text = reviewInstruction(m.Author, m.PR.URL, text)
-	}
-	install, err := s.client.RepoInstallation(ctx, m.PR.Owner, m.PR.Repo)
-	if err != nil && !errors.Is(err, ErrNotInstalled) {
-		s.logger.WarnContext(ctx, "github: looking up the installation for a slack-started review failed",
-			"repo", m.PR.Owner+"/"+m.PR.Repo, "error", err)
-	}
-	s.emit(ctx, conductor.InboundEvent{
-		SourceKind: Kind,
-		SourceKey:  key,
-		Ref: Ref(Parsed{
-			Owner: m.PR.Owner, Repo: m.PR.Repo, Number: m.PR.Number, InstallID: install,
-			Kind: KindSlack, SlackChan: m.Channel, SlackThread: m.Thread, SlackTS: m.Trigger,
-		}),
-		Author:    m.Author,
-		Text:      text,
-		TS:        m.TS,
-		URL:       m.PR.URL,
-		BriefKind: conductor.SourceGitHub,
+	body, err := json.Marshal(tokenRequest{
+		Repositories: scope,
+		// Exactly what a turn does and nothing else: write a branch, open a pull request.
+		// The App may be granted more in its settings; this narrows every token minted
+		// here regardless, so a wider grant on the App is not a wider grant to a task.
+		Permissions: tokenPermissions{Contents: "write", PullRequests: "write"},
 	})
-	return nil
+	if err != nil {
+		return Token{}, fmt.Errorf("github: encode token request: %w", err)
+	}
+	var out tokenResponse
+	path := fmt.Sprintf("/app/installations/%d/access_tokens", id)
+	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {
+		return Token{}, err
+	}
+	if strings.TrimSpace(out.Token) == "" {
+		return Token{}, fmt.Errorf("github: POST %s answered no token", path)
+	}
+	tok := Token{Value: out.Token, ExpiresAt: out.ExpiresAt}
+	c.mu.Lock()
+	c.tokens[key] = tok
+	c.mu.Unlock()
+	return tok, nil
 }
 
-func (s *Source) emit(ctx context.Context, ev conductor.InboundEvent) {
-	select {
-	case s.events <- ev:
-	case <-ctx.Done():
+// Identity is the App's bot account, as an author. It is two calls the first time and
+// cached for ever after: neither the slug nor the id of a bot account changes.
+func (c *Client) Identity(ctx context.Context) (Identity, error) {
+	c.mu.Lock()
+	if c.identity != nil {
+		out := *c.identity
+		c.mu.Unlock()
+		return out, nil
 	}
-}
+	c.mu.Unlock()
 
-func (s *Source) firstSighting(delivery string) bool {
-	now := s.now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k, at := range s.seen {
-		if now.Sub(at) > dedupeTTL {
-			delete(s.seen, k)
-		}
+	var app appResponse
+	if err := c.do(ctx, http.MethodGet, "/app", nil, &app); err != nil {
+		return Identity{}, err
 	}
-	if _, ok := s.seen[delivery]; ok {
-		return false
+	slug := strings.TrimSpace(app.Slug)
+	if slug == "" {
+		return Identity{}, errors.New("github: GET /app answered no slug")
 	}
-	s.seen[delivery] = now
-	return true
-}
-
-// MirrorKey is the session key a ref belongs to, so the conductor can keep a readable copy
-// of this review in the Podium UI. It is the PR, never the triggering comment or the Slack
-// thread, because those are doors into one conversation.
-func (s *Source) MirrorKey(ref string) (string, bool) {
-	p, err := ParseRef(ref)
-	if err != nil {
-		return "", false
+	// The bot's own account, which is where the numeric id in the address comes from. The
+	// login is the slug with [bot] on the end, and it has to be escaped: [ and ] are not
+	// path characters.
+	login := slug + "[bot]"
+	var user userResponse
+	if err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(login), nil, &user); err != nil {
+		return Identity{}, err
 	}
-	return SourceKey(p.Owner, p.Repo, p.Number), true
-}
-
-// FetchTranscript reads the PR's conversation and any bound Slack threads, oldest first.
-func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error) {
-	p, err := ParseRef(ref)
-	if err != nil {
-		return nil, err
+	if user.ID == 0 {
+		return Identity{}, fmt.Errorf("github: GET /users/%s answered no id", login)
 	}
-	install, err := s.installation(ctx, p)
-	var gh []conductor.BriefEntry
-	if err == nil {
-		gh, err = s.githubTranscript(ctx, install, p)
-		if err != nil {
-			s.logger.WarnContext(ctx, "github: reading the pull request transcript failed",
-				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
-		}
-	} else if !errors.Is(err, ErrNotInstalled) {
-		s.logger.WarnContext(ctx, "github: no installation for transcript",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+	out := Identity{
+		Name:  login,
+		Email: fmt.Sprintf("%d+%s@users.noreply.github.com", user.ID, login),
 	}
-
-	var sl []conductor.BriefEntry
-	if s.slack != nil && s.surfaces.ListSlack != nil {
-		refs, lerr := s.surfaces.ListSlack(ctx, SourceKey(p.Owner, p.Repo, p.Number))
-		if lerr != nil {
-			s.logger.WarnContext(ctx, "github: listing bound slack threads failed", "error", lerr)
-		}
-		for _, r := range refs {
-			channel, thread, ok := splitSlackSurface(r)
-			if !ok {
-				continue
-			}
-			entries, ferr := s.slack.FetchTranscript(ctx, slackCoord(channel, thread, thread))
-			if ferr != nil {
-				s.logger.WarnContext(ctx, "github: reading a bound slack thread failed",
-					"ref", r, "error", ferr)
-				continue
-			}
-			sl = append(sl, entries...)
-		}
-	}
-	return mergeTranscripts(gh, sl), nil
-}
-
-func (s *Source) githubTranscript(ctx context.Context, install int64, p Parsed) ([]conductor.BriefEntry, error) {
-	issues, err := s.client.ListIssueComments(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		return nil, err
-	}
-	reviews, err := s.client.ListReviews(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		return nil, err
-	}
-	inline, err := s.client.ListReviewComments(ctx, install, p.Owner, p.Repo, p.Number)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []conductor.BriefEntry
-	for _, c := range issues {
-		if e, ok := s.entryFromComment(c); ok {
-			out = append(out, e)
-		}
-	}
-	for _, r := range reviews {
-		text := strings.TrimSpace(r.Body)
-		if text == "" {
-			continue
-		}
-		if e, ok := s.entryFromUser(r.User, r.SubmittedAt, text); ok {
-			out = append(out, e)
-		}
-	}
-	for _, c := range inline {
-		if e, ok := s.entryFromComment(c); ok {
-			out = append(out, e)
-		}
-	}
+	c.mu.Lock()
+	c.identity = &out
+	c.mu.Unlock()
 	return out, nil
 }
 
-func (s *Source) entryFromComment(c Comment) (conductor.BriefEntry, bool) {
-	return s.entryFromUser(c.User, c.CreatedAt, c.Body)
-}
-
-func (s *Source) entryFromUser(u User, ts time.Time, body string) (conductor.BriefEntry, bool) {
-	text := strings.TrimSpace(body)
-	if text == "" {
-		return conductor.BriefEntry{}, false
-	}
-	role := conductor.RoleUser
-	if s.isAppUser(u.Login, u.Type) {
-		if isScaffolding(text) {
-			return conductor.BriefEntry{}, false
-		}
-		role = conductor.RoleAssistant
-	}
-	return conductor.BriefEntry{
-		Role:   role,
-		Author: u.Login,
-		TS:     conductor.BriefTimestamp(ts),
-		Text:   text,
-	}, true
-}
-
-func mergeTranscripts(a, b []conductor.BriefEntry) []conductor.BriefEntry {
-	out := make([]conductor.BriefEntry, 0, len(a)+len(b))
-	i, j := 0, 0
-	for i < len(a) && j < len(b) {
-		if a[i].TS <= b[j].TS {
-			out = append(out, a[i])
-			i++
-			continue
-		}
-		out = append(out, b[j])
-		j++
-	}
-	out = append(out, a[i:]...)
-	out = append(out, b[j:]...)
-	return out
-}
-
-// Post says something new. Progress (including the placeholder) is a GitHub comment that
-// later edits replace. Finals, failures and questions also go to every bound Slack thread.
-func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
-	p, err := ParseRef(ref)
-	if err != nil {
-		return "", err
-	}
-	body := out.Text
-	if out.Type == conductor.OutFinal || out.Type == conductor.OutFailure {
-		body = withFooter(body, out.TaskID)
-	}
-
-	id, gerr := s.postGitHub(ctx, p, body)
-	if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
-		s.logger.WarnContext(ctx, "github: posting a comment failed",
-			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
-	}
-
-	st := s.state(ref)
-	s.mu.Lock()
-	if out.Type == conductor.OutProgress && st.working == "" && id != "" {
-		st.working = id
-		st.lastEdit = s.now()
-	}
-	if out.TaskID != "" {
-		st.taskID = out.TaskID
-	}
-	s.mu.Unlock()
-
-	if s.fanoutSlack(out) {
-		s.postSlack(ctx, p, out)
-	}
-	if id != "" {
+// installation is the App's installation on one account, cached. An installation id is
+// stable for the life of the installation; uninstalling and reinstalling makes a new one,
+// which shows up here as a 404 on the token call and is fixed by a restart.
+func (c *Client) installation(ctx context.Context, owner string) (int64, error) {
+	c.mu.Lock()
+	if id, ok := c.installations[owner]; ok {
+		c.mu.Unlock()
 		return id, nil
 	}
-	if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
-		return "", gerr
+	c.mu.Unlock()
+
+	var out installationResponse
+	path := "/orgs/" + url.PathEscape(owner) + "/installation"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	if errors.Is(err, ErrNotFound) {
+		// An owner can be a user rather than an organisation, and the two have different
+		// endpoints. Trying the second is cheaper than making the caller say which it is.
+		out = installationResponse{}
+		err = c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(owner)+"/installation", nil, &out)
 	}
-	return "", nil
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return 0, fmt.Errorf("%w: %s", ErrNotInstalled, owner)
+	case err != nil:
+		return 0, err
+	case out.ID == 0:
+		return 0, fmt.Errorf("github: %s answered no installation id", path)
+	}
+	c.mu.Lock()
+	c.installations[owner] = out.ID
+	c.mu.Unlock()
+	return out.ID, nil
 }
 
-func (s *Source) postGitHub(ctx context.Context, p Parsed, body string) (string, error) {
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		return "", err
-	}
-	var c Comment
-	if p.Kind == KindReviewComment && p.CommentID > 0 {
-		c, err = s.client.CreateReviewReply(ctx, install, p.Owner, p.Repo, p.Number, p.CommentID, body)
-	} else {
-		c, err = s.client.CreateIssueComment(ctx, install, p.Owner, p.Repo, p.Number, body)
-	}
-	if err != nil {
-		return "", err
-	}
-	return strconvInt(c.ID), nil
-}
+// ErrNotFound is a 404. It is internal to this package's own retry between the org and user
+// installation endpoints; callers see ErrNotInstalled instead.
+var ErrNotFound = errors.New("github: not found")
 
-func (s *Source) fanoutSlack(out conductor.Outbound) bool {
-	switch out.Type {
-	case conductor.OutFinal, conductor.OutFailure, conductor.OutQuestion:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s *Source) postSlack(ctx context.Context, p Parsed, out conductor.Outbound) {
-	if s.slack == nil {
-		return
-	}
-	for _, ref := range s.slackRefs(ctx, p) {
-		if _, err := s.slack.Post(ctx, ref, out); err != nil {
-			s.logger.WarnContext(ctx, "github: posting to a bound slack thread failed",
-				"ref", ref, "error", err)
-		}
-	}
-}
-
-// Edit replaces a GitHub comment this source posted. Slack does not carry progress.
-func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outbound) error {
-	p, err := ParseRef(ref)
+// do makes one authenticated call. Every call here is authenticated by the App JWT and not
+// by an installation token: this client's whole job is to obtain the latter.
+func (c *Client) do(ctx context.Context, method, path string, body []byte, out any) error {
+	jwt, err := c.jwt()
 	if err != nil {
 		return err
 	}
-	if msgID == "" {
-		return errors.New("github: no comment to edit")
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
 	}
-	st := s.state(ref)
+	req, err := http.NewRequestWithContext(ctx, method, c.base.String()+path, reader)
+	if err != nil {
+		return fmt.Errorf("github: %s %s: %w", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("github: %s %s: %w", method, path, err)
+	}
+	defer func() { _ = res.Body.Close() }()
 
-	s.mu.Lock()
-	text := out.Text
-	if st.haveHeld {
-		st.haveHeld, st.held = false, ""
+	if res.StatusCode >= 300 {
+		return c.failure(method, path, res)
 	}
-	if s.now().Sub(st.lastEdit) < EditThrottle {
-		st.haveHeld, st.held = true, text
-		s.mu.Unlock()
+	if out == nil {
 		return nil
 	}
-	st.lastEdit = s.now()
-	s.mu.Unlock()
-
-	install, err := s.installation(ctx, p)
-	if err != nil {
-		if errors.Is(err, ErrNotInstalled) {
-			return nil
-		}
-		return err
-	}
-	id, err := parseID(msgID)
-	if err != nil {
-		return err
-	}
-	return s.client.EditIssueComment(ctx, install, p.Owner, p.Repo, id, text)
-}
-
-// Attach fans files out to bound Slack threads and leaves a task link on the PR when
-// GitHub cannot take the bytes.
-func (s *Source) Attach(ctx context.Context, ref string, file conductor.Attachment) error {
-	p, err := ParseRef(ref)
-	if err != nil {
-		return err
-	}
-	if s.slack != nil {
-		for _, r := range s.slackRefs(ctx, p) {
-			if err := s.slack.Attach(ctx, r, file); err != nil {
-				s.logger.WarnContext(ctx, "github: attaching to a bound slack thread failed",
-					"ref", r, "error", err)
-			}
-		}
-	}
-	link := s.taskURL(file.TaskID)
-	if link == "" {
-		return nil
-	}
-	_, err = s.postGitHub(ctx, p, fmt.Sprintf("[%s](%s)", file.Name, link))
-	if errors.Is(err, ErrNotInstalled) {
-		return nil
-	}
-	return err
-}
-
-// React rewrites the GitHub working comment on done/failed, and sets the Slack reaction
-// on every bound thread.
-func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction) error {
-	p, err := ParseRef(ref)
-	if err != nil {
-		return err
-	}
-	switch kind {
-	case conductor.ReactionWorking:
-		// The placeholder comment is the GitHub ack; Slack gets ⏳ on the mention.
-	case conductor.ReactionDone:
-		_ = s.outcome(ctx, ref, doneText)
-	case conductor.ReactionFailed:
-		_ = s.outcome(ctx, ref, failedText)
-	case conductor.ReactionAwaiting:
-		return nil
-	default:
-		return fmt.Errorf("github: %q is not a reaction", kind)
-	}
-	if s.slack != nil {
-		for _, r := range s.slackRefs(ctx, p) {
-			if err := s.slack.React(ctx, r, kind); err != nil {
-				s.logger.WarnContext(ctx, "github: reacting in a bound slack thread failed",
-					"ref", r, "error", err)
-			}
-		}
+	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
+		return fmt.Errorf("github: decode %s %s: %w", method, path, err)
 	}
 	return nil
 }
 
-func (s *Source) outcome(ctx context.Context, ref, text string) error {
-	st := s.state(ref)
-	s.mu.Lock()
-	id := st.working
-	s.mu.Unlock()
-	if id == "" {
-		return nil
+func (c *Client) failure(method, path string, res *http.Response) error {
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, maxErrorBody))
+	detail := strings.TrimSpace(string(raw))
+	var envelope struct {
+		Message string `json:"message"`
 	}
-	return s.Edit(ctx, ref, id, conductor.Outbound{Type: conductor.OutProgress, Text: text})
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Message != "" {
+		detail = envelope.Message
+	}
+	switch res.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return fmt.Errorf("%w (%s %s): %s", ErrUnauthorized, method, path, detail)
+	case http.StatusNotFound:
+		return fmt.Errorf("%w (%s %s): %s", ErrNotFound, method, path, detail)
+	}
+	return fmt.Errorf("github: %s %s: %s: %s", method, path, res.Status, detail)
 }
 
-func (s *Source) installation(ctx context.Context, p Parsed) (int64, error) {
-	if p.InstallID > 0 {
-		return p.InstallID, nil
-	}
-	return s.client.RepoInstallation(ctx, p.Owner, p.Repo)
-}
-
-func (s *Source) slackRefs(ctx context.Context, p Parsed) []string {
-	var refs []string
-	if p.SlackChan != "" && p.SlackThread != "" && p.SlackTS != "" {
-		refs = append(refs, slackCoord(p.SlackChan, p.SlackThread, p.SlackTS))
-	}
-	if s.surfaces.ListSlack == nil {
-		return unique(refs)
-	}
-	surfaces, err := s.surfaces.ListSlack(ctx, SourceKey(p.Owner, p.Repo, p.Number))
+// jwt signs an App JWT. It is not cached: signing is microseconds, and a cached JWT is a
+// second expiry to reason about for no gain.
+func (c *Client) jwt() (string, error) {
+	now := c.now()
+	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
 	if err != nil {
-		s.logger.WarnContext(ctx, "github: listing bound slack threads failed", "error", err)
-		return unique(refs)
+		return "", fmt.Errorf("github: encode jwt header: %w", err)
 	}
-	for _, r := range surfaces {
-		channel, thread, ok := splitSlackSurface(r)
-		if !ok {
-			continue
-		}
-		trigger := thread
-		if p.SlackChan == channel && p.SlackThread == thread && p.SlackTS != "" {
-			trigger = p.SlackTS
-		}
-		refs = append(refs, slackCoord(channel, thread, trigger))
+	claims, err := json.Marshal(map[string]any{
+		"iat": now.Add(-jwtBackdate).Unix(),
+		"exp": now.Add(jwtTTL).Unix(),
+		"iss": c.appID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("github: encode jwt claims: %w", err)
 	}
-	return unique(refs)
+	enc := base64.RawURLEncoding
+	signing := enc.EncodeToString(header) + "." + enc.EncodeToString(claims)
+	digest := sha256.Sum256([]byte(signing))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, c.key, crypto.SHA256, digest[:])
+	if err != nil {
+		return "", fmt.Errorf("github: sign jwt: %w", err)
+	}
+	return signing + "." + enc.EncodeToString(sig), nil
 }
 
-func (s *Source) state(ref string) *turnState {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	st := s.turns[ref]
-	if st == nil {
-		st = &turnState{}
-		s.turns[ref] = st
+// SplitRepoURL takes a playbook's repos[].url apart into the owner and the bare repository
+// name the token call wants.
+//
+// It accepts what an operator actually writes — with or without .git, with or without a
+// trailing slash — and refuses anything that is not github.com, because a token minted by
+// this App is worthless anywhere else and a silent mismatch would show up as a 404 on the
+// clone rather than as a message about the URL.
+func SplitRepoURL(raw string) (owner, repo string, err error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", "", fmt.Errorf("github: parse repo url %q: %w", raw, err)
 	}
-	return st
-}
-
-// slackCoord is Slack's Ref shape (channel/thread/trigger) without importing that package:
-// github is the owner of a review session, Slack is a door, and a cycle would reverse that.
-func slackCoord(channel, thread, trigger string) string {
-	return channel + "/" + thread + "/" + trigger
-}
-
-func splitSlackSurface(ref string) (channel, thread string, ok bool) {
-	parts := strings.Split(ref, "/")
+	if host := strings.ToLower(u.Hostname()); host != "github.com" && host != "www.github.com" {
+		return "", "", fmt.Errorf("github: repo url %q is not on github.com, and a GitHub App "+
+			"token works nowhere else", raw)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
+		return "", "", fmt.Errorf("github: repo url %q is not <owner>/<repo>", raw)
 	}
-	return parts[0], parts[1], true
+	return parts[0], strings.TrimSuffix(parts[1], ".git"), nil
 }
 
-func isScaffolding(text string) bool {
-	switch {
-	case text == conductor.Placeholder, text == doneText, text == failedText:
-		return true
-	case strings.HasPrefix(text, "⏳"), strings.HasPrefix(text, "👀"):
-		return true
-	default:
-		return false
-	}
+// ---------------------------------------------------------------------------
+// the wire, as GitHub's REST API v2022-11-28 speaks it
+// ---------------------------------------------------------------------------
+
+type tokenRequest struct {
+	Repositories []string         `json:"repositories"`
+	Permissions  tokenPermissions `json:"permissions"`
 }
 
-func withFooter(text, taskID string) string {
-	if taskID == "" {
-		return text
-	}
-	return strings.TrimRight(text, "\n") + "\n\n_Podium task " + taskID + "_"
+type tokenPermissions struct {
+	Contents     string `json:"contents"`
+	PullRequests string `json:"pull_requests"`
 }
 
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
+type tokenResponse struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func unique(in []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
+type installationResponse struct {
+	ID int64 `json:"id"`
 }
 
-func strconvInt(n int64) string {
-	return fmt.Sprintf("%d", n)
+type appResponse struct {
+	Slug string `json:"slug"`
 }
 
-func parseID(s string) (int64, error) {
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("github: %q is not a comment id", s)
-	}
-	return n, nil
+type userResponse struct {
+	ID int64 `json:"id"`
 }

@@ -1,4 +1,4 @@
-package github
+package ghreview
 
 import (
 	"bytes"
@@ -7,38 +7,32 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// DefaultAPIURL is GitHub's REST API. Overridable so a test can point at httptest and so
-// an install behind an egress proxy can name one; it is not a "which GitHub" knob.
-const DefaultAPIURL = "https://api.github.com"
+// ErrNotInstalled is GET /repos/{o}/{r}/installation answering 404: the App is not on
+// that repository. A Slack-started review still runs; GitHub posts are skipped.
+var ErrNotInstalled = errors.New("github app is not installed on this repository")
 
 const (
+	defaultAPIURL  = "https://api.github.com"
 	apiVersion     = "2022-11-28"
-	maxErrorBody   = 4 << 10
+	restErrorBody  = 4 << 10
 	tokenFreshness = 1 * time.Minute
 	httpTimeout    = 30 * time.Second
 	listPageSize   = 100
 	listPageCap    = 20
 )
-
-// ErrNotInstalled is GET /repos/{o}/{r}/installation answering 404: the App is not on
-// that repository. A Slack-started review still runs; GitHub posts are skipped.
-var ErrNotInstalled = errors.New("github app is not installed on this repository")
 
 // User is a GitHub account as the API reports it on a comment or sender.
 type User struct {
@@ -88,9 +82,9 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("github: %s %s: HTTP %d: %s", e.Method, e.Path, e.Status, e.Body)
 }
 
-// Client is the GitHub App REST client: JWT for /app, installation tokens for everything
-// else. Hand-written because the operations are few and the JWT is ours to mint.
-type Client struct {
+// restClient is the review source's GitHub REST client: JWT for /app, installation
+// tokens for comments. The minting Client in github.go is the one turns clone with.
+type restClient struct {
 	baseURL string
 	appID   string
 	key     *rsa.PrivateKey
@@ -106,8 +100,7 @@ type cachedToken struct {
 	expires time.Time
 }
 
-// ClientOptions is what NewClient needs.
-type ClientOptions struct {
+type restOptions struct {
 	BaseURL    string
 	AppID      string
 	PrivateKey *rsa.PrivateKey
@@ -115,8 +108,7 @@ type ClientOptions struct {
 	Clock      func() time.Time
 }
 
-// NewClient validates the options. It makes no request.
-func NewClient(opts ClientOptions) (*Client, error) {
+func newRest(opts restOptions) (*restClient, error) {
 	switch {
 	case opts.AppID == "":
 		return nil, errors.New("github: an app id is required")
@@ -125,7 +117,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	}
 	base := opts.BaseURL
 	if base == "" {
-		base = DefaultAPIURL
+		base = defaultAPIURL
 	}
 	u, err := url.Parse(base)
 	if err != nil {
@@ -142,7 +134,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Client{
+	return &restClient{
 		baseURL: strings.TrimRight(base, "/"),
 		appID:   opts.AppID,
 		key:     opts.PrivateKey,
@@ -152,40 +144,8 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	}, nil
 }
 
-// LoadPrivateKey reads a PEM PKCS#1 or PKCS#8 RSA key from path.
-func LoadPrivateKey(path string) (*rsa.PrivateKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("github: read private key %s: %w", path, err)
-	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return nil, fmt.Errorf("github: %s is not a PEM private key", path)
-	}
-	switch block.Type {
-	case "RSA PRIVATE KEY":
-		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("github: parse PKCS#1 key %s: %w", path, err)
-		}
-		return key, nil
-	case "PRIVATE KEY":
-		k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("github: parse PKCS#8 key %s: %w", path, err)
-		}
-		key, ok := k.(*rsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("github: %s is not an RSA private key", path)
-		}
-		return key, nil
-	default:
-		return nil, fmt.Errorf("github: %s has PEM type %q, want RSA PRIVATE KEY or PRIVATE KEY", path, block.Type)
-	}
-}
-
 // App is GET /app, used at boot to learn the slug mentions are matched against.
-func (c *Client) App(ctx context.Context) (App, error) {
+func (c *restClient) App(ctx context.Context) (App, error) {
 	var app App
 	if err := c.do(ctx, 0, http.MethodGet, "/app", nil, &app); err != nil {
 		return App{}, err
@@ -197,7 +157,7 @@ func (c *Client) App(ctx context.Context) (App, error) {
 }
 
 // RepoInstallation is GET /repos/{o}/{r}/installation. 404 is ErrNotInstalled.
-func (c *Client) RepoInstallation(ctx context.Context, owner, repo string) (int64, error) {
+func (c *restClient) RepoInstallation(ctx context.Context, owner, repo string) (int64, error) {
 	var out struct {
 		ID int64 `json:"id"`
 	}
@@ -216,7 +176,7 @@ func (c *Client) RepoInstallation(ctx context.Context, owner, repo string) (int6
 }
 
 // CreateIssueComment posts on the PR conversation tab.
-func (c *Client) CreateIssueComment(ctx context.Context, installID int64, owner, repo string, number int, body string) (Comment, error) {
+func (c *restClient) CreateIssueComment(ctx context.Context, installID int64, owner, repo string, number int, body string) (Comment, error) {
 	var out Comment
 	err := c.do(ctx, installID, http.MethodPost,
 		fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number),
@@ -225,14 +185,14 @@ func (c *Client) CreateIssueComment(ctx context.Context, installID int64, owner,
 }
 
 // EditIssueComment replaces a comment this App posted.
-func (c *Client) EditIssueComment(ctx context.Context, installID int64, owner, repo string, commentID int64, body string) error {
+func (c *restClient) EditIssueComment(ctx context.Context, installID int64, owner, repo string, commentID int64, body string) error {
 	return c.do(ctx, installID, http.MethodPatch,
 		fmt.Sprintf("/repos/%s/%s/issues/comments/%d", owner, repo, commentID),
 		map[string]string{"body": body}, nil)
 }
 
 // CreateReviewReply posts in an inline review thread.
-func (c *Client) CreateReviewReply(ctx context.Context, installID int64, owner, repo string, number int, inReplyTo int64, body string) (Comment, error) {
+func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, owner, repo string, number int, inReplyTo int64, body string) (Comment, error) {
 	var out Comment
 	err := c.do(ctx, installID, http.MethodPost,
 		fmt.Sprintf("/repos/%s/%s/pulls/%d/comments", owner, repo, number),
@@ -241,7 +201,7 @@ func (c *Client) CreateReviewReply(ctx context.Context, installID int64, owner, 
 }
 
 // ListIssueComments pages the PR conversation comments, oldest first as GitHub returns them.
-func (c *Client) ListIssueComments(ctx context.Context, installID int64, owner, repo string, number int) ([]Comment, error) {
+func (c *restClient) ListIssueComments(ctx context.Context, installID int64, owner, repo string, number int) ([]Comment, error) {
 	var all []Comment
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
 	err := c.pages(ctx, installID, path, func(raw []byte) (int, error) {
@@ -256,7 +216,7 @@ func (c *Client) ListIssueComments(ctx context.Context, installID int64, owner, 
 }
 
 // ListReviewComments pages the inline review comments.
-func (c *Client) ListReviewComments(ctx context.Context, installID int64, owner, repo string, number int) ([]Comment, error) {
+func (c *restClient) ListReviewComments(ctx context.Context, installID int64, owner, repo string, number int) ([]Comment, error) {
 	var all []Comment
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/comments", owner, repo, number)
 	err := c.pages(ctx, installID, path, func(raw []byte) (int, error) {
@@ -271,7 +231,7 @@ func (c *Client) ListReviewComments(ctx context.Context, installID int64, owner,
 }
 
 // ListReviews pages submitted reviews.
-func (c *Client) ListReviews(ctx context.Context, installID int64, owner, repo string, number int) ([]Review, error) {
+func (c *restClient) ListReviews(ctx context.Context, installID int64, owner, repo string, number int) ([]Review, error) {
 	var all []Review
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number)
 	err := c.pages(ctx, installID, path, func(raw []byte) (int, error) {
@@ -285,7 +245,7 @@ func (c *Client) ListReviews(ctx context.Context, installID int64, owner, repo s
 	return all, err
 }
 
-func (c *Client) pages(ctx context.Context, installID int64, path string, consume func([]byte) (int, error)) error {
+func (c *restClient) pages(ctx context.Context, installID int64, path string, consume func([]byte) (int, error)) error {
 	for page := 1; page <= listPageCap; page++ {
 		q := path + "?per_page=" + strconv.Itoa(listPageSize) + "&page=" + strconv.Itoa(page)
 		var raw json.RawMessage
@@ -303,7 +263,7 @@ func (c *Client) pages(ctx context.Context, installID int64, path string, consum
 	return nil
 }
 
-func (c *Client) installationToken(ctx context.Context, installID int64) (string, error) {
+func (c *restClient) installationToken(ctx context.Context, installID int64) (string, error) {
 	if installID <= 0 {
 		return "", errors.New("github: an installation id is required")
 	}
@@ -332,7 +292,7 @@ func (c *Client) installationToken(ctx context.Context, installID int64) (string
 	return out.Token, nil
 }
 
-func (c *Client) jwt() (string, error) {
+func (c *restClient) jwt() (string, error) {
 	now := c.now().Add(-30 * time.Second)
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	payload, err := json.Marshal(map[string]any{
@@ -352,7 +312,7 @@ func (c *Client) jwt() (string, error) {
 	return body + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
-func (c *Client) do(ctx context.Context, installID int64, method, path string, body, out any) error {
+func (c *restClient) do(ctx context.Context, installID int64, method, path string, body, out any) error {
 	var auth string
 	var err error
 	if installID > 0 {
@@ -388,11 +348,11 @@ func (c *Client) do(ctx context.Context, installID int64, method, path string, b
 		return fmt.Errorf("github: %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody+1))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, restErrorBody+1))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := string(raw)
-		if len(raw) > maxErrorBody {
-			msg = msg[:maxErrorBody] + "…"
+		if len(raw) > restErrorBody {
+			msg = msg[:restErrorBody] + "…"
 		}
 		return &APIError{Method: method, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(msg)}
 	}

@@ -23,7 +23,8 @@ import (
 	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
-	agentgithub "github.com/podium-ade/podium/internal/agent/github"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
+	"github.com/podium-ade/podium/internal/agent/github"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
@@ -57,10 +58,11 @@ type Agent struct {
 	profiles  *profiles.Live
 	svc       *api.AgentService
 	turns     *api.TurnService
+	gitcred   *api.GitCredentialService
 	conductor *conductor.Conductor
 	slack     *agentslack.Source
 	linear    *agentlinear.Source
-	github    *agentgithub.Source
+	ghSource  *ghreview.Source
 	chat      *chat.Source
 	dev       *api.DevSource
 	memory    memory.Client
@@ -94,13 +96,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
-	// The stored half, before anything reads the profile. A failure here is not fatal: the
-	// files alone are a working bot, and starting on them beats refusing to start because a
-	// playbook somebody made in the browser no longer merges.
+	// Apply stored overrides before anything reads the profile. A failure here is not
+	// fatal: the files alone are a working bot, and starting on them beats refusing to
+	// start because an override no longer applies.
 	if _, err := api.ReloadProfile(ctx, st, live); err != nil {
-		logger.WarnContext(ctx, "the playbooks stored in the conductor's database could not be "+
-			"merged into the profile; running the profile directory alone. Fix it on the "+
-			"Agent → Playbooks screen", "error", err)
+		logger.WarnContext(ctx, "the stored profile overrides could not be applied; running the "+
+			"profile directory alone. Fix it on Agent → Assistant", "error", err)
 	}
 	profile := live.Current()
 
@@ -182,15 +183,24 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		sources = append(sources, a.linear)
 	}
-	if cfg.GitHubEnabled() {
-		a.github, err = agentgithub.New(agentgithub.Options{
-			AppID:          cfg.GitHubAppID,
-			PrivateKeyFile: cfg.GitHubPrivateKeyFile,
-			WebhookSecret:  cfg.GitHubWebhookSecret,
-			Listen:         cfg.GitHubWebhookListen,
-			APIURL:         cfg.GitHubAPIURL,
-			Slack:          a.slack,
-			Logger:         logger,
+	if cfg.GitHubSourceEnabled() {
+		pem, err := cfg.GitHubAppPrivateKey()
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		key, err := github.ParsePrivateKey(pem)
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		a.ghSource, err = ghreview.NewSource(ghreview.SourceOptions{
+			AppID:         cfg.GitHubAppID,
+			PrivateKey:    key,
+			WebhookSecret: cfg.GitHubWebhookSecret,
+			Listen:        cfg.GitHubWebhookListen,
+			Slack:         a.slack,
+			Logger:        logger,
 			TaskURL: func(taskID string) string {
 				if taskID == "" {
 					return ""
@@ -207,7 +217,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 				}
 				return time.Time{}, true
 			},
-			Surfaces: agentgithub.Surfaces{
+			Surfaces: ghreview.Surfaces{
 				LookupSlack: func(ctx context.Context, slackRef string) (string, bool, error) {
 					row, err := st.GetReviewSurface(ctx, store.ReviewSurfaceSlack, slackRef)
 					if errors.Is(err, store.ErrNotFound) {
@@ -221,7 +231,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 				BindSlack: func(ctx context.Context, slackRef, sourceKey string) error {
 					err := st.BindReviewSurface(ctx, sourceKey, store.ReviewSurfaceSlack, slackRef)
 					if errors.Is(err, store.ErrSurfaceBound) {
-						return agentgithub.ErrBoundToOther
+						return ghreview.ErrBoundToOther
 					}
 					return err
 				},
@@ -242,7 +252,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			st.Close()
 			return nil, err
 		}
-		sources = append(sources, a.github)
+		sources = append(sources, a.ghSource)
 	}
 	// The web chat is always on: it needs no credential and no external service, and the
 	// UI's Chat tab is only as good as the source behind it.
@@ -257,8 +267,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 	sources = append(sources, a.chat)
-	if a.slack != nil && a.github != nil {
-		a.slack.SetReview(a.github)
+	if a.slack != nil && a.ghSource != nil {
+		a.slack.SetReview(a.ghSource)
 	}
 
 	if cfg.DevSource {
@@ -325,6 +335,24 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"conversations on this host.")
 	}
 
+	// The GitHub App, when one is configured. Nil leaves every playbook on the older
+	// path — its own podium.agent.github_token — untouched.
+	var gh *github.Client
+	if a.cfg.GitHubAppEnabled() {
+		pem, err := a.cfg.GitHubAppPrivateKey()
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		gh, err = github.New(github.Options{AppID: a.cfg.GitHubAppID, PrivateKeyPEM: pem})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		logger.Info("github app configured: turns will mint their own installation tokens",
+			"app_id", a.cfg.GitHubAppID, "task_url", a.cfg.TaskURL)
+	}
+
 	a.conductor, err = conductor.New(conductor.Options{
 		Store:        st,
 		Podium:       a.podium,
@@ -339,6 +367,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Host:         host,
 		HostMaxTurns: a.cfg.HostMaxTurns,
 		Mirror:       a.chat,
+		GitHub:       gh,
+		GitTaskURL:   a.cfg.TaskURL,
+		// The conductor's own bearer, as the seed for the key a turn's capability is
+		// signed with. Derived and not generated so a capability survives a restart, as
+		// the turn holding it does. See conductor/gitcred.go.
+		MintSecret: a.cfg.Token,
 	})
 	if err != nil {
 		st.Close()
@@ -369,6 +403,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if host != nil {
 		a.turns = api.NewTurnService(a.conductor, logger)
 	}
+	// The minting surface, which unlike the turn surface is reached from a TASK. Only
+	// mounted when there is an App to mint from: without one there is nothing to serve and
+	// no reason to answer on the path at all.
+	if gh != nil {
+		a.gitcred = api.NewGitCredentialService(a.conductor, logger)
+	}
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -381,11 +421,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	logger.Info("conductor configured", "config", cfg,
 		"profile", profile.Name, "playbooks", profile.PlaybookNames(),
 		"assistant_skills", profile.Assistant().Skills, "sources", kinds)
-	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.GitHubEnabled() {
-		logger.Info("no Slack, Linear or GitHub credentials: the web chat at /agent/chat is the only " +
+	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.GitHubSourceEnabled() {
+		logger.Info("no Slack, Linear or GitHub review source: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
-			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or the four " +
-			"PODIUM_AGENT_GITHUB_* variables, to add the others.")
+			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or the GitHub App " +
+			"plus PODIUM_AGENT_GITHUB_WEBHOOK_SECRET and PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN.")
 	}
 	return a, nil
 }
@@ -417,6 +457,16 @@ func (a *Agent) mux(registry *prometheus.Registry) http.Handler {
 		// podium-server proxies the AgentService path only, so this stays on loopback.
 		turnPath, turnHandler := agentv1connect.NewTurnServiceHandler(a.turns, opts...)
 		root.Handle(turnPath, turnHandler)
+	}
+	if a.gitcred != nil {
+		// Not behind RequireBearer either, and for a sharper reason than the turn surface
+		// above: this one is reached from a TASK CONTAINER, over the network, at
+		// PODIUM_AGENT_TASK_URL. Its whole authentication is the signed capability the
+		// caller presents, which names one turn and the repositories that turn's playbook
+		// listed. Nothing else on this listener is reachable from there — podium-server
+		// proxies AgentService only, and the operator bearer is never sent to a task.
+		gitPath, gitHandler := agentv1connect.NewGitCredentialServiceHandler(a.gitcred, opts...)
+		root.Handle(gitPath, gitHandler)
 	}
 	if a.dev != nil {
 		dev := api.RequireBearer(a.cfg.Token, a.dev.Handler())
@@ -577,8 +627,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.linear != nil {
 		go func() { sourceErr <- a.linear.Run(runCtx) }()
 	}
-	if a.github != nil {
-		go func() { sourceErr <- a.github.Run(runCtx) }()
+	if a.ghSource != nil {
+		go func() { sourceErr <- a.ghSource.Run(runCtx) }()
 	}
 	conductorDone := make(chan struct{})
 	go func() {

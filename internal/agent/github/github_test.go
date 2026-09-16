@@ -1,12 +1,17 @@
 package github
 
 import (
-	"context"
-	"crypto/hmac"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
-	"encoding/hex"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,337 +21,436 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/podium-ade/podium/internal/agent/conductor"
 )
 
-const testSecret = "webhook-secret"
+// testAppID is an obvious fake. Nothing in this package has ever seen a real one.
+const testAppID = "123456"
 
-type harness struct {
-	src   *Source
-	stub  *stub
-	mu    sync.Mutex
-	known map[string]bool
-	slack map[string]string // slackRef -> sourceKey
+// key is one RSA key for the whole suite: generating a 2048-bit key per test dominates the
+// run time and buys nothing, because no test cares which key it is.
+var key = sync.OnceValue(func() *rsa.PrivateKey {
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	return k
+})
+
+func pkcs1PEM(t *testing.T) []byte {
+	t.Helper()
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key()),
+	})
 }
 
-func newHarness(t *testing.T) *harness {
-	t.Helper()
-	h := &harness{
-		stub:  newStub(t),
-		known: map[string]bool{},
-		slack: map[string]string{},
+// call is one request the fake GitHub saw.
+type call struct {
+	Method string
+	Path   string
+	Auth   string
+	Body   string
+}
+
+// fakeGitHub answers the three endpoints this package uses. routes maps "METHOD /path" to a
+// status and a body; anything unrouted is a 404, which is what GitHub answers too.
+type fakeGitHub struct {
+	mu     sync.Mutex
+	calls  []call
+	routes map[string]func() (int, string)
+}
+
+func newFake() *fakeGitHub {
+	return &fakeGitHub{routes: map[string]func() (int, string){}}
+}
+
+func (f *fakeGitHub) route(key string, status int, body string) {
+	f.routes[key] = func() (int, string) { return status, body }
+}
+
+func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	f.mu.Lock()
+	f.calls = append(f.calls, call{
+		Method: r.Method, Path: r.URL.Path,
+		Auth: r.Header.Get("Authorization"), Body: string(raw),
+	})
+	fn, ok := f.routes[r.Method+" "+r.URL.Path]
+	f.mu.Unlock()
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"message":"Not Found"}`)
+		return
 	}
-	src, err := New(Options{
-		AppID:         "1",
-		PrivateKey:    testKey(t),
-		WebhookSecret: testSecret,
-		Listen:        "127.0.0.1:0",
-		APIURL:        h.stub.url(),
-		Session: func(_ context.Context, key string) (time.Time, bool) {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			return time.Time{}, h.known[key]
-		},
-		Surfaces: Surfaces{
-			LookupSlack: func(_ context.Context, slackRef string) (string, bool, error) {
-				h.mu.Lock()
-				defer h.mu.Unlock()
-				k, ok := h.slack[slackRef]
-				return k, ok, nil
-			},
-			BindSlack: func(_ context.Context, slackRef, sourceKey string) error {
-				h.mu.Lock()
-				defer h.mu.Unlock()
-				if existing, ok := h.slack[slackRef]; ok && existing != sourceKey {
-					return ErrBoundToOther
-				}
-				h.slack[slackRef] = sourceKey
-				return nil
-			},
-			ListSlack: func(_ context.Context, sourceKey string) ([]string, error) {
-				h.mu.Lock()
-				defer h.mu.Unlock()
-				var out []string
-				for ref, key := range h.slack {
-					if key == sourceKey {
-						out = append(out, ref)
-					}
-				}
-				return out, nil
-			},
-		},
+	status, body := fn()
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
+}
+
+func (f *fakeGitHub) seen() []call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]call(nil), f.calls...)
+}
+
+// client wires a Client to a fake, with a fixed clock so expiry is testable.
+func client(t *testing.T, f *fakeGitHub, now time.Time) *Client {
+	t.Helper()
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	c, err := New(Options{
+		AppID:         testAppID,
+		PrivateKeyPEM: pkcs1PEM(t),
+		BaseURL:       srv.URL,
+		Now:           func() time.Time { return now },
 	})
 	require.NoError(t, err)
-	src.slug = "podium"
-	src.mentionRE = compileMention("podium")
-	h.src = src
-	return h
+	return c
 }
 
-func (h *harness) session(key string) { h.mu.Lock(); h.known[key] = true; h.mu.Unlock() }
+func TestParsePrivateKey(t *testing.T) {
+	t.Run("reads the PKCS#1 GitHub hands out", func(t *testing.T) {
+		got, err := ParsePrivateKey(pkcs1PEM(t))
+		require.NoError(t, err)
+		assert.Equal(t, key().N, got.N)
+	})
 
-func (h *harness) drain() []conductor.InboundEvent {
-	var out []conductor.InboundEvent
-	for {
-		select {
-		case ev := <-h.src.events:
-			out = append(out, ev)
-		default:
-			return out
+	t.Run("reads PKCS#8, which is what a round trip through openssl produces", func(t *testing.T) {
+		der, err := x509.MarshalPKCS8PrivateKey(key())
+		require.NoError(t, err)
+		got, err := ParsePrivateKey(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+		require.NoError(t, err)
+		assert.Equal(t, key().N, got.N)
+	})
+
+	t.Run("says what it wanted when the value is not PEM at all", func(t *testing.T) {
+		_, err := ParsePrivateKey([]byte("ghp_not_a_key"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "BEGIN RSA PRIVATE KEY")
+	})
+
+	t.Run("refuses a PEM that is not a key", func(t *testing.T) {
+		_, err := ParsePrivateKey(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("nope")}))
+		require.Error(t, err)
+	})
+}
+
+func TestNew(t *testing.T) {
+	t.Run("needs an app id", func(t *testing.T) {
+		_, err := New(Options{PrivateKeyPEM: pkcs1PEM(t)})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "app id")
+	})
+
+	t.Run("needs a key it can parse", func(t *testing.T) {
+		_, err := New(Options{AppID: testAppID, PrivateKeyPEM: []byte("nope")})
+		require.Error(t, err)
+	})
+}
+
+// The JWT is what authenticates every call, so it is checked against the public key rather
+// than merely for shape: a token GitHub would reject is a failure no test of ours would see.
+func TestJWT(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	c := client(t, newFake(), now)
+
+	token, err := c.jwt()
+	require.NoError(t, err)
+	parts := strings.Split(token, ".")
+	require.Len(t, parts, 3)
+
+	var header map[string]string
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &header))
+	assert.Equal(t, "RS256", header["alg"], "GitHub accepts RS256 and nothing else")
+
+	var claims struct {
+		Iat int64  `json:"iat"`
+		Exp int64  `json:"exp"`
+		Iss string `json:"iss"`
+	}
+	raw, err = base64.RawURLEncoding.DecodeString(parts[1])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &claims))
+	assert.Equal(t, testAppID, claims.Iss)
+	assert.Equal(t, now.Add(-jwtBackdate).Unix(), claims.Iat, "iat is backdated for clock skew")
+	assert.LessOrEqual(t, claims.Exp-claims.Iat, int64(10*60), "GitHub refuses a JWT living over ten minutes")
+
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	require.NoError(t, err)
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	assert.NoError(t, rsa.VerifyPKCS1v15(&key().PublicKey, crypto.SHA256, digest[:], sig),
+		"the signature must verify against the app's own key")
+}
+
+func TestToken(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(time.Hour)
+
+	setup := func(t *testing.T) (*Client, *fakeGitHub) {
+		t.Helper()
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 200, `{"id":42}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		return client(t, f, now), f
+	}
+
+	t.Run("mints a token scoped to the named repositories", func(t *testing.T) {
+		c, f := setup(t)
+		got, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		assert.Equal(t, "ghs_minted", got.Value)
+		assert.Equal(t, expires, got.ExpiresAt.UTC())
+
+		calls := f.seen()
+		require.Len(t, calls, 2)
+		var sent tokenRequest
+		require.NoError(t, json.Unmarshal([]byte(calls[1].Body), &sent))
+		assert.Equal(t, []string{"monorepo"}, sent.Repositories)
+		// The App may be granted more than this in its settings; a token minted here is
+		// narrowed regardless, so a wider App is not a wider task.
+		assert.Equal(t, "write", sent.Permissions.Contents)
+		assert.Equal(t, "write", sent.Permissions.PullRequests)
+	})
+
+	t.Run("authenticates with the app JWT and never with an installation token", func(t *testing.T) {
+		c, f := setup(t)
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		for _, got := range f.seen() {
+			assert.True(t, strings.HasPrefix(got.Auth, "Bearer "), got.Path)
+			assert.NotContains(t, got.Auth, "ghs_minted")
 		}
+	})
+
+	t.Run("reuses a live token rather than minting per call", func(t *testing.T) {
+		c, f := setup(t)
+		for range 3 {
+			_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+			require.NoError(t, err)
+		}
+		assert.Len(t, f.seen(), 2, "one installation lookup and one mint, however many asks")
+	})
+
+	t.Run("orders the scope so the same two repos are one cache entry", func(t *testing.T) {
+		c, f := setup(t)
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo", "podium"})
+		require.NoError(t, err)
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"podium", "monorepo"})
+		require.NoError(t, err)
+		assert.Len(t, f.seen(), 2)
+	})
+
+	t.Run("mints again for a different scope, because the token is not valid for it", func(t *testing.T) {
+		c, f := setup(t)
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"other"})
+		require.NoError(t, err)
+		assert.Len(t, f.seen(), 3, "the installation is cached; the token is not shared across scopes")
+	})
+
+	// The whole reason this package exists: a two-hour turn pushes at the end, long after a
+	// one-hour token was minted. A cached token inside renewBefore of expiry must not be
+	// handed out.
+	t.Run("re-mints a token that is about to expire", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 200, `{"id":42}`)
+		f.route("POST /app/installations/42/access_tokens", 201,
+			`{"token":"ghs_minted","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		srv := httptest.NewServer(f)
+		t.Cleanup(srv.Close)
+
+		clock := now
+		c, err := New(Options{
+			AppID: testAppID, PrivateKeyPEM: pkcs1PEM(t), BaseURL: srv.URL,
+			Now: func() time.Time { return clock },
+		})
+		require.NoError(t, err)
+
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		require.Len(t, f.seen(), 2)
+
+		clock = expires.Add(-renewBefore + time.Second)
+		_, err = c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.NoError(t, err)
+		assert.Len(t, f.seen(), 3, "a token inside renewBefore of expiry is replaced, not reused")
+	})
+
+	t.Run("refuses an empty scope, which GitHub would read as every repository", func(t *testing.T) {
+		c, _ := setup(t)
+		_, err := c.Token(t.Context(), "affiniti-finance", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "every repository")
+	})
+
+	t.Run("refuses a missing owner", func(t *testing.T) {
+		c, _ := setup(t)
+		_, err := c.Token(t.Context(), "  ", []string{"monorepo"})
+		require.Error(t, err)
+	})
+
+	t.Run("falls back to the user endpoint when the owner is not an organisation", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /users/acme/installation", 200, `{"id":7}`)
+		f.route("POST /app/installations/7/access_tokens", 201,
+			`{"token":"ghs_user","expires_at":"`+expires.Format(time.RFC3339)+`"}`)
+		c := client(t, f, now)
+
+		got, err := c.Token(t.Context(), "acme", []string{"podium"})
+		require.NoError(t, err)
+		assert.Equal(t, "ghs_user", got.Value)
+	})
+
+	t.Run("names the account when the app is installed nowhere", func(t *testing.T) {
+		c := client(t, newFake(), now)
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.ErrorIs(t, err, ErrNotInstalled)
+		assert.Contains(t, err.Error(), "affiniti-finance")
+	})
+
+	t.Run("separates a refused app credential from every other failure", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /orgs/affiniti-finance/installation", 401, `{"message":"A JSON web token could not be decoded"}`)
+		c := client(t, f, now)
+		_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+		require.ErrorIs(t, err, ErrUnauthorized)
+	})
+}
+
+func TestIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+
+	t.Run("builds the address GitHub links a commit by", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /app", 200, `{"slug":"podium-agent"}`)
+		f.route("GET /users/podium-agent[bot]", 200, `{"id":987654}`)
+		c := client(t, f, now)
+
+		got, err := c.Identity(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, "podium-agent[bot]", got.Name)
+		assert.Equal(t, "987654+podium-agent[bot]@users.noreply.github.com", got.Email)
+	})
+
+	t.Run("asks once and remembers: neither a slug nor a bot id changes", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /app", 200, `{"slug":"podium-agent"}`)
+		f.route("GET /users/podium-agent[bot]", 200, `{"id":987654}`)
+		c := client(t, f, now)
+
+		for range 3 {
+			_, err := c.Identity(t.Context())
+			require.NoError(t, err)
+		}
+		assert.Len(t, f.seen(), 2)
+	})
+
+	t.Run("refuses to invent an address when the bot account cannot be read", func(t *testing.T) {
+		f := newFake()
+		f.route("GET /app", 200, `{"slug":"podium-agent"}`)
+		c := client(t, f, now)
+		_, err := c.Identity(t.Context())
+		require.Error(t, err)
+	})
+}
+
+func TestSplitRepoURL(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		owner string
+		repo  string
+	}{
+		{"https://github.com/affiniti-finance/monorepo", "affiniti-finance", "monorepo"},
+		{"https://github.com/affiniti-finance/monorepo.git", "affiniti-finance", "monorepo"},
+		{"https://github.com/affiniti-finance/monorepo/", "affiniti-finance", "monorepo"},
+		{"  https://github.com/acme/podium  ", "acme", "podium"},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			owner, repo, err := SplitRepoURL(tc.raw)
+			require.NoError(t, err)
+			assert.Equal(t, tc.owner, owner)
+			assert.Equal(t, tc.repo, repo)
+		})
 	}
+
+	t.Run("refuses a host this app's token is worthless on", func(t *testing.T) {
+		_, _, err := SplitRepoURL("https://gitlab.com/affiniti/monorepo")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "github.com")
+	})
+
+	t.Run("refuses a path that is not owner/repo", func(t *testing.T) {
+		_, _, err := SplitRepoURL("https://github.com/affiniti-finance")
+		require.Error(t, err)
+	})
 }
 
-func sign(body []byte) string {
-	mac := hmac.New(sha256.New, []byte(testSecret))
-	_, _ = mac.Write(body)
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+// A minted token must never reach a log or an error string. The failure path quotes
+// GitHub's own message, so this checks the one place a token could be echoed back.
+func TestFailureDoesNotEchoAToken(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	f := newFake()
+	f.route("GET /orgs/affiniti-finance/installation", 200, `{"id":42}`)
+	f.route("POST /app/installations/42/access_tokens", 500, `{"message":"boom"}`)
+	c := client(t, f, now)
+
+	_, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+	assert.NotContains(t, err.Error(), "ghs_")
+	assert.False(t, errors.Is(err, ErrUnauthorized))
 }
 
-func postWebhook(t *testing.T, h *harness, event, delivery string, payload any) *httptest.ResponseRecorder {
-	t.Helper()
-	body, err := json.Marshal(payload)
-	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodPost, WebhookPath, strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(headerEvent, event)
-	req.Header.Set(headerDelivery, delivery)
-	req.Header.Set(headerSignature, sign(body))
-	rec := httptest.NewRecorder()
-	h.src.Handler().ServeHTTP(rec, req)
-	return rec
+// The margin is not a matter of taste: it is set by the runtime's own refresh interval.
+// gitcred.ts keeps one token in GH_TOKEN for the `gh` CLI and replaces it renewBeforeMs —
+// ten minutes — before expiry. If this cache's margin were the smaller of the two, that
+// request would be answered with the very token the runtime was replacing.
+func TestRenewBeforeExceedsTheRuntimeRefreshMargin(t *testing.T) {
+	// agent/runtime/src/gitcred.ts calls this renewBeforeMs.
+	const runtimeRefreshMargin = 10 * time.Minute
+	assert.Greater(t, renewBefore, runtimeRefreshMargin,
+		"a token handed out must outlive the next time the runtime asks for one")
 }
 
-func prComment(body string) map[string]any {
-	return map[string]any{
-		"action":       "created",
-		"installation": map[string]any{"id": 42},
-		"repository": map[string]any{
-			"name": "repo", "owner": map[string]any{"login": "acme"},
-		},
-		"sender": map[string]any{"login": "alice", "type": "User"},
-		"comment": map[string]any{
-			"id": 7, "body": body, "created_at": "2026-09-14T12:00:00Z",
-			"user": map[string]any{"login": "alice", "type": "User"},
-		},
-		"issue": map[string]any{
-			"number": 12, "pull_request": map[string]any{"url": "https://api.github.com/repos/acme/repo/pulls/12"},
-		},
+// A turn longer than the life of an installation token is the case this whole path exists
+// for: the token is minted per ask, so the push at the end of a ninety-minute turn gets a
+// different token from the clone at its start.
+func TestATurnLongerThanATokenKeepsWorking(t *testing.T) {
+	start := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	clock := start
+	minted := 0
+
+	f := newFake()
+	f.route("GET /orgs/affiniti-finance/installation", 200, `{"id":42}`)
+	f.routes["POST /app/installations/42/access_tokens"] = func() (int, string) {
+		minted++
+		return 201, fmt.Sprintf(`{"token":"ghs_%d","expires_at":%q}`,
+			minted, clock.Add(time.Hour).Format(time.RFC3339))
 	}
-}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
 
-func TestRefRoundTrips(t *testing.T) {
-	p := Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7}
-	got, err := ParseRef(Ref(p))
-	require.NoError(t, err)
-	assert.Equal(t, p, got)
-
-	p.Kind = KindSlack
-	p.SlackChan, p.SlackThread, p.SlackTS = "C1", "1.1", "2.2"
-	got, err = ParseRef(Ref(p))
-	require.NoError(t, err)
-	assert.Equal(t, p, got)
-}
-
-func TestParseRefRefusesAnythingElse(t *testing.T) {
-	for _, ref := range []string{"", "a/b", "a/b/c/d/e", "a/b/x/1/issue_comment/1"} {
-		_, err := ParseRef(ref)
-		assert.Error(t, err, "%q", ref)
-	}
-}
-
-func TestSourceKeyIsThePullRequest(t *testing.T) {
-	assert.Equal(t, "github:acme/repo#12", SourceKey("acme", "repo", 12))
-	owner, repo, n, ok := ParseSourceKey("github:acme/repo#12")
-	require.True(t, ok)
-	assert.Equal(t, "acme", owner)
-	assert.Equal(t, "repo", repo)
-	assert.Equal(t, 12, n)
-	_, _, _, ok = ParseSourceKey("slack:C1:1.1")
-	assert.False(t, ok)
-}
-
-func TestWebhookRejectsABadSignature(t *testing.T) {
-	h := newHarness(t)
-	body := []byte(`{"zen":"ok"}`)
-	req := httptest.NewRequest(http.MethodPost, WebhookPath, strings.NewReader(string(body)))
-	req.Header.Set(headerEvent, "ping")
-	req.Header.Set(headerSignature, "sha256=deadbeef")
-	rec := httptest.NewRecorder()
-	h.src.Handler().ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Empty(t, h.drain())
-}
-
-func TestPingIsOKAndSilent(t *testing.T) {
-	h := newHarness(t)
-	rec := postWebhook(t, h, "ping", "d1", map[string]any{"zen": "ok"})
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, h.drain())
-}
-
-func TestAMentionOnAPRWithNoSessionStartsAReview(t *testing.T) {
-	h := newHarness(t)
-	rec := postWebhook(t, h, "issue_comment", "d-start", prComment("@podium review this"))
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Equal(t, conductor.SourceGitHub, evs[0].BriefKind)
-	assert.Equal(t, "alice", evs[0].Author)
-	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
-	assert.Contains(t, evs[0].Text, "review this")
-	assert.NotContains(t, evs[0].Text, "@podium")
-}
-
-func TestACommentOnANonPRIssueIsDropped(t *testing.T) {
-	h := newHarness(t)
-	payload := prComment("@podium hi")
-	issue := payload["issue"].(map[string]any)
-	delete(issue, "pull_request")
-	rec := postWebhook(t, h, "issue_comment", "d-issue", payload)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, h.drain())
-}
-
-func TestNoMentionAndNoSessionIsDropped(t *testing.T) {
-	h := newHarness(t)
-	rec := postWebhook(t, h, "issue_comment", "d-lgtm", prComment("lgtm"))
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, h.drain())
-}
-
-func TestNoMentionOnASessionPRIsDroppedUnlessItIsAReviewReply(t *testing.T) {
-	h := newHarness(t)
-	h.session("github:acme/repo#12")
-	rec := postWebhook(t, h, "issue_comment", "d-lgtm2", prComment("lgtm"))
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, h.drain(), "a conversation-tab lgtm is not a follow-up")
-}
-
-func TestAReviewThreadReplyOnASessionPRContinues(t *testing.T) {
-	h := newHarness(t)
-	h.session("github:acme/repo#12")
-	payload := map[string]any{
-		"action":       "created",
-		"installation": map[string]any{"id": 42},
-		"repository": map[string]any{
-			"name": "repo", "owner": map[string]any{"login": "acme"},
-		},
-		"sender": map[string]any{"login": "alice", "type": "User"},
-		"comment": map[string]any{
-			"id": 9, "body": "fixed", "created_at": "2026-09-14T12:00:00Z",
-			"path": "a.go", "line": 4, "in_reply_to_id": 8,
-			"user": map[string]any{"login": "alice", "type": "User"},
-		},
-		"pull_request": map[string]any{"number": 12},
-	}
-	rec := postWebhook(t, h, "pull_request_review_comment", "d-reply", payload)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Contains(t, evs[0].Text, "a.go:4")
-	assert.Contains(t, evs[0].Text, "fixed")
-}
-
-func TestTheAppsOwnCommentIsDropped(t *testing.T) {
-	h := newHarness(t)
-	payload := prComment("👀 working…")
-	payload["sender"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
-	comment := payload["comment"].(map[string]any)
-	comment["user"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
-	rec := postWebhook(t, h, "issue_comment", "d-self", payload)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, h.drain())
-}
-
-func TestDuplicateDeliveryIsOneEvent(t *testing.T) {
-	h := newHarness(t)
-	payload := prComment("@podium review")
-	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "same", payload).Code)
-	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "same", payload).Code)
-	assert.Len(t, h.drain(), 1)
-}
-
-func TestPostOnAnIssueCommentTriggerCreatesAnIssueComment(t *testing.T) {
-	h := newHarness(t)
-	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
-	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "looks good", TaskID: "task_1"})
-	require.NoError(t, err)
-	assert.NotEmpty(t, id)
-	bodies := h.stub.postedIssueBodies()
-	require.Len(t, bodies, 1)
-	assert.Contains(t, bodies[0], "looks good")
-	assert.Contains(t, bodies[0], "task_1")
-}
-
-func TestPostOnAReviewCommentTriggerRepliesInThread(t *testing.T) {
-	h := newHarness(t)
-	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindReviewComment, CommentID: 88})
-	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "agreed"})
-	require.NoError(t, err)
-	assert.Equal(t, []int64{88}, h.stub.postedReviewInReplyTo())
-}
-
-func TestFetchTranscriptDropsScaffoldingAndKeepsFinals(t *testing.T) {
-	h := newHarness(t)
-	h.stub.mu.Lock()
-	h.stub.issueComments = []Comment{
-		{ID: 1, Body: conductor.Placeholder, CreatedAt: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
-		{ID: 2, Body: "the review", CreatedAt: time.Date(2026, 9, 14, 12, 1, 0, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
-		{ID: 3, Body: "thanks", CreatedAt: time.Date(2026, 9, 14, 12, 2, 0, 0, time.UTC), User: User{Login: "alice", Type: "User"}},
-	}
-	h.stub.mu.Unlock()
-	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 3})
-	entries, err := h.src.FetchTranscript(context.Background(), ref)
-	require.NoError(t, err)
-	require.Len(t, entries, 2)
-	assert.Equal(t, conductor.RoleAssistant, entries[0].Role)
-	assert.Equal(t, "the review", entries[0].Text)
-	assert.Equal(t, conductor.RoleUser, entries[1].Role)
-	assert.Equal(t, "thanks", entries[1].Text)
-}
-
-func TestIngestSlackStartsTheSameSessionAGitHubMentionWould(t *testing.T) {
-	h := newHarness(t)
-	err := h.src.IngestSlack(context.Background(), SlackMention{
-		PR:      conductor.PullRequest{Owner: "acme", Repo: "repo", Number: 12, URL: "https://github.com/acme/repo/pull/12"},
-		Channel: "C1", Thread: "1.1", Trigger: "2.2",
-		Author: "bob", Text: "review this", TS: time.Now(),
+	c, err := New(Options{
+		AppID: testAppID, PrivateKeyPEM: pkcs1PEM(t), BaseURL: srv.URL,
+		Now: func() time.Time { return clock },
 	})
 	require.NoError(t, err)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
-	p, err := ParseRef(evs[0].Ref)
+
+	// The clone, at the start of the turn.
+	atClone, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
 	require.NoError(t, err)
-	assert.Equal(t, KindSlack, p.Kind)
-	assert.Equal(t, "C1", p.SlackChan)
-}
 
-func TestMirrorKeyIsThePullRequest(t *testing.T) {
-	h := newHarness(t)
-	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindSlack, SlackChan: "C1", SlackThread: "1.1", SlackTS: "2.2"})
-	key, ok := h.src.MirrorKey(ref)
-	require.True(t, ok)
-	assert.Equal(t, "github:acme/repo#12", key)
-}
+	// Ninety minutes in, the agent pushes. git runs the credential helper again, which is
+	// what makes this work at all: the token from the clone died half an hour ago.
+	clock = start.Add(90 * time.Minute)
+	atPush, err := c.Token(t.Context(), "affiniti-finance", []string{"monorepo"})
+	require.NoError(t, err)
 
-func TestMentionRegexDoesNotEatALongerLogin(t *testing.T) {
-	h := newHarness(t)
-	assert.False(t, h.src.mentioned("@podium-extra look"))
-	assert.True(t, h.src.mentioned("@podium look"))
-	assert.True(t, h.src.mentioned("please @podium[bot] review"))
-}
-
-func TestBindSlackRefusesASecondPullRequest(t *testing.T) {
-	h := newHarness(t)
-	ctx := context.Background()
-	require.NoError(t, h.src.BindSlack(ctx, "C1/1.1", "github:acme/repo#12"))
-	err := h.src.BindSlack(ctx, "C1/1.1", "github:acme/repo#13")
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrBoundToOther))
+	assert.NotEqual(t, atClone.Value, atPush.Value, "the push must not be handed a dead token")
+	assert.True(t, atPush.ExpiresAt.After(clock), "and the one it gets must still be alive")
+	assert.Equal(t, 2, minted)
 }

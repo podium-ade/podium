@@ -114,3 +114,48 @@ message InjectDelegationRequest {
 message InjectDelegationResponse {
   Delegation delegation = 1;
 }
+
+// GitCredentialService is the ONE thing a task container may ask the conductor for: a
+// GitHub token for the repositories its own playbook listed.
+//
+// It is a service of its own because it is the only surface in Podium a TASK reaches. A
+// host turn runs on the conductor's machine, so TurnService above never left it; a task
+// runs in a container on a node, and this is deliberately exposed to it — see
+// PODIUM_AGENT_TASK_URL and docs/security.md.
+//
+// What keeps that narrow is the shape of the call. It takes no arguments at all: the
+// repositories are inside the capability the conductor signed, so a turn cannot ask for
+// one its playbook never named, and a turn that edits its capability invalidates it. The
+// capability is revoked by its turn ending, which is a status in the database rather than
+// anything that has to be remembered.
+//
+// A token minted here lives one hour. The caller is agent/runtime/src/gitcred.ts, invoked
+// by git itself as a credential helper, so this is called again for every clone, fetch and
+// push rather than once per turn — which is the whole point: a two-hour turn pushes at the
+// end, long after a token minted at the start would have died.
+service GitCredentialService {
+  // MintToken issues a GitHub installation token for the calling turn.
+  rpc MintToken(MintTokenRequest) returns (MintTokenResponse);
+}
+
+// MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
+// mint is in the capability the caller presents in the X-Podium-Turn header.
+message MintTokenRequest {}
+
+message MintTokenResponse {
+  // token is the installation token. SENSITIVE: it is a GitHub credential with write
+  // access to the repositories the turn's playbook listed.
+  string token = 1;
+  // username is the basic-auth username the token is paired with. GitHub ignores the
+  // value and requires the pair.
+  string username = 2;
+  // expires_at is when the token stops working, an hour or so out. The caller uses it to
+  // decide when the copy it keeps for the `gh` CLI has to be replaced.
+  google.protobuf.Timestamp expires_at = 3;
+  // author_name and author_email are the App's bot account, as a commit author. They are
+  // returned with the token rather than configured anywhere because they are a fact about
+  // the App: GitHub links a commit to an account by the email, and getting it wrong leaves
+  // every commit attributed to nobody.
+  string author_name = 4;
+  string author_email = 5;
+}

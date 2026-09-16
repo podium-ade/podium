@@ -38,6 +38,12 @@ var notConfiguration = map[string]string{
 	// turn can delegate a task in its own conversation. It lives as long as the turn and
 	// an operator never sets one.
 	"PODIUM_TURN_TOKEN": "minted by the conductor for one host turn",
+	// Signed per TASK turn by the conductor and delivered as that turn's own secret: the
+	// authority to mint a GitHub token for the repositories its playbook listed. It is read
+	// by the git credential helper inside the container, it stops working when the turn
+	// ends, and an operator never sets one. What an operator sets is
+	// PODIUM_AGENT_GITHUB_APP_ID and its key.
+	"PODIUM_GIT_CAPABILITY": "signed by the conductor for one turn, delivered as a secret",
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",
@@ -141,6 +147,30 @@ func TestEnvExampleDocumentsNothingImaginary(t *testing.T) {
 	require.Empty(t, phantom,
 		"deploy/%s documents variables that nothing reads any more. "+
 			"Delete them, or fix the spelling.", envExample)
+}
+
+// TestEnvExampleDoesNotPointAtThisCheckout: a customer's .env is not this git tree.
+// Assigned values (commented or not) must not be examples/agent, playbooks/, skills/, or
+// any other path that only exists inside a Podium clone.
+func TestEnvExampleDoesNotPointAtThisCheckout(t *testing.T) {
+	raw, err := os.ReadFile(envExample)
+	require.NoError(t, err)
+	for i, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimPrefix(trimmed, "#")
+		trimmed = strings.TrimSpace(trimmed)
+		name, val, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(name, "PODIUM_") && name != "TS_AUTHKEY" {
+			continue
+		}
+		require.NotContainsf(t, val, "examples/",
+			"%s:%d: %s points at this checkout (%q)", envExample, i+1, name, val)
+		require.NotContainsf(t, val, "playbooks/playbooks",
+			"%s:%d: %s points at this checkout (%q)", envExample, i+1, name, val)
+	}
 }
 
 // documentedVars is every variable named in .env.example.

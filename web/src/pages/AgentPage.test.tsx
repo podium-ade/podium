@@ -25,9 +25,6 @@ const listAgents = vi.fn();
 const startProviderOAuth = vi.fn();
 const pollProviderOAuth = vi.fn();
 const updateProfile = vi.fn();
-const createPlaybook = vi.fn();
-const updatePlaybook = vi.fn();
-const deletePlaybook = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
 
@@ -49,16 +46,15 @@ vi.mock("../lib/client", async () => {
       startProviderOAuth: (...a: unknown[]) => startProviderOAuth(...a),
       pollProviderOAuth: (...a: unknown[]) => pollProviderOAuth(...a),
       updateProfile: (...a: unknown[]) => updateProfile(...a),
-      createPlaybook: (...a: unknown[]) => createPlaybook(...a),
-      updatePlaybook: (...a: unknown[]) => updatePlaybook(...a),
-      deletePlaybook: (...a: unknown[]) => deletePlaybook(...a),
       listSkills: (...a: unknown[]) => listSkills(...a),
+      listMcpServers: () => Promise.resolve({ servers: [] }),
+      reloadProfileDir: () => Promise.resolve({}),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
 });
 
-/** The profile the tab tests read: one file playbook, one stored, nothing overridden. */
+/** The profile the tab tests read: one playbook, nothing overridden. */
 const profileResponse = {
   profile: {
     name: "podium",
@@ -87,9 +83,6 @@ const profileResponse = {
       slackChannels: [],
       linear: false,
       env: {},
-      origin: "file",
-      editable: false,
-      shadowed: false,
       updatedBy: "",
     },
   ],

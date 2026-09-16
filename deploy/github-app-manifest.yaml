@@ -27,8 +27,9 @@ default_permissions:
   issues: write
   # Inline review-comment replies, and reading the PR.
   pull_requests: write
-  # Reading the repository for a transcript. Clone still uses the task GitHub token.
-  contents: read
+  # Clone, push, and reading the repository for a transcript. The same App mints
+  # installation tokens for turns.
+  contents: write
 default_events:
   - issue_comment
   - pull_request_review

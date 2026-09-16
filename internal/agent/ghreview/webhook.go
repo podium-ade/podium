@@ -1,4 +1,4 @@
-package github
+package ghreview
 
 import (
 	"context"
