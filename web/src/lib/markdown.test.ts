@@ -17,10 +17,10 @@ describe("parseBlocks", () => {
     ]);
   });
 
-  it("reads a fenced block and ignores the language", () => {
+  it("reads a fenced block and keeps the language for the chrome", () => {
     expect(parseBlocks("before\n\n```sql\nselect 1;\n```\n\nafter")).toEqual([
       { kind: "paragraph", text: "before" },
-      { kind: "code", text: "select 1;" },
+      { kind: "code", text: "select 1;", lang: "sql" },
       { kind: "paragraph", text: "after" },
     ]);
   });

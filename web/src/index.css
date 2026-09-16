@@ -129,6 +129,10 @@
   }
 }
 
+html {
+  font-size: 17px;
+}
+
 html,
 body,
 #root {
