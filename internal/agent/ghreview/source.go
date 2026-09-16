@@ -33,7 +33,7 @@ const (
 	shutdownWait = 5 * time.Second
 	doneText     = "✅ Done — see below"
 	failedText   = "❌ Failed"
-	EditThrottle = 2 * time.Second
+	editThrottle = 2 * time.Second
 )
 
 // ErrBoundToOther is a Slack thread that is already reviewing a different pull request.
@@ -75,7 +75,7 @@ type SlackMention struct {
 	Permalink string
 }
 
-// Options configures the source.
+// SourceOptions configures the GitHub review source.
 type SourceOptions struct {
 	AppID         string
 	PrivateKey    *rsa.PrivateKey
@@ -123,7 +123,7 @@ type turnState struct {
 
 var _ conductor.Source = (*Source)(nil)
 
-// New builds the source. Nothing is dialled until Run. The webhook listener is bound in Run.
+// NewSource builds the source. Nothing is dialled until Run. The webhook listener is bound in Run.
 func NewSource(opts SourceOptions) (*Source, error) {
 	switch {
 	case opts.PrivateKey == nil:
@@ -532,7 +532,7 @@ func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outb
 	if st.haveHeld {
 		st.haveHeld, st.held = false, ""
 	}
-	if s.now().Sub(st.lastEdit) < EditThrottle {
+	if s.now().Sub(st.lastEdit) < editThrottle {
 		st.haveHeld, st.held = true, text
 		s.mu.Unlock()
 		return nil

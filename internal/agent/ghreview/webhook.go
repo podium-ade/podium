@@ -31,6 +31,7 @@ const (
 	headerSignature = "X-Hub-Signature-256"
 )
 
+// Handler is POST /webhooks/github: HMAC-verified deliveries, nothing else.
 func (s *Source) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(WebhookPath, s.serveWebhook)
@@ -93,10 +94,7 @@ func (s *Source) handleDelivery(ctx context.Context, event string, body []byte) 
 
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	if !c.mentioned && !(c.inReply && known) {
-		return
-	}
-	if !known && !c.mentioned {
+	if !c.mentioned && (!c.inReply || !known) {
 		return
 	}
 
