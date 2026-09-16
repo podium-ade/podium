@@ -96,7 +96,7 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
             </DialogHeader>
 
             <Alert variant="warn">
-              Shown once, single use — the server keeps nothing but its SHA-256, so it cannot be
+              Shown once, single use. The server keeps nothing but its SHA-256, so it cannot be
               shown again. Expires {absolute(create.data.expiresAt)}. If you lose it or it
               expires, mint another.
             </Alert>
@@ -240,7 +240,7 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
             {create.error ? (
               <Alert variant="destructive" title="Could not create an enrollment token">
                 {errorMessage(create.error)}. Minting one needs admin rights on this control
-                plane — check the token this console is using.
+                plane. Check the token this console is using.
               </Alert>
             ) : null}
 

@@ -79,7 +79,7 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
                   {t.id}
                 </Link>
                 <div className="truncate font-mono text-2xs text-faint" title={t.spec?.image}>
-                  {t.spec?.image || "—"}
+                  {t.spec?.image || "-"}
                 </div>
               </TableCell>
               <TableCell>
@@ -91,12 +91,12 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
                 ) : (
                   // Not an agent task: nothing spent model credit on its behalf.
                   <Tooltip label="No agent turn ran this task, so it has no model cost">
-                    <span className="text-xs text-faint">—</span>
+                    <span className="text-xs text-faint">-</span>
                   </Tooltip>
                 )}
               </TableCell>
               <TableCell>
-                {cost ? <Chip>{ranBy(cost.playbook)}</Chip> : <span className="text-xs text-faint">—</span>}
+                {cost ? <Chip>{ranBy(cost.playbook)}</Chip> : <span className="text-xs text-faint">-</span>}
               </TableCell>
               <TableCell
                 className="text-xs whitespace-nowrap text-muted"
@@ -108,10 +108,10 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
                 {taskDuration(t.startedAt, t.finishedAt)}
               </TableCell>
               <TableCell className="text-right text-xs tabular whitespace-nowrap text-muted">
-                {cpu > 0 ? `${cpu.toFixed(1)}s` : "—"}
+                {cpu > 0 ? `${cpu.toFixed(1)}s` : "-"}
               </TableCell>
               <TableCell className="text-right text-xs tabular text-muted">
-                {cost?.numTurns ?? "—"}
+                {cost?.numTurns ?? "-"}
               </TableCell>
               <TableCell
                 className={cn(
@@ -119,7 +119,7 @@ export function TaskCostTable({ tasks, costs }: { tasks: Task[]; costs: Map<stri
                   cost?.costUsd === undefined ? "text-faint" : "font-medium text-fg",
                 )}
               >
-                {cost?.costUsd === undefined ? "—" : usd(cost.costUsd)}
+                {cost?.costUsd === undefined ? "-" : usd(cost.costUsd)}
               </TableCell>
             </TableRow>
           );

@@ -83,7 +83,7 @@ export function SpecDigest({ spec }: { spec?: SpecInit }) {
 
 /** Every field the decoder read, and nothing it did not: an unset field has no row. */
 function digest(spec: SpecInit): [string, ReactNode][] {
-  const rows: [string, ReactNode][] = [["Image", spec.image || "—"]];
+  const rows: [string, ReactNode][] = [["Image", spec.image || "-"]];
 
   if (spec.command && spec.command.length > 0) rows.push(["Command", spec.command.join(" ")]);
   if (spec.workingDir) rows.push(["Working directory", spec.workingDir]);

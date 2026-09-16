@@ -108,7 +108,7 @@ export function TokenForm({
 
       {rejected ? (
         <Alert variant="destructive" className="mt-3">
-          Token rejected — re-enter it.
+          Token rejected. Re-enter it.
         </Alert>
       ) : null}
       {failure ? (

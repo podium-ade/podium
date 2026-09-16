@@ -67,6 +67,20 @@ const XAIKeyEnv = "XAI_API_KEY"
 // this host: no turn is ever handed it, and no playbook may name it.
 const XAIRefreshSecret = "podium.agent.xai_refresh_token"
 
+// OpenAIKeySecret is the same reservation for an OpenAI turn: an API key, or the access
+// token of a ChatGPT / Codex subscription sign-in. Unlike xAI the two are not bearers for
+// the same endpoint — a key talks to api.openai.com, a subscription token to ChatGPT's
+// Codex backend — but they still share one secret, because a turn spends exactly one of
+// them and the conductor is what picks the endpoint.
+const OpenAIKeySecret = "podium.agent.openai_api_key"
+
+// OpenAIKeyEnv is where that secret lands in the task container.
+const OpenAIKeyEnv = "OPENAI_API_KEY"
+
+// OpenAIRefreshSecret is the refresh token of a ChatGPT / Codex sign-in. Same rule as
+// XAIRefreshSecret: reserved, never attached to a turn, never a playbook's to name.
+const OpenAIRefreshSecret = "podium.agent.openai_refresh_token"
+
 // MemoryKeySecret is the other reserved secret the conductor attaches itself: the shared
 // memory's API key. A playbook may not name it and a playbook cannot opt out of memory — only the
 // operator can, by leaving PODIUM_AGENT_MEMORY_URL empty.
@@ -658,7 +672,8 @@ func (s Playbook) validate(path string) error {
 	}
 	for _, ref := range s.Secrets {
 		switch ref.Name {
-		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret, MemoryKeySecret:
+		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret,
+			OpenAIKeySecret, OpenAIRefreshSecret, MemoryKeySecret:
 			errs = append(errs, fmt.Errorf("secrets may not name %s: the conductor decides what "+
 				"credential a turn gets, from the agent the playbook runs on", ref.Name))
 		}
@@ -700,6 +715,9 @@ func (s Playbook) validate(path string) error {
 		case XAIKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				XAIKeyEnv, XAIKeySecret))
+		case OpenAIKeyEnv:
+			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
+				OpenAIKeyEnv, OpenAIKeySecret))
 		case MemoryKeyEnv:
 			errs = append(errs, fmt.Errorf("env may not set %s: it comes from the %s secret",
 				MemoryKeyEnv, MemoryKeySecret))

@@ -265,7 +265,7 @@ export function TasksPage() {
         <TableSkeleton cols={8} />
       ) : query.isError && rows.length === 0 ? (
         <Alert variant="destructive" title="Could not list tasks">
-          {errorMessage(query.error)} — check that podium-server is reachable and that your token
+          {errorMessage(query.error)}. Check that podium-server is reachable and that your token
           is still accepted. The list keeps retrying every {POLL_MS / 1000} seconds.
         </Alert>
       ) : rows.length === 0 ? (
@@ -366,7 +366,7 @@ export function TasksPage() {
                       title={image}
                       className="block truncate rounded-sm font-mono text-xs text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      {image || "—"}
+                      {image || "-"}
                     </Link>
                   </TableCell>
                   <TableCell>
@@ -388,9 +388,9 @@ export function TasksPage() {
                     className="max-w-32 truncate text-xs text-muted"
                     title={t.requestedBy || undefined}
                   >
-                    {t.requestedBy || "—"}
+                    {t.requestedBy || "-"}
                   </TableCell>
-                  <TableCell className="font-mono text-2xs text-muted">{t.nodeId || "—"}</TableCell>
+                  <TableCell className="font-mono text-2xs text-muted">{t.nodeId || "-"}</TableCell>
                   <TableCell
                     className="tabular text-xs whitespace-nowrap text-muted"
                     title={absolute(t.createdAt)}
@@ -408,7 +408,7 @@ export function TasksPage() {
                           t.exitCode ? "text-fg" : "text-muted",
                         )}
                       >
-                        {t.exitCode ?? "—"}
+                        {t.exitCode ?? "-"}
                       </span>
                     </Tooltip>
                   </TableCell>

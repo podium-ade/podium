@@ -199,7 +199,7 @@ const briefSchema = z.strictObject({
   // It carries the NAME of a secret and never a value, exactly as memory does — a brief is
   // an environment variable on a task spec, readable by anything that can read the spec.
   provider: z.strictObject({
-    // id is the harness's provider id: "anthropic", "xai". Paired with profile.model it
+    // id is the harness's provider id: "anthropic", "xai", "openai". Paired with profile.model it
     // becomes the harness's `provider/model`.
     id: z.string().min(1),
     // api_key_env names the environment variable the conductor put the credential in.

@@ -150,7 +150,7 @@ describe("Header", () => {
   });
 
   it("lights Settings on its own route without lighting Agent", () => {
-    mount({ ...base, agentEnabled: true }, "/agent/settings");
+    mount({ ...base, agentEnabled: true }, "/agent/settings/models");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
   });

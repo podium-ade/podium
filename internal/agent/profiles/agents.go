@@ -9,14 +9,13 @@ import (
 // An agent backend is the harness a turn runs on, together with the credential it spends.
 // A playbook names one; the profile supplies the default.
 //
-// Both backends in this file are the SAME runtime image driving the SAME Claude Agent SDK.
-// What `grok` changes is where the SDK sends its requests: xAI serves an Anthropic-shaped
-// /v1/messages, so pointing the SDK's base URL at api.x.ai and handing it an xAI credential
-// runs the whole harness — tools, transcript, artifacts, exit codes — against a Grok model.
-// That is why this is a field and not a second image.
+// Every backend in this file is the SAME runtime image driving the SAME harness. What
+// changes is where the harness sends its requests and which credential it spends. That is
+// why this is a field and not a second image.
 const (
 	AgentClaude = "claude"
 	AgentGrok   = "grok"
+	AgentOpenAI = "openai"
 )
 
 // DefaultAgent is what a profile that names no agent runs on. It is Claude because that is
@@ -28,6 +27,7 @@ const DefaultAgent = AgentClaude
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderXAI       = "xai"
+	ProviderOpenAI    = "openai"
 )
 
 // The reasoning-effort levels. They are the Claude Agent SDK's own vocabulary, which xAI's
@@ -50,6 +50,9 @@ var grokEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
 // grokEffortsNoXHigh is for the Grok models that document xhigh as a synonym for high.
 // Offering a level that silently means another one is worse than not offering it.
 var grokEffortsNoXHigh = []string{EffortLow, EffortMedium, EffortHigh}
+
+// openaiEfforts matches Grok: OpenAI's reasoning_effort has no `max`.
+var openaiEfforts = grokEfforts
 
 // Model is one model a backend can be pointed at.
 type Model struct {
@@ -138,6 +141,34 @@ var Backends = []Backend{{
 			ID: "grok-build-0.1", DisplayName: "Grok Build 0.1",
 			Note: "xAI's coding model.", ContextTokens: 256_000,
 			Efforts: grokEffortsNoXHigh,
+		},
+	},
+}, {
+	ID:           AgentOpenAI,
+	DisplayName:  "OpenAI",
+	Provider:     ProviderOpenAI,
+	Note:         "The same harness, pointed at OpenAI's API — or at ChatGPT's Codex backend after a subscription sign-in.",
+	DefaultModel: "gpt-5.4",
+	Models: []Model{
+		{
+			ID: "gpt-5.4", DisplayName: "GPT-5.4",
+			Note: "The default. Strong on long agentic work.", ContextTokens: 400_000,
+			Efforts: openaiEfforts,
+		},
+		{
+			ID: "gpt-5.5", DisplayName: "GPT-5.5",
+			Note:          "The newer flagship.",
+			ContextTokens: 400_000, Efforts: openaiEfforts,
+		},
+		{
+			ID: "gpt-5.4-mini", DisplayName: "GPT-5.4 Mini",
+			Note:          "Cheaper and faster. A good default for high-volume playbooks.",
+			ContextTokens: 400_000, Efforts: openaiEfforts,
+		},
+		{
+			ID: "gpt-5.3-codex", DisplayName: "GPT-5.3 Codex",
+			Note:          "OpenAI's coding model. The one a ChatGPT subscription spends.",
+			ContextTokens: 400_000, Efforts: openaiEfforts,
 		},
 	},
 }}

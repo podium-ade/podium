@@ -188,7 +188,7 @@ export function RegistryDialog({
             {malformed ? (
               <p className="text-2xs text-err">
                 The part of an image reference before its first slash, like{" "}
-                <span className="font-mono">us-docker.pkg.dev</span> — no scheme, no path.
+                <span className="font-mono">us-docker.pkg.dev</span>: no scheme, no path.
               </p>
             ) : (
               <p className="text-2xs text-faint">
@@ -258,8 +258,8 @@ export function RegistryDialog({
 
           {match && !locked ? (
             <Alert variant="warn" title={`${match.host} already has a login`}>
-              Saving replaces it — user <span className="font-mono">{match.username}</span>, last
-              set {relative(match.updatedAt)} — rather than adding a second one. A registry has
+              Saving replaces it (user <span className="font-mono">{match.username}</span>, last
+              set {relative(match.updatedAt)}) rather than adding a second one. A registry has
               one login.
             </Alert>
           ) : null}

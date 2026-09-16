@@ -71,6 +71,30 @@ describe("writeConfig", () => {
     expect(config.provider.xai.options.baseURL).toBe("https://xai.proxy.internal");
   });
 
+  it("adds the ChatGPT account header when an OpenAI token is a JWT", () => {
+    const payload = Buffer.from(
+      JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-9" } }),
+    ).toString("base64url");
+    const jwt = `eyJhbGciOiJub25lIn0.${payload}.sig`;
+    const prev = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = jwt;
+    try {
+      const { config } = write({
+        providerID: "openai",
+        apiKeyEnv: "OPENAI_API_KEY",
+        baseURL: "https://chatgpt.com/backend-api/codex",
+      });
+      expect(config.provider.openai.options.headers["ChatGPT-Account-Id"]).toBe("acct-9");
+      expect(config.provider.openai.options.headers.originator).toBe("podium");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = prev;
+      }
+    }
+  });
+
   it("wires memory as a remote MCP server without writing the token to disk", () => {
     const { config } = write({
       memory: { url: "http://host.docker.internal:8888/mcp/podium/", apiKeyEnv: "PODIUM_MEMORY_API_KEY" },

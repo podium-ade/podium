@@ -96,8 +96,8 @@ TASK=$(./bin/podium run --detach --image podium-agent-runtime:dev \
 
 The model credential reaches the container as a Podium secret with `target: env`, and that is the
 only path — the runtime reads no file, no mount and nothing in the brief. Which one it is follows
-the brief's `profile.agent`: `podium.agent.anthropic_api_key` for `claude`, and
-`podium.agent.xai_api_key` for `grok`.
+the brief's `profile.agent`: `podium.agent.anthropic_api_key` for `claude`,
+`podium.agent.xai_api_key` for `grok`, and `podium.agent.openai_api_key` for `openai`.
 
 ```sh
 printf %s "$ANTHROPIC_API_KEY" | ./bin/podium secret set podium.agent.anthropic_api_key

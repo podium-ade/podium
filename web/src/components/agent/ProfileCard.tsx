@@ -111,9 +111,9 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
       <Card className="max-w-4xl">
         <CardHeader>
           <div>
-            <CardTitle>{profile?.name || "—"}</CardTitle>
+            <CardTitle>{profile?.name || "-"}</CardTitle>
             <p className="text-xs text-muted">
-              Loaded from <code className="font-mono text-fg">{profile?.profileDir || "—"}</code>
+              Loaded from <code className="font-mono text-fg">{profile?.profileDir || "-"}</code>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -136,7 +136,7 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
             The assistant answers a conversation in the conductor&apos;s own process, and starts
             a task from one of your playbooks when the work needs a machine. Its name and its
             prompt come from <code className="font-mono">profile.yaml</code> and are not editable
-            here — the name labels every session already recorded. The fields below are
+            here. The name labels every session already recorded. The fields below are
             overrides: clear one and the file&apos;s value applies again.
           </p>
 
@@ -188,7 +188,7 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
             label="Skills and turn cap"
             fileValue=""
             overridden={false}
-            hint="What the assistant may execute, and how many steps one of its turns gets. profile.yaml only — a browser cannot change either."
+            hint="What the assistant may execute, and how many steps one of its turns gets. profile.yaml only. A browser cannot change either."
           >
             <p className="text-xs text-fg">
               {(profile?.skills ?? []).length === 0 ? (

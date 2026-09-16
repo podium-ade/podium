@@ -174,7 +174,7 @@ function Chip({
         href={pr.url}
         target="_blank"
         rel="noreferrer noopener"
-        title={`${pr.url} — ${origin}`}
+        title={`${pr.url} · ${origin}`}
         className="rounded-l-md py-1 pr-1 pl-2 font-mono text-2xs text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {pr.owner}/{pr.repo}
