@@ -13,8 +13,14 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Assistant, Chat, ChatMessage } from "../../gen/podium/agent/v1/agent_pb";
+import {
+  ChatMessageSchema,
+  type Assistant,
+  type Chat,
+  type ChatMessage,
+} from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -213,6 +219,7 @@ export function ChatPanel() {
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
               listedOrigin={list.find((c) => c.id === active)?.origin}
+              listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
               playbookNames={playbookNames}
@@ -716,6 +723,7 @@ function Conversation({
   title,
   remembered,
   listedOrigin,
+  listedEmpty,
   onRename,
   assistant,
   playbookNames,
@@ -730,6 +738,11 @@ function Conversation({
    * alone rendered a composer for a mirrored thread and then took it away again.
    */
   listedOrigin?: string;
+  /**
+   * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
+   * skeleton is a fake user bubble and would flash before the greeting.
+   */
+  listedEmpty?: boolean;
   onRename: (title: string) => Promise<void>;
   assistant?: Assistant;
   playbookNames: string[];
@@ -786,6 +799,11 @@ function Conversation({
   const setChoice = setPicked;
   const { agents } = useAgents();
 
+  // pendingUser is the question that has been sent but not yet on the stream. Showing it
+  // immediately is what stops the greeting (or the previous answer) flashing through the
+  // gap between the RPC returning and the stream catching up.
+  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(null);
+
   const send = useMutation({
     mutationFn: (v: { text: string; choice: AgentChoice }) =>
       agent.sendChatMessage({
@@ -797,11 +815,18 @@ function Conversation({
         model: v.choice.model,
         effort: v.choice.effort,
       }),
-    onSuccess: () => {
+    onMutate: (v) => {
       pin(true);
+      setPendingUser({
+        text: v.text,
+        before: stream.messages.filter((m) => m.role === "user").length,
+      });
+    },
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
     },
     onError: (err) => {
+      setPendingUser(null);
       // The composer is disabled while a turn runs, so this is the race rather than the
       // rule: another tab got there first.
       if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
@@ -828,8 +853,23 @@ function Conversation({
   }, [stick, stream.gone]);
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
-  const busy = (stream.running && !stream.awaiting) || send.isPending;
-  const connecting = stream.phase === "connecting" && stream.messages.length === 0 && !stream.gone;
+  const userCount = stream.messages.filter((m) => m.role === "user").length;
+  const last = stream.messages[stream.messages.length - 1];
+  const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  // Hold the waiting state until the stream says the turn started (or already finished).
+  // send.isPending alone drops when the RPC returns, one frame before the status frame.
+  const holdBusy =
+    pendingUser !== null &&
+    !stream.running &&
+    !stream.awaiting &&
+    last?.role !== "assistant";
+  const busy = (stream.running && !stream.awaiting) || send.isPending || holdBusy;
+  const connecting =
+    stream.phase === "connecting" &&
+    stream.messages.length === 0 &&
+    !stream.gone &&
+    !listedEmpty;
+  const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
 
   if (stream.gone) {
     return (
@@ -880,7 +920,7 @@ function Conversation({
               </Alert>
             ) : null}
 
-            {!connecting && stream.messages.length === 0 ? (
+            {showWelcome ? (
               <FirstMessage
                 botName={botName}
                 playbookNames={playbookNames}
@@ -892,6 +932,15 @@ function Conversation({
             {stream.messages.map((m, i) => (
               <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
             ))}
+
+            {pendingVisible ? (
+              <Turn
+                key="pending-user"
+                message={create(ChatMessageSchema, { role: "user", text: pendingUser.text })}
+                botName={botName}
+                firstOfRun
+              />
+            ) : null}
 
             {/* Last, where the answer itself will land. A turn's state used to be a pill
                 stuck to the top of the transcript, which took its own line in the flow and
