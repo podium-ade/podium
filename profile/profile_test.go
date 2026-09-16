@@ -32,8 +32,9 @@ func TestTheBotsOwnProfileLoads(t *testing.T) {
 	require.NotEmpty(t, p.SystemPrompt, "the profile prompt must be read from prompts/profile.md")
 	require.Equal(t, []string{"general", "podium"}, p.PlaybookNames())
 
-	// A mention with no /playbook must NOT run the dogfood. `podium` needs a privileged node,
-	// a Docker daemon, a browser and 8 GB; a question in a thread should cost a container.
+	// The file may still name a default_playbook; Select does not fall back to it.
+	// A mention with no /playbook and no channel claim is refused rather than running
+	// `podium` (privileged node, Docker, browser) or any other playbook by accident.
 	require.Equal(t, "general", p.DefaultPlaybook)
 
 	// The web chat runs neither: it is answered by the assistant, in the conductor's own
@@ -173,8 +174,8 @@ func TestTheSkillFitsInAnEnvironmentVariable(t *testing.T) {
 
 // Routing on the profile a human actually deploys, and the case the worked example cannot
 // show because it has only one playbook: a playbook the SOURCE knows is knowledge and beats
-// a /playbook typed in the same message, while an unknown /word is left in the text so that
-// somebody typing /shrug does not break the bot.
+// a /playbook typed in the same message. An unknown /word is left in the text so that
+// somebody typing /shrug does not break the bot, and does not fall back to a default.
 func TestASourcesOwnPlaybookBeatsATypedOne(t *testing.T) {
 	p, err := profiles.Load(".")
 	require.NoError(t, err)
@@ -189,10 +190,10 @@ func TestASourcesOwnPlaybookBeatsATypedOne(t *testing.T) {
 	require.Equal(t, "run the tests", typed.Instruction)
 
 	unknown := p.Select(profiles.Routing{Text: "/shrug reply with pong"})
-	require.Equal(t, "general", unknown.Playbook.Name)
+	require.Empty(t, unknown.Playbook.Name, "an unknown prefix does not fall back to a default")
 	require.False(t, unknown.Explicit)
 	require.Equal(t, "/shrug reply with pong", unknown.Instruction)
 
 	plain := p.Select(profiles.Routing{Channel: "C1", Text: "how many active accounts"})
-	require.Equal(t, "general", plain.Playbook.Name)
+	require.Empty(t, plain.Playbook.Name, "no default: a mention with no /playbook is refused")
 }
