@@ -108,8 +108,11 @@ if [ -z "${PODIUM_AGENT_PROFILE_DIR:-}" ]; then
 			echo "no starter profile at $starter and $PODIUM_AGENT_PROFILE_DIR/profile.yaml is missing" >&2
 			exit 1
 		}
-		mkdir -p "$PODIUM_AGENT_PROFILE_DIR"
-		cp -a "$starter/." "$PODIUM_AGENT_PROFILE_DIR/"
+		mkdir -p "$PODIUM_AGENT_PROFILE_DIR/playbooks"
+		cp -a "$starter/profile.yaml" "$PODIUM_AGENT_PROFILE_DIR/"
+		if [ -d "$starter/prompts" ]; then
+			cp -a "$starter/prompts" "$PODIUM_AGENT_PROFILE_DIR/"
+		fi
 	fi
 fi
 if [ -z "${PODIUM_AGENT_SKILLS_DIR:-}" ]; then

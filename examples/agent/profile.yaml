@@ -15,7 +15,8 @@
 #     piece of work each, so they run in a container on a node.
 #
 # A conversation names no playbook at all. The playbooks in playbooks/ are what the assistant
-# DELEGATES to, one per piece of work, chosen by the turn rather than by a human up front.
+# DELEGATES to, one per piece of work, created in the UI (Form or YAML). There is no
+# default playbook and none ships with Podium.
 name: podium
 display_name: Podium
 # The assistant's prompt. A playbook layers its own on top of this one for a task.
@@ -37,5 +38,5 @@ agent: claude
 # timeout: 15m     # the wall clock on one turn. Unset is 15m; there is no 'off', because
 #                  # with no step cap it is the only automatic stop the assistant has.
 #
-# Which playbook a Slack mention or a Linear ticket runs when nothing more specific routes it.
-default_playbook: general
+# No default_playbook. A Slack mention or Linear ticket with no /playbook and no channel
+# claim is refused rather than falling back to a shipped playbook.
