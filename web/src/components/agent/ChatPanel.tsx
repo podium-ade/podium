@@ -247,8 +247,8 @@ export function ChatPanel() {
           </DialogHeader>
           {deleteStopsTask ? (
             <Alert variant="warn" role="note">
-              A task is running in this chat. Confirming asks the node to stop it — SIGTERM, then
-              up to 30 seconds — and then deletes the conversation.
+              A task is running in this chat. Confirming asks the node to stop it (SIGTERM, then
+              up to 30 seconds) and then deletes the conversation.
             </Alert>
           ) : null}
           <DialogFooter>
@@ -356,7 +356,7 @@ function ChatRail({
   return (
     <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
       <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
-        <Tooltip label="New chat — or press N">
+        <Tooltip label="New chat, or press N">
           <Button
             type="button"
             size="sm"
@@ -915,7 +915,7 @@ function Conversation({
 
             {stream.error ? (
               <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                {stream.error}. Nothing was lost — the reconnect replays from the last message
+                {stream.error}. Nothing was lost. The reconnect replays from the last message
                 this browser saw.
               </Alert>
             ) : null}
@@ -974,7 +974,7 @@ function Conversation({
           data-testid="chat-mirrored-note"
           className="border-t border-border bg-panel/40 px-5 py-3 text-xs leading-relaxed text-muted"
         >
-          This conversation lives in {origin}. Reply to it there — Podium keeps a copy so it
+          This conversation lives in {origin}. Reply to it there. Podium keeps a copy so it
           can be read here.
           {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
         </div>
@@ -1088,7 +1088,7 @@ function FirstMessage({
         <p className="text-xl font-medium tracking-tight text-fg">Ask {botName} something</p>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
           {botName} answers here. When something needs a machine it starts a task on your nodes
-          and reports back — you will see each one it runs.
+          and reports back. You will see each one it runs.
         </p>
       </div>
       <div className="flex max-w-lg flex-wrap justify-center gap-2">

@@ -45,7 +45,7 @@ export function viewerFrom(res: WhoAmIResponse): Viewer {
  * bearer token — and saying "local" is the honest rendering of that.
  */
 export function viewerLabel(v: Viewer | undefined): { text: string; title: string } {
-  if (!v) return { text: "—", title: "identity unknown" };
+  if (!v) return { text: "-", title: "identity unknown" };
   switch (v.kind) {
     case IdentityKind.USER:
       return {
@@ -62,7 +62,7 @@ export function viewerLabel(v: Viewer | undefined): { text: string; title: strin
         title: "local transport: the shared bearer token has no per-user identity",
       };
     default:
-      return { text: v.login || "—", title: "identity unknown" };
+      return { text: v.login || "-", title: "identity unknown" };
   }
 }
 

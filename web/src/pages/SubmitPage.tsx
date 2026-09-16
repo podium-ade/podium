@@ -49,7 +49,7 @@ export function SubmitPage() {
         title={rerun ? "Re-run task" : "New task"}
         description={
           rerun
-            ? "A new task from this spec — a terminal task has no outgoing edges, so this is not a restart."
+            ? "A new task from this spec. A terminal task has no outgoing edges, so this is not a restart."
             : "Queue work. The scheduler places it on the next eligible node."
         }
         back={{ to: "/", label: "Tasks" }}
@@ -57,7 +57,7 @@ export function SubmitPage() {
 
       {rerun !== "" && source.error ? (
         <Alert variant="warn" title={`Could not read ${rerun}`}>
-          {errorMessage(source.error)}. The form below is empty — the spec could not be copied
+          {errorMessage(source.error)}. The form below is empty: the spec could not be copied
           from it.
         </Alert>
       ) : null}

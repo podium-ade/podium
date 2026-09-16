@@ -13,7 +13,7 @@ export function toDate(ts?: Timestamp): Date | undefined {
 
 export function absolute(ts?: Timestamp): string {
   const d = toDate(ts);
-  return d ? d.toLocaleString() : "—";
+  return d ? d.toLocaleString() : "-";
 }
 
 export function relative(ts: Timestamp | undefined, now = Date.now()): string {
@@ -43,7 +43,7 @@ export function taskDuration(
   now = Date.now(),
 ): string {
   const from = toDate(started);
-  if (!from) return "—";
+  if (!from) return "-";
   const to = toDate(finished)?.getTime() ?? now;
   return durationMs(to - from.getTime());
 }
@@ -197,7 +197,7 @@ export function taskOutcome(task: Task): string {
       return task.nodeId
         ? `The node running this task (${task.nodeId}) went away before it finished. ` +
             "Nothing about the task itself failed" +
-            (reason ? ` — ${reason}.` : ".") +
+            (reason ? `: ${reason}.` : ".") +
             " Re-running it is your call; set retry_on_node_loss to have Podium do it."
         : "The node running this task went away before it finished. Nothing about the task itself failed.";
     case TaskStatus.FAILED:
@@ -248,5 +248,5 @@ export function conversationLabel(s: Pick<Session, "sourceKind" | "sourceKey">):
 
 /** turnCost is the runtime's own estimate, or a dash until turn.json lands. */
 export function turnCost(t: Pick<Turn, "costUsd">): string {
-  return t.costUsd === undefined ? "—" : `$${t.costUsd.toFixed(4)}`;
+  return t.costUsd === undefined ? "-" : `$${t.costUsd.toFixed(4)}`;
 }

@@ -328,7 +328,7 @@ message GetSettingsRequest {}
 // key_hint is the last four characters, computed once at save time: that is the only form
 // in which any part of the credential is ever read back.
 message ProviderSettings {
-  // provider is "anthropic" or "xai". The field is the BYOK seam.
+  // provider is "anthropic", "xai", or "openai". The field is the BYOK seam.
   string provider = 1;
   bool key_set = 2;
   // key_hint is the last four characters of the key, or "" when no key is set. It is empty
@@ -399,7 +399,7 @@ message ClearProviderKeyRequest {
 message ClearProviderKeyResponse {}
 
 message StartProviderOAuthRequest {
-  // provider is "xai". Anthropic takes an API key on this control plane and answers
+  // provider is "xai" or "openai". Anthropic takes an API key on this control plane and answers
   // invalid_argument here.
   string provider = 1;
 }
@@ -465,10 +465,10 @@ message AgentModel {
 // AgentBackend is one thing a turn can run on: a harness, the credential it needs, and the
 // models it can be pointed at.
 message AgentBackend {
-  // id is what a playbook's `agent` field holds: "claude" or "grok".
+  // id is what a playbook's `agent` field holds: "claude", "grok", or "openai".
   string id = 1;
   string display_name = 2;
-  // provider is the credential this backend spends: "anthropic" or "xai".
+  // provider is the credential this backend spends: "anthropic", "xai", or "openai".
   string provider = 3;
   // note is a sentence about what this backend actually is, for the picker's header.
   string note = 4;
@@ -855,7 +855,7 @@ message AgentProfile {
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
   google.protobuf.Timestamp updated_at = 13;
-  // agent is the backend every playbook runs on unless it names its own: "claude" or "grok".
+  // agent is the backend every playbook runs on unless it names its own: "claude", "grok", or "openai".
   string agent = 14;
   // effort is the reasoning effort every playbook runs at unless it names its own. Empty
   // means the model's own default.

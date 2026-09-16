@@ -274,6 +274,7 @@ async function main(): Promise<number> {
       tools: brief.playbook.allowed_tools,
       providerID: brief.provider.id,
       baseURL: brief.provider.base_url,
+      apiKeyEnv: brief.provider.api_key_env,
       memory: brief.memory
         ? { url: brief.memory.mcp_url, apiKeyEnv: brief.memory.api_key_env }
         : undefined,

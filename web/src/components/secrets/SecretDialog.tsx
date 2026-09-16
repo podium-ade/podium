@@ -117,7 +117,7 @@ export function SecretDialog({
       setFileError(`${chosen.name} is empty, and a secret with no value is refused.`);
     } else if (chosen.size > MAX_FILE_BYTES) {
       setFileError(
-        `${chosen.name} is ${humanBytes(chosen.size)}. A secret is a credential, not a payload — ` +
+        `${chosen.name} is ${humanBytes(chosen.size)}. A secret is a credential, not a payload. ` +
           `pick the key file itself.`,
       );
     } else {
@@ -228,7 +228,7 @@ export function SecretDialog({
             <p className="text-2xs text-faint">
               {file
                 ? "The file below is the value. Clear it to type one instead."
-                : "Sent verbatim as bytes. A trailing newline is part of the secret — the CLI strips one from stdin, the API strips nothing."}
+                : "Sent verbatim as bytes. A trailing newline is part of the secret. The CLI strips one from stdin; the API strips nothing."}
             </p>
           </div>
 
@@ -247,11 +247,11 @@ export function SecretDialog({
               <p className="text-2xs leading-relaxed text-faint">
                 <span className="font-mono text-muted">{file.name}</span>,{" "}
                 <span className="tabular">{humanBytes(file.size)}</span>, sent byte for byte. A
-                trailing newline in the file is part of the secret — nothing here strips one.
+                trailing newline in the file is part of the secret. Nothing here strips one.
               </p>
             ) : (
               <p className="text-2xs leading-relaxed text-faint">
-                An SSH key, a PEM or a JSON credential — the shape that does not survive being
+                An SSH key, a PEM or a JSON credential: the shape that does not survive being
                 pasted into the field above. Read in this browser and sent byte for byte, the same
                 as <code className="font-mono">podium secret set --from-file</code>.
               </p>
@@ -261,7 +261,7 @@ export function SecretDialog({
           {match && !locked ? (
             <Alert variant="warn" title={`${match.name} already exists`}>
               It is at version {match.version}, last set {relative(match.updatedAt)}. Saving
-              rotates it to version {match.version + 1} — this replaces the stored value rather
+              rotates it to version {match.version + 1}. This replaces the stored value rather
               than editing it, and the old one is gone.
             </Alert>
           ) : null}

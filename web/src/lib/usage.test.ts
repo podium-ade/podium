@@ -258,7 +258,7 @@ describe("breakdown", () => {
   });
 
   it("labels an empty group rather than keying on the empty string", () => {
-    expect(breakdown([cost({ playbook: "" })], (c) => c.playbook)[0].key).toBe("—");
+    expect(breakdown([cost({ playbook: "" })], (c) => c.playbook)[0].key).toBe("-");
   });
 });
 

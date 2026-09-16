@@ -183,7 +183,7 @@ describe("conversationLabel", () => {
 
 describe("turnCost", () => {
   it("is a dash until the runtime's own accounting lands", () => {
-    expect(turnCost({ costUsd: undefined })).toBe("—");
+    expect(turnCost({ costUsd: undefined })).toBe("-");
   });
 
   it("shows four decimals, because a turn costs cents", () => {

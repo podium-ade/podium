@@ -1,16 +1,40 @@
-import type { ComponentProps } from "react";
+import { useLayoutEffect, useRef, type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
+
+/** More than a subpixel of table still hidden past the sticky trailing column. */
+function canScrollEnd(el: HTMLElement): boolean {
+  return el.scrollWidth - el.clientWidth - el.scrollLeft > 1;
+}
 
 function Table({
   className,
   containerClassName,
   ...props
 }: ComponentProps<"table"> & { containerClassName?: string }) {
+  const scroller = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const sync = () => el.toggleAttribute("data-overflow-end", canScrollEnd(el));
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    const table = el.querySelector("table");
+    if (table) ro.observe(table);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      ro.disconnect();
+    };
+  }, []);
+
   return (
     <div
+      ref={scroller}
       data-slot="table-container"
       className={cn(
-        "relative w-full overflow-x-auto rounded-xl border border-border bg-card shadow-xs",
+        "group/table relative w-full overflow-x-auto rounded-xl border border-border bg-card shadow-xs",
         containerClassName,
       )}
     >
@@ -64,13 +88,18 @@ function TableRow({ className, ...props }: ComponentProps<"tr">) {
 /*
  * A pinned trailing column, for the one cell that must stay reachable when a wide table
  * scrolls: the row's actions. It cannot simply inherit the row's translucent hover, because a
- * sticky cell paints over the columns sliding under it and would show them through — so the
+ * sticky cell paints over the columns sliding under it and would show them through, so the
  * hover colour is the same blend, mixed down to an opaque one.
+ *
+ * The edge fade is only while something is still sliding under the column. Once the scroller
+ * is at the end, the column is in its own place and a gradient would be a shadow on empty air.
  */
 const PINNED = [
   "sticky right-0 z-20",
-  "before:absolute before:inset-y-0 before:-left-4 before:w-4 before:pointer-events-none",
+  "before:pointer-events-none before:absolute before:inset-y-0 before:-left-4 before:w-4",
   "before:bg-gradient-to-r before:from-transparent before:to-bg/45",
+  "before:opacity-0 before:transition-opacity",
+  "group-data-[overflow-end]/table:before:opacity-100",
 ];
 
 function TableHead({ className, pinned, ...props }: ComponentProps<"th"> & { pinned?: boolean }) {
