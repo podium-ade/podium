@@ -8,18 +8,6 @@ import (
 	"time"
 )
 
-type AgentSkill struct {
-	Name        string
-	Description string
-	Sha256      string
-	SizeBytes   int64
-	FileCount   int32
-	Enabled     bool
-	Document    []byte
-	UploadedBy  string
-	UploadedAt  time.Time
-}
-
 type Chat struct {
 	ID        string
 	Title     string
@@ -95,13 +83,6 @@ type McpServer struct {
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
-}
-
-type Playbook struct {
-	Name       string
-	Definition []byte
-	UpdatedAt  time.Time
-	UpdatedBy  string
 }
 
 type Relayed struct {

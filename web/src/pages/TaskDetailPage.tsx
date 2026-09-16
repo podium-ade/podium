@@ -44,6 +44,7 @@ import {
   taskStatusTone,
   toDate,
 } from "../lib/format";
+import { YamlEditor } from "../components/yaml/YamlEditor";
 import { specToYaml } from "../lib/spec";
 import { cn } from "../lib/utils";
 
@@ -314,9 +315,15 @@ function TaskDetail({ id }: { id: string }) {
             />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="overflow-x-auto border-t border-hairline bg-bg px-5 py-4 font-mono text-xs leading-relaxed text-muted">
-              {specToYaml(task.spec)}
-            </pre>
+            <div className="border-t border-hairline px-5 py-4">
+              <YamlEditor
+                id="task-spec-yaml"
+                label="Task spec YAML"
+                value={specToYaml(task.spec)}
+                readOnly
+                minLines={12}
+              />
+            </div>
           </CollapsibleContent>
         </Card>
       </Collapsible>

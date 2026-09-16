@@ -19,8 +19,8 @@ Podium itself. A workflow that needs any other tools builds its own image `FROM
 podium-agent-runtime`; see *The -dev image, and extending the base yourself* below.
 
 The tag is `:dev` and local on purpose. A node runs tasks on its own Docker engine, so an image
-built on the same machine is visible to a task without a registry in between. Nothing here pushes to
-GHCR; publishing the images is still a TODO in `.goreleaser.yaml`.
+built on the same machine is visible to a task without a registry in between. Nothing here pushes;
+a `v*` tag is what publishes both images to GHCR, from `.github/workflows/release.yml`.
 
 ## The brief
 
@@ -171,12 +171,18 @@ Exit codes, and never any others:
 
 `podium-agent-runtime-dev:dev` is the one image Podium ships beside the base, and it exists to
 build Podium itself: Go, the Docker **client**, golangci-lint and the MCP client that drives a
-browser, for the `podium` playbook in [`../../playbooks`](../../playbooks) — which is a different
+browser, for the `podium` playbook in [`../../profile`](../../profile) — which is a different
 profile directory from this one, because that playbook holds a GitHub token and needs a privileged
 node and neither belongs in an example. It carries no daemon and no Chromium: the playbook sets
 `docker: true` and `browser: true`, and the conductor attaches both as sidecars, which is what
 lets a turn run `make test-integration` against a daemon that dies with the task and then look at
 what it built through a browser that does too.
+
+A `v*` tag publishes it to `ghcr.io/podium-ade/podium-agent-runtime-dev`, like the base and in a
+job that builds `FROM` the base of the same release by digest — so a node pulls it instead of
+spending ~1.7 GB per architecture building it.
+[`../../profile/README.md`](../../profile/README.md#run-podiums-own-bot-yourself) is the setup
+step for a developer who wants that playbook on their own deployment.
 
 It is also the **worked example** of everything below. Podium ships no image for somebody else's
 workflow — every workflow differs — so `agent/runtime/Dockerfile.dev` is what a real one looks

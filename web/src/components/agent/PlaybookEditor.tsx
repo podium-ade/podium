@@ -1,8 +1,16 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import type { AgentBackend, PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
+import {
+  definitionToYaml,
+  docToDraft,
+  draftToYaml,
+  parsePlaybookYaml,
+  type PlaybookDraft,
+} from "../../lib/playbook";
+import { problemText } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
 import { Alert } from "../ui/alert";
@@ -20,38 +28,19 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
+import { YamlEditor, type YamlEditorHandle } from "../yaml/YamlEditor";
+import { YamlProblems } from "../yaml/YamlProblems";
 import { AgentPicker } from "./AgentPicker";
 
 /** The same expression the conductor holds a playbook name to. A name is also typed after a slash in Slack. */
 export const PLAYBOOK_NAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** PlaybookDraft is what the editor hands back: the request message, in plain fields. */
-export type PlaybookDraft = {
-  name: string;
-  image: string;
-  systemPrompt: string;
-  allowedTools: string[];
-  maxTurns: number;
-  timeout: string;
-  model: string;
-  agent: string;
-  effort: string;
-  labels: string[];
-  priority: number;
-  resources: { cpu: number; memoryMb: number; pids: number };
-  secrets: { name: string; target: string; key: string }[];
-  repos: { name: string; url: string; defaultBranch: string }[];
-  slackChannels: string[];
-  linear: boolean;
-  interactive: boolean;
-  skills: string[];
-  mcpServers: string[];
-  env: Record<string, string>;
-};
+export type { PlaybookDraft };
 
 export type PlaybookEditorProps = {
-  /** Undefined creates; a definition edits it. Only a stored playbook is ever passed. */
+  /** Undefined creates; a definition views or edits it. */
   playbook?: PlaybookDefinition;
   /** The backend catalogue, for the model picker. Empty while it loads. */
   agents: AgentBackend[];
@@ -97,6 +86,8 @@ export type PlaybookEditorProps = {
   /** Deletes the playbook being edited. Absent while creating: there is nothing to delete. */
   onDelete?: () => void;
   onCancel: () => void;
+  /** Sit in a two-pane layout: no back link, the list is the other pane. */
+  embedded?: boolean;
 };
 
 type Row = { id: number; a: string; b: string; c: string };
@@ -140,12 +131,10 @@ export function PlaybookEditor({
   onDelete,
   onCancel,
   readOnly,
+  embedded,
 }: PlaybookEditorProps) {
   const creating = playbook === undefined;
-  // A shadowed row is a stored playbook a playbooks/<name>.yaml has since claimed. The conductor
-  // refuses to write over one, so the form shows what it holds and offers only the delete.
-  const shadowed = playbook?.shadowed ?? false;
-  const locked = shadowed || (readOnly ?? false);
+  const locked = readOnly ?? false;
   const uid = useId();
 
   const [name, setName] = useState(playbook?.name ?? "");
@@ -162,6 +151,8 @@ export function PlaybookEditor({
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
+  const [docker, setDocker] = useState(playbook?.docker ?? false);
+  const [browser, setBrowser] = useState(playbook?.browser ?? false);
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
   const [mcpServers, setMcpServers] = useState((playbook?.mcpServers ?? []).join("\n"));
   const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
@@ -176,8 +167,14 @@ export function PlaybookEditor({
   const [repoRows, setRepoRows] = useState<Row[]>(() =>
     (playbook?.repos ?? []).map((r) => row(r.name, r.url, r.defaultBranch)),
   );
+  const [gitName, setGitName] = useState(playbook?.git?.name ?? "");
+  const [gitEmail, setGitEmail] = useState(playbook?.git?.email ?? "");
   const [tried, setTried] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [mode, setMode] = useState<"form" | "yaml">("form");
+  const [yaml, setYaml] = useState("");
+  const [yamlEdited, setYamlEdited] = useState(false);
+  const yamlRef = useRef<YamlEditorHandle>(null);
 
   const registered = useMemo(() => new Set(secretNames), [secretNames]);
   const installed = useMemo(() => new Set(skillNames ?? []), [skillNames]);
@@ -196,38 +193,59 @@ export function PlaybookEditor({
   if (toolList.length === 0) problems.push("tools");
 
   const capped = Number(cpu) > 0 || Number(memoryMb) > 0 || Number(pids) > 0;
+  // Undefined and not a pair of empty strings: an empty persona would be a persona, and what
+  // an empty form means is "inherit the profile's".
+  const persona =
+    gitName.trim() === "" && gitEmail.trim() === ""
+      ? undefined
+      : { name: gitName.trim(), email: gitEmail.trim() };
+  if (persona && (persona.name === "" || persona.email === "")) problems.push("commit author");
+
+  const currentDraft: PlaybookDraft = {
+    name: name.trim(),
+    image: image.trim(),
+    systemPrompt: prompt,
+    allowedTools: toolList,
+    maxTurns: Number(maxTurns) || 0,
+    timeout: timeoutText.trim(),
+    model: choice.model.trim(),
+    agent: choice.agent,
+    effort: choice.effort,
+    labels: splitList(labels),
+    priority: Number(priority) || 0,
+    resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
+    secrets: secretRows
+      .filter((r) => r.a.trim() !== "")
+      .map((r) => ({ name: r.a.trim(), target: r.b || "env", key: r.c.trim() })),
+    repos: repoRows
+      .filter((r) => r.a.trim() !== "" || r.b.trim() !== "")
+      .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
+    git: persona,
+    slackChannels: splitList(channels),
+    linear,
+    interactive,
+    docker,
+    browser,
+    skills: skillList,
+    mcpServers: mcpList,
+    env: Object.fromEntries(envRows.filter((r) => r.a.trim() !== "").map((r) => [r.a.trim(), r.b])),
+  };
+
+  const formYaml = playbook && !yamlEdited ? definitionToYaml(playbook) : draftToYaml(currentDraft);
+  const specYaml = yamlEdited ? yaml : formYaml;
+  const yamlParsed = parsePlaybookYaml(specYaml);
 
   function submit() {
     setTried(true);
-    if (problems.length > 0 || saving) return;
-    onSubmit({
-      name: name.trim(),
-      image: image.trim(),
-      systemPrompt: prompt,
-      allowedTools: toolList,
-      maxTurns: Number(maxTurns) || 0,
-      timeout: timeoutText.trim(),
-      model: choice.model.trim(),
-      agent: choice.agent,
-      effort: choice.effort,
-      labels: splitList(labels),
-      priority: Number(priority) || 0,
-      resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
-      secrets: secretRows
-        .filter((r) => r.a.trim() !== "")
-        .map((r) => ({ name: r.a.trim(), target: r.b || "env", key: r.c.trim() })),
-      repos: repoRows
-        .filter((r) => r.a.trim() !== "" || r.b.trim() !== "")
-        .map((r) => ({ name: r.a.trim(), url: r.b.trim(), defaultBranch: r.c.trim() })),
-      slackChannels: splitList(channels),
-      linear,
-      interactive,
-      skills: skillList,
-      mcpServers: mcpList,
-      env: Object.fromEntries(
-        envRows.filter((r) => r.a.trim() !== "").map((r) => [r.a.trim(), r.b]),
-      ),
-    });
+    if (saving) return;
+    if (!nameOk) return;
+    if (yamlEdited) {
+      if (!yamlParsed.doc) return;
+      onSubmit(docToDraft(name.trim(), yamlParsed.doc));
+      return;
+    }
+    if (problems.length > 0) return;
+    onSubmit(currentDraft);
   }
 
   return (
@@ -240,6 +258,7 @@ export function PlaybookEditor({
       }}
     >
       <header className="space-y-3">
+        {embedded ? null : (
         <button
           type="button"
           onClick={onCancel}
@@ -248,37 +267,61 @@ export function PlaybookEditor({
           <ChevronLeft className="size-3.5" />
           Playbooks
         </button>
+        )}
         <div className="min-w-0 space-y-1.5">
           <h1 className="text-xl leading-tight font-semibold tracking-tight text-fg">
             {creating ? "New playbook" : `/${playbook.name}`}
           </h1>
+          {locked ? (
           <p className="max-w-2xl text-sm leading-relaxed text-muted">
-            {locked ? (
-              <>
                 Defined by <code className="font-mono">playbooks/{playbook?.name}.yaml</code> on the
-                conductor&apos;s host. The files win, so this is read-only here — edit the file
-                and restart the conductor, or make a new playbook to change one in the browser.
-              </>
-            ) : (
-              <>
-                Stored in the conductor&apos;s database and validated by exactly the rules a{" "}
-                <code className="font-mono">playbooks/&lt;name&gt;.yaml</code> is held to.
-              </>
-            )}
+                conductor&apos;s host. Edit that file and press Re-read the files.
           </p>
+            ) : null}
         </div>
       </header>
 
-      {playbook && shadowed ? (
-        <Alert variant="warn" title={`playbooks/${playbook.name}.yaml defines this name, and the file wins`}>
-          This stored definition never runs and cannot be written over. It is shown so you can
-          see what deleting it throws away.
-        </Alert>
-      ) : null}
+      <Tabs value={mode} onValueChange={(v) => setMode(v as "form" | "yaml")}>
+        <TabsList>
+          <TabsTrigger value="form">
+            <SlidersHorizontal />
+            Form
+          </TabsTrigger>
+          <TabsTrigger value="yaml">
+            <FileCode2 />
+            YAML
+          </TabsTrigger>
+        </TabsList>
+        {mode === "form" && yamlEdited ? (
+          <Alert role="alert" variant="warn" title="The YAML document is the playbook">
+            <p>
+              This playbook is edited as YAML, and that document is what is validated — it can
+              hold fields these controls do not, <code className="font-mono">docker</code> and{" "}
+              <code className="font-mono">browser</code> most of all. Rebuilding from the form
+              discards whatever they cannot express.
+            </p>
+            {locked ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  setYamlEdited(false);
+                  setYaml("");
+                }}
+              >
+                <RotateCcw />
+                Use these fields instead
+              </Button>
+            )}
+          </Alert>
+        ) : null}
 
-      {/* One fieldset rather than a disabled prop on every input: a shadowed playbook and a
-          file playbook are both read-only as a whole, and no field of either could usefully be
-          changed. It disables the picker's buttons too, which a per-input prop would miss. */}
+        <TabsContent value="form">
+      {/* One fieldset rather than a disabled prop on every input: a file playbook is
+          read-only as a whole. It disables the picker's buttons too, which a per-input
+          prop would miss. */}
       <fieldset disabled={locked} className="space-y-5">
         <Section
           title="Identity"
@@ -785,6 +828,28 @@ export function PlaybookEditor({
               </div>
             ))}
             <AddRow label="Add a repository" onClick={() => setRepoRows([...repoRows, row()])} />
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Input
+                aria-label="Commit author name"
+                value={gitName}
+                onChange={(e) => setGitName(e.target.value)}
+                placeholder="Ada Lovelace"
+                className="h-8 max-w-40 text-xs"
+              />
+              <Input
+                aria-label="Commit author email"
+                value={gitEmail}
+                onChange={(e) => setGitEmail(e.target.value)}
+                placeholder="1234+ada@users.noreply.github.com"
+                className="h-8 max-w-md font-mono text-xs"
+              />
+            </div>
+            <p className="text-2xs text-faint">
+              Who this playbook&rsquo;s commits are by. Empty inherits the profile&rsquo;s. GitHub links a
+              commit to an account by the email, so use one that belongs to the account whose token
+              this playbook pushes with &mdash; an address owned by nobody leaves every commit
+              unattributed, which is what blocks a Vercel deployment.
+            </p>
           </Disclosure>
         </Section>
 
@@ -802,6 +867,43 @@ export function PlaybookEditor({
               className="font-mono text-xs"
             />
           </Field>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-docker`}
+              aria-label="Attach a Docker daemon"
+              checked={docker}
+              onCheckedChange={setDocker}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-docker`} className="text-fg">
+                Attach a Docker daemon
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                Privileged dind sidecar. The node must have been started with
+                --allow-privileged-sidecars.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-browser`}
+              aria-label="Attach a browser"
+              checked={browser}
+              onCheckedChange={setBrowser}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-browser`} className="text-fg">
+                Attach a browser
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                Headless Chrome sidecar and the tools to drive it.
+              </p>
+            </div>
+          </div>
 
           <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
             <Switch
@@ -843,6 +945,80 @@ export function PlaybookEditor({
           </div>
         </Section>
       </fieldset>
+        </TabsContent>
+
+        <TabsContent value="yaml">
+          <Card>
+            <CardHeader>
+              <div>
+                {yamlEdited && !locked ? (
+                <CardDescription>
+                      The form no longer feeds this document.
+                </CardDescription>
+                ) : null}
+              </div>
+              {yamlEdited && !locked ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setYamlEdited(false);
+                    setYaml("");
+                  }}
+                >
+                  <RotateCcw />
+                  Rebuild from form
+                </Button>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {creating ? (
+                <Field
+                  id={`${uid}-yaml-name`}
+                  label="Playbook name"
+                  hint="Lower case, digits and dashes; this is what a human types after a slash in Slack."
+                  error={tried && !nameOk ? "A name must match ^[a-z][a-z0-9-]{0,31}$." : undefined}
+                >
+                  <Input
+                    id={`${uid}-yaml-name`}
+                    value={name}
+                    aria-invalid={tried && !nameOk}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="reporter"
+                    className="max-w-xs font-mono text-xs"
+                  />
+                </Field>
+              ) : null}
+              <YamlEditor
+                ref={yamlRef}
+                id="playbook-yaml"
+                label={creating ? "Playbook YAML" : `playbooks/${playbook.name}.yaml`}
+                value={specYaml}
+                onChange={
+                  locked
+                    ? undefined
+                    : (text) => {
+                        setYamlEdited(true);
+                        setYaml(text);
+                      }
+                }
+                readOnly={locked}
+                problems={tried ? yamlParsed.issues : []}
+                invalid={tried && yamlParsed.issues.length > 0}
+                minLines={22}
+              />
+              {tried && yamlParsed.issues.length > 0 ? (
+                <YamlProblems
+                  problems={yamlParsed.issues}
+                  testId="playbook-problems"
+                  onJump={(line) => yamlRef.current?.jumpTo(line)}
+                />
+              ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {error ? (
         <Alert variant="destructive" role="alert" title="The conductor refused this playbook">
@@ -850,10 +1026,18 @@ export function PlaybookEditor({
         </Alert>
       ) : null}
 
-      {tried && problems.length > 0 ? (
+      {tried && !yamlEdited && problems.length > 0 ? (
         <Alert variant="warn" role="note">
           Nothing was sent: the {problems.join(", ")} {problems.length === 1 ? "field" : "fields"}{" "}
           {problems.length === 1 ? "needs" : "need"} a value first.
+        </Alert>
+      ) : null}
+
+      {tried && yamlEdited && (yamlParsed.issues.length > 0 || !nameOk) ? (
+        <Alert variant="warn" role="note">
+          Nothing was sent: {yamlParsed.issues.length > 0
+            ? yamlParsed.issues.map(problemText).join(" · ")
+            : "the name needs a value first."}
         </Alert>
       ) : null}
 
