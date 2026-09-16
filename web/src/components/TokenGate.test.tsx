@@ -33,6 +33,17 @@ function mount() {
 
 const statusOff: AuthStatus = { google: false, claimed: false, hosted_domain: "" };
 const statusOn: AuthStatus = { google: true, claimed: false, hosted_domain: "" };
+const statusClaimed: AuthStatus = { google: true, claimed: true, hosted_domain: "acme.com" };
+
+function stubStatus(status: AuthStatus) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => status,
+    })),
+  );
+}
 
 describe("TokenGate", () => {
   beforeEach(() => {
@@ -77,7 +88,7 @@ describe("TokenGate", () => {
       create(WhoAmIResponseSchema, { login: "user@example.com", kind: IdentityKind.USER }),
     );
     mount();
-    await waitFor(() => expect(screen.getByText("user@example.com")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("user@example.com").length).toBeGreaterThan(0));
   });
 
   it("shows local in the header under the local transport", async () => {
@@ -116,15 +127,9 @@ describe("TokenGate", () => {
     await waitFor(() => expect(screen.getByText("postgres unreachable")).toBeTruthy());
   });
 
-  it("offers Google Workspace sign-in when /auth/status says so", async () => {
+  it("offers Google Workspace sign-in and does not ask for a local token", async () => {
     whoAmI.mockRejectedValue(new ConnectError("unauthenticated", Code.Unauthenticated));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => statusOn,
-      })),
-    );
+    stubStatus(statusOn);
     mount();
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toBeTruthy(),
@@ -133,7 +138,55 @@ describe("TokenGate", () => {
       "href",
       "/auth/google/start",
     );
-    expect(screen.getByText("Use a local token")).toBeTruthy();
+    expect(screen.queryByLabelText("Dev token")).toBeNull();
+  });
+
+  it("does not name the Workspace on a claimed instance", async () => {
+    whoAmI.mockRejectedValue(new ConnectError("unauthenticated", Code.Unauthenticated));
+    stubStatus(statusClaimed);
+    mount();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toBeTruthy(),
+    );
+    expect(screen.queryByLabelText("Dev token")).toBeNull();
+    expect(screen.getByText(/This instance of Podium is claimed/)).toBeTruthy();
+    expect(screen.queryByText(/acme.com/)).toBeNull();
+  });
+
+  it("lets a local token into the app the same way the CLI does", async () => {
+    whoAmI.mockResolvedValue(
+      create(WhoAmIResponseSchema, {
+        login: "local",
+        kind: IdentityKind.LOCAL_TOKEN,
+        googleAuthEnabled: true,
+        claimed: true,
+        hostedDomain: "acme.com",
+      }),
+    );
+    stubStatus(statusClaimed);
+    mount();
+    await waitFor(() => expect(screen.getByText("the app")).toBeTruthy());
+    expect(screen.getByText("local")).toBeTruthy();
+    expect(screen.queryByLabelText("Dev token")).toBeNull();
+  });
+
+  it("keeps a failed Google callback on the sign-in screen even with a local token", async () => {
+    whoAmI.mockResolvedValue(
+      create(WhoAmIResponseSchema, {
+        login: "local",
+        kind: IdentityKind.LOCAL_TOKEN,
+        googleAuthEnabled: true,
+      }),
+    );
+    stubStatus(statusOn);
+    window.history.replaceState({}, "", "/?auth_error=failed");
+    mount();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toBeTruthy(),
+    );
+    expect(screen.getByText("Google sign-in failed. Try again.")).toBeTruthy();
+    expect(screen.queryByText("the app")).toBeNull();
+    window.history.replaceState({}, "", "/");
   });
 
   it("asks the first Workspace user to type the domain before claiming", async () => {

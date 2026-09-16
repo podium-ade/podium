@@ -65,6 +65,7 @@ func (s *IdentityService) WhoAmI(
 			if user, err := s.store.GetUser(ctx, id.Login); err == nil {
 				out.Roles = user.Roles
 				out.ClaimDomain = store.UserDomain(user)
+				out.PictureUrl = user.PictureURL
 				if out.DisplayName == "" {
 					out.DisplayName = user.DisplayName
 				}

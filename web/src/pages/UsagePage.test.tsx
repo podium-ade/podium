@@ -36,6 +36,7 @@ const VIEWER: Viewer = {
   canClaim: false,
   googleAuthEnabled: false,
   claimDomain: "",
+  pictureUrl: "",
 };
 
 // Mounted under the same splat route App.tsx uses. The tabs are nested routes, so mounting

@@ -22,6 +22,7 @@ import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
+import { IdentityCard } from "../components/IdentityCard";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
 import { Separator } from "../components/ui/separator";
@@ -114,7 +115,8 @@ export function AgentPage() {
   const { pathname } = useLocation();
   const chat = pathname.startsWith("/agent/chat");
 
-  if (viewer && !viewer.agentEnabled) {
+  const onSettings = pathname === "/agent/settings" || pathname.startsWith("/agent/settings/");
+  if (viewer && !viewer.agentEnabled && !onSettings) {
     return (
       <div className="mx-auto w-full max-w-3xl px-6 py-16 lg:px-8">
         <Empty
@@ -202,10 +204,12 @@ export function AgentPage() {
  * understand next to a card that says "Not set" than as a failure on the next turn.
  */
 function SettingsTab() {
+  const viewer = useViewer();
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
     queryFn: () => agent.getSettings({}),
+    enabled: viewer?.agentEnabled === true,
   });
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "settings"] });
 
@@ -220,7 +224,7 @@ function SettingsTab() {
 
   // A conductor that is down is not a broken page: the cards still render, and their status
   // strips are where the operator is told. Any other failure to read the settings is.
-  if (settings.isError && !isAgentUnreachable(settings.error)) {
+  if (viewer?.agentEnabled && settings.isError && !isAgentUnreachable(settings.error)) {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
@@ -230,69 +234,106 @@ function SettingsTab() {
   ).length;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
       <PageHeader
         title="Settings"
-        description="Credentials for the models this conductor can run. Each one is a Podium secret; the UI never sees more than the last four characters."
-        // With nothing read back, "0 of 2 connected" would be a claim rather than a count.
-        meta={
-          settings.data === undefined ? null : (
-            <>
-              <Badge tone={connected > 0 ? "ok" : "idle"}>
-                {connected} of {PROVIDERS.length} connected
-              </Badge>
-              {connected < PROVIDERS.length ? (
-                <Chip>{PROVIDERS.length - connected} still to set up</Chip>
-              ) : null}
-            </>
-          )
-        }
+        description="Account for this browser, and credentials for the models the conductor can run."
       />
-      {isAgentUnreachable(settings.error) ? (
-        <ConductorDown
-          what="The stored credentials could not be read"
-          onRetry={() => void settings.refetch()}
-          retrying={settings.isFetching}
-        />
+
+      {viewer?.googleAuthEnabled ? (
+        <SettingsSection
+          title="Account"
+          description="Who is signed in on this browser. The local token stays a machine credential for the CLI and workers."
+        >
+          <IdentityCard />
+        </SettingsSection>
       ) : null}
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        {PROVIDERS.map((p) => (
-          <ProviderCard
-            key={p.id}
-            provider={p}
-            settings={stored.find((s) => s.provider === p.id)}
-            loading={settings.isPending}
-            onSave={(key) => save.mutateAsync({ provider: p.id, key })}
-            onClear={async () => {
-              await clear.mutateAsync(p.id);
-            }}
-            onStartOAuth={
-              p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
-            }
-            onPollOAuth={
-              p.subscription
-                ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
-                : undefined
-            }
-            onSignedIn={() => void reload()}
-          />
-        ))}
-      </div>
-
-      <p className="max-w-3xl text-xs leading-relaxed text-muted">
-        Each credential is stored as a Podium secret —{" "}
-        {PROVIDERS.map((p, i) => (
-          <span key={p.id}>
-            {i > 0 ? ", " : ""}
-            <code className="font-mono text-fg">{p.secretName}</code>
-          </span>
-        ))}{" "}
-        — and a turn is handed only the one its backend spends. There is no way to read a
-        stored secret back: the last four characters above were kept at save time, and that is
-        all any part of the UI ever sees of a key.
-      </p>
+      {viewer?.agentEnabled ? (
+        <SettingsSection
+          title="Models"
+          description="Each key is stored as a Podium secret. The UI never sees more than the last four characters."
+          meta={
+            settings.data === undefined ? null : (
+              <>
+                <Badge tone={connected > 0 ? "ok" : "idle"}>
+                  {connected} of {PROVIDERS.length} connected
+                </Badge>
+                {connected < PROVIDERS.length ? (
+                  <Chip>{PROVIDERS.length - connected} still to set up</Chip>
+                ) : null}
+              </>
+            )
+          }
+        >
+          {isAgentUnreachable(settings.error) ? (
+            <ConductorDown
+              what="The stored credentials could not be read"
+              onRetry={() => void settings.refetch()}
+              retrying={settings.isFetching}
+            />
+          ) : null}
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            {PROVIDERS.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                settings={stored.find((s) => s.provider === p.id)}
+                loading={settings.isPending}
+                onSave={(key) => save.mutateAsync({ provider: p.id, key })}
+                onClear={async () => {
+                  await clear.mutateAsync(p.id);
+                }}
+                onStartOAuth={
+                  p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+                }
+                onPollOAuth={
+                  p.subscription
+                    ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                    : undefined
+                }
+                onSignedIn={() => void reload()}
+              />
+            ))}
+          </div>
+          <p className="max-w-3xl text-xs leading-relaxed text-muted">
+            Secrets{" "}
+            {PROVIDERS.map((p, i) => (
+              <span key={p.id}>
+                {i > 0 ? ", " : ""}
+                <code className="font-mono text-fg">{p.secretName}</code>
+              </span>
+            ))}
+            . A turn is handed only the one its backend spends.
+          </p>
+        </SettingsSection>
+      ) : null}
     </div>
+  );
+}
+
+function SettingsSection({
+  title,
+  description,
+  meta,
+  children,
+}: {
+  title: string;
+  description: string;
+  meta?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-4">
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
+          {meta ? <div className="flex flex-wrap items-center gap-1.5">{meta}</div> : null}
+        </div>
+        <p className="max-w-2xl text-xs leading-relaxed text-muted">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 

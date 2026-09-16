@@ -282,14 +282,14 @@ func TestSelect(t *testing.T) {
 	// Somebody typing /shrug must not break the bot, and must not have their text eaten.
 	t.Run("an unknown /name falls through with the text intact", func(t *testing.T) {
 		sel := p.Select(Routing{Channel: "C1", Text: "/shrug hi"})
-		assert.Equal(t, "general", sel.Playbook.Name)
+		assert.Empty(t, sel.Playbook.Name)
 		assert.Equal(t, "/shrug hi", sel.Instruction)
 		assert.False(t, sel.Explicit)
 	})
 
 	t.Run("a path is not a playbook selector", func(t *testing.T) {
 		sel := p.Select(Routing{Channel: "C1", Text: "/etc/hosts is wrong"})
-		assert.Equal(t, "general", sel.Playbook.Name)
+		assert.Empty(t, sel.Playbook.Name)
 		assert.Equal(t, "/etc/hosts is wrong", sel.Instruction)
 	})
 
@@ -312,9 +312,9 @@ func TestSelect(t *testing.T) {
 		assert.Equal(t, "/general hi", sel.Instruction, "the source's choice leaves the text alone")
 	})
 
-	t.Run("nothing matches, so the default runs", func(t *testing.T) {
+	t.Run("nothing matches, so no playbook is selected", func(t *testing.T) {
 		sel := p.Select(Routing{Channel: "C-OTHER", Text: "  hello  "})
-		assert.Equal(t, "general", sel.Playbook.Name)
+		assert.Empty(t, sel.Playbook.Name)
 		assert.Equal(t, "hello", sel.Instruction)
 	})
 }

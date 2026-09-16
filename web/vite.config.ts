@@ -58,6 +58,12 @@ export default defineConfig({
           });
         },
       },
+      // Google start/callback/status/logout. Do not inject the local token: after a claim
+      // the server refuses it from a browser, and /auth/status is public.
+      "^/auth": {
+        target,
+        changeOrigin: false,
+      },
     },
   },
 });

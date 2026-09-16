@@ -101,6 +101,7 @@ const viewer: Viewer = {
   canClaim: false,
   googleAuthEnabled: false,
   claimDomain: "",
+  pictureUrl: "",
 };
 
 function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
@@ -166,12 +167,24 @@ describe("AgentPage", () => {
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
-    mount("/agent/settings", { ...viewer, agentEnabled: false });
+    mount("/agent/chat", { ...viewer, agentEnabled: false });
     expect(
       screen.getByText("The conductor is not configured on this control plane"),
     ).toBeInTheDocument();
     expect(screen.getByText(/PODIUM_AGENT_URL/)).toBeInTheDocument();
     expect(getSettings).not.toHaveBeenCalled();
+  });
+
+  it("offers Google sign-in on Settings and does not ask for a local token", async () => {
+    mount("/agent/settings", { ...viewer, googleAuthEnabled: true });
+    expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
+      "href",
+      "/auth/google/start",
+    );
+    expect(screen.queryByLabelText("Dev token")).toBeNull();
   });
 
   it("redirects /agent to the chat tab", async () => {

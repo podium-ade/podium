@@ -144,4 +144,5 @@ type User struct {
 	Roles        []string
 	FirstSeenAt  time.Time
 	HostedDomain *string
+	PictureUrl   *string
 }

@@ -126,7 +126,9 @@ type Profile struct {
 	Agent string `yaml:"agent"`
 	// Effort is the reasoning effort every playbook runs at unless it names its own. Empty
 	// means the model's own default, which is what the provider picks.
-	Effort          string `yaml:"effort"`
+	Effort string `yaml:"effort"`
+	// DefaultPlaybook is unused. It is still decoded so a profile.yaml that names one
+	// continues to load; Select does not fall back to it.
 	DefaultPlaybook string `yaml:"default_playbook"`
 	// Git is who every playbook's turns commit as unless the playbook names its own. It is
 	// the DEFAULT and not the rule: the identity has to match the account behind the token
@@ -875,9 +877,10 @@ type Routing struct {
 }
 
 // Select applies the routing rules in order: a playbook the source knows, then a leading
-// /playbook the human typed, then the channel's claim, then profile.default_playbook. An
-// unknown /name is deliberately not an error — somebody typing /shrug must not break the
-// bot — it is left in the text and falls through.
+// /playbook the human typed, then the channel's claim. There is no default playbook: an
+// operator registers the ones the assistant may delegate to, and a ticket or /name that
+// matches none of them is refused. An unknown /name is deliberately not an error —
+// somebody typing /shrug must not break the bot — it is left in the text and falls through.
 func (p *Profile) Select(r Routing) Selection {
 	if r.Playbook != "" {
 		if s, ok := p.Playbooks[r.Playbook]; ok {
@@ -903,7 +906,7 @@ func (p *Profile) Select(r Routing) Selection {
 			}
 		}
 	}
-	return Selection{Playbook: p.Playbooks[p.DefaultPlaybook], Instruction: instruction}
+	return Selection{Instruction: instruction}
 }
 
 // ModelFor is the model a playbook runs on: its own if it named one, the profile's otherwise.

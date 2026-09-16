@@ -55,7 +55,7 @@ somebody says something in a CONVERSATION
 
 somebody mentions the bot in a THREAD, or assigns a Linear ticket
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
-  ↓  Select                                  which playbook? /playbook, the channel, default_playbook
+  ↓  Select                                  which playbook? /playbook, the channel, or a Linear claim
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
   ↓  React ⏳                                 before any work starts
   ↓  post "👀 working…"                       Linear's working comment. Slack skips it: ⏳ is the ack
@@ -72,9 +72,8 @@ is, and the relay, the accounting and the bookkeeping do not know which transpor
 What differs is the job the turn was given — see `internal/agent/conductor/job.go`.
 
 A conductor with no host runtime configured (`PODIUM_AGENT_HOST_RUNTIME` unset) has nothing to
-answer a conversation *with*, so a chat message there takes the second path too and runs
-`default_playbook` as a task. That works, and it is the poorer configuration: every message
-costs a container.
+answer a conversation *with*, so a chat message there is refused rather than turned into a
+container task. A task is only created when the assistant delegates.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
@@ -409,8 +408,8 @@ spec: a misspelt key is a startup error naming the file, not a field that silent
 ### `profile.yaml`
 
 This file is the **assistant** — everything down to `max_turns` describes the turn that answers a
-conversation — plus one routing decision, `default_playbook`, which is about threads and tickets
-instead.
+conversation. Playbooks live in `playbooks/` and are what that turn delegates to; there is no
+default playbook.
 
 ```yaml
 name: podium                 # required; ^[a-z][a-z0-9-]{0,31}$
@@ -429,9 +428,8 @@ max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS N
                              # is the opposite of a playbook's. FILE ONLY
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
                              # and there is no "off". FILE ONLY
-default_playbook: general    # required; must name a loaded playbook. Which playbook a Slack
-                             # mention or a Linear ticket runs when nothing more specific
-                             # routes it. A conversation runs NONE
+# default_playbook is unused. A Slack mention or Linear ticket with no /playbook and no
+# channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
 `skills` and `max_turns` are file-only on purpose. What the process running beside your master
@@ -895,18 +893,14 @@ of which is one piece of work in a container. The assistant reaches a playbook b
 it, one per task, chosen by the turn — there is nothing for a human to select and no default to
 set.
 
-**A Slack thread is a conversation too.** With a host runtime configured, a mention is answered
-by the assistant on the conductor's own host, exactly as a web chat is, and it reaches a playbook
-by delegating to it. That is what makes every playbook reachable from Slack: routing could only
-ever pick one, and in practice it picked the default. The routing rules below therefore apply to
-Slack **only on a conductor with no host runtime**, which answers a mention by running a playbook
-as a task because it has nothing else to answer with.
+**A Slack thread is a conversation too.** A mention is answered by the assistant on the
+conductor's own host, exactly as a web chat is, and it reaches a playbook by delegating to it.
+A conductor with no host runtime refuses the mention rather than turning it into a task.
 
-So `slack_channels` is **deprecated**. It still routes a thread on a conductor without a host
-runtime, and it does nothing at all on one with it. Do not reach for it: say which playbook you
-want in the thread and let the turn delegate.
+So `slack_channels` is **deprecated**. Do not reach for it: say which playbook you want in the
+thread and let the turn delegate.
 
-For a ticket — and for a thread on a conductor with no host runtime — in order:
+For a Linear ticket — in order:
 
 1. **A playbook the source knows** is right, which no rule below may second-guess: the
    `linear: true` playbook a ticket runs. A ticket's text is not a command line, so a `/word` in
@@ -916,10 +910,11 @@ For a ticket — and for a thread on a conductor with no host runtime — in ord
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error. **Deprecated** — see above.
-4. `profile.default_playbook`.
+4. Nothing: there is no default playbook. Register one, name it with `/playbook`, or (for
+   Linear) mark one `linear: true`.
 
-Rule 1 is knowledge and rule 4 is a fallback, and keeping them apart is the whole of the order:
-Linear names the playbook because it genuinely knows it. Slack says nothing and starts at rule 2.
+Rule 1 is knowledge, and keeping it first is the whole of the order: Linear names the playbook
+because it genuinely knows it. Slack says nothing and starts at rule 2.
 
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
 same thread is refused politely: start a new thread. A conversation's session stores no playbook
