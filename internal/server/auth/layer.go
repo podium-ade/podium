@@ -31,10 +31,12 @@ func Wrap(inner transport.Listener, st *store.Store) transport.Listener {
 // Inner returns the wrapped listener. server.unwrapTransport uses this.
 func (l *Layer) Inner() transport.Listener { return l.inner }
 
+// Listen binds the inner transport's socket.
 func (l *Layer) Listen(ctx context.Context) (net.Listener, error) {
 	return l.inner.Listen(ctx)
 }
 
+// Identify prefers a live Google session cookie, then the inner transport.
 func (l *Layer) Identify(r *http.Request) (transport.Identity, error) {
 	if tok := sessionToken(r); tok != "" {
 		if id, err := l.identifySession(r.Context(), r, tok); err == nil {

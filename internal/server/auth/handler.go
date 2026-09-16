@@ -26,6 +26,9 @@ func NewHandler(flow *Flow, logger *slog.Logger) *Handler {
 	return &Handler{Flow: flow, Store: flow.Store, Logger: logger}
 }
 
+// Register mounts the public /auth/* routes on mux. They sit outside the identity
+// middleware: status is how the UI learns Google is on, and start/callback are the
+// OAuth dance.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc(StatusPath, h.status)
 	mux.HandleFunc(StartPath, h.start)

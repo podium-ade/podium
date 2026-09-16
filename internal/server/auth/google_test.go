@@ -121,7 +121,7 @@ func googleServers(t *testing.T, tokenStatus int, tokenBody string, infoStatus i
 		_, _ = w.Write([]byte(tokenBody))
 	}))
 	t.Cleanup(token.Close)
-	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	info := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(infoStatus)
 		_, _ = w.Write([]byte(infoBody))
