@@ -47,3 +47,31 @@ export function onRejected(fn: () => void): () => void {
 export function notifyRejected(): void {
   for (const fn of listeners) fn();
 }
+
+/** Public /auth/status: whether this control plane offers Google Workspace sign-in. */
+export type AuthStatus = {
+  google: boolean;
+  claimed: boolean;
+  hosted_domain: string;
+};
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const res = await fetch("/auth/status", { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    return { google: false, claimed: false, hosted_domain: "" };
+  }
+  return (await res.json()) as AuthStatus;
+}
+
+export function authErrorMessage(code: string): string {
+  switch (code) {
+    case "denied":
+      return "Google sign-in was cancelled.";
+    case "no_workspace":
+      return "Sign in with a Google Workspace account, not personal Gmail.";
+    case "domain":
+      return "This Podium belongs to a different Google Workspace.";
+    default:
+      return "Google sign-in failed. Try again.";
+  }
+}

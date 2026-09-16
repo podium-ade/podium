@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -8,7 +8,7 @@ import { create } from "@bufbuild/protobuf";
 import { TokenGate } from "./TokenGate";
 import { Header } from "./Header";
 import { IdentityKind, WhoAmIResponseSchema } from "../gen/podium/v1/identity_pb";
-import { clearToken } from "../lib/auth";
+import { clearToken, type AuthStatus } from "../lib/auth";
 
 const whoAmI = vi.fn();
 
@@ -31,10 +31,30 @@ function mount() {
   );
 }
 
+const statusOff: AuthStatus = { google: false, claimed: false, hosted_domain: "" };
+const statusOn: AuthStatus = { google: true, claimed: false, hosted_domain: "" };
+
 describe("TokenGate", () => {
   beforeEach(() => {
     whoAmI.mockReset();
     clearToken();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input);
+        if (url.includes("/auth/status")) {
+          return {
+            ok: true,
+            json: async () => statusOff,
+          } as Response;
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("never prompts when WhoAmI succeeds unauthenticated, and shows the tailnet login", async () => {
@@ -94,5 +114,42 @@ describe("TokenGate", () => {
     whoAmI.mockRejectedValue(new ConnectError("postgres unreachable", Code.Unavailable));
     mount();
     await waitFor(() => expect(screen.getByText("postgres unreachable")).toBeTruthy());
+  });
+
+  it("offers Google Workspace sign-in when /auth/status says so", async () => {
+    whoAmI.mockRejectedValue(new ConnectError("unauthenticated", Code.Unauthenticated));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => statusOn,
+      })),
+    );
+    mount();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toBeTruthy(),
+    );
+    expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
+      "href",
+      "/auth/google/start",
+    );
+    expect(screen.getByText("Use a local token")).toBeTruthy();
+  });
+
+  it("asks the first Workspace user to type the domain before claiming", async () => {
+    whoAmI.mockResolvedValue(
+      create(WhoAmIResponseSchema, {
+        login: "alice@acme.com",
+        displayName: "Alice",
+        kind: IdentityKind.USER,
+        canClaim: true,
+        claimDomain: "acme.com",
+        googleAuthEnabled: true,
+      }),
+    );
+    mount();
+    await waitFor(() => expect(screen.getByText("Claim this instance")).toBeTruthy());
+    expect(screen.queryByText("the app")).toBeNull();
+    expect(screen.getByRole("button", { name: "Claim for acme.com" })).toBeDisabled();
   });
 });

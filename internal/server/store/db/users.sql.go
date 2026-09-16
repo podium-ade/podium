@@ -10,7 +10,7 @@ import (
 )
 
 const getUser = `-- name: GetUser :one
-select login, display_name, roles, first_seen_at from users where login = $1
+select login, display_name, roles, first_seen_at, hosted_domain from users where login = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
@@ -21,31 +21,58 @@ func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
 		&i.DisplayName,
 		&i.Roles,
 		&i.FirstSeenAt,
+		&i.HostedDomain,
 	)
 	return i, err
 }
 
-const upsertUser = `-- name: UpsertUser :one
-insert into users (login, display_name)
-values ($1, $2::text)
-on conflict (login) do update
-  set display_name = coalesce($2::text, users.display_name)
-returning login, display_name, roles, first_seen_at
+const setUserRoles = `-- name: SetUserRoles :one
+update users set roles = $1 where login = $2
+returning login, display_name, roles, first_seen_at, hosted_domain
 `
 
-type UpsertUserParams struct {
-	Login       string
-	DisplayName *string
+type SetUserRolesParams struct {
+	Roles []string
+	Login string
 }
 
-func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, upsertUser, arg.Login, arg.DisplayName)
+func (q *Queries) SetUserRoles(ctx context.Context, arg SetUserRolesParams) (User, error) {
+	row := q.db.QueryRow(ctx, setUserRoles, arg.Roles, arg.Login)
 	var i User
 	err := row.Scan(
 		&i.Login,
 		&i.DisplayName,
 		&i.Roles,
 		&i.FirstSeenAt,
+		&i.HostedDomain,
+	)
+	return i, err
+}
+
+const upsertUser = `-- name: UpsertUser :one
+insert into users (login, display_name, hosted_domain)
+values ($1, $2::text, $3::text)
+on conflict (login) do update
+  set display_name = coalesce($2::text, users.display_name),
+      hosted_domain = coalesce(users.hosted_domain, $3::text)
+returning login, display_name, roles, first_seen_at, hosted_domain
+`
+
+type UpsertUserParams struct {
+	Login        string
+	DisplayName  *string
+	HostedDomain *string
+}
+
+func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, upsertUser, arg.Login, arg.DisplayName, arg.HostedDomain)
+	var i User
+	err := row.Scan(
+		&i.Login,
+		&i.DisplayName,
+		&i.Roles,
+		&i.FirstSeenAt,
+		&i.HostedDomain,
 	)
 	return i, err
 }

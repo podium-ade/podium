@@ -127,10 +127,28 @@ func TestAProfileDirWithoutProfileYAMLIsRefused(t *testing.T) {
 
 func TestFromEnvAppliesTheDefaults(t *testing.T) {
 	t.Setenv("PODIUM_AGENT_SERVER", "http://127.0.0.1:8080")
+	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
 	cfg := FromEnv()
 	assert.Equal(t, DefaultListen, cfg.Listen)
 	assert.Equal(t, DefaultProfileDir, cfg.ProfileDir)
+	assert.Equal(t, DefaultXAIOAuthIssuer, cfg.XAIOAuthIssuer)
+	assert.Equal(t, DefaultXAIOAuthClientID, cfg.XAIOAuthClientID)
 	assert.False(t, cfg.DevSource)
+}
+
+func TestXAIOAuthClientID(t *testing.T) {
+	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
+	assert.Equal(t, DefaultXAIOAuthClientID, FromEnv().XAIOAuthClientID,
+		"empty is what compose interpolates; it must still ship Hermes's client")
+
+	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "off")
+	assert.Empty(t, FromEnv().XAIOAuthClientID)
+
+	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "OFF")
+	assert.Empty(t, FromEnv().XAIOAuthClientID)
+
+	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "custom-client")
+	assert.Equal(t, "custom-client", FromEnv().XAIOAuthClientID)
 }
 
 // A knob that mounts routes for injecting messages must not turn itself on because

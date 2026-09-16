@@ -146,3 +146,35 @@ func TestConfigFromEnvReadsTheAgentProxy(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:8090", cfg.AgentURL)
 	require.Equal(t, "agenttoken", cfg.AgentToken)
 }
+
+func TestGoogleConfig(t *testing.T) {
+	base := Config{DatabaseURL: "postgres://x", Transport: TransportLocal, LocalToken: "t"}
+	require.False(t, base.GoogleEnabled())
+	require.NoError(t, base.Validate())
+
+	half := base
+	half.GoogleClientID = "cid"
+	require.ErrorContains(t, half.Validate(), "PODIUM_GOOGLE_OAUTH_CLIENT_ID and PODIUM_GOOGLE_OAUTH_CLIENT_SECRET")
+
+	ok := base
+	ok.GoogleClientID = "cid"
+	ok.GoogleClientSecret = "csecret"
+	ok.PublicURL = "https://podium.acme.com"
+	require.NoError(t, ok.Validate())
+	require.True(t, ok.GoogleEnabled())
+
+	badURL := ok
+	badURL.PublicURL = "https://podium.acme.com/app"
+	require.ErrorContains(t, badURL.Validate(), "PODIUM_PUBLIC_URL")
+
+	t.Setenv("PODIUM_DATABASE_URL", "postgres://x")
+	t.Setenv("PODIUM_LOCAL_TOKEN", "t")
+	t.Setenv("PODIUM_GOOGLE_OAUTH_CLIENT_ID", "cid")
+	t.Setenv("PODIUM_GOOGLE_OAUTH_CLIENT_SECRET", "csecret")
+	t.Setenv("PODIUM_PUBLIC_URL", "https://podium.acme.com")
+	cfg := ConfigFromEnv()
+	require.Equal(t, "cid", cfg.GoogleClientID)
+	require.Equal(t, "csecret", cfg.GoogleClientSecret)
+	require.Equal(t, "https://podium.acme.com", cfg.PublicURL)
+	require.True(t, cfg.GoogleEnabled())
+}

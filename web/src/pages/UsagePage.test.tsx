@@ -30,6 +30,12 @@ const VIEWER: Viewer = {
   kind: IdentityKind.USER,
   agentEnabled: true,
   serverVersion: "v0",
+  roles: [],
+  claimed: false,
+  hostedDomain: "",
+  canClaim: false,
+  googleAuthEnabled: false,
+  claimDomain: "",
 };
 
 // Mounted under the same splat route App.tsx uses. The tabs are nested routes, so mounting

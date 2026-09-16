@@ -86,6 +86,16 @@ type Config struct {
 	S3 artifacts.Config
 	// Rollup is the log roll-up schedule.
 	Rollup logs.RollupConfig
+
+	// GoogleClientID is PODIUM_GOOGLE_OAUTH_CLIENT_ID. Empty leaves Google Workspace
+	// sign-in off: the local token and the tailnet transport behave as they always have.
+	GoogleClientID string
+	// GoogleClientSecret is PODIUM_GOOGLE_OAUTH_CLIENT_SECRET. Required when the client
+	// id is set. SENSITIVE: never log it.
+	GoogleClientSecret string
+	// PublicURL is PODIUM_PUBLIC_URL: the origin browsers use to reach this control plane,
+	// used as the OAuth redirect URI. Empty means the start request's own origin.
+	PublicURL string
 }
 
 // ConfigFromEnv reads the canonical environment variables and applies the defaults.
@@ -107,6 +117,9 @@ func ConfigFromEnv() Config {
 		AgentToken:             os.Getenv("PODIUM_AGENT_TOKEN"),
 		S3:                     artifacts.ConfigFromEnv(),
 		Rollup:                 logs.RollupConfigFromEnv(),
+		GoogleClientID:         os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleClientSecret:     os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_SECRET"),
+		PublicURL:              os.Getenv("PODIUM_PUBLIC_URL"),
 	}
 }
 
@@ -140,11 +153,52 @@ func (c Config) Validate() error {
 	if err := c.validateAgent(); err != nil {
 		return err
 	}
+	if err := c.validateGoogle(); err != nil {
+		return err
+	}
 	return c.S3.Validate()
 }
 
 // AgentEnabled reports whether this control plane proxies the conductor's API.
 func (c Config) AgentEnabled() bool { return c.AgentURL != "" }
+
+// GoogleEnabled reports whether Google Workspace sign-in is configured.
+func (c Config) GoogleEnabled() bool { return c.GoogleClientID != "" && c.GoogleClientSecret != "" }
+
+// validateGoogle refuses a half-configured OAuth client, and a public URL that could not
+// be a redirect origin.
+func (c Config) validateGoogle() error {
+	if c.GoogleClientID == "" && c.GoogleClientSecret == "" {
+		if err := validatePublicURL(c.PublicURL); err != nil {
+			return err
+		}
+		return nil
+	}
+	if c.GoogleClientID == "" || c.GoogleClientSecret == "" {
+		return errors.New("PODIUM_GOOGLE_OAUTH_CLIENT_ID and PODIUM_GOOGLE_OAUTH_CLIENT_SECRET are both required to enable Google Workspace sign-in")
+	}
+	return validatePublicURL(c.PublicURL)
+}
+
+func validatePublicURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("PODIUM_PUBLIC_URL=%q is not a URL: %w", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("PODIUM_PUBLIC_URL=%q must be an absolute http:// or https:// URL", raw)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("PODIUM_PUBLIC_URL=%q has no host", raw)
+	}
+	if p := strings.TrimSuffix(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("PODIUM_PUBLIC_URL=%q must be scheme://host[:port] with no path or query: it is the OAuth redirect origin", raw)
+	}
+	return nil
+}
 
 // validateAgent refuses a half-configured proxy. A proxy that forwards an unauthenticated
 // request into the conductor is worse than no proxy: the conductor's bearer is the whole
