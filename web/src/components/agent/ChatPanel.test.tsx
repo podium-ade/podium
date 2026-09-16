@@ -530,6 +530,20 @@ describe("ChatPanel", () => {
     );
   });
 
+  it("keeps the question on screen while the send is in flight", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, preview: "" }], nextCursor: "" });
+    sendChatMessage.mockImplementation(() => new Promise(() => {}));
+    mount("/agent/chat/chat_01abc");
+
+    expect(await screen.findByText("Ask Podium something")).toBeInTheDocument();
+    await userEvent.type(await screen.findByTestId("chat-composer"), "how many accounts{Enter}");
+
+    expect(await screen.findByTestId("chat-message")).toHaveTextContent("how many accounts");
+    expect(screen.queryByText("Ask Podium something")).toBeNull();
+    expect(screen.getByTestId("chat-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-composer")).toBeDisabled();
+  });
+
   it("says so plainly when the server refuses a concurrent send", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     sendChatMessage.mockRejectedValue(
