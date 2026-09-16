@@ -40,6 +40,13 @@ type EnrollmentToken struct {
 	CreatedAt    time.Time
 }
 
+type Instance struct {
+	ID           int32
+	HostedDomain string
+	ClaimedBy    string
+	ClaimedAt    time.Time
+}
+
 type Node struct {
 	ID               string
 	Name             string
@@ -74,6 +81,14 @@ type Secret struct {
 	KeyID      string
 	CreatedBy  string
 	UpdatedAt  time.Time
+}
+
+type Session struct {
+	ID        string
+	TokenHash []byte
+	Login     string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 type Task struct {
@@ -124,8 +139,9 @@ type TaskLogChunk struct {
 }
 
 type User struct {
-	Login       string
-	DisplayName *string
-	Roles       []string
-	FirstSeenAt time.Time
+	Login        string
+	DisplayName  *string
+	Roles        []string
+	FirstSeenAt  time.Time
+	HostedDomain *string
 }

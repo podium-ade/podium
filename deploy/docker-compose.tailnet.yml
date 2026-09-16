@@ -224,7 +224,7 @@ services:
       PODIUM_AGENT_MEMORY_API_KEY: ${PODIUM_AGENT_MEMORY_API_KEY:-}
       # Grok. The credential is set in the web UI, not here; these three are the endpoint,
       # the OIDC issuer a subscription sign-in discovers from, and the OAuth client id.
-      # An empty client id leaves the API key path, which is a supported configuration.
+      # Unset uses Hermes's public desktop client; `off` leaves the API key path.
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}

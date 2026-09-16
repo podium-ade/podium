@@ -43,6 +43,12 @@ const DefaultXAIBaseURL = "https://api.x.ai"
 // {issuer}/.well-known/openid-configuration and are checked back against this host.
 const DefaultXAIOAuthIssuer = "https://auth.x.ai"
 
+// DefaultXAIOAuthClientID is xAI's public desktop OAuth client — the same id Hermes
+// hard-codes as XAI_OAUTH_CLIENT_ID in hermes_cli/auth_constants.py, and the one Grok CLI
+// and every other third-party sign-in reuses. It is public client metadata, not a secret.
+// The consent screen names xAI's CLI, not Podium, because that is whose client this is.
+const DefaultXAIOAuthClientID = "b1a00492-073a-47ea-816f-4c329264a828"
+
 // DefaultXAIOAuthScopes is what a sign-in asks for.
 //
 // Two of these carry weight. offline_access is what makes the provider issue a refresh
@@ -149,9 +155,10 @@ type Config struct {
 	// XAIOAuthIssuer is PODIUM_AGENT_XAI_OAUTH_ISSUER, default https://auth.x.ai.
 	XAIOAuthIssuer string
 	// XAIOAuthClientID is PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: the OAuth client id of a public
-	// desktop client registered with xAI. Empty — the default — turns the subscription
-	// sign-in off and leaves the API key path, which is a supported configuration. It is
-	// public OAuth client metadata and not a secret, so it is logged like any other field.
+	// desktop client registered with xAI. Default DefaultXAIOAuthClientID (Hermes / Grok
+	// CLI). Set to "off" to turn the subscription sign-in off and leave the API key path.
+	// It is public OAuth client metadata and not a secret, so it is logged like any other
+	// field.
 	XAIOAuthClientID string
 	// XAIOAuthScopes is PODIUM_AGENT_XAI_OAUTH_SCOPES, default DefaultXAIOAuthScopes.
 	XAIOAuthScopes string
@@ -236,7 +243,7 @@ func FromEnv() Config {
 		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
 		XAIBaseURL:       envOr("PODIUM_AGENT_XAI_BASE_URL", DefaultXAIBaseURL),
 		XAIOAuthIssuer:   envOr("PODIUM_AGENT_XAI_OAUTH_ISSUER", DefaultXAIOAuthIssuer),
-		XAIOAuthClientID: os.Getenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID"),
+		XAIOAuthClientID: xaiOAuthClientID(),
 		XAIOAuthScopes:   envOr("PODIUM_AGENT_XAI_OAUTH_SCOPES", DefaultXAIOAuthScopes),
 		MemoryURL:        os.Getenv("PODIUM_AGENT_MEMORY_URL"),
 		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
@@ -627,6 +634,20 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// xaiOAuthClientID is Hermes's public desktop client unless the operator set something
+// else. "off" turns the subscription sign-in off (empty would collide with compose files
+// that interpolate ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-} and pass an empty string).
+func xaiOAuthClientID() string {
+	v := strings.TrimSpace(os.Getenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID"))
+	if v == "" {
+		return DefaultXAIOAuthClientID
+	}
+	if strings.EqualFold(v, "off") {
+		return ""
+	}
+	return v
 }
 
 // envBool treats anything strconv understands as such and everything else as false: the
