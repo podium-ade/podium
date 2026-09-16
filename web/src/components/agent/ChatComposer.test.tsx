@@ -113,7 +113,7 @@ describe("ChatComposer", () => {
     // that will answer, so a human can see what they are about to override.
     const trigger = screen.getByTestId("chat-run-config");
     expect(trigger).toHaveTextContent("claude-opus-5");
-    expect(trigger).toHaveTextContent("high");
+    expect(screen.getByTestId("chat-effort")).toHaveTextContent("Auto");
 
     await userEvent.click(trigger);
     expect(
@@ -128,5 +128,46 @@ describe("ChatComposer", () => {
   it("falls back to a plain default before the assistant has loaded", () => {
     mount({ assistant: undefined });
     expect(screen.getByTestId("chat-run-config")).toHaveTextContent("Default model");
+  });
+
+  it("puts an effort menu on the composer for the effective model", () => {
+    mount();
+    expect(screen.getByTestId("chat-effort")).toHaveTextContent("Auto");
+  });
+
+  it("picks an effort from the menu without requiring a model pick", async () => {
+    const onChoiceChange = vi.fn();
+    mount({ onChoiceChange });
+    await userEvent.click(screen.getByTestId("chat-effort"));
+    await userEvent.click(await screen.findByRole("radio", { name: "Low" }));
+    expect(onChoiceChange).toHaveBeenCalledWith({ agent: "", model: "", effort: "low" });
+  });
+
+  it("attaches a pasted text file and inlines it on send", async () => {
+    const { onSend } = mount();
+    const input = screen.getByTestId("chat-attach-input");
+    const notes = new File(["a,b\n1,2"], "notes.csv", { type: "text/csv" });
+    await userEvent.upload(input, notes);
+
+    expect(await screen.findByTestId("chat-pending-file")).toHaveTextContent("notes.csv");
+    await userEvent.type(screen.getByTestId("chat-composer"), "look at this{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [text, choice] = onSend.mock.calls[0];
+    expect(text).toContain("look at this");
+    expect(text).toContain("Attached `notes.csv`");
+    expect(text).toContain("a,b\n1,2");
+    expect(choice).toEqual(INHERIT);
+    expect(screen.queryByTestId("chat-pending-file")).toBeNull();
+  });
+
+  it("sends a named image with no other text", async () => {
+    const { onSend } = mount();
+    const shot = new File([new Uint8Array([137, 80, 78, 71])], "shot.png", { type: "image/png" });
+    await userEvent.upload(screen.getByTestId("chat-attach-input"), shot);
+    expect(await screen.findByTestId("chat-pending-file")).toHaveTextContent("shot.png");
+
+    await userEvent.click(screen.getByTestId("chat-send"));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).toContain("Attached image `shot.png`");
   });
 });

@@ -80,3 +80,8 @@ if (!Element.prototype.hasPointerCapture) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+
+if (typeof URL.createObjectURL !== "function") {
+  URL.createObjectURL = () => "blob:test";
+  URL.revokeObjectURL = () => {};
+}

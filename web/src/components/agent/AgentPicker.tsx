@@ -31,6 +31,11 @@ export type AgentPickerProps = {
    * nested absolute lists were what painted the catalogue off the bottom of the window.
    */
   embedded?: boolean;
+  /**
+   * Hide the effort strip. The chat composer renders its own slider next to the model
+   * chip so effort is a decision before send, not something buried in the picker.
+   */
+  hideEffort?: boolean;
 };
 
 /**
@@ -57,6 +62,7 @@ export function AgentPicker({
   loading,
   label,
   embedded,
+  hideEffort,
 }: AgentPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -220,7 +226,7 @@ export function AgentPicker({
         />
       ) : null}
 
-      {efforts.length > 0 ? (
+      {efforts.length > 0 && !hideEffort ? (
         <EffortStrip
           label={label}
           efforts={efforts}

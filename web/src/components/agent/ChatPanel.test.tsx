@@ -479,7 +479,7 @@ describe("ChatPanel", () => {
 
     const trigger = await screen.findByTestId("chat-run-config");
     await waitFor(() => expect(trigger).toHaveTextContent("grok-4.6"));
-    expect(trigger).toHaveTextContent("high");
+    expect(await screen.findByTestId("chat-effort")).toHaveTextContent("High");
 
     // And it rides with the next message without anybody touching the picker.
     await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");

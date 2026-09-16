@@ -30,10 +30,10 @@ export function ChatMarkdown({
   className?: string;
 }) {
   return (
-    <div className={cn("min-w-0 space-y-2.5 text-sm leading-relaxed text-fg", className)}>
+    <div className={cn("min-w-0 space-y-3 text-base leading-7 text-fg", className)}>
       {parseBlocks(text).map((block, i) => {
         const key = `${keyPrefix}b${i}`;
-        if (block.kind === "code") return <CodeBlock key={key} text={block.text} />;
+        if (block.kind === "code") return <CodeBlock key={key} text={block.text} lang={block.lang} />;
         if (block.kind === "list") {
           return (
             <ul key={key} className="list-disc space-y-1 pl-5 marker:text-faint">
@@ -55,7 +55,7 @@ export function ChatMarkdown({
   );
 }
 
-function CodeBlock({ text }: { text: string }) {
+function CodeBlock({ text, lang }: { text: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
   const lines = text === "" ? 0 : text.split("\n").length;
 
@@ -66,10 +66,15 @@ function CodeBlock({ text }: { text: string }) {
   }, [copied]);
 
   return (
-    <figure className="overflow-hidden rounded-lg border border-border bg-bg">
-      <figcaption className="flex items-center justify-between gap-2 border-b border-hairline bg-panel/70 py-1 pr-1 pl-2.5">
-        <span className="tabular text-2xs text-faint">
-          {lines} {lines === 1 ? "line" : "lines"}
+    <figure className="overflow-hidden rounded-xl border border-border bg-bg">
+      <figcaption className="flex items-center justify-between gap-2 border-b border-hairline bg-panel/80 py-1 pr-1 pl-3">
+        <span className="flex min-w-0 items-center gap-2">
+          {lang ? (
+            <span className="font-mono text-2xs font-medium text-muted lowercase">{lang}</span>
+          ) : null}
+          <span className="tabular text-2xs text-faint">
+            {lines} {lines === 1 ? "line" : "lines"}
+          </span>
         </span>
         <Button
           type="button"
@@ -84,7 +89,7 @@ function CodeBlock({ text }: { text: string }) {
           {copied ? <Check className="text-ok" /> : <Copy />}
         </Button>
       </figcaption>
-      <pre className="overflow-x-auto px-3 py-2.5 text-xs leading-relaxed">
+      <pre className="overflow-x-auto px-3 py-2.5 text-sm leading-relaxed">
         <code className="font-mono">{text}</code>
       </pre>
     </figure>
