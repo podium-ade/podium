@@ -15,6 +15,7 @@ export type Viewer = {
   canClaim: boolean;
   googleAuthEnabled: boolean;
   claimDomain: string;
+  pictureUrl: string;
 };
 
 export function viewerFrom(res: WhoAmIResponse): Viewer {
@@ -32,6 +33,7 @@ export function viewerFrom(res: WhoAmIResponse): Viewer {
     canClaim: res.canClaim,
     googleAuthEnabled: res.googleAuthEnabled,
     claimDomain: res.claimDomain,
+    pictureUrl: res.pictureUrl,
   };
 }
 

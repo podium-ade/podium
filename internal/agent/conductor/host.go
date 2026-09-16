@@ -164,6 +164,22 @@ func (h *HostRuntime) validate() error {
 }
 
 // node is the binary that runs the runtime.
+// hostPATH is PATH for a host turn. npm's global bin is prepended so `opencode` — installed
+// the same way the runtime image installs it — is found even when podium-agent was started
+// with a login-shell PATH that does not include it.
+func hostPATH() string {
+	path := os.Getenv("PATH")
+	prefix, err := exec.Command("npm", "prefix", "-g").Output()
+	if err != nil {
+		return path
+	}
+	bin := filepath.Join(strings.TrimSpace(string(prefix)), "bin")
+	if _, err := os.Stat(filepath.Join(bin, "opencode")); err != nil {
+		return path
+	}
+	return bin + string(os.PathListSeparator) + path
+}
+
 func (h *HostRuntime) node() string {
 	if h.Node == "" {
 		return "node"
@@ -438,7 +454,7 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 
 	env := []string{
 		// The harness is found on PATH, and so are node's own child processes.
-		"PATH=" + os.Getenv("PATH"),
+		"PATH=" + hostPATH(),
 		// A HOME of its own: the runtime installs this playbook's Agent Skills under
 		// $HOME/.config/opencode/skills, and with the operator's HOME that would write into
 		// the operator's own harness configuration.
@@ -476,7 +492,7 @@ func (h *hostRun) logStderr(ctx context.Context, pipe io.Reader) {
 		if line == "" {
 			continue
 		}
-		h.r.c.logger.DebugContext(ctx, "host turn runtime", "turn_id", h.r.turn.ID, "line", line)
+		h.r.c.logger.WarnContext(ctx, "host turn runtime", "turn_id", h.r.turn.ID, "line", line)
 	}
 }
 

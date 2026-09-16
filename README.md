@@ -658,7 +658,8 @@ What Podium does not do, and what will surprise you if nobody says it first.
   for that domain; later sign-ins from the same Workspace join as members, and other domains
   are refused. Owner vs member is recorded, not enforced on the API yet — a member can still
   drain nodes and delete secrets. The local token and every node identity remain fully
-  privileged. **The bot is unchanged**: anyone who can mention it in a Slack channel it has
+  privileged for the CLI and workers; the web UI does not ask a human to paste it when
+  Google sign-in is on. **The bot is unchanged**: anyone who can mention it in a Slack channel it has
   joined, or assign it a Linear issue, can make it run code on a worker with that playbook's
   credentials. A playbook's `secrets:` list scopes what one bot hands one turn — keep it
   minimal — but it is not a boundary around the secret store: `CreateTask` checks only that a
