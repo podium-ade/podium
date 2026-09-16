@@ -104,7 +104,7 @@ const viewer: Viewer = {
   pictureUrl: "",
 };
 
-function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
+function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -177,10 +177,12 @@ describe("AgentPage", () => {
   });
 
   it("offers Google sign-in on Settings and does not ask for a local token", async () => {
-    mount("/agent/settings", { ...viewer, googleAuthEnabled: true });
+    mount("/agent/settings/account", { ...viewer, googleAuthEnabled: true });
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
       "href",
       "/auth/google/start",
@@ -233,11 +235,18 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
   });
 
-  it("renders settings without the talk tabs", async () => {
-    mount("/agent/settings");
-    expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+  it("renders settings models without the talk tabs", async () => {
+    mount("/agent/settings/models");
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+    // Status lives on each card. A summary row of "Claude · not set" chips above the list
+    // is gone: it repeated the cards and read as a second, empty catalogue.
+    expect(screen.queryByText(/Claude · not set/i)).toBeNull();
+    expect(screen.queryByText(/Grok · not set/i)).toBeNull();
+    expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
   });
 
   it("keeps the Chat tab active on a deep link to one chat", async () => {
@@ -286,7 +295,7 @@ describe("AgentPage", () => {
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/encrypted at rest by podium-server/i).length).toBe(3);
+    expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

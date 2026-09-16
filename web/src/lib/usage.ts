@@ -204,7 +204,7 @@ export type Slice = { key: string; cost: number; turns: number };
 export function breakdown(costs: TaskCost[], pick: (c: TaskCost) => string): Slice[] {
   const totals = new Map<string, Slice>();
   for (const c of costs) {
-    const key = pick(c) || "—";
+    const key = pick(c) || "-";
     const cur = totals.get(key) ?? { key, cost: 0, turns: 0 };
     cur.cost += c.costUsd ?? 0;
     cur.turns += 1;

@@ -243,7 +243,7 @@ export function SpecForm({
                 <Alert role="alert" variant="destructive" title="CreateTask failed">
                   <p>{failure}</p>
                   <p className="mt-1 opacity-80">
-                    Nothing was queued. The spec is still here — submit it again once the server
+                    Nothing was queued. The spec is still here. Submit it again once the server
                     answers.
                   </p>
                 </Alert>
@@ -257,8 +257,8 @@ export function SpecForm({
                 {yamlEdited ? (
                   <Alert role="alert" variant="warn" title="The YAML document is the spec">
                     <p>
-                      This spec is edited as YAML, and that document is what goes to the server —
-                      it can hold things these fields cannot, a sidecar most of all. Rebuilding
+                      This spec is edited as YAML, and that document is what goes to the server.
+                      It can hold things these fields cannot, a sidecar most of all. Rebuilding
                       from the fields discards whatever they cannot express.
                     </p>
                     <Button
@@ -369,7 +369,7 @@ export function SpecForm({
                     <KeyValueEditor rows={envRows} onChange={setEnvRows} />
                     <p className="text-2xs leading-relaxed text-muted">
                       Names must be shell identifiers. A value here is stored with the task and
-                      shown on its detail screen — anything that must not be read back belongs in
+                      shown on its detail screen. Anything that must not be read back belongs in
                       Secrets.
                     </p>
                   </div>
@@ -628,7 +628,7 @@ export function SpecForm({
                   <div className="space-y-3">
                     <p className="text-xs leading-relaxed text-muted">
                       A sidecar is a sibling container started before the task and reachable from
-                      it by the name it is keyed under — a database, a browser, a Docker daemon.
+                      it by the name it is keyed under: a database, a browser, a Docker daemon.
                       Each one carries its own image, command, readiness probe and limits, which is
                       more structure than this form should pretend to flatten, so sidecars are
                       written in the spec document itself.
@@ -688,7 +688,7 @@ export function SpecForm({
                     ) : (
                       <p className="text-2xs leading-relaxed text-muted">
                         The same document <span className="font-mono">podium run --spec</span>{" "}
-                        takes. A field the schema does not have is rejected here, not ignored — a
+                        takes. A field the schema does not have is rejected here, not ignored. A
                         misspelled <span className="font-mono">privilged: true</span> must not
                         submit a task that quietly does something else.
                       </p>
@@ -719,7 +719,7 @@ export function SpecForm({
                   ? "Waiting for the server to accept the spec."
                   : blocked
                     ? `${problems.length} ${problems.length === 1 ? "problem" : "problems"} to fix before this can be submitted.`
-                    : "Queued the moment it is accepted. The scheduler places it on the first eligible node — until one is free, the task sits in queued."}
+                    : "Queued the moment it is accepted. The scheduler places it on the first eligible node. Until one is free, the task sits in queued."}
               </p>
             </aside>
           </div>

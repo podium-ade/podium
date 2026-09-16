@@ -29,7 +29,7 @@ const EFFORT_HINT: Record<string, string> = {
   medium: "Balanced",
   high: "Thorough",
   xhigh: "Deeper reasoning",
-  max: "Most thorough — uses the limit sooner",
+  max: "Most thorough. Uses the limit sooner",
 };
 
 export interface ChatComposerProps {
@@ -222,7 +222,7 @@ export function ChatComposer({
               label={
                 acceptImages
                   ? "Attach files or paste an image"
-                  : "Attach files — this model does not take images"
+                  : "Attach files. This model does not take images"
               }
             >
               <Button

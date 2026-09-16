@@ -1093,13 +1093,12 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings**, under the profile picture in the sidebar, has one card per
-provider.
+operator sets it. **Settings → Models** has one card per provider. Chat picks which model a
+turn uses; this category is how those models get a credential.
 
-Open the UI and click **Settings** under the signed-in identity at the bottom of the sidebar
-(it is only there when `PODIUM_AGENT_URL` is set on the server).
+Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
 
-<!-- screenshot: Settings, an Anthropic card, an xAI card and an OpenAI card, none set -->
+<!-- screenshot: Settings, Models category, an Anthropic card, an xAI card and an OpenAI card, none set -->
 
 Paste the key and press **Validate & save**. What happens, in order:
 
@@ -2283,7 +2282,7 @@ PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
 make build agent-runtime
 # Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
 #   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
-# then podium-node, then the conductor below, and set the key in the UI at /agent/settings.
+# then podium-node, then the conductor below, and set the key in the UI at /agent/settings/models.
 # The CLI way, if you would rather not open a browser:
 podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 

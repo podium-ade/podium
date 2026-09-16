@@ -105,7 +105,7 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
           ))}
           {logs.length > 0 ? (
             <p className="border-t border-hairline bg-panel/60 px-5 py-2 text-2xs text-faint">
-              Archived logs — the same output as above, compressed into the object store once the
+              Archived logs: the same output as above, compressed into the object store once the
               task finished.
             </p>
           ) : null}

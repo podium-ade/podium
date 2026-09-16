@@ -47,7 +47,7 @@ function styleOf(entry: TimelineEntry) {
 }
 
 function clock(entry: TimelineEntry): string {
-  return toDate(entry.ts)?.toLocaleTimeString() ?? "—";
+  return toDate(entry.ts)?.toLocaleTimeString() ?? "-";
 }
 
 /** The wait between two events, which is usually where a slow task actually spent its time. */
