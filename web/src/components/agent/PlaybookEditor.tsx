@@ -295,7 +295,7 @@ export function PlaybookEditor({
         {mode === "form" && yamlEdited ? (
           <Alert role="alert" variant="warn" title="The YAML document is the playbook">
             <p>
-              This playbook is edited as YAML, and that document is what is validated — it can
+              This playbook is edited as YAML, and that document is what is validated. It can
               hold fields these controls do not, <code className="font-mono">docker</code> and{" "}
               <code className="font-mono">browser</code> most of all. Rebuilding from the form
               discards whatever they cannot express.
@@ -356,9 +356,9 @@ export function PlaybookEditor({
               label="Image"
               hint={
                 <>
-                  Any image you supply. It has to implement the turn-brief protocol — read the
+                  Any image you supply. It has to implement the turn-brief protocol: read the
                   brief off <code className="font-mono">PODIUM_AGENT_TURN</code> and emit the
-                  runner&apos;s message events — and{" "}
+                  runner&apos;s message events, and{" "}
                   <code className="font-mono">
                     FROM ghcr.io/podium-ade/podium-agent-runtime
                   </code>{" "}
@@ -420,7 +420,7 @@ export function PlaybookEditor({
                 className="font-mono text-xs"
               />
               <p className="text-2xs leading-relaxed text-faint">
-                One per line, in the harness&apos;s own names — <Mono>read</Mono>,{" "}
+                One per line, in the harness&apos;s own names: <Mono>read</Mono>,{" "}
                 <Mono>grep</Mono>, <Mono>glob</Mono>, <Mono>bash</Mono>, <Mono>edit</Mono>,{" "}
                 <Mono>write</Mono>, <Mono>webfetch</Mono>, <Mono>list</Mono>, <Mono>patch</Mono>,{" "}
                 <Mono>task</Mono>. At least one is required.
@@ -614,7 +614,7 @@ export function PlaybookEditor({
                   </div>
                   {missing ? (
                     <p className="text-xs text-warn">
-                      No secret named <Mono>{r.a.trim()}</Mono> is registered — a turn of this
+                      No secret named <Mono>{r.a.trim()}</Mono> is registered. A turn of this
                       playbook will fail admission.{" "}
                       <Link to="/secrets" className="text-accent hover:underline">
                         Register it
@@ -650,7 +650,7 @@ export function PlaybookEditor({
                 </Link>{" "}
                 library. A skill is instructions and scripts somebody else wrote, and they run
                 in this playbook&apos;s container with this playbook&apos;s credentials. Naming
-                none — the default — is enforced and not merely unset: the turn is handed a
+                none (the default) is enforced and not merely unset: the turn is handed a
                 permission map that denies every skill, the harness&apos;s own included.
               </p>
             </div>
@@ -673,7 +673,7 @@ export function PlaybookEditor({
               .filter((n) => !skillsUnknown && !installed.has(n))
               .map((n) => (
                 <p key={n} className="text-xs text-warn" data-testid="skill-missing">
-                  No skill named <Mono>{n}</Mono> is installed on this conductor — a turn of this
+                  No skill named <Mono>{n}</Mono> is installed on this conductor. A turn of this
                   playbook will fail.{" "}
                   <Link to="/agent/skills" className="text-accent hover:underline">
                     Add it
@@ -685,7 +685,7 @@ export function PlaybookEditor({
               .filter((n) => disabled.has(n))
               .map((n) => (
                 <p key={n} className="text-xs text-warn" data-testid="skill-disabled">
-                  <Mono>{n}</Mono> is installed but disabled — a turn of this playbook will fail
+                  <Mono>{n}</Mono> is installed but disabled. A turn of this playbook will fail
                   rather than run without it.
                 </p>
               ))}
@@ -710,7 +710,7 @@ export function PlaybookEditor({
                 </Link>{" "}
                 registry. Naming one here is what gives a turn of this playbook that
                 server&apos;s tools <em>and</em> its stored token, so name only what this
-                playbook&apos;s work needs. Naming none — the default — means the turn has no
+                playbook&apos;s work needs. Naming none (the default) means the turn has no
                 MCP tools beyond the ones the conductor wires up itself.
               </p>
             </div>
@@ -733,7 +733,7 @@ export function PlaybookEditor({
               .filter((n) => !mcpUnknown && !registeredMcp.has(n))
               .map((n) => (
                 <p key={n} className="text-xs text-warn" data-testid="mcp-missing">
-                  No MCP server named <Mono>{n}</Mono> is registered on this conductor — a turn
+                  No MCP server named <Mono>{n}</Mono> is registered on this conductor. A turn
                   of this playbook will fail.{" "}
                   <Link to="/agent/mcp" className="text-accent hover:underline">
                     Add it
@@ -745,7 +745,7 @@ export function PlaybookEditor({
               .filter((n) => disabledMcp.has(n))
               .map((n) => (
                 <p key={n} className="text-xs text-warn" data-testid="mcp-disabled">
-                  <Mono>{n}</Mono> is registered but disabled — a turn of this playbook will
+                  <Mono>{n}</Mono> is registered but disabled. A turn of this playbook will
                   fail rather than run without it.
                 </p>
               ))}
@@ -789,7 +789,7 @@ export function PlaybookEditor({
             ))}
             <AddRow label="Add a variable" onClick={() => setEnvRows([...envRows, row()])} />
             <p className="text-2xs text-faint">
-              Plain environment, never a credential — it is stored and shown in clear.
+              Plain environment, never a credential. It is stored and shown in clear.
             </p>
           </Disclosure>
 
@@ -847,7 +847,7 @@ export function PlaybookEditor({
             <p className="text-2xs text-faint">
               Who this playbook&rsquo;s commits are by. Empty inherits the profile&rsquo;s. GitHub links a
               commit to an account by the email, so use one that belongs to the account whose token
-              this playbook pushes with &mdash; an address owned by nobody leaves every commit
+              this playbook pushes with. An address owned by nobody leaves every commit
               unattributed, which is what blocks a Vercel deployment.
             </p>
           </Disclosure>
@@ -919,7 +919,7 @@ export function PlaybookEditor({
               </Label>
               <p className="text-2xs leading-relaxed text-faint">
                 Off by default. When on, the agent can ask you something and keep the
-                container — clones, a Docker daemon, a browser — until you reply. Waiting
+                container (clones, a Docker daemon, a browser) until you reply. Waiting
                 still counts against the timeout.
               </p>
             </div>
@@ -1052,7 +1052,7 @@ export function PlaybookEditor({
         </Button>
         {locked ? null : (
           <p className="hidden text-2xs text-faint sm:block">
-            A save takes effect on the next turn — running turns keep the definition they
+            A save takes effect on the next turn. Running turns keep the definition they
             started with.
           </p>
         )}
@@ -1076,7 +1076,7 @@ export function PlaybookEditor({
                 <DialogHeader>
                   <DialogTitle>Delete /{playbook.name}?</DialogTitle>
                   <DialogDescription>
-                    The definition goes with it — prompt, tools, limits and the secrets it
+                    The definition goes with it: prompt, tools, limits and the secrets it
                     names. Anything that routes to this playbook stops working on the next turn.
                     There is no undo.
                   </DialogDescription>

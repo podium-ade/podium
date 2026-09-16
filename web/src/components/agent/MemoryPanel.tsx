@@ -132,7 +132,7 @@ export function MemoryPanel() {
       {/* role="note" rather than the default status: this is standing copy, not something
           that just happened, and a live region that never changes is noise to a reader. */}
       <Alert variant="warn" role="note" title="Treat every line here as something an agent was told">
-        Anything an agent reads — a Slack message, a ticket, a repository — can try to plant a
+        Anything an agent reads (a Slack message, a ticket, a repository) can try to plant a
         false memory here. This list is where a human catches it: forget anything that looks
         wrong.
       </Alert>
@@ -190,7 +190,7 @@ export function MemoryPanel() {
           <Empty
             icon={Search}
             title="Nothing remembered matches that."
-            hint="The store is not empty — nothing in it is close enough to those words. Try a name, a host or a port instead of a sentence."
+            hint="The store is not empty. Nothing in it is close enough to those words. Try a name, a host or a port instead of a sentence."
           />
         ) : (
           <Empty

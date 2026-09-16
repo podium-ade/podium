@@ -41,7 +41,7 @@ export function TaskRowActions({ task }: { task: Task }) {
     mutationFn: () => tasks.cancelTask({ taskId: task.id, reason: "cancelled from the task list" }),
     onSuccess: () => {
       setConfirming(false);
-      toast("Cancel requested — the node has up to 30s to stop the container.", "ok");
+      toast("Cancel requested. The node has up to 30s to stop the container.", "ok");
       void qc.invalidateQueries({ queryKey: ["tasks"] });
     },
     onError: (err) => toast(`CancelTask: ${errorMessage(err)}`),
@@ -103,7 +103,7 @@ export function TaskRowActions({ task }: { task: Task }) {
               {` is ${taskStatusLabel(task.status)}`}
               {image ? (
                 <>
-                  {" — "}
+                  {" · "}
                   <span className="font-mono text-fg">{image}</span>
                 </>
               ) : null}

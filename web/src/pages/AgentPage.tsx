@@ -2,12 +2,13 @@ import { Fragment, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Brain,
+  Cpu,
   History,
   MessageSquare,
   Settings2,
   UserRound,
 } from "lucide-react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { McpCallback } from "../components/agent/McpCallback";
@@ -20,12 +21,12 @@ import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButt
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
-import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
 import { Separator } from "../components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
@@ -34,8 +35,9 @@ import { cn } from "../lib/utils";
 
 /**
  * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
- * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app sidebar
- * instead — they are destinations of their own, not something you switch between while talking.
+ * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app
+ * sidebar instead — they are destinations of their own, not something you switch between
+ * while talking.
  *
  * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
  * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
@@ -81,7 +83,8 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.
   { path: "mcp/callback", element: <McpCallback /> },
-  { path: "settings", element: <SettingsTab /> },
+  { path: "models", element: <Navigate to="/agent/settings/models" replace /> },
+  { path: "settings/*", element: <SettingsTab /> },
 ];
 
 /**
@@ -197,13 +200,85 @@ export function AgentPage() {
 }
 
 /**
- * SettingsTab owns the RPCs and hands each card the functions it needs.
- *
- * Every provider gets a card whether or not it is configured, because the card is also
- * where an operator finds out that it is not: a Grok playbook that cannot run is easier to
- * understand next to a card that says "Not set" than as a failure on the next turn.
+ * SettingsTab is a category page, not a pile of cards. Cursor, Linear and GitHub all put
+ * Account next to Models (or Billing, or Integrations) as tabs of one Settings screen;
+ * shadcn Tabs is that pattern. The active category is a nested route so the back button
+ * and a deep link both work.
  */
 function SettingsTab() {
+  const viewer = useViewer();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
+
+  const categories: { id: string; label: string; icon: LucideIcon }[] = [
+    ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
+    ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
+  ];
+
+  if (categories.length === 0) {
+    return (
+      <Empty
+        title="Nothing to configure"
+        hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
+      />
+    );
+  }
+
+  const fallback = categories[0].id;
+  const current = categories.some((c) => c.id === tab) ? tab : "";
+  if (!current) {
+    return <Navigate to={`/agent/settings/${fallback}`} replace />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Settings" description="Account and the model APIs this conductor can spend." />
+      <Tabs
+        orientation="vertical"
+        value={current}
+        onValueChange={(id) => navigate(`/agent/settings/${id}`)}
+        className="flex-row items-start gap-8"
+      >
+        <TabsList
+          aria-label="Settings"
+          className="flex h-auto w-44 shrink-0 flex-col items-stretch gap-0.5 rounded-none border-0 bg-transparent p-0"
+        >
+          {categories.map((c) => (
+            <TabsTrigger key={c.id} value={c.id} className="w-full justify-start px-2.5">
+              <c.icon />
+              {c.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {current === "account" ? (
+          <TabsContent value="account" className="min-w-0 flex-1 space-y-4">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+              Who is signed in on this browser. The local token stays a machine credential for
+              the CLI and workers.
+            </p>
+            <IdentityCard />
+          </TabsContent>
+        ) : null}
+        {current === "models" ? (
+          <TabsContent value="models" className="min-w-0 flex-1 space-y-4">
+            <ModelsPanel />
+          </TabsContent>
+        ) : null}
+      </Tabs>
+    </div>
+  );
+}
+
+/**
+ * ModelsPanel is one card per provider the conductor can spend. Every provider gets a card
+ * whether or not it is configured: a Grok playbook that cannot run is easier to understand
+ * next to a card that says "Not set" than as a failure on the next turn.
+ *
+ * The picker in Chat is which model a turn uses. This panel is how those models get a
+ * credential.
+ */
+function ModelsPanel() {
   const viewer = useViewer();
   const qc = useQueryClient();
   const settings = useQuery({
@@ -222,118 +297,61 @@ function SettingsTab() {
     onSuccess: reload,
   });
 
-  // A conductor that is down is not a broken page: the cards still render, and their status
-  // strips are where the operator is told. Any other failure to read the settings is.
   if (viewer?.agentEnabled && settings.isError && !isAgentUnreachable(settings.error)) {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
   const stored = settings.data?.providers ?? [];
-  const connected = PROVIDERS.filter(
-    (p) => stored.find((s) => s.provider === p.id)?.keySet,
-  ).length;
 
   return (
-    <div className="space-y-10">
-      <PageHeader
-        title="Settings"
-        description="Account for this browser, and credentials for the models the conductor can run."
-      />
+    <>
+      <p className="max-w-2xl text-sm leading-relaxed text-muted">
+        Connect a provider. Chat picks the model; this is what that picker can spend. A turn
+        is handed one credential (the backend it names) and never the others.
+      </p>
 
-      {viewer?.googleAuthEnabled ? (
-        <SettingsSection
-          title="Account"
-          description="Who is signed in on this browser. The local token stays a machine credential for the CLI and workers."
-        >
-          <IdentityCard />
-        </SettingsSection>
+      {isAgentUnreachable(settings.error) ? (
+        <ConductorDown
+          what="The stored credentials could not be read"
+          onRetry={() => void settings.refetch()}
+          retrying={settings.isFetching}
+        />
       ) : null}
 
-      {viewer?.agentEnabled ? (
-        <SettingsSection
-          title="Models"
-          description="Each key is stored as a Podium secret. The UI never sees more than the last four characters."
-          meta={
-            settings.data === undefined ? null : (
-              <>
-                <Badge tone={connected > 0 ? "ok" : "idle"}>
-                  {connected} of {PROVIDERS.length} connected
-                </Badge>
-                {connected < PROVIDERS.length ? (
-                  <Chip>{PROVIDERS.length - connected} still to set up</Chip>
-                ) : null}
-              </>
-            )
-          }
-        >
-          {isAgentUnreachable(settings.error) ? (
-            <ConductorDown
-              what="The stored credentials could not be read"
-              onRetry={() => void settings.refetch()}
-              retrying={settings.isFetching}
-            />
-          ) : null}
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            {PROVIDERS.map((p) => (
-              <ProviderCard
-                key={p.id}
-                provider={p}
-                settings={stored.find((s) => s.provider === p.id)}
-                loading={settings.isPending}
-                onSave={(key) => save.mutateAsync({ provider: p.id, key })}
-                onClear={async () => {
-                  await clear.mutateAsync(p.id);
-                }}
-                onStartOAuth={
-                  p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
-                }
-                onPollOAuth={
-                  p.subscription
-                    ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
-                    : undefined
-                }
-                onSignedIn={() => void reload()}
-              />
-            ))}
-          </div>
-          <p className="max-w-3xl text-xs leading-relaxed text-muted">
-            Secrets{" "}
-            {PROVIDERS.map((p, i) => (
-              <span key={p.id}>
-                {i > 0 ? ", " : ""}
-                <code className="font-mono text-fg">{p.secretName}</code>
-              </span>
-            ))}
-            . A turn is handed only the one its backend spends.
-          </p>
-        </SettingsSection>
-      ) : null}
-    </div>
-  );
-}
-
-function SettingsSection({
-  title,
-  description,
-  meta,
-  children,
-}: {
-  title: string;
-  description: string;
-  meta?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
-          {meta ? <div className="flex flex-wrap items-center gap-1.5">{meta}</div> : null}
-        </div>
-        <p className="max-w-2xl text-xs leading-relaxed text-muted">{description}</p>
+      <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        {PROVIDERS.map((p) => (
+          <ProviderCard
+            key={p.id}
+            provider={p}
+            settings={stored.find((s) => s.provider === p.id)}
+            loading={settings.isPending}
+            onSave={(key) => save.mutateAsync({ provider: p.id, key })}
+            onClear={async () => {
+              await clear.mutateAsync(p.id);
+            }}
+            onStartOAuth={
+              p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+            }
+            onPollOAuth={
+              p.subscription
+                ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                : undefined
+            }
+            onSignedIn={() => void reload()}
+          />
+        ))}
       </div>
-      {children}
-    </section>
+      <p className="max-w-3xl text-xs leading-relaxed text-muted">
+        Encrypted at rest by podium-server as{" "}
+        {PROVIDERS.map((p, i) => (
+          <span key={p.id}>
+            {i > 0 ? ", " : ""}
+            <code className="font-mono text-fg">{p.secretName}</code>
+          </span>
+        ))}
+        .
+      </p>
+    </>
   );
 }
 

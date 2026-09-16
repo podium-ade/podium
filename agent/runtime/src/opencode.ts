@@ -206,11 +206,12 @@ export function skillPermission(names: string[]): Record<string, "allow" | "deny
  */
 export function chatgptAccountId(token: string): string | undefined {
   const parts = token.split(".");
-  if (parts.length !== 3) {
+  const payloadB64 = parts[1];
+  if (parts.length !== 3 || payloadB64 === undefined) {
     return undefined;
   }
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8")) as {
       "https://api.openai.com/auth"?: { chatgpt_account_id?: unknown };
     };
     const id = payload["https://api.openai.com/auth"]?.chatgpt_account_id;

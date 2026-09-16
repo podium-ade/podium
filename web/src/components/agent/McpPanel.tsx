@@ -107,7 +107,7 @@ export function McpPanel() {
         title="MCP servers"
         description={
           <>
-            An MCP server is a set of tools the model can call over HTTP — Linear&apos;s issues,
+            An MCP server is a set of tools the model can call over HTTP: Linear&apos;s issues,
             a wiki, an internal API. Registering one here says this conductor <em>can</em> reach
             it; a playbook naming it is what decides which turns <em>do</em>.
           </>
@@ -739,7 +739,7 @@ function TokenDialog({
           <DialogDescription>
             It is stored as the Podium secret <code className="font-mono">{server.tokenSecret}</code>{" "}
             and reaches a turn as <code className="font-mono">{server.tokenEnv}</code>. Nothing
-            reads it back — not this screen, not the conductor. A sign-in ends up in exactly
+            reads it back, not this screen, not the conductor. A sign-in ends up in exactly
             the same place; pasting a token replaces one.
           </DialogDescription>
         </DialogHeader>

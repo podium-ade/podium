@@ -78,14 +78,14 @@ export function BackendTable({ backends }: { backends: UsageBackend[] }) {
                 )}
               </TableCell>
               <TableCell className="font-mono text-xs text-fg">
-                {unrecorded ? <span className="text-faint">—</span> : b.model}
+                {unrecorded ? <span className="text-faint">-</span> : b.model}
               </TableCell>
-              <TableCell className="text-xs text-muted">{b.agent || "—"}</TableCell>
+              <TableCell className="text-xs text-muted">{b.agent || "-"}</TableCell>
               <TableCell>
                 {/* An empty effort on a recorded turn is not missing data: it means the
                     model's own default, which is a different thing from "unrecorded". */}
                 {unrecorded ? (
-                  <span className="text-xs text-faint">—</span>
+                  <span className="text-xs text-faint">-</span>
                 ) : b.effort ? (
                   <Chip>{b.effort}</Chip>
                 ) : (
@@ -104,7 +104,7 @@ export function BackendTable({ backends }: { backends: UsageBackend[] }) {
                 {b.modelTurns.toLocaleString()}
               </TableCell>
               <TableCell className="text-right text-xs tabular text-muted">
-                {b.turns > 0 ? usd(b.costUsd / b.turns) : "—"}
+                {b.turns > 0 ? usd(b.costUsd / b.turns) : "-"}
               </TableCell>
               <TableCell className="text-right text-xs font-medium tabular text-fg">
                 {usd(b.costUsd)}
@@ -118,7 +118,7 @@ export function BackendTable({ backends }: { backends: UsageBackend[] }) {
                     />
                   </div>
                   <span className="w-9 shrink-0 text-right text-2xs tabular text-faint">
-                    {total > 0 ? `${Math.round(share * 100)}%` : "—"}
+                    {total > 0 ? `${Math.round(share * 100)}%` : "-"}
                   </span>
                 </div>
               </TableCell>
