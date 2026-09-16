@@ -479,7 +479,7 @@ describe("ChatPanel", () => {
 
     const trigger = await screen.findByTestId("chat-run-config");
     await waitFor(() => expect(trigger).toHaveTextContent("grok-4.6"));
-    expect(trigger).toHaveTextContent("high");
+    expect(await screen.findByTestId("chat-effort")).toHaveTextContent("High");
 
     // And it rides with the next message without anybody touching the picker.
     await userEvent.type(await screen.findByTestId("chat-composer"), "again{Enter}");
@@ -528,6 +528,20 @@ describe("ChatPanel", () => {
         effort: "",
       }),
     );
+  });
+
+  it("keeps the question on screen while the send is in flight", async () => {
+    listChats.mockResolvedValue({ chats: [{ ...chat, preview: "" }], nextCursor: "" });
+    sendChatMessage.mockImplementation(() => new Promise(() => {}));
+    mount("/agent/chat/chat_01abc");
+
+    expect(await screen.findByText("Ask Podium something")).toBeInTheDocument();
+    await userEvent.type(await screen.findByTestId("chat-composer"), "how many accounts{Enter}");
+
+    expect(await screen.findByTestId("chat-message")).toHaveTextContent("how many accounts");
+    expect(screen.queryByText("Ask Podium something")).toBeNull();
+    expect(screen.getByTestId("chat-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-composer")).toBeDisabled();
   });
 
   it("says so plainly when the server refuses a concurrent send", async () => {

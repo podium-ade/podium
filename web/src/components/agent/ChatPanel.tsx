@@ -2,16 +2,25 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ArrowDown,
   Bot,
+  Check,
+  Copy,
   MessageSquarePlus,
   Pencil,
+  Search,
   Sparkles,
   Terminal,
   Trash2,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Assistant, Chat, ChatMessage } from "../../gen/podium/agent/v1/agent_pb";
+import {
+  ChatMessageSchema,
+  type Assistant,
+  type Chat,
+  type ChatMessage,
+} from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
@@ -189,7 +198,7 @@ export function ChatPanel() {
           {active === "" ? (
             <div className="grid min-h-0 flex-1 place-items-center p-6">
               <Empty
-                className="max-w-lg"
+                className="max-w-lg border-0 bg-transparent px-4 py-10"
                 icon={Sparkles}
                 title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
                 hint={assistantHint(playbooks.data?.assistant?.displayName, playbookNames)}
@@ -210,6 +219,7 @@ export function ChatPanel() {
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
               listedOrigin={list.find((c) => c.id === active)?.origin}
+              listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
               playbookNames={playbookNames}
@@ -282,6 +292,32 @@ function when(c: Chat): number {
   return toDate(c.lastMessageAt ?? c.createdAt)?.getTime() ?? 0;
 }
 
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** recencyLabel is Today / Yesterday / Previous 7 days / Older, newest-first grouping. */
+function recencyLabel(ms: number, now = Date.now()): string {
+  const today = startOfDay(now);
+  if (ms >= today) return "Today";
+  if (ms >= today - 86_400_000) return "Yesterday";
+  if (ms >= today - 7 * 86_400_000) return "Previous 7 days";
+  return "Older";
+}
+
+function groupChats(chats: Chat[]): { label: string; chats: Chat[] }[] {
+  const groups: { label: string; chats: Chat[] }[] = [];
+  for (const c of chats) {
+    const label = recencyLabel(when(c));
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.chats.push(c);
+    else groups.push({ label, chats: [c] });
+  }
+  return groups;
+}
+
 function ChatRail({
   chats,
   active,
@@ -307,14 +343,19 @@ function ChatRail({
   // doing" is the only order a chat list is ever read in.
   const ordered = useMemo(() => chats.slice().sort((a, b) => when(b) - when(a)), [chats]);
   const activeChat = ordered.find((c) => c.id === active);
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q === "") return ordered;
+    return ordered.filter(
+      (c) => c.title.toLowerCase().includes(q) || c.preview.toLowerCase().includes(q),
+    );
+  }, [ordered, query]);
+  const groups = useMemo(() => groupChats(filtered), [filtered]);
 
   return (
-    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-panel sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
-      <div className="flex items-center gap-2 px-3 py-3">
-        <p className="text-2xs font-medium tracking-wider text-faint uppercase">Chats</p>
-        {ordered.length > 0 ? (
-          <span className="tabular text-2xs text-faint">{ordered.length}</span>
-        ) : null}
+    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
+      <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
         <Tooltip label="New chat — or press N">
           <Button
             type="button"
@@ -322,12 +363,25 @@ function ChatRail({
             data-testid="chat-new"
             disabled={creating}
             onClick={onNew}
-            className="ml-auto"
+            className="w-full justify-center"
           >
             <MessageSquarePlus />
             {creating ? "Opening…" : "New chat"}
           </Button>
         </Tooltip>
+        {ordered.length > 4 ? (
+          <label className="relative block">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
+            <Input
+              data-testid="chat-search"
+              aria-label="Search chats"
+              value={query}
+              placeholder="Search"
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-8 bg-bg pl-8"
+            />
+          </label>
+        ) : null}
       </div>
 
       {/* On a narrow viewport the rail is a select rather than a drawer: one control, no
@@ -381,16 +435,28 @@ function ChatRail({
             No chats yet. Start one and it appears here, newest first.
           </li>
         ) : null}
-        {ordered.map((c) => (
-          <ChatRow
-            key={c.id}
-            chat={c}
-            active={c.id === active}
-            onOpen={onOpen}
-            onRename={onRename}
-            onDelete={onDelete}
-            deleting={deletingId === c.id}
-          />
+        {!loading && ordered.length > 0 && filtered.length === 0 ? (
+          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">No chats match.</li>
+        ) : null}
+        {groups.map((g) => (
+          <li key={g.label} className="mt-2 first:mt-0">
+            <p className="px-2.5 pt-1 pb-1 text-2xs font-medium tracking-wider text-faint uppercase">
+              {g.label}
+            </p>
+            <ul className="space-y-0.5">
+              {g.chats.map((c) => (
+                <ChatRow
+                  key={c.id}
+                  chat={c}
+                  active={c.id === active}
+                  onOpen={onOpen}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                  deleting={deletingId === c.id}
+                />
+              ))}
+            </ul>
+          </li>
         ))}
       </ul>
     </div>
@@ -484,7 +550,7 @@ function ChatRow({
 
   return (
     <li
-      className={`group relative flex items-stretch rounded-md ${
+      className={`group relative flex items-stretch rounded-lg ${
         active
           ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
           : "hover:bg-raised/60"
@@ -498,7 +564,7 @@ function ChatRow({
           start();
         }}
         aria-current={active ? "true" : undefined}
-        className="min-w-0 flex-1 rounded-md px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="flex items-baseline gap-2">
           <span
@@ -530,7 +596,7 @@ function ChatRow({
           </span>
         </span>
       </button>
-      <div className="m-1 flex shrink-0 self-start">
+      <div className="m-1 flex shrink-0 self-start opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
         <Tooltip label="Rename">
           <Button
             type="button"
@@ -606,7 +672,7 @@ function ConversationTitle({
   };
 
   return (
-    <div className="flex h-10 shrink-0 items-center border-b border-hairline px-5">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-4 sm:px-5">
       {editing ? (
         <form
           onSubmit={(e) => {
@@ -633,7 +699,7 @@ function ConversationTitle({
                 cancel();
               }
             }}
-            className="h-7 px-2"
+            className="h-8 px-2"
           />
         </form>
       ) : (
@@ -643,7 +709,7 @@ function ConversationTitle({
           onClick={start}
           title="Rename"
           disabled={!title}
-          className="min-w-0 truncate rounded-md text-left text-sm font-medium text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:text-muted"
+          className="min-w-0 truncate rounded-md text-left text-base font-medium tracking-tight text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:text-muted"
         >
           {title || "Chat"}
         </button>
@@ -657,6 +723,7 @@ function Conversation({
   title,
   remembered,
   listedOrigin,
+  listedEmpty,
   onRename,
   assistant,
   playbookNames,
@@ -671,6 +738,11 @@ function Conversation({
    * alone rendered a composer for a mirrored thread and then took it away again.
    */
   listedOrigin?: string;
+  /**
+   * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
+   * skeleton is a fake user bubble and would flash before the greeting.
+   */
+  listedEmpty?: boolean;
   onRename: (title: string) => Promise<void>;
   assistant?: Assistant;
   playbookNames: string[];
@@ -727,6 +799,11 @@ function Conversation({
   const setChoice = setPicked;
   const { agents } = useAgents();
 
+  // pendingUser is the question that has been sent but not yet on the stream. Showing it
+  // immediately is what stops the greeting (or the previous answer) flashing through the
+  // gap between the RPC returning and the stream catching up.
+  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(null);
+
   const send = useMutation({
     mutationFn: (v: { text: string; choice: AgentChoice }) =>
       agent.sendChatMessage({
@@ -738,11 +815,18 @@ function Conversation({
         model: v.choice.model,
         effort: v.choice.effort,
       }),
-    onSuccess: () => {
+    onMutate: (v) => {
       pin(true);
+      setPendingUser({
+        text: v.text,
+        before: stream.messages.filter((m) => m.role === "user").length,
+      });
+    },
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
     },
     onError: (err) => {
+      setPendingUser(null);
       // The composer is disabled while a turn runs, so this is the race rather than the
       // rule: another tab got there first.
       if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
@@ -769,8 +853,23 @@ function Conversation({
   }, [stick, stream.gone]);
 
   const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
-  const busy = (stream.running && !stream.awaiting) || send.isPending;
-  const connecting = stream.phase === "connecting" && stream.messages.length === 0 && !stream.gone;
+  const userCount = stream.messages.filter((m) => m.role === "user").length;
+  const last = stream.messages[stream.messages.length - 1];
+  const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
+  // Hold the waiting state until the stream says the turn started (or already finished).
+  // send.isPending alone drops when the RPC returns, one frame before the status frame.
+  const holdBusy =
+    pendingUser !== null &&
+    !stream.running &&
+    !stream.awaiting &&
+    last?.role !== "assistant";
+  const busy = (stream.running && !stream.awaiting) || send.isPending || holdBusy;
+  const connecting =
+    stream.phase === "connecting" &&
+    stream.messages.length === 0 &&
+    !stream.gone &&
+    !listedEmpty;
+  const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
 
   if (stream.gone) {
     return (
@@ -811,7 +910,7 @@ function Conversation({
           }}
           className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
         >
-          <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-5 px-5 py-6">
+          <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-5">
             {connecting ? <TranscriptSkeleton /> : null}
 
             {stream.error ? (
@@ -821,13 +920,27 @@ function Conversation({
               </Alert>
             ) : null}
 
-            {!connecting && stream.messages.length === 0 ? (
-              <FirstMessage botName={botName} playbookNames={playbookNames} />
+            {showWelcome ? (
+              <FirstMessage
+                botName={botName}
+                playbookNames={playbookNames}
+                onSuggest={(text) => send.mutate({ text, choice })}
+                suggesting={busy}
+              />
             ) : null}
 
             {stream.messages.map((m, i) => (
               <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
             ))}
+
+            {pendingVisible ? (
+              <Turn
+                key="pending-user"
+                message={create(ChatMessageSchema, { role: "user", text: pendingUser.text })}
+                botName={botName}
+                firstOfRun
+              />
+            ) : null}
 
             {/* Last, where the answer itself will land. A turn's state used to be a pill
                 stuck to the top of the transcript, which took its own line in the flow and
@@ -859,7 +972,7 @@ function Conversation({
       {mirrored ? (
         <div
           data-testid="chat-mirrored-note"
-          className="border-t border-border px-4 py-3 text-xs text-muted"
+          className="border-t border-border bg-panel/40 px-5 py-3 text-xs leading-relaxed text-muted"
         >
           This conversation lives in {origin}. Reply to it there — Podium keeps a copy so it
           can be read here.
@@ -904,11 +1017,11 @@ function Thinking({
     <div className="flex gap-3" data-testid="chat-progress" role="status" aria-live="polite">
       <span
         aria-hidden
-        className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg border border-border bg-panel text-accent"
+        className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-border bg-panel text-accent"
       >
         <Bot className="size-4" />
       </span>
-      <div className="min-w-0 flex-1 space-y-1.5">
+      <div className="min-w-0 flex-1 space-y-1.5 pt-1">
         <div className="flex items-baseline gap-2">
           <span className="text-xs font-medium text-fg">{botName}</span>
           {taskId ? (
@@ -921,9 +1034,9 @@ function Thinking({
             </Link>
           ) : null}
         </div>
-        <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
           <Dots />
-          <span className="min-w-0 truncate">{progress ?? "Thinking"}</span>
+          <span className="min-w-0 truncate animate-shimmer">{progress ?? "Thinking"}</span>
         </div>
       </div>
     </div>
@@ -949,18 +1062,48 @@ function Dots() {
   );
 }
 
-function FirstMessage({ botName, playbookNames }: { botName: string; playbookNames: string[] }) {
+const SUGGESTIONS = [
+  "Why did the nightly ETL fail?",
+  "Summarise the last failed task",
+  "What can you do on this stack?",
+];
+
+function FirstMessage({
+  botName,
+  playbookNames,
+  onSuggest,
+  suggesting,
+}: {
+  botName: string;
+  playbookNames: string[];
+  onSuggest: (text: string) => void;
+  suggesting: boolean;
+}) {
   return (
-    <div className="flex flex-col items-center gap-3 py-10 text-center">
-      <span className="grid size-10 place-items-center rounded-xl border border-border bg-panel text-accent">
+    <div className="flex flex-col items-center gap-4 py-12 text-center">
+      <span className="grid size-12 place-items-center rounded-2xl border border-border bg-panel text-accent shadow-xs">
         <Sparkles className="size-5" />
       </span>
-      <p className="text-sm font-medium text-fg">Ask {botName} something</p>
-      <p className="max-w-md text-xs leading-relaxed text-muted">
-        {botName} answers here. When something needs a machine it starts a task on your nodes
-        and reports back — you will see each one it runs. Try{" "}
-        <span className="text-fg">why did the nightly ETL fail?</span>
-      </p>
+      <div className="space-y-1.5">
+        <p className="text-xl font-medium tracking-tight text-fg">Ask {botName} something</p>
+        <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
+          {botName} answers here. When something needs a machine it starts a task on your nodes
+          and reports back — you will see each one it runs.
+        </p>
+      </div>
+      <div className="flex max-w-lg flex-wrap justify-center gap-2">
+        {SUGGESTIONS.map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            disabled={suggesting}
+            onClick={() => onSuggest(prompt)}
+            className="rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-fg shadow-xs transition-colors hover:border-accent/40 hover:bg-raised disabled:opacity-50"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
       {playbookNames.length > 0 ? (
         <p className="max-w-md text-2xs text-faint">
           It can run{" "}
@@ -1081,7 +1224,7 @@ function Turn({
           data-role={message.role}
           data-author={message.author || undefined}
           title={absolute(message.ts)}
-          className="min-w-0 max-w-[85%] rounded-xl rounded-br-sm border border-accent/25 bg-accent/12 px-3.5 py-2.5"
+          className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-accent/14 px-4 py-2.5"
         >
           <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
           <ChatAttachments attachments={message.attachments} />
@@ -1104,10 +1247,10 @@ function Turn({
   const thinking = message.role === "progress";
 
   return (
-    <div className="flex gap-3">
+    <div className="group/turn flex gap-3">
       <span
         aria-hidden
-        className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${
+        className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${
           firstOfRun ? `border border-border bg-panel ${thinking ? "text-muted" : "text-accent"}` : ""
         }`}
       >
@@ -1143,7 +1286,36 @@ function Turn({
           />
           <ChatAttachments attachments={message.attachments} />
         </div>
+        {!thinking ? <CopyMessage text={message.text} /> : null}
       </div>
+    </div>
+  );
+}
+
+function CopyMessage({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1600);
+    return () => clearTimeout(id);
+  }, [copied]);
+  if (text.trim() === "") return null;
+  return (
+    <div className="flex opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
+      <Tooltip label={copied ? "Copied" : "Copy"}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={copied ? "Copied" : "Copy message"}
+          onClick={() => {
+            void navigator.clipboard?.writeText(text);
+            setCopied(true);
+          }}
+        >
+          {copied ? <Check className="text-ok" /> : <Copy />}
+        </Button>
+      </Tooltip>
     </div>
   );
 }

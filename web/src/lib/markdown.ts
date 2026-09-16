@@ -38,7 +38,7 @@ const INLINE =
 
 export type Block =
   | { kind: "paragraph"; text: string }
-  | { kind: "code"; text: string }
+  | { kind: "code"; text: string; lang?: string }
   | { kind: "list"; items: string[] };
 
 /**
@@ -66,13 +66,15 @@ export function parseBlocks(text: string): Block[] {
 
     if (line.trimStart().startsWith(FENCE)) {
       flushParagraph();
+      const info = line.trimStart().slice(FENCE.length).trim();
+      const lang = info.split(/\s+/, 1)[0] || undefined;
       const body: string[] = [];
       i++;
       while (i < lines.length && !lines[i].trimStart().startsWith(FENCE)) {
         body.push(lines[i]);
         i++;
       }
-      blocks.push({ kind: "code", text: body.join("\n") });
+      blocks.push(lang ? { kind: "code", text: body.join("\n"), lang } : { kind: "code", text: body.join("\n") });
       continue;
     }
 
