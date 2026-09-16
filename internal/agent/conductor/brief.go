@@ -54,6 +54,7 @@ const (
 	SourceSlack  = "slack"
 	SourceLinear = "linear"
 	SourceChat   = "chat"
+	SourceGitHub = "github"
 )
 
 // Brief mirrors agent/runtime/src/brief.ts field for field. That file is the single source
@@ -322,8 +323,8 @@ func (b *Brief) encodeOnce() (string, error) {
 }
 
 // briefKindFor is the source.kind the runtime's schema will accept for a session's source.
-// The schema allows slack, linear and chat and nothing else, and the test-only dev source
-// presents itself as chat.
+// The schema allows slack, linear, chat and github and nothing else, and the test-only
+// dev source presents itself as chat.
 //
 // It exists because a DELEGATED task used to be told it came from the web chat whatever
 // asked for it. That was invisible while only chats could delegate; it stopped being

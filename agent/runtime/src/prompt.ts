@@ -13,6 +13,7 @@ const sourceLabels: Record<SourceKind, string> = {
   slack: "the Slack thread this came from",
   linear: "the Linear issue this came from",
   chat: "the web chat this came from",
+  github: "the GitHub pull request this came from",
 };
 
 /** buildSystemPrompt renders the whole operating contract for one turn. */

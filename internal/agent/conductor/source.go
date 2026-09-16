@@ -81,7 +81,7 @@ type InboundEvent struct {
 	// only way to ask one playbook on another model is a second playbook differing by one field.
 	Override profiles.Override
 	// BriefKind is the source.kind the runtime's schema must see, which is not always
-	// SourceKind: the schema allows only slack, linear and chat, and the test-only dev
+	// SourceKind: the schema allows only slack, linear, chat and github, and the test-only dev
 	// source presents itself as chat.
 	BriefKind string
 	// Env is extra task-spec environment the source asks for. It exists for the dev

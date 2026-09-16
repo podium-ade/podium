@@ -19,6 +19,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
 )
 
 // Kind is the source kind Slack sessions are recorded under.
@@ -98,6 +99,19 @@ type Source struct {
 	mu    sync.Mutex
 	users map[string]string
 	seen  map[string]time.Time
+
+	// review is the GitHub App source, nil when GitHub is not configured. A mention that
+	// names a pull-request URL (or that lands in a thread already bound to one) is
+	// forwarded there so Slack and GitHub share one session per PR.
+	review ReviewDoor
+}
+
+// ReviewDoor is the GitHub source as Slack is allowed to see it: bind a thread to a PR
+// review, and ingest a mention as if it had been an @ on that PR.
+type ReviewDoor interface {
+	LookupSlack(ctx context.Context, slackRef string) (sourceKey string, ok bool, err error)
+	BindSlack(ctx context.Context, slackRef, sourceKey string) error
+	IngestSlack(ctx context.Context, m ghreview.SlackMention) error
 }
 
 var _ conductor.Source = (*Source)(nil)
@@ -128,6 +142,10 @@ func New(opts Options) (*Source, error) {
 		seen:   map[string]time.Time{},
 	}, nil
 }
+
+// SetReview attaches the GitHub App source. Called from agent.New before Run; nil is
+// "GitHub is not configured" and leaves mention handling unchanged.
+func (s *Source) SetReview(r ReviewDoor) { s.review = r }
 
 // Kind implements conductor.Source.
 func (s *Source) Kind() string { return Kind }
@@ -233,13 +251,18 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 		return
 	}
 	thread := threadOf(threadTS, ts)
+	author := s.displayName(ctx, user)
+	stripped := s.stripMention(text)
+	if s.forwardReview(ctx, channel, thread, ts, author, stripped) {
+		return
+	}
 	ev := conductor.InboundEvent{
 		SourceKind: Kind,
 		SourceKey:  sourceKey(channel, thread),
 		Ref:        Ref(channel, thread, ts),
 		Channel:    channel,
-		Author:     s.displayName(ctx, user),
-		Text:       s.stripMention(text),
+		Author:     author,
+		Text:       stripped,
 		TS:         parseTS(ts),
 		URL:        s.permalink(channel, ts),
 		BriefKind:  conductor.SourceSlack,
@@ -248,6 +271,85 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 	case s.events <- ev:
 	case <-ctx.Done():
 	}
+}
+
+// forwardReview reports whether this mention is a pull-request review and has been handed
+// to the GitHub source. A thread is one PR: two URLs, or a second PR in an already-bound
+// thread, are refused here rather than becoming a Slack conversation of their own.
+func (s *Source) forwardReview(ctx context.Context, channel, thread, ts, author, text string) bool {
+	if s.review == nil {
+		return false
+	}
+	slackRef := channel + "/" + thread
+	bound, ok, err := s.review.LookupSlack(ctx, slackRef)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: looking up a slack review bind failed", "error", err)
+		return false
+	}
+	prs := conductor.FindPullRequests(text)
+
+	if ok {
+		owner, repo, number, parsed := ghreview.ParseSourceKey(bound)
+		if !parsed {
+			return false
+		}
+		if len(prs) == 1 && (prs[0].Owner != owner || prs[0].Repo != repo || prs[0].Number != number) {
+			_, _ = s.Post(ctx, Ref(channel, thread, ts), conductor.Outbound{
+				Type: conductor.OutFailure,
+				Text: fmt.Sprintf("This thread is reviewing %s/%s#%d. Start a new thread to review a different pull request.", owner, repo, number),
+			})
+			return true
+		}
+		if err := s.review.IngestSlack(ctx, ghreview.SlackMention{
+			PR: conductor.PullRequest{
+				URL: ghreview.PRURL(owner, repo, number), Owner: owner, Repo: repo, Number: number,
+			},
+			Channel: channel, Thread: thread, Trigger: ts,
+			Author: author, Text: text, TS: parseTS(ts),
+			Permalink: s.permalink(channel, ts),
+		}); err != nil {
+			s.logger.WarnContext(ctx, "github: ingesting a slack mention failed", "error", err)
+		}
+		return true
+	}
+
+	if len(prs) == 0 {
+		return false
+	}
+	if len(prs) > 1 {
+		names := make([]string, 0, len(prs))
+		for _, pr := range prs {
+			names = append(names, fmt.Sprintf("%s/%s#%d", pr.Owner, pr.Repo, pr.Number))
+		}
+		_, _ = s.Post(ctx, Ref(channel, thread, ts), conductor.Outbound{
+			Type: conductor.OutFailure,
+			Text: "A review thread is one pull request. Name exactly one of: " + strings.Join(names, ", ") + ".",
+		})
+		return true
+	}
+
+	pr := prs[0]
+	key := ghreview.SourceKeyPR(pr)
+	if err := s.review.BindSlack(ctx, slackRef, key); err != nil {
+		if errors.Is(err, ghreview.ErrBoundToOther) {
+			_, _ = s.Post(ctx, Ref(channel, thread, ts), conductor.Outbound{
+				Type: conductor.OutFailure,
+				Text: "This thread is already reviewing a different pull request. Start a new thread.",
+			})
+			return true
+		}
+		s.logger.WarnContext(ctx, "github: binding a slack thread to a pull request failed", "error", err)
+		return false
+	}
+	if err := s.review.IngestSlack(ctx, ghreview.SlackMention{
+		PR:      pr,
+		Channel: channel, Thread: thread, Trigger: ts,
+		Author: author, Text: text, TS: parseTS(ts),
+		Permalink: s.permalink(channel, ts),
+	}); err != nil {
+		s.logger.WarnContext(ctx, "github: ingesting a slack mention failed", "error", err)
+	}
+	return true
 }
 
 // firstSighting reports whether (channel, ts) has not been seen, and records it. The map is

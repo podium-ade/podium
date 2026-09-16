@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/ghreview"
 )
 
 func TestSplitLeavesShortTextAlone(t *testing.T) {
@@ -198,6 +200,155 @@ func TestInnerEmitsAThreadMention(t *testing.T) {
 	assert.Equal(t, "C1", ev.Channel)
 	assert.Equal(t, "and then?", ev.Text, "the mention is stripped")
 	assert.Equal(t, Ref("C1", "100.1", "100.2"), ev.Ref)
+}
+
+type fakeReview struct {
+	bound    map[string]string
+	ingested []ghreview.SlackMention
+}
+
+func (f *fakeReview) LookupSlack(_ context.Context, slackRef string) (string, bool, error) {
+	k, ok := f.bound[slackRef]
+	return k, ok, nil
+}
+
+func (f *fakeReview) BindSlack(_ context.Context, slackRef, sourceKey string) error {
+	if f.bound == nil {
+		f.bound = map[string]string{}
+	}
+	if existing, ok := f.bound[slackRef]; ok && existing != sourceKey {
+		return ghreview.ErrBoundToOther
+	}
+	f.bound[slackRef] = sourceKey
+	return nil
+}
+
+func (f *fakeReview) IngestSlack(_ context.Context, m ghreview.SlackMention) error {
+	f.ingested = append(f.ingested, m)
+	return nil
+}
+
+func TestAMentionWithOnePRURLIsForwardedToGitHub(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	rev := &fakeReview{}
+	s.SetReview(rev)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> review https://github.com/acme/repo/pull/12",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	assertNoInbound(t, s)
+	require.Len(t, rev.ingested, 1)
+	assert.Equal(t, "github:acme/repo#12", ghreview.SourceKeyPR(rev.ingested[0].PR))
+	assert.Equal(t, "C1/100.1", func() string {
+		for k := range rev.bound {
+			return k
+		}
+		return ""
+	}())
+}
+
+func TestASecondMentionInABoundThreadNeedsNoURL(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	rev := &fakeReview{bound: map[string]string{"C1/100.1": "github:acme/repo#12"}}
+	s.SetReview(rev)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:         "C1",
+				User:            "U1",
+				Text:            "<@UBOT> look at the tests",
+				TimeStamp:       "100.2",
+				ThreadTimeStamp: "100.1",
+			},
+		},
+	})
+
+	assertNoInbound(t, s)
+	require.Len(t, rev.ingested, 1)
+	assert.Equal(t, 12, rev.ingested[0].PR.Number)
+	assert.Equal(t, "look at the tests", rev.ingested[0].Text)
+}
+
+func TestTwoPRURLsAreRefusedRatherThanBound(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	rev := &fakeReview{}
+	s.SetReview(rev)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> https://github.com/acme/repo/pull/12 and https://github.com/acme/repo/pull/13",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	assertNoInbound(t, s)
+	assert.Empty(t, rev.ingested)
+	assert.Empty(t, rev.bound)
+	assert.Contains(t, f.methods(), "chat.postMessage")
+}
+
+func TestADifferentPRInABoundThreadIsRefused(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+	rev := &fakeReview{bound: map[string]string{"C1/100.1": "github:acme/repo#12"}}
+	s.SetReview(rev)
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:         "C1",
+				User:            "U1",
+				Text:            "<@UBOT> now https://github.com/acme/repo/pull/13",
+				TimeStamp:       "100.2",
+				ThreadTimeStamp: "100.1",
+			},
+		},
+	})
+
+	assertNoInbound(t, s)
+	assert.Empty(t, rev.ingested)
+	assert.Contains(t, f.methods(), "chat.postMessage")
+}
+
+func TestAMentionWithAPRURLIsANormalSlackEventWhenGitHubIsOff(t *testing.T) {
+	f := newFakeSlack(t)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> review https://github.com/acme/repo/pull/12",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "slack:C1:100.1", ev.SourceKey)
+	assert.Contains(t, ev.Text, "https://github.com/acme/repo/pull/12")
 }
 
 // A DM is a conversation of its own and does not need a mention.

@@ -155,7 +155,7 @@ service AgentService {
 // source_key, which the source computes and the conductor never parses.
 message Session {
   string id = 1;
-  // source_kind is "slack", "dev", and later "linear" or "chat".
+  // source_kind is "slack", "linear", "chat", "github", or "dev".
   string source_kind = 2;
   string source_key = 3;
   string profile = 4;
