@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,5 +167,3 @@ func (s *stub) postedReviewInReplyTo() []int64 {
 	}
 	return out
 }
-
-func idString(n int64) string { return strconv.FormatInt(n, 10) }
