@@ -116,6 +116,7 @@ type googleUser struct {
 	EmailVerified bool
 	HD            string
 	Name          string
+	Picture       string
 }
 
 type userInfoJSON struct {
@@ -123,6 +124,7 @@ type userInfoJSON struct {
 	EmailVerified bool   `json:"email_verified"`
 	HD            string `json:"hd"`
 	Name          string `json:"name"`
+	Picture       string `json:"picture"`
 }
 
 func (f *Flow) exchange(ctx context.Context, code, verifier, redirectURI string) (googleUser, error) {
@@ -149,7 +151,7 @@ func (f *Flow) exchange(ctx context.Context, code, verifier, redirectURI string)
 		return googleUser{}, fmt.Errorf("google token: read: %w", err)
 	}
 	if res.StatusCode != http.StatusOK {
-		return googleUser{}, fmt.Errorf("google token: HTTP %d", res.StatusCode)
+		return googleUser{}, fmt.Errorf("google token: HTTP %d: %s", res.StatusCode, trimForLog(body))
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -176,7 +178,7 @@ func (f *Flow) exchange(ctx context.Context, code, verifier, redirectURI string)
 		return googleUser{}, fmt.Errorf("google userinfo: read: %w", err)
 	}
 	if uiRes.StatusCode != http.StatusOK {
-		return googleUser{}, fmt.Errorf("google userinfo: HTTP %d", uiRes.StatusCode)
+		return googleUser{}, fmt.Errorf("google userinfo: HTTP %d: %s", uiRes.StatusCode, trimForLog(uiBody))
 	}
 	var info userInfoJSON
 	if err := json.Unmarshal(uiBody, &info); err != nil {
@@ -187,6 +189,7 @@ func (f *Flow) exchange(ctx context.Context, code, verifier, redirectURI string)
 		EmailVerified: info.EmailVerified,
 		HD:            strings.ToLower(strings.TrimSpace(info.HD)),
 		Name:          strings.TrimSpace(info.Name),
+		Picture:       httpsURL(info.Picture),
 	}
 	if u.Email == "" {
 		return googleUser{}, errors.New("google userinfo: no email")
@@ -198,6 +201,22 @@ func (f *Flow) exchange(ctx context.Context, code, verifier, redirectURI string)
 		return googleUser{}, errNotWorkspace
 	}
 	return u, nil
+}
+
+func httpsURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(strings.ToLower(raw), "https://") {
+		return ""
+	}
+	return raw
+}
+
+func trimForLog(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > 240 {
+		return s[:240] + "…"
+	}
+	return s
 }
 
 func randomB64(n int) (string, error) {

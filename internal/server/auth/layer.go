@@ -58,11 +58,18 @@ func (l *Layer) identifySession(ctx context.Context, r *http.Request, tok string
 	return sessionIdentity(r, user.Login, user.DisplayName), nil
 }
 
+// instanceView is the subset of the store RestrictUnclaimed needs. *store.Store
+// satisfies it; tests fake it so they do not boot Postgres.
+type instanceView interface {
+	GetInstance(context.Context) (store.Instance, error)
+	GetUser(context.Context, string) (store.User, error)
+}
+
 // RestrictUnclaimed forbids KindUser from everything except WhoAmI and Claim until the
 // instance has an owner, and afterwards requires the caller's domain to match. Nodes and
 // the local token are not humans and are not gated — workers and the CLI still use them.
 // A no-op when googleEnabled is false, so existing deployments do not change.
-func RestrictUnclaimed(st *store.Store, googleEnabled bool, next http.Handler) http.Handler {
+func RestrictUnclaimed(st instanceView, googleEnabled bool, next http.Handler) http.Handler {
 	if st == nil || !googleEnabled {
 		return next
 	}

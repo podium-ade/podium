@@ -249,6 +249,7 @@ type User struct {
 	DisplayName  string
 	Roles        []string
 	HostedDomain string
+	PictureURL   string
 	FirstSeenAt  time.Time
 }
 

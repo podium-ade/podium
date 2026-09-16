@@ -314,7 +314,14 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	var j job
 	var sess store.Session
 	var ok bool
-	if c.answersHere(src.Kind()) {
+	if aConversation(src.Kind()) {
+		if c.host == nil {
+			c.logger.ErrorContext(ctx, "a conversation arrived with no host runtime",
+				"source", src.Kind(), "source_key", ev.SourceKey)
+			c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: this conductor has no host runtime, so it cannot answer a conversation here."})
+			c.finish(ctx, src, ev.Ref, ReactionFailed)
+			return
+		}
 		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
 	} else {
 		j, sess, ok = c.acceptTask(ctx, src, profile, &ev)
@@ -412,13 +419,6 @@ func (c *Conductor) clearAwaiting(sessionID, taskID string) bool {
 	return true
 }
 
-// answersHere reports whether this conductor answers that source itself. It needs both
-// halves: a conversation, because a thread is one piece of work and belongs in a container,
-// and a host runtime, because without one there is nothing here to answer with.
-func (c *Conductor) answersHere(kind string) bool {
-	return c.host != nil && aConversation(kind)
-}
-
 // acceptConversation is a chat window's message. It runs the ASSISTANT — this process, the
 // short tool list, the delegation menu — so there is no playbook to route to, nothing for a
 // human to pick and nothing for the session to be pinned to. The playbooks are what the turn
@@ -433,6 +433,8 @@ func (c *Conductor) acceptConversation(
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 	// A conversation this bot answered before host turns existed has a playbook on its row,
@@ -451,9 +453,9 @@ func (c *Conductor) acceptConversation(
 	return assistantJob(profile.Assistant()), sess, true
 }
 
-// acceptTask is a Slack thread, a Linear ticket, or a conversation on a conductor with no
-// host runtime of its own. All three run one playbook as a task on a node, and the routing
-// rules pick which.
+// acceptTask is a Linear ticket (or any source that is not a conversation). It runs one
+// playbook as a task on a node. Conversations are answered by the assistant and only
+// become a task when that turn delegates.
 func (c *Conductor) acceptTask(
 	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
 ) (job, store.Session, bool) {
@@ -463,8 +465,10 @@ func (c *Conductor) acceptTask(
 		Text:     ev.Text,
 	})
 	if sel.Playbook.Name == "" {
-		c.logger.ErrorContext(ctx, "no playbook could be selected; the profile has no default",
+		c.logger.ErrorContext(ctx, "no playbook could be selected",
 			"source", src.Kind(), "source_key", ev.SourceKey)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: no playbook matches this. Register one, or name it with /playbook."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 
@@ -476,6 +480,8 @@ func (c *Conductor) acceptTask(
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 

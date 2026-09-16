@@ -339,7 +339,7 @@ async function main(): Promise<number> {
 
       // stderr is the harness's own diagnostics. It goes to the task log — which is where an
       // operator looks — and never into the answer.
-      run.child.stderr.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
+      run.child.stderr?.on("data", (chunk: Buffer) => warn(redact(chunk.toString().trimEnd(), token)));
 
       const eventIter = oc.events(run.child)[Symbol.asyncIterator]();
       let pendingEvent: ReturnType<typeof eventIter.next> | undefined;

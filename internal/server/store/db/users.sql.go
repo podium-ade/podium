@@ -10,7 +10,7 @@ import (
 )
 
 const getUser = `-- name: GetUser :one
-select login, display_name, roles, first_seen_at, hosted_domain from users where login = $1
+select login, display_name, roles, first_seen_at, hosted_domain, picture_url from users where login = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
@@ -22,13 +22,14 @@ func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
 		&i.Roles,
 		&i.FirstSeenAt,
 		&i.HostedDomain,
+		&i.PictureUrl,
 	)
 	return i, err
 }
 
 const setUserRoles = `-- name: SetUserRoles :one
 update users set roles = $1 where login = $2
-returning login, display_name, roles, first_seen_at, hosted_domain
+returning login, display_name, roles, first_seen_at, hosted_domain, picture_url
 `
 
 type SetUserRolesParams struct {
@@ -45,27 +46,35 @@ func (q *Queries) SetUserRoles(ctx context.Context, arg SetUserRolesParams) (Use
 		&i.Roles,
 		&i.FirstSeenAt,
 		&i.HostedDomain,
+		&i.PictureUrl,
 	)
 	return i, err
 }
 
 const upsertUser = `-- name: UpsertUser :one
-insert into users (login, display_name, hosted_domain)
-values ($1, $2::text, $3::text)
+insert into users (login, display_name, hosted_domain, picture_url)
+values ($1, $2::text, $3::text, $4::text)
 on conflict (login) do update
   set display_name = coalesce($2::text, users.display_name),
-      hosted_domain = coalesce(users.hosted_domain, $3::text)
-returning login, display_name, roles, first_seen_at, hosted_domain
+      hosted_domain = coalesce(users.hosted_domain, $3::text),
+      picture_url = coalesce($4::text, users.picture_url)
+returning login, display_name, roles, first_seen_at, hosted_domain, picture_url
 `
 
 type UpsertUserParams struct {
 	Login        string
 	DisplayName  *string
 	HostedDomain *string
+	PictureUrl   *string
 }
 
 func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, upsertUser, arg.Login, arg.DisplayName, arg.HostedDomain)
+	row := q.db.QueryRow(ctx, upsertUser,
+		arg.Login,
+		arg.DisplayName,
+		arg.HostedDomain,
+		arg.PictureUrl,
+	)
 	var i User
 	err := row.Scan(
 		&i.Login,
@@ -73,6 +82,7 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, e
 		&i.Roles,
 		&i.FirstSeenAt,
 		&i.HostedDomain,
+		&i.PictureUrl,
 	)
 	return i, err
 }

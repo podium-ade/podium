@@ -126,6 +126,7 @@ agent-runtime:
 agent-runtime-dist:
 	cd agent/runtime && pnpm install --frozen-lockfile && pnpm build
 	@echo "PODIUM_AGENT_HOST_RUNTIME=$(CURDIR)/agent/runtime/dist/main.js"
+	@echo "Host turns also need the harness on PATH: npm install -g opencode-ai@1.18.29"
 
 # The runtime's unit tests, then the image tests. The image tests need Docker and the
 # `make agent-runtime` tags; they SKIP with a message naming that target when either is

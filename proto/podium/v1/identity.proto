@@ -62,6 +62,9 @@ message WhoAmIResponse {
   // claim_domain is the domain this caller would bind the instance to. Empty when they
   // cannot claim (no email domain, or not a human).
   string claim_domain = 13;
+  // picture_url is an https avatar from Google Workspace sign-in. Empty for the local
+  // token, a node, or a human whose profile has no photo.
+  string picture_url = 14;
 }
 
 message ClaimRequest {
