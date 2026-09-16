@@ -56,5 +56,19 @@ export const XAI: Provider = {
   },
 };
 
+export const OPENAI: Provider = {
+  id: "openai",
+  name: "OpenAI",
+  backendID: "openai",
+  models: "GPT",
+  secretName: "podium.agent.openai_api_key",
+  keyPlaceholder: "sk-…",
+  consoleURL: "https://platform.openai.com/api-keys",
+  subscription: {
+    label: "Sign in with a ChatGPT or Codex subscription",
+    hint: "Uses your ChatGPT Plus, Pro, or Codex plan instead of pay-as-you-go API credit.",
+  },
+};
+
 /** The providers Settings shows, in order. */
-export const PROVIDERS: Provider[] = [ANTHROPIC, XAI];
+export const PROVIDERS: Provider[] = [ANTHROPIC, XAI, OPENAI];

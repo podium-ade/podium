@@ -128,11 +128,16 @@ func TestAProfileDirWithoutProfileYAMLIsRefused(t *testing.T) {
 func TestFromEnvAppliesTheDefaults(t *testing.T) {
 	t.Setenv("PODIUM_AGENT_SERVER", "http://127.0.0.1:8080")
 	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "")
+	t.Setenv("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", "")
 	cfg := FromEnv()
 	assert.Equal(t, DefaultListen, cfg.Listen)
 	assert.Equal(t, DefaultProfileDir, cfg.ProfileDir)
 	assert.Equal(t, DefaultXAIOAuthIssuer, cfg.XAIOAuthIssuer)
 	assert.Equal(t, DefaultXAIOAuthClientID, cfg.XAIOAuthClientID)
+	assert.Equal(t, DefaultOpenAIBaseURL, cfg.OpenAIBaseURL)
+	assert.Equal(t, DefaultOpenAICodexBaseURL, cfg.OpenAICodexBaseURL)
+	assert.Equal(t, DefaultOpenAIOAuthIssuer, cfg.OpenAIOAuthIssuer)
+	assert.Equal(t, DefaultOpenAIOAuthClientID, cfg.OpenAIOAuthClientID)
 	assert.False(t, cfg.DevSource)
 }
 
@@ -149,6 +154,18 @@ func TestXAIOAuthClientID(t *testing.T) {
 
 	t.Setenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", "custom-client")
 	assert.Equal(t, "custom-client", FromEnv().XAIOAuthClientID)
+}
+
+func TestOpenAIOAuthClientID(t *testing.T) {
+	t.Setenv("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", "")
+	assert.Equal(t, DefaultOpenAIOAuthClientID, FromEnv().OpenAIOAuthClientID,
+		"empty is what compose interpolates; it must still ship Hermes's Codex client")
+
+	t.Setenv("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", "off")
+	assert.Empty(t, FromEnv().OpenAIOAuthClientID)
+
+	t.Setenv("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", "custom-client")
+	assert.Equal(t, "custom-client", FromEnv().OpenAIOAuthClientID)
 }
 
 // A knob that mounts routes for injecting messages must not turn itself on because
