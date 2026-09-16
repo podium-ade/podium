@@ -82,6 +82,8 @@ is affected.
 | `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
+| `PODIUM_AGENT_GITHUB_APP_ID` + key file | clone tokens from the App | playbooks keep using `podium.agent.github_token`. **Id and key together** |
+| `PODIUM_AGENT_GITHUB_WEBHOOK_SECRET` + `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN` | PR reviews as that App | no GitHub review source. Needs the App configured; Funnel points at the listen address only |
 | `TS_AUTHKEY` + `PODIUM_TAILNET` | the tailnet transport | `docker-compose.tailnet.yml` refuses to interpolate. Nobody can default these, and failing closed is correct. `PODIUM_NODE_TS_AUTHKEY` is the worker's equivalent |
 | `PODIUM_AGENT_UI_URL` | correct links in Slack and Linear | links point at `http://server:8080`, which is a name only the compose network can resolve. Cosmetic, and immediately visible |
 
@@ -196,6 +198,8 @@ Then, each switching on one feature and each optional:
 |---|---|
 | `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
+| `PODIUM_AGENT_GITHUB_APP_ID` + `PODIUM_AGENT_GITHUB_APP_KEY_FILE` | clone tokens from the App |
+| `PODIUM_AGENT_GITHUB_WEBHOOK_SECRET` + `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN` | PR reviews as that App. Needs the App configured; Funnel points at the listen address only |
 | `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
 | `PODIUM_AGENT_SKILLS_DIR` | file skills, one directory per skill. Compose default `/etc/podium/skills`. Unset on host binaries until `run-host.sh` creates `.podium/skills`. A playbook naming a skill that is not in this directory fails every turn |
 | `PODIUM_AGENT_PROFILE_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_PROFILE_DIR`. Unset is the named volume `agent-profile` |

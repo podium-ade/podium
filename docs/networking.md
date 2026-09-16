@@ -414,9 +414,11 @@ Nothing in Podium needs a public address:
   host port to firewall.
 - People reach it because they are on the tailnet, not because it is on the internet.
 
-When webhooks eventually arrive, the documented options are Slack Socket Mode and polling (still
-zero ingress) or Tailscale Funnel for a single `/webhooks/*` route on a separate mux — so
-exposing a webhook never exposes the API or the UI.
+GitHub App webhooks land on **a second listener** on `podium-agent`
+(`PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN`), muxed to `POST /webhooks/github` only, HMAC-verified.
+Tailscale Funnel or a tunnel points at that address and nowhere else — so exposing a webhook
+never exposes the API or the UI. Slack is still Socket Mode (zero ingress). Linear is still
+polling.
 
 ## Architecture: the daemon binary and the task image are different questions
 
@@ -555,4 +557,4 @@ openssl s_client -connect podium.<tailnet>.ts.net:443 \
   been tested and nothing in Podium restricts it — **assume a task can reach whatever its worker
   can reach**, and firewall the host if that matters. See
   [`security.md`](security.md#3-a-task-container--untrusted).
-- Tailscale Funnel for webhooks, as above.
+- Tailscale Funnel (or equivalent) for the GitHub webhook mux, as above.

@@ -95,6 +95,28 @@ func TestOneSlackTokenNamesTheOtherOne(t *testing.T) {
 	assert.True(t, cfg.SlackEnabled())
 }
 
+func TestGitHubSourceNeedsWebhookSecretAndListen(t *testing.T) {
+	cfg := withApp(t)
+	assert.False(t, cfg.GitHubSourceEnabled(), "the App alone does not start the review source")
+	require.NoError(t, cfg.Validate())
+
+	cfg.GitHubWebhookSecret = "s"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN")
+
+	cfg.GitHubWebhookListen = "127.0.0.1:8091"
+	require.NoError(t, cfg.Validate())
+	assert.True(t, cfg.GitHubSourceEnabled())
+
+	cfg = valid(t)
+	cfg.GitHubWebhookSecret = "s"
+	cfg.GitHubWebhookListen = "127.0.0.1:8091"
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GitHub App")
+}
+
 func TestAProfileDirWithoutProfileYAMLIsRefused(t *testing.T) {
 	cfg := valid(t)
 	cfg.ProfileDir = t.TempDir()
@@ -132,12 +154,13 @@ func TestLoggingAConfigLeaksNoToken(t *testing.T) {
 	cfg.Token = "agenttoken-secret"
 	cfg.SlackAppToken = "xapp-secret"
 	cfg.SlackBotToken = "xoxb-secret"
+	cfg.GitHubWebhookSecret = "github-webhook-secret"
 
 	var buf bytes.Buffer
 	slog.New(slog.NewTextHandler(&buf, nil)).Info("configured", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret"} {
+	for _, secret := range []string{"devtoken-secret", "agenttoken-secret", "xapp-secret", "xoxb-secret", "github-webhook-secret"} {
 		assert.NotContains(t, out, secret)
 	}
 	// And it still says the things an operator needs to see.

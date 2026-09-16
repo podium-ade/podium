@@ -119,7 +119,7 @@ const briefSchema = z.strictObject({
   session_id: z.string().min(1),
   turn_id: z.string().min(1),
   source: z.strictObject({
-    kind: z.enum(["slack", "linear", "chat"]),
+    kind: z.enum(["slack", "linear", "chat", "github"]),
     ref: z.string().min(1),
     url: z.string().optional(),
   }),

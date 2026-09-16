@@ -90,6 +90,13 @@ type Relayed struct {
 	Seq    int64
 }
 
+type ReviewSurface struct {
+	SourceKey string
+	Kind      string
+	Ref       string
+	CreatedAt time.Time
+}
+
 type Session struct {
 	ID         string
 	SourceKind string

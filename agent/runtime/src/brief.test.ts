@@ -206,6 +206,11 @@ describe("decodeBrief", () => {
     expect(() => decodeBrief(encode({ ...minimal, source: { kind: "email", ref: "x" } }))).toThrow(BriefError);
   });
 
+  it("accepts github as a source kind", () => {
+    const brief = decodeBrief(encode({ ...minimal, source: { kind: "github", ref: "o/r/1" } }));
+    expect(brief.source.kind).toBe("github");
+  });
+
   it("refuses a non-positive max_turns", () => {
     expect(() => decodeBrief(encode({ ...minimal, playbook: { ...minimal.playbook, max_turns: 0 } }))).toThrow(BriefError);
   });

@@ -101,7 +101,7 @@ func (d *DevSource) inbound(w http.ResponseWriter, r *http.Request) {
 		Text:       body.Text,
 		TS:         time.Now().UTC(),
 		Playbook:   body.Playbook,
-		// The runtime's schema knows slack, linear and chat. The dev source presents itself
+		// The runtime's schema knows slack, linear, chat and github. The dev source presents itself
 		// as chat, which is what it is: a text conversation with no integration.
 		BriefKind: conductor.SourceChat,
 		Env:       env,

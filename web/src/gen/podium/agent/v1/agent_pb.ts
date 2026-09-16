@@ -27,7 +27,7 @@ export type Session = Message<"podium.agent.v1.Session"> & {
   id: string;
 
   /**
-   * source_kind is "slack", "dev", and later "linear" or "chat".
+   * source_kind is "slack", "linear", "chat", "github", or "dev".
    *
    * @generated from field: string source_kind = 2;
    */

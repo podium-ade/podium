@@ -179,15 +179,22 @@ type Config struct {
 	// Linear is polled and never listened to: the conductor dials out, like every other
 	// thing on this host.
 	LinearPollInterval time.Duration
+	// GitHubWebhookSecret is PODIUM_AGENT_GITHUB_WEBHOOK_SECRET. Empty turns the review
+	// source off even when the App is configured for clone. SENSITIVE: never log it.
+	GitHubWebhookSecret string
+	// GitHubWebhookListen is PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN, the bind address of the
+	// webhook mux. Empty with the secret set is a start-up error.
+	GitHubWebhookListen string
 	// UIURL is PODIUM_AGENT_UI_URL: the Podium web UI as a HUMAN reaches it, which is not
 	// always how this process reaches the API (a tailnet name, a reverse proxy). Default
 	// Server. It is used only to build the fallback link to a task page when an
 	// attachment cannot be uploaded into the conversation.
 	UIURL string
 	// GitHubAppID is PODIUM_AGENT_GITHUB_APP_ID: the numeric id of the GitHub App turns
-	// clone and push with. Empty turns the App off and leaves the older path exactly as it
-	// was — a playbook naming podium.agent.github_token in its own secrets: — so this is
-	// additive and can be rolled out one playbook at a time.
+	// clone and push with, and that the review source talks as. Empty turns the App off
+	// and leaves the older path exactly as it was — a playbook naming
+	// podium.agent.github_token in its own secrets: — so this is additive and can be
+	// rolled out one playbook at a time.
 	GitHubAppID string
 	// GitHubAppKeyFile is PODIUM_AGENT_GITHUB_APP_KEY_FILE: the path to the PEM GitHub's
 	// "generate a private key" button produced. A path rather than a value because a PEM is
@@ -239,13 +246,15 @@ func FromEnv() Config {
 		LinearURL:        envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
-		LinearPollInterval: envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
-		UIURL:              os.Getenv("PODIUM_AGENT_UI_URL"),
-		GitHubAppID:        strings.TrimSpace(os.Getenv("PODIUM_AGENT_GITHUB_APP_ID")),
-		GitHubAppKeyFile:   os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY_FILE"),
-		GitHubAppKey:       os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY"),
-		TaskURL:            envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
-		DevSource:          envBool("PODIUM_AGENT_DEV_SOURCE"),
+		LinearPollInterval:  envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
+		UIURL:               os.Getenv("PODIUM_AGENT_UI_URL"),
+		GitHubAppID:         strings.TrimSpace(os.Getenv("PODIUM_AGENT_GITHUB_APP_ID")),
+		GitHubAppKeyFile:    os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY_FILE"),
+		GitHubAppKey:        os.Getenv("PODIUM_AGENT_GITHUB_APP_KEY"),
+		GitHubWebhookSecret: os.Getenv("PODIUM_AGENT_GITHUB_WEBHOOK_SECRET"),
+		GitHubWebhookListen: os.Getenv("PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN"),
+		TaskURL:             envOr("PODIUM_AGENT_TASK_URL", DefaultTaskURL),
+		DevSource:           envBool("PODIUM_AGENT_DEV_SOURCE"),
 	}
 }
 
@@ -258,6 +267,12 @@ func (c Config) SlackEnabled() bool {
 // LinearEnabled reports whether the Linear source should be started. One variable turns it
 // on: an API key belonging to the bot user.
 func (c Config) LinearEnabled() bool { return c.LinearAPIKey != "" }
+
+// GitHubSourceEnabled reports whether the GitHub review source should start: the App is
+// configured (so it can post) and the webhook listener is fully set.
+func (c Config) GitHubSourceEnabled() bool {
+	return c.GitHubAppEnabled() && c.GitHubWebhookSecret != "" && c.GitHubWebhookListen != ""
+}
 
 // WebURL is the base URL a human uses for the Podium web UI. PODIUM_AGENT_UI_URL when set,
 // the API base URL otherwise — which is right for every dev install and wrong for exactly
@@ -337,6 +352,9 @@ func (c Config) Validate() error {
 	if err := c.validateGitHubApp(); err != nil {
 		return err
 	}
+	if err := c.validateGitHubSource(); err != nil {
+		return err
+	}
 	if c.ProfileDir == "" {
 		return errors.New("PODIUM_AGENT_PROFILE_DIR is empty")
 	}
@@ -412,6 +430,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Duration("linear_poll_interval", c.LinearPollInterval),
 		slog.String("ui_url", c.WebURL()),
 		slog.Bool("github_app", c.GitHubAppEnabled()),
+		slog.Bool("github_source", c.GitHubSourceEnabled()),
+		slog.String("github_webhook_listen", c.GitHubWebhookListen),
 		slog.String("github_app_id", c.GitHubAppID),
 		slog.String("github_app_key_file", c.GitHubAppKeyFile),
 		slog.Bool("github_app_key_set", c.GitHubAppKey != ""),
@@ -538,6 +558,26 @@ func (c Config) validateLinear() error {
 		if err := absoluteURL("PODIUM_AGENT_UI_URL", c.UIURL); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateGitHubSource refuses a half-configured review listener. The App can be on for
+// clone without webhooks; the webhook secret and listen address are the extra pair that
+// turns reviews on, and one without the other is the usual typo.
+func (c Config) validateGitHubSource() error {
+	switch {
+	case c.GitHubWebhookSecret == "" && c.GitHubWebhookListen == "":
+		return nil
+	case !c.GitHubAppEnabled():
+		return errors.New("PODIUM_AGENT_GITHUB_WEBHOOK_SECRET needs the GitHub App configured " +
+			"(PODIUM_AGENT_GITHUB_APP_ID and a private key): the review source posts as that App")
+	case c.GitHubWebhookSecret == "":
+		return errors.New("PODIUM_AGENT_GITHUB_WEBHOOK_SECRET is missing: the review source needs " +
+			"the webhook secret and PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN")
+	case c.GitHubWebhookListen == "":
+		return errors.New("PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN is missing: the review source needs " +
+			"the webhook listen address and PODIUM_AGENT_GITHUB_WEBHOOK_SECRET")
 	}
 	return nil
 }

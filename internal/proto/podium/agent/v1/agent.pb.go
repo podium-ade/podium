@@ -27,7 +27,7 @@ const (
 type Session struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// source_kind is "slack", "dev", and later "linear" or "chat".
+	// source_kind is "slack", "linear", "chat", "github", or "dev".
 	SourceKind string `protobuf:"bytes,2,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
 	SourceKey  string `protobuf:"bytes,3,opt,name=source_key,json=sourceKey,proto3" json:"source_key,omitempty"`
 	Profile    string `protobuf:"bytes,4,opt,name=profile,proto3" json:"profile,omitempty"`

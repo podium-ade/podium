@@ -19,17 +19,19 @@ import (
 func TestAConversationIsAnsweredHereForChatAndSlack(t *testing.T) {
 	assert.True(t, aConversation(SourceChat))
 	assert.True(t, aConversation(SourceSlack))
+	assert.True(t, aConversation(SourceGitHub), "a pull-request review is a conversation, asked on GitHub or in Slack")
 	assert.True(t, aConversation(KindDev), "the dev source is how both are tested")
 	assert.False(t, aConversation("linear"), "a ticket is one piece of work, not a conversation")
 }
 
-// The runtime's schema allows three source kinds, and a DELEGATED task used to be told it
+// The runtime's schema allows four source kinds, and a DELEGATED task used to be told it
 // came from the web chat whatever asked for it. Harmless while only chats could delegate;
 // wrong the moment a Slack thread could, because the prompt names where the answer is going.
 func TestBriefKindForNamesTheRealSource(t *testing.T) {
 	assert.Equal(t, SourceSlack, briefKindFor(SourceSlack))
 	assert.Equal(t, "linear", briefKindFor("linear"))
 	assert.Equal(t, SourceChat, briefKindFor(SourceChat))
+	assert.Equal(t, SourceGitHub, briefKindFor(SourceGitHub))
 	assert.Equal(t, SourceChat, briefKindFor(KindDev), "the test-only source presents as chat")
 }
 
