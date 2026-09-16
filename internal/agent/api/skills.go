@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 
 	"connectrpc.com/connect"
 
@@ -12,8 +14,7 @@ import (
 
 func fileOnly(kind string) error {
 	return connect.NewError(connect.CodeFailedPrecondition, errors.New(
-		kind+" are files on this conductor's host; this API does not write them. "+
-			"Edit the profile or skills directory"))
+		kind+" are files on this conductor's host; this API does not write them"))
 }
 
 // ListSkills reports every skill this conductor can hand a turn: the directories under
@@ -67,50 +68,69 @@ func dirSkillToProto(d skills.DirSkill, users map[string][]string) *agentv1.Agen
 		FileCount:   int32(d.FileCount),
 		Enabled:     true,
 		Origin:      "dir",
-		Editable:    false,
+		Editable:    true,
 		Problem:     d.Problem,
 		Playbooks:   users[d.Name],
+		Markdown:    d.Markdown,
 	}
 }
 
-// CreatePlaybook exists so the wire stays the same. Playbooks are files; it refuses.
-func (s *AgentService) CreatePlaybook(
-	context.Context, *connect.Request[agentv1.CreatePlaybookRequest],
-) (*connect.Response[agentv1.CreatePlaybookResponse], error) {
-	return nil, fileOnly("playbooks")
-}
-
-// UpdatePlaybook refuses: playbooks are files.
-func (s *AgentService) UpdatePlaybook(
-	context.Context, *connect.Request[agentv1.UpdatePlaybookRequest],
-) (*connect.Response[agentv1.UpdatePlaybookResponse], error) {
-	return nil, fileOnly("playbooks")
-}
-
-// DeletePlaybook refuses: playbooks are files.
-func (s *AgentService) DeletePlaybook(
-	context.Context, *connect.Request[agentv1.DeletePlaybookRequest],
-) (*connect.Response[agentv1.DeletePlaybookResponse], error) {
-	return nil, fileOnly("playbooks")
-}
-
-// UploadSkill exists so the wire stays the same. Skills are directories; it refuses.
+// UploadSkill unpacks a zip or a bare SKILL.md into PODIUM_AGENT_SKILLS_DIR.
 func (s *AgentService) UploadSkill(
-	context.Context, *connect.Request[agentv1.UploadSkillRequest],
+	ctx context.Context, req *connect.Request[agentv1.UploadSkillRequest],
 ) (*connect.Response[agentv1.UploadSkillResponse], error) {
-	return nil, fileOnly("skills")
+	if s.skillsDir == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("this conductor has no skills directory"))
+	}
+	name, files, err := skills.ParseUpload(req.Msg.GetContent(), req.Msg.GetFilename())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	replaced := false
+	if _, err := os.Lstat(filepath.Join(s.skillsDir, name)); err == nil {
+		replaced = true
+	}
+	if err := skills.Install(s.skillsDir, name, files, req.Msg.GetReplace()); err != nil {
+		if !req.Msg.GetReplace() && replaced {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	dir, err := skills.ListDir(s.skillsDir)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	var out *agentv1.AgentSkill
+	users := s.playbooksBySkill()
+	for _, d := range dir {
+		if d.Name == name {
+			out = dirSkillToProto(d, users)
+			break
+		}
+	}
+	s.logger.InfoContext(ctx, "skill uploaded", "login", Login(ctx), "skill", name, "replaced", replaced)
+	return connect.NewResponse(&agentv1.UploadSkillResponse{Skill: out, Replaced: replaced && req.Msg.GetReplace()}), nil
 }
 
-// SetSkillEnabled refuses: skills are directories.
+// SetSkillEnabled has no file to flip: a directory skill is on if it is on disk.
 func (s *AgentService) SetSkillEnabled(
 	context.Context, *connect.Request[agentv1.SetSkillEnabledRequest],
 ) (*connect.Response[agentv1.SetSkillEnabledResponse], error) {
-	return nil, fileOnly("skills")
+	return nil, fileOnly("skill enablement")
 }
 
-// DeleteSkill refuses: skills are directories.
+// DeleteSkill removes the skill directory.
 func (s *AgentService) DeleteSkill(
-	context.Context, *connect.Request[agentv1.DeleteSkillRequest],
+	ctx context.Context, req *connect.Request[agentv1.DeleteSkillRequest],
 ) (*connect.Response[agentv1.DeleteSkillResponse], error) {
-	return nil, fileOnly("skills")
+	if s.skillsDir == "" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("this conductor has no skills directory"))
+	}
+	if err := skills.Remove(s.skillsDir, req.Msg.GetName()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	s.logger.InfoContext(ctx, "skill deleted", "login", Login(ctx), "skill", req.Msg.GetName())
+	return connect.NewResponse(&agentv1.DeleteSkillResponse{}), nil
 }

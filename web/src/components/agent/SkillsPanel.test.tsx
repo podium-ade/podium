@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { ToastHost } from "../Toast";
 import { SkillsPanel } from "./SkillsPanel";
@@ -59,10 +60,20 @@ describe("SkillsPanel", () => {
   it("says what a skill is and where it runs, before any are installed", async () => {
     mount();
     expect(await screen.findByText("No skills")).toBeInTheDocument();
-    expect(
-      screen.getByText(/runs in the turn's container with the turn's credentials/),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("skill-new")).toBeNull();
+    expect(screen.getByText("Nothing for a turn to pick up yet.")).toBeInTheDocument();
+    expect(await screen.findByTestId("skill-new")).toBeInTheDocument();
+    expect(screen.queryByText(/PODIUM_AGENT_SKILLS_DIR/)).toBeNull();
+    expect(screen.queryByText(/turn's credentials/)).toBeNull();
+  });
+
+  it("opens a markdown editor from New skill, not a zip picker", async () => {
+    mount();
+    await userEvent.click(await screen.findByTestId("skill-new"));
+    expect(screen.getByTestId("skill-editor")).toBeInTheDocument();
+    expect(screen.getByLabelText("SKILL.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a file" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a folder" })).toBeInTheDocument();
+    expect(screen.queryByText(/zip/i)).toBeNull();
   });
 
   it("lists a skill with its size, digest and the playbooks that name it", async () => {
@@ -82,8 +93,23 @@ describe("SkillsPanel", () => {
     expect(within(row).getByText("a313660c2de7…")).toBeInTheDocument();
     expect(within(row).getByText("/coder")).toBeInTheDocument();
     expect(within(row).getByText("host directory")).toBeInTheDocument();
-    expect(within(row).queryByTestId("skill-delete")).toBeNull();
+    expect(within(row).getByTestId("skill-delete")).toBeInTheDocument();
     expect(within(row).queryByLabelText("pr-review is enabled")).toBeNull();
+  });
+
+  it("opens an existing skill in the markdown editor", async () => {
+    listSkills.mockResolvedValue({
+      skills: [skill({ markdown: "---\nname: pr-review\n---\n\nReview it.\n" })],
+      skillsDir: "/etc/podium/skills",
+      maxBytes: 131072n,
+      maxFiles: 64,
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit pr-review" }));
+    expect(screen.getByTestId("skill-editor")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "pr-review" })).toBeInTheDocument();
+    expect(screen.getByLabelText("SKILL.md")).toHaveValue("---\nname: pr-review\n---\n\nReview it.\n");
+    expect(screen.getByRole("button", { name: "Save skill" })).toBeInTheDocument();
   });
 
   it("reports a directory that will not load rather than hiding it", async () => {
@@ -109,6 +135,6 @@ describe("SkillsPanel", () => {
     );
     mount();
     expect(await screen.findByText(/The skills could not be read/)).toBeInTheDocument();
-    expect(screen.queryByTestId("skill-new")).toBeNull();
+    expect(await screen.findByTestId("skill-new")).toBeInTheDocument();
   });
 });

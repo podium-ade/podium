@@ -4735,11 +4735,10 @@ type PlaybookDefinition struct {
 	SlackChannels []string             `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
 	Linear        bool                 `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
 	Env           map[string]string    `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// origin is "file" for a playbooks/<name>.yaml on the conductor's host and "stored" for one
-	// created through this API.
+	// origin is "file": every playbook is a playbooks/<name>.yaml on the conductor's host,
+	// whether a human wrote it in a shell or this API wrote it.
 	Origin string `protobuf:"bytes,15,opt,name=origin,proto3" json:"origin,omitempty"`
-	// editable is false for a file playbook: the files are authoritative for the names they
-	// hold and the write RPCs refuse one.
+	// editable is true: the write RPCs replace the file.
 	Editable bool `protobuf:"varint,16,opt,name=editable,proto3" json:"editable,omitempty"`
 	// shadowed is true for a stored playbook whose name a file playbook also defines. The file
 	// wins, so a shadowed playbook never runs; it is reported so it can be deleted.
@@ -4780,7 +4779,12 @@ type PlaybookDefinition struct {
 	Interactive bool `protobuf:"varint,25,opt,name=interactive,proto3" json:"interactive,omitempty"`
 	// git is who a turn of this playbook commits as. Unset inherits the profile's persona,
 	// which is set in profile.yaml and is what most playbooks should use.
-	Git           *PlaybookGit `protobuf:"bytes,26,opt,name=git,proto3" json:"git,omitempty"`
+	Git *PlaybookGit `protobuf:"bytes,26,opt,name=git,proto3" json:"git,omitempty"`
+	// docker attaches a privileged dind sidecar. Needs a node started with
+	// --allow-privileged-sidecars.
+	Docker bool `protobuf:"varint,27,opt,name=docker,proto3" json:"docker,omitempty"`
+	// browser attaches a headless Chrome sidecar and the tools to drive it.
+	Browser       bool `protobuf:"varint,28,opt,name=browser,proto3" json:"browser,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4995,6 +4999,20 @@ func (x *PlaybookDefinition) GetGit() *PlaybookGit {
 		return x.Git
 	}
 	return nil
+}
+
+func (x *PlaybookDefinition) GetDocker() bool {
+	if x != nil {
+		return x.Docker
+	}
+	return false
+}
+
+func (x *PlaybookDefinition) GetBrowser() bool {
+	if x != nil {
+		return x.Browser
+	}
+	return false
 }
 
 type GetProfileRequest struct {
@@ -5590,7 +5608,9 @@ type AgentSkill struct {
 	Problem string `protobuf:"bytes,12,opt,name=problem,proto3" json:"problem,omitempty"`
 	// playbooks names the playbooks whose skills: list this skill, so a human can see what a
 	// delete or a disable would change before doing it.
-	Playbooks     []string `protobuf:"bytes,13,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
+	Playbooks []string `protobuf:"bytes,13,rep,name=playbooks,proto3" json:"playbooks,omitempty"`
+	// markdown is the SKILL.md body, so the UI can open an existing skill for edit.
+	Markdown      string `protobuf:"bytes,14,opt,name=markdown,proto3" json:"markdown,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5714,6 +5734,13 @@ func (x *AgentSkill) GetPlaybooks() []string {
 		return x.Playbooks
 	}
 	return nil
+}
+
+func (x *AgentSkill) GetMarkdown() string {
+	if x != nil {
+		return x.Markdown
+	}
+	return ""
 }
 
 type ListSkillsRequest struct {
@@ -7552,7 +7579,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"7\n" +
 	"\vPlaybookGit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xd8\a\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\x8a\b\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -7583,7 +7610,9 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\vmcp_servers\x18\x18 \x03(\tR\n" +
 	"mcpServers\x12 \n" +
 	"\vinteractive\x18\x19 \x01(\bR\vinteractive\x12.\n" +
-	"\x03git\x18\x1a \x01(\v2\x1c.podium.agent.v1.PlaybookGitR\x03git\x1a6\n" +
+	"\x03git\x18\x1a \x01(\v2\x1c.podium.agent.v1.PlaybookGitR\x03git\x12\x16\n" +
+	"\x06docker\x18\x1b \x01(\bR\x06docker\x12\x18\n" +
+	"\abrowser\x18\x1c \x01(\bR\abrowser\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x13\n" +
@@ -7612,7 +7641,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\bplaybook\x18\x01 \x01(\v2#.podium.agent.v1.PlaybookDefinitionR\bplaybook\"+\n" +
 	"\x15DeletePlaybookRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x18\n" +
-	"\x16DeletePlaybookResponse\"\x98\x03\n" +
+	"\x16DeletePlaybookResponse\"\xb4\x03\n" +
 	"\n" +
 	"AgentSkill\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
@@ -7632,7 +7661,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\vuploaded_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"uploadedAt\x12\x18\n" +
 	"\aproblem\x18\f \x01(\tR\aproblem\x12\x1c\n" +
-	"\tplaybooks\x18\r \x03(\tR\tplaybooks\"\x13\n" +
+	"\tplaybooks\x18\r \x03(\tR\tplaybooks\x12\x1a\n" +
+	"\bmarkdown\x18\x0e \x01(\tR\bmarkdown\"\x13\n" +
 	"\x11ListSkillsRequest\"\xcc\x01\n" +
 	"\x12ListSkillsResponse\x123\n" +
 	"\x06skills\x18\x01 \x03(\v2\x1b.podium.agent.v1.AgentSkillR\x06skills\x12\x1d\n" +

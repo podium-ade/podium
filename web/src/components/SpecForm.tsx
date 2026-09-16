@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { FileCode2, RotateCcw, SlidersHorizontal } from "lucide-react";
@@ -17,11 +17,12 @@ import { Switch } from "./ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+import { YamlEditor, type YamlEditorHandle } from "./yaml/YamlEditor";
+import { YamlProblems } from "./yaml/YamlProblems";
 import { Code, connectCode, errorMessage, tasks } from "../lib/client";
 import {
   docToYaml,
   fieldsToDoc,
-  parseSpecValue,
   parseSpecYaml,
   splitServerProblems,
   EMPTY_FIELDS,
@@ -29,6 +30,7 @@ import {
   type SpecDoc,
   type SpecInit,
 } from "../lib/spec";
+import { problemText, toIssues, type YamlProblem } from "../lib/yaml";
 
 type Mode = "form" | "yaml";
 
@@ -94,6 +96,7 @@ export function SpecForm({
   const [serverProblems, setServerProblems] = useState<string[]>([]);
   const [failure, setFailure] = useState<string>();
   const [open, setOpen] = useState<Partial<Record<SectionId, boolean>>>({});
+  const yamlRef = useRef<YamlEditorHandle>(null);
 
   const set = <K extends keyof Fields>(key: K, value: Fields[K]) =>
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -105,14 +108,14 @@ export function SpecForm({
   const formYaml = useMemo(() => docToYaml(built.doc), [built.doc]);
   const specYaml = yamlEdited ? yaml : formYaml;
 
-  const parsed = useMemo(
-    () => (yamlEdited ? parseSpecYaml(specYaml) : parseSpecValue(built.doc)),
-    [yamlEdited, specYaml, built],
+  // Both tabs go through the YAML decoder: the form is a projection, and a field it cannot
+  // type-check still has to fail the same way `podium run --spec` would.
+  const parsed = useMemo(() => parseSpecYaml(specYaml), [specYaml]);
+  const localIssues = useMemo<YamlProblem[]>(
+    () => (yamlEdited ? parsed.issues : [...toIssues(built.problems), ...parsed.issues]),
+    [yamlEdited, parsed.issues, built.problems],
   );
-  const localProblems = useMemo(
-    () => (yamlEdited ? parsed.problems : [...built.problems, ...parsed.problems]),
-    [yamlEdited, parsed, built],
-  );
+  const localProblems = useMemo(() => localIssues.map(problemText), [localIssues]);
 
   // Nothing is red before the first submit: the operator is told what is wrong once they say
   // they are done, and from then on the form keeps up with them as they fix it.
@@ -246,7 +249,9 @@ export function SpecForm({
                 </Alert>
               ) : null}
 
-              {mode === "form" && problems.length > 0 ? <ProblemList problems={problems} /> : null}
+              {mode === "form" && problems.length > 0 ? (
+                <YamlProblems problems={attempted ? localIssues.concat(toIssues(serverProblems)) : []} />
+              ) : null}
 
               <TabsContent value="form" className="space-y-4">
                 {yamlEdited ? (
@@ -640,7 +645,6 @@ export function SpecForm({
                 <Card>
                   <CardHeader>
                     <div>
-                      <CardTitle id="spec-yaml-label">Task spec YAML</CardTitle>
                       <CardDescription>
                         {yamlEdited
                           ? "Edited by hand, so this document is the spec. The form's fields no longer feed it."
@@ -663,23 +667,24 @@ export function SpecForm({
                     ) : null}
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    <Textarea
+                    <YamlEditor
+                      ref={yamlRef}
                       id="spec-yaml"
-                      aria-labelledby="spec-yaml-label"
-                      aria-invalid={(attempted && localProblems.length > 0) || undefined}
+                      label="Task spec YAML"
                       value={specYaml}
-                      onChange={(e) => {
+                      onChange={(text) => {
                         setYamlEdited(true);
-                        setYaml(e.target.value);
+                        setYaml(text);
                       }}
-                      rows={22}
-                      spellCheck={false}
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      className={`${MONO} min-h-96 leading-5`}
+                      problems={attempted ? localIssues : []}
+                      invalid={attempted && localProblems.length > 0}
+                      minLines={22}
                     />
                     {problems.length > 0 ? (
-                      <ProblemList problems={problems} />
+                      <YamlProblems
+                        problems={attempted ? localIssues.concat(toIssues(serverProblems)) : []}
+                        onJump={(line) => yamlRef.current?.jumpTo(line)}
+                      />
                     ) : (
                       <p className="text-2xs leading-relaxed text-muted">
                         The same document <span className="font-mono">podium run --spec</span>{" "}
@@ -721,24 +726,6 @@ export function SpecForm({
         </Tabs>
       </fieldset>
     </form>
-  );
-}
-
-function ProblemList({ problems }: { problems: string[] }) {
-  return (
-    <Alert
-      role="alert"
-      variant="destructive"
-      title={`${problems.length} ${problems.length === 1 ? "problem" : "problems"} to fix`}
-    >
-      <ul data-testid="spec-problems" className="mt-1 space-y-1">
-        {problems.map((p, i) => (
-          <li key={i} className="font-mono break-words">
-            {p}
-          </li>
-        ))}
-      </ul>
-    </Alert>
   );
 }
 
