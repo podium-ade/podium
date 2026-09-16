@@ -187,9 +187,10 @@ SAML is not implemented.
   it to — and anybody who can set the assignee on a Linear issue can start a turn. There is no
   allowlist of users and no roles. A turn gets exactly the secrets its own playbook names, plus the
   reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
-  credential — `podium.agent.anthropic_api_key` for a `claude` turn or `podium.agent.xai_api_key`
-  for a `grok` one, never both. Keep `secrets:` minimal per playbook and do not put a credential in
-  a playbook a public channel can reach.
+  credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
+  for a `grok` one, or `podium.agent.openai_api_key` for an `openai` one, never two. Keep
+  `secrets:` minimal per playbook and do not put a credential in a playbook a public channel can
+  reach.
 - **A playbook is not a boundary around secrets, and never was.** It decides what *this bot* hands
   a turn, and that is worth keeping tight — but it stops nobody. `CreateTask` checks only that a
   named secret **exists**; there is no authorisation over which secrets a caller may name. So
@@ -736,6 +737,7 @@ conductor's own Postgres, `podium_agent`, in clear. There is one per sign-in:
 
 - A subscription sign-in to xAI (see [`agent.md`](agent.md#signing-in-with-a-subscription)),
   in the `provider.xai` settings row.
+- A subscription sign-in to OpenAI / ChatGPT Codex, in the `provider.openai` settings row.
 - Every signed-in MCP server (see [`agent.md`](agent.md#signing-in-to-an-mcp-server)), in the
   `oauth` column of its `mcp_servers` row — **and, where the authorization server issued one on
   dynamic registration, a client secret beside it**.
@@ -950,7 +952,7 @@ Everything below is a real hole, not a hypothetical:
   `not_found`, and anybody who can reach the API can read the same rows out of `podium_agent`.
 - **A provider credential can be replaced or removed by anyone who can reach the web UI**, and
   the only record of who did it is `set_by` on the current one. That includes signing the bot in
-  to somebody's Grok subscription, and signing it out again.
+  to somebody's Grok or ChatGPT subscription, and signing it out again.
 - **Every OAuth refresh token is stored in clear in the conductor's own database** — the
   subscription sign-in's, and one per signed-in MCP server, with a dynamically issued client
   secret beside it where there is one — because the secret store deliberately has no read

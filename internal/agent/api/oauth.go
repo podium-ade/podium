@@ -63,6 +63,15 @@ const (
 // a configuration answer, not a failure of the provider.
 var errOAuthUnconfigured = errors.New("subscription sign-in is not configured on this control plane")
 
+// oauthSession is one provider's sign-in. RFC 8628 device-code (xAI) and OpenAI's Codex
+// device flow both implement it, so StartProviderOAuth / PollProviderOAuth / refreshOnce
+// stay one code path.
+type oauthSession interface {
+	startDevice(ctx context.Context) (*deviceCodeResponse, error)
+	pollFlow(ctx context.Context, flow *oauthFlow) (state string, tok *tokenResponse, detail string, err error)
+	refresh(ctx context.Context, refreshToken string) (*tokenResponse, error)
+}
+
 // oidcConfig is the part of a discovery document this code uses.
 type oidcConfig struct {
 	Issuer                      string `json:"issuer"`
@@ -280,6 +289,10 @@ func (c *oauthClient) pollDevice(ctx context.Context, deviceCode string) (state 
 	}
 }
 
+func (c *oauthClient) pollFlow(ctx context.Context, flow *oauthFlow) (string, *tokenResponse, string, error) {
+	return c.pollDevice(ctx, flow.deviceCode)
+}
+
 // refresh trades a refresh token for a new access token. A provider that rotates refresh
 // tokens returns a new one; one that does not returns none, and the caller keeps the old.
 func (c *oauthClient) refresh(ctx context.Context, refreshToken string) (*tokenResponse, error) {
@@ -365,33 +378,57 @@ func oauthErrorText(raw []byte, status string) string {
 // token came back over TLS from an endpoint already checked against the issuer, and the
 // value is only ever shown on a page — nothing authorises on it. It is not passed to any
 // API and it is not the credential.
+//
+// Codex does not issue an id_token; the access token itself is a JWT, so that is tried
+// second.
 func account(tok *tokenResponse) string {
-	if tok.IDToken == "" {
-		return ""
-	}
-	parts := strings.Split(tok.IDToken, ".")
-	if len(parts) != 3 {
-		return ""
-	}
-	payload, err := base64URL(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		Email             string `json:"email"`
-		PreferredUsername string `json:"preferred_username"`
-		Name              string `json:"name"`
-		Sub               string `json:"sub"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-	for _, c := range []string{claims.Email, claims.PreferredUsername, claims.Name, claims.Sub} {
-		if c != "" {
-			return c
+	for _, jwt := range []string{tok.IDToken, tok.AccessToken} {
+		if s := jwtAccount(jwt); s != "" {
+			return s
 		}
 	}
 	return ""
+}
+
+func jwtAccount(jwt string) string {
+	claims := jwtClaims(jwt)
+	if claims == nil {
+		return ""
+	}
+	for _, k := range []string{"email", "preferred_username", "name", "sub"} {
+		if s, _ := claims[k].(string); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func jwtClaims(jwt string) map[string]any {
+	parts := strings.Split(jwt, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := base64URL(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil
+	}
+	return claims
+}
+
+func jwtExp(jwt string) time.Time {
+	claims := jwtClaims(jwt)
+	if claims == nil {
+		return time.Time{}
+	}
+	exp, ok := claims["exp"].(float64)
+	if !ok || exp <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(exp), 0).UTC()
 }
 
 // base64URL decodes a JWT segment, which is base64url and may or may not be padded.

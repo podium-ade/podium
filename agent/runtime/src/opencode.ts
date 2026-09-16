@@ -155,6 +155,8 @@ export interface Config {
   /** providerID and baseURL point the harness at one model API. */
   providerID: string;
   baseURL?: string;
+  /** apiKeyEnv names the variable holding the credential, so a ChatGPT token can add the account header. */
+  apiKeyEnv?: string;
   /** memory is the MCP server, when this host has one. */
   memory?: { url: string; apiKeyEnv: string };
   /** browser is the CDP endpoint of the sidecar browser, when the playbook asked for one. */
@@ -196,6 +198,37 @@ export function skillPermission(names: string[]): Record<string, "allow" | "deny
     out[name] = "allow";
   }
   return out;
+}
+
+/**
+ * chatgptAccountId is the ChatGPT account a Codex access token names. The token is a JWT;
+ * the claim is only used as a request header, never to authorise anything here.
+ */
+export function chatgptAccountId(token: string): string | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      "https://api.openai.com/auth"?: { chatgpt_account_id?: unknown };
+    };
+    const id = payload["https://api.openai.com/auth"]?.chatgpt_account_id;
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function chatgptHeaders(cfg: Config): Record<string, string> | undefined {
+  if (cfg.providerID !== "openai" || !cfg.apiKeyEnv) {
+    return undefined;
+  }
+  const account = chatgptAccountId(process.env[cfg.apiKeyEnv] ?? "");
+  if (!account) {
+    return undefined;
+  }
+  return { "ChatGPT-Account-Id": account, originator: "podium" };
 }
 
 /**
@@ -261,8 +294,16 @@ export function writeConfig(cfg: Config): string {
       },
     },
   };
+  const options: Record<string, unknown> = {};
   if (cfg.baseURL) {
-    doc.provider = { [cfg.providerID]: { options: { baseURL: cfg.baseURL } } };
+    options.baseURL = cfg.baseURL;
+  }
+  const headers = chatgptHeaders(cfg);
+  if (headers) {
+    options.headers = headers;
+  }
+  if (Object.keys(options).length > 0) {
+    doc.provider = { [cfg.providerID]: { options } };
   }
   const mcp: Record<string, unknown> = {};
   if (cfg.memory) {

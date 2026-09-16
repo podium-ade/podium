@@ -1172,7 +1172,7 @@ func (*GetSettingsRequest) Descriptor() ([]byte, []int) {
 // in which any part of the credential is ever read back.
 type ProviderSettings struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// provider is "anthropic" or "xai". The field is the BYOK seam.
+	// provider is "anthropic", "xai", or "openai". The field is the BYOK seam.
 	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	KeySet   bool   `protobuf:"varint,2,opt,name=key_set,json=keySet,proto3" json:"key_set,omitempty"`
 	// key_hint is the last four characters of the key, or "" when no key is set. It is empty
@@ -1608,7 +1608,7 @@ func (*ClearProviderKeyResponse) Descriptor() ([]byte, []int) {
 
 type StartProviderOAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// provider is "xai". Anthropic takes an API key on this control plane and answers
+	// provider is "xai" or "openai". Anthropic takes an API key on this control plane and answers
 	// invalid_argument here.
 	Provider      string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1965,10 +1965,10 @@ func (x *AgentModel) GetEfforts() []string {
 // models it can be pointed at.
 type AgentBackend struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id is what a playbook's `agent` field holds: "claude" or "grok".
+	// id is what a playbook's `agent` field holds: "claude", "grok", or "openai".
 	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	// provider is the credential this backend spends: "anthropic" or "xai".
+	// provider is the credential this backend spends: "anthropic", "xai", or "openai".
 	Provider string `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
 	// note is a sentence about what this backend actually is, for the picker's header.
 	Note         string        `protobuf:"bytes,4,opt,name=note,proto3" json:"note,omitempty"`
@@ -4297,7 +4297,7 @@ type AgentProfile struct {
 	// updated_by and updated_at describe the stored override, not the file.
 	UpdatedBy string                 `protobuf:"bytes,12,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// agent is the backend every playbook runs on unless it names its own: "claude" or "grok".
+	// agent is the backend every playbook runs on unless it names its own: "claude", "grok", or "openai".
 	Agent string `protobuf:"bytes,14,opt,name=agent,proto3" json:"agent,omitempty"`
 	// effort is the reasoning effort every playbook runs at unless it names its own. Empty
 	// means the model's own default.

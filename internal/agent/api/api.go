@@ -92,6 +92,14 @@ type AgentServiceOptions struct {
 	XAIOAuthIssuer   string
 	XAIOAuthClientID string
 	XAIOAuthScopes   string
+	// OpenAIBaseURL is where SetProviderKey validates an OpenAI API key.
+	OpenAIBaseURL string
+	// OpenAICodexBaseURL is where a ChatGPT / Codex subscription token is validated.
+	OpenAICodexBaseURL string
+	// OpenAIOAuthIssuer and OpenAIOAuthClientID configure the ChatGPT subscription
+	// sign-in. An empty client id means API keys only.
+	OpenAIOAuthIssuer   string
+	OpenAIOAuthClientID string
 	// HTTPClient validates the key. Nil means a client with a timeout of its own.
 	HTTPClient *http.Client
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
@@ -123,14 +131,16 @@ type AgentServiceOptions struct {
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
-	store      *store.Store
-	secrets    SecretStore
-	model      string
-	baseURL    string
-	xaiBaseURL string
+	store              *store.Store
+	secrets            SecretStore
+	model              string
+	baseURL            string
+	xaiBaseURL         string
+	openaiBaseURL      string
+	openaiCodexBaseURL string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
-	oauth      map[string]*oauthClient
+	oauth      map[string]oauthSession
 	http       *http.Client
 	memory     memory.Client
 	skillsDir  string
@@ -184,29 +194,44 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if opts.XAIOAuthScopes == "" {
 		opts.XAIOAuthScopes = config.DefaultXAIOAuthScopes
 	}
-	oauth := map[string]*oauthClient{}
-	// newOAuthClient returns nil without a client id, and a nil entry is never stored: the
-	// map having no key for a provider is what "API keys only" means to oauthFor.
+	if opts.OpenAIBaseURL == "" {
+		opts.OpenAIBaseURL = config.DefaultOpenAIBaseURL
+	}
+	if opts.OpenAICodexBaseURL == "" {
+		opts.OpenAICodexBaseURL = config.DefaultOpenAICodexBaseURL
+	}
+	if opts.OpenAIOAuthIssuer == "" {
+		opts.OpenAIOAuthIssuer = config.DefaultOpenAIOAuthIssuer
+	}
+	oauth := map[string]oauthSession{}
+	// newOAuthClient / newCodexClient return nil without a client id, and a nil entry is
+	// never stored: the map having no key for a provider is what "API keys only" means
+	// to oauthFor.
 	if c := newOAuthClient(opts.XAIOAuthIssuer, opts.XAIOAuthClientID, opts.XAIOAuthScopes,
 		opts.HTTPClient); c != nil {
 		oauth[ProviderXAI] = c
 	}
+	if c := newCodexClient(opts.OpenAIOAuthIssuer, opts.OpenAIOAuthClientID, opts.HTTPClient); c != nil {
+		oauth[ProviderOpenAI] = c
+	}
 	return &AgentService{
-		store:      opts.Store,
-		secrets:    opts.Secrets,
-		model:      opts.Model,
-		baseURL:    opts.AnthropicBaseURL,
-		xaiBaseURL: opts.XAIBaseURL,
-		oauth:      oauth,
-		http:       opts.HTTPClient,
-		memory:     opts.Memory,
-		skillsDir:  opts.SkillsDir,
-		profiles:   opts.Profiles,
-		profileDir: opts.ProfileDir,
-		chat:       opts.Chat,
-		tasks:      opts.Tasks,
-		turns:      opts.Turns,
-		logger:     opts.Logger,
+		store:              opts.Store,
+		secrets:            opts.Secrets,
+		model:              opts.Model,
+		baseURL:            opts.AnthropicBaseURL,
+		xaiBaseURL:         opts.XAIBaseURL,
+		openaiBaseURL:      opts.OpenAIBaseURL,
+		openaiCodexBaseURL: opts.OpenAICodexBaseURL,
+		oauth:              oauth,
+		http:               opts.HTTPClient,
+		memory:             opts.Memory,
+		skillsDir:          opts.SkillsDir,
+		profiles:           opts.Profiles,
+		profileDir:         opts.ProfileDir,
+		chat:               opts.Chat,
+		tasks:              opts.Tasks,
+		turns:              opts.Turns,
+		logger:             opts.Logger,
 	}
 }
 

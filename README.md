@@ -299,6 +299,10 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
+      PODIUM_AGENT_OPENAI_BASE_URL: ${PODIUM_AGENT_OPENAI_BASE_URL:-https://api.openai.com}
+      PODIUM_AGENT_OPENAI_CODEX_BASE_URL: ${PODIUM_AGENT_OPENAI_CODEX_BASE_URL:-https://chatgpt.com/backend-api/codex}
+      PODIUM_AGENT_OPENAI_OAUTH_ISSUER: ${PODIUM_AGENT_OPENAI_OAUTH_ISSUER:-https://auth.openai.com}
+      PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID:-}
     volumes:
       # Bare name → named volume (starter copied from the image on first up). A path → bind.
       - ${PODIUM_AGENT_PROFILE_HOST:-agent-profile}:${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}

@@ -18,6 +18,7 @@ import { Tooltip } from "../ui/tooltip";
 const PROVIDER = {
   anthropic: { tone: "ok", label: "Anthropic" },
   xai: { tone: "lost", label: "xAI" },
+  openai: { tone: "warn", label: "OpenAI" },
 } as const;
 
 /**

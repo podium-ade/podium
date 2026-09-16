@@ -57,6 +57,27 @@ const DefaultXAIOAuthClientID = "b1a00492-073a-47ea-816f-4c329264a828"
 // subscribers point at the scope set rather than the subscription — so it is asked for too.
 const DefaultXAIOAuthScopes = "openid profile email offline_access grok-cli:access api:access"
 
+// DefaultOpenAIBaseURL is where an OpenAI API key is validated, and where an OpenAI turn
+// that spent a key sends the harness. A subscription sign-in does not use this: it talks
+// to DefaultOpenAICodexBaseURL instead.
+const DefaultOpenAIBaseURL = "https://api.openai.com"
+
+// DefaultOpenAICodexBaseURL is ChatGPT's Codex inference endpoint. A subscription access
+// token is a bearer for this, not for api.openai.com — that split is why an OpenAI turn's
+// brief carries a different base URL after a sign-in than after a pasted key.
+const DefaultOpenAICodexBaseURL = "https://chatgpt.com/backend-api/codex"
+
+// DefaultOpenAIOAuthIssuer is OpenAI's auth host. Codex device-flow endpoints live under
+// it and are hard-coded relative to this, not discovered: OpenAI does not publish an
+// RFC 8628 device_authorization_endpoint.
+const DefaultOpenAIOAuthIssuer = "https://auth.openai.com"
+
+// DefaultOpenAIOAuthClientID is OpenAI's public Codex desktop client — the same id Hermes
+// hard-codes as CODEX_OAUTH_CLIENT_ID in hermes_cli/auth_constants.py, and the one Codex
+// CLI uses. It is public client metadata, not a secret. The consent screen names Codex,
+// not Podium, because that is whose client this is.
+const DefaultOpenAIOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
 // DefaultMemoryTaskURL is where a TASK CONTAINER reaches Hindsight. It is not where the
 // conductor reaches it: a task runs on a node, on its own bridge network, and gets to the
 // host through the bridge gateway. Correct when the node runs on the same host as the
@@ -162,6 +183,21 @@ type Config struct {
 	XAIOAuthClientID string
 	// XAIOAuthScopes is PODIUM_AGENT_XAI_OAUTH_SCOPES, default DefaultXAIOAuthScopes.
 	XAIOAuthScopes string
+	// OpenAIBaseURL is PODIUM_AGENT_OPENAI_BASE_URL, default https://api.openai.com.
+	// SetProviderKey validates an API key against it, and an OpenAI turn that spent a key
+	// carries it in its brief. A subscription sign-in ignores it.
+	OpenAIBaseURL string
+	// OpenAICodexBaseURL is PODIUM_AGENT_OPENAI_CODEX_BASE_URL, default
+	// https://chatgpt.com/backend-api/codex. A ChatGPT / Codex subscription token is
+	// validated against it and a turn that spent one is pointed at it.
+	OpenAICodexBaseURL string
+	// OpenAIOAuthIssuer is PODIUM_AGENT_OPENAI_OAUTH_ISSUER, default https://auth.openai.com.
+	OpenAIOAuthIssuer string
+	// OpenAIOAuthClientID is PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID: the OAuth client id of
+	// OpenAI's public Codex desktop client. Default DefaultOpenAIOAuthClientID (Hermes /
+	// Codex CLI). Set to "off" to turn the subscription sign-in off and leave the API key
+	// path. Public OAuth client metadata, not a secret.
+	OpenAIOAuthClientID string
 	// MemoryURL is PODIUM_AGENT_MEMORY_URL: Hindsight's base URL as seen from THIS
 	// process. Empty turns memory off entirely — briefs carry no memory block, nothing is
 	// retained, readyz does not probe it and the memory RPCs answer FailedPrecondition.
@@ -226,31 +262,35 @@ type Config struct {
 // FromEnv reads the canonical environment variables and applies the defaults.
 func FromEnv() Config {
 	return Config{
-		Server:           os.Getenv("PODIUM_AGENT_SERVER"),
-		APIToken:         os.Getenv("PODIUM_AGENT_API_TOKEN"),
-		DatabaseURL:      os.Getenv("PODIUM_AGENT_DATABASE_URL"),
-		Listen:           envOr("PODIUM_AGENT_LISTEN", DefaultListen),
-		Token:            os.Getenv("PODIUM_AGENT_TOKEN"),
-		ProfileDir:       envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
-		SkillsDir:        os.Getenv(skills.DirEnv),
-		HostRuntime:      os.Getenv("PODIUM_AGENT_HOST_RUNTIME"),
-		HostMaxTurns:     envInt("PODIUM_AGENT_HOST_MAX_TURNS"),
-		HostNode:         envOr("PODIUM_AGENT_HOST_NODE", "node"),
-		RunnerBin:        os.Getenv("PODIUM_AGENT_RUNNER_BIN"),
-		HostDir:          os.Getenv("PODIUM_AGENT_HOST_DIR"),
-		SlackAppToken:    os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
-		SlackBotToken:    os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
-		AnthropicBaseURL: envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
-		XAIBaseURL:       envOr("PODIUM_AGENT_XAI_BASE_URL", DefaultXAIBaseURL),
-		XAIOAuthIssuer:   envOr("PODIUM_AGENT_XAI_OAUTH_ISSUER", DefaultXAIOAuthIssuer),
-		XAIOAuthClientID: xaiOAuthClientID(),
-		XAIOAuthScopes:   envOr("PODIUM_AGENT_XAI_OAUTH_SCOPES", DefaultXAIOAuthScopes),
-		MemoryURL:        os.Getenv("PODIUM_AGENT_MEMORY_URL"),
-		MemoryTaskURL:    envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
-		MemoryBank:       envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
-		MemoryAPIKey:     os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
-		LinearAPIKey:     os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
-		LinearURL:        envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
+		Server:              os.Getenv("PODIUM_AGENT_SERVER"),
+		APIToken:            os.Getenv("PODIUM_AGENT_API_TOKEN"),
+		DatabaseURL:         os.Getenv("PODIUM_AGENT_DATABASE_URL"),
+		Listen:              envOr("PODIUM_AGENT_LISTEN", DefaultListen),
+		Token:               os.Getenv("PODIUM_AGENT_TOKEN"),
+		ProfileDir:          envOr("PODIUM_AGENT_PROFILE_DIR", DefaultProfileDir),
+		SkillsDir:           os.Getenv(skills.DirEnv),
+		HostRuntime:         os.Getenv("PODIUM_AGENT_HOST_RUNTIME"),
+		HostMaxTurns:        envInt("PODIUM_AGENT_HOST_MAX_TURNS"),
+		HostNode:            envOr("PODIUM_AGENT_HOST_NODE", "node"),
+		RunnerBin:           os.Getenv("PODIUM_AGENT_RUNNER_BIN"),
+		HostDir:             os.Getenv("PODIUM_AGENT_HOST_DIR"),
+		SlackAppToken:       os.Getenv("PODIUM_AGENT_SLACK_APP_TOKEN"),
+		SlackBotToken:       os.Getenv("PODIUM_AGENT_SLACK_BOT_TOKEN"),
+		AnthropicBaseURL:    envOr("PODIUM_AGENT_ANTHROPIC_BASE_URL", DefaultAnthropicBaseURL),
+		XAIBaseURL:          envOr("PODIUM_AGENT_XAI_BASE_URL", DefaultXAIBaseURL),
+		XAIOAuthIssuer:      envOr("PODIUM_AGENT_XAI_OAUTH_ISSUER", DefaultXAIOAuthIssuer),
+		XAIOAuthClientID:    oauthClientID("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID", DefaultXAIOAuthClientID),
+		XAIOAuthScopes:      envOr("PODIUM_AGENT_XAI_OAUTH_SCOPES", DefaultXAIOAuthScopes),
+		OpenAIBaseURL:       envOr("PODIUM_AGENT_OPENAI_BASE_URL", DefaultOpenAIBaseURL),
+		OpenAICodexBaseURL:  envOr("PODIUM_AGENT_OPENAI_CODEX_BASE_URL", DefaultOpenAICodexBaseURL),
+		OpenAIOAuthIssuer:   envOr("PODIUM_AGENT_OPENAI_OAUTH_ISSUER", DefaultOpenAIOAuthIssuer),
+		OpenAIOAuthClientID: oauthClientID("PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID", DefaultOpenAIOAuthClientID),
+		MemoryURL:           os.Getenv("PODIUM_AGENT_MEMORY_URL"),
+		MemoryTaskURL:       envOr("PODIUM_AGENT_MEMORY_TASK_URL", DefaultMemoryTaskURL),
+		MemoryBank:          envOr("PODIUM_AGENT_MEMORY_BANK", DefaultMemoryBank),
+		MemoryAPIKey:        os.Getenv("PODIUM_AGENT_MEMORY_API_KEY"),
+		LinearAPIKey:        os.Getenv("PODIUM_AGENT_LINEAR_API_KEY"),
+		LinearURL:           envOr("PODIUM_AGENT_LINEAR_URL", DefaultLinearURL),
 		// A malformed duration is left at zero here and named by Validate, which is where
 		// every other bad value is reported too.
 		LinearPollInterval:  envDuration("PODIUM_AGENT_LINEAR_POLL_INTERVAL", DefaultLinearPollInterval),
@@ -342,11 +382,18 @@ func (c Config) Validate() error {
 		{"PODIUM_AGENT_ANTHROPIC_BASE_URL", c.AnthropicBaseURL},
 		{"PODIUM_AGENT_XAI_BASE_URL", c.XAIBaseURL},
 		{"PODIUM_AGENT_XAI_OAUTH_ISSUER", c.XAIOAuthIssuer},
+		{"PODIUM_AGENT_OPENAI_BASE_URL", c.OpenAIBaseURL},
+		{"PODIUM_AGENT_OPENAI_OAUTH_ISSUER", c.OpenAIOAuthIssuer},
 	} {
 		if u.value == "" {
 			continue
 		}
 		if err := absoluteURL(u.name, u.value); err != nil {
+			return err
+		}
+	}
+	if c.OpenAICodexBaseURL != "" {
+		if err := absoluteURLAllowPath("PODIUM_AGENT_OPENAI_CODEX_BASE_URL", c.OpenAICodexBaseURL); err != nil {
 			return err
 		}
 	}
@@ -425,6 +472,10 @@ func (c Config) LogValue() slog.Value {
 		// Public OAuth client metadata, not a secret: it is the one thing an operator needs
 		// to see to know why the sign-in button is disabled.
 		slog.String("xai_oauth_client_id", c.XAIOAuthClientID),
+		slog.String("openai_base_url", c.OpenAIBaseURL),
+		slog.String("openai_codex_base_url", c.OpenAICodexBaseURL),
+		slog.String("openai_oauth_issuer", c.OpenAIOAuthIssuer),
+		slog.String("openai_oauth_client_id", c.OpenAIOAuthClientID),
 		slog.Bool("api_token_set", c.APIToken != ""),
 		slog.Bool("token_set", c.Token != ""),
 		slog.Bool("slack", c.SlackEnabled()),
@@ -616,6 +667,16 @@ func (c Config) validateMemory() error {
 // absoluteURL is the shape check every base URL in this file needs: scheme, host, and no
 // path — a base URL with a path silently changes what a client appends to it.
 func absoluteURL(name, raw string) error {
+	return checkAbsoluteURL(name, raw, false)
+}
+
+// absoluteURLAllowPath is the same check for an endpoint that *is* a path — ChatGPT's Codex
+// root is /backend-api/codex, and stripping that would send a turn to chatgpt.com/.
+func absoluteURLAllowPath(name, raw string) error {
+	return checkAbsoluteURL(name, raw, true)
+}
+
+func checkAbsoluteURL(name, raw string, allowPath bool) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("%s=%q is not a URL: %w", name, raw, err)
@@ -623,7 +684,7 @@ func absoluteURL(name, raw string) error {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("%s=%q must be an absolute http:// or https:// URL", name, raw)
 	}
-	if u.Path != "" && u.Path != "/" {
+	if !allowPath && u.Path != "" && u.Path != "/" {
 		return fmt.Errorf("%s=%q must be scheme://host:port with no path", name, raw)
 	}
 	return nil
@@ -636,13 +697,13 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// xaiOAuthClientID is Hermes's public desktop client unless the operator set something
-// else. "off" turns the subscription sign-in off (empty would collide with compose files
-// that interpolate ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-} and pass an empty string).
-func xaiOAuthClientID() string {
-	v := strings.TrimSpace(os.Getenv("PODIUM_AGENT_XAI_OAUTH_CLIENT_ID"))
+// oauthClientID is the public desktop client unless the operator set something else.
+// "off" turns the subscription sign-in off (empty would collide with compose files that
+// interpolate ${VAR:-} and pass an empty string).
+func oauthClientID(env, fallback string) string {
+	v := strings.TrimSpace(os.Getenv(env))
 	if v == "" {
-		return DefaultXAIOAuthClientID
+		return fallback
 	}
 	if strings.EqualFold(v, "off") {
 		return ""

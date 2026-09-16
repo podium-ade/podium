@@ -96,6 +96,12 @@ type Options struct {
 	// means config.DefaultXAIBaseURL, so a hand-built Conductor still produces a usable
 	// brief.
 	XAIBaseURL string
+	// OpenAIBaseURL is where an OpenAI turn that spent an API key sends the harness.
+	// Empty means config.DefaultOpenAIBaseURL.
+	OpenAIBaseURL string
+	// OpenAICodexBaseURL is where an OpenAI turn that spent a ChatGPT subscription
+	// token sends the harness. Empty means config.DefaultOpenAICodexBaseURL.
+	OpenAICodexBaseURL string
 	// SkillsDir is the directory on this host that Agent Skills are read from
 	// (PODIUM_AGENT_SKILLS_DIR). Empty means this conductor delivers none, and a playbook
 	// that names one fails its turns saying so.
@@ -145,6 +151,10 @@ type Conductor struct {
 	lastExtractionCheck time.Time
 	// xaiBaseURL is the endpoint a Grok turn's brief names.
 	xaiBaseURL string
+	// openaiBaseURL is the endpoint an OpenAI API-key turn's brief names, and
+	// openaiCodexBaseURL the one a ChatGPT subscription turn's brief names.
+	openaiBaseURL      string
+	openaiCodexBaseURL string
 	// skillsDir is where a turn's Agent Skills are read from.
 	skillsDir string
 	// host is the runtime for a turn this process runs itself, nil when it runs none.
@@ -236,26 +246,28 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:           opts.Store,
-		podium:          opts.Podium,
-		profiles:        opts.Profiles,
-		sources:         opts.Sources,
-		metrics:         metrics,
-		logger:          logger,
-		memory:          opts.Memory,
-		memories:        opts.MemoryClient,
-		xaiBaseURL:      cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		skillsDir:       opts.SkillsDir,
-		host:            opts.Host,
-		mirror:          opts.Mirror,
-		hostSlots:       make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
-		github:          opts.GitHub,
-		gitTaskURL:      opts.GitTaskURL,
-		mintSecret:      opts.MintSecret,
-		sessions:        map[string]*sessionState{},
-		hostRuns:        map[string]func(){},
-		turnTokens:      map[string]turnGrant{},
-		liveDelegations: map[string]*delegationRun{},
+		store:              opts.Store,
+		podium:             opts.Podium,
+		profiles:           opts.Profiles,
+		sources:            opts.Sources,
+		metrics:            metrics,
+		logger:             logger,
+		memory:             opts.Memory,
+		memories:           opts.MemoryClient,
+		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
+		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		skillsDir:          opts.SkillsDir,
+		host:               opts.Host,
+		mirror:             opts.Mirror,
+		hostSlots:          make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:             opts.GitHub,
+		gitTaskURL:         opts.GitTaskURL,
+		mintSecret:         opts.MintSecret,
+		sessions:           map[string]*sessionState{},
+		hostRuns:           map[string]func(){},
+		turnTokens:         map[string]turnGrant{},
+		liveDelegations:    map[string]*delegationRun{},
 	}, nil
 }
 
@@ -851,15 +863,43 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
 	out := &BriefProvider{ID: b.Provider, APIKeyEnv: profiles.KeyEnvFor(b.Provider)}
-	if b.Provider == profiles.ProviderXAI {
+	switch b.Provider {
+	case profiles.ProviderXAI:
 		// PODIUM_AGENT_XAI_BASE_URL names the host, not an API root: validateXAIKey builds
 		// `<base>/v1/models` from the same value. The harness is handed a provider baseURL
 		// and appends the endpoint to it directly, so it needs the version in the URL —
 		// without it a turn dies on its first request with a 404 from
 		// https://api.x.ai/responses.
 		out.BaseURL = strings.TrimSuffix(c.xaiBaseURL, "/") + "/v1"
+	case profiles.ProviderOpenAI:
+		out.BaseURL = c.openaiEndpoint()
 	}
 	return out
+}
+
+// openaiEndpoint is where an OpenAI turn sends the harness. An API key talks to
+// api.openai.com; a ChatGPT subscription token talks to Codex. The stored auth kind is
+// what picks, and a missing row is the key path — that is also what a hand-built
+// Conductor with no store produces.
+func (c *Conductor) openaiEndpoint() string {
+	api := strings.TrimSuffix(c.openaiBaseURL, "/") + "/v1"
+	if c.openaiAuthKind() == "oauth" {
+		return strings.TrimSuffix(c.openaiCodexBaseURL, "/")
+	}
+	return api
+}
+
+func (c *Conductor) openaiAuthKind() string {
+	if c.store == nil {
+		return ""
+	}
+	var row struct {
+		AuthKind string `json:"auth_kind"`
+	}
+	if err := c.store.GetSetting(context.Background(), "provider.openai", &row); err != nil {
+		return ""
+	}
+	return row.AuthKind
 }
 
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
@@ -1085,7 +1125,7 @@ func dockerSidecar() spec.Sidecar {
 // A Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one:
 // a container gets the credential it needs and no other, which is the same rule the rest of
 // Podium's secret handling follows. The refresh token of a subscription sign-in is on
-// neither — it never leaves the conductor's host at all.
+// none of them — it never leaves the conductor's host at all.
 //
 // The memory key is on every turn of a host that has memory, because a brief with a memory
 // block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
@@ -1093,17 +1133,14 @@ func dockerSidecar() spec.Sidecar {
 func (c *Conductor) reservedSecrets(
 	agent string, servers []mcp.Server, capabilitySecret string,
 ) []spec.SecretRef {
-	model := spec.SecretRef{
-		Name:   profiles.AnthropicKeySecret,
-		Target: spec.SecretTargetEnv,
-		Key:    profiles.AnthropicKeyEnv,
+	b, ok := profiles.FindBackend(agent)
+	if !ok {
+		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
-	if agent == profiles.AgentGrok {
-		model = spec.SecretRef{
-			Name:   profiles.XAIKeySecret,
-			Target: spec.SecretTargetEnv,
-			Key:    profiles.XAIKeyEnv,
-		}
+	model := spec.SecretRef{
+		Name:   profiles.SecretFor(b.Provider),
+		Target: spec.SecretTargetEnv,
+		Key:    profiles.KeyEnvFor(b.Provider),
 	}
 	refs := []spec.SecretRef{model}
 	if c.memory != nil {

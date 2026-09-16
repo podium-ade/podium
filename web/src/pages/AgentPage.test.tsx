@@ -123,6 +123,7 @@ function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
 
 const anthropicNotSet = { provider: "anthropic", keySet: false, model: "claude-opus-5" };
 const xaiNotSet = { provider: "xai", keySet: false, model: "claude-opus-5" };
+const openaiNotSet = { provider: "openai", keySet: false, model: "claude-opus-5" };
 const anthropicConnected = {
   provider: "anthropic",
   keySet: true,
@@ -134,10 +135,10 @@ const anthropicConnected = {
 
 // The settings screen reads `providers`; `provider` stays the Anthropic row for the clients
 // that only ever knew about one.
-const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet] };
+const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet, openaiNotSet] };
 const connected = {
   provider: anthropicConnected,
-  providers: [anthropicConnected, xaiNotSet],
+  providers: [anthropicConnected, xaiNotSet, openaiNotSet],
 };
 
 describe("AgentPage", () => {
@@ -235,6 +236,7 @@ describe("AgentPage", () => {
   it("renders settings without the talk tabs", async () => {
     mount("/agent/settings");
     expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
@@ -284,7 +286,7 @@ describe("AgentPage", () => {
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/encrypted at rest by podium-server/i).length).toBe(2);
+    expect(screen.getAllByText(/encrypted at rest by podium-server/i).length).toBe(3);
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

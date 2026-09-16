@@ -15,6 +15,18 @@ export function BackendMark({ id }: { id: string }) {
       </svg>
     );
   }
+  if (id === "openai") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="size-4 shrink-0 text-fg"
+        fill="currentColor"
+      >
+        <path d="M8 1.6 9.2 5.2 12.8 4.8 10.4 7.6 13.2 10.4 9.2 9.6 8 13.6 6.8 9.6 2.8 10.4 5.6 7.6 3.2 4.8 6.8 5.2Z" />
+      </svg>
+    );
+  }
   return (
     <svg
       aria-hidden="true"
