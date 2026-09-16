@@ -130,12 +130,18 @@ Two things this does not do, and one to keep in mind:
 already holds every capability, and it costs nothing: `docker:28-dind` starts and runs nested
 containers under it, which is asserted by an integration test.
 
-### 4. Anyone who can reach the API — **fully trusted, because there is no RBAC**
+### 4. Anyone who can reach the API — **trusted, with a domain claim when Google is on**
 
-There are no roles, no per-user permissions and no read-only mode. Under the tailnet transport
-the server records who visited in a `users` table and then lets them do everything. Whoever can
-reach the API can submit tasks (and therefore run code as root on every worker), drain nodes,
-delete secrets and delete nodes.
+Without Google Workspace sign-in, there are no roles that the API consults. Under the tailnet
+transport the server records who visited in a `users` table and then lets them do everything.
+
+When `PODIUM_GOOGLE_OAUTH_CLIENT_ID` is set, a human is a Google Workspace session (or a
+tailnet login). An unclaimed instance only lets those humans call WhoAmI and Claim. Claiming
+binds the instance to that Workspace domain; later Google sign-ins from another domain are
+refused. Owner and member roles are stored. They are **not** yet a permission check: a member
+can still submit tasks, drain nodes and delete secrets. The local token and every node identity
+bypass this entirely — they have to, because workers authenticate with the token, not Google.
+SAML is not implemented.
 
 ### 5. The conductor and the bot
 
@@ -874,8 +880,9 @@ See [`SECURITY.md`](../SECURITY.md) at the repository root. Do not open a public
 
 Everything below is a real hole, not a hypothetical:
 
-- **No RBAC.** Anyone who can reach the API can do everything, including running code as root on
-  every worker.
+- **No per-action RBAC.** Google Workspace sign-in can claim the instance for a domain and refuse
+  other domains; owner vs member is stored, not enforced. The local token and every node still
+  do everything, including running code as root on every worker.
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
 - **The local transport is plaintext**, secret values included.

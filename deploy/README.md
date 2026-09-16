@@ -94,7 +94,7 @@ baked into the Postgres volume when it is initialised; afterwards it takes a `do
 
 | | default | reachable from |
 |---|---|---|
-| `PODIUM_LOCAL_TOKEN` | `podium` | **`127.0.0.1:8080`.** The only one of these that leaves the compose network, and the only thing between a caller and the whole API — there is no per-user identity under this transport and no RBAC anywhere |
+| `PODIUM_LOCAL_TOKEN` | `podium` | **`127.0.0.1:8080`.** The only one of these that leaves the compose network. Under this transport it is the credential nodes and the CLI present; when Google Workspace sign-in is off it is also what the web UI asks for |
 | `PODIUM_AGENT_MEMORY_API_KEY` | `podium` | the memory port, which is loopback by default *because* this has a default. Hindsight has no authentication beyond it |
 | `PODIUM_PG_PASSWORD` | `podium` | the compose network only — no published port goes near Postgres |
 | `PODIUM_S3_SECRET_KEY` | `podiumpodium` | the compose network only |

@@ -15,8 +15,11 @@ path is documented below.
 
 Host network is the other way to reach a worker on another machine. It does **not** add a
 tunnel: the stack uses this machine's routing table, so whatever already gets a packet here
-(a `wg0` address, a VPN hostname, a LAN IP) is how clients and workers dial. Authentication
-stays the local transport's shared token, because a VPN does not name the caller. See
+(a `wg0` address, a VPN hostname, a LAN IP) is how clients and workers dial. A VPN does not
+name the caller, so authentication stays the local transport's shared token unless Google
+Workspace sign-in is configured (`PODIUM_GOOGLE_OAUTH_CLIENT_ID`): then humans sign in as
+themselves and the first Workspace user claims the instance for that domain. Nodes still
+present the token. See
 [Host network: bring your own routing](#host-network-bring-your-own-routing).
 
 `local.CheckListen` still refuses any listen address that is not unambiguously loopback, unless

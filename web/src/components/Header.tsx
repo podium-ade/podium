@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
+import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel } from "../lib/identity";
 import { Tooltip } from "./ui/tooltip";
 
@@ -160,6 +161,14 @@ export function Header() {
             </div>
           </div>
         </Tooltip>
+        {who?.googleAuthEnabled && who.kind === IdentityKind.USER ? (
+          <a
+            href="/auth/logout"
+            className="mt-1.5 block px-3 text-2xs text-faint hover:text-muted"
+          >
+            Sign out
+          </a>
+        ) : null}
         {who?.agentEnabled ? (
           <nav aria-label="Profile" className="pt-1.5">
             <Item to="/agent/settings" icon={Settings2} className="text-xs">

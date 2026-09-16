@@ -26,7 +26,7 @@ type IdentityKind int32
 
 const (
 	IdentityKind_IDENTITY_KIND_UNSPECIFIED IdentityKind = 0
-	// A human, named by their Tailscale login.
+	// A human, named by their Tailscale login or a Google Workspace session.
 	IdentityKind_IDENTITY_KIND_USER IdentityKind = 1
 	// A worker, proved by its Tailscale ACL tag.
 	IdentityKind_IDENTITY_KIND_NODE IdentityKind = 2
@@ -115,7 +115,8 @@ func (*WhoAmIRequest) Descriptor() ([]byte, []int) {
 
 type WhoAmIResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// login is the Tailscale login name of a user, the device name of a node, or "local".
+	// login is the Tailscale login name of a user, a Google Workspace email, the device name of
+	// a node, or "local".
 	Login       string       `protobuf:"bytes,1,opt,name=login,proto3" json:"login,omitempty"`
 	DisplayName string       `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	Kind        IdentityKind `protobuf:"varint,3,opt,name=kind,proto3,enum=podium.v1.IdentityKind" json:"kind,omitempty"`
@@ -129,7 +130,24 @@ type WhoAmIResponse struct {
 	// agent_enabled is true when this control plane has a conductor configured
 	// (PODIUM_AGENT_URL is set) and therefore proxies podium.agent.v1.AgentService. The web
 	// UI hides its Agent screen when it is false; `podium version` ignores it.
-	AgentEnabled  bool `protobuf:"varint,7,opt,name=agent_enabled,json=agentEnabled,proto3" json:"agent_enabled,omitempty"`
+	AgentEnabled bool `protobuf:"varint,7,opt,name=agent_enabled,json=agentEnabled,proto3" json:"agent_enabled,omitempty"`
+	// roles attached to this login. Empty for a node, the local token, or a user on an
+	// unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
+	// have "member".
+	Roles []string `protobuf:"bytes,8,rep,name=roles,proto3" json:"roles,omitempty"`
+	// claimed is true when a Google Workspace domain owns this instance.
+	Claimed bool `protobuf:"varint,9,opt,name=claimed,proto3" json:"claimed,omitempty"`
+	// hosted_domain is the Workspace the instance is bound to, empty when unclaimed.
+	HostedDomain string `protobuf:"bytes,10,opt,name=hosted_domain,json=hostedDomain,proto3" json:"hosted_domain,omitempty"`
+	// can_claim is true when this caller is a human with a domain and the instance has no
+	// owner yet. The web UI uses it to show the claim screen instead of the app.
+	CanClaim bool `protobuf:"varint,11,opt,name=can_claim,json=canClaim,proto3" json:"can_claim,omitempty"`
+	// google_auth_enabled is true when PODIUM_GOOGLE_OAUTH_CLIENT_ID is set. The web UI uses
+	// it to offer "Sign in with Google Workspace" and a sign-out control.
+	GoogleAuthEnabled bool `protobuf:"varint,12,opt,name=google_auth_enabled,json=googleAuthEnabled,proto3" json:"google_auth_enabled,omitempty"`
+	// claim_domain is the domain this caller would bind the instance to. Empty when they
+	// cannot claim (no email domain, or not a human).
+	ClaimDomain   string `protobuf:"bytes,13,opt,name=claim_domain,json=claimDomain,proto3" json:"claim_domain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -213,12 +231,152 @@ func (x *WhoAmIResponse) GetAgentEnabled() bool {
 	return false
 }
 
+func (x *WhoAmIResponse) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *WhoAmIResponse) GetClaimed() bool {
+	if x != nil {
+		return x.Claimed
+	}
+	return false
+}
+
+func (x *WhoAmIResponse) GetHostedDomain() string {
+	if x != nil {
+		return x.HostedDomain
+	}
+	return ""
+}
+
+func (x *WhoAmIResponse) GetCanClaim() bool {
+	if x != nil {
+		return x.CanClaim
+	}
+	return false
+}
+
+func (x *WhoAmIResponse) GetGoogleAuthEnabled() bool {
+	if x != nil {
+		return x.GoogleAuthEnabled
+	}
+	return false
+}
+
+func (x *WhoAmIResponse) GetClaimDomain() string {
+	if x != nil {
+		return x.ClaimDomain
+	}
+	return ""
+}
+
+type ClaimRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// hosted_domain is the Workspace domain the caller is confirming. It must match the
+	// domain on their identity; the UI makes them type it.
+	HostedDomain  string `protobuf:"bytes,1,opt,name=hosted_domain,json=hostedDomain,proto3" json:"hosted_domain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimRequest) Reset() {
+	*x = ClaimRequest{}
+	mi := &file_podium_v1_identity_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimRequest) ProtoMessage() {}
+
+func (x *ClaimRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_identity_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimRequest.ProtoReflect.Descriptor instead.
+func (*ClaimRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_identity_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ClaimRequest) GetHostedDomain() string {
+	if x != nil {
+		return x.HostedDomain
+	}
+	return ""
+}
+
+type ClaimResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HostedDomain  string                 `protobuf:"bytes,1,opt,name=hosted_domain,json=hostedDomain,proto3" json:"hosted_domain,omitempty"`
+	ClaimedBy     string                 `protobuf:"bytes,2,opt,name=claimed_by,json=claimedBy,proto3" json:"claimed_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimResponse) Reset() {
+	*x = ClaimResponse{}
+	mi := &file_podium_v1_identity_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimResponse) ProtoMessage() {}
+
+func (x *ClaimResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_identity_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimResponse.ProtoReflect.Descriptor instead.
+func (*ClaimResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_identity_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ClaimResponse) GetHostedDomain() string {
+	if x != nil {
+		return x.HostedDomain
+	}
+	return ""
+}
+
+func (x *ClaimResponse) GetClaimedBy() string {
+	if x != nil {
+		return x.ClaimedBy
+	}
+	return ""
+}
+
 var File_podium_v1_identity_proto protoreflect.FileDescriptor
 
 const file_podium_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"\x18podium/v1/identity.proto\x12\tpodium.v1\"\x0f\n" +
-	"\rWhoAmIRequest\"\xfb\x01\n" +
+	"\rWhoAmIRequest\"\xc0\x03\n" +
 	"\x0eWhoAmIResponse\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
@@ -226,14 +384,28 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	"\x04tags\x18\x04 \x03(\tR\x04tags\x12%\n" +
 	"\x0eserver_version\x18\x05 \x01(\tR\rserverVersion\x12#\n" +
 	"\rserver_commit\x18\x06 \x01(\tR\fserverCommit\x12#\n" +
-	"\ragent_enabled\x18\a \x01(\bR\fagentEnabled*|\n" +
+	"\ragent_enabled\x18\a \x01(\bR\fagentEnabled\x12\x14\n" +
+	"\x05roles\x18\b \x03(\tR\x05roles\x12\x18\n" +
+	"\aclaimed\x18\t \x01(\bR\aclaimed\x12#\n" +
+	"\rhosted_domain\x18\n" +
+	" \x01(\tR\fhostedDomain\x12\x1b\n" +
+	"\tcan_claim\x18\v \x01(\bR\bcanClaim\x12.\n" +
+	"\x13google_auth_enabled\x18\f \x01(\bR\x11googleAuthEnabled\x12!\n" +
+	"\fclaim_domain\x18\r \x01(\tR\vclaimDomain\"3\n" +
+	"\fClaimRequest\x12#\n" +
+	"\rhosted_domain\x18\x01 \x01(\tR\fhostedDomain\"S\n" +
+	"\rClaimResponse\x12#\n" +
+	"\rhosted_domain\x18\x01 \x01(\tR\fhostedDomain\x12\x1d\n" +
+	"\n" +
+	"claimed_by\x18\x02 \x01(\tR\tclaimedBy*|\n" +
 	"\fIdentityKind\x12\x1d\n" +
 	"\x19IDENTITY_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12IDENTITY_KIND_USER\x10\x01\x12\x16\n" +
 	"\x12IDENTITY_KIND_NODE\x10\x02\x12\x1d\n" +
-	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x032P\n" +
+	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x032\x8c\x01\n" +
 	"\x0fIdentityService\x12=\n" +
-	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponseB\xa3\x01\n" +
+	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponse\x12:\n" +
+	"\x05Claim\x12\x17.podium.v1.ClaimRequest\x1a\x18.podium.v1.ClaimResponseB\xa3\x01\n" +
 	"\rcom.podium.v1B\rIdentityProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
@@ -250,18 +422,22 @@ func file_podium_v1_identity_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_podium_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_podium_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_podium_v1_identity_proto_goTypes = []any{
 	(IdentityKind)(0),      // 0: podium.v1.IdentityKind
 	(*WhoAmIRequest)(nil),  // 1: podium.v1.WhoAmIRequest
 	(*WhoAmIResponse)(nil), // 2: podium.v1.WhoAmIResponse
+	(*ClaimRequest)(nil),   // 3: podium.v1.ClaimRequest
+	(*ClaimResponse)(nil),  // 4: podium.v1.ClaimResponse
 }
 var file_podium_v1_identity_proto_depIdxs = []int32{
 	0, // 0: podium.v1.WhoAmIResponse.kind:type_name -> podium.v1.IdentityKind
 	1, // 1: podium.v1.IdentityService.WhoAmI:input_type -> podium.v1.WhoAmIRequest
-	2, // 2: podium.v1.IdentityService.WhoAmI:output_type -> podium.v1.WhoAmIResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	3, // 2: podium.v1.IdentityService.Claim:input_type -> podium.v1.ClaimRequest
+	2, // 3: podium.v1.IdentityService.WhoAmI:output_type -> podium.v1.WhoAmIResponse
+	4, // 4: podium.v1.IdentityService.Claim:output_type -> podium.v1.ClaimResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -278,7 +454,7 @@ func file_podium_v1_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_identity_proto_rawDesc), len(file_podium_v1_identity_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
