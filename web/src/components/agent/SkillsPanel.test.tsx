@@ -94,12 +94,14 @@ describe("SkillsPanel", () => {
     expect(within(row).getByText("/coder")).toBeInTheDocument();
     expect(within(row).getByText("host directory")).toBeInTheDocument();
     expect(within(row).getByTestId("skill-delete")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Edit pr-review" })).toBeInTheDocument();
+    expect(within(row).getByTestId("skill-open").className).toContain("hover:bg-raised");
     expect(within(row).queryByLabelText("pr-review is enabled")).toBeNull();
   });
 
-  it("opens an existing skill in the markdown editor", async () => {
+  it("opens a one-file skill in the markdown editor", async () => {
     listSkills.mockResolvedValue({
-      skills: [skill({ markdown: "---\nname: pr-review\n---\n\nReview it.\n" })],
+      skills: [skill({ fileCount: 1, markdown: "---\nname: pr-review\n---\n\nReview it.\n" })],
       skillsDir: "/etc/podium/skills",
       maxBytes: 131072n,
       maxFiles: 64,
@@ -110,6 +112,39 @@ describe("SkillsPanel", () => {
     expect(screen.getByRole("heading", { name: "pr-review" })).toBeInTheDocument();
     expect(screen.getByLabelText("SKILL.md")).toHaveValue("---\nname: pr-review\n---\n\nReview it.\n");
     expect(screen.getByRole("button", { name: "Save skill" })).toBeInTheDocument();
+    expect(screen.getByTestId("skill-actions").className).toContain("bg-panel");
+    expect(screen.getByTestId("skill-file-tree")).toBeInTheDocument();
+    expect(screen.queryByTestId("skill-folder-note")).toBeNull();
+  });
+
+  it("does not offer to save a multi-file skill as SKILL.md alone", async () => {
+    listSkills.mockResolvedValue({
+      skills: [
+        skill({
+          fileCount: 3,
+          markdown: "---\nname: pr-review\n---\n\nReview it.\n",
+          files: {
+            "SKILL.md": "---\nname: pr-review\n---\n\nReview it.\n",
+            "reference/checklist.md": "- read the diff\n",
+            "scripts/run.sh": "#!/bin/sh\necho hi\n",
+          },
+        }),
+      ],
+      skillsDir: "/etc/podium/skills",
+      maxBytes: 131072n,
+      maxFiles: 64,
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit pr-review" }));
+    expect(screen.getByTestId("skill-folder-note")).toHaveTextContent("folder of 3 files");
+    expect(screen.getByLabelText("SKILL.md")).toHaveValue("---\nname: pr-review\n---\n\nReview it.\n");
+    expect(screen.getByRole("button", { name: "Open reference/checklist.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open scripts/run.sh" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open scripts/run.sh" }));
+    expect(screen.getByTestId("skill-file-body")).toHaveTextContent("echo hi");
+    expect(screen.getByRole("button", { name: "Choose a folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save skill" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose a file" })).toBeNull();
   });
 
   it("reports a directory that will not load rather than hiding it", async () => {
