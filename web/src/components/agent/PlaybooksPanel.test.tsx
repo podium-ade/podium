@@ -82,6 +82,9 @@ describe("PlaybooksPanel", () => {
   beforeEach(() => {
     getProfile.mockReset();
     listSecrets.mockReset();
+    createPlaybook.mockReset();
+    updatePlaybook.mockReset();
+    deletePlaybook.mockReset();
     listSkills.mockResolvedValue({ skills: [], skillsDir: "" });
     listSecrets.mockResolvedValue({
       secrets: [{ name: "podium.agent.github_token", version: 1 }],
@@ -131,6 +134,20 @@ describe("PlaybooksPanel", () => {
     expect(screen.getByTestId("playbook-editor")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save playbook" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create playbook" })).toBeNull();
+  });
+
+  it("deletes the open playbook after confirm, without saving", async () => {
+    deletePlaybook.mockResolvedValue({});
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit reporter" }));
+    await userEvent.click(screen.getByTestId("playbook-delete"));
+    expect(deletePlaybook).not.toHaveBeenCalled();
+    expect(updatePlaybook).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId("playbook-delete-confirm"));
+    expect(deletePlaybook).toHaveBeenCalledTimes(1);
+    expect(deletePlaybook).toHaveBeenCalledWith({ name: "reporter" });
+    expect(updatePlaybook).not.toHaveBeenCalled();
   });
 
   it("warns when the conductor is running an older profile than the overrides would produce", async () => {

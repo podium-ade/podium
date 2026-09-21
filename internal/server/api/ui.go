@@ -1,11 +1,16 @@
 package api
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/podium-ade/podium/web"
@@ -13,8 +18,11 @@ import (
 
 // contentSecurityPolicy is deliberately narrow: the bundle is self-contained, Tailwind is
 // compiled at build time into one stylesheet, and the only network the page makes is Connect
-// calls back to this origin. Nothing here needs 'unsafe-inline' — React applies dynamic styles
-// through the CSSOM, which CSP does not govern.
+// calls back to this origin. React applies dynamic styles through the CSSOM, which CSP does
+// not govern. CodeMirror 6 is the exception: style-mod inserts a <style> tag, and style-src
+// treats that as inline. Each index.html response mints a nonce, puts it on the policy, and
+// stamps it on a <meta> the editor reads so that tag is allowed. Linked stylesheets stay on
+// 'self'; scripts stay on 'self' with no nonce (the tag is a static module src).
 //
 // img-src allows blob: because a chat message's image attachment CANNOT be an <img src>
 // pointing at /artifacts/{id}: that route is behind the identity middleware and an <img>
@@ -23,16 +31,24 @@ import (
 // reach — a blob's bytes came from a request this policy already permitted — it only lets
 // the page display bytes it already has. Without it the browser blocks the image and the
 // chat shows an empty box, which is how this was found.
-const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self'; " +
-	"style-src 'self'; " +
-	"img-src 'self' data: blob:; " +
-	"font-src 'self'; " +
-	"connect-src 'self'; " +
-	"base-uri 'none'; " +
-	"form-action 'none'; " +
-	"frame-ancestors 'none'; " +
-	"object-src 'none'"
+func contentSecurityPolicy(styleNonce string) string {
+	styleSrc := "style-src 'self'"
+	if styleNonce != "" {
+		styleSrc += " 'nonce-" + styleNonce + "'"
+	}
+	return "default-src 'self'; " +
+		"script-src 'self'; " +
+		styleSrc + "; " +
+		"img-src 'self' data: blob:; " +
+		"font-src 'self'; " +
+		"connect-src 'self'; " +
+		"base-uri 'none'; " +
+		"form-action 'none'; " +
+		"frame-ancestors 'none'; " +
+		"object-src 'none'"
+}
+
+const cspNonceMetaName = "podium-csp-nonce"
 
 const (
 	// immutableCache is safe because Vite fingerprints every file under assets/.
@@ -88,7 +104,6 @@ func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
@@ -101,11 +116,13 @@ func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	info, err := fs.Stat(h.assets, name)
 	switch {
 	case err == nil && !info.IsDir():
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
 		w.Header().Set("Cache-Control", cacheFor(name))
 		http.ServeFileFS(w, r, h.assets, name)
 	case strings.HasPrefix(name, assetsDir):
 		// A missing hashed asset is a real 404: answering it with index.html would hand the
 		// browser HTML where it asked for JavaScript.
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
 		http.NotFound(w, r)
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -115,8 +132,49 @@ func (h *uiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *uiHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
+	nonce, err := newStyleNonce()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	raw, err := fs.ReadFile(h.assets, indexFile)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	body := injectStyleNonce(raw, nonce)
+	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
 	w.Header().Set("Cache-Control", indexCache)
-	http.ServeFileFS(w, r, h.assets, indexFile)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(body)
+}
+
+func newStyleNonce() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("csp nonce: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
+}
+
+func injectStyleNonce(html []byte, nonce string) []byte {
+	meta := []byte(`<meta name="` + cspNonceMetaName + `" content="` + nonce + `">`)
+	const head = "<head>"
+	i := bytes.Index(html, []byte(head))
+	if i < 0 {
+		return html
+	}
+	i += len(head)
+	out := make([]byte, 0, len(html)+len(meta)+1)
+	out = append(out, html[:i]...)
+	out = append(out, '\n')
+	out = append(out, meta...)
+	out = append(out, html[i:]...)
+	return out
 }
 
 func cacheFor(name string) string {

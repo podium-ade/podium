@@ -249,11 +249,13 @@ export function PlaybookEditor({
   }
 
   return (
+    <>
     <form
       data-testid="playbook-editor"
       className="space-y-5 pb-2"
       onSubmit={(e) => {
         e.preventDefault();
+        if (confirmingDelete) return;
         submit();
       }}
     >
@@ -1064,52 +1066,62 @@ export function PlaybookEditor({
               type="button"
               variant="danger"
               size="sm"
+              data-testid="playbook-delete"
               aria-label={`Delete ${playbook.name}`}
               disabled={deleting}
-              onClick={() => setConfirmingDelete(true)}
+              onClick={(e) => {
+                e.preventDefault();
+                setConfirmingDelete(true);
+              }}
             >
               <Trash2 />
               {deleting ? "Deleting…" : "Delete playbook"}
             </Button>
-            <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Delete /{playbook.name}?</DialogTitle>
-                  <DialogDescription>
-                    The definition goes with it: prompt, tools, limits and the secrets it
-                    names. Anything that routes to this playbook stops working on the next turn.
-                    There is no undo.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setConfirmingDelete(false)}
-                  >
-                    Keep
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    aria-label={`Confirm deleting ${playbook.name}`}
-                    disabled={deleting}
-                    onClick={() => {
-                      setConfirmingDelete(false);
-                      onDelete();
-                    }}
-                  >
-                    {deleting ? "Deleting…" : "Delete playbook"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
         ) : null}
       </div>
     </form>
+    {/* Sibling of the form: a confirm button inside it submits a save. */}
+    {onDelete && playbook && !readOnly ? (
+      <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete /{playbook.name}?</DialogTitle>
+            <DialogDescription>
+              The definition goes with it: prompt, tools, limits and the secrets it
+              names. Anything that routes to this playbook stops working on the next turn.
+              There is no undo.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmingDelete(false)}
+            >
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="playbook-delete-confirm"
+              aria-label={`Confirm deleting ${playbook.name}`}
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                setConfirmingDelete(false);
+                onDelete();
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete playbook"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    ) : null}
+    </>
   );
 }
 
