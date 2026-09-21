@@ -13,7 +13,7 @@ export function toDate(ts?: Timestamp): Date | undefined {
 
 export function absolute(ts?: Timestamp): string {
   const d = toDate(ts);
-  return d ? d.toLocaleString() : "—";
+  return d ? d.toLocaleString() : "-";
 }
 
 export function relative(ts: Timestamp | undefined, now = Date.now()): string {
@@ -43,7 +43,7 @@ export function taskDuration(
   now = Date.now(),
 ): string {
   const from = toDate(started);
-  if (!from) return "—";
+  if (!from) return "-";
   const to = toDate(finished)?.getTime() ?? now;
   return durationMs(to - from.getTime());
 }
@@ -197,7 +197,7 @@ export function taskOutcome(task: Task): string {
       return task.nodeId
         ? `The node running this task (${task.nodeId}) went away before it finished. ` +
             "Nothing about the task itself failed" +
-            (reason ? ` — ${reason}.` : ".") +
+            (reason ? `: ${reason}.` : ".") +
             " Re-running it is your call; set retry_on_node_loss to have Podium do it."
         : "The node running this task went away before it finished. Nothing about the task itself failed.";
     case TaskStatus.FAILED:
@@ -235,18 +235,22 @@ export function queuedExplanation(task: Task, now = Date.now()): string | undefi
 }
 
 /**
- * conversationLabel makes a session's source_key readable without pretending to know more
- * than the conductor does. A Slack key is `slack:<channel>:<thread_ts>`; anything else is
- * shown as it was stored, because inventing a shape for a source this build has never seen
- * would be a guess rendered as a fact.
+ * conversationLabel makes a session's source_key readable. A Slack key is
+ * `slack:<channel>:<thread_ts>`; when the conductor has resolved the channel's human name
+ * (`source_label`) that is shown instead of the id. Anything else is shown as it was stored.
  */
-export function conversationLabel(s: Pick<Session, "sourceKind" | "sourceKey">): string {
+export function conversationLabel(
+  s: Pick<Session, "sourceKind" | "sourceKey"> & Partial<Pick<Session, "sourceLabel">>,
+): string {
   const parts = s.sourceKey.split(":");
-  if (s.sourceKind === "slack" && parts.length === 3) return `#${parts[1]} · ${parts[2]}`;
+  if (s.sourceKind === "slack" && parts.length === 3) {
+    const name = s.sourceLabel || parts[1];
+    return `#${name} · ${parts[2]}`;
+  }
   return s.sourceKey;
 }
 
 /** turnCost is the runtime's own estimate, or a dash until turn.json lands. */
 export function turnCost(t: Pick<Turn, "costUsd">): string {
-  return t.costUsd === undefined ? "—" : `$${t.costUsd.toFixed(4)}`;
+  return t.costUsd === undefined ? "-" : `$${t.costUsd.toFixed(4)}`;
 }

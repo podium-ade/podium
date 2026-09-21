@@ -33,8 +33,13 @@ const (
 )
 
 // postgresReady is the readiness probe this image supports. See the note above.
+//
+// pg_isready succeeds once during initdb, then the official image restarts postgres.
+// One success is therefore not enough: the task's first psql would hit connection
+// refused. Two successes a couple of seconds apart wait out that restart.
 var postgresReady = spec.Readiness{
-	Command: []string{"pg_isready", "-U", "postgres"},
+	Command: []string{"/bin/sh", "-c",
+		"pg_isready -U postgres || exit 1; sleep 2; pg_isready -U postgres"},
 	Timeout: spec.Duration(90 * time.Second),
 }
 

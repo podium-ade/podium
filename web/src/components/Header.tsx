@@ -1,10 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Bot,
+  ChevronsUpDown,
   Coins,
   Container,
+  Hash,
   KeyRound,
   ListTodo,
+  LogOut,
   Plug,
   Puzzle,
   Server,
@@ -14,8 +17,15 @@ import {
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
-import { useViewer, viewerLabel } from "../lib/identity";
-import { Tooltip } from "./ui/tooltip";
+import { useViewer, viewerLabel, type Viewer } from "../lib/identity";
+import { Avatar } from "./Avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 function pathActive(pathname: string, to: string, end?: boolean) {
   if (end) return pathname === to;
@@ -24,10 +34,16 @@ function pathActive(pathname: string, to: string, end?: boolean) {
 
 /**
  * Agent in the sidebar is the talk screens (chat, sessions, memory, profile). Playbooks,
- * Skills, MCP and Settings are siblings, not children, so a prefix match on /agent would
- * light Agent on every one of them.
+ * Skills, MCP, Channels and Settings are siblings, not children, so a prefix match on
+ * /agent would light Agent on every one of them.
  */
-const agentSiblings = ["/agent/playbooks", "/agent/skills", "/agent/mcp", "/agent/settings"];
+const agentSiblings = [
+  "/agent/playbooks",
+  "/agent/skills",
+  "/agent/mcp",
+  "/agent/channels",
+  "/agent/settings",
+];
 
 function agentActive(pathname: string) {
   if (pathname !== "/agent" && !pathname.startsWith("/agent/")) return false;
@@ -83,21 +99,38 @@ function SectionLabel({ children }: { children: string }) {
 
 export function Header() {
   const who = useViewer();
-  const viewer = viewerLabel(who);
+  const { pathname } = useLocation();
+  const settingsOn = pathActive(pathname, "/agent/settings");
+  const showSettings = Boolean(who?.agentEnabled || who?.googleAuthEnabled);
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-      <div className="flex h-14 items-center gap-2.5 px-4">
+      <div className="flex h-14 items-center gap-2 px-3">
         <span
           aria-hidden
-          className="grid size-6 place-items-center rounded-md bg-accent/15 text-accent ring-1 ring-accent/25"
+          className="grid size-6 shrink-0 place-items-center rounded-md bg-accent/15 text-accent ring-1 ring-accent/25"
         >
           <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
             <path d="M3 12.5V9m5 3.5V4m5 8.5V6.5" />
           </svg>
         </span>
-        <span className="font-mono text-sm font-semibold tracking-tight">
+        <span className="min-w-0 flex-1 font-mono text-sm font-semibold tracking-tight">
           podium<span className="text-accent">.</span>
         </span>
+        {showSettings ? (
+          <Link
+            to="/agent/settings"
+            aria-label="Settings"
+            aria-current={settingsOn ? "page" : undefined}
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-md transition-colors",
+              settingsOn
+                ? "bg-raised text-fg"
+                : "text-muted hover:bg-raised/70 hover:text-fg",
+            )}
+          >
+            <Settings2 className={cn("size-4", settingsOn && "text-accent")} />
+          </Link>
+        ) : null}
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-2">
@@ -117,6 +150,9 @@ export function Header() {
             </Item>
             <Item to="/agent/mcp" icon={Plug}>
               MCP
+            </Item>
+            <Item to="/agent/channels" icon={Hash}>
+              Channels
             </Item>
             <div className="pt-4" />
           </>
@@ -143,40 +179,78 @@ export function Header() {
         </Item>
       </nav>
 
-      <div className="mt-auto border-t border-sidebar-border px-4 py-3">
-        {/* Whoever WhoAmI says is looking: a Tailscale login on a tailnet, "dev" on the dev
-            transport, which has no per-user identity at all. Settings sits under the picture
-            because it is about this login, not about the agent screens above. */}
-        <Tooltip label={viewer.title} side="right">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              aria-hidden
-              className="grid size-6 shrink-0 place-items-center rounded-full bg-raised text-2xs font-semibold text-muted uppercase"
-            >
-              {viewer.text.slice(0, 1)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm text-fg">{viewer.text}</div>
-              <div className="truncate font-mono text-2xs text-faint">{__PODIUM_VERSION__}</div>
-            </div>
-          </div>
-        </Tooltip>
-        {who?.googleAuthEnabled && who.kind === IdentityKind.USER ? (
-          <a
-            href="/auth/logout"
-            className="mt-1.5 block px-3 text-2xs text-faint hover:text-muted"
-          >
-            Sign out
-          </a>
-        ) : null}
-        {who?.agentEnabled ? (
-          <nav aria-label="Profile" className="pt-1.5">
-            <Item to="/agent/settings" icon={Settings2} className="text-xs">
-              Settings
-            </Item>
-          </nav>
-        ) : null}
+      <div className="mt-auto border-t border-sidebar-border p-2">
+        <AccountMenu who={who} />
       </div>
     </aside>
+  );
+}
+
+function accountSubtitle(who: Viewer | undefined, label: string) {
+  if (!who) return __PODIUM_VERSION__;
+  if (who.kind === IdentityKind.USER) return who.login || label;
+  return __PODIUM_VERSION__;
+}
+
+/**
+ * AccountMenu is the sidebar footer: avatar, name, and Sign out for a Google session.
+ * Settings lives next to the wordmark — it is an app destination, not an account action.
+ */
+function AccountMenu({ who }: { who: Viewer | undefined }) {
+  const label = viewerLabel(who);
+  const subtitle = accountSubtitle(who, label.text);
+  const canSignOut = Boolean(who?.googleAuthEnabled && who.kind === IdentityKind.USER);
+  const picture = who?.pictureUrl ? "/auth/picture" : "";
+
+  const identity = (
+    <>
+      <Avatar src={picture} label={label.text} />
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-sm font-medium text-fg">{label.text}</span>
+        <span className="block truncate text-2xs text-faint">{subtitle}</span>
+      </span>
+    </>
+  );
+
+  if (!canSignOut) {
+    return (
+      <div className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5" title={label.title}>
+        {identity}
+      </div>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left",
+          "outline-none transition-colors hover:bg-raised/70",
+          "focus-visible:ring-2 focus-visible:ring-ring/50",
+          "data-[state=open]:bg-raised",
+        )}
+        aria-label={label.text}
+        title={label.title}
+      >
+        {identity}
+        <ChevronsUpDown className="size-3.5 shrink-0 text-faint" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-56">
+        <div className="flex items-center gap-2.5 px-2 py-2">
+          <Avatar src={picture} label={label.text} size="md" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-fg">{label.text}</div>
+            <div className="truncate text-2xs text-faint">{subtitle}</div>
+          </div>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <a href="/auth/logout">
+            <LogOut />
+            Sign out
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

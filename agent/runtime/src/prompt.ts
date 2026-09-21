@@ -22,6 +22,7 @@ export function buildSystemPrompt(brief: TurnBrief): string {
     brief.profile.system_prompt,
     brief.playbook.system_prompt,
     onHost(brief) ? hostBlock(brief) : runtimeBlock(brief),
+    channelBlock(brief),
   ];
   if (brief.delegation) {
     sections.push(delegationBlock(brief));
@@ -197,6 +198,21 @@ function reposBlock(brief: TurnBrief): string {
     (r) => `- ${r.name} is checked out at ${WorkspaceDir}/${r.name} on branch ${r.default_branch} (${r.url})`,
   );
   return `# Repositories
+
+${lines.join("\n")}`;
+}
+
+function channelBlock(brief: TurnBrief): string {
+  const ch = brief.source.channel;
+  if (!ch) {
+    return "";
+  }
+  const name = ch.name ? `#${ch.name}` : ch.id;
+  const lines = [`This message is in Slack channel ${name}.`];
+  if (ch.description) {
+    lines.push(`This channel is for: ${ch.description}`);
+  }
+  return `# This channel
 
 ${lines.join("\n")}`;
 }

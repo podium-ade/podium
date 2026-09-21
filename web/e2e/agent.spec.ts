@@ -72,7 +72,7 @@ function seedProviderKey() {
 
 test("the agent settings page validates and stores a provider key", async ({ page }) => {
   await authenticate(page);
-  await page.goto("/agent/settings");
+  await page.goto("/agent/settings/models");
 
   // The Agent tab exists at all only because WhoAmI said the server proxies a conductor.
   await expect(page.getByRole("link", { name: "Agent" })).toBeVisible();
@@ -201,6 +201,7 @@ test("the agent page makes no third-party requests", async ({ page }) => {
   for (const path of [
     "/agent",
     "/agent/settings",
+    "/agent/settings/models",
     "/agent/profile",
     "/agent/playbooks",
     "/agent/skills",
@@ -215,7 +216,7 @@ test("the agent page makes no third-party requests", async ({ page }) => {
   // Including the save, which is the one call that has anything to do with a third party:
   // the browser asks podium-server, podium-server asks the conductor, the conductor asks
   // Anthropic. The page itself never leaves this origin.
-  await page.goto("/agent/settings");
+  await page.goto("/agent/settings/models");
   await page.getByTestId("provider-key-input-anthropic").fill(GOOD_KEY);
   await page.getByTestId("provider-key-save-anthropic").click();
   await expect(page.getByTestId("provider-key-status-anthropic")).toContainText("Saved.");

@@ -108,7 +108,7 @@ export function SecretsPage() {
       />
 
       <Alert variant="info" title="Values are write-only">
-        A value cannot be viewed after it is saved — there is no read API, and it leaves the
+        A value cannot be viewed after it is saved: there is no read API, and it leaves the
         server only inside an assignment, on its way to the node about to run a task that named
         it. Setting a name that already exists rotates it: new version, old value gone.
       </Alert>
@@ -124,7 +124,7 @@ export function SecretsPage() {
         <Alert variant="destructive" title="Could not list secrets">
           <p>{errorMessage(query.error)}</p>
           <p className="mt-1 opacity-80">
-            The metadata list is a plain read — if it is failing, check that podium-server is up
+            The metadata list is a plain read. If it is failing, check that podium-server is up
             and that your token is still good.
           </p>
           <Button
@@ -210,15 +210,15 @@ export function SecretsPage() {
                       <span className="text-muted">{relative(s.updatedAt)}</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-muted">{s.createdBy || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted">{s.createdBy || "-"}</TableCell>
                   <TableCell className="text-xs">
                     {/* The odd key out is the whole point of showing key_id at all. */}
                     {mixedKeys && s.keyId !== commonKey ? (
                       <Badge tone="warn" dot={false} className="font-mono">
-                        {s.keyId || "—"}
+                        {s.keyId || "-"}
                       </Badge>
                     ) : (
-                      <Chip className="font-mono">{s.keyId || "—"}</Chip>
+                      <Chip className="font-mono">{s.keyId || "-"}</Chip>
                     )}
                   </TableCell>
                   <TableCell>

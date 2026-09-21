@@ -47,7 +47,7 @@ function confirmFor(action: Action, node: Node): Confirm {
         body: (
           <>
             Podium stops scheduling new tasks on {node.name}. Whatever it is running right now
-            keeps running until it finishes — draining is how a machine is taken out of service
+            keeps running until it finishes. Draining is how a machine is taken out of service
             without killing the work already on it.
           </>
         ),
@@ -81,7 +81,7 @@ function confirmFor(action: Action, node: Node): Confirm {
             Hello arrives from.
           </>
         ),
-        note: "Until it re-binds, its node key alone is enough to connect — that exposure is exactly what the binding removes. Rekey a node when you are about to move or rebuild it, not as a matter of routine.",
+        note: "Until it re-binds, its node key alone is enough to connect. That exposure is exactly what the binding removes. Rekey a node when you are about to move or rebuild it, not as a matter of routine.",
         verb: "Rekey node",
         busy: "Rekeying…",
         variant: "danger",

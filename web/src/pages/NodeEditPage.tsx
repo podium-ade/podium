@@ -141,7 +141,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
           <CardDescription>
             How many tasks {node.name} runs at once. This overrides the{" "}
             <span className="font-mono">max_tasks</span> in the node's own configuration, in
-            both directions — the number is stored here and the node is told it, because the
+            both directions: the number is stored here and the node is told it, because the
             node is the only thing that can enforce a budget.
           </CardDescription>
         </CardHeader>
@@ -264,7 +264,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
             </Fact>
             <Fact label="Labels" className="col-span-2 sm:col-span-3">
               {node.labels.length === 0 ? (
-                <Unknown>none — a task with no label requirement can land here</Unknown>
+                <Unknown>none (a task with no label requirement can land here)</Unknown>
               ) : (
                 <span className="flex flex-wrap gap-1">
                   {node.labels.map((l) => (

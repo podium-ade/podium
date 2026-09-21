@@ -1,9 +1,10 @@
 -- name: UpsertUser :one
-insert into users (login, display_name, hosted_domain)
-values (@login, sqlc.narg(display_name)::text, sqlc.narg(hosted_domain)::text)
+insert into users (login, display_name, hosted_domain, picture_url)
+values (@login, sqlc.narg(display_name)::text, sqlc.narg(hosted_domain)::text, sqlc.narg(picture_url)::text)
 on conflict (login) do update
   set display_name = coalesce(sqlc.narg(display_name)::text, users.display_name),
-      hosted_domain = coalesce(users.hosted_domain, sqlc.narg(hosted_domain)::text)
+      hosted_domain = coalesce(users.hosted_domain, sqlc.narg(hosted_domain)::text),
+      picture_url = coalesce(sqlc.narg(picture_url)::text, users.picture_url)
 returning *;
 
 -- name: GetUser :one

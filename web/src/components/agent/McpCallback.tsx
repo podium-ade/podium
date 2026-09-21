@@ -87,8 +87,8 @@ export function McpCallback() {
           {errorMessage(complete.error)}
         </Alert>
         <p className="text-xs leading-relaxed text-muted">
-          An authorization code can only be used once, so this cannot be retried from here —
-          start the sign-in again.{" "}
+          An authorization code can only be used once, so this cannot be retried from here.
+          Start the sign-in again.{" "}
           <Link to="/agent/mcp" className="text-accent hover:underline">
             Back to MCP servers
           </Link>

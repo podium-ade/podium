@@ -70,8 +70,9 @@ export function RegistriesPage() {
       />
 
       <Alert variant="info" title="A login is matched by host">
-        An image reference names its registry — <span className="font-mono">us-docker.pkg.dev/…</span>
-        , <span className="font-mono">ghcr.io/…</span> — and a node pulling it sends the login stored
+        An image reference names its registry (for example{" "}
+        <span className="font-mono">us-docker.pkg.dev/…</span>,{" "}
+        <span className="font-mono">ghcr.io/…</span>), and a node pulling it sends the login stored
         for that host, on whatever node the task lands. Registries not listed here are pulled
         anonymously. Passwords are write-only: they leave the server only inside an assignment.
       </Alert>
@@ -137,7 +138,7 @@ export function RegistriesPage() {
                 <TableCell className="text-xs whitespace-nowrap text-muted" title={absolute(r.updatedAt)}>
                   {relative(r.updatedAt)}
                 </TableCell>
-                <TableCell className="text-xs text-muted">{r.createdBy || "—"}</TableCell>
+                <TableCell className="text-xs text-muted">{r.createdBy || "-"}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
                     <Button

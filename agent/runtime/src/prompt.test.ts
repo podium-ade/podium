@@ -47,6 +47,25 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(brief)).toContain("(no earlier messages; this is the first turn)");
   });
 
+  it("names the Slack channel and its operator note when the brief has them", () => {
+    const brief = {
+      ...golden(),
+      source: {
+        kind: "slack" as const,
+        ref: "C1/1.1/1.1",
+        channel: { id: "C1", name: "support", description: "Customer complaints." },
+      },
+    };
+    const prompt = buildSystemPrompt(brief);
+    expect(prompt).toContain("# This channel");
+    expect(prompt).toContain("This message is in Slack channel #support.");
+    expect(prompt).toContain("This channel is for: Customer complaints.");
+  });
+
+  it("omits the channel block when the brief has no channel", () => {
+    expect(buildSystemPrompt(golden())).not.toContain("# This channel");
+  });
+
   it("names the source the answer is posted back to", () => {
     const brief = golden();
     expect(buildSystemPrompt(brief)).toContain("the Slack thread this came from");

@@ -142,6 +142,12 @@ const (
 	// AgentServiceDetachChatPullRequestProcedure is the fully-qualified name of the AgentService's
 	// DetachChatPullRequest RPC.
 	AgentServiceDetachChatPullRequestProcedure = "/podium.agent.v1.AgentService/DetachChatPullRequest"
+	// AgentServiceListSlackChannelsProcedure is the fully-qualified name of the AgentService's
+	// ListSlackChannels RPC.
+	AgentServiceListSlackChannelsProcedure = "/podium.agent.v1.AgentService/ListSlackChannels"
+	// AgentServiceSetSlackChannelDescriptionProcedure is the fully-qualified name of the AgentService's
+	// SetSlackChannelDescription RPC.
+	AgentServiceSetSlackChannelDescriptionProcedure = "/podium.agent.v1.AgentService/SetSlackChannelDescription"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -286,6 +292,14 @@ type AgentServiceClient interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
+	// mentioned, or listed from Slack on this call — with the operator-authored description
+	// a turn of that channel is briefed with.
+	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
+	// description is valid: the channel still has a name, and the next turn simply gets no
+	// extra paragraph. An unknown id is invalid_argument.
+	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -539,51 +553,65 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 			connect.WithClientOptions(opts...),
 		),
+		listSlackChannels: connect.NewClient[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse](
+			httpClient,
+			baseURL+AgentServiceListSlackChannelsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
+			connect.WithClientOptions(opts...),
+		),
+		setSlackChannelDescription: connect.NewClient[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse](
+			httpClient,
+			baseURL+AgentServiceSetSlackChannelDescriptionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	listSessions          *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	getSession            *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	listTurns             *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
-	getUsage              *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
-	getSettings           *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
-	setProviderKey        *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
-	clearProviderKey      *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
-	startProviderOAuth    *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
-	pollProviderOAuth     *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
-	listAgents            *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	listMemories          *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
-	searchMemories        *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
-	deleteMemory          *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
-	listPlaybooks         *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
-	getProfile            *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
-	updateProfile         *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	reloadProfileDir      *connect.Client[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse]
-	createPlaybook        *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
-	updatePlaybook        *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
-	deletePlaybook        *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
-	listSkills            *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
-	uploadSkill           *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
-	setSkillEnabled       *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
-	deleteSkill           *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
-	listMcpServers        *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
-	createMcpServer       *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
-	updateMcpServer       *connect.Client[v1.UpdateMcpServerRequest, v1.UpdateMcpServerResponse]
-	deleteMcpServer       *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
-	setMcpServerToken     *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
-	clearMcpServerToken   *connect.Client[v1.ClearMcpServerTokenRequest, v1.ClearMcpServerTokenResponse]
-	startMcpOAuth         *connect.Client[v1.StartMcpOAuthRequest, v1.StartMcpOAuthResponse]
-	completeMcpOAuth      *connect.Client[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse]
-	createChat            *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
-	listChats             *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
-	renameChat            *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
-	deleteChat            *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
-	sendChatMessage       *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
-	streamChat            *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
-	attachChatPullRequest *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
-	detachChatPullRequest *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
+	listSessions               *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	getSession                 *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	listTurns                  *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
+	getUsage                   *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
+	setProviderKey             *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
+	clearProviderKey           *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
+	startProviderOAuth         *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
+	pollProviderOAuth          *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
+	listAgents                 *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	listMemories               *connect.Client[v1.ListMemoriesRequest, v1.ListMemoriesResponse]
+	searchMemories             *connect.Client[v1.SearchMemoriesRequest, v1.SearchMemoriesResponse]
+	deleteMemory               *connect.Client[v1.DeleteMemoryRequest, v1.DeleteMemoryResponse]
+	listPlaybooks              *connect.Client[v1.ListPlaybooksRequest, v1.ListPlaybooksResponse]
+	getProfile                 *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
+	updateProfile              *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
+	reloadProfileDir           *connect.Client[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse]
+	createPlaybook             *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
+	updatePlaybook             *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
+	deletePlaybook             *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
+	listSkills                 *connect.Client[v1.ListSkillsRequest, v1.ListSkillsResponse]
+	uploadSkill                *connect.Client[v1.UploadSkillRequest, v1.UploadSkillResponse]
+	setSkillEnabled            *connect.Client[v1.SetSkillEnabledRequest, v1.SetSkillEnabledResponse]
+	deleteSkill                *connect.Client[v1.DeleteSkillRequest, v1.DeleteSkillResponse]
+	listMcpServers             *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
+	createMcpServer            *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
+	updateMcpServer            *connect.Client[v1.UpdateMcpServerRequest, v1.UpdateMcpServerResponse]
+	deleteMcpServer            *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
+	setMcpServerToken          *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
+	clearMcpServerToken        *connect.Client[v1.ClearMcpServerTokenRequest, v1.ClearMcpServerTokenResponse]
+	startMcpOAuth              *connect.Client[v1.StartMcpOAuthRequest, v1.StartMcpOAuthResponse]
+	completeMcpOAuth           *connect.Client[v1.CompleteMcpOAuthRequest, v1.CompleteMcpOAuthResponse]
+	createChat                 *connect.Client[v1.CreateChatRequest, v1.CreateChatResponse]
+	listChats                  *connect.Client[v1.ListChatsRequest, v1.ListChatsResponse]
+	renameChat                 *connect.Client[v1.RenameChatRequest, v1.RenameChatResponse]
+	deleteChat                 *connect.Client[v1.DeleteChatRequest, v1.DeleteChatResponse]
+	sendChatMessage            *connect.Client[v1.SendChatMessageRequest, v1.SendChatMessageResponse]
+	streamChat                 *connect.Client[v1.StreamChatRequest, v1.ChatFrame]
+	attachChatPullRequest      *connect.Client[v1.AttachChatPullRequestRequest, v1.AttachChatPullRequestResponse]
+	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
+	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
+	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -786,6 +814,16 @@ func (c *agentServiceClient) DetachChatPullRequest(ctx context.Context, req *con
 	return c.detachChatPullRequest.CallUnary(ctx, req)
 }
 
+// ListSlackChannels calls podium.agent.v1.AgentService.ListSlackChannels.
+func (c *agentServiceClient) ListSlackChannels(ctx context.Context, req *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
+	return c.listSlackChannels.CallUnary(ctx, req)
+}
+
+// SetSlackChannelDescription calls podium.agent.v1.AgentService.SetSlackChannelDescription.
+func (c *agentServiceClient) SetSlackChannelDescription(ctx context.Context, req *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
+	return c.setSlackChannelDescription.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -928,6 +966,14 @@ type AgentServiceHandler interface {
 	// in the same chat will not put it back, because a human removing something means it.
 	// Attaching it again is how it comes back.
 	DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error)
+	// ListSlackChannels reports every Slack channel this conductor has seen — invited and
+	// mentioned, or listed from Slack on this call — with the operator-authored description
+	// a turn of that channel is briefed with.
+	ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error)
+	// SetSlackChannelDescription stores what the bot should know about a channel. An empty
+	// description is valid: the channel still has a name, and the next turn simply gets no
+	// extra paragraph. An unknown id is invalid_argument.
+	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1177,6 +1223,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("DetachChatPullRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListSlackChannelsHandler := connect.NewUnaryHandler(
+		AgentServiceListSlackChannelsProcedure,
+		svc.ListSlackChannels,
+		connect.WithSchema(agentServiceMethods.ByName("ListSlackChannels")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetSlackChannelDescriptionHandler := connect.NewUnaryHandler(
+		AgentServiceSetSlackChannelDescriptionProcedure,
+		svc.SetSlackChannelDescription,
+		connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -1259,6 +1317,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceAttachChatPullRequestHandler.ServeHTTP(w, r)
 		case AgentServiceDetachChatPullRequestProcedure:
 			agentServiceDetachChatPullRequestHandler.ServeHTTP(w, r)
+		case AgentServiceListSlackChannelsProcedure:
+			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
+		case AgentServiceSetSlackChannelDescriptionProcedure:
+			agentServiceSetSlackChannelDescriptionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1426,4 +1488,12 @@ func (UnimplementedAgentServiceHandler) AttachChatPullRequest(context.Context, *
 
 func (UnimplementedAgentServiceHandler) DetachChatPullRequest(context.Context, *connect.Request[v1.DetachChatPullRequestRequest]) (*connect.Response[v1.DetachChatPullRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DetachChatPullRequest is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *connect.Request[v1.ListSlackChannelsRequest]) (*connect.Response[v1.ListSlackChannelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListSlackChannels is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSlackChannelDescription is not implemented"))
 }

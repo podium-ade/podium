@@ -2,11 +2,14 @@
 //
 // It is not a transport. The local and tailnet listeners still name the caller the way they
 // always have; this package adds a session cookie (Identify) and, when Google OAuth is
-// configured, restricts humans on an unclaimed instance to WhoAmI and Claim.
+// configured, restricts humans on an unclaimed instance to WhoAmI and Claim. The local
+// token and node identity stay fully privileged for the CLI and workers.
 package auth
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,6 +26,9 @@ const (
 	StartPath    = "/auth/google/start"
 	CallbackPath = "/auth/google/callback"
 	LogoutPath   = "/auth/logout"
+	// PicturePath is the signed-in user's Google avatar, proxied same-origin so
+	// tracking protection cannot hide it.
+	PicturePath = "/auth/picture"
 )
 
 const (
@@ -76,13 +82,30 @@ func (g Google) userInfoURL() string {
 	if g.UserInfoURL != "" {
 		return g.UserInfoURL
 	}
-	return "https://openidconnect.googleapis.com/userinfo"
+	return "https://openidconnect.googleapis.com/v1/userinfo"
 }
 
 func originOf(r *http.Request, publicURL string) string {
-	if u := strings.TrimRight(strings.TrimSpace(publicURL), "/"); u != "" {
-		return u
+	req := requestOrigin(r)
+	pub := strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	// A production PublicURL always wins, including when the operator is hitting a
+	// loopback tunnel: the Google client is registered for the public origin.
+	if pub != "" && !loopbackOrigin(pub) {
+		return pub
 	}
+	// Google treats localhost and 127.0.0.1 as different redirect URIs. When both
+	// the browser and PublicURL are loopback, follow the request so a client that
+	// registered both matches whichever the operator opened.
+	if loopbackOrigin(req) {
+		return req
+	}
+	if pub != "" {
+		return pub
+	}
+	return req
+}
+
+func requestOrigin(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -91,6 +114,29 @@ func originOf(r *http.Request, publicURL string) string {
 		scheme = proto
 	}
 	return scheme + "://" + r.Host
+}
+
+func loopbackOrigin(raw string) bool {
+	if !strings.Contains(raw, "://") {
+		return loopbackHost(raw)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return loopbackHost(u.Host)
+}
+
+func loopbackHost(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = strings.Trim(hostport, "[]")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func redirectURI(origin string) string {

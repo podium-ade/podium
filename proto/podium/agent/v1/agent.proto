@@ -149,6 +149,14 @@ service AgentService {
   // in the same chat will not put it back, because a human removing something means it.
   // Attaching it again is how it comes back.
   rpc DetachChatPullRequest(DetachChatPullRequestRequest) returns (DetachChatPullRequestResponse);
+  // ListSlackChannels reports every Slack channel this conductor has seen — invited and
+  // mentioned, or listed from Slack on this call — with the operator-authored description
+  // a turn of that channel is briefed with.
+  rpc ListSlackChannels(ListSlackChannelsRequest) returns (ListSlackChannelsResponse);
+  // SetSlackChannelDescription stores what the bot should know about a channel. An empty
+  // description is valid: the channel still has a name, and the next turn simply gets no
+  // extra paragraph. An unknown id is invalid_argument.
+  rpc SetSlackChannelDescription(SetSlackChannelDescriptionRequest) returns (SetSlackChannelDescriptionResponse);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -163,6 +171,10 @@ message Session {
   string playbook = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp last_turn_at = 7;
+  // source_label is a human name for the conversation's place, when the conductor knows
+  // one. For Slack it is the channel name without a leading #. Empty when unknown or when
+  // the source has no such name — the UI then falls back to source_key.
+  string source_label = 8;
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -328,7 +340,7 @@ message GetSettingsRequest {}
 // key_hint is the last four characters, computed once at save time: that is the only form
 // in which any part of the credential is ever read back.
 message ProviderSettings {
-  // provider is "anthropic" or "xai". The field is the BYOK seam.
+  // provider is "anthropic", "xai", or "openai". The field is the BYOK seam.
   string provider = 1;
   bool key_set = 2;
   // key_hint is the last four characters of the key, or "" when no key is set. It is empty
@@ -399,7 +411,7 @@ message ClearProviderKeyRequest {
 message ClearProviderKeyResponse {}
 
 message StartProviderOAuthRequest {
-  // provider is "xai". Anthropic takes an API key on this control plane and answers
+  // provider is "xai" or "openai". Anthropic takes an API key on this control plane and answers
   // invalid_argument here.
   string provider = 1;
 }
@@ -465,10 +477,10 @@ message AgentModel {
 // AgentBackend is one thing a turn can run on: a harness, the credential it needs, and the
 // models it can be pointed at.
 message AgentBackend {
-  // id is what a playbook's `agent` field holds: "claude" or "grok".
+  // id is what a playbook's `agent` field holds: "claude", "grok", or "openai".
   string id = 1;
   string display_name = 2;
-  // provider is the credential this backend spends: "anthropic" or "xai".
+  // provider is the credential this backend spends: "anthropic", "xai", or "openai".
   string provider = 3;
   // note is a sentence about what this backend actually is, for the picker's header.
   string note = 4;
@@ -640,6 +652,11 @@ message Chat {
   // left empty by ListChats, which would need a query per row to fill it and only shows
   // started_by.
   repeated string participants = 13;
+  // channel is the Slack channel's human name for a mirrored thread, without a leading #.
+  // Empty for a web chat and for a thread whose name has not been resolved yet. It is
+  // chrome — the title stays the first thing asked, so two threads in #support stay two
+  // conversations.
+  string channel = 15;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -855,7 +872,7 @@ message AgentProfile {
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
   google.protobuf.Timestamp updated_at = 13;
-  // agent is the backend every playbook runs on unless it names its own: "claude" or "grok".
+  // agent is the backend every playbook runs on unless it names its own: "claude", "grok", or "openai".
   string agent = 14;
   // effort is the reasoning effort every playbook runs at unless it names its own. Empty
   // means the model's own default.
@@ -1315,4 +1332,35 @@ message CompleteMcpOAuthRequest {
 
 message CompleteMcpOAuthResponse {
   McpServer server = 1;
+}
+
+// SlackChannel is one Slack channel this conductor knows about.
+message SlackChannel {
+  // id is Slack's channel id (C…, G…, D…), which does not change when the channel is renamed.
+  string id = 1;
+  // name is the last resolved human name, without a leading #. Empty until Slack has
+  // answered conversations.info (or conversations.list) for it.
+  string name = 2;
+  // description is the operator-authored note a turn of this channel is briefed with.
+  // Empty is valid. It is trusted like profile.yaml, not like Slack's own purpose field.
+  string description = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message ListSlackChannelsRequest {}
+
+message ListSlackChannelsResponse {
+  repeated SlackChannel channels = 1;
+  // slack_connected is false when this conductor has no Slack source. The catalogue can
+  // still hold rows from an earlier configuration; the UI says so rather than hiding.
+  bool slack_connected = 2;
+}
+
+message SetSlackChannelDescriptionRequest {
+  string id = 1;
+  string description = 2;
+}
+
+message SetSlackChannelDescriptionResponse {
+  SlackChannel channel = 1;
 }

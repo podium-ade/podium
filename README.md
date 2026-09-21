@@ -299,6 +299,10 @@ services:
       PODIUM_AGENT_XAI_BASE_URL: ${PODIUM_AGENT_XAI_BASE_URL:-https://api.x.ai}
       PODIUM_AGENT_XAI_OAUTH_ISSUER: ${PODIUM_AGENT_XAI_OAUTH_ISSUER:-https://auth.x.ai}
       PODIUM_AGENT_XAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_XAI_OAUTH_CLIENT_ID:-}
+      PODIUM_AGENT_OPENAI_BASE_URL: ${PODIUM_AGENT_OPENAI_BASE_URL:-https://api.openai.com}
+      PODIUM_AGENT_OPENAI_CODEX_BASE_URL: ${PODIUM_AGENT_OPENAI_CODEX_BASE_URL:-https://chatgpt.com/backend-api/codex}
+      PODIUM_AGENT_OPENAI_OAUTH_ISSUER: ${PODIUM_AGENT_OPENAI_OAUTH_ISSUER:-https://auth.openai.com}
+      PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID: ${PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID:-}
     volumes:
       # Bare name → named volume (starter copied from the image on first up). A path → bind.
       - ${PODIUM_AGENT_PROFILE_HOST:-agent-profile}:${PODIUM_AGENT_PROFILE_DIR:-/etc/podium/agent}
@@ -658,7 +662,8 @@ What Podium does not do, and what will surprise you if nobody says it first.
   for that domain; later sign-ins from the same Workspace join as members, and other domains
   are refused. Owner vs member is recorded, not enforced on the API yet — a member can still
   drain nodes and delete secrets. The local token and every node identity remain fully
-  privileged. **The bot is unchanged**: anyone who can mention it in a Slack channel it has
+  privileged for the CLI and workers; the web UI does not ask a human to paste it when
+  Google sign-in is on. **The bot is unchanged**: anyone who can mention it in a Slack channel it has
   joined, or assign it a Linear issue, can make it run code on a worker with that playbook's
   credentials. A playbook's `secrets:` list scopes what one bot hands one turn — keep it
   minimal — but it is not a boundary around the secret store: `CreateTask` checks only that a

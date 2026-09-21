@@ -122,6 +122,17 @@ const briefSchema = z.strictObject({
     kind: z.enum(["slack", "linear", "chat", "github"]),
     ref: z.string().min(1),
     url: z.string().optional(),
+    // Present on a Slack turn: where the thread lives, and the operator-authored note
+    // that says what that channel is for. Absent for every other source.
+    channel: z
+      .strictObject({
+        id: z.string().min(1),
+        // Human name without a leading #. Absent when Slack has not resolved it yet.
+        name: z.string().min(1).optional(),
+        // Operator note. Absent when none is set; empty is omitted, not "".
+        description: z.string().min(1).optional(),
+      })
+      .optional(),
   }),
   profile: z.strictObject({
     name: z.string().min(1),
@@ -199,7 +210,7 @@ const briefSchema = z.strictObject({
   // It carries the NAME of a secret and never a value, exactly as memory does — a brief is
   // an environment variable on a task spec, readable by anything that can read the spec.
   provider: z.strictObject({
-    // id is the harness's provider id: "anthropic", "xai". Paired with profile.model it
+    // id is the harness's provider id: "anthropic", "xai", "openai". Paired with profile.model it
     // becomes the harness's `provider/model`.
     id: z.string().min(1),
     // api_key_env names the environment variable the conductor put the credential in.

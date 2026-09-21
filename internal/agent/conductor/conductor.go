@@ -96,6 +96,12 @@ type Options struct {
 	// means config.DefaultXAIBaseURL, so a hand-built Conductor still produces a usable
 	// brief.
 	XAIBaseURL string
+	// OpenAIBaseURL is where an OpenAI turn that spent an API key sends the harness.
+	// Empty means config.DefaultOpenAIBaseURL.
+	OpenAIBaseURL string
+	// OpenAICodexBaseURL is where an OpenAI turn that spent a ChatGPT subscription
+	// token sends the harness. Empty means config.DefaultOpenAICodexBaseURL.
+	OpenAICodexBaseURL string
 	// SkillsDir is the directory on this host that Agent Skills are read from
 	// (PODIUM_AGENT_SKILLS_DIR). Empty means this conductor delivers none, and a playbook
 	// that names one fails its turns saying so.
@@ -145,6 +151,10 @@ type Conductor struct {
 	lastExtractionCheck time.Time
 	// xaiBaseURL is the endpoint a Grok turn's brief names.
 	xaiBaseURL string
+	// openaiBaseURL is the endpoint an OpenAI API-key turn's brief names, and
+	// openaiCodexBaseURL the one a ChatGPT subscription turn's brief names.
+	openaiBaseURL      string
+	openaiCodexBaseURL string
 	// skillsDir is where a turn's Agent Skills are read from.
 	skillsDir string
 	// host is the runtime for a turn this process runs itself, nil when it runs none.
@@ -236,26 +246,28 @@ func New(opts Options) (*Conductor, error) {
 		metrics = NewMetrics(nil)
 	}
 	return &Conductor{
-		store:           opts.Store,
-		podium:          opts.Podium,
-		profiles:        opts.Profiles,
-		sources:         opts.Sources,
-		metrics:         metrics,
-		logger:          logger,
-		memory:          opts.Memory,
-		memories:        opts.MemoryClient,
-		xaiBaseURL:      cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
-		skillsDir:       opts.SkillsDir,
-		host:            opts.Host,
-		mirror:          opts.Mirror,
-		hostSlots:       make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
-		github:          opts.GitHub,
-		gitTaskURL:      opts.GitTaskURL,
-		mintSecret:      opts.MintSecret,
-		sessions:        map[string]*sessionState{},
-		hostRuns:        map[string]func(){},
-		turnTokens:      map[string]turnGrant{},
-		liveDelegations: map[string]*delegationRun{},
+		store:              opts.Store,
+		podium:             opts.Podium,
+		profiles:           opts.Profiles,
+		sources:            opts.Sources,
+		metrics:            metrics,
+		logger:             logger,
+		memory:             opts.Memory,
+		memories:           opts.MemoryClient,
+		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
+		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
+		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		skillsDir:          opts.SkillsDir,
+		host:               opts.Host,
+		mirror:             opts.Mirror,
+		hostSlots:          make(chan struct{}, cmp.Or(opts.HostMaxTurns, DefaultHostMaxTurns)),
+		github:             opts.GitHub,
+		gitTaskURL:         opts.GitTaskURL,
+		mintSecret:         opts.MintSecret,
+		sessions:           map[string]*sessionState{},
+		hostRuns:           map[string]func(){},
+		turnTokens:         map[string]turnGrant{},
+		liveDelegations:    map[string]*delegationRun{},
 	}, nil
 }
 
@@ -307,6 +319,7 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // event runs, find or create the session, and either start a turn or remember the message
 // for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
+	c.rememberSlackChannel(ctx, ev)
 	// One snapshot for the whole of this event. A profile swapped in half way through must
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
@@ -314,9 +327,20 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	var j job
 	var sess store.Session
 	var ok bool
-	if c.answersHere(src.Kind()) {
+	// A conversation with a host runtime is answered here. A web chat without one is
+	// refused rather than turned into a container task. The test-only KindDev source,
+	// and Slack on a conductor that has no host, still run as tasks so the playbook
+	// loop can be exercised without forking node.
+	switch {
+	case c.host != nil && aConversation(src.Kind()):
 		j, sess, ok = c.acceptConversation(ctx, src, profile, &ev)
-	} else {
+	case src.Kind() == SourceChat:
+		c.logger.ErrorContext(ctx, "a conversation arrived with no host runtime",
+			"source", src.Kind(), "source_key", ev.SourceKey)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: this conductor has no host runtime, so it cannot answer a conversation here."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
+		return
+	default:
 		j, sess, ok = c.acceptTask(ctx, src, profile, &ev)
 	}
 	if !ok {
@@ -412,13 +436,6 @@ func (c *Conductor) clearAwaiting(sessionID, taskID string) bool {
 	return true
 }
 
-// answersHere reports whether this conductor answers that source itself. It needs both
-// halves: a conversation, because a thread is one piece of work and belongs in a container,
-// and a host runtime, because without one there is nothing here to answer with.
-func (c *Conductor) answersHere(kind string) bool {
-	return c.host != nil && aConversation(kind)
-}
-
 // acceptConversation is a chat window's message. It runs the ASSISTANT — this process, the
 // short tool list, the delegation menu — so there is no playbook to route to, nothing for a
 // human to pick and nothing for the session to be pinned to. The playbooks are what the turn
@@ -433,6 +450,8 @@ func (c *Conductor) acceptConversation(
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 	// A conversation this bot answered before host turns existed has a playbook on its row,
@@ -451,9 +470,9 @@ func (c *Conductor) acceptConversation(
 	return assistantJob(profile.Assistant()), sess, true
 }
 
-// acceptTask is a Slack thread, a Linear ticket, or a conversation on a conductor with no
-// host runtime of its own. All three run one playbook as a task on a node, and the routing
-// rules pick which.
+// acceptTask is a Linear ticket, or a conversation on a conductor with no host runtime
+// (the test-only KindDev source, and Slack before host turns). It runs one playbook as a
+// task on a node. A web chat without a host runtime is refused instead.
 func (c *Conductor) acceptTask(
 	ctx context.Context, src Source, profile *profiles.Profile, ev *InboundEvent,
 ) (job, store.Session, bool) {
@@ -463,8 +482,10 @@ func (c *Conductor) acceptTask(
 		Text:     ev.Text,
 	})
 	if sel.Playbook.Name == "" {
-		c.logger.ErrorContext(ctx, "no playbook could be selected; the profile has no default",
+		c.logger.ErrorContext(ctx, "no playbook could be selected",
 			"source", src.Kind(), "source_key", ev.SourceKey)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn: no playbook matches this. Register one, or name it with /playbook."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 
@@ -476,6 +497,8 @@ func (c *Conductor) acceptTask(
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "I couldn't start a turn."})
+		c.finish(ctx, src, ev.Ref, ReactionFailed)
 		return job{}, store.Session{}, false
 	}
 
@@ -611,7 +634,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -744,10 +767,45 @@ func aConversation(kind string) bool {
 	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
 }
 
+// rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
+// so the Channels screen and the next turn's brief can find it. A failure is logged; the
+// turn still runs.
+func (c *Conductor) rememberSlackChannel(ctx context.Context, ev InboundEvent) {
+	if ev.Channel == "" || c.store == nil {
+		return
+	}
+	if err := c.store.UpsertSlackChannelName(ctx, ev.Channel, ev.ChannelName); err != nil {
+		c.logger.WarnContext(ctx, "recording a slack channel name failed",
+			"channel", ev.Channel, "error", err)
+	}
+}
+
+// sourceChannel is the brief's optional Slack channel block. Absent when this event has
+// no channel (every source but Slack). Description is looked up at brief time so a note
+// edited in the UI applies on the next turn without a new mention.
+func (c *Conductor) sourceChannel(ctx context.Context, ev InboundEvent) *BriefChannel {
+	if ev.Channel == "" {
+		return nil
+	}
+	ch := &BriefChannel{ID: ev.Channel, Name: ev.ChannelName}
+	if c.store == nil {
+		return ch
+	}
+	row, err := c.store.SlackChannel(ctx, ev.Channel)
+	if err != nil {
+		return ch
+	}
+	ch.Description = row.Description
+	if ch.Name == "" {
+		ch.Name = row.Name
+	}
+	return ch
+}
+
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
-	sess store.Session, j job, turnID string, ev InboundEvent,
+	ctx context.Context, sess store.Session, j job, turnID string, ev InboundEvent,
 	entries []BriefEntry, bundles []skills.Bundle, servers []mcp.Server, choice profiles.Choice,
 ) *Brief {
 	kind := ev.BriefKind
@@ -762,7 +820,7 @@ func (c *Conductor) brief(
 		Version:   BriefVersion,
 		SessionID: sess.ID,
 		TurnID:    turnID,
-		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL},
+		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL, Channel: c.sourceChannel(ctx, ev)},
 		Profile: BriefProfile{
 			Name:         profile.Name,
 			DisplayName:  profile.DisplayName,
@@ -841,15 +899,43 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
 	out := &BriefProvider{ID: b.Provider, APIKeyEnv: profiles.KeyEnvFor(b.Provider)}
-	if b.Provider == profiles.ProviderXAI {
+	switch b.Provider {
+	case profiles.ProviderXAI:
 		// PODIUM_AGENT_XAI_BASE_URL names the host, not an API root: validateXAIKey builds
 		// `<base>/v1/models` from the same value. The harness is handed a provider baseURL
 		// and appends the endpoint to it directly, so it needs the version in the URL —
 		// without it a turn dies on its first request with a 404 from
 		// https://api.x.ai/responses.
 		out.BaseURL = strings.TrimSuffix(c.xaiBaseURL, "/") + "/v1"
+	case profiles.ProviderOpenAI:
+		out.BaseURL = c.openaiEndpoint()
 	}
 	return out
+}
+
+// openaiEndpoint is where an OpenAI turn sends the harness. An API key talks to
+// api.openai.com; a ChatGPT subscription token talks to Codex. The stored auth kind is
+// what picks, and a missing row is the key path — that is also what a hand-built
+// Conductor with no store produces.
+func (c *Conductor) openaiEndpoint() string {
+	api := strings.TrimSuffix(c.openaiBaseURL, "/") + "/v1"
+	if c.openaiAuthKind() == "oauth" {
+		return strings.TrimSuffix(c.openaiCodexBaseURL, "/")
+	}
+	return api
+}
+
+func (c *Conductor) openaiAuthKind() string {
+	if c.store == nil {
+		return ""
+	}
+	var row struct {
+		AuthKind string `json:"auth_kind"`
+	}
+	if err := c.store.GetSetting(context.Background(), "provider.openai", &row); err != nil {
+		return ""
+	}
+	return row.AuthKind
 }
 
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
@@ -1075,7 +1161,7 @@ func dockerSidecar() spec.Sidecar {
 // A Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one:
 // a container gets the credential it needs and no other, which is the same rule the rest of
 // Podium's secret handling follows. The refresh token of a subscription sign-in is on
-// neither — it never leaves the conductor's host at all.
+// none of them — it never leaves the conductor's host at all.
 //
 // The memory key is on every turn of a host that has memory, because a brief with a memory
 // block whose api_key_env is unset is a failed turn (exit 2) — so that injection is not
@@ -1083,17 +1169,14 @@ func dockerSidecar() spec.Sidecar {
 func (c *Conductor) reservedSecrets(
 	agent string, servers []mcp.Server, capabilitySecret string,
 ) []spec.SecretRef {
-	model := spec.SecretRef{
-		Name:   profiles.AnthropicKeySecret,
-		Target: spec.SecretTargetEnv,
-		Key:    profiles.AnthropicKeyEnv,
+	b, ok := profiles.FindBackend(agent)
+	if !ok {
+		b, _ = profiles.FindBackend(profiles.DefaultAgent)
 	}
-	if agent == profiles.AgentGrok {
-		model = spec.SecretRef{
-			Name:   profiles.XAIKeySecret,
-			Target: spec.SecretTargetEnv,
-			Key:    profiles.XAIKeyEnv,
-		}
+	model := spec.SecretRef{
+		Name:   profiles.SecretFor(b.Provider),
+		Target: spec.SecretTargetEnv,
+		Key:    profiles.KeyEnvFor(b.Provider),
 	}
 	refs := []spec.SecretRef{model}
 	if c.memory != nil {

@@ -92,6 +92,14 @@ type AgentServiceOptions struct {
 	XAIOAuthIssuer   string
 	XAIOAuthClientID string
 	XAIOAuthScopes   string
+	// OpenAIBaseURL is where SetProviderKey validates an OpenAI API key.
+	OpenAIBaseURL string
+	// OpenAICodexBaseURL is where a ChatGPT / Codex subscription token is validated.
+	OpenAICodexBaseURL string
+	// OpenAIOAuthIssuer and OpenAIOAuthClientID configure the ChatGPT subscription
+	// sign-in. An empty client id means API keys only.
+	OpenAIOAuthIssuer   string
+	OpenAIOAuthClientID string
 	// HTTPClient validates the key. Nil means a client with a timeout of its own.
 	HTTPClient *http.Client
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
@@ -117,20 +125,25 @@ type AgentServiceOptions struct {
 	// Turns stops the work a conversation owns that no task id can reach: the host turn
 	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
 	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
-	Turns  TurnStopper
+	Turns TurnStopper
+	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
+	// before the first mention. Nil means this conductor has no Slack source.
+	Slack  SlackDirectory
 	Logger *slog.Logger
 }
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
-	store      *store.Store
-	secrets    SecretStore
-	model      string
-	baseURL    string
-	xaiBaseURL string
+	store              *store.Store
+	secrets            SecretStore
+	model              string
+	baseURL            string
+	xaiBaseURL         string
+	openaiBaseURL      string
+	openaiCodexBaseURL string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
-	oauth      map[string]*oauthClient
+	oauth      map[string]oauthSession
 	http       *http.Client
 	memory     memory.Client
 	skillsDir  string
@@ -139,6 +152,7 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
+	slack      SlackDirectory
 	logger     *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished, and
@@ -184,29 +198,45 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if opts.XAIOAuthScopes == "" {
 		opts.XAIOAuthScopes = config.DefaultXAIOAuthScopes
 	}
-	oauth := map[string]*oauthClient{}
-	// newOAuthClient returns nil without a client id, and a nil entry is never stored: the
-	// map having no key for a provider is what "API keys only" means to oauthFor.
+	if opts.OpenAIBaseURL == "" {
+		opts.OpenAIBaseURL = config.DefaultOpenAIBaseURL
+	}
+	if opts.OpenAICodexBaseURL == "" {
+		opts.OpenAICodexBaseURL = config.DefaultOpenAICodexBaseURL
+	}
+	if opts.OpenAIOAuthIssuer == "" {
+		opts.OpenAIOAuthIssuer = config.DefaultOpenAIOAuthIssuer
+	}
+	oauth := map[string]oauthSession{}
+	// newOAuthClient / newCodexClient return nil without a client id, and a nil entry is
+	// never stored: the map having no key for a provider is what "API keys only" means
+	// to oauthFor.
 	if c := newOAuthClient(opts.XAIOAuthIssuer, opts.XAIOAuthClientID, opts.XAIOAuthScopes,
 		opts.HTTPClient); c != nil {
 		oauth[ProviderXAI] = c
 	}
+	if c := newCodexClient(opts.OpenAIOAuthIssuer, opts.OpenAIOAuthClientID, opts.HTTPClient); c != nil {
+		oauth[ProviderOpenAI] = c
+	}
 	return &AgentService{
-		store:      opts.Store,
-		secrets:    opts.Secrets,
-		model:      opts.Model,
-		baseURL:    opts.AnthropicBaseURL,
-		xaiBaseURL: opts.XAIBaseURL,
-		oauth:      oauth,
-		http:       opts.HTTPClient,
-		memory:     opts.Memory,
-		skillsDir:  opts.SkillsDir,
-		profiles:   opts.Profiles,
-		profileDir: opts.ProfileDir,
-		chat:       opts.Chat,
-		tasks:      opts.Tasks,
-		turns:      opts.Turns,
-		logger:     opts.Logger,
+		store:              opts.Store,
+		secrets:            opts.Secrets,
+		model:              opts.Model,
+		baseURL:            opts.AnthropicBaseURL,
+		xaiBaseURL:         opts.XAIBaseURL,
+		openaiBaseURL:      opts.OpenAIBaseURL,
+		openaiCodexBaseURL: opts.OpenAICodexBaseURL,
+		oauth:              oauth,
+		http:               opts.HTTPClient,
+		memory:             opts.Memory,
+		skillsDir:          opts.SkillsDir,
+		profiles:           opts.Profiles,
+		profileDir:         opts.ProfileDir,
+		chat:               opts.Chat,
+		tasks:              opts.Tasks,
+		turns:              opts.Turns,
+		slack:              opts.Slack,
+		logger:             opts.Logger,
 	}
 }
 
@@ -228,9 +258,10 @@ func (s *AgentService) ListSessions(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	names := s.slackNames(ctx)
 	out := make([]*agentv1.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionToProto(r))
+		out = append(out, sessionToProto(r, names))
 	}
 	return connect.NewResponse(&agentv1.ListSessionsResponse{Sessions: out, NextCursor: next}), nil
 }
@@ -247,7 +278,7 @@ func (s *AgentService) GetSession(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	return connect.NewResponse(&agentv1.GetSessionResponse{Session: sessionToProto(row)}), nil
+	return connect.NewResponse(&agentv1.GetSessionResponse{Session: sessionToProto(row, s.slackNames(ctx))}), nil
 }
 
 // ListTurns returns one session's turns, newest first.
@@ -374,7 +405,7 @@ func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
 	return out
 }
 
-func sessionToProto(s store.Session) *agentv1.Session {
+func sessionToProto(s store.Session, names map[string]string) *agentv1.Session {
 	out := &agentv1.Session{
 		Id:         s.ID,
 		SourceKind: s.SourceKind,
@@ -385,6 +416,26 @@ func sessionToProto(s store.Session) *agentv1.Session {
 	}
 	if s.LastTurnAt != nil {
 		out.LastTurnAt = timestamppb.New(*s.LastTurnAt)
+	}
+	if id, ok := store.SlackChannelID(s.SourceKey); ok && names != nil {
+		out.SourceLabel = names[id]
+	}
+	return out
+}
+
+func (s *AgentService) slackNames(ctx context.Context) map[string]string {
+	if s.store == nil {
+		return nil
+	}
+	rows, err := s.store.ListSlackChannels(ctx)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		if r.Name != "" {
+			out[r.ID] = r.Name
+		}
 	}
 	return out
 }

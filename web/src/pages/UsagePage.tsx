@@ -169,7 +169,7 @@ export function UsagePage() {
         <Alert variant="warn" title="Some older costs are not shown">
           More than {COST_LIMIT.toLocaleString()} turns ran in this range. The newest are
           joined into the table; older rows may show a dash where a cost exists. The totals
-          above are unaffected — they are summed by the server.
+          above are unaffected: they are summed by the server.
         </Alert>
       ) : null}
 
@@ -245,7 +245,7 @@ export function UsagePage() {
         Recorded as each turn and each delegated task starts, never inferred from a playbook:
         the chat can override the model for a single message, and editing a playbook would
         otherwise relabel everything that ever ran under it. Rows from before the conductor
-        recorded this group as <span className="text-muted">unrecorded</span> — their cost is
+        recorded this group as <span className="text-muted">unrecorded</span>. Their cost is
         real, only the attribution is missing.
       </p>
     </section>
@@ -255,7 +255,7 @@ export function UsagePage() {
     <div className="space-y-5">
       <PageHeader
         title="Usage"
-        description="What ran, what it cost and what it used — spend per task from the conductor, compute from the control plane."
+        description="What ran, what it cost and what it used. Spend per task from the conductor; compute from the control plane."
         meta={
           <>
             <Chip>{range.label}</Chip>
@@ -312,7 +312,7 @@ export function UsagePage() {
         />
         <Stat
           label="Average per task"
-          value={turns > 0 ? usdShort(spent / turns) : "—"}
+          value={turns > 0 ? usdShort(spent / turns) : "-"}
           loading={usage.isPending}
           hint={turns > 0 ? `over ${turns.toLocaleString()} tasks` : "nothing ran yet"}
         />

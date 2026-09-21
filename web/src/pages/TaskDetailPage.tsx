@@ -88,7 +88,7 @@ function TaskDetail({ id }: { id: string }) {
     mutationFn: () => tasks.cancelTask({ taskId: id, reason: "cancelled from the web UI" }),
     onSuccess: () => {
       setCancelling(true);
-      toast("Cancel requested — the node has up to 30s to stop the container.", "ok");
+      toast("Cancel requested. The node has up to 30s to stop the container.", "ok");
       void qc.invalidateQueries({ queryKey: ["task", id] });
     },
     onError: (err) => toast(`CancelTask: ${errorMessage(err)}`),
@@ -336,7 +336,7 @@ function TaskDetail({ id }: { id: string }) {
               <span className="font-mono text-fg">{task.id}</span> is{" "}
               {taskStatusLabel(task.status)}
               {task.nodeId ? ` on ${task.nodeId}` : ""}. Cancelling stops it and it cannot be
-              resumed — only re-run.
+              resumed, only re-run.
             </DialogDescription>
           </DialogHeader>
           <p className="text-xs leading-relaxed text-muted">
@@ -395,7 +395,7 @@ function Explain({ task }: { task: Task }) {
       : task.status === TaskStatus.FAILED
         ? task.exitCode === undefined
           ? "Failed"
-          : `Failed — exit ${task.exitCode}`
+          : `Failed (exit ${task.exitCode})`
         : task.status === TaskStatus.CANCELLED
           ? "Cancelled"
           : undefined;
@@ -491,7 +491,7 @@ function TimeFact({ label, ts, since }: { label: string; ts?: Timestamp; since?:
 
 function waiting(task: Task): string {
   const created = toDate(task.createdAt);
-  return created ? durationMs(Date.now() - created.getTime()) : "—";
+  return created ? durationMs(Date.now() - created.getTime()) : "-";
 }
 
 function DetailSkeleton() {

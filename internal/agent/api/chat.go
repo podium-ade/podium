@@ -579,6 +579,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		Origin:       c.Origin,
 		StartedBy:    c.StartedBy,
 		Participants: c.Participants,
+		Channel:      c.Channel,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)

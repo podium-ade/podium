@@ -3,10 +3,12 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/podium-ade/podium/internal/server/store"
 )
@@ -34,6 +36,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc(StartPath, h.start)
 	mux.HandleFunc(CallbackPath, h.callback)
 	mux.HandleFunc(LogoutPath, h.logout)
+	mux.HandleFunc(PicturePath, h.picture)
 }
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +145,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.Store.UpsertGoogleUser(r.Context(), user.Email, user.Name, user.HD); err != nil {
+	if _, err := h.Store.UpsertGoogleUser(r.Context(), user.Email, user.Name, user.HD, user.Picture); err != nil {
 		h.Logger.WarnContext(r.Context(), "google callback: upsert user", "error", err)
 		if errors.Is(err, store.ErrDomainMismatch) {
 			fail("domain")
@@ -178,4 +181,64 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const pictureMaxBody = 1 << 20
+
+func (h *Handler) picture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tok := sessionToken(r)
+	if tok == "" || h.Store == nil {
+		http.NotFound(w, r)
+		return
+	}
+	sess, err := h.Store.GetSession(r.Context(), tok)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	user, err := h.Store.GetUser(r.Context(), sess.Login)
+	if err != nil || user.PictureURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	src, err := url.Parse(user.PictureURL)
+	if err != nil || src.Scheme != "https" || !googlePictureHost(src.Host) {
+		http.NotFound(w, r)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, src.String(), nil)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		h.Logger.WarnContext(r.Context(), "avatar fetch failed", "error", err)
+		http.Error(w, "avatar unavailable", http.StatusBadGateway)
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		http.Error(w, "avatar unavailable", http.StatusBadGateway)
+		return
+	}
+	ct := res.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "image/") {
+		http.Error(w, "avatar unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, io.LimitReader(res.Body, pictureMaxBody))
+}
+
+func googlePictureHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "googleusercontent.com" || strings.HasSuffix(host, ".googleusercontent.com")
 }

@@ -219,6 +219,7 @@ export function ChatPanel() {
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
               listedOrigin={list.find((c) => c.id === active)?.origin}
+              listedChannel={list.find((c) => c.id === active)?.channel}
               listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
@@ -247,8 +248,8 @@ export function ChatPanel() {
           </DialogHeader>
           {deleteStopsTask ? (
             <Alert variant="warn" role="note">
-              A task is running in this chat. Confirming asks the node to stop it — SIGTERM, then
-              up to 30 seconds — and then deletes the conversation.
+              A task is running in this chat. Confirming asks the node to stop it (SIGTERM, then
+              up to 30 seconds) and then deletes the conversation.
             </Alert>
           ) : null}
           <DialogFooter>
@@ -356,7 +357,7 @@ function ChatRail({
   return (
     <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
       <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
-        <Tooltip label="New chat — or press N">
+        <Tooltip label="New chat, or press N">
           <Button
             type="button"
             size="sm"
@@ -586,7 +587,7 @@ function ChatRow({
           {/* Where the conversation lives. A mirrored thread is read here and answered
               there, and the badge is what stops a reader wondering why it has no composer. */}
           {chat.origin && chat.origin !== "web" ? (
-            <Badge tone="idle">{chat.origin}</Badge>
+            <Badge tone="idle">{chat.channel ? `#${chat.channel}` : chat.origin}</Badge>
           ) : null}
           {chat.startedBy ? (
             <span className="shrink-0 text-xs text-muted">{chat.startedBy}</span>
@@ -630,9 +631,11 @@ function ChatRow({
 
 function ConversationTitle({
   title,
+  channel,
   onRename,
 }: {
   title: string;
+  channel?: string;
   onRename: (title: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -673,6 +676,14 @@ function ConversationTitle({
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-4 sm:px-5">
+      {channel ? (
+        <span
+          data-testid="chat-channel"
+          className="shrink-0 rounded-md bg-raised px-1.5 py-0.5 font-mono text-xs text-muted"
+        >
+          #{channel}
+        </span>
+      ) : null}
       {editing ? (
         <form
           onSubmit={(e) => {
@@ -723,6 +734,7 @@ function Conversation({
   title,
   remembered,
   listedOrigin,
+  listedChannel,
   listedEmpty,
   onRename,
   assistant,
@@ -738,6 +750,8 @@ function Conversation({
    * alone rendered a composer for a mirrored thread and then took it away again.
    */
   listedOrigin?: string;
+  /** listedChannel is the Slack channel name the list row already has, if any. */
+  listedChannel?: string;
   /**
    * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
    * skeleton is a fake user bubble and would flash before the greeting.
@@ -761,6 +775,7 @@ function Conversation({
   // lands after the first render. The stream still wins once it speaks, for a deep link that
   // has no list row yet.
   const origin = stream.chat?.origin || listedOrigin || "";
+  const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const participants = stream.chat?.participants ?? [];
   const [pinned, setPinned] = useState(true);
@@ -891,7 +906,7 @@ function Conversation({
 
   return (
     <>
-      <ConversationTitle title={title} onRename={onRename} />
+      <ConversationTitle title={title} channel={channel} onRename={onRename} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
       <div className="relative min-h-0 flex-1">
         <div
@@ -915,7 +930,7 @@ function Conversation({
 
             {stream.error ? (
               <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                {stream.error}. Nothing was lost — the reconnect replays from the last message
+                {stream.error}. Nothing was lost. The reconnect replays from the last message
                 this browser saw.
               </Alert>
             ) : null}
@@ -974,7 +989,7 @@ function Conversation({
           data-testid="chat-mirrored-note"
           className="border-t border-border bg-panel/40 px-5 py-3 text-xs leading-relaxed text-muted"
         >
-          This conversation lives in {origin}. Reply to it there — Podium keeps a copy so it
+          This conversation lives in {origin}. Reply to it there. Podium keeps a copy so it
           can be read here.
           {participants.length > 0 ? <> Taking part: {participants.join(", ")}.</> : null}
         </div>
@@ -1088,7 +1103,7 @@ function FirstMessage({
         <p className="text-xl font-medium tracking-tight text-fg">Ask {botName} something</p>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
           {botName} answers here. When something needs a machine it starts a task on your nodes
-          and reports back — you will see each one it runs.
+          and reports back. You will see each one it runs.
         </p>
       </div>
       <div className="flex max-w-lg flex-wrap justify-center gap-2">

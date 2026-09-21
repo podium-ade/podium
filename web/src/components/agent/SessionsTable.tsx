@@ -60,9 +60,9 @@ const TURN_TONE: Record<string, Tone> = {
 /**
  * SessionsTable is the conversations the bot has taken part in, and the turns inside one.
  *
- * Everything here comes from the conductor's read RPCs; nothing is derived from a source's
- * own API, because the conductor deliberately keeps no copy of a Slack channel name. The ref
- * shown is what the source computed and the conductor stores verbatim.
+ * Everything here comes from the conductor's read RPCs. A Slack row shows the channel name
+ * when the catalogue has resolved one (`source_label`); otherwise it falls back to the id
+ * in source_key. The conductor never invents a name.
  */
 export function SessionsTable() {
   const [openID, setOpenID] = useState<string>();
@@ -80,7 +80,7 @@ export function SessionsTable() {
     <div className="space-y-5">
       <PageHeader
         title="Sessions"
-        description="Every conversation the conductor has taken part in — from the web chat, from Slack and from Linear — and the turns it spent inside each one."
+        description="Every conversation the conductor has taken part in (from the web chat, from Slack and from Linear) and the turns it spent inside each one."
         meta={
           rows.length > 0 ? (
             <>
@@ -120,7 +120,7 @@ export function SessionsTable() {
         <Empty
           icon={History}
           title="No sessions yet."
-          hint="Mention the bot in Slack to start one, or open Chat and ask it something — a session is recorded the first time it answers."
+          hint="Mention the bot in Slack to start one, or open Chat and ask it something. A session is recorded the first time it answers."
         />
       ) : null}
 
@@ -171,7 +171,7 @@ export function SessionsTable() {
                   <TableCell>
                     <Chip>{ranBy(s.playbook)}</Chip>
                   </TableCell>
-                  <TableCell className="text-xs text-muted">{s.profile || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted">{s.profile || "-"}</TableCell>
                   <TableCell
                     className="text-xs whitespace-nowrap text-faint"
                     title={absolute(s.createdAt)}
@@ -365,7 +365,7 @@ function TurnItem({ turn: t }: { turn: Turn }) {
           </span>
           <span aria-hidden>·</span>
           <span className="tabular text-muted">
-            {t.numTurns === undefined ? "— model turns" : `${t.numTurns} model turns`}
+            {t.numTurns === undefined ? "- model turns" : `${t.numTurns} model turns`}
           </span>
           <span aria-hidden>·</span>
           <span>

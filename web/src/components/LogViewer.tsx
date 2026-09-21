@@ -203,7 +203,7 @@ export function LogViewer({
 
       {phase === "error" && error ? (
         <Alert variant="warn" className="rounded-none border-x-0 border-t-0">
-          Lost the log stream: {error}. Reconnecting — nothing already delivered is lost.
+          Lost the log stream: {error}. Reconnecting. Nothing already delivered is lost.
         </Alert>
       ) : null}
 

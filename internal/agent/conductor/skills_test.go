@@ -56,7 +56,7 @@ func TestATurnCarriesItsSkillsBesideTheBrief(t *testing.T) {
 	require.Len(t, bundles, 2)
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
-	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	require.Len(t, b.Playbook.Skills, 2)
 	assert.Equal(t, "pr-review", b.Playbook.Skills[0].Name)
@@ -83,7 +83,7 @@ func TestAPlaybookWithNoSkillsDeliversNone(t *testing.T) {
 	assert.Empty(t, bundles)
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
-	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, bundles, nil, choice)
 	assert.Nil(t, b.Playbook.Skills)
 

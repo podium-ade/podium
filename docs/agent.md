@@ -55,7 +55,7 @@ somebody says something in a CONVERSATION
 
 somebody mentions the bot in a THREAD, or assigns a Linear ticket
   ↓  source (Slack, Linear)                  normalises it into an InboundEvent
-  ↓  Select                                  which playbook? /playbook, the channel, default_playbook
+  ↓  Select                                  which playbook? /playbook, the channel, or a Linear claim
   ↓  UpsertSession                            by source key — one thread, one session, one playbook
   ↓  React ⏳                                 before any work starts
   ↓  post "👀 working…"                       Linear's working comment. Slack skips it: ⏳ is the ack
@@ -72,9 +72,8 @@ is, and the relay, the accounting and the bookkeeping do not know which transpor
 What differs is the job the turn was given — see `internal/agent/conductor/job.go`.
 
 A conductor with no host runtime configured (`PODIUM_AGENT_HOST_RUNTIME` unset) has nothing to
-answer a conversation *with*, so a chat message there takes the second path too and runs
-`default_playbook` as a task. That works, and it is the poorer configuration: every message
-costs a container.
+answer a conversation *with*, so a chat message there is refused rather than turned into a
+container task. A task is only created when the assistant delegates.
 
 **One turn per session at a time.** A message that arrives while a turn is running is not lost
 and does not start a second task: it is in the thread, so it is in the next turn's transcript,
@@ -319,6 +318,10 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_XAI_OAUTH_ISSUER` | no | `https://auth.x.ai` | the OIDC issuer a subscription sign-in discovers its endpoints from |
 | `PODIUM_AGENT_XAI_OAUTH_CLIENT_ID` | no | Hermes / Grok CLI (`b1a00492-073a-47ea-816f-4c329264a828`) | a public desktop OAuth client id. Set to `off` to turn the subscription tab off and leave the API key path. Public metadata, not a secret |
 | `PODIUM_AGENT_XAI_OAUTH_SCOPES` | no | `openid profile email offline_access grok-cli:access api:access` | `offline_access` is what buys a refresh token; `grok-cli:access` is what xAI's own CLI asks for |
+| `PODIUM_AGENT_OPENAI_BASE_URL` | no | `https://api.openai.com` | where an OpenAI API key is validated **and** where an OpenAI turn that spent a key sends the harness |
+| `PODIUM_AGENT_OPENAI_CODEX_BASE_URL` | no | `https://chatgpt.com/backend-api/codex` | where a ChatGPT / Codex subscription token is validated **and** where a turn that spent one sends the harness |
+| `PODIUM_AGENT_OPENAI_OAUTH_ISSUER` | no | `https://auth.openai.com` | OpenAI's auth host. Codex device-flow endpoints live under it and are not discovered |
+| `PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID` | no | Hermes / Codex CLI (`app_EMoamEEZ73f0CkXaXp7hrann`) | a public desktop OAuth client id. Set to `off` to turn the subscription tab off and leave the API key path. Public metadata, not a secret |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
 | `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |
@@ -409,8 +412,8 @@ spec: a misspelt key is a startup error naming the file, not a field that silent
 ### `profile.yaml`
 
 This file is the **assistant** — everything down to `max_turns` describes the turn that answers a
-conversation — plus one routing decision, `default_playbook`, which is about threads and tickets
-instead.
+conversation. Playbooks live in `playbooks/` and are what that turn delegates to; there is no
+default playbook.
 
 ```yaml
 name: podium                 # required; ^[a-z][a-z0-9-]{0,31}$
@@ -429,9 +432,8 @@ max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS N
                              # is the opposite of a playbook's. FILE ONLY
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
                              # and there is no "off". FILE ONLY
-default_playbook: general    # required; must name a loaded playbook. Which playbook a Slack
-                             # mention or a Linear ticket runs when nothing more specific
-                             # routes it. A conversation runs NONE
+# default_playbook is unused. A Slack mention or Linear ticket with no /playbook and no
+# channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
 `skills` and `max_turns` are file-only on purpose. What the process running beside your master
@@ -521,13 +523,14 @@ are lower-cased.**
 task spec, because that is where they end up. Two rules of the conductor's own:
 
 - **No model credential may appear in `secrets:`.** `podium.agent.anthropic_api_key`,
-  `podium.agent.xai_api_key` and `podium.agent.xai_refresh_token` are all refused. The conductor
-  decides what credential a turn gets, from the agent the playbook runs on — see *Which agent,
-  which model, how hard it thinks*.
-- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY` or anything
-  starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is the brief, the next two come
-  from the secrets, and the last two are where a skill's bundle and an MCP server's token
-  travel.
+  `podium.agent.xai_api_key`, `podium.agent.xai_refresh_token`, `podium.agent.openai_api_key`
+  and `podium.agent.openai_refresh_token` are all refused. The conductor decides what
+  credential a turn gets, from the agent the playbook runs on — see *Which agent, which model,
+  how hard it thinks*.
+- **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`,
+  `OPENAI_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is
+  the brief, the next three come from the secrets, and the last two are where a skill's
+  bundle and an MCP server's token travel.
 - **No MCP server token may appear in `secrets:`.** Anything starting `podium.agent.mcp.` is
   refused. `mcp_servers` is what grants a server to a playbook, and naming its secret directly
   would be a turn holding the credential of a server it was never granted.
@@ -895,18 +898,14 @@ of which is one piece of work in a container. The assistant reaches a playbook b
 it, one per task, chosen by the turn — there is nothing for a human to select and no default to
 set.
 
-**A Slack thread is a conversation too.** With a host runtime configured, a mention is answered
-by the assistant on the conductor's own host, exactly as a web chat is, and it reaches a playbook
-by delegating to it. That is what makes every playbook reachable from Slack: routing could only
-ever pick one, and in practice it picked the default. The routing rules below therefore apply to
-Slack **only on a conductor with no host runtime**, which answers a mention by running a playbook
-as a task because it has nothing else to answer with.
+**A Slack thread is a conversation too.** A mention is answered by the assistant on the
+conductor's own host, exactly as a web chat is, and it reaches a playbook by delegating to it.
+A conductor with no host runtime refuses the mention rather than turning it into a task.
 
-So `slack_channels` is **deprecated**. It still routes a thread on a conductor without a host
-runtime, and it does nothing at all on one with it. Do not reach for it: say which playbook you
-want in the thread and let the turn delegate.
+So `slack_channels` is **deprecated**. Do not reach for it: say which playbook you want in the
+thread and let the turn delegate.
 
-For a ticket — and for a thread on a conductor with no host runtime — in order:
+For a Linear ticket — in order:
 
 1. **A playbook the source knows** is right, which no rule below may second-guess: the
    `linear: true` playbook a ticket runs. A ticket's text is not a command line, so a `/word` in
@@ -916,10 +915,11 @@ For a ticket — and for a thread on a conductor with no host runtime — in ord
    somebody typing `/shrug` does not break the bot. `/etc/hosts` is not a playbook selector either.
 3. The channel is in a playbook's `slack_channels`. Two playbooks claiming one channel is a startup
    error. **Deprecated** — see above.
-4. `profile.default_playbook`.
+4. Nothing: there is no default playbook. Register one, name it with `/playbook`, or (for
+   Linear) mark one `linear: true`.
 
-Rule 1 is knowledge and rule 4 is a fallback, and keeping them apart is the whole of the order:
-Linear names the playbook because it genuinely knows it. Slack says nothing and starts at rule 2.
+Rule 1 is knowledge, and keeping it first is the whole of the order: Linear names the playbook
+because it genuinely knows it. Slack says nothing and starts at rule 2.
 
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
 same thread is refused politely: start a new thread. A conversation's session stores no playbook
@@ -986,18 +986,21 @@ ghcr.io/podium-ade/podium-agent-runtime` is the easy way to get one that does. S
 
 ### Reserved secret names
 
-Two names the conductor genuinely reserves, and one convention. The Anthropic key is set in
-the web UI (see *Setting the provider key* below), the conductor writes the memory key at
-startup out of its own environment, and the third is set with `podium secret set`.
+The model credentials and the memory key are reserved: a playbook may not name them. The
+Anthropic, xAI and OpenAI keys are set in the web UI (see *Setting the provider key* below),
+the conductor writes the memory key at startup out of its own environment, and a GitHub token
+is set with `podium secret set`.
 
 A playbook may name **any** registered secret under any name it likes; nothing below is an
-allow-list. These three are simply the names Podium's own docs and defaults use.
+allow-list. These are simply the names Podium's own docs and defaults use.
 
 | name | lands as | who needs it |
 |---|---|---|
 | `podium.agent.anthropic_api_key` | `ANTHROPIC_API_KEY` | every turn on the `claude` backend; the conductor attaches it. Set it in the web UI, or with the CLI |
 | `podium.agent.xai_api_key` | `XAI_API_KEY` | every turn on the `grok` backend; likewise. It holds an xAI API key **or** the access token of a subscription sign-in — both are bearers for the same endpoint |
 | `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A playbook may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
+| `podium.agent.openai_api_key` | `OPENAI_API_KEY` | every turn on the `openai` backend. It holds an OpenAI API key **or** the access token of a ChatGPT / Codex subscription sign-in. Unlike xAI those two are not bearers for the same endpoint — the conductor points the turn at api.openai.com or at ChatGPT's Codex backend from how the credential was obtained |
+| `podium.agent.openai_refresh_token` | *nothing* | reserved and **never attached to a turn**, same rule as the xAI refresh token |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a playbook with `repos:` — and only the playbooks whose files name it. See *Playbooks that clone repositories* |
 | `podium.agent.git_capability.<turn>` | `PODIUM_GIT_CAPABILITY` | every turn of a playbook with `repos:`, when a GitHub App is configured. Written by the conductor before the task and deleted when the turn ends; a playbook may not name one |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
@@ -1005,7 +1008,7 @@ allow-list. These three are simply the names Podium's own docs and defaults use.
 The model credential must **exist** before a turn on that backend can run, even a dry run: the
 task spec names it and the control plane refuses a task that names a secret it does not have.
 That failure reaches the thread as "This bot is missing a credential". A control plane that only
-ever runs Claude playbooks needs no xAI credential at all, and the reverse.
+ever runs Claude playbooks needs no xAI or OpenAI credential at all, and the reverse.
 
 **Exactly one model credential goes on a turn**, and it is the one the turn's backend spends. A
 Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one: a
@@ -1027,6 +1030,7 @@ built-in default — and the resolved triple travels in the brief, so the runtim
 |---|---|---|
 | `claude` (default) | Anthropic | `podium.agent.anthropic_api_key` |
 | `grok` | xAI | `podium.agent.xai_api_key` |
+| `openai` | OpenAI | `podium.agent.openai_api_key` |
 
 **One runtime image, and no vendor in the code path.** The harness is
 [opencode](https://opencode.ai), which takes `--model provider/model` — so a backend is a flag
@@ -1089,20 +1093,20 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings**, under the profile picture in the sidebar, has one card per
-provider.
+operator sets it. **Settings → Models** has one card per provider. Chat picks which model a
+turn uses; this category is how those models get a credential.
 
-Open the UI and click **Settings** under the signed-in identity at the bottom of the sidebar
-(it is only there when `PODIUM_AGENT_URL` is set on the server).
+Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
 
-<!-- screenshot: Settings, an Anthropic card and an xAI card, neither set -->
+<!-- screenshot: Settings, Models category, an Anthropic card, an xAI card and an OpenAI card, none set -->
 
 Paste the key and press **Validate & save**. What happens, in order:
 
 1. The browser calls `SetProviderKey` on `podium-server`, which proxies it to the conductor.
 2. The conductor calls the provider's model list — **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`**
-   with the key in an `x-api-key` header and `anthropic-version: 2023-06-01`, or
-   **`GET {PODIUM_AGENT_XAI_BASE_URL}/v1/models`** with it as a bearer. There is no token cost.
+   with the key in an `x-api-key` header and `anthropic-version: 2023-06-01`,
+   **`GET {PODIUM_AGENT_XAI_BASE_URL}/v1/models`** with it as a bearer, or
+   **`GET {PODIUM_AGENT_OPENAI_BASE_URL}/v1/models`** the same way. There is no token cost.
 3. **Only if that succeeds** is the key stored, as that provider's Podium secret, through the
    ordinary `SecretService` — so it is encrypted at rest under the control plane's master key
    like every other secret.
@@ -1144,6 +1148,7 @@ The CLI equivalents, for a host with no browser:
 ```sh
 podium secret set podium.agent.anthropic_api_key      # value on stdin; NO validation
 podium secret set podium.agent.xai_api_key            # likewise, for Grok
+podium secret set podium.agent.openai_api_key         # likewise, for OpenAI
 podium secret ls                                       # names, versions and who set them
 podium secret rm podium.agent.anthropic_api_key
 ```
@@ -1167,9 +1172,10 @@ believing its own row. Which means:
 
 ## Signing in with a subscription
 
-xAI sells Grok on a subscription as well as on API credit, and the **Subscription** tab of the
-xAI card signs in with one — SuperGrok, or an X account with Premium+. There is no equivalent
-for Anthropic on this control plane: its card offers the key box only.
+xAI sells Grok on a subscription as well as on API credit, and OpenAI sells ChatGPT / Codex
+the same way. The **Subscription** tab of each card signs in with one — SuperGrok or X
+Premium+ on the xAI card, a ChatGPT Plus, Pro, or Codex plan on the OpenAI card. There is no
+equivalent for Anthropic on this control plane: its card offers the key box only.
 
 It is an **OAuth 2.0 device authorisation grant** (RFC 8628), and the flow is the one every
 television app uses:
@@ -1179,8 +1185,10 @@ television app uses:
    phone — sign in to xAI there and type the code.
 3. The browser polls the conductor, which polls xAI, at the interval xAI asked for.
 4. The poll that comes back authorised **validates the access token against the API** and only
-   then stores it, as `podium.agent.xai_api_key`. From that point a Grok turn cannot tell a
-   subscription from a key: both are one bearer token in one secret.
+   then stores it, as `podium.agent.xai_api_key` or `podium.agent.openai_api_key`. From that
+   point a Grok turn cannot tell a subscription from a key: both are one bearer token in one
+   secret, for the same endpoint. An OpenAI turn *can* tell: a key talks to api.openai.com
+   and a ChatGPT token talks to Codex, so the brief's `base_url` follows the auth kind.
 
 <!-- screenshot: the xAI card mid-sign-in, showing the code and the verification URL -->
 
@@ -1214,6 +1222,17 @@ it is refused.
 CLI ship (`b1a00492-073a-47ea-816f-4c329264a828`). xAI does not offer self-service registration,
 so that is the client every third-party sign-in uses. The consent screen will name **xAI's CLI**,
 not Podium. Set the variable to `off` to turn the subscription tab off and leave the API key path.
+
+OpenAI's ChatGPT / Codex sign-in is the same card, a different protocol. Codex does not publish
+an RFC 8628 device-authorisation endpoint, so the conductor talks to OpenAI's own device-auth
+paths under `https://auth.openai.com` (the same ones Hermes ships as `CODEX_OAUTH_*`). The
+client id defaults to Codex CLI's (`app_EMoamEEZ73f0CkXaXp7hrann`); the consent screen will name
+**Codex**, not Podium. Set `PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID=off` to turn that tab off.
+
+```sh
+PODIUM_AGENT_OPENAI_OAUTH_ISSUER=https://auth.openai.com                        # the default
+PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann                # Hermes / Codex CLI; `off` turns the tab off
+```
 
 ### Staying signed in
 
@@ -1258,6 +1277,34 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    it is not in, whatever its scopes say.
 6. Put both tokens in `.env` and start the conductor. The startup log names the sources it
    enabled and the playbooks it loaded.
+7. **Reinstall the app** if you created it from an older manifest: `channels:read`,
+   `groups:read` and `im:read` were added so the conductor can resolve `#support` from `C0123`
+   and so **Channels** in the sidebar can list membership. Existing tokens keep the old scopes
+   until you reinstall.
+
+### Channel context
+
+A Slack mention used to arrive with only a channel **id**. The bot did not know it was in
+`#support`, and nothing told it that `#support` is for customer complaints.
+
+**Channels** (sidebar, next to MCP) is the catalogue. Rows appear when the bot is invited to a
+channel or mentioned in one. You add a description; the next turn in that channel is briefed
+with it:
+
+```
+This message is in Slack channel #support.
+This channel is for: customer complaints.
+```
+
+The description is operator-authored, like `profile.yaml`. Slack's own channel purpose is
+**not** imported: anyone who can set a purpose would then instruct the model.
+
+Mirrored threads in **Chat** keep their first-message title (so two threads in `#support` stay
+two conversations) and show `#support` in the rail badge and the header. **Sessions** shows
+`#support · thread_ts` once the name is known; until then it still shows the id.
+
+`slack_channels:` on a playbook is a different, **deprecated** thing: it was routing, not
+context. Do not reach for it.
 
 Then, in a channel the bot is in:
 
@@ -2263,7 +2310,7 @@ PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
 make build agent-runtime
 # Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
 #   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
-# then podium-node, then the conductor below, and set the key in the UI at /agent/settings.
+# then podium-node, then the conductor below, and set the key in the UI at /agent/settings/models.
 # The CLI way, if you would rather not open a browser:
 podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 
