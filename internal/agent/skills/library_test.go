@@ -56,6 +56,8 @@ func TestNoSkillsDirectoryFailsANamedSkill(t *testing.T) {
 func TestListDirReportsWhatIsThereAndWhatIsWrongWithIt(t *testing.T) {
 	root := t.TempDir()
 	writeDirSkill(t, root, "pr-review", "Use when reviewing a diff.")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "pr-review", "reference"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "pr-review", "reference", "checklist.md"), []byte("- read the diff\n"), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "no-skill-md"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "Not_A_Name"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "README.md"), []byte("notes"), 0o644))
@@ -74,4 +76,6 @@ func TestListDirReportsWhatIsThereAndWhatIsWrongWithIt(t *testing.T) {
 	assert.Empty(t, got[2].Problem)
 	assert.Equal(t, "Use when reviewing a diff.", got[2].Description)
 	assert.NotEmpty(t, got[2].SHA256)
+	assert.Equal(t, "- read the diff\n", got[2].Files["reference/checklist.md"])
+	assert.Contains(t, got[2].Files[SkillFile], "name: pr-review")
 }

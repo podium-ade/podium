@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileCode2, Plus, Puzzle, Trash2 } from "lucide-react";
+import { FileCode2, Pencil, Plus, Puzzle, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentSkill } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -12,11 +12,13 @@ import { useToast } from "../Toast";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
+import type { SkillBundle } from "../../lib/skillZip";
 import { SkillEditor, type SkillFile } from "./SkillEditor";
 
 /**
- * SkillsPanel is the Agent Skills on this conductor. New skill opens a markdown editor;
- * a folder of .md files installs each one.
+ * SkillsPanel is the Agent Skills on this conductor. A folder that contains SKILL.md
+ * installs as one skill, other files included. A folder of markdown files and no
+ * SKILL.md installs one skill per file.
  */
 export function SkillsPanel() {
   const qc = useQueryClient();
@@ -29,12 +31,7 @@ export function SkillsPanel() {
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "skills"] });
 
   const upload = useMutation({
-    mutationFn: (v: { file: SkillFile; replace: boolean }) =>
-      agent.uploadSkill({
-        content: new TextEncoder().encode(v.file.markdown),
-        filename: v.file.name,
-        replace: v.replace,
-      }),
+    mutationFn: (v: { content: Uint8Array; filename: string; replace: boolean }) => agent.uploadSkill(v),
   });
   const remove = useMutation({
     mutationFn: (name: string) => agent.deleteSkill({ name }),
@@ -46,31 +43,58 @@ export function SkillsPanel() {
   });
 
   async function saveOne(file: SkillFile, replace: boolean) {
-    setSaveError("");
-    try {
-      const res = await upload.mutateAsync({ file, replace });
-      toast(replace ? `${res.skill?.name ?? file.name} saved.` : `${res.skill?.name ?? file.name} added.`, "ok");
-      setEditing(undefined);
-      await reload();
-    } catch (err) {
-      setSaveError(errorMessage(err));
-    }
+    await saveUpload(
+      { content: new TextEncoder().encode(file.markdown), filename: file.name, replace },
+      file.name,
+    );
+  }
+
+  async function saveBundles(bundles: SkillBundle[], replace: boolean) {
+    await saveEach(
+      bundles.map((b) => ({ content: b.content, filename: b.filename, replace })),
+      replace,
+    );
   }
 
   async function createMany(files: SkillFile[]) {
+    await saveEach(
+      files.map((file) => ({
+        content: new TextEncoder().encode(file.markdown),
+        filename: file.name,
+        replace: false,
+      })),
+      false,
+    );
+  }
+
+  async function saveUpload(
+    v: { content: Uint8Array; filename: string; replace: boolean },
+    fallbackName: string,
+  ) {
+    await saveEach([v], v.replace, fallbackName);
+  }
+
+  async function saveEach(
+    items: { content: Uint8Array; filename: string; replace: boolean }[],
+    replace: boolean,
+    fallbackName?: string,
+  ) {
     setSaveError("");
     let ok = 0;
+    let lastName = fallbackName ?? "";
     let lastErr = "";
-    for (const file of files) {
+    for (const item of items) {
       try {
-        await upload.mutateAsync({ file, replace: false });
-        ok++
+        const res = await upload.mutateAsync(item);
+        lastName = res.skill?.name ?? item.filename;
+        ok++;
       } catch (err) {
         lastErr = errorMessage(err);
       }
     }
     if (ok > 0) {
-      toast(ok === 1 ? "1 skill added." : `${ok} skills added.`, "ok");
+      const noun = ok === 1 ? lastName : `${ok} skills`;
+      toast(replace ? `${noun} saved.` : `${noun} added.`, "ok");
       setEditing(undefined);
       await reload();
     }
@@ -85,7 +109,7 @@ export function SkillsPanel() {
     <div className="space-y-5">
       <PageHeader
         title="Skills"
-        description="A markdown procedure the model can load mid-turn. A playbook names which ones a turn may use."
+        description="A folder the model can load mid-turn: SKILL.md and the files it names. A playbook names which skills a turn may use."
         meta={
           skills.length > 0 ? (
             <Chip className="tabular">
@@ -120,12 +144,22 @@ export function SkillsPanel() {
       {editing ? (
         <SkillEditor
           key={editing === "new" ? "new" : editing.name}
-          existing={editing === "new" ? undefined : { name: editing.name, markdown: editing.markdown }}
+          existing={
+            editing === "new"
+              ? undefined
+              : {
+                  name: editing.name,
+                  markdown: editing.markdown,
+                  fileCount: editing.fileCount,
+                  files: editing.files,
+                }
+          }
           saving={upload.isPending}
           deleting={remove.isPending}
           error={saveError}
           onSubmit={(file) => void saveOne(file, editing !== "new")}
           onSubmitMany={(files) => void createMany(files)}
+          onSubmitBundles={(bundles) => void saveBundles(bundles, editing !== "new")}
           onDelete={
             editing === "new"
               ? undefined
@@ -192,13 +226,13 @@ function SkillRow({
   return (
     <li
       data-testid="skill-row"
-      className="rounded-xl border border-border bg-card px-4 py-3.5 shadow-xs"
+      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs transition-colors hover:border-accent/40 hover:bg-raised/40"
     >
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+      <div className="flex items-start gap-2">
         <button
           type="button"
-          className="min-w-0 flex-1 space-y-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-          aria-label={`Edit ${skill.name}`}
+          data-testid="skill-open"
+          className="min-w-0 flex-1 cursor-pointer space-y-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-raised"
           onClick={onOpen}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -215,18 +249,31 @@ function SkillRow({
             <p className="max-w-2xl text-xs leading-relaxed text-err">{skill.problem}</p>
           ) : null}
         </button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          data-testid="skill-delete"
-          aria-label={`Delete ${skill.name}`}
-          disabled={deleting}
-          onClick={onDelete}
-          className="hover:bg-err/12 hover:text-err"
-        >
-          <Trash2 />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="skill-edit"
+            aria-label={`Edit ${skill.name}`}
+            onClick={onOpen}
+          >
+            <Pencil />
+            Edit
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            data-testid="skill-delete"
+            aria-label={`Delete ${skill.name}`}
+            disabled={deleting}
+            onClick={onDelete}
+            className="hover:bg-err/12 hover:text-err"
+          >
+            <Trash2 />
+          </Button>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-hairline pt-2.5">
