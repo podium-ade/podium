@@ -72,6 +72,7 @@ func dirSkillToProto(d skills.DirSkill, users map[string][]string) *agentv1.Agen
 		Problem:     d.Problem,
 		Playbooks:   users[d.Name],
 		Markdown:    d.Markdown,
+		Files:       d.Files,
 	}
 }
 
