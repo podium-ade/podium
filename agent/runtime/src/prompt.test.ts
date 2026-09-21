@@ -66,6 +66,50 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(golden())).not.toContain("# This channel");
   });
 
+  // A Slack mention has no default playbook. The message decides, the channel description
+  // decides, or the turn asks. A web chat has no channel note to follow.
+  it("tells a slack turn to infer the playbook or ask, and to follow the channel description", () => {
+    const delegation = {
+      url: "http://h",
+      token_env: "T",
+      playbooks: [
+        { name: "support", summary: "customer complaints" },
+        { name: "podium", summary: "develops Podium itself" },
+      ],
+    };
+    const slack = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation,
+      source: {
+        kind: "slack" as const,
+        ref: "C1/1.1/1.1",
+        channel: { id: "C1", name: "support", description: "Customer complaints. Use the support playbook." },
+      },
+    });
+    const flat = slack.replace(/\s+/g, " ");
+    expect(flat).toContain("There is no default playbook");
+    expect(flat).toContain("do not pick the first name on the menu");
+    expect(flat).toContain("When the message does not name a playbook, follow that note");
+    expect(slack).toContain("This channel is for: Customer complaints. Use the support playbook.");
+
+    const undescribed = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation,
+      source: { kind: "slack" as const, ref: "C1/1.1/1.1", channel: { id: "C1", name: "eng" } },
+    });
+    expect(undescribed.replace(/\s+/g, " ")).toContain("This channel has no description");
+
+    const chat = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation,
+      source: { kind: "chat" as const, ref: "chat_1" },
+    });
+    expect(chat).not.toContain("There is no default playbook");
+  });
+
   it("names the source the answer is posted back to", () => {
     const brief = golden();
     expect(buildSystemPrompt(brief)).toContain("the Slack thread this came from");
