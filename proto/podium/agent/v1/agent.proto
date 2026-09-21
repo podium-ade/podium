@@ -1100,6 +1100,11 @@ message AgentSkill {
   repeated string playbooks = 13;
   // markdown is the SKILL.md body, so the UI can open an existing skill for edit.
   string markdown = 14;
+  // files is every file in the skill directory, keyed by its path relative to that
+  // directory. SKILL.md is here as well as in markdown. The skill screen draws its
+  // tree from the keys and shows the body of the one a person selects. Empty when
+  // the directory did not load.
+  map<string, string> files = 15;
 }
 
 message ListSkillsRequest {}

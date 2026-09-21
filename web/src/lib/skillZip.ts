@@ -40,6 +40,62 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 export type SkillZipEntry = { path: string; data: Uint8Array };
 
+/** One skill directory, zipped the way UploadSkill unpacks it. SKILL.md sits at the archive root. */
+export type SkillBundle = { filename: string; content: Uint8Array };
+
+const SKILL_MD = "SKILL.md";
+
+/**
+ * bundleSkillFolders zips every directory in the pick that holds a SKILL.md.
+ * Paths inside each zip are relative to that directory, so a wrapping folder name
+ * does not become part of the bundle. Files that sit beside those directories are
+ * left out. Returns null when the pick has no SKILL.md — the caller then treats
+ * markdown files as separate skills.
+ */
+export function bundleSkillFolders(files: SkillZipEntry[]): SkillBundle[] | null {
+  const kept = files.filter((f) => f.path !== "" && !skipPath(f.path));
+  const roots = skillRoots(kept.map((f) => f.path));
+  if (roots.length === 0) return null;
+
+  const groups = new Map<string, SkillZipEntry[]>();
+  for (const root of roots) groups.set(root, []);
+  for (const file of kept) {
+    const root = longestRoot(file.path, roots);
+    if (root === null) continue;
+    const rel = root === "" ? file.path : file.path.slice(root.length + 1);
+    if (rel === "") continue;
+    groups.get(root)?.push({ path: rel, data: file.data });
+  }
+
+  const bundles: SkillBundle[] = [];
+  for (const [root, entries] of groups) {
+    if (!entries.some((e) => e.path === SKILL_MD)) continue;
+    const base = root === "" ? "skill" : (root.split("/").pop() ?? "skill");
+    bundles.push({ filename: `${base}.zip`, content: zipSkillFolder(entries) });
+  }
+  return bundles.length > 0 ? bundles : null;
+}
+
+function skillRoots(paths: string[]): string[] {
+  const roots: string[] = [];
+  for (const path of paths) {
+    if (path !== SKILL_MD && !path.endsWith(`/${SKILL_MD}`)) continue;
+    const dir = path.slice(0, path.length - SKILL_MD.length).replace(/\/$/, "");
+    if (!roots.includes(dir)) roots.push(dir);
+  }
+  return roots;
+}
+
+function longestRoot(path: string, roots: string[]): string | null {
+  let best: string | null = null;
+  for (const root of roots) {
+    const inside = root === "" || path === root || path.startsWith(`${root}/`);
+    if (!inside) continue;
+    if (best === null || root.length > best.length) best = root;
+  }
+  return best;
+}
+
 /**
  * zipSkillFolder packs the files of a picked directory. Paths must be relative, with `/`
  * separators and no `..`. A wrapping folder (the usual "I selected the skill's directory"
