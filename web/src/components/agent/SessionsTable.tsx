@@ -60,9 +60,9 @@ const TURN_TONE: Record<string, Tone> = {
 /**
  * SessionsTable is the conversations the bot has taken part in, and the turns inside one.
  *
- * Everything here comes from the conductor's read RPCs; nothing is derived from a source's
- * own API, because the conductor deliberately keeps no copy of a Slack channel name. The ref
- * shown is what the source computed and the conductor stores verbatim.
+ * Everything here comes from the conductor's read RPCs. A Slack row shows the channel name
+ * when the catalogue has resolved one (`source_label`); otherwise it falls back to the id
+ * in source_key. The conductor never invents a name.
  */
 export function SessionsTable() {
   const [openID, setOpenID] = useState<string>();

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { McpCallback } from "../components/agent/McpCallback";
 import { McpPanel } from "../components/agent/McpPanel";
@@ -79,6 +80,7 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "playbooks", element: <PlaybooksPanel /> },
   { path: "skills", element: <SkillsPanel /> },
   { path: "mcp", element: <McpPanel /> },
+  { path: "channels", element: <ChannelsPanel /> },
   // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.

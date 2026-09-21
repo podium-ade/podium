@@ -397,6 +397,51 @@ func TestInnerEmitsATopLevelMention(t *testing.T) {
 	assert.Equal(t, Ref("C1", "100.1", "100.1"), ev.Ref)
 }
 
+func TestInnerResolvesTheChannelName(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("conversations.info", `{"ok":true,"channel":{"id":"C1","name":"support"}}`)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> hello",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "C1", ev.Channel)
+	assert.Equal(t, "support", ev.ChannelName)
+	assert.Equal(t, []string{"conversations.info"}, f.methods())
+}
+
+func TestInnerLeavesTheChannelNameEmptyWhenSlackWillNotResolveIt(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("conversations.info", `{"ok":false,"error":"channel_not_found"}`)
+	s := testSource(t, f)
+	s.users["U1"] = "alice"
+
+	s.inner(t.Context(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Data: &slackevents.AppMentionEvent{
+				Channel:   "C1",
+				User:      "U1",
+				Text:      "<@UBOT> hello",
+				TimeStamp: "100.1",
+			},
+		},
+	})
+
+	ev := takeInbound(t, s)
+	assert.Equal(t, "C1", ev.Channel)
+	assert.Empty(t, ev.ChannelName)
+}
+
 // ---------------------------------------------------------------------------
 // the Web API methods
 //

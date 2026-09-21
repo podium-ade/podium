@@ -150,7 +150,7 @@ const createChat = `-- name: CreateChat :one
 
 insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
 values ($1, $2, $3, $4, $5, $6, $7, $8)
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
 `
 
 type CreateChatParams struct {
@@ -197,6 +197,7 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }
@@ -243,7 +244,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -261,12 +262,13 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -287,6 +289,7 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }
@@ -428,7 +431,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -477,6 +480,7 @@ type ListChatsRow struct {
 	SourceKey     *string
 	StartedBy     string
 	Origin        string
+	Channel       string
 	HasMessage    bool
 	LastMessageAt time.Time
 	LastText      string
@@ -517,6 +521,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.SourceKey,
 			&i.StartedBy,
 			&i.Origin,
+			&i.Channel,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -536,7 +541,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
  where id = $2 and (login = $3 or login is null)
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
 `
 
 type RenameChatParams struct {
@@ -568,6 +573,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }
@@ -575,7 +581,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
 `
 
 type SetChatChoiceParams struct {
@@ -610,6 +616,7 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }
@@ -645,7 +652,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
 `
 
 type SetChatTitleParams struct {
@@ -668,6 +675,7 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.SourceKey,
 		&i.StartedBy,
 		&i.Origin,
+		&i.Channel,
 	)
 	return i, err
 }

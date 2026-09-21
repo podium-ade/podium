@@ -219,6 +219,7 @@ export function ChatPanel() {
               title={list.find((c) => c.id === active)?.title ?? ""}
               remembered={storedChoice(list.find((c) => c.id === active))}
               listedOrigin={list.find((c) => c.id === active)?.origin}
+              listedChannel={list.find((c) => c.id === active)?.channel}
               listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
               assistant={playbooks.data?.assistant}
@@ -586,7 +587,7 @@ function ChatRow({
           {/* Where the conversation lives. A mirrored thread is read here and answered
               there, and the badge is what stops a reader wondering why it has no composer. */}
           {chat.origin && chat.origin !== "web" ? (
-            <Badge tone="idle">{chat.origin}</Badge>
+            <Badge tone="idle">{chat.channel ? `#${chat.channel}` : chat.origin}</Badge>
           ) : null}
           {chat.startedBy ? (
             <span className="shrink-0 text-xs text-muted">{chat.startedBy}</span>
@@ -630,9 +631,11 @@ function ChatRow({
 
 function ConversationTitle({
   title,
+  channel,
   onRename,
 }: {
   title: string;
+  channel?: string;
   onRename: (title: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -673,6 +676,14 @@ function ConversationTitle({
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-4 sm:px-5">
+      {channel ? (
+        <span
+          data-testid="chat-channel"
+          className="shrink-0 rounded-md bg-raised px-1.5 py-0.5 font-mono text-xs text-muted"
+        >
+          #{channel}
+        </span>
+      ) : null}
       {editing ? (
         <form
           onSubmit={(e) => {
@@ -723,6 +734,7 @@ function Conversation({
   title,
   remembered,
   listedOrigin,
+  listedChannel,
   listedEmpty,
   onRename,
   assistant,
@@ -738,6 +750,8 @@ function Conversation({
    * alone rendered a composer for a mirrored thread and then took it away again.
    */
   listedOrigin?: string;
+  /** listedChannel is the Slack channel name the list row already has, if any. */
+  listedChannel?: string;
   /**
    * listedEmpty is true when the list row has no preview yet — a new chat. The connecting
    * skeleton is a fake user bubble and would flash before the greeting.
@@ -761,6 +775,7 @@ function Conversation({
   // lands after the first render. The stream still wins once it speaks, for a deep link that
   // has no list row yet.
   const origin = stream.chat?.origin || listedOrigin || "";
+  const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const participants = stream.chat?.participants ?? [];
   const [pinned, setPinned] = useState(true);
@@ -891,7 +906,7 @@ function Conversation({
 
   return (
     <>
-      <ConversationTitle title={title} onRename={onRename} />
+      <ConversationTitle title={title} channel={channel} onRename={onRename} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
       <div className="relative min-h-0 flex-1">
         <div

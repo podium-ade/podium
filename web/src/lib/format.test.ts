@@ -172,6 +172,16 @@ describe("conversationLabel", () => {
     ).toBe("#C0123 · 1725000000.000100");
   });
 
+  it("prefers a resolved Slack channel name over the id", () => {
+    expect(
+      conversationLabel({
+        sourceKind: "slack",
+        sourceKey: "slack:C0123:1725000000.000100",
+        sourceLabel: "support",
+      }),
+    ).toBe("#support · 1725000000.000100");
+  });
+
   it("shows anything else exactly as the source stored it", () => {
     expect(conversationLabel({ sourceKind: "linear", sourceKey: "linear:ENG-123" })).toBe(
       "linear:ENG-123",

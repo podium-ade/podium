@@ -74,6 +74,14 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 		c.logger.WarnContext(ctx, "mirroring what was said failed", "source_key", key, "error", err)
 		return
 	}
+	if ev.ChannelName != "" && chat.Channel != ev.ChannelName {
+		if err := c.store.SetChatChannel(ctx, chat.ID, ev.ChannelName); err != nil {
+			c.logger.WarnContext(ctx, "recording a mirrored chat's channel name failed",
+				"chat_id", chat.ID, "channel", ev.ChannelName, "error", err)
+		} else {
+			chat.Channel = ev.ChannelName
+		}
+	}
 	c.mirrorAppend(ctx, chat.ID, store.ChatMessage{
 		ChatID: chat.ID,
 		Role:   RoleUser,
