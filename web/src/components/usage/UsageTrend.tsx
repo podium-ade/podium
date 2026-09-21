@@ -82,10 +82,10 @@ export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) 
 }
 
 function label(d: Date, row: UsageDay | undefined): string {
-  if (!row) return `${dayLabel(d)} — nothing ran`;
+  if (!row) return `${dayLabel(d)}: nothing ran`;
   const turns = `${row.turns} ${row.turns === 1 ? "task" : "tasks"}`;
   const unpriced = row.unpriced > 0 ? `, ${row.unpriced} unpriced` : "";
-  return `${dayLabel(d)} — ${usd(row.costUsd)} over ${turns}${unpriced}`;
+  return `${dayLabel(d)}: ${usd(row.costUsd)} over ${turns}${unpriced}`;
 }
 
 /** The chart's one-sentence equivalent, for a reader who cannot see the bars. */

@@ -20,6 +20,7 @@ type Chat struct {
 	SourceKey *string
 	StartedBy string
 	Origin    string
+	Channel   string
 }
 
 type ChatMessage struct {
@@ -111,6 +112,13 @@ type Setting struct {
 	Key       string
 	Value     []byte
 	UpdatedAt time.Time
+}
+
+type SlackChannel struct {
+	ID          string
+	Name        string
+	Description string
+	UpdatedAt   time.Time
 }
 
 type Turn struct {

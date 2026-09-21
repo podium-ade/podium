@@ -184,7 +184,7 @@ export function ProviderCard({
       setRotating(false);
       setResult({
         tone: "ok",
-        text: `Saved. ••••${saved} works — ${res.models.length} ${
+        text: `Saved. ••••${saved} works. ${res.models.length} ${
           res.models.length === 1 ? "model" : "models"
         } visible.`,
         models: res.models,
@@ -248,22 +248,25 @@ export function ProviderCard({
         <div className="flex min-w-0 items-center gap-3">
           <span
             className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg border",
-              stored ? "border-transparent bg-accent/12" : "border-border bg-raised/50",
+              "grid size-9 shrink-0 place-items-center rounded-lg",
+              stored ? "bg-fg text-bg" : "border border-border bg-raised/50 text-fg",
             )}
           >
-            <BackendMark id={provider.backendID} />
+            <BackendMark id={provider.backendID} className="size-4 text-inherit" />
           </span>
           <div className="min-w-0">
             <CardTitle className="flex flex-wrap items-center gap-2">
-              {provider.name}
+              {provider.models}
               {loading ? (
                 <Skeleton className="h-4 w-16" />
               ) : (
                 <Badge tone={keySet ? "ok" : "idle"}>{keySet ? "Connected" : "Not set"}</Badge>
               )}
             </CardTitle>
-            <p className="mt-1 text-xs text-muted">runs {provider.models}</p>
+            <p className="mt-1 text-xs text-muted">
+              {provider.name}
+              <span className="text-faint"> · {provider.how}</span>
+            </p>
           </div>
         </div>
       </CardHeader>
@@ -292,14 +295,6 @@ export function ProviderCard({
                 </p>
               </div>
             ) : null}
-
-            {keySet ? null : (
-              <p className="text-xs leading-relaxed text-muted">
-                Agents use this credential to talk to {provider.models}. It is encrypted at rest
-                by podium-server and handed only to the containers that run {provider.models}{" "}
-                turns. It leaves this host only to reach {provider.name}.
-              </p>
-            )}
 
             {editing && oauth ? (
               <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">

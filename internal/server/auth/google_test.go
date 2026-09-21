@@ -11,6 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGooglePictureHost(t *testing.T) {
+	t.Parallel()
+	require.True(t, googlePictureHost("lh3.googleusercontent.com"))
+	require.True(t, googlePictureHost("googleusercontent.com"))
+	require.False(t, googlePictureHost("evil.example"))
+	require.False(t, googlePictureHost("googleusercontent.com.evil.example"))
+}
+
+func TestGoogleUserInfoURL(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "https://openidconnect.googleapis.com/v1/userinfo", Google{}.userInfoURL())
+}
+
 func TestStartURLRequiresWorkspaceConfig(t *testing.T) {
 	t.Parallel()
 	f := &Flow{}
@@ -47,7 +60,8 @@ func TestExchangeAcceptsWorkspaceUserinfo(t *testing.T) {
 		"email": "Alice@Acme.com",
 		"email_verified": true,
 		"hd": "acme.com",
-		"name": "Alice"
+		"name": "Alice",
+		"picture": "https://lh3.googleusercontent.com/a/alice"
 	}`)
 	f := &Flow{Google: Google{
 		ClientID:     "cid",
@@ -60,6 +74,7 @@ func TestExchangeAcceptsWorkspaceUserinfo(t *testing.T) {
 	require.Equal(t, "alice@acme.com", got.Email)
 	require.Equal(t, "acme.com", got.HD)
 	require.Equal(t, "Alice", got.Name)
+	require.Equal(t, "https://lh3.googleusercontent.com/a/alice", got.Picture)
 }
 
 func TestExchangeRejectsConsumerAccounts(t *testing.T) {
@@ -172,4 +187,20 @@ func TestOriginOfPrefersPublicURL(t *testing.T) {
 	req.Host = "127.0.0.1:8080"
 	require.Equal(t, "https://podium.acme.com", originOf(req, "https://podium.acme.com/"))
 	require.Equal(t, "http://127.0.0.1:8080", originOf(req, ""))
+}
+
+func TestOriginOfFollowsLoopbackRequest(t *testing.T) {
+	t.Parallel()
+	localhost := httptest.NewRequest(http.MethodGet, "http://localhost:8080"+StartPath, nil)
+	localhost.Host = "localhost:8080"
+	require.Equal(t, "http://localhost:8080", originOf(localhost, "http://127.0.0.1:8080"))
+
+	loop := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+StartPath, nil)
+	loop.Host = "127.0.0.1:8080"
+	require.Equal(t, "http://127.0.0.1:8080", originOf(loop, "http://localhost:8080"))
+
+	lan := httptest.NewRequest(http.MethodGet, "http://192.168.1.145:8080"+StartPath, nil)
+	lan.Host = "192.168.1.145:8080"
+	require.Equal(t, "http://localhost:8080", originOf(lan, "http://localhost:8080"),
+		"a LAN Host is not a registered Google redirect; keep PublicURL")
 }

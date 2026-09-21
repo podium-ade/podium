@@ -80,9 +80,10 @@ describe("ProviderCard", () => {
 
   it("says what the key is for and will not save nothing", async () => {
     mount(notSet);
+    expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(screen.getByText("Not set")).toBeInTheDocument();
-    expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
-    expect(screen.getByText(/leaves this host only to reach Anthropic/i)).toBeInTheDocument();
+    expect(screen.getByText("Anthropic")).toBeInTheDocument();
+    expect(screen.getByText(ANTHROPIC.how)).toBeInTheDocument();
     expect(screen.getByTestId("provider-key-save-anthropic")).toBeDisabled();
     // Nothing to remove yet, so no danger zone at all.
     expect(screen.queryByTestId("provider-key-remove-anthropic")).toBeNull();
@@ -110,7 +111,7 @@ describe("ProviderCard", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(KEY));
     const status = await screen.findByTestId("provider-key-status-anthropic");
-    expect(status).toHaveTextContent("Saved. ••••abcd works — 3 models visible.");
+    expect(status).toHaveTextContent("Saved. ••••abcd works. 3 models visible.");
     expect(status.className).toContain("text-ok");
     expect(screen.getByText("claude-opus-5")).toBeInTheDocument();
     expect(screen.getByText("claude-haiku-4-5")).toBeInTheDocument();

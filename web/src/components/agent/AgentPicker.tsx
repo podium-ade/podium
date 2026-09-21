@@ -1,7 +1,7 @@
 import { useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { AgentBackend, AgentModel } from "../../gen/podium/agent/v1/agent_pb";
-import { INHERIT, type AgentChoice } from "../../lib/agents";
+import { INHERIT, providerName, type AgentChoice } from "../../lib/agents";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -238,9 +238,9 @@ export function AgentPicker({
 
       {backend && !backend.ready ? (
         <Alert variant="warn" data-testid="agent-picker-unready">
-          No {backend.provider === "xai" ? "xAI" : "Anthropic"} credential is stored, so a turn
-          on {backend.displayName} will fail. Set one in Settings — this choice is
-          saved either way.
+          No {providerName(backend.provider)} credential is stored, so a turn on{" "}
+          {backend.displayName} will fail. Set one in Settings. This choice is saved either
+          way.
         </Alert>
       ) : null}
     </div>
@@ -332,7 +332,7 @@ function describe(
   if (value.model === "" && value.agent === "") {
     const eff = inherited?.effort ? ` · ${inherited.effort}` : "";
     return {
-      title: inherit?.label ?? "—",
+      title: inherit?.label ?? "-",
       sub: inherited?.model ? `${inherited.model}${eff}` : (inherit?.hint ?? ""),
       markID: inherited?.agent ?? "",
     };

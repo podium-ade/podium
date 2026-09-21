@@ -23,6 +23,8 @@ export type Provider = {
   backendID: string;
   /** models is what a human calls the thing this credential buys: "Claude", "Grok". */
   models: string;
+  /** how is the one line under the name: how you connect, not where the secret lives. */
+  how: string;
   /** secretName is the Podium secret the credential is stored as. */
   secretName: string;
   keyPlaceholder: string;
@@ -37,6 +39,7 @@ export const ANTHROPIC: Provider = {
   name: "Anthropic",
   backendID: "claude",
   models: "Claude",
+  how: "API key",
   secretName: "podium.agent.anthropic_api_key",
   keyPlaceholder: "sk-ant-…",
   consoleURL: "https://console.anthropic.com/settings/keys",
@@ -47,6 +50,7 @@ export const XAI: Provider = {
   name: "xAI",
   backendID: "grok",
   models: "Grok",
+  how: "API key or SuperGrok",
   secretName: "podium.agent.xai_api_key",
   keyPlaceholder: "xai-…",
   consoleURL: "https://console.x.ai",
@@ -56,5 +60,25 @@ export const XAI: Provider = {
   },
 };
 
+export const OPENAI: Provider = {
+  id: "openai",
+  name: "OpenAI",
+  backendID: "openai",
+  models: "GPT",
+  how: "API key or ChatGPT",
+  secretName: "podium.agent.openai_api_key",
+  keyPlaceholder: "sk-…",
+  consoleURL: "https://platform.openai.com/api-keys",
+  subscription: {
+    label: "Sign in with a ChatGPT or Codex subscription",
+    hint: "Uses your ChatGPT Plus, Pro, or Codex plan instead of pay-as-you-go API credit.",
+  },
+};
+
+/** providerName is the company for a wire id, for a sentence that already has the backend. */
+export function providerName(id: string): string {
+  return PROVIDERS.find((p) => p.id === id)?.name ?? id;
+}
+
 /** The providers Settings shows, in order. */
-export const PROVIDERS: Provider[] = [ANTHROPIC, XAI];
+export const PROVIDERS: Provider[] = [ANTHROPIC, XAI, OPENAI];

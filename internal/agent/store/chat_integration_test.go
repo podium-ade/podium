@@ -576,6 +576,7 @@ func TestAMirroredChatHasNoOwnerAndSaysWhoStartedIt(t *testing.T) {
 	assert.Equal(t, "alice", chat.StartedBy)
 	assert.Equal(t, "what does this repo do?", chat.Title)
 	assert.True(t, chat.AutoTitle, "a later turn may still improve the name")
+	assert.Empty(t, chat.Channel)
 
 	same, err := s.ChatBySourceKey(ctx, slackKey)
 	require.NoError(t, err)

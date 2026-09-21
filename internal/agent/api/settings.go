@@ -24,6 +24,7 @@ import (
 const (
 	ProviderAnthropic = profiles.ProviderAnthropic
 	ProviderXAI       = profiles.ProviderXAI
+	ProviderOpenAI    = profiles.ProviderOpenAI
 )
 
 // How a stored credential was obtained. The distinction is not cosmetic: an API key does
@@ -69,6 +70,13 @@ type providerSpec struct {
 	unusual func(key []byte) string
 	// oauth is true when this provider can be signed in to instead of keyed.
 	oauth bool
+	// oauthEnv is the variable an operator sets to turn the subscription tab on, named in
+	// the error when it is off so they are not left hunting.
+	oauthEnv string
+	// validateOAuth is how a subscription token is checked. Nil means the same validate
+	// as a pasted key — xAI, where both are bearers for one endpoint. OpenAI needs a
+	// second one: a ChatGPT token is refused by api.openai.com.
+	validateOAuth func(ctx context.Context, s *AgentService, key []byte) ([]string, error)
 }
 
 // providerSpecs is the registry, in the order GetSettings reports them.
@@ -87,8 +95,22 @@ var providerSpecs = []providerSpec{{
 	validate: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
 		return validateXAIKey(ctx, s.http, s.xaiBaseURL, key)
 	},
-	unusual: unusualXAIFormat,
-	oauth:   true,
+	unusual:  unusualXAIFormat,
+	oauth:    true,
+	oauthEnv: "PODIUM_AGENT_XAI_OAUTH_CLIENT_ID",
+}, {
+	name:   ProviderOpenAI,
+	label:  "OpenAI",
+	secret: profiles.OpenAIKeySecret,
+	validate: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
+		return validateOpenAIKey(ctx, s.http, s.openaiBaseURL, key)
+	},
+	unusual:  unusualOpenAIFormat,
+	oauth:    true,
+	oauthEnv: "PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID",
+	validateOAuth: func(ctx context.Context, s *AgentService, key []byte) ([]string, error) {
+		return validateOpenAICodexToken(ctx, s.http, s.openaiCodexBaseURL, key)
+	},
 }}
 
 // findProvider resolves a request's provider field. An empty one is Anthropic, so a client
@@ -160,6 +182,7 @@ func (r providerRow) authKind() string {
 type oauthFlow struct {
 	provider   string
 	deviceCode string
+	userCode   string
 	interval   time.Duration
 	expiresAt  time.Time
 	startedBy  string
@@ -417,6 +440,7 @@ func (s *AgentService) StartProviderOAuth(
 	s.putFlow(id, &oauthFlow{
 		provider:   p.name,
 		deviceCode: dev.DeviceCode,
+		userCode:   dev.UserCode,
 		interval:   interval,
 		expiresAt:  expires,
 		startedBy:  Login(ctx),
@@ -465,7 +489,7 @@ func (s *AgentService) PollProviderOAuth(
 
 	pollCtx, cancel := context.WithTimeout(ctx, validateTimeout)
 	defer cancel()
-	state, tok, detail, err := client.pollDevice(pollCtx, flow.deviceCode)
+	state, tok, detail, err := client.pollFlow(pollCtx, flow)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable,
 			fmt.Errorf("could not ask %s about the sign-in: %w", p.label, err))
@@ -499,7 +523,11 @@ func (s *AgentService) PollProviderOAuth(
 	defer zero(token)
 	validateCtx, cancelValidate := context.WithTimeout(ctx, validateTimeout)
 	defer cancelValidate()
-	models, err := p.validate(validateCtx, s, token)
+	validate := p.validate
+	if p.validateOAuth != nil {
+		validate = p.validateOAuth
+	}
+	models, err := validate(validateCtx, s, token)
 	said := operatorDetail(validationDetail(err), token)
 	switch {
 	case errors.Is(err, errKeyRefused):
@@ -657,7 +685,7 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 }
 
 // oauthFor is the provider's OAuth client, or the reason there is not one.
-func (s *AgentService) oauthFor(p providerSpec) (*oauthClient, error) {
+func (s *AgentService) oauthFor(p providerSpec) (oauthSession, error) {
 	if !p.oauth {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
 			"%s does not offer a subscription sign-in on this control plane; it takes an API key",
@@ -665,10 +693,14 @@ func (s *AgentService) oauthFor(p providerSpec) (*oauthClient, error) {
 	}
 	c := s.oauth[p.name]
 	if c == nil {
+		env := p.oauthEnv
+		if env == "" {
+			env = "the OAuth client id"
+		}
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"%w: set PODIUM_AGENT_XAI_OAUTH_CLIENT_ID to the OAuth client id of a public "+
-				"desktop client registered with %s, or paste an API key instead",
-			errOAuthUnconfigured, p.label))
+			"%w: set %s to the OAuth client id of a public desktop client registered with %s, "+
+				"or paste an API key instead",
+			errOAuthUnconfigured, env, p.label))
 	}
 	return c, nil
 }
@@ -764,10 +796,13 @@ func flowID() (string, error) {
 // not say. An unknown expiry is treated as "refresh it on the next pass", which is what the
 // zero time means to refreshOnce.
 func expiryOf(tok *tokenResponse) time.Time {
-	if tok.ExpiresIn <= 0 {
-		return time.Time{}
+	if tok.ExpiresIn > 0 {
+		return time.Now().UTC().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	}
-	return time.Now().UTC().Add(time.Duration(tok.ExpiresIn) * time.Second)
+	if t := jwtExp(tok.AccessToken); !t.IsZero() {
+		return t
+	}
+	return time.Time{}
 }
 
 // providerKeyError is a credential failure with the provider's own explanation attached as

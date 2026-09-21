@@ -147,7 +147,10 @@ type WhoAmIResponse struct {
 	GoogleAuthEnabled bool `protobuf:"varint,12,opt,name=google_auth_enabled,json=googleAuthEnabled,proto3" json:"google_auth_enabled,omitempty"`
 	// claim_domain is the domain this caller would bind the instance to. Empty when they
 	// cannot claim (no email domain, or not a human).
-	ClaimDomain   string `protobuf:"bytes,13,opt,name=claim_domain,json=claimDomain,proto3" json:"claim_domain,omitempty"`
+	ClaimDomain string `protobuf:"bytes,13,opt,name=claim_domain,json=claimDomain,proto3" json:"claim_domain,omitempty"`
+	// picture_url is an https avatar from Google Workspace sign-in. Empty for the local
+	// token, a node, or a human whose profile has no photo.
+	PictureUrl    string `protobuf:"bytes,14,opt,name=picture_url,json=pictureUrl,proto3" json:"picture_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -273,6 +276,13 @@ func (x *WhoAmIResponse) GetClaimDomain() string {
 	return ""
 }
 
+func (x *WhoAmIResponse) GetPictureUrl() string {
+	if x != nil {
+		return x.PictureUrl
+	}
+	return ""
+}
+
 type ClaimRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// hosted_domain is the Workspace domain the caller is confirming. It must match the
@@ -376,7 +386,7 @@ var File_podium_v1_identity_proto protoreflect.FileDescriptor
 const file_podium_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"\x18podium/v1/identity.proto\x12\tpodium.v1\"\x0f\n" +
-	"\rWhoAmIRequest\"\xc0\x03\n" +
+	"\rWhoAmIRequest\"\xe1\x03\n" +
 	"\x0eWhoAmIResponse\x12\x14\n" +
 	"\x05login\x18\x01 \x01(\tR\x05login\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12+\n" +
@@ -391,7 +401,9 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	" \x01(\tR\fhostedDomain\x12\x1b\n" +
 	"\tcan_claim\x18\v \x01(\bR\bcanClaim\x12.\n" +
 	"\x13google_auth_enabled\x18\f \x01(\bR\x11googleAuthEnabled\x12!\n" +
-	"\fclaim_domain\x18\r \x01(\tR\vclaimDomain\"3\n" +
+	"\fclaim_domain\x18\r \x01(\tR\vclaimDomain\x12\x1f\n" +
+	"\vpicture_url\x18\x0e \x01(\tR\n" +
+	"pictureUrl\"3\n" +
 	"\fClaimRequest\x12#\n" +
 	"\rhosted_domain\x18\x01 \x01(\tR\fhostedDomain\"S\n" +
 	"\rClaimResponse\x12#\n" +

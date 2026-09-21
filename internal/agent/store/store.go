@@ -31,6 +31,9 @@ var ErrConflict = errors.New("agent store: already exists")
 // a control character. The handler maps it to InvalidArgument.
 var ErrInvalidChatTitle = errors.New("invalid chat title")
 
+// ErrInvalidSlackChannelDescription is a note the UI would not store: too long.
+var ErrInvalidSlackChannelDescription = errors.New("invalid slack channel description")
+
 // Page limits, the same shape podium-server uses.
 const (
 	DefaultPageLimit = 50
@@ -559,6 +562,9 @@ type Chat struct {
 	// TaskRunning is true while a task this conversation delegated is still running, which
 	// outlasts the turn that delegated it.
 	TaskRunning bool
+	// Channel is the Slack channel's human name for a mirrored thread, without a leading #.
+	// Empty for a web chat and for a thread whose name has not been resolved yet.
+	Channel string
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -741,6 +747,7 @@ func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor s
 			AutoTitle:   r.AutoTitle,
 			TurnRunning: r.TurnRunning,
 			TaskRunning: r.TaskRunning,
+			Channel:     r.Channel,
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -908,6 +915,7 @@ func chatFromRow(row db.Chat) Chat {
 		CreatedAt:  row.CreatedAt.UTC(),
 		AutoTitle:  row.AutoTitle,
 		ChatChoice: ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
+		Channel:    row.Channel,
 	}
 }
 

@@ -61,24 +61,25 @@ func TestUpsertGoogleUserJoinsAsMemberAfterClaim(t *testing.T) {
 	ctx := t.Context()
 	s := newStore(t)
 
-	unclaimed, err := s.UpsertGoogleUser(ctx, "alice@acme.com", "Alice", "acme.com")
+	unclaimed, err := s.UpsertGoogleUser(ctx, "alice@acme.com", "Alice", "acme.com", "")
 	require.NoError(t, err)
 	require.Empty(t, unclaimed.Roles)
 
 	_, err = s.ClaimInstance(ctx, "alice@acme.com", "acme.com")
 	require.NoError(t, err)
 
-	bob, err := s.UpsertGoogleUser(ctx, "bob@acme.com", "Bob", "acme.com")
+	bob, err := s.UpsertGoogleUser(ctx, "bob@acme.com", "Bob", "acme.com", "")
 	require.NoError(t, err)
 	require.Equal(t, []string{RoleMember}, bob.Roles)
 
-	_, err = s.UpsertGoogleUser(ctx, "eve@other.com", "Eve", "other.com")
+	_, err = s.UpsertGoogleUser(ctx, "eve@other.com", "Eve", "other.com", "")
 	require.ErrorIs(t, err, ErrDomainMismatch)
 
-	stillOwner, err := s.UpsertGoogleUser(ctx, "alice@acme.com", "Alice A.", "acme.com")
+	stillOwner, err := s.UpsertGoogleUser(ctx, "alice@acme.com", "Alice A.", "acme.com", "https://lh3.googleusercontent.com/a/alice")
 	require.NoError(t, err)
 	require.Equal(t, []string{RoleOwner}, stillOwner.Roles, "a second sign-in does not demote the owner")
 	require.Equal(t, "Alice A.", stillOwner.DisplayName)
+	require.Equal(t, "https://lh3.googleusercontent.com/a/alice", stillOwner.PictureURL)
 }
 
 func TestSessionRoundTrip(t *testing.T) {
@@ -125,7 +126,7 @@ func TestHostedDomainIsFirstWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alias.com", first.HostedDomain)
 
-	google, err := s.upsertUser(ctx, "bob@alias.com", "Bob", "acme.com")
+	google, err := s.upsertUser(ctx, "bob@alias.com", "Bob", "acme.com", "")
 	require.NoError(t, err)
 	require.Equal(t, "alias.com", google.HostedDomain, "a later hd does not overwrite the first write")
 }

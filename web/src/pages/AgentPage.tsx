@@ -2,13 +2,15 @@ import { Fragment, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Brain,
+  Cpu,
   History,
   MessageSquare,
   Settings2,
   UserRound,
 } from "lucide-react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { McpCallback } from "../components/agent/McpCallback";
 import { McpPanel } from "../components/agent/McpPanel";
@@ -20,11 +22,12 @@ import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButt
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
-import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
+import { IdentityCard } from "../components/IdentityCard";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
 import { Separator } from "../components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
@@ -33,8 +36,9 @@ import { cn } from "../lib/utils";
 
 /**
  * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
- * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app sidebar
- * instead — they are destinations of their own, not something you switch between while talking.
+ * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app
+ * sidebar instead — they are destinations of their own, not something you switch between
+ * while talking.
  *
  * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
  * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
@@ -76,11 +80,13 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   { path: "playbooks", element: <PlaybooksPanel /> },
   { path: "skills", element: <SkillsPanel /> },
   { path: "mcp", element: <McpPanel /> },
+  { path: "channels", element: <ChannelsPanel /> },
   // Where an OAuth authorization server sends the browser back to. It is a route in the SPA
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.
   { path: "mcp/callback", element: <McpCallback /> },
-  { path: "settings", element: <SettingsTab /> },
+  { path: "models", element: <Navigate to="/agent/settings/models" replace /> },
+  { path: "settings/*", element: <SettingsTab /> },
 ];
 
 /**
@@ -114,7 +120,8 @@ export function AgentPage() {
   const { pathname } = useLocation();
   const chat = pathname.startsWith("/agent/chat");
 
-  if (viewer && !viewer.agentEnabled) {
+  const onSettings = pathname === "/agent/settings" || pathname.startsWith("/agent/settings/");
+  if (viewer && !viewer.agentEnabled && !onSettings) {
     return (
       <div className="mx-auto w-full max-w-3xl px-6 py-16 lg:px-8">
         <Empty
@@ -195,17 +202,91 @@ export function AgentPage() {
 }
 
 /**
- * SettingsTab owns the RPCs and hands each card the functions it needs.
- *
- * Every provider gets a card whether or not it is configured, because the card is also
- * where an operator finds out that it is not: a Grok playbook that cannot run is easier to
- * understand next to a card that says "Not set" than as a failure on the next turn.
+ * SettingsTab is a category page, not a pile of cards. Cursor, Linear and GitHub all put
+ * Account next to Models (or Billing, or Integrations) as tabs of one Settings screen;
+ * shadcn Tabs is that pattern. The active category is a nested route so the back button
+ * and a deep link both work.
  */
 function SettingsTab() {
+  const viewer = useViewer();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
+
+  const categories: { id: string; label: string; icon: LucideIcon }[] = [
+    ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
+    ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
+  ];
+
+  if (categories.length === 0) {
+    return (
+      <Empty
+        title="Nothing to configure"
+        hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
+      />
+    );
+  }
+
+  const fallback = categories[0].id;
+  const current = categories.some((c) => c.id === tab) ? tab : "";
+  if (!current) {
+    return <Navigate to={`/agent/settings/${fallback}`} replace />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Settings" description="Account and the model APIs this conductor can spend." />
+      <Tabs
+        orientation="vertical"
+        value={current}
+        onValueChange={(id) => navigate(`/agent/settings/${id}`)}
+        className="flex-row items-start gap-8"
+      >
+        <TabsList
+          aria-label="Settings"
+          className="flex h-auto w-44 shrink-0 flex-col items-stretch gap-0.5 rounded-none border-0 bg-transparent p-0"
+        >
+          {categories.map((c) => (
+            <TabsTrigger key={c.id} value={c.id} className="w-full justify-start px-2.5">
+              <c.icon />
+              {c.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {current === "account" ? (
+          <TabsContent value="account" className="min-w-0 flex-1 space-y-4">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+              Who is signed in on this browser. The local token stays a machine credential for
+              the CLI and workers.
+            </p>
+            <IdentityCard />
+          </TabsContent>
+        ) : null}
+        {current === "models" ? (
+          <TabsContent value="models" className="min-w-0 flex-1 space-y-4">
+            <ModelsPanel />
+          </TabsContent>
+        ) : null}
+      </Tabs>
+    </div>
+  );
+}
+
+/**
+ * ModelsPanel is one card per provider the conductor can spend. Every provider gets a card
+ * whether or not it is configured: a Grok playbook that cannot run is easier to understand
+ * next to a card that says "Not set" than as a failure on the next turn.
+ *
+ * The picker in Chat is which model a turn uses. This panel is how those models get a
+ * credential.
+ */
+function ModelsPanel() {
+  const viewer = useViewer();
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
     queryFn: () => agent.getSettings({}),
+    enabled: viewer?.agentEnabled === true,
   });
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "settings"] });
 
@@ -218,36 +299,19 @@ function SettingsTab() {
     onSuccess: reload,
   });
 
-  // A conductor that is down is not a broken page: the cards still render, and their status
-  // strips are where the operator is told. Any other failure to read the settings is.
-  if (settings.isError && !isAgentUnreachable(settings.error)) {
+  if (viewer?.agentEnabled && settings.isError && !isAgentUnreachable(settings.error)) {
     return <Empty title="Could not read the agent settings" hint={errorMessage(settings.error)} />;
   }
 
   const stored = settings.data?.providers ?? [];
-  const connected = PROVIDERS.filter(
-    (p) => stored.find((s) => s.provider === p.id)?.keySet,
-  ).length;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Settings"
-        description="Credentials for the models this conductor can run. Each one is a Podium secret; the UI never sees more than the last four characters."
-        // With nothing read back, "0 of 2 connected" would be a claim rather than a count.
-        meta={
-          settings.data === undefined ? null : (
-            <>
-              <Badge tone={connected > 0 ? "ok" : "idle"}>
-                {connected} of {PROVIDERS.length} connected
-              </Badge>
-              {connected < PROVIDERS.length ? (
-                <Chip>{PROVIDERS.length - connected} still to set up</Chip>
-              ) : null}
-            </>
-          )
-        }
-      />
+    <>
+      <p className="max-w-2xl text-sm leading-relaxed text-muted">
+        Connect a provider. Chat picks the model; this is what that picker can spend. A turn
+        is handed one credential (the backend it names) and never the others.
+      </p>
+
       {isAgentUnreachable(settings.error) ? (
         <ConductorDown
           what="The stored credentials could not be read"
@@ -256,7 +320,7 @@ function SettingsTab() {
         />
       ) : null}
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {PROVIDERS.map((p) => (
           <ProviderCard
             key={p.id}
@@ -279,20 +343,17 @@ function SettingsTab() {
           />
         ))}
       </div>
-
       <p className="max-w-3xl text-xs leading-relaxed text-muted">
-        Each credential is stored as a Podium secret —{" "}
+        Encrypted at rest by podium-server as{" "}
         {PROVIDERS.map((p, i) => (
           <span key={p.id}>
             {i > 0 ? ", " : ""}
             <code className="font-mono text-fg">{p.secretName}</code>
           </span>
-        ))}{" "}
-        — and a turn is handed only the one its backend spends. There is no way to read a
-        stored secret back: the last four characters above were kept at save time, and that is
-        all any part of the UI ever sees of a key.
+        ))}
+        .
       </p>
-    </div>
+    </>
   );
 }
 

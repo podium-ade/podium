@@ -22,6 +22,7 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 	}{
 		{profiles.AgentClaude, profiles.AnthropicKeySecret, profiles.AnthropicKeyEnv, profiles.XAIKeySecret},
 		{profiles.AgentGrok, profiles.XAIKeySecret, profiles.XAIKeyEnv, profiles.AnthropicKeySecret},
+		{profiles.AgentOpenAI, profiles.OpenAIKeySecret, profiles.OpenAIKeyEnv, profiles.AnthropicKeySecret},
 	}
 	for _, tc := range tests {
 		t.Run(tc.agent, func(t *testing.T) {
@@ -42,9 +43,10 @@ func TestATurnIsHandedOnlyItsOwnBackendsCredential(t *testing.T) {
 // Podium secret and no turn is ever handed it.
 func TestNoTurnIsEverHandedARefreshToken(t *testing.T) {
 	c := &Conductor{memory: &BriefMemory{MCPURL: "http://x/mcp", APIKeyEnv: profiles.MemoryKeyEnv}}
-	for _, agent := range []string{profiles.AgentClaude, profiles.AgentGrok} {
+	for _, agent := range []string{profiles.AgentClaude, profiles.AgentGrok, profiles.AgentOpenAI} {
 		for _, ref := range c.reservedSecrets(agent, nil, "") {
 			assert.NotEqual(t, profiles.XAIRefreshSecret, ref.Name)
+			assert.NotEqual(t, profiles.OpenAIRefreshSecret, ref.Name)
 		}
 	}
 }
@@ -60,7 +62,7 @@ func TestMemoryIsAttachedOnTopOfWhicheverCredential(t *testing.T) {
 // Every turn carries a provider block now: the harness is told `provider/model` and cannot
 // run without one. What changes between backends is which provider and which credential.
 func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
-	c := &Conductor{xaiBaseURL: "https://api.x.ai"}
+	c := &Conductor{xaiBaseURL: "https://api.x.ai", openaiBaseURL: "https://api.openai.com"}
 
 	claude := c.providerFor(profiles.AgentClaude)
 	require.NotNil(t, claude)
@@ -77,6 +79,12 @@ func TestEveryTurnNamesItsProviderAndCredential(t *testing.T) {
 	// With the version, because the harness appends the endpoint to this and nothing
 	// else: a bare host sends the turn to https://api.x.ai/responses, which is a 404.
 	assert.Equal(t, "https://api.x.ai/v1", grok.BaseURL)
+
+	openai := c.providerFor(profiles.AgentOpenAI)
+	require.NotNil(t, openai)
+	assert.Equal(t, profiles.ProviderOpenAI, openai.ID)
+	assert.Equal(t, "OPENAI_API_KEY", openai.APIKeyEnv)
+	assert.Equal(t, "https://api.openai.com/v1", openai.BaseURL)
 }
 
 // An agent id nobody configured still produces a runnable turn rather than a brief the
@@ -106,4 +114,6 @@ func TestDerivedCredentialNamesMatchTheConstants(t *testing.T) {
 	assert.Equal(t, profiles.AnthropicKeyEnv, profiles.KeyEnvFor(profiles.ProviderAnthropic))
 	assert.Equal(t, profiles.XAIKeySecret, profiles.SecretFor(profiles.ProviderXAI))
 	assert.Equal(t, profiles.XAIKeyEnv, profiles.KeyEnvFor(profiles.ProviderXAI))
+	assert.Equal(t, profiles.OpenAIKeySecret, profiles.SecretFor(profiles.ProviderOpenAI))
+	assert.Equal(t, profiles.OpenAIKeyEnv, profiles.KeyEnvFor(profiles.ProviderOpenAI))
 }

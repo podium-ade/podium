@@ -253,7 +253,7 @@ function NodeRow({ node }: { node: Node }) {
       <TableCell>
         <div className="flex items-baseline justify-between gap-2 whitespace-nowrap">
           <span className="tabular font-mono text-xs text-fg">
-            {running ?? "—"}
+            {running ?? "-"}
             <span className="text-faint"> / {max}</span>
           </span>
           <span className="text-2xs text-faint">
@@ -276,9 +276,9 @@ function NodeRow({ node }: { node: Node }) {
       </TableCell>
 
       <TableCell className="text-2xs whitespace-nowrap text-muted">
-        <div className="tabular">{node.capacity?.cpuCores ?? "—"} cores</div>
+        <div className="tabular">{node.capacity?.cpuCores ?? "-"} cores</div>
         <div className="tabular">
-          {node.capacity ? humanBytes(Number(node.capacity.memoryMb) * 1024 * 1024) : "—"}
+          {node.capacity ? humanBytes(Number(node.capacity.memoryMb) * 1024 * 1024) : "-"}
         </div>
       </TableCell>
 
@@ -297,7 +297,7 @@ function NodeRow({ node }: { node: Node }) {
       </TableCell>
 
       <TableCell className="font-mono text-2xs whitespace-nowrap text-muted">
-        {node.version || "—"}
+        {node.version || "-"}
       </TableCell>
 
       <TableCell className="whitespace-nowrap">

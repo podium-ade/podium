@@ -96,9 +96,10 @@ type Source struct {
 	// without an extra API call per turn.
 	archiveBase string
 
-	mu    sync.Mutex
-	users map[string]string
-	seen  map[string]time.Time
+	mu       sync.Mutex
+	users    map[string]string
+	channels map[string]string
+	seen     map[string]time.Time
 
 	// review is the GitHub App source, nil when GitHub is not configured. A mention that
 	// names a pull-request URL (or that lands in a thread already bound to one) is
@@ -132,14 +133,15 @@ func New(opts Options) (*Source, error) {
 	}
 	api := slack.New(opts.BotToken, options...)
 	return &Source{
-		api:    api,
-		sm:     socketmode.New(api),
-		logger: logger,
-		events: make(chan conductor.InboundEvent, 32),
-		writes: rate.NewLimiter(writeRate, 1),
-		reads:  rate.NewLimiter(readRate, 1),
-		users:  map[string]string{},
-		seen:   map[string]time.Time{},
+		api:      api,
+		sm:       socketmode.New(api),
+		logger:   logger,
+		events:   make(chan conductor.InboundEvent, 32),
+		writes:   rate.NewLimiter(writeRate, 1),
+		reads:    rate.NewLimiter(readRate, 1),
+		users:    map[string]string{},
+		channels: map[string]string{},
+		seen:     map[string]time.Time{},
 	}, nil
 }
 
@@ -257,15 +259,16 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 		return
 	}
 	ev := conductor.InboundEvent{
-		SourceKind: Kind,
-		SourceKey:  sourceKey(channel, thread),
-		Ref:        Ref(channel, thread, ts),
-		Channel:    channel,
-		Author:     author,
-		Text:       stripped,
-		TS:         parseTS(ts),
-		URL:        s.permalink(channel, ts),
-		BriefKind:  conductor.SourceSlack,
+		SourceKind:  Kind,
+		SourceKey:   sourceKey(channel, thread),
+		Ref:         Ref(channel, thread, ts),
+		Channel:     channel,
+		ChannelName: s.channelName(ctx, channel),
+		Author:      author,
+		Text:        stripped,
+		TS:          parseTS(ts),
+		URL:         s.permalink(channel, ts),
+		BriefKind:   conductor.SourceSlack,
 	}
 	select {
 	case s.events <- ev:
@@ -602,6 +605,80 @@ func isBenignReactionError(err error) bool {
 		strings.Contains(msg, "message_not_found")
 }
 
+// ChannelInfo is one Slack channel as ListChannels reports it.
+type ChannelInfo struct {
+	ID   string
+	Name string
+}
+
+// ListChannels pages the conversations the bot is in. It is how the Channels screen seeds
+// the catalogue before the first mention. Archived channels are left out.
+func (s *Source) ListChannels(ctx context.Context) ([]ChannelInfo, error) {
+	var out []ChannelInfo
+	cursor := ""
+	for {
+		params := &slack.GetConversationsParameters{
+			Cursor:          cursor,
+			ExcludeArchived: true,
+			Limit:           200,
+			Types:           []string{"public_channel", "private_channel"},
+		}
+		page, next, err := s.readConversations(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("slack: list channels: %w", err)
+		}
+		for _, ch := range page {
+			if ch.ID == "" {
+				continue
+			}
+			name := ch.Name
+			out = append(out, ChannelInfo{ID: ch.ID, Name: name})
+			if name != "" {
+				s.mu.Lock()
+				s.channels[ch.ID] = name
+				s.mu.Unlock()
+			}
+		}
+		if next == "" {
+			return out, nil
+		}
+		cursor = next
+	}
+}
+
+// channelName resolves a channel ID to the name a human typed, cached for the process's
+// life. A failure is not worth failing a turn over: the ID is a usable name and the
+// inbound event still fires.
+func (s *Source) channelName(ctx context.Context, channel string) string {
+	if channel == "" {
+		return ""
+	}
+	s.mu.Lock()
+	name, ok := s.channels[channel]
+	s.mu.Unlock()
+	if ok {
+		return name
+	}
+	info, err := s.readConversation(ctx, func() (*slack.Channel, error) {
+		return s.api.GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{ChannelID: channel})
+	})
+	if err != nil {
+		s.logger.DebugContext(ctx, "resolving a slack channel name failed", "channel", channel, "error", err)
+		return ""
+	}
+	name = info.Name
+	if name == "" && info.IsIM {
+		name = s.displayName(ctx, info.User)
+	}
+	if name == "" {
+		return ""
+	}
+	s.mu.Lock()
+	s.channels[channel] = name
+	s.mu.Unlock()
+	return name
+}
+
 // displayName resolves a user ID to something a human wrote, cached for the process's life.
 // A failure is not worth failing a turn over: the ID is a usable name.
 func (s *Source) displayName(ctx context.Context, user string) string {
@@ -762,6 +839,26 @@ func (s *Source) write(ctx context.Context, fn func() (string, error)) (string, 
 // readUser is call on the read limiter, for users.info.
 func (s *Source) readUser(ctx context.Context, fn func() (*slack.User, error)) (*slack.User, error) {
 	return call(ctx, s.reads, fn)
+}
+
+// readConversation is call on the read limiter, for conversations.info.
+func (s *Source) readConversation(ctx context.Context, fn func() (*slack.Channel, error)) (*slack.Channel, error) {
+	return call(ctx, s.reads, fn)
+}
+
+// readConversations is call on the read limiter, for conversations.list.
+func (s *Source) readConversations(
+	ctx context.Context, params *slack.GetConversationsParameters,
+) ([]slack.Channel, string, error) {
+	type page struct {
+		channels []slack.Channel
+		cursor   string
+	}
+	p, err := call(ctx, s.reads, func() (page, error) {
+		channels, cursor, err := s.api.GetConversationsContext(ctx, params)
+		return page{channels: channels, cursor: cursor}, err
+	})
+	return p.channels, p.cursor, err
 }
 
 // readPage is call on the read limiter, for the one method that returns four values.

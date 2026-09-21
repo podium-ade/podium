@@ -113,6 +113,7 @@ default_playbook: general
 system_prompt: answer the question
 allowed_tools: [read, grep]
 timeout: 15m
+slack_channels: [C1]
 `), 0o600))
 	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
 system_prompt: write the code
@@ -705,7 +706,7 @@ func TestAPlaybooksPriorityIsWhatTheTaskIsQueuedAt(t *testing.T) {
 	assert.EqualValues(t, -3, fake.Priorities()[0])
 
 	// general names none, so it queues with everything else.
-	require.NoError(t, src.Send(context.Background(), inbound("C2/1.1", "hello")))
+	require.NoError(t, src.Send(context.Background(), inbound("C2/1.1", "/general hello")))
 	waitFor(t, 30*time.Second, "the general task", func() bool { return len(fake.Priorities()) == 2 })
 	assert.EqualValues(t, 0, fake.Priorities()[1])
 }

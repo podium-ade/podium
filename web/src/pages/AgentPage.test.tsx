@@ -101,9 +101,10 @@ const viewer: Viewer = {
   canClaim: false,
   googleAuthEnabled: false,
   claimDomain: "",
+  pictureUrl: "",
 };
 
-function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
+function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -122,6 +123,7 @@ function mount(path = "/agent/settings", who: Viewer | undefined = viewer) {
 
 const anthropicNotSet = { provider: "anthropic", keySet: false, model: "claude-opus-5" };
 const xaiNotSet = { provider: "xai", keySet: false, model: "claude-opus-5" };
+const openaiNotSet = { provider: "openai", keySet: false, model: "claude-opus-5" };
 const anthropicConnected = {
   provider: "anthropic",
   keySet: true,
@@ -133,10 +135,10 @@ const anthropicConnected = {
 
 // The settings screen reads `providers`; `provider` stays the Anthropic row for the clients
 // that only ever knew about one.
-const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet] };
+const notSet = { provider: anthropicNotSet, providers: [anthropicNotSet, xaiNotSet, openaiNotSet] };
 const connected = {
   provider: anthropicConnected,
-  providers: [anthropicConnected, xaiNotSet],
+  providers: [anthropicConnected, xaiNotSet, openaiNotSet],
 };
 
 describe("AgentPage", () => {
@@ -166,12 +168,26 @@ describe("AgentPage", () => {
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
-    mount("/agent/settings", { ...viewer, agentEnabled: false });
+    mount("/agent/chat", { ...viewer, agentEnabled: false });
     expect(
       screen.getByText("The conductor is not configured on this control plane"),
     ).toBeInTheDocument();
     expect(screen.getByText(/PODIUM_AGENT_URL/)).toBeInTheDocument();
     expect(getSettings).not.toHaveBeenCalled();
+  });
+
+  it("offers Google sign-in on Settings and does not ask for a local token", async () => {
+    mount("/agent/settings/account", { ...viewer, googleAuthEnabled: true });
+    expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
+    expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
+      "href",
+      "/auth/google/start",
+    );
+    expect(screen.queryByLabelText("Dev token")).toBeNull();
   });
 
   it("redirects /agent to the chat tab", async () => {
@@ -219,10 +235,18 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
   });
 
-  it("renders settings without the talk tabs", async () => {
-    mount("/agent/settings");
-    expect(await screen.findByText("Anthropic")).toBeInTheDocument();
+  it("renders settings models without the talk tabs", async () => {
+    mount("/agent/settings/models");
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Anthropic")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+    // Status lives on each card. A summary row of "Claude · not set" chips above the list
+    // is gone: it repeated the cards and read as a second, empty catalogue.
+    expect(screen.queryByText(/Claude · not set/i)).toBeNull();
+    expect(screen.queryByText(/Grok · not set/i)).toBeNull();
+    expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
   });
 
   it("keeps the Chat tab active on a deep link to one chat", async () => {
@@ -271,7 +295,7 @@ describe("AgentPage", () => {
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/encrypted at rest by podium-server/i).length).toBe(2);
+    expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {
