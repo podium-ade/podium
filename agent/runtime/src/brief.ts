@@ -122,6 +122,17 @@ const briefSchema = z.strictObject({
     kind: z.enum(["slack", "linear", "chat", "github"]),
     ref: z.string().min(1),
     url: z.string().optional(),
+    // Present on a Slack turn: where the thread lives, and the operator-authored note
+    // that says what that channel is for. Absent for every other source.
+    channel: z
+      .strictObject({
+        id: z.string().min(1),
+        // Human name without a leading #. Absent when Slack has not resolved it yet.
+        name: z.string().min(1).optional(),
+        // Operator note. Absent when none is set; empty is omitted, not "".
+        description: z.string().min(1).optional(),
+      })
+      .optional(),
   }),
   profile: z.strictObject({
     name: z.string().min(1),

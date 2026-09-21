@@ -99,7 +99,7 @@ func TestTheAssistantsBriefHasNoContainerInIt(t *testing.T) {
 	profile := c.profiles.Current()
 	j := assistantJob(profile.Assistant())
 
-	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
 		j.choose(profile, profiles.Override{}))
 
@@ -184,6 +184,35 @@ func TestAHostRuntimeSaysWhatItIsMissing(t *testing.T) {
 // TestTheAssistantsBriefOmitsATurnCapNobodySet. Zero means no cap, and the document has to
 // say that by leaving the field out: the runtime's schema refuses a non-positive number, so
 // emitting 0 would fail every turn of a profile that set no ceiling.
+func TestASlackBriefCarriesTheChannel(t *testing.T) {
+	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
+		Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
+		Model:     "claude-opus-5",
+		Playbooks: map[string]profiles.Playbook{"coder": {Name: "coder"}},
+	})}
+	profile := c.profiles.Current()
+	j := assistantJob(profile.Assistant())
+
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
+		InboundEvent{
+			SourceKind: SourceSlack, BriefKind: SourceSlack,
+			Channel: "C1", ChannelName: "support",
+			Ref: "C1/1.1/1.1", Text: "hi",
+		}, nil, nil, nil, j.choose(profile, profiles.Override{}))
+
+	require.NotNil(t, b.Source.Channel)
+	assert.Equal(t, "C1", b.Source.Channel.ID)
+	assert.Equal(t, "support", b.Source.Channel.Name)
+	assert.Empty(t, b.Source.Channel.Description)
+
+	encoded, err := b.Encode()
+	require.NoError(t, err)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"name":"support"`)
+	assert.NotContains(t, string(raw), `"description"`)
+}
+
 func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 	c := &Conductor{profiles: profiles.NewLive(&profiles.Profile{
 		Name: "podium", DisplayName: "Podium", SystemPrompt: "be Podium",
@@ -194,7 +223,7 @@ func TestTheAssistantsBriefOmitsATurnCapNobodySet(t *testing.T) {
 	j := assistantJob(profile.Assistant())
 	require.Zero(t, j.maxTurns)
 
-	b := c.brief(store.Session{ID: "sess_1"}, j, "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, j, "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil,
 		j.choose(profile, profiles.Override{}))
 	encoded, err := b.Encode()

@@ -101,8 +101,11 @@ func TestAnOptionalFieldIsOmittedNotNulled(t *testing.T) {
 		_, present := got[key]
 		assert.False(t, present, "%s must be omitted, not null", key)
 	}
-	_, present := got["source"].(map[string]any)["url"]
+	src := got["source"].(map[string]any)
+	_, present := src["url"]
 	assert.False(t, present, "source.url must be omitted, not null")
+	_, present = src["channel"]
+	assert.False(t, present, "source.channel must be omitted, not null")
 
 	// And the required ones must be there even when they are empty.
 	assert.Equal(t, []any{}, got["transcript"], "transcript must be [] and never absent or null")
