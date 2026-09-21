@@ -27,6 +27,9 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   if (brief.delegation) {
     sections.push(delegationBlock(brief));
   }
+  if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
+    sections.push(slackPlaybookBlock(brief));
+  }
   if (brief.source.kind === "chat" && firstChatTurn(brief)) {
     sections.push(chatTitleBlock());
   }
@@ -177,6 +180,26 @@ How to do it well:
   container; the workspace is kept. Delegate only for a new piece of work.
 - \`podium_cancel_delegation\` when the work is no longer wanted. A task nobody is waiting for
   still holds a machine and still costs money.`;
+}
+
+/**
+ * slackPlaybookBlock is how a Slack mention chooses a playbook. There is no default: the
+ * message says, or the channel note above says, or the turn asks.
+ */
+function slackPlaybookBlock(brief: TurnBrief): string {
+  const described = Boolean(brief.source.channel?.description);
+  const preference = described
+    ? `The channel note above is a preference its owner wrote. When the message does not name a playbook, follow that note: a description that names a playbook, or that says what this channel is for, is the choice.`
+    : `This channel has no description, so nothing in it prefers a playbook.`;
+  return `# Choosing a playbook
+
+There is no default playbook. The instruction above to delegate on your first tool call waits until you know which one. When this message needs a machine, choose from the menu above.
+
+- A playbook the message names — \`/name\`, or the name written out — is that playbook.
+- Otherwise match the work to a playbook's summary and to what it can reach. A single playbook on the menu is that playbook.
+- ${preference}
+- When the message and the channel description, taken together, do not make one playbook clearly right, ask. Name each playbook and the one line you were given about it, then stop. Do not call \`podium_delegate\` until they answer, and do not pick the first name on the menu in order to keep moving.
+- A question you can answer from this conversation, from memory, or from a page you can fetch still needs no playbook. Ask only when the work needs a machine and the playbook is the part you cannot tell.`;
 }
 
 function memoryBlock(): string {
