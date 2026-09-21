@@ -8,6 +8,7 @@ import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { Check, Copy, RotateCcw } from "lucide-react";
+import { documentStyleNonce } from "../../lib/csp";
 import { docToYaml, parseYaml, type YamlProblem } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -132,6 +133,8 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(function
             if (next !== valueRef.current) onChangeRef.current?.(next)
           }),
           EditorView.contentAttributes.of({ "aria-hidden": "true" }),
+          // style-mod inserts a <style> tag; the server mints a matching CSP nonce on index.html.
+          EditorView.cspNonce.of(documentStyleNonce()),
         ],
       }),
     })
