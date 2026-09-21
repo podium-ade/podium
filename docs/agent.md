@@ -893,17 +893,31 @@ public Slack channel routes to is a playbook that channel can spend the token th
 
 ### Which playbook runs
 
-**A conversation runs none.** The rules below are about a Slack thread and a Linear ticket, each
-of which is one piece of work in a container. The assistant reaches a playbook by *delegating* to
-it, one per task, chosen by the turn — there is nothing for a human to select and no default to
-set.
+**A conversation runs none.** The assistant reaches a playbook by *delegating* to it, one per
+task, chosen by the turn — there is nothing for a human to select and no default to set. The
+numbered rules further down are how a Linear ticket, and a Slack mention on a conductor with
+no host runtime, becomes a task in a container.
 
 **A Slack thread is a conversation too.** A mention is answered by the assistant on the
 conductor's own host, exactly as a web chat is, and it reaches a playbook by delegating to it.
 A conductor with no host runtime refuses the mention rather than turning it into a task.
 
+**Which playbook a Slack mention delegates to is the turn's decision, and there is no default.**
+The assistant reads the message and the menu. A playbook the message names is that playbook.
+Otherwise it matches the work to a playbook's summary and to what that playbook can reach
+(the repository, a browser, a Docker daemon). One playbook on the menu is that playbook.
+
+**The channel description is a preference.** It is the note on **Channels**, already briefed as
+"This channel is for: …". A description that names a playbook, or that says what the channel is
+for, is how the turn chooses when the message itself does not. Slack's own channel purpose is
+not read: anyone who can set a purpose would then instruct the model.
+
+**When neither the message nor the description makes one playbook clearly right, the turn
+asks.** It names the playbooks and stops, and it does not delegate until the person answers.
+It does not pick the first name on the menu.
+
 So `slack_channels` is **deprecated**. Do not reach for it: say which playbook you want in the
-thread and let the turn delegate.
+message, or write the preference in the channel description, and let the turn delegate.
 
 For a Linear ticket — in order:
 
@@ -919,7 +933,9 @@ For a Linear ticket — in order:
    Linear) mark one `linear: true`.
 
 Rule 1 is knowledge, and keeping it first is the whole of the order: Linear names the playbook
-because it genuinely knows it. Slack says nothing and starts at rule 2.
+because it genuinely knows it. A Slack mention answered by the assistant does not use this
+list — it infers the playbook, as above. A mention on a conductor with no host runtime starts
+at rule 2, and is refused when nothing matches.
 
 **One session, one playbook**, fixed when the thread's session is created. A later `/other` in the
 same thread is refused politely: start a new thread. A conversation's session stores no playbook
@@ -1297,7 +1313,10 @@ This channel is for: customer complaints.
 ```
 
 The description is operator-authored, like `profile.yaml`. Slack's own channel purpose is
-**not** imported: anyone who can set a purpose would then instruct the model.
+**not** imported: anyone who can set a purpose would then instruct the model. On a mention,
+that note is a playbook preference: the assistant follows it when the message does not name a
+playbook, and asks which playbook to use when neither the message nor the note makes one
+clearly right.
 
 Mirrored threads in **Chat** keep their first-message title (so two threads in `#support` stay
 two conversations) and show `#support` in the rail badge and the header. **Sessions** shows
