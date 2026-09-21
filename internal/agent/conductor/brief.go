@@ -104,6 +104,18 @@ type BriefSource struct {
 	Kind string `json:"kind"`
 	Ref  string `json:"ref"`
 	URL  string `json:"url,omitempty"`
+	// Channel is set on a Slack turn: the thread's channel, and the operator-authored
+	// note that says what that channel is for. Absent for every other source.
+	Channel *BriefChannel `json:"channel,omitempty"`
+}
+
+// BriefChannel is one Slack channel as a turn is briefed about it.
+type BriefChannel struct {
+	ID string `json:"id"`
+	// Name is the human name without a leading #. Empty is omitted.
+	Name string `json:"name,omitempty"`
+	// Description is the operator's note. Empty is omitted.
+	Description string `json:"description,omitempty"`
 }
 
 // BriefProfile is the bot's identity for this turn, and the model it runs on.

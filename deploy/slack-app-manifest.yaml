@@ -44,6 +44,13 @@ oauth_config:
       - reactions:write
       # Resolve a user ID to the display name a transcript entry carries.
       - users:read
+      # Resolve a channel ID to its human name (conversations.info / conversations.list)
+      # so the Podium chat window can show #support instead of C0123, and so an operator
+      # can attach a description the bot is briefed with. Reinstall the app after adding
+      # these; existing tokens keep the old scopes until then.
+      - channels:read
+      - groups:read
+      - im:read
 
 settings:
   event_subscriptions:

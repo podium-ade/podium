@@ -54,8 +54,12 @@ type InboundEvent struct {
 	// reaction goes on the triggering message and a post goes into the thread.
 	Ref string
 	// Channel is the routing key a playbook's slack_channels list is matched against. Empty
-	// when the source has no notion of a channel.
+	// when the source has no notion of a channel. For Slack it is the channel id (C…).
 	Channel string
+	// ChannelName is the human name of Channel, without a leading #. Empty when the source
+	// has no name, or when Slack has not resolved one yet. Display and briefing only —
+	// routing still uses Channel.
+	ChannelName string
 	// Author is the display name of the human who spoke.
 	Author string
 	// Text is what they said, with the bot mention already stripped.

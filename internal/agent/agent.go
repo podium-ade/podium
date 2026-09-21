@@ -381,6 +381,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 
+	var slackDir api.SlackDirectory
+	if a.slack != nil {
+		slackDir = a.slack
+	}
 	a.svc = api.NewAgentService(api.AgentServiceOptions{
 		Store:               a.store,
 		Secrets:             a.podium,
@@ -401,6 +405,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Chat:                a.chat,
 		Tasks:               a.podium,
 		Turns:               a.conductor,
+		Slack:               slackDir,
 		Logger:              a.logger,
 	})
 	// The turn surface. It is the conductor itself: only a conductor that runs host turns
