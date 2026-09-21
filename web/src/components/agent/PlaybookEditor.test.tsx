@@ -243,9 +243,11 @@ describe("PlaybookEditor", () => {
     });
     await userEvent.click(screen.getByRole("button", { name: "Delete reporter" }));
     expect(onDelete).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm deleting reporter" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("shows a file playbook read-only", () => {
