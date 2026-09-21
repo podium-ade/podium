@@ -319,6 +319,7 @@ func (c *Conductor) drain(ctx context.Context, src Source) {
 // event runs, find or create the session, and either start a turn or remember the message
 // for the turn that is already running.
 func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
+	c.rememberSlackChannel(ctx, ev)
 	// One snapshot for the whole of this event. A profile swapped in half way through must
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
@@ -633,7 +634,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	brief := c.brief(sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -766,10 +767,45 @@ func aConversation(kind string) bool {
 	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
 }
 
+// rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
+// so the Channels screen and the next turn's brief can find it. A failure is logged; the
+// turn still runs.
+func (c *Conductor) rememberSlackChannel(ctx context.Context, ev InboundEvent) {
+	if ev.Channel == "" || c.store == nil {
+		return
+	}
+	if err := c.store.UpsertSlackChannelName(ctx, ev.Channel, ev.ChannelName); err != nil {
+		c.logger.WarnContext(ctx, "recording a slack channel name failed",
+			"channel", ev.Channel, "error", err)
+	}
+}
+
+// sourceChannel is the brief's optional Slack channel block. Absent when this event has
+// no channel (every source but Slack). Description is looked up at brief time so a note
+// edited in the UI applies on the next turn without a new mention.
+func (c *Conductor) sourceChannel(ctx context.Context, ev InboundEvent) *BriefChannel {
+	if ev.Channel == "" {
+		return nil
+	}
+	ch := &BriefChannel{ID: ev.Channel, Name: ev.ChannelName}
+	if c.store == nil {
+		return ch
+	}
+	row, err := c.store.SlackChannel(ctx, ev.Channel)
+	if err != nil {
+		return ch
+	}
+	ch.Description = row.Description
+	if ch.Name == "" {
+		ch.Name = row.Name
+	}
+	return ch
+}
+
 // brief builds the turn brief. It never sets a field the runtime's schema does not have:
 // the schema is strict at every level and an unknown key is a failed turn.
 func (c *Conductor) brief(
-	sess store.Session, j job, turnID string, ev InboundEvent,
+	ctx context.Context, sess store.Session, j job, turnID string, ev InboundEvent,
 	entries []BriefEntry, bundles []skills.Bundle, servers []mcp.Server, choice profiles.Choice,
 ) *Brief {
 	kind := ev.BriefKind
@@ -784,7 +820,7 @@ func (c *Conductor) brief(
 		Version:   BriefVersion,
 		SessionID: sess.ID,
 		TurnID:    turnID,
-		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL},
+		Source:    BriefSource{Kind: kind, Ref: ev.Ref, URL: ev.URL, Channel: c.sourceChannel(ctx, ev)},
 		Profile: BriefProfile{
 			Name:         profile.Name,
 			DisplayName:  profile.DisplayName,

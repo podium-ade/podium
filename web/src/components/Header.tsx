@@ -4,6 +4,7 @@ import {
   ChevronsUpDown,
   Coins,
   Container,
+  Hash,
   KeyRound,
   ListTodo,
   LogOut,
@@ -33,10 +34,16 @@ function pathActive(pathname: string, to: string, end?: boolean) {
 
 /**
  * Agent in the sidebar is the talk screens (chat, sessions, memory, profile). Playbooks,
- * Skills, MCP and Settings are siblings, not children, so a prefix match on /agent would
- * light Agent on every one of them.
+ * Skills, MCP, Channels and Settings are siblings, not children, so a prefix match on
+ * /agent would light Agent on every one of them.
  */
-const agentSiblings = ["/agent/playbooks", "/agent/skills", "/agent/mcp", "/agent/settings"];
+const agentSiblings = [
+  "/agent/playbooks",
+  "/agent/skills",
+  "/agent/mcp",
+  "/agent/channels",
+  "/agent/settings",
+];
 
 function agentActive(pathname: string) {
   if (pathname !== "/agent" && !pathname.startsWith("/agent/")) return false;
@@ -143,6 +150,9 @@ export function Header() {
             </Item>
             <Item to="/agent/mcp" icon={Plug}>
               MCP
+            </Item>
+            <Item to="/agent/channels" icon={Hash}>
+              Channels
             </Item>
             <div className="pt-4" />
           </>

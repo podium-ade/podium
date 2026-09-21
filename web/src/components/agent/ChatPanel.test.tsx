@@ -843,4 +843,19 @@ describe("ChatPanel", () => {
     expect(list).toHaveTextContent("alice");
   });
 
+  it("shows the Slack channel name in the list and the header", async () => {
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, origin: "slack", startedBy: "alice", channel: "support" }],
+      nextCursor: "",
+    });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    const list = await screen.findByTestId("chat-list");
+    await waitFor(() => expect(list).toHaveTextContent("#support"));
+    expect(list).not.toHaveTextContent("slack");
+    expect(await screen.findByTestId("chat-channel")).toHaveTextContent("#support");
+  });
+
 });

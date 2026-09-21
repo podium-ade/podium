@@ -30,7 +30,7 @@ func TestATurnsMCPServersAreNamedInTheBriefAndCredentialedOnTheSpec(t *testing.T
 	servers := []mcp.Server{registered("linear", true, 3), registered("wiki", true, 0)}
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
-	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, servers, choice)
 
 	require.Len(t, b.Playbook.MCPServers, 2)
@@ -62,7 +62,7 @@ func TestAPlaybookWithNoMCPServersGetsNone(t *testing.T) {
 	playbook := c.profiles.Current().Playbooks["coder"]
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 
-	b := c.brief(store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil, choice)
 	assert.Nil(t, b.Playbook.MCPServers)
 

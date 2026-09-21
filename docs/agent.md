@@ -1277,6 +1277,34 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    it is not in, whatever its scopes say.
 6. Put both tokens in `.env` and start the conductor. The startup log names the sources it
    enabled and the playbooks it loaded.
+7. **Reinstall the app** if you created it from an older manifest: `channels:read`,
+   `groups:read` and `im:read` were added so the conductor can resolve `#support` from `C0123`
+   and so **Channels** in the sidebar can list membership. Existing tokens keep the old scopes
+   until you reinstall.
+
+### Channel context
+
+A Slack mention used to arrive with only a channel **id**. The bot did not know it was in
+`#support`, and nothing told it that `#support` is for customer complaints.
+
+**Channels** (sidebar, next to MCP) is the catalogue. Rows appear when the bot is invited to a
+channel or mentioned in one. You add a description; the next turn in that channel is briefed
+with it:
+
+```
+This message is in Slack channel #support.
+This channel is for: customer complaints.
+```
+
+The description is operator-authored, like `profile.yaml`. Slack's own channel purpose is
+**not** imported: anyone who can set a purpose would then instruct the model.
+
+Mirrored threads in **Chat** keep their first-message title (so two threads in `#support` stay
+two conversations) and show `#support` in the rail badge and the header. **Sessions** shows
+`#support · thread_ts` once the name is known; until then it still shows the id.
+
+`slack_channels:` on a playbook is a different, **deprecated** thing: it was routing, not
+context. Do not reach for it.
 
 Then, in a channel the bot is in:
 

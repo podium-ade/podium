@@ -125,7 +125,10 @@ type AgentServiceOptions struct {
 	// Turns stops the work a conversation owns that no task id can reach: the host turn
 	// answering it, which runs in this process, and the tasks that turn delegated. Nil is
 	// a conductor with no host turns, and DeleteChat then has nothing extra to stop.
-	Turns  TurnStopper
+	Turns TurnStopper
+	// Slack lists the channels the bot is in, so ListSlackChannels can seed the catalogue
+	// before the first mention. Nil means this conductor has no Slack source.
+	Slack  SlackDirectory
 	Logger *slog.Logger
 }
 
@@ -149,6 +152,7 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
+	slack      SlackDirectory
 	logger     *slog.Logger
 
 	// flows are the subscription sign-ins this process has started and not finished, and
@@ -231,6 +235,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		chat:               opts.Chat,
 		tasks:              opts.Tasks,
 		turns:              opts.Turns,
+		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}
 }
@@ -253,9 +258,10 @@ func (s *AgentService) ListSessions(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	names := s.slackNames(ctx)
 	out := make([]*agentv1.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, sessionToProto(r))
+		out = append(out, sessionToProto(r, names))
 	}
 	return connect.NewResponse(&agentv1.ListSessionsResponse{Sessions: out, NextCursor: next}), nil
 }
@@ -272,7 +278,7 @@ func (s *AgentService) GetSession(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	return connect.NewResponse(&agentv1.GetSessionResponse{Session: sessionToProto(row)}), nil
+	return connect.NewResponse(&agentv1.GetSessionResponse{Session: sessionToProto(row, s.slackNames(ctx))}), nil
 }
 
 // ListTurns returns one session's turns, newest first.
@@ -399,7 +405,7 @@ func turnCostToProto(c store.TurnCost) *agentv1.TaskCost {
 	return out
 }
 
-func sessionToProto(s store.Session) *agentv1.Session {
+func sessionToProto(s store.Session, names map[string]string) *agentv1.Session {
 	out := &agentv1.Session{
 		Id:         s.ID,
 		SourceKind: s.SourceKind,
@@ -410,6 +416,26 @@ func sessionToProto(s store.Session) *agentv1.Session {
 	}
 	if s.LastTurnAt != nil {
 		out.LastTurnAt = timestamppb.New(*s.LastTurnAt)
+	}
+	if id, ok := store.SlackChannelID(s.SourceKey); ok && names != nil {
+		out.SourceLabel = names[id]
+	}
+	return out
+}
+
+func (s *AgentService) slackNames(ctx context.Context) map[string]string {
+	if s.store == nil {
+		return nil
+	}
+	rows, err := s.store.ListSlackChannels(ctx)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		if r.Name != "" {
+			out[r.ID] = r.Name
+		}
 	}
 	return out
 }

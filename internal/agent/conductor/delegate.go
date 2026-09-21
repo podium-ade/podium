@@ -365,7 +365,7 @@ func (c *Conductor) startDelegatedTask(
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
-	brief := c.brief(sess, j, dlg.ID, ev, entries, bundles, servers, choice)
+	brief := c.brief(ctx, sess, j, dlg.ID, ev, entries, bundles, servers, choice)
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)

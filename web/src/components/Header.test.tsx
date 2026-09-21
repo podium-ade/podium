@@ -73,6 +73,10 @@ describe("Header", () => {
     );
     expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
     expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("href", "/agent/mcp");
+    expect(screen.getByRole("link", { name: "Channels" })).toHaveAttribute(
+      "href",
+      "/agent/channels",
+    );
   });
 
   // MCP is a sibling of Agent, not one of its talk screens, so it lights itself and leaves
@@ -80,6 +84,12 @@ describe("Header", () => {
   it("lights MCP on its own route without lighting Agent", () => {
     mount({ ...base, agentEnabled: true }, "/agent/mcp");
     expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("lights Channels on its own route without lighting Agent", () => {
+    mount({ ...base, agentEnabled: true }, "/agent/channels");
+    expect(screen.getByRole("link", { name: "Channels" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Agent" })).not.toHaveAttribute("aria-current");
   });
 

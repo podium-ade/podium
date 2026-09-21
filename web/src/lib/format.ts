@@ -235,14 +235,18 @@ export function queuedExplanation(task: Task, now = Date.now()): string | undefi
 }
 
 /**
- * conversationLabel makes a session's source_key readable without pretending to know more
- * than the conductor does. A Slack key is `slack:<channel>:<thread_ts>`; anything else is
- * shown as it was stored, because inventing a shape for a source this build has never seen
- * would be a guess rendered as a fact.
+ * conversationLabel makes a session's source_key readable. A Slack key is
+ * `slack:<channel>:<thread_ts>`; when the conductor has resolved the channel's human name
+ * (`source_label`) that is shown instead of the id. Anything else is shown as it was stored.
  */
-export function conversationLabel(s: Pick<Session, "sourceKind" | "sourceKey">): string {
+export function conversationLabel(
+  s: Pick<Session, "sourceKind" | "sourceKey"> & Partial<Pick<Session, "sourceLabel">>,
+): string {
   const parts = s.sourceKey.split(":");
-  if (s.sourceKind === "slack" && parts.length === 3) return `#${parts[1]} · ${parts[2]}`;
+  if (s.sourceKind === "slack" && parts.length === 3) {
+    const name = s.sourceLabel || parts[1];
+    return `#${name} · ${parts[2]}`;
+  }
   return s.sourceKey;
 }
 
