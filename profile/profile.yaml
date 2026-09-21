@@ -22,8 +22,10 @@ agent: claude
 # is the bound that is always on: unset is 15m, and it is what stops a stuck turn running for
 # ever on this machine.
 #
-# A mention with no /playbook runs `general`, which answers questions and costs a container.
-# `podium` is the dogfood — two hours, 200 turns, a Docker daemon, a browser and a privileged
-# node — and a human asks for it by name. Neither is what the web chat runs: a conversation
-# is answered above, and these two are what it delegates to.
+# A Slack mention is answered above, like the web chat. The assistant picks a playbook from
+# the message, or from the channel description on Channels when that states a preference, and
+# asks when neither does. There is no default. `podium` is the dogfood — two hours, 200
+# turns, a Docker daemon, a browser and a privileged node — and a person asks for it by
+# name, or a channel description names it. `general` answers questions. Neither is what the
+# conversation itself runs: these two are what it delegates to.
 default_playbook: general
