@@ -1,13 +1,25 @@
-# podium-agent, the conductor. GoReleaser builds the binary and copies it into this context,
-# so there is no compile stage here: the image is the binary plus a certificate bundle.
+# podium-agent, the conductor. GoReleaser builds the binaries and copies them into this
+# context, so there is no compile stage here: the image is two binaries on top of the runtime.
 #
-# distroless/static has no shell, no package manager and no libc — a CGO_ENABLED=0 Go binary
-# needs none of them — and it carries ca-certificates, which the conductor needs to reach
-# Slack over TLS and, from step 20, Linear.
+# FROM the runtime image, and NOT distroless/static as this image used to be. The conductor
+# answers a CONVERSATION in its own process by forking the agent runtime — that is what
+# PODIUM_AGENT_HOST_RUNTIME names, and it is a Node program. A distroless base carries no
+# Node and no harness, so a conductor built on one can only ever schedule tasks: with
+# default_playbook gone, a Slack thread it cannot infer a playbook for is refused with
+# "no playbook matches this", and there is no configuration that fixes it. Basing this image
+# on podium-agent-runtime is what makes host turns possible in a container deployment, and it
+# is the same extension point docs/agent.md hands everybody else.
 #
-# Pinned by digest, to the same base as the server. A tag is a moving target and a base image
-# is the part of a supply chain nobody looks at.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+# The cost is honest and worth naming: a bigger image, with a shell and a package manager,
+# where the distroless base had neither. The conductor still runs unprivileged, still never
+# touches Docker and still never reads the master key.
+#
+# RUNTIME_IMAGE is pinned BY DIGEST by the release workflow, to the bytes the `agent-runtime`
+# job just pushed — exactly what podium-agent-runtime-dev does, and for the same reason: a
+# tag is whatever it resolves to by the time the next job starts. The default below is only
+# for a hand-rolled build.
+ARG RUNTIME_IMAGE=ghcr.io/podium-ade/podium-agent-runtime:latest
+FROM ${RUNTIME_IMAGE}
 
 # goreleaser's dockers_v2 builds ONE multi-arch image, so it cannot stage both architectures'
 # binaries at the same path: the build context holds linux/amd64/<binary> and
@@ -18,6 +30,12 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 # here with `"/<binary>": not found`. See ../../docs/quickstart.md#building-the-images-yourself.
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/podium-agent /usr/local/bin/podium-agent
+
+# podium-runner is how a host turn says anything at all: the runtime writes its events through
+# it. A task gets one bind-mounted by the node it runs on; a host turn has no node to do that,
+# so the binary has to be in this image. PODIUM_AGENT_RUNNER_BIN below is its path, and a host
+# runtime without it refuses to start.
+COPY $TARGETPLATFORM/podium-runner /usr/local/bin/podium-runner
 
 # A STARTER AGENT PROFILE, at the path PODIUM_AGENT_PROFILE_DIR already defaults to. The
 # conductor refuses to start without a profile directory holding profile.yaml, and there is no
@@ -35,10 +53,21 @@ COPY $TARGETPLATFORM/podium-agent /usr/local/bin/podium-agent
 # want.
 COPY examples/agent /etc/podium/agent
 
-# Unprivileged. The conductor talks to Postgres, the Podium API and Slack, and none of that
-# wants root. It never touches Docker and never reads the master key. 65532 is distroless's
-# nonroot user, and it is why PODIUM_AGENT_PROFILE_DIR is mounted read-only.
-USER 65532:65532
+# Host turns, ON by default, because an image that carries the runtime and does not use it is
+# the confusing half. The runtime image put its entrypoint at this path and leaves `node` on
+# PATH, which is what PODIUM_AGENT_HOST_NODE defaults to. An operator who wants every turn to
+# be a container task again sets PODIUM_AGENT_HOST_RUNTIME to the empty string.
+ENV PODIUM_AGENT_HOST_RUNTIME=/opt/podium-agent/dist/main.js \
+    PODIUM_AGENT_RUNNER_BIN=/usr/local/bin/podium-runner
+
+# uid 1000, the `agent` user the runtime image already owns and every Podium agent image runs
+# as. The distroless 65532 went with the old base; a bind-mounted profile directory has to be
+# readable by 1000 now.
+USER 1000:1000
+
+# The runtime image's WORKDIR is /workspace, which is a task's mount and means nothing to a
+# conductor. A host turn makes its own working directory under PODIUM_AGENT_HOST_DIR.
+WORKDIR /
 
 # PODIUM_AGENT_LISTEN defaults to loopback, which inside a container means nothing outside it
 # can connect. A container deployment sets PODIUM_AGENT_LISTEN=0.0.0.0:8090 and publishes
