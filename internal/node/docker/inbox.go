@@ -64,7 +64,10 @@ func (e *Executor) listenInbox(taskID string) (*inboxLink, error) {
 	}
 
 	l := &inboxLink{path: path, ln: ln}
-	go l.accept()
+	// The goroutine is handed the listener rather than reading l.ln: close() nils that
+	// field under the mutex, and an accept loop reading it unlocked raced with exactly
+	// that and dereferenced nil.
+	go l.accept(ln)
 	return l, nil
 }
 
@@ -78,9 +81,14 @@ func (e *Executor) inboxSocketPath(taskID string) string {
 
 // accept takes the next connection and flushes anything that arrived before it. One
 // connection at a time: the runtime holds one for the life of an ask, then dials again.
-func (l *inboxLink) accept() {
+//
+// It takes the listener as an argument and never touches l.ln. close() sets that field to
+// nil while holding the mutex, so a loop that re-read it on every iteration could see the
+// nil and panic; close() also closes this listener, which is what ends the loop — Accept
+// returns an error and the goroutine returns.
+func (l *inboxLink) accept(ln net.Listener) {
 	for {
-		c, err := l.ln.Accept()
+		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
