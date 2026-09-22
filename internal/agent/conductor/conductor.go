@@ -409,6 +409,45 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	}()
 }
 
+// runningDelegations is what this conversation already has in flight, for the brief. A
+// failure is logged and the turn runs without the list: a thinner brief is worse than a
+// complete one and better than no turn.
+func (c *Conductor) runningDelegations(ctx context.Context, ref string) []BriefRunningDelegation {
+	if c.store == nil || ref == "" {
+		return nil
+	}
+	rows, err := c.store.RunningDelegationsForRef(ctx, ref)
+	if err != nil {
+		c.logger.WarnContext(ctx, "listing the conversation's running delegations failed",
+			"ref", ref, "error", err)
+		return nil
+	}
+	out := make([]BriefRunningDelegation, 0, len(rows))
+	for _, d := range rows {
+		out = append(out, BriefRunningDelegation{
+			ID:          d.ID,
+			Playbook:    d.Playbook,
+			Instruction: headOf(d.Instruction, 160),
+			StartedAt:   BriefTimestamp(d.CreatedAt),
+		})
+	}
+	return out
+}
+
+// headOf is the first line of s, cut to n runes. A delegation's instruction is a paragraph
+// and the brief only needs enough of it to tell two tasks apart.
+func headOf(s string, n int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 // setAwaiting records that this session's running task asked a question and is
 // waiting. The next inbound is injected into that task instead of starting a turn.
 func (c *Conductor) setAwaiting(sessionID, taskID string) {
@@ -640,7 +679,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	var menu []DelegablePlaybook
 	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.hostBrief(brief, menu)
+		c.hostBrief(brief, menu, c.runningDelegations(ctx, ev.Ref))
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
