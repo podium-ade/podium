@@ -58,7 +58,10 @@ jobs:
 
   release:
     name: goreleaser
-    needs: [license]
+    # agent-runtime too, and not just for ordering's sake: the agent image now builds FROM
+    # the runtime image by digest, so the runtime has to exist before goreleaser builds the
+    # conductor. This serialises the two halves of a release that used to run side by side.
+    needs: [license, agent-runtime]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release and upload artifacts
@@ -121,6 +124,11 @@ jobs:
           # Keyless signing: cosign reads the workflow's OIDC identity, so the signature
           # names this repository and this workflow rather than a key somebody holds.
           COSIGN_EXPERIMENTAL: "1"
+          # The runtime the agent image layers on. By DIGEST, not by tag: the conductor has
+          # to carry the bytes this release's agent-runtime job pushed, not whatever the tag
+          # resolves to by now. .goreleaser.yaml reads it as the RUNTIME_IMAGE build arg, and
+          # goreleaser fails the build if it is unset rather than shipping a stale runtime.
+          PODIUM_RUNTIME_IMAGE: ${{ needs.agent-runtime.outputs.image }}@${{ needs.agent-runtime.outputs.digest }}
 
   # ===========================================================================
   # podium-agent-runtime — the image an agent turn runs in.
