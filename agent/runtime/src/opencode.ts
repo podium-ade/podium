@@ -130,17 +130,19 @@ export interface Event {
   type: string;
   sessionID?: string;
   part?: {
+    id?: string;
     type?: string;
-    /** text carries an assistant message. */
+    /** text carries an assistant message, or the thought on a reasoning event. */
     text?: string;
     /** tool is the tool's name on a tool_use event. */
     tool?: string;
+    callID?: string;
     /** reason is why a step ended: "tool-calls" when it will continue, "stop" when done. */
     reason?: string;
     tokens?: { total?: number; input?: number; output?: number; reasoning?: number };
     /** cost is what the step cost, in USD. It is what turn.json reports. */
     cost?: number;
-    state?: { status?: string; title?: string };
+    state?: { status?: string; title?: string; input?: unknown; output?: unknown; error?: unknown };
   };
 }
 
@@ -474,6 +476,8 @@ export function invocation(opts: {
     "--agent",
     AgentName,
     "--auto",
+    // Reasoning blocks are off by default outside interactive mode. The chat shows them.
+    "--thinking",
     "--model",
     `${opts.providerID}/${opts.model}`,
     "--dir",

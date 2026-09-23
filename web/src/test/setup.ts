@@ -85,3 +85,6 @@ if (typeof URL.createObjectURL !== "function") {
   URL.createObjectURL = () => "blob:test";
   URL.revokeObjectURL = () => {};
 }
+
+// jsdom does no layout, and assistant-ui's thread viewport scrolls with it.
+Element.prototype.scrollTo ??= function scrollTo() {};
