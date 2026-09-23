@@ -137,6 +137,13 @@ describe("buildSystemPrompt", () => {
     };
     expect(buildSystemPrompt(later)).not.toContain("chat-title.txt");
     expect(buildSystemPrompt(golden())).not.toContain("chat-title.txt");
+    // A Slack thread is listed as a chat too, so its first turn is asked for a name as
+    // well. golden() is a slack brief; only its transcript has to be first-turn.
+    const slackFirst = {
+      ...golden(),
+      transcript: [{ role: "user" as const, author: "alice", ts: "2026-09-03T10:00:00Z", text: "hi" }],
+    };
+    expect(buildSystemPrompt(slackFirst)).toContain("chat-title.txt");
   });
 
   it("does not tell a host turn it has a container, because it has not got one", () => {

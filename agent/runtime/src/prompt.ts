@@ -30,7 +30,7 @@ export function buildSystemPrompt(brief: TurnBrief): string {
   if (onHost(brief) && brief.source.kind === "slack" && brief.delegation) {
     sections.push(slackPlaybookBlock(brief));
   }
-  if (brief.source.kind === "chat" && firstChatTurn(brief)) {
+  if (titledConversation(brief) && firstChatTurn(brief)) {
     sections.push(chatTitleBlock());
   }
   if (brief.memory) {
@@ -144,13 +144,33 @@ function delegationBlock(brief: TurnBrief): string {
     const summary = p.summary && p.summary !== "" ? `: ${p.summary}` : "";
     return `- \`${p.name}\`${carries}${summary}`;
   });
+  const running = brief.delegation?.running ?? [];
+  const inFlight =
+    running.length === 0
+      ? ""
+      : `
+
+Already running in this conversation — started here and NOT finished:
+
+${running
+  .map(
+    (d) =>
+      `- \`${d.id}\` (\`${d.playbook}\`${d.started_at ? `, started ${d.started_at}` : ""})${
+        d.instruction ? `: ${d.instruction}` : ""
+      }`,
+  )
+  .join("\n")}
+
+If this message adds to or corrects one of those, \`podium_inject_delegation\` into it rather
+than delegating again. Delegate only for a genuinely new piece of work.
+`;
   return `# Delegating work
 
 Work that needs a machine goes to a Podium task, through \`podium_delegate\`. The playbooks
 you may ask for, and nothing else:
 
 ${menu.join("\n")}
-
+${inFlight}
 How to do it well:
 
 - The instruction you pass is the ONLY thing the task is told beyond this conversation. Write
@@ -244,10 +264,18 @@ function firstChatTurn(brief: TurnBrief): boolean {
   return !brief.transcript.some((e) => e.role === "assistant");
 }
 
+// titledConversation is a source whose threads are listed as chats and can be renamed. A
+// Slack thread is one: it is mirrored into the same list as a web chat, so without this it
+// kept the fallback name taken verbatim from the first message.
+function titledConversation(brief: TurnBrief): boolean {
+  const kind = brief.source.kind;
+  return kind === "chat" || kind === "slack" || kind === "github";
+}
+
 function chatTitleBlock(): string {
   return `# This chat
 
-This is the first message of a web chat. Write a 3–6 word title for it to ${ArtifactsDir}/${ChatTitleName} — one line, no quotes, no trailing punctuation. Do not mention the title or that file in your answer.`;
+This is the first message of this conversation. Write a 3–6 word title for it to ${ArtifactsDir}/${ChatTitleName} — one line, no quotes, no trailing punctuation. Do not mention the title or that file in your answer.`;
 }
 
 function transcriptBlock(brief: TurnBrief): string {
