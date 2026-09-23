@@ -562,7 +562,7 @@ And what it does not give you:
   the server advertises, which is frequently everything it has. The operator's own `scope` is
   the only control, and nothing checks that what came back is what was asked for beyond
   recording it.
-- **The browser nominates the callback URL.** It is held to https-or-loopback and to one fixed
+- **The browser nominates the callback URL.** It is held to http(s) and to one fixed
   path, so it cannot be pointed at an arbitrary endpoint — but a caller who can reach this API
   can still nominate a different *host* on that path. The code delivered there is not redeemable
   without the verifier the conductor kept, and the caller is already an authenticated operator

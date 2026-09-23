@@ -358,16 +358,34 @@ export function writeConfig(cfg: Config): string {
       // second `podium` would replace the delegation a host turn works through.
       throw new Error(`mcp server ${server.name} may not use a reserved name`);
     }
+    const config = server.config ?? {};
+    // The conductor refuses these at save time. Refused again because the harness expands
+    // {env:} and {file:} anywhere in its config, and one here would send the container's own
+    // credentials to the server.
+    if (/\{(env|file):/.test(JSON.stringify(config))) {
+      throw new Error(`mcp server ${server.name} config may not reference {env:} or {file:}`);
+    }
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries((config.headers ?? {}) as Record<string, string>)) {
+      if (key.toLowerCase() === "authorization") {
+        throw new Error(`mcp server ${server.name} config may not set ${key}`);
+      }
+      headers[key] = value;
+    }
+    // No token means no Authorization header, which is what an unauthenticated server wants.
+    // Where there is one, {env:...} is resolved by the harness, so the token is never written
+    // to disk and never appears in this config file — exactly as memory's is.
+    if (server.token_env) {
+      headers.Authorization = `Bearer {env:${server.token_env}}`;
+    }
+    // The config first, so the fields the form owns win over a key of the same name.
+    const { headers: _, ...rest } = config;
     mcp[server.name] = {
+      ...rest,
       type: "remote",
       url: server.url,
       enabled: true,
-      // No token means no header, which is what an unauthenticated server wants. Where
-      // there is one, {env:...} is resolved by the harness, so the token is never written
-      // to disk and never appears in this config file — exactly as memory's is.
-      ...(server.token_env
-        ? { headers: { Authorization: `Bearer {env:${server.token_env}}` } }
-        : {}),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
   }
   if (Object.keys(mcp).length > 0) {

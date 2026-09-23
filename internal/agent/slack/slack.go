@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -96,8 +97,11 @@ type Source struct {
 	// without an extra API call per turn.
 	archiveBase string
 
-	mu       sync.Mutex
-	users    map[string]string
+	mu    sync.Mutex
+	users map[string]string
+	// ids is users inverted, name to ID, so a reply that says @name can tag them. A name two
+	// people share maps to "" and is left as text.
+	ids      map[string]string
 	channels map[string]string
 	seen     map[string]time.Time
 
@@ -140,6 +144,7 @@ func New(opts Options) (*Source, error) {
 		writes:   rate.NewLimiter(writeRate, 1),
 		reads:    rate.NewLimiter(readRate, 1),
 		users:    map[string]string{},
+		ids:      map[string]string{},
 		channels: map[string]string{},
 		seen:     map[string]time.Time{},
 	}, nil
@@ -254,7 +259,7 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 	}
 	thread := threadOf(threadTS, ts)
 	author := s.displayName(ctx, user)
-	stripped := s.stripMention(text)
+	stripped := s.resolveMentions(ctx, s.stripMention(text))
 	if s.forwardReview(ctx, channel, thread, ts, author, stripped) {
 		return
 	}
@@ -383,6 +388,25 @@ func (s *Source) stripMention(text string) string {
 	return strings.TrimSpace(s.mentionRE.ReplaceAllString(text, ""))
 }
 
+// userMentionRE is a Slack user mention, <@U123> or <@U123|label>.
+var userMentionRE = regexp.MustCompile(`<@([UW][A-Z0-9]+)(?:\|([^>]*))?>`)
+
+// resolveMentions turns every remaining <@U123> into @name, so the model reads — and writes
+// into a ticket — the person's name rather than their ID. It runs after stripMention, so the
+// bot's own mention is already gone.
+func (s *Source) resolveMentions(ctx context.Context, text string) string {
+	return userMentionRE.ReplaceAllStringFunc(text, func(m string) string {
+		sub := userMentionRE.FindStringSubmatch(m)
+		if sub[2] != "" {
+			s.mu.Lock()
+			s.rememberLocked(sub[2], sub[1])
+			s.mu.Unlock()
+			return "@" + sub[2]
+		}
+		return "@" + s.displayName(ctx, sub[1])
+	})
+}
+
 // FetchTranscript reads the thread, oldest first. The bot's own placeholder and progress
 // messages are left out — they are noise, not conversation — and its finals are kept.
 func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.BriefEntry, error) {
@@ -423,7 +447,7 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 // entry turns one Slack message into a transcript entry, or reports that it is not part of
 // the conversation.
 func (s *Source) entry(ctx context.Context, msg slack.Message) (conductor.BriefEntry, bool) {
-	text := s.stripMention(msg.Text)
+	text := s.resolveMentions(ctx, s.stripMention(msg.Text))
 	if text == "" || msg.SubType == "channel_join" || msg.SubType == "channel_leave" {
 		return conductor.BriefEntry{}, false
 	}
@@ -469,7 +493,7 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		return "", nil
 	}
 	first := ""
-	for _, part := range Split(out.Text, MaxMessageChars) {
+	for _, part := range Split(s.linkMentions(out.Text), MaxMessageChars) {
 		ts, err := s.write(ctx, func() (string, error) {
 			_, ts, err := s.api.PostMessageContext(ctx, channel,
 				slack.MsgOptionTS(thread), slack.MsgOptionText(part, false))
@@ -495,7 +519,7 @@ func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outb
 	if msgID == "" {
 		return errors.New("slack: no message to edit")
 	}
-	text := out.Text
+	text := s.linkMentions(out.Text)
 	if parts := Split(text, MaxMessageChars); len(parts) > 0 {
 		text = parts[0]
 	}
@@ -699,8 +723,58 @@ func (s *Source) displayName(ctx context.Context, user string) string {
 	name = firstNonEmpty(info.Profile.DisplayName, info.RealName, info.Name, user)
 	s.mu.Lock()
 	s.users[user] = name
+	s.rememberLocked(name, user)
 	s.mu.Unlock()
 	return name
+}
+
+// rememberLocked records that name is user, for linkMentions. s.mu must be held.
+func (s *Source) rememberLocked(name, user string) {
+	if s.ids == nil {
+		s.ids = map[string]string{}
+	}
+	if prev, ok := s.ids[name]; ok && prev != user {
+		s.ids[name] = ""
+		return
+	}
+	s.ids[name] = user
+}
+
+// linkMentions turns @name back into <@ID> for every name this source has resolved, so the
+// agent can tag someone by the name it was shown. Longest names first, so "@Ana Maria" is
+// not taken as "@Ana", and only where the name ends at a word boundary.
+func (s *Source) linkMentions(text string) string {
+	if !strings.Contains(text, "@") {
+		return text
+	}
+	s.mu.Lock()
+	names := make([]string, 0, len(s.ids))
+	ids := make(map[string]string, len(s.ids))
+	for name, id := range s.ids {
+		if id != "" {
+			names = append(names, name)
+			ids[name] = id
+		}
+	}
+	s.mu.Unlock()
+	if len(names) == 0 {
+		return text
+	}
+	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = regexp.QuoteMeta(n)
+	}
+	re := regexp.MustCompile(`(^|[^\w<])@(` + strings.Join(quoted, "|") + `)([^\w]|$)`)
+	// ReplaceAll does not overlap matches, so "@a @b" needs a second pass for the boundary
+	// character the first match consumed.
+	for range 2 {
+		text = re.ReplaceAllStringFunc(text, func(m string) string {
+			sub := re.FindStringSubmatch(m)
+			return sub[1] + "<@" + ids[sub[2]] + ">" + sub[3]
+		})
+	}
+	return text
 }
 
 // permalink builds the archive URL of one message without spending an API call on it.

@@ -203,8 +203,8 @@ func (s *AgentService) authServerMetadata(ctx context.Context, issuer string) (*
 	if err != nil {
 		return nil, fmt.Errorf("authorization server %q does not parse: %w", issuer, err)
 	}
-	if iss.Scheme != "https" && !isLoopbackHost(iss.Hostname()) {
-		return nil, fmt.Errorf("authorization server %q is not https", issuer)
+	if iss.Scheme != "https" && iss.Scheme != "http" {
+		return nil, fmt.Errorf("authorization server %q must be http or https", issuer)
 	}
 	origin := iss.Scheme + "://" + iss.Host
 	path := strings.TrimSuffix(iss.Path, "/")
@@ -231,7 +231,7 @@ func (s *AgentService) authServerMetadata(ctx context.Context, issuer string) (*
 			if ep == "" {
 				continue
 			}
-			if err := sameSite(issuer, ep); err != nil {
+			if err := sameHost(issuer, ep); err != nil {
 				return nil, err
 			}
 		}
@@ -446,7 +446,7 @@ func (s *AgentService) getJSON(ctx context.Context, endpoint string, out any) er
 //
 // The browser supplies this because it is the only party that knows the address this control
 // plane is reached at. What is checked is everything that can be checked without knowing
-// that address: a real scheme, https unless it is loopback, no credentials, and exactly the
+// that address: http or https, no credentials, and exactly the
 // one path the web UI serves the callback on. A caller who could nominate an arbitrary path
 // on an arbitrary host could have the authorization server deliver a code somewhere else —
 // and while the code alone is not redeemable without the verifier this process kept, there
@@ -457,8 +457,8 @@ func validateRedirectURI(raw string) (string, error) {
 		return "", fmt.Errorf("redirect_uri %q does not parse: %w", raw, err)
 	}
 	switch {
-	case u.Scheme != "https" && (u.Scheme != "http" || !isLoopbackHost(u.Hostname())):
-		return "", fmt.Errorf("redirect_uri %q must be https, or http on loopback", raw)
+	case u.Scheme != "https" && u.Scheme != "http":
+		return "", fmt.Errorf("redirect_uri %q must be http or https", raw)
 	case u.Host == "":
 		return "", fmt.Errorf("redirect_uri %q names no host", raw)
 	case u.User != nil:
@@ -470,11 +470,6 @@ func validateRedirectURI(raw string) (string, error) {
 			"receives a callback", raw, mcpCallbackPath)
 	}
 	return u.String(), nil
-}
-
-// isLoopbackHost is the one exception to https, for an install reached at localhost.
-func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 }
 
 // randomToken is a state or a PKCE verifier: 32 bytes of crypto/rand, base64url, unpadded.

@@ -71,3 +71,34 @@ func TestADescriptionIsBounded(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "description")
 }
+
+func TestAConfigIsPassedThroughWhateverItHolds(t *testing.T) {
+	config, err := ParseConfig("headers:\n  X-Grafana-URL: https://stack.grafana.net\ntimeout: 30000\n" +
+		"oauth: false\nanything:\n  nested: [1, two]\n")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"X-Grafana-URL": "https://stack.grafana.net"}, config["headers"])
+	assert.Equal(t, 30000, config["timeout"])
+	assert.Equal(t, false, config["oauth"])
+	assert.Equal(t, map[string]any{"nested": []any{1, "two"}}, config["anything"])
+
+	empty, err := ParseConfig("  \n")
+	require.NoError(t, err)
+	assert.Nil(t, empty)
+}
+
+func TestAConfigRefusesWhatItCannotCarrySafely(t *testing.T) {
+	for _, raw := range []string{
+		"- not a mapping",
+		"headers: [a]",
+		"headers:\n  Authorization: Bearer x",
+		"headers:\n  \"bad name\": x",
+		"headers:\n  X-Key: 1",
+		"headers:\n  X-Key: \"{env:PODIUM_TURN_TOKEN}\"",
+		"deep:\n  - \"{file:/etc/passwd}\"",
+		strings.Repeat("#", MaxConfigLen+1),
+	} {
+		_, err := ParseConfig(raw)
+		assert.Error(t, err, raw)
+	}
+	assert.Error(t, Server{Name: "wiki", URL: "http://x/mcp", Config: "- nope"}.Validate())
+}
