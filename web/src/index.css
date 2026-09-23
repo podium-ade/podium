@@ -157,6 +157,13 @@ body {
   isolation: isolate;
 }
 
+/* Highlighted code carries both Shiki themes; the dark one is inline, the light one a variable. */
+@media (prefers-color-scheme: light) {
+  .chat-code span {
+    color: var(--shiki-light) !important;
+  }
+}
+
 /* Numbers that sit in columns — durations, exit codes, counts — must not dance as they tick. */
 .tabular {
   font-variant-numeric: tabular-nums;

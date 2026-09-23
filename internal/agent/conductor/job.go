@@ -40,9 +40,9 @@ type job struct {
 	timeout time.Duration
 	skills  []string
 	// mcpServers is the MCP servers this turn may reach, by name, out of the conductor's
-	// registry. A playbook's own list; empty for the assistant, which reaches other systems
-	// by delegating to a playbook that has them rather than by holding their credentials
-	// itself.
+	// registry. A playbook's own list, or the assistant's from profile.yaml — empty by
+	// default, so the assistant reaches other systems by delegating unless an operator granted
+	// it a server directly.
 	mcpServers []string
 	// playbook is the container half, and the zero Playbook for the assistant. Only the
 	// task path reads it.
@@ -85,6 +85,7 @@ func assistantJob(a profiles.Assistant) job {
 		maxTurns:     a.MaxTurns,
 		timeout:      a.Timeout,
 		skills:       a.Skills,
+		mcpServers:   a.MCPServers,
 		onHost:       true,
 	}
 }

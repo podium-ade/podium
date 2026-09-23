@@ -562,7 +562,7 @@ And what it does not give you:
   the server advertises, which is frequently everything it has. The operator's own `scope` is
   the only control, and nothing checks that what came back is what was asked for beyond
   recording it.
-- **The browser nominates the callback URL.** It is held to https-or-loopback and to one fixed
+- **The browser nominates the callback URL.** It is held to http(s) and to one fixed
   path, so it cannot be pointed at an arbitrary endpoint — but a caller who can reach this API
   can still nominate a different *host* on that path. The code delivered there is not redeemable
   without the verifier the conductor kept, and the caller is already an authenticated operator
@@ -771,6 +771,13 @@ It does reach one more place than a task's copy does — the environment of the 
 runtime, and therefore anything on that machine that can read a process's environment. A task's
 credential is equally visible through `docker inspect` on its node; the difference is that a
 host turn's node is the conductor's own machine.
+
+An **MCP server's access token** is copied the same way, into the `token` column of its
+`mcp_servers` row, on every path that writes the secret — a pasted token, a sign-in and a
+refresh — and cleared with it. It is spent only by an assistant whose `profile.yaml` names the
+server in `mcp_servers`, and it reaches that turn's runtime environment and nowhere else. A
+token stored before the column existed has no copy, and the assistant says so by name rather
+than connecting without one: save it again, or wait for a signed-in server's next refresh.
 
 **So treat `podium_agent`'s database as holding credentials, because it does.** Back it up the
 way you would back up a secret, and give it the same access controls as the control plane's

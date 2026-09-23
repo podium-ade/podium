@@ -428,6 +428,9 @@ effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
 skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
                              # Unset means none. FILE ONLY — no browser override
+mcp_servers: []              # optional; MCP servers the ASSISTANT may use directly, by name,
+                             # out of the registry — so editing a ticket needs no task.
+                             # Unset means none, and it delegates instead. FILE ONLY
 max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
                              # is the opposite of a playbook's. FILE ONLY
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
@@ -436,8 +439,8 @@ timeout: 15m                 # optional; the wall clock on one assistant turn. U
 # channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
-`skills` and `max_turns` are file-only on purpose. What the process running beside your master
-key may execute, and for how long, is a decision that belongs in a repository next to a review
+`skills`, `mcp_servers` and `max_turns` are file-only on purpose. What the process running beside
+your master key may execute, reach, and for how long, is a decision that belongs in a repository next to a review
 — not behind a form in a browser. Everything above them can be overridden from the Assistant
 screen, which stores the override in the conductor's database and leaves the file alone.
 
@@ -801,9 +804,23 @@ split the model credentials and memory's key follow, for the same reason: a brie
 environment variable on a task spec, readable by anything that can read the spec.
 
 **Every server is `Authorization: Bearer <token>`.** That is what the MCP authorization
-specification says, so there is no header to configure and no way to get it wrong. A server
-registered with no credential reaches its turns with no authorization header, which is what an
-unauthenticated server wants.
+specification says, so the credential has no header to configure. A server registered with no
+credential reaches its turns with no authorization header, which is what an unauthenticated
+server wants.
+
+**Anything else goes in the server's YAML config** (Advanced, on the form). It is passed through
+to the harness's entry for the server as written — `headers`, `timeout` (milliseconds), or any
+other key — and the form's own `url` wins over one of the same name:
+
+```yaml
+headers:
+  X-Grafana-URL: https://<your-stack>.grafana.net
+timeout: 30000
+```
+
+It is stored in clear and carried in the brief, so it is not for secrets: it may not set
+`Authorization`, and a value may not contain `{env:}` or `{file:}`, which the harness would
+expand into the turn container's own credentials.
 
 **There are two ways to get that token into the registry** and they end in the same place —
 the same secret, the same variable, the same header — so nothing downstream of the conductor
@@ -855,7 +872,7 @@ control plane is actually reached at — a tailnet name, a reverse proxy, `local
 what makes a redirect flow workable here, and it is exactly the objection the subscription
 sign-in avoided by using a device code instead (see `internal/agent/api/oauth.go`): dynamic
 client registration answers it, by registering whatever this install uses at sign-in time. The
-conductor still holds it to a shape — https, or http on loopback, no query, no fragment, and
+conductor still holds it to a shape — http or https, no query, no fragment, and
 the one path `/agent/mcp/callback`.
 
 **The PKCE verifier never leaves the conductor**, so the authorization code passing through a

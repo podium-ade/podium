@@ -90,8 +90,9 @@ replace it.
   `progress` is a note that may be superseded by the next one, `final` is the answer.
   An interactive playbook also emits `question`: the conductor posts it as a durable
   message and injects the next human reply into the same task. The agent runtime uses
-  one more, `accounting`, whose text is a JSON document for its reader and not for a
-  human; see docs/agent.md.
+  two more whose text is a JSON document for a reader and not for a human: `accounting`
+  (see docs/agent.md), and `activity` — one finished tool call or reasoning block, capped
+  and drawn only by the web chat; every other relay drops it.
 - **`text` is capped at 32 KiB** and the runner **refuses** a longer one with exit 2 rather
   than truncating: half a message posted somewhere is worse than one that failed loudly, and
   the producer is what knows how to split it. Trailing whitespace is trimmed and an empty
@@ -107,7 +108,7 @@ podium-runner message --type progress -            # TEXT of "-" reads stdin
 ```
 
 `--type` takes any non-empty string and defaults to `final`. `progress` and `final` are the
-canonical two; the agent runtime also emits `accounting`.
+canonical two; the agent runtime also emits `accounting` and `activity`.
 
 Like `artifact add` it is a second process in the container writing one line to the same
 socket, so a task says what it has to say from any shell with no library and no credentials.

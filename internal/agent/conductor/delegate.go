@@ -640,7 +640,8 @@ func (r *delegationRun) onEvent(ctx context.Context, e *podiumv1.TaskEvent) {
 	// The same rule the sink applies: anything that is not a final is progress. It is
 	// recorded here as well as relayed, because a turn polling GetDelegation wants to see
 	// movement rather than only "running".
-	if msg.GetType() != OutFinal && msg.GetType() != OutQuestion && msg.GetType() != MsgQuestion {
+	if msg.GetType() != OutFinal && msg.GetType() != OutQuestion && msg.GetType() != MsgQuestion &&
+		msg.GetType() != MsgActivity {
 		r.setProgress(msg.GetText())
 	}
 	r.relay(ctx, e)

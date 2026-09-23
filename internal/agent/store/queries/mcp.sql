@@ -1,12 +1,12 @@
 -- name: ListMcpServers :many
-select name, url, description, enabled, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, created_by, updated_by, updated_at
+select name, url, description, enabled, config, token_hint, token_set_by,
+       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
 from mcp_servers
 order by name;
 
 -- name: GetMcpServer :one
-select name, url, description, enabled, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, created_by, updated_by, updated_at
+select name, url, description, enabled, config, token_hint, token_set_by,
+       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
 from mcp_servers
 where name = @name;
 
@@ -15,8 +15,8 @@ where name = @name;
 -- it was there to replace, without a read before the write.
 
 -- name: InsertMcpServer :execrows
-insert into mcp_servers (name, url, description, enabled, created_by, updated_by, updated_at)
-values (@name, @url, @description, @enabled, @created_by, @updated_by, @updated_at)
+insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at)
+values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at)
 on conflict (name) do nothing;
 
 -- name: UpdateMcpServer :execrows
@@ -26,6 +26,7 @@ update mcp_servers
 set url = @url,
     description = @description,
     enabled = @enabled,
+    config = @config,
     updated_by = @updated_by,
     updated_at = @updated_at
 where name = @name;
@@ -40,6 +41,7 @@ set token_hint = @token_hint,
     token_secret_version = @token_secret_version,
     auth_kind = @auth_kind,
     oauth = null,
+    token = @token,
     updated_by = @token_set_by,
     updated_at = @token_set_at
 where name = @name;
@@ -54,6 +56,7 @@ set token_hint = '',
     token_secret_version = @token_secret_version,
     auth_kind = @auth_kind,
     oauth = @oauth,
+    token = @token,
     updated_by = @token_set_by,
     updated_at = @token_set_at
 where name = @name;
@@ -63,7 +66,8 @@ where name = @name;
 -- neither `updated_by` nor the provenance of the sign-in.
 update mcp_servers
 set token_secret_version = @token_secret_version,
-    oauth = @oauth
+    oauth = @oauth,
+    token = @token
 where name = @name;
 
 -- name: ClearMcpServerTokenMeta :execrows
@@ -76,6 +80,7 @@ set token_hint = '',
     token_secret_version = 0,
     auth_kind = '',
     oauth = null,
+    token = '',
     updated_by = @updated_by,
     updated_at = @updated_at
 where name = @name;

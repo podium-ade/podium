@@ -3090,6 +3090,11 @@ type ChatMessage struct {
 	// progress message is stored and rendered like any other; it is a role of its own so the
 	// transcript a turn is briefed with can leave it out, and so an attachment lands on the
 	// answer rather than on the last thought before it.
+	//
+	// "activity" is one tool call or reasoning block a turn reported on its way, and text is
+	// then a small JSON document rather than prose: {"kind":"tool","tool","title","status",
+	// "input","output","error"} or {"kind":"reasoning","text"}, every field a string and
+	// capped (agent/runtime/src/activity.ts). It is the task's and untrusted like any text.
 	Role        string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
 	Text        string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	Attachments []*ChatAttachment      `protobuf:"bytes,5,rep,name=attachments,proto3" json:"attachments,omitempty"`
@@ -6264,8 +6269,13 @@ type McpServer struct {
 	// false until something has looked; a server that answers nothing is not a server that
 	// cannot be used, only one whose credential has to be pasted.
 	OauthSupported bool `protobuf:"varint,19,opt,name=oauth_supported,json=oauthSupported,proto3" json:"oauth_supported,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// config is the operator's YAML for what the form does not show — `headers`, `timeout`, or
+	// any other harness option — passed through as written, with the form's own fields winning.
+	// It is stored and carried in clear, so it may not set Authorization — that is the token's
+	// job.
+	Config        string `protobuf:"bytes,20,opt,name=config,proto3" json:"config,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *McpServer) Reset() {
@@ -6431,6 +6441,13 @@ func (x *McpServer) GetOauthSupported() bool {
 	return false
 }
 
+func (x *McpServer) GetConfig() string {
+	if x != nil {
+		return x.Config
+	}
+	return ""
+}
+
 type ListMcpServersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -6523,8 +6540,8 @@ func (x *ListMcpServersResponse) GetMaxPerPlaybook() int32 {
 
 type CreateMcpServerRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// server.name, server.url, server.description and server.enabled are read; the token
-	// metadata and the provenance are the conductor's and are ignored.
+	// server.name, server.url, server.description, server.enabled and server.config are read;
+	// the token metadata and the provenance are the conductor's and are ignored.
 	//
 	// server.enabled has to be set: proto3 gives a bool no field presence, so an omitted one
 	// is `false` and registers a server that is turned off. That is the safe direction — a
@@ -6991,8 +7008,8 @@ type StartMcpOAuthRequest struct {
 	// That is what makes a redirect flow work here at all without every one of those being
 	// registered in advance: the client is registered dynamically, with this value.
 	//
-	// The conductor holds it to a shape: https (or http on loopback, for a dev install), no
-	// query and no fragment, and the one path the web UI serves the callback on.
+	// The conductor holds it to a shape: http or https, no query and no fragment, and the one
+	// path the web UI serves the callback on.
 	RedirectUri string `protobuf:"bytes,2,opt,name=redirect_uri,json=redirectUri,proto3" json:"redirect_uri,omitempty"`
 	// scope narrows the grant. Empty asks for what the server itself advertises, which is the
 	// right default and not always the narrowest one — a server offering a write scope is a
@@ -7987,7 +8004,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\"(\n" +
 	"\x12DeleteSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteSkillResponse\"\x9d\x05\n" +
+	"\x13DeleteSkillResponse\"\xb5\x05\n" +
 	"\tMcpServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12 \n" +
@@ -8015,7 +8032,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12 \n" +
 	"\vrefreshable\x18\x12 \x01(\bR\vrefreshable\x12'\n" +
-	"\x0foauth_supported\x18\x13 \x01(\bR\x0eoauthSupported\"\x17\n" +
+	"\x0foauth_supported\x18\x13 \x01(\bR\x0eoauthSupported\x12\x16\n" +
+	"\x06config\x18\x14 \x01(\tR\x06config\"\x17\n" +
 	"\x15ListMcpServersRequest\"x\n" +
 	"\x16ListMcpServersResponse\x124\n" +
 	"\aservers\x18\x01 \x03(\v2\x1a.podium.agent.v1.McpServerR\aservers\x12(\n" +

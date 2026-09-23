@@ -386,6 +386,19 @@ func TestTheAssistantComesFromTheProfileAndNotFromAPlaybook(t *testing.T) {
 	a := p.Assistant()
 	assert.Equal(t, []string{"validate-pr"}, a.Skills)
 	assert.Equal(t, 12, a.MaxTurns)
+	assert.Empty(t, a.MCPServers, "a profile that names no servers grants none")
+}
+
+func TestTheAssistantMayBeGrantedMCPServers(t *testing.T) {
+	files := base()
+	files["profile.yaml"] = goodProfile + "mcp_servers: [linear]\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"linear"}, p.Assistant().MCPServers)
+
+	files["profile.yaml"] = goodProfile + "mcp_servers: [linear, linear]\n"
+	_, err = Load(write(t, files))
+	require.ErrorContains(t, err, `mcp_servers names "linear" twice`)
 }
 
 // TestTheAssistantHasNoTurnCapUnlessOneIsSet. The opposite of a playbook, on purpose: the

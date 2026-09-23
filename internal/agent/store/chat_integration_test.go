@@ -105,6 +105,11 @@ func TestTheChatListCarriesWhatTheRailShows(t *testing.T) {
 		Text: strings.Repeat("é", ChatPreviewChars+20),
 	})
 	require.NoError(t, err)
+	// A tool call after the answer is not what the rail previews.
+	_, err = s.AppendChatMessage(ctx, ChatMessage{
+		ChatID: spoken.ID, Role: RoleActivity, Text: `{"kind":"tool","tool":"bash"}`,
+	})
+	require.NoError(t, err)
 
 	chats, next, err := s.ListChats(ctx, "alice", 0, "")
 	require.NoError(t, err)

@@ -678,6 +678,11 @@ message ChatMessage {
   // progress message is stored and rendered like any other; it is a role of its own so the
   // transcript a turn is briefed with can leave it out, and so an attachment lands on the
   // answer rather than on the last thought before it.
+  //
+  // "activity" is one tool call or reasoning block a turn reported on its way, and text is
+  // then a small JSON document rather than prose: {"kind":"tool","tool","title","status",
+  // "input","output","error"} or {"kind":"reasoning","text"}, every field a string and
+  // capped (agent/runtime/src/activity.ts). It is the task's and untrusted like any text.
   string role = 3;
   string text = 4;
   repeated ChatAttachment attachments = 5;
@@ -1228,6 +1233,11 @@ message McpServer {
   // false until something has looked; a server that answers nothing is not a server that
   // cannot be used, only one whose credential has to be pasted.
   bool oauth_supported = 19;
+  // config is the operator's YAML for what the form does not show — `headers`, `timeout`, or
+  // any other harness option — passed through as written, with the form's own fields winning.
+  // It is stored and carried in clear, so it may not set Authorization — that is the token's
+  // job.
+  string config = 20;
 }
 
 message ListMcpServersRequest {}
@@ -1240,8 +1250,8 @@ message ListMcpServersResponse {
 }
 
 message CreateMcpServerRequest {
-  // server.name, server.url, server.description and server.enabled are read; the token
-  // metadata and the provenance are the conductor's and are ignored.
+  // server.name, server.url, server.description, server.enabled and server.config are read;
+  // the token metadata and the provenance are the conductor's and are ignored.
   //
   // server.enabled has to be set: proto3 gives a bool no field presence, so an omitted one
   // is `false` and registers a server that is turned off. That is the safe direction — a
@@ -1300,8 +1310,8 @@ message StartMcpOAuthRequest {
   // That is what makes a redirect flow work here at all without every one of those being
   // registered in advance: the client is registered dynamically, with this value.
   //
-  // The conductor holds it to a shape: https (or http on loopback, for a dev install), no
-  // query and no fragment, and the one path the web UI serves the callback on.
+  // The conductor holds it to a shape: http or https, no query and no fragment, and the one
+  // path the web UI serves the callback on.
   string redirect_uri = 2;
   // scope narrows the grant. Empty asks for what the server itself advertises, which is the
   // right default and not always the narrowest one — a server offering a write scope is a
