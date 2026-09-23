@@ -789,6 +789,23 @@ func TestFetchTranscriptDropsTheBotsOwnScaffolding(t *testing.T) {
 	assert.Equal(t, "and the node?", entries[2].Text)
 }
 
+// Somebody else's mention reaches the model as their name, not their ID.
+func TestFetchTranscriptResolvesUserMentions(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("conversations.replies", `{"ok":true,"messages":[
+		{"user":"U1","ts":"100.1","text":"<@UBOT> add <@U2>’s suggestion, and <@U3|carol>’s"}]}`)
+	// The text is resolved before the author, so U2's answer comes first.
+	f.reply("users.info", `{"ok":true,"user":{"id":"U2","name":"bob","profile":{"display_name":"Bob"}}}`)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","name":"alice","profile":{"display_name":"alice"}}}`)
+	s := testSource(t, f)
+
+	entries, err := s.FetchTranscript(t.Context(), Ref("C1", "100.1", "100.1"))
+
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "add @Bob’s suggestion, and @carol’s", entries[0].Text)
+}
+
 // One author costs one users.info however many times they spoke: the name cache is what
 // keeps a long thread from spending a call per message.
 func TestFetchTranscriptResolvesAnAuthorOnce(t *testing.T) {
