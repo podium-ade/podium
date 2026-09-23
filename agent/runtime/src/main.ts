@@ -242,6 +242,9 @@ async function main(): Promise<number> {
   }
 
   let finalText = "";
+  // harnessError is the harness's own reason, from its error event, for a failure that
+  // otherwise reads as nothing but an exit code.
+  let harnessError: string | undefined;
   let held = "";
   let lastProgressAt = 0;
 
@@ -428,6 +431,11 @@ async function main(): Promise<number> {
             break;
           }
 
+          case "error":
+            harnessError = redact(redact(oc.errorOf(event) ?? "", token), process.env.GH_TOKEN);
+            warn(`the harness reported an error: ${harnessError}`);
+            break;
+
           default:
             break;
         }
@@ -446,7 +454,9 @@ async function main(): Promise<number> {
       if (code !== 0 && summary.code === ExitOK && !cancelled) {
         summary.code = ExitHarnessError;
         if (finalText.trim() === "") {
-          finalText = `The turn failed before I could answer: the harness exited ${code}.`;
+          finalText = harnessError
+            ? `The turn failed before I could answer: ${harnessError}`
+            : `The turn failed before I could answer: the harness exited ${code}.`;
         }
       }
       break;

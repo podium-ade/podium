@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  errorOf,
   AgentName,
   BrowserBinary,
   BrowserServer,
@@ -390,5 +391,16 @@ describe("resolveBrowserURL", () => {
     // refuse a turn that may never open a page.
     expect(await resolveBrowserURL("http://nowhere:9222", lookup)).toBe("http://nowhere:9222");
     expect(await resolveBrowserURL("not a url", lookup)).toBe("not a url");
+  });
+});
+
+describe("errorOf", () => {
+  it("reads the harness's reason off an error event", () => {
+    expect(
+      errorOf({ type: "error", error: { name: "APIError", data: { message: "credit balance is too low" } } }),
+    ).toBe("credit balance is too low");
+    expect(errorOf({ type: "error", error: { name: "UnknownError" } })).toBe("UnknownError");
+    expect(errorOf({ type: "error" })).toBe("an unnamed error");
+    expect(errorOf({ type: "text" })).toBeUndefined();
   });
 });

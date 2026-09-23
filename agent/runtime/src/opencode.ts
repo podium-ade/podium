@@ -129,6 +129,8 @@ const PromptName = "system.md";
 export interface Event {
   type: string;
   sessionID?: string;
+  /** error is set on an error event: the harness's own reason for failing. */
+  error?: { name?: string; data?: { message?: string } };
   part?: {
     id?: string;
     type?: string;
@@ -521,4 +523,13 @@ export async function* events(child: Child): AsyncGenerator<{ event: Event; raw:
     }
     yield { event, raw: line };
   }
+}
+
+/** errorOf is the reason an error event gives, or undefined for any other event. */
+export function errorOf(event: Event): string | undefined {
+  if (event.type !== "error") {
+    return undefined;
+  }
+  const why = (event.error?.data?.message ?? event.error?.name ?? "").trim();
+  return why === "" ? "an unnamed error" : why;
 }
