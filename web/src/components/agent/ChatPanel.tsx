@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ellipsis,
-  Hash,
   MessageSquarePlus,
   Pencil,
   Search,
@@ -551,44 +550,56 @@ function ChatRow({
   // the mark is what stops a reader wondering why it has no composer.
   const mirrored = chat.origin !== "" && chat.origin !== "web";
   const where = mirrored ? (chat.channel ? `#${chat.channel}` : chat.origin) : "";
-  const hint = [where, chat.startedBy, chat.preview, relative(chat.lastMessageAt ?? chat.createdAt)]
-    .filter(Boolean)
-    .join(" · ");
+  const hint = (
+    <span className="block max-w-64 space-y-0.5 py-0.5">
+      {where || chat.startedBy ? (
+        <span className="block font-medium text-fg">
+          {[where, chat.startedBy && `started by ${chat.startedBy}`].filter(Boolean).join(" · ")}
+        </span>
+      ) : null}
+      <span className="line-clamp-2 block text-muted">{chat.preview || "Nothing said yet"}</span>
+      <span className="block text-faint">
+        {running ? "Running · " : ""}
+        {relative(chat.lastMessageAt ?? chat.createdAt)}
+      </span>
+    </span>
+  );
 
   return (
     <li
       className={cn(
-        "group relative flex h-9 items-center rounded-lg transition-colors",
+        "group relative flex min-h-9 items-center rounded-lg transition-colors",
         active ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
-      <button
-        type="button"
-        onClick={() => onOpen(chat.id)}
-        onDoubleClick={(e) => {
-          e.preventDefault();
-          start();
-        }}
-        title={hint}
-        aria-current={active ? "true" : undefined}
-        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 text-left outline-none group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8 focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        {running ? (
-          <span className="relative flex size-2 shrink-0" aria-hidden>
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
-            <span className="relative inline-flex size-2 rounded-full bg-run" />
+      <Tooltip label={hint} side="right">
+        <button
+          type="button"
+          onClick={() => onOpen(chat.id)}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            start();
+          }}
+          aria-current={active ? "true" : undefined}
+          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left outline-none group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8 focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {running ? (
+            <span className="relative flex size-2 shrink-0" aria-hidden>
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-run" />
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1">
+            <span className={cn("block truncate text-sm", active ? "text-fg" : "text-fg/85")}>
+              {chat.title}
+            </span>
+            {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
           </span>
-        ) : mirrored ? (
-          <Hash className="size-3.5 shrink-0 text-faint" aria-hidden />
-        ) : null}
-        <span className={cn("min-w-0 flex-1 truncate text-sm", active ? "text-fg" : "text-fg/85")}>
-          {chat.title}
-        </span>
-        {running ? <span className="sr-only">running</span> : null}
-        {where ? <span className="sr-only">{where}</span> : null}
-        {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
-        {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
-      </button>
+          {running ? <span className="sr-only">running</span> : null}
+          {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
+          {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
+        </button>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
