@@ -1686,6 +1686,11 @@ export type ChatMessage = Message<"podium.agent.v1.ChatMessage"> & {
    * transcript a turn is briefed with can leave it out, and so an attachment lands on the
    * answer rather than on the last thought before it.
    *
+   * "activity" is one tool call or reasoning block a turn reported on its way, and text is
+   * then a small JSON document rather than prose: {"kind":"tool","tool","title","status",
+   * "input","output","error"} or {"kind":"reasoning","text"}, every field a string and
+   * capped (agent/runtime/src/activity.ts). It is the task's and untrusted like any text.
+   *
    * @generated from field: string role = 3;
    */
   role: string;

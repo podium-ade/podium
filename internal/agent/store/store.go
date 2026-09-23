@@ -498,6 +498,10 @@ const (
 	// which is why it is not RoleAssistant: the brief leaves it out, and an attachment
 	// lands on the answer rather than on the last thought before it.
 	RoleProgress = "progress"
+	// RoleActivity is one tool call or reasoning block, as the JSON document the runtime
+	// wrote. It is for the web chat to draw and is never history: the brief and the chat
+	// list's preview both leave it out.
+	RoleActivity = "activity"
 )
 
 // ChatSourceKeyPrefix is what a chat's session key starts with. The chat source builds it

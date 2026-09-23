@@ -14,6 +14,7 @@ package conductor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -112,6 +113,10 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 		}
 		return
 	}
+	if msgType == MsgActivity {
+		s.activity(ctx, text)
+		return
+	}
 	if msgType != OutFinal {
 		// Anything that is not a final is progress, whatever it called itself.
 		s.heldProgress = text
@@ -132,6 +137,27 @@ func (s *sink) deliver(ctx context.Context, msgType, text string, attachments []
 		return
 	}
 	s.c.post(ctx, s.src, s.ref, Outbound{Type: OutFinal, TaskID: s.taskID, Text: text})
+}
+
+// activity hands one activity document to a source that draws it, and otherwise only to
+// the mirrored copy of the conversation. The text is the task's and untrusted; it is only
+// checked to be JSON, because a reader parses it.
+func (s *sink) activity(ctx context.Context, text string) {
+	if !json.Valid([]byte(text)) {
+		s.c.logger.DebugContext(ctx, "dropping an activity message that is not JSON", "task_id", s.taskID)
+		return
+	}
+	out := Outbound{Type: OutActivity, TaskID: s.taskID, Text: text}
+	ap, ok := s.src.(ActivityPoster)
+	if !ok {
+		s.c.mirrorSaid(ctx, s.src, s.ref, out)
+		return
+	}
+	// What the turn said before this came before it, so it is shown first.
+	s.flushProgress(ctx)
+	if err := ap.PostActivity(ctx, s.ref, out); err != nil {
+		s.c.logger.WarnContext(ctx, "posting activity to the conversation failed", "ref", s.ref, "error", err)
+	}
 }
 
 // maybeEdit shows the held progress if the throttle allows it. There is no timer: the next

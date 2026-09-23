@@ -1,32 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
-  Bot,
-  Check,
-  Copy,
+  Ellipsis,
   MessageSquarePlus,
   Pencil,
   Search,
   Sparkles,
-  Terminal,
+  SquarePen,
   Trash2,
 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
-  ChatMessageSchema,
   type Assistant,
   type Chat,
-  type ChatMessage,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { absolute, relative, toDate } from "../../lib/format";
-import { Badge } from "../Badge";
+import { relative, toDate } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
@@ -40,16 +34,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import { Tooltip } from "../ui/tooltip";
-import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ConductorDown } from "./ConductorDown";
-import { ChatMarkdown } from "./chat/ChatMarkdown";
+import { toThread } from "../../lib/chatThread";
 
-/** SCROLL_SLACK_PX is how far off the bottom still counts as "at the bottom". */
-const SCROLL_SLACK_PX = 40;
+// The thread, its markdown and its highlighter are most of this screen's weight and none of
+// any other's, so they load with the first conversation opened.
+const ChatThread = lazy(() => import("./chat/ChatThread").then((m) => ({ default: m.ChatThread })));
 
 /** Matches store.MaxChatTitleRunes — the input refuses more, the server does too. */
 const MAX_CHAT_TITLE = 80;
@@ -59,9 +60,8 @@ const MAX_CHAT_TITLE = 80;
  * transcript Podium itself holds.
  *
  * EVERYTHING IN A BUBBLE IS CONTENT. A human wrote the questions and a task wrote the
- * answers; this screen renders both through the markdown subset in lib/markdown.ts, which
- * emits no raw HTML and treats any link scheme but http(s) as text. Nothing here interprets
- * what an agent said.
+ * answers; this screen renders both through chat/MarkdownText.tsx, which emits no raw HTML
+ * and makes any link scheme but a web one inert. Nothing here interprets what an agent said.
  */
 export function ChatPanel() {
   const navigate = useNavigate();
@@ -355,31 +355,29 @@ function ChatRail({
   const groups = useMemo(() => groupChats(filtered), [filtered]);
 
   return (
-    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
-      <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
-        <Tooltip label="New chat, or press N">
-          <Button
-            type="button"
-            size="sm"
-            data-testid="chat-new"
-            disabled={creating}
-            onClick={onNew}
-            className="w-full justify-center"
-          >
-            <MessageSquarePlus />
-            {creating ? "Opening…" : "New chat"}
-          </Button>
-        </Tooltip>
+    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-64 sm:self-stretch sm:border-r sm:border-b-0">
+      <div className="flex flex-col gap-1 px-2 pt-3 pb-2">
+        <button
+          type="button"
+          data-testid="chat-new"
+          disabled={creating}
+          onClick={onNew}
+          className="group/new flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-fg transition-colors hover:bg-raised/70 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-60"
+        >
+          <SquarePen className="size-4 text-muted group-hover/new:text-fg" />
+          <span className="flex-1 text-left">{creating ? "Opening…" : "New chat"}</span>
+          <Kbd className="opacity-0 transition-opacity group-hover/new:opacity-100">N</Kbd>
+        </button>
         {ordered.length > 4 ? (
           <label className="relative block">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
-            <Input
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
+            <input
               data-testid="chat-search"
               aria-label="Search chats"
               value={query}
-              placeholder="Search"
+              placeholder="Search chats"
               onChange={(e) => setQuery(e.target.value)}
-              className="h-8 bg-bg pl-8"
+              className="h-9 w-full rounded-lg border border-transparent bg-transparent pr-2.5 pl-9 text-sm text-fg placeholder:text-faint transition-colors outline-none hover:bg-raised/70 focus:border-border focus:bg-bg"
             />
           </label>
         ) : null}
@@ -392,7 +390,7 @@ function ChatRail({
           aria-label="Chat"
           value={active}
           onChange={(e) => onOpen(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
         >
           <option value="">Pick a chat…</option>
           {ordered.map((c) => (
@@ -421,30 +419,27 @@ function ChatRail({
 
       <ul
         data-testid="chat-list"
-        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
+        className="hidden min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
       >
         {loading
-          ? Array.from({ length: 4 }, (_, i) => (
-              <li key={i} className="space-y-1.5 px-2.5 py-2" aria-hidden>
-                <Skeleton className="h-3.5 w-3/5" />
-                <Skeleton className="h-3 w-4/5" />
+          ? Array.from({ length: 6 }, (_, i) => (
+              <li key={i} className="flex h-9 items-center px-2.5" aria-hidden>
+                <Skeleton className="h-3.5" style={{ width: `${55 + ((i * 17) % 35)}%` }} />
               </li>
             ))
           : null}
         {!loading && ordered.length === 0 ? (
-          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">
+          <li className="px-2.5 py-2 text-sm leading-relaxed text-muted">
             No chats yet. Start one and it appears here, newest first.
           </li>
         ) : null}
         {!loading && ordered.length > 0 && filtered.length === 0 ? (
-          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">No chats match.</li>
+          <li className="px-2.5 py-2 text-sm text-muted">No chats match.</li>
         ) : null}
         {groups.map((g) => (
-          <li key={g.label} className="mt-2 first:mt-0">
-            <p className="px-2.5 pt-1 pb-1 text-2xs font-medium tracking-wider text-faint uppercase">
-              {g.label}
-            </p>
-            <ul className="space-y-0.5">
+          <li key={g.label} className="pt-4 first:pt-1">
+            <p className="px-2.5 pb-1 text-xs font-medium text-faint">{g.label}</p>
+            <ul className="space-y-px">
               {g.chats.map((c) => (
                 <ChatRow
                   key={c.id}
@@ -522,7 +517,6 @@ function ChatRow({
             e.preventDefault();
             void submit();
           }}
-          className="px-2.5 py-2"
         >
           <Input
             data-testid="chat-title-input"
@@ -542,91 +536,100 @@ function ChatRow({
                 cancel();
               }
             }}
-            className="h-7 px-2"
+            className="h-9 rounded-lg px-2.5 text-sm"
           />
         </form>
       </li>
     );
   }
 
+  // Busy while the assistant is answering OR a task it delegated is still going: the turn
+  // ends the moment it has delegated, the work does not.
+  const running = chat.turnRunning || chat.taskRunning;
+  // Where the conversation lives. A mirrored thread is read here and answered there, and
+  // the mark is what stops a reader wondering why it has no composer.
+  const mirrored = chat.origin !== "" && chat.origin !== "web";
+  const where = mirrored ? (chat.channel ? `#${chat.channel}` : chat.origin) : "";
+  const hint = (
+    <span className="block max-w-64 space-y-0.5 py-0.5">
+      {where || chat.startedBy ? (
+        <span className="block font-medium text-fg">
+          {[where, chat.startedBy && `started by ${chat.startedBy}`].filter(Boolean).join(" · ")}
+        </span>
+      ) : null}
+      <span className="line-clamp-2 block text-muted">{chat.preview || "Nothing said yet"}</span>
+      <span className="block text-faint">
+        {running ? "Running · " : ""}
+        {relative(chat.lastMessageAt ?? chat.createdAt)}
+      </span>
+    </span>
+  );
+
   return (
     <li
-      className={`group relative flex items-stretch rounded-lg ${
-        active
-          ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
-          : "hover:bg-raised/60"
-      }`}
+      className={cn(
+        "group relative flex min-h-9 items-center rounded-lg transition-colors",
+        active ? "bg-raised" : "hover:bg-raised/60",
+      )}
     >
-      <button
-        type="button"
-        onClick={() => onOpen(chat.id)}
-        onDoubleClick={(e) => {
-          e.preventDefault();
-          start();
-        }}
-        aria-current={active ? "true" : undefined}
-        className="min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <span className="flex items-baseline gap-2">
-          <span
-            className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium text-fg" : "text-fg"}`}
-          >
-            {chat.title}
-          </span>
-          <span
-            className="tabular shrink-0 text-2xs text-faint"
-            title={absolute(chat.lastMessageAt ?? chat.createdAt)}
-          >
-            {relative(chat.lastMessageAt ?? chat.createdAt)}
-          </span>
-        </span>
-        <span className="mt-1 flex items-center gap-1.5">
-          {/* Busy while the assistant is answering OR a task it delegated is still going:
-              the turn ends the moment it has delegated, the work does not. */}
-          {chat.turnRunning || chat.taskRunning ? <Badge tone="run">running</Badge> : null}
-          {/* Where the conversation lives. A mirrored thread is read here and answered
-              there, and the badge is what stops a reader wondering why it has no composer. */}
-          {chat.origin && chat.origin !== "web" ? (
-            <Badge tone="idle">{chat.channel ? `#${chat.channel}` : chat.origin}</Badge>
+      <Tooltip label={hint} side="right">
+        <button
+          type="button"
+          onClick={() => onOpen(chat.id)}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            start();
+          }}
+          aria-current={active ? "true" : undefined}
+          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left outline-none group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8 focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {running ? (
+            <span className="relative flex size-2 shrink-0" aria-hidden>
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-run" />
+            </span>
           ) : null}
-          {/* text-2xs, like the badges beside it and the timestamp above: this row mixed
-              two type sizes, and the larger plain text did not sit level with the pills. */}
-          {chat.startedBy ? (
-            <span className="shrink-0 text-2xs text-muted">{chat.startedBy}</span>
-          ) : null}
-          <span className="min-w-0 flex-1 truncate text-2xs text-muted">
-            {chat.preview || "nothing said yet"}
+          <span className="min-w-0 flex-1">
+            <span className={cn("block truncate text-sm", active ? "text-fg" : "text-fg/85")}>
+              {chat.title}
+            </span>
+            {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
           </span>
-        </span>
-      </button>
-      <div className="m-1 flex shrink-0 self-start opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-        <Tooltip label="Rename">
-          <Button
+          {running ? <span className="sr-only">running</span> : null}
+          {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
+          {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
+        </button>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
             type="button"
-            variant="ghost"
-            size="icon-xs"
-            data-testid="chat-rename"
-            aria-label={`Rename ${chat.title}`}
-            onClick={start}
+            data-testid="chat-actions"
+            aria-label={`Actions for ${chat.title}`}
+            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-border/60 hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-border/60 data-[state=open]:opacity-100"
           >
+            <Ellipsis className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        {/* Rename swaps the row for an input; handing focus back to the trigger would blur
+            it the moment it appears. */}
+        <DropdownMenuContent align="start" className="min-w-36" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
             <Pencil />
-          </Button>
-        </Tooltip>
-        <Tooltip label={`Delete ${chat.title}`}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="danger"
             data-testid="chat-delete"
             aria-label={`Delete ${chat.title}`}
             disabled={deleting}
-            onClick={() => onDelete(chat)}
-            className="hover:bg-err/12 hover:text-err"
+            onSelect={() => onDelete(chat)}
           >
             <Trash2 />
-          </Button>
-        </Tooltip>
-      </div>
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }
@@ -780,24 +783,6 @@ function Conversation({
   const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const participants = stream.chat?.participants ?? [];
-  const [pinned, setPinned] = useState(true);
-  const pinnedRef = useRef(true);
-  const lastTop = useRef(0);
-  const scroller = useRef<HTMLDivElement>(null);
-  const transcript = useRef<HTMLDivElement>(null);
-
-  const pin = (next: boolean) => {
-    pinnedRef.current = next;
-    setPinned(next);
-  };
-
-  const stick = useCallback(() => {
-    const el = scroller.current;
-    if (!el || !pinnedRef.current) return;
-    el.scrollTop = el.scrollHeight;
-    lastTop.current = el.scrollTop;
-  }, []);
-
   useEffect(() => {
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
@@ -833,7 +818,6 @@ function Conversation({
         effort: v.choice.effort,
       }),
     onMutate: (v) => {
-      pin(true);
       setPendingUser({
         text: v.text,
         before: stream.messages.filter((m) => m.role === "user").length,
@@ -854,22 +838,6 @@ function Conversation({
     },
   });
 
-  // Layout, not paint: a replayed transcript is already taller than the viewport, and an
-  // effect would flash the top of the conversation before jumping. Images then grow the
-  // column after commit — ResizeObserver is what keeps a pinned view on the latest turn.
-  useLayoutEffect(() => {
-    stick();
-  }, [pinned, stick, stream.messages, stream.progress]);
-
-  useLayoutEffect(() => {
-    const el = transcript.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => stick());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [stick, stream.gone]);
-
-  const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
   const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
@@ -887,6 +855,16 @@ function Conversation({
     !stream.gone &&
     !listedEmpty;
   const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
+  const thread = useMemo(
+    () =>
+      toThread({
+        messages: stream.messages,
+        busy,
+        taskRunning: stream.chat?.taskRunning ?? false,
+        pendingUser: pendingVisible ? pendingUser.text : undefined,
+      }),
+    [stream.messages, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
+  );
 
   if (stream.gone) {
     return (
@@ -910,81 +888,37 @@ function Conversation({
     <>
       <ConversationTitle title={title} channel={channel} onRename={onRename} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scroller}
-          data-testid="chat-scroller"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            const atBottom =
-              el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX;
-            // Content growing (an image decoding) leaves scrollTop where it was and is
-            // not a human scrolling up — unpinning on that would leave a pinned open
-            // sitting in the middle of the replay.
-            if (atBottom) pin(true);
-            else if (el.scrollTop + 1 < lastTop.current) pin(false);
-            lastTop.current = el.scrollTop;
-          }}
-          className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
-        >
-          <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-5">
-            {connecting ? <TranscriptSkeleton /> : null}
-
-            {stream.error ? (
-              <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                {stream.error}. Nothing was lost. The reconnect replays from the last message
-                this browser saw.
-              </Alert>
-            ) : null}
-
-            {showWelcome ? (
+      <Suspense fallback={<div className="min-h-0 flex-1" />}>
+        <ChatThread
+          messages={thread}
+          busy={busy}
+          botName={botName}
+          progress={stream.progress}
+          taskId={stream.taskId}
+          onSend={(text) => send.mutate({ text, choice })}
+          top={
+            <>
+              {connecting ? <TranscriptSkeleton /> : null}
+              {stream.error ? (
+                <Alert variant="warn" title="The chat stream dropped and is reconnecting">
+                  {stream.error}. Nothing was lost. The reconnect replays from the last message
+                  this browser saw.
+                </Alert>
+              ) : null}
+            </>
+          }
+          welcome={
+            showWelcome ? (
               <FirstMessage
                 botName={botName}
                 playbookNames={playbookNames}
                 onSuggest={(text) => send.mutate({ text, choice })}
                 suggesting={busy}
               />
-            ) : null}
-
-            {stream.messages.map((m, i) => (
-              <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
-            ))}
-
-            {pendingVisible ? (
-              <Turn
-                key="pending-user"
-                message={create(ChatMessageSchema, { role: "user", text: pendingUser.text })}
-                botName={botName}
-                firstOfRun
-              />
-            ) : null}
-
-            {/* Last, where the answer itself will land. A turn's state used to be a pill
-                stuck to the top of the transcript, which took its own line in the flow and
-                pushed the whole conversation down the moment a turn started. Here it costs
-                nothing: it grows at the end, which is where new messages arrive and where
-                the view is already pinned. */}
-            {busy ? (
-              <Thinking progress={stream.progress} taskId={stream.taskId} botName={botName} />
-            ) : null}
-          </div>
-        </div>
-
-        {!pinned ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => pin(true)}
-              className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md"
-            >
-              <ArrowDown />
-              Jump to latest
-            </Button>
-          </div>
-        ) : null}
-      </div>
+            ) : null
+          }
+        />
+      </Suspense>
 
       {mirrored ? (
         <div
@@ -1006,76 +940,6 @@ function Conversation({
         />
       )}
     </>
-  );
-}
-
-/**
- * Thinking is the bot's turn before it has words: the same row an answer arrives in, with
- * an indicator where the text will be.
- *
- * It reads as part of the conversation rather than as chrome about it, which is what makes
- * the wait legible — "it is working" belongs in the transcript, next to what it is working
- * on, and not in a strip above it.
- *
- * The line it shows is whatever the turn last said about itself: a task's progress once
- * there is one, and the conductor's placeholder before that, because a container still
- * being pulled has nothing to say yet.
- */
-function Thinking({
-  progress,
-  taskId,
-  botName,
-}: {
-  progress?: string;
-  taskId?: string;
-  botName: string;
-}) {
-  return (
-    <div className="flex gap-3" data-testid="chat-progress" role="status" aria-live="polite">
-      <span
-        aria-hidden
-        className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-border bg-panel text-accent"
-      >
-        <Bot className="size-4" />
-      </span>
-      <div className="min-w-0 flex-1 space-y-1.5 pt-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs font-medium text-fg">{botName}</span>
-          {taskId ? (
-            <Link
-              to={`/tasks/${taskId}`}
-              title={taskId}
-              className="font-mono shrink-0 text-2xs text-accent hover:underline"
-            >
-              {taskId}
-            </Link>
-          ) : null}
-        </div>
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-          <Dots />
-          <span className="min-w-0 truncate animate-shimmer">{progress ?? "Thinking"}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Dots is the three-dot wait. The stagger is what makes it read as activity rather than as
- * a decoration; index.css flattens every animation under prefers-reduced-motion, so there
- * is nothing to opt out of here.
- */
-function Dots() {
-  return (
-    <span aria-hidden className="flex shrink-0 items-center gap-1">
-      {[0, 150, 300].map((delay) => (
-        <span
-          key={delay}
-          style={{ animationDelay: `${delay}ms` }}
-          className="size-1.5 animate-pulse rounded-full bg-muted"
-        />
-      ))}
-    </span>
   );
 }
 
@@ -1183,156 +1047,4 @@ function storedChoice(chat?: Chat): AgentChoice | undefined {
   const effort = chat.effort ?? "";
   if (agent === "" && model === "" && effort === "") return undefined;
   return { agent, model, effort };
-}
-
-/**
- * runsOf marks the first message of each run by one speaker, so a name is a label above a
- * run rather than a repeat above every bubble.
- *
- * The speaker is the TASK, or the assistant when there is none — not the role. Role alone
- * put two different tasks under one heading, which in a conversation that delegated twice
- * read as one long monologue; and it grouped a task's answer with the assistant's, which are
- * the two things a reader most needs to tell apart.
- */
-function speakerOf(m: ChatMessage): string {
-  // The author is in the key because a mirrored Slack thread has more than one person in
-  // it: alice then bob is two runs with two names, not one run that silently changes who
-  // is talking. A web chat's messages carry no author, so this is `role|taskId` there.
-  return `${m.role}|${m.taskId}|${m.author}`;
-}
-
-function runsOf(messages: ChatMessage[]): boolean[] {
-  return messages.map((m, i) => i === 0 || speakerOf(messages[i - 1]) !== speakerOf(m));
-}
-
-/**
- * Turn renders one message, and a question is built differently from everything else on
- * purpose. A question is short and is scanned for, so it is a bubble on the right. Anything
- * said back is a document — headings, lists, diffs — so it runs the full measure of the
- * column under a name, where markdown has room to read as markdown rather than as chat.
- *
- * A `progress` message reads exactly like an answer, because that is what it is: the words
- * said on the way there. The name above the run is what separates them — a task narrating
- * its work, then the bot with the answer — rather than a quieter typography, which would
- * make the transcript look like it had a margin of asides in it.
- */
-function Turn({
-  message,
-  botName,
-  firstOfRun,
-}: {
-  message: ChatMessage;
-  botName: string;
-  firstOfRun: boolean;
-}) {
-  if (message.role === "user") {
-    return (
-      <div className="flex flex-col items-end gap-1">
-        {/* Who asked. Only when the message carries an author, which is a MIRRORED
-            conversation: in a web chat the only person who can ask is the person reading,
-            and putting their own name over their own question is noise. */}
-        {message.author && firstOfRun ? (
-          <span data-testid="chat-author" className="pr-1 text-xs font-medium text-muted">
-            {message.author}
-          </span>
-        ) : null}
-        <div
-          data-testid="chat-message"
-          data-role={message.role}
-          data-author={message.author || undefined}
-          title={absolute(message.ts)}
-          className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-accent/14 px-4 py-2.5"
-        >
-          <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
-          <ChatAttachments attachments={message.attachments} />
-        </div>
-      </div>
-    );
-  }
-
-  // Two different questions, and they used to be answered by one flag.
-  //
-  // WHERE it came from is the task id: empty means the assistant, talking in the conductor's
-  // own process. Role alone credited the assistant's own thinking to a container it had not
-  // started yet, which is the one thing in a conversation that is never a task. A row
-  // written before that column existed has no task id and reads as the assistant's.
-  //
-  // WHAT it is, is the role: a line on the way to an answer, or the answer. A task's answer
-  // is still the bot answering — the container is how, not who — so it keeps the bot's name
-  // and carries the task as a link beside it.
-  const fromTask = message.taskId !== "";
-  const thinking = message.role === "progress";
-
-  return (
-    <div className="group/turn flex gap-3">
-      <span
-        aria-hidden
-        className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${
-          firstOfRun ? `border border-border bg-panel ${thinking ? "text-muted" : "text-accent"}` : ""
-        }`}
-      >
-        {firstOfRun ? fromTask ? <Terminal className="size-4" /> : <Bot className="size-4" /> : null}
-      </span>
-      <div className="min-w-0 flex-1 space-y-1.5">
-        {firstOfRun ? (
-          <div className="flex items-baseline gap-2">
-            <span className="text-xs font-medium text-fg">
-              {thinking && fromTask ? "task" : botName}
-            </span>
-            {/* Which task, so two of them answering the same conversation are two answers
-                and not one confusing run. */}
-            {fromTask ? (
-              <Link
-                to={`/tasks/${message.taskId}`}
-                title={message.taskId}
-                className="font-mono shrink-0 text-2xs text-accent hover:underline"
-              >
-                {message.taskId}
-              </Link>
-            ) : null}
-            <span className="text-2xs text-faint" title={absolute(message.ts)}>
-              {relative(message.ts)}
-            </span>
-          </div>
-        ) : null}
-        <div data-testid="chat-message" data-role={message.role} className="min-w-0">
-          <ChatMarkdown
-            text={message.text}
-            keyPrefix={`m${message.seq}-`}
-            className={thinking ? "text-muted" : undefined}
-          />
-          <ChatAttachments attachments={message.attachments} />
-        </div>
-        {!thinking ? <CopyMessage text={message.text} /> : null}
-      </div>
-    </div>
-  );
-}
-
-function CopyMessage({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const id = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(id);
-  }, [copied]);
-  if (text.trim() === "") return null;
-  return (
-    <div className="flex opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
-      <Tooltip label={copied ? "Copied" : "Copy"}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={copied ? "Copied" : "Copy message"}
-          onClick={() => {
-            void navigator.clipboard?.writeText(text);
-            setCopied(true);
-          }}
-        >
-          {copied ? <Check className="text-ok" /> : <Copy />}
-        </Button>
-      </Tooltip>
-    </div>
-  );
 }

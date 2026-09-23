@@ -455,6 +455,7 @@ left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
+   where cm.role <> 'activity'
 ) m on m.chat_id = c.id and m.rn = 1
 where (c.login = $1 or c.login is null)
   and ($2::text = '' or c.id < $2::text)
