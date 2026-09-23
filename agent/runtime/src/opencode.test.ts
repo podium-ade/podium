@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   errorOf,
+  resetTakesThinking,
+  takesThinking,
   AgentName,
   BrowserBinary,
   BrowserServer,
@@ -347,7 +349,6 @@ describe("invocation", () => {
       "--agent",
       AgentName,
       "--auto",
-      "--thinking",
       "--model",
       "xai/grok-4.6",
       "--dir",
@@ -355,6 +356,11 @@ describe("invocation", () => {
       "do the thing",
     ]);
     expect(cwd).toBe("/tmp/podium-turn-abc");
+  });
+
+  it("asks for reasoning only when the harness takes the flag", () => {
+    expect(invocation({ ...base, thinking: true }).argv).toContain("--thinking");
+    expect(invocation(base).argv).not.toContain("--thinking");
   });
 
   it("passes an effort through as the variant, and omits it when the profile names none", () => {
@@ -403,4 +409,23 @@ describe("errorOf", () => {
     expect(errorOf({ type: "error" })).toBe("an unnamed error");
     expect(errorOf({ type: "text" })).toBeUndefined();
   });
+});
+
+describe("takesThinking", () => {
+  it("asks for reasoning only from a harness that says it takes the flag, and asks once", () => {
+    resetTakesThinking();
+    let asked = 0;
+    const old = () => {
+      asked++;
+      return "opencode run [message..]\n  --format  format\n  --variant  model variant";
+    };
+    expect(takesThinking({}, old)).toBe(false);
+    expect(takesThinking({}, old)).toBe(false);
+    expect(asked).toBe(1);
+
+    resetTakesThinking();
+    expect(takesThinking({}, () => "  --thinking  show thinking blocks")).toBe(true);
+    resetTakesThinking();
+  });
+
 });

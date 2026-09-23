@@ -11,7 +11,7 @@
 // a command line cannot carry a system prompt of several kilobytes or an MCP server's
 // bearer token.
 
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
 import { lookup as dnsLookupCb } from "node:dns";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
@@ -431,7 +431,7 @@ export function start(opts: {
   sessionID?: string;
   env: NodeJS.ProcessEnv;
 }): Run {
-  const { argv, cwd, env } = invocation(opts);
+  const { argv, cwd, env } = invocation({ ...opts, thinking: takesThinking(opts.env) });
   const child = spawn(Binary, argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   // ENOENT is an 'error' event, not a non-zero exit. Without a listener Node treats it as
   // unhandled and kills THIS process with status 1 — before main can emit a final — which
@@ -444,6 +444,32 @@ export function start(opts: {
     process.stderr.write(`podium-agent: ${why}\n`);
   });
   return { child, argv };
+}
+
+let thinks: boolean | undefined;
+
+/**
+ * takesThinking reports whether the harness on PATH accepts `--thinking`, asking it once.
+ *
+ * The image pins a harness that does. A HOST turn runs whatever npm installed on that host,
+ * and the harness's argument parser is strict: an older one given a flag it does not know
+ * prints its usage and exits 1 before the turn has begun, with nothing on stdout to say why.
+ * Without the flag a turn still runs; the chat only misses the reasoning.
+ */
+export function takesThinking(
+  env: NodeJS.ProcessEnv,
+  help = () => {
+    const r = spawnSync(Binary, ["run", "--help"], { env, encoding: "utf8", timeout: 15_000 });
+    return `${r.stdout ?? ""}${r.stderr ?? ""}`;
+  },
+): boolean {
+  thinks ??= help().includes("--thinking");
+  return thinks;
+}
+
+/** resetTakesThinking forgets the answer, for tests. */
+export function resetTakesThinking(): void {
+  thinks = undefined;
 }
 
 /**
@@ -470,6 +496,8 @@ export function invocation(opts: {
   instruction: string;
   sessionID?: string;
   env: NodeJS.ProcessEnv;
+  /** thinking asks for reasoning blocks, which the chat draws. See takesThinking. */
+  thinking?: boolean;
 }): { argv: string[]; cwd: string; env: NodeJS.ProcessEnv } {
   const argv = [
     "run",
@@ -478,13 +506,15 @@ export function invocation(opts: {
     "--agent",
     AgentName,
     "--auto",
-    // Reasoning blocks are off by default outside interactive mode. The chat shows them.
-    "--thinking",
     "--model",
     `${opts.providerID}/${opts.model}`,
     "--dir",
     opts.workdir,
   ];
+  if (opts.thinking) {
+    // Reasoning blocks are off by default outside interactive mode. The chat shows them.
+    argv.push("--thinking");
+  }
   if (opts.effort) {
     argv.push("--variant", opts.effort);
   }
