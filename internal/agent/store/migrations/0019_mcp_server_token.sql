@@ -1,0 +1,11 @@
+-- A readable copy of each MCP server's current access token, for the assistant.
+--
+-- The Podium secret is still what a task's container gets. An assistant turn runs in the
+-- conductor's own process with no node to resolve a secret for it, and the secret store has
+-- no read endpoint, so a profile that grants the assistant a server needs the value here —
+-- the same trade providerRow.Credential makes for the model credential. It is written
+-- wherever the secret is (a pasted token, a sign-in, a refresh) and cleared with it.
+--
+-- A token stored before this column existed has no copy until it is saved again or, for a
+-- sign-in, refreshed. IT IS A CREDENTIAL, in clear — see docs/security.md.
+alter table mcp_servers add column if not exists token text not null default '';
