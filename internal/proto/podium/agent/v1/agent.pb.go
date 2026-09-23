@@ -3090,6 +3090,11 @@ type ChatMessage struct {
 	// progress message is stored and rendered like any other; it is a role of its own so the
 	// transcript a turn is briefed with can leave it out, and so an attachment lands on the
 	// answer rather than on the last thought before it.
+	//
+	// "activity" is one tool call or reasoning block a turn reported on its way, and text is
+	// then a small JSON document rather than prose: {"kind":"tool","tool","title","status",
+	// "input","output","error"} or {"kind":"reasoning","text"}, every field a string and
+	// capped (agent/runtime/src/activity.ts). It is the task's and untrusted like any text.
 	Role        string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
 	Text        string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	Attachments []*ChatAttachment      `protobuf:"bytes,5,rep,name=attachments,proto3" json:"attachments,omitempty"`

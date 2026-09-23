@@ -346,6 +346,7 @@ describe("invocation", () => {
       "--agent",
       AgentName,
       "--auto",
+      "--thinking",
       "--model",
       "xai/grok-4.6",
       "--dir",

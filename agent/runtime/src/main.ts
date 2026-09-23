@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { activityOf } from "./activity.js";
 import { ArtifactsDir, appendTranscript, ensureArtifacts, matchAttachments } from "./artifacts.js";
 import { BriefEnv, BriefError, ExitBriefInvalid, decodeBrief, onHost, type TurnBrief } from "./brief.js";
 import { AskHub, AskWaitEnv, InboxSockEnv, askEntrypoint, inboxSock, readInbox } from "./ask.js";
@@ -244,13 +245,14 @@ async function main(): Promise<number> {
   let held = "";
   let lastProgressAt = 0;
 
-  const tryProgress = async (): Promise<void> => {
+  const tryProgress = async (force = false): Promise<void> => {
     if (held.trim() === "") {
       return;
     }
     // Hold and replace: inside the window the newer text supersedes the older one rather
-    // than adding a second message nobody asked for.
-    if (Date.now() - lastProgressAt < ProgressWindowMs) {
+    // than adding a second message nobody asked for. Activity forces it out, because the
+    // text came before the tool call and the chat draws them in order.
+    if (!force && Date.now() - lastProgressAt < ProgressWindowMs) {
       return;
     }
     const text = held;
@@ -404,10 +406,16 @@ async function main(): Promise<number> {
           }
 
           case "tool_use":
-            // A tool call is a sign of life rather than something to say, so it only releases
-            // whatever text is already held.
-            await tryProgress();
+          case "reasoning": {
+            const activity = activityOf(event, (s) => redact(redact(s, token), process.env.GH_TOKEN));
+            if (activity) {
+              await tryProgress(true);
+              await say(invoke, "activity", JSON.stringify(activity));
+            } else {
+              await tryProgress();
+            }
             break;
+          }
 
           case "step_finish": {
             const part = event.part;

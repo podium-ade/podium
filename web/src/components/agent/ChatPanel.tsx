@@ -1,25 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
-  Bot,
-  Check,
-  Copy,
   MessageSquarePlus,
   Pencil,
   Search,
   Sparkles,
-  Terminal,
   Trash2,
 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
-  ChatMessageSchema,
   type Assistant,
   type Chat,
-  type ChatMessage,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
@@ -42,14 +34,14 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
-import { ChatAttachments } from "./ChatAttachments";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ConductorDown } from "./ConductorDown";
-import { ChatMarkdown } from "./chat/ChatMarkdown";
+import { toThread } from "../../lib/chatThread";
 
-/** SCROLL_SLACK_PX is how far off the bottom still counts as "at the bottom". */
-const SCROLL_SLACK_PX = 40;
+// The thread, its markdown and its highlighter are most of this screen's weight and none of
+// any other's, so they load with the first conversation opened.
+const ChatThread = lazy(() => import("./chat/ChatThread").then((m) => ({ default: m.ChatThread })));
 
 /** Matches store.MaxChatTitleRunes — the input refuses more, the server does too. */
 const MAX_CHAT_TITLE = 80;
@@ -59,9 +51,8 @@ const MAX_CHAT_TITLE = 80;
  * transcript Podium itself holds.
  *
  * EVERYTHING IN A BUBBLE IS CONTENT. A human wrote the questions and a task wrote the
- * answers; this screen renders both through the markdown subset in lib/markdown.ts, which
- * emits no raw HTML and treats any link scheme but http(s) as text. Nothing here interprets
- * what an agent said.
+ * answers; this screen renders both through chat/MarkdownText.tsx, which emits no raw HTML
+ * and makes any link scheme but a web one inert. Nothing here interprets what an agent said.
  */
 export function ChatPanel() {
   const navigate = useNavigate();
@@ -780,24 +771,6 @@ function Conversation({
   const channel = stream.chat?.channel || listedChannel || "";
   const mirrored = origin !== "" && origin !== "web";
   const participants = stream.chat?.participants ?? [];
-  const [pinned, setPinned] = useState(true);
-  const pinnedRef = useRef(true);
-  const lastTop = useRef(0);
-  const scroller = useRef<HTMLDivElement>(null);
-  const transcript = useRef<HTMLDivElement>(null);
-
-  const pin = (next: boolean) => {
-    pinnedRef.current = next;
-    setPinned(next);
-  };
-
-  const stick = useCallback(() => {
-    const el = scroller.current;
-    if (!el || !pinnedRef.current) return;
-    el.scrollTop = el.scrollHeight;
-    lastTop.current = el.scrollTop;
-  }, []);
-
   useEffect(() => {
     if (!stream.chat) return;
     void qc.invalidateQueries({ queryKey: ["agent", "chats"] });
@@ -833,7 +806,6 @@ function Conversation({
         effort: v.choice.effort,
       }),
     onMutate: (v) => {
-      pin(true);
       setPendingUser({
         text: v.text,
         before: stream.messages.filter((m) => m.role === "user").length,
@@ -854,22 +826,6 @@ function Conversation({
     },
   });
 
-  // Layout, not paint: a replayed transcript is already taller than the viewport, and an
-  // effect would flash the top of the conversation before jumping. Images then grow the
-  // column after commit — ResizeObserver is what keeps a pinned view on the latest turn.
-  useLayoutEffect(() => {
-    stick();
-  }, [pinned, stick, stream.messages, stream.progress]);
-
-  useLayoutEffect(() => {
-    const el = transcript.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => stick());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [stick, stream.gone]);
-
-  const runs = useMemo(() => runsOf(stream.messages), [stream.messages]);
   const userCount = stream.messages.filter((m) => m.role === "user").length;
   const last = stream.messages[stream.messages.length - 1];
   const pendingVisible = pendingUser !== null && userCount <= pendingUser.before;
@@ -887,6 +843,16 @@ function Conversation({
     !stream.gone &&
     !listedEmpty;
   const showWelcome = !connecting && stream.messages.length === 0 && !pendingVisible;
+  const thread = useMemo(
+    () =>
+      toThread({
+        messages: stream.messages,
+        busy,
+        taskRunning: stream.chat?.taskRunning ?? false,
+        pendingUser: pendingVisible ? pendingUser.text : undefined,
+      }),
+    [stream.messages, busy, stream.chat?.taskRunning, pendingVisible, pendingUser],
+  );
 
   if (stream.gone) {
     return (
@@ -910,81 +876,37 @@ function Conversation({
     <>
       <ConversationTitle title={title} channel={channel} onRename={onRename} />
       <ChatPullRequests chatId={chatId} pullRequests={stream.pullRequests} />
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scroller}
-          data-testid="chat-scroller"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            const atBottom =
-              el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_SLACK_PX;
-            // Content growing (an image decoding) leaves scrollTop where it was and is
-            // not a human scrolling up — unpinning on that would leave a pinned open
-            // sitting in the middle of the replay.
-            if (atBottom) pin(true);
-            else if (el.scrollTop + 1 < lastTop.current) pin(false);
-            lastTop.current = el.scrollTop;
-          }}
-          className="absolute inset-0 overflow-y-auto [overflow-anchor:none]"
-        >
-          <div ref={transcript} className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-5">
-            {connecting ? <TranscriptSkeleton /> : null}
-
-            {stream.error ? (
-              <Alert variant="warn" title="The chat stream dropped and is reconnecting">
-                {stream.error}. Nothing was lost. The reconnect replays from the last message
-                this browser saw.
-              </Alert>
-            ) : null}
-
-            {showWelcome ? (
+      <Suspense fallback={<div className="min-h-0 flex-1" />}>
+        <ChatThread
+          messages={thread}
+          busy={busy}
+          botName={botName}
+          progress={stream.progress}
+          taskId={stream.taskId}
+          onSend={(text) => send.mutate({ text, choice })}
+          top={
+            <>
+              {connecting ? <TranscriptSkeleton /> : null}
+              {stream.error ? (
+                <Alert variant="warn" title="The chat stream dropped and is reconnecting">
+                  {stream.error}. Nothing was lost. The reconnect replays from the last message
+                  this browser saw.
+                </Alert>
+              ) : null}
+            </>
+          }
+          welcome={
+            showWelcome ? (
               <FirstMessage
                 botName={botName}
                 playbookNames={playbookNames}
                 onSuggest={(text) => send.mutate({ text, choice })}
                 suggesting={busy}
               />
-            ) : null}
-
-            {stream.messages.map((m, i) => (
-              <Turn key={String(m.seq)} message={m} botName={botName} firstOfRun={runs[i]} />
-            ))}
-
-            {pendingVisible ? (
-              <Turn
-                key="pending-user"
-                message={create(ChatMessageSchema, { role: "user", text: pendingUser.text })}
-                botName={botName}
-                firstOfRun
-              />
-            ) : null}
-
-            {/* Last, where the answer itself will land. A turn's state used to be a pill
-                stuck to the top of the transcript, which took its own line in the flow and
-                pushed the whole conversation down the moment a turn started. Here it costs
-                nothing: it grows at the end, which is where new messages arrive and where
-                the view is already pinned. */}
-            {busy ? (
-              <Thinking progress={stream.progress} taskId={stream.taskId} botName={botName} />
-            ) : null}
-          </div>
-        </div>
-
-        {!pinned ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => pin(true)}
-              className="pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 rounded-full shadow-md"
-            >
-              <ArrowDown />
-              Jump to latest
-            </Button>
-          </div>
-        ) : null}
-      </div>
+            ) : null
+          }
+        />
+      </Suspense>
 
       {mirrored ? (
         <div
@@ -1006,76 +928,6 @@ function Conversation({
         />
       )}
     </>
-  );
-}
-
-/**
- * Thinking is the bot's turn before it has words: the same row an answer arrives in, with
- * an indicator where the text will be.
- *
- * It reads as part of the conversation rather than as chrome about it, which is what makes
- * the wait legible — "it is working" belongs in the transcript, next to what it is working
- * on, and not in a strip above it.
- *
- * The line it shows is whatever the turn last said about itself: a task's progress once
- * there is one, and the conductor's placeholder before that, because a container still
- * being pulled has nothing to say yet.
- */
-function Thinking({
-  progress,
-  taskId,
-  botName,
-}: {
-  progress?: string;
-  taskId?: string;
-  botName: string;
-}) {
-  return (
-    <div className="flex gap-3" data-testid="chat-progress" role="status" aria-live="polite">
-      <span
-        aria-hidden
-        className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-border bg-panel text-accent"
-      >
-        <Bot className="size-4" />
-      </span>
-      <div className="min-w-0 flex-1 space-y-1.5 pt-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs font-medium text-fg">{botName}</span>
-          {taskId ? (
-            <Link
-              to={`/tasks/${taskId}`}
-              title={taskId}
-              className="font-mono shrink-0 text-2xs text-accent hover:underline"
-            >
-              {taskId}
-            </Link>
-          ) : null}
-        </div>
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-          <Dots />
-          <span className="min-w-0 truncate animate-shimmer">{progress ?? "Thinking"}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Dots is the three-dot wait. The stagger is what makes it read as activity rather than as
- * a decoration; index.css flattens every animation under prefers-reduced-motion, so there
- * is nothing to opt out of here.
- */
-function Dots() {
-  return (
-    <span aria-hidden className="flex shrink-0 items-center gap-1">
-      {[0, 150, 300].map((delay) => (
-        <span
-          key={delay}
-          style={{ animationDelay: `${delay}ms` }}
-          className="size-1.5 animate-pulse rounded-full bg-muted"
-        />
-      ))}
-    </span>
   );
 }
 
@@ -1183,156 +1035,4 @@ function storedChoice(chat?: Chat): AgentChoice | undefined {
   const effort = chat.effort ?? "";
   if (agent === "" && model === "" && effort === "") return undefined;
   return { agent, model, effort };
-}
-
-/**
- * runsOf marks the first message of each run by one speaker, so a name is a label above a
- * run rather than a repeat above every bubble.
- *
- * The speaker is the TASK, or the assistant when there is none — not the role. Role alone
- * put two different tasks under one heading, which in a conversation that delegated twice
- * read as one long monologue; and it grouped a task's answer with the assistant's, which are
- * the two things a reader most needs to tell apart.
- */
-function speakerOf(m: ChatMessage): string {
-  // The author is in the key because a mirrored Slack thread has more than one person in
-  // it: alice then bob is two runs with two names, not one run that silently changes who
-  // is talking. A web chat's messages carry no author, so this is `role|taskId` there.
-  return `${m.role}|${m.taskId}|${m.author}`;
-}
-
-function runsOf(messages: ChatMessage[]): boolean[] {
-  return messages.map((m, i) => i === 0 || speakerOf(messages[i - 1]) !== speakerOf(m));
-}
-
-/**
- * Turn renders one message, and a question is built differently from everything else on
- * purpose. A question is short and is scanned for, so it is a bubble on the right. Anything
- * said back is a document — headings, lists, diffs — so it runs the full measure of the
- * column under a name, where markdown has room to read as markdown rather than as chat.
- *
- * A `progress` message reads exactly like an answer, because that is what it is: the words
- * said on the way there. The name above the run is what separates them — a task narrating
- * its work, then the bot with the answer — rather than a quieter typography, which would
- * make the transcript look like it had a margin of asides in it.
- */
-function Turn({
-  message,
-  botName,
-  firstOfRun,
-}: {
-  message: ChatMessage;
-  botName: string;
-  firstOfRun: boolean;
-}) {
-  if (message.role === "user") {
-    return (
-      <div className="flex flex-col items-end gap-1">
-        {/* Who asked. Only when the message carries an author, which is a MIRRORED
-            conversation: in a web chat the only person who can ask is the person reading,
-            and putting their own name over their own question is noise. */}
-        {message.author && firstOfRun ? (
-          <span data-testid="chat-author" className="pr-1 text-xs font-medium text-muted">
-            {message.author}
-          </span>
-        ) : null}
-        <div
-          data-testid="chat-message"
-          data-role={message.role}
-          data-author={message.author || undefined}
-          title={absolute(message.ts)}
-          className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-accent/14 px-4 py-2.5"
-        >
-          <ChatMarkdown text={message.text} keyPrefix={`m${message.seq}-`} />
-          <ChatAttachments attachments={message.attachments} />
-        </div>
-      </div>
-    );
-  }
-
-  // Two different questions, and they used to be answered by one flag.
-  //
-  // WHERE it came from is the task id: empty means the assistant, talking in the conductor's
-  // own process. Role alone credited the assistant's own thinking to a container it had not
-  // started yet, which is the one thing in a conversation that is never a task. A row
-  // written before that column existed has no task id and reads as the assistant's.
-  //
-  // WHAT it is, is the role: a line on the way to an answer, or the answer. A task's answer
-  // is still the bot answering — the container is how, not who — so it keeps the bot's name
-  // and carries the task as a link beside it.
-  const fromTask = message.taskId !== "";
-  const thinking = message.role === "progress";
-
-  return (
-    <div className="group/turn flex gap-3">
-      <span
-        aria-hidden
-        className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${
-          firstOfRun ? `border border-border bg-panel ${thinking ? "text-muted" : "text-accent"}` : ""
-        }`}
-      >
-        {firstOfRun ? fromTask ? <Terminal className="size-4" /> : <Bot className="size-4" /> : null}
-      </span>
-      <div className="min-w-0 flex-1 space-y-1.5">
-        {firstOfRun ? (
-          <div className="flex items-baseline gap-2">
-            <span className="text-xs font-medium text-fg">
-              {thinking && fromTask ? "task" : botName}
-            </span>
-            {/* Which task, so two of them answering the same conversation are two answers
-                and not one confusing run. */}
-            {fromTask ? (
-              <Link
-                to={`/tasks/${message.taskId}`}
-                title={message.taskId}
-                className="font-mono shrink-0 text-2xs text-accent hover:underline"
-              >
-                {message.taskId}
-              </Link>
-            ) : null}
-            <span className="text-2xs text-faint" title={absolute(message.ts)}>
-              {relative(message.ts)}
-            </span>
-          </div>
-        ) : null}
-        <div data-testid="chat-message" data-role={message.role} className="min-w-0">
-          <ChatMarkdown
-            text={message.text}
-            keyPrefix={`m${message.seq}-`}
-            className={thinking ? "text-muted" : undefined}
-          />
-          <ChatAttachments attachments={message.attachments} />
-        </div>
-        {!thinking ? <CopyMessage text={message.text} /> : null}
-      </div>
-    </div>
-  );
-}
-
-function CopyMessage({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const id = setTimeout(() => setCopied(false), 1600);
-    return () => clearTimeout(id);
-  }, [copied]);
-  if (text.trim() === "") return null;
-  return (
-    <div className="flex opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
-      <Tooltip label={copied ? "Copied" : "Copy"}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={copied ? "Copied" : "Copy message"}
-          onClick={() => {
-            void navigator.clipboard?.writeText(text);
-            setCopied(true);
-          }}
-        >
-          {copied ? <Check className="text-ok" /> : <Copy />}
-        </Button>
-      </Tooltip>
-    </div>
-  );
 }

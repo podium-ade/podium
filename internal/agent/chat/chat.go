@@ -389,7 +389,7 @@ func (s *Source) FetchTranscript(ctx context.Context, ref string) ([]conductor.B
 		// A turn's own half-finished thoughts are not history. They are in the transcript a
 		// human reads, and leaving them out of this one keeps the brief's cap for the
 		// questions and answers it is meant to carry.
-		if m.Role == store.RoleProgress {
+		if m.Role == store.RoleProgress || m.Role == store.RoleActivity {
 			continue
 		}
 		author := chat.Login
@@ -476,6 +476,24 @@ func (s *Source) progress(ctx context.Context, ref string, out conductor.Outboun
 		ChatID: ref,
 		Role:   store.RoleProgress,
 		Text:   text,
+		TS:     time.Now().UTC(),
+		TaskID: out.TaskID,
+	})
+	if err != nil {
+		return err
+	}
+	s.bcast.Publish(ref, Frame{Kind: FrameMessage, Message: msg})
+	return nil
+}
+
+// PostActivity implements conductor.ActivityPoster: one tool call or thought, stored as its
+// own row so a reload draws the same trail a watcher saw. Like progress it is not an
+// answer, so it does not count as the turn having spoken.
+func (s *Source) PostActivity(ctx context.Context, ref string, out conductor.Outbound) error {
+	msg, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+		ChatID: ref,
+		Role:   store.RoleActivity,
+		Text:   out.Text,
 		TS:     time.Now().UTC(),
 		TaskID: out.TaskID,
 	})
