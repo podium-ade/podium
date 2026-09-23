@@ -276,6 +276,33 @@ describe("writeConfig with the playbook's own MCP servers", () => {
     expect(config.mcp.wiki.headers).toBeUndefined();
   });
 
+  it("merges a server's config beside its token, with the form's fields winning", () => {
+    const grafana = {
+      name: "grafana",
+      url: "https://mcp.grafana.com/mcp",
+      token_env: "PODIUM_MCP_GRAFANA_TOKEN",
+      config: {
+        headers: { "X-Grafana-URL": "https://stack.grafana.net" },
+        timeout: 30000,
+        whatever: { nested: true },
+        url: "https://elsewhere/mcp",
+      },
+    };
+    const { config } = write({ mcpServers: [grafana] });
+    expect(config.mcp.grafana.headers).toEqual({
+      "X-Grafana-URL": "https://stack.grafana.net",
+      Authorization: "Bearer {env:PODIUM_MCP_GRAFANA_TOKEN}",
+    });
+    expect(config.mcp.grafana.timeout).toBe(30000);
+    expect(config.mcp.grafana.whatever).toEqual({ nested: true });
+    expect(config.mcp.grafana.url).toBe("https://mcp.grafana.com/mcp");
+  });
+
+  it("refuses a config the harness would expand", () => {
+    const leak = { name: "wiki", url: "http://wiki/mcp", config: { deep: ["{env:PODIUM_TURN_TOKEN}"] } };
+    expect(() => write({ mcpServers: [leak] })).toThrow(/may not reference/);
+  });
+
   it("enables the server's tools wholesale, whatever the playbook listed", () => {
     // Naming the server in mcp_servers is what granting it means. A playbook cannot
     // describe individual tools of a server whose tool list only exists once it is

@@ -54,6 +54,7 @@ func (s *Store) InsertMcpServer(ctx context.Context, srv mcp.Server, login strin
 		Url:         srv.URL,
 		Description: srv.Description,
 		Enabled:     srv.Enabled,
+		Config:      srv.Config,
 		CreatedBy:   login,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
@@ -75,6 +76,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 		Url:         srv.URL,
 		Description: srv.Description,
 		Enabled:     srv.Enabled,
+		Config:      srv.Config,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
 	})
@@ -207,6 +209,7 @@ type mcpRow struct {
 	Url                string
 	Description        string
 	Enabled            bool
+	Config             string
 	TokenHint          string
 	TokenSetBy         string
 	TokenSetAt         *time.Time
@@ -225,6 +228,7 @@ func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
 		URL:                r.Url,
 		Description:        r.Description,
 		Enabled:            r.Enabled,
+		Config:             r.Config,
 		TokenHint:          r.TokenHint,
 		TokenSetBy:         r.TokenSetBy,
 		TokenSecretVersion: r.TokenSecretVersion,

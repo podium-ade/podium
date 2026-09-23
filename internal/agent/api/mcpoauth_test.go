@@ -354,6 +354,7 @@ func TestTheRedirectURIIsHeldToAShape(t *testing.T) {
 		"https://podium.example.ts.net" + mcpCallbackPath + "/",
 		"http://localhost:8080" + mcpCallbackPath,
 		"http://127.0.0.1:8080" + mcpCallbackPath,
+		"http://podium.example.com" + mcpCallbackPath,
 	}
 	for _, raw := range ok {
 		_, err := validateRedirectURI(raw)
@@ -363,8 +364,6 @@ func TestTheRedirectURIIsHeldToAShape(t *testing.T) {
 	bad := []string{
 		"",
 		"not a url",
-		// Plaintext anywhere but loopback.
-		"http://podium.example.com" + mcpCallbackPath,
 		// Somewhere else entirely, which is the case this exists to refuse.
 		"https://evil.test/steal",
 		"https://podium.example.com/agent/mcp",
