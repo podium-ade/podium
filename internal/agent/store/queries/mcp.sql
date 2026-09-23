@@ -1,11 +1,11 @@
 -- name: ListMcpServers :many
-select name, url, description, enabled, token_hint, token_set_by,
+select name, url, description, enabled, config, token_hint, token_set_by,
        token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
 from mcp_servers
 order by name;
 
 -- name: GetMcpServer :one
-select name, url, description, enabled, token_hint, token_set_by,
+select name, url, description, enabled, config, token_hint, token_set_by,
        token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
 from mcp_servers
 where name = @name;
@@ -15,8 +15,8 @@ where name = @name;
 -- it was there to replace, without a read before the write.
 
 -- name: InsertMcpServer :execrows
-insert into mcp_servers (name, url, description, enabled, created_by, updated_by, updated_at)
-values (@name, @url, @description, @enabled, @created_by, @updated_by, @updated_at)
+insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at)
+values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at)
 on conflict (name) do nothing;
 
 -- name: UpdateMcpServer :execrows
@@ -26,6 +26,7 @@ update mcp_servers
 set url = @url,
     description = @description,
     enabled = @enabled,
+    config = @config,
     updated_by = @updated_by,
     updated_at = @updated_at
 where name = @name;

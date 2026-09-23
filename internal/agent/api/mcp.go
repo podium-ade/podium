@@ -583,6 +583,7 @@ func mcpServerFromProto(msg *agentv1.McpServer) (mcp.Server, error) {
 		URL:         strings.TrimSpace(msg.GetUrl()),
 		Description: strings.TrimSpace(msg.GetDescription()),
 		Enabled:     msg.GetEnabled(),
+		Config:      strings.TrimSpace(msg.GetConfig()),
 	}
 	if err := srv.Validate(); err != nil {
 		return mcp.Server{}, connect.NewError(connect.CodeInvalidArgument, err)
@@ -602,6 +603,7 @@ func (s *AgentService) mcpServerToProto(
 		Url:         row.URL,
 		Description: row.Description,
 		Enabled:     row.Enabled,
+		Config:      row.Config,
 		Playbooks:   users[row.Name],
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
