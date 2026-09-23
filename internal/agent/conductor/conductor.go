@@ -710,7 +710,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
 	if j.onHost {
 		host := &hostRun{
-			r: run, encoded: encoded, bundles: bundles, provider: brief.Provider, menu: menu,
+			r: run, encoded: encoded, bundles: bundles, servers: servers,
+			provider: brief.Provider, menu: menu,
 		}
 		if brief.Memory != nil {
 			host.memoryKeyEnv = brief.Memory.APIKeyEnv

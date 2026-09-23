@@ -772,6 +772,13 @@ runtime, and therefore anything on that machine that can read a process's enviro
 credential is equally visible through `docker inspect` on its node; the difference is that a
 host turn's node is the conductor's own machine.
 
+An **MCP server's access token** is copied the same way, into the `token` column of its
+`mcp_servers` row, on every path that writes the secret — a pasted token, a sign-in and a
+refresh — and cleared with it. It is spent only by an assistant whose `profile.yaml` names the
+server in `mcp_servers`, and it reaches that turn's runtime environment and nowhere else. A
+token stored before the column existed has no copy, and the assistant says so by name rather
+than connecting without one: save it again, or wait for a signed-in server's next refresh.
+
 **So treat `podium_agent`'s database as holding credentials, because it does.** Back it up the
 way you would back up a secret, and give it the same access controls as the control plane's
 own database. An install with `PODIUM_AGENT_HOST_RUNTIME` unset, no subscription sign-in and no

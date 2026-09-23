@@ -154,6 +154,11 @@ type Profile struct {
 	// that list and not a default for it, because the two turns are nothing alike: one has
 	// a container and a workspace, and this one has a conversation.
 	Skills []string `yaml:"skills"`
+	// MCPServers is the MCP servers the ASSISTANT may use, by name, out of the registry. Empty
+	// is none, and then anything that reaches another system is delegated. A server named here
+	// lets a conversation do small things — edit a ticket, read an issue — without starting a
+	// container, at the cost of the conductor's own process holding that server's token.
+	MCPServers []string `yaml:"mcp_servers"`
 	// Timeout bounds one assistant turn on the wall clock. Zero is DefaultAssistantTimeout;
 	// unlike MaxTurns there is no "off", because a turn with neither bound has no automatic
 	// stop at all.
@@ -189,6 +194,8 @@ type Profile struct {
 type Assistant struct {
 	// Skills is the Agent Skills it may use, by name.
 	Skills []string
+	// MCPServers is the MCP servers it may use, by name.
+	MCPServers []string
 	// MaxTurns caps its steps, and ZERO means no cap: a step cap fires mid-answer on a turn
 	// that is working, which is why it is off unless somebody asks for it.
 	MaxTurns int
@@ -201,9 +208,10 @@ type Assistant struct {
 // there is no playbook in this path and nothing to select.
 func (p *Profile) Assistant() Assistant {
 	return Assistant{
-		Skills:   append([]string(nil), p.Skills...),
-		MaxTurns: p.MaxTurns,
-		Timeout:  p.assistantTimeout().Std(),
+		Skills:     append([]string(nil), p.Skills...),
+		MCPServers: append([]string(nil), p.MCPServers...),
+		MaxTurns:   p.MaxTurns,
+		Timeout:    p.assistantTimeout().Std(),
 	}
 }
 
@@ -794,6 +802,7 @@ func (p *Profile) validate(path string) error {
 	// document to a YAML decoder, and both mean no cap; a negative one is the only shape
 	// that can be refused, and it is.
 	errs = append(errs, validateSkills(p.Skills)...)
+	errs = append(errs, validateMCPServers(p.MCPServers)...)
 	errs = append(errs, p.Git.validate()...)
 	// The profile's persona against the env of every playbook that INHERITS it. A playbook
 	// with its own has already been checked against that one by Playbook.validate, and
