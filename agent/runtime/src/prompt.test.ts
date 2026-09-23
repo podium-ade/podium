@@ -238,6 +238,20 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("You cannot ask a question and wait");
   });
 
+  it("tells a host turn to use its own MCP servers for a small action instead of delegating", () => {
+    const without = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
+    expect(without).not.toContain("MCP servers");
+    const brief = golden();
+    const prompt = buildSystemPrompt({
+      ...brief,
+      runs_on: "host" as const,
+      playbook: { ...brief.playbook, mcp_servers: [{ name: "linear", url: "https://mcp.linear.app/mcp" }] },
+    });
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("the tools of the MCP servers `linear`");
+    expect(flat).toContain("editing a ticket");
+  });
+
   it("tells a host turn to delegate rather than investigate", () => {
     const prompt = buildSystemPrompt({ ...golden(), runs_on: "host" as const });
     const flat = prompt.replace(/\s+/g, " ");

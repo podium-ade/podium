@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/podium-ade/podium/internal/agent/mcp"
 	"github.com/podium-ade/podium/internal/agent/skills"
 	"github.com/podium-ade/podium/internal/agent/store"
 )
@@ -118,7 +119,18 @@ const (
 	// for less, or have an operator raise profile.yaml's timeout.
 	hostTimedOut = "I ran for %s without finishing, so I stopped. Anything above this is " +
 		"incomplete. A task I started keeps running and will answer on its own."
+	// hostMCPTokenStale is hostCredentialStale for an MCP server the assistant was granted:
+	// its token was stored before the conductor kept a copy it can hand this process.
+	hostMCPTokenStale = "The token for the MCP server `%s` was stored before I could use it here. " +
+		"An operator needs to save it again, or sign in again, on the MCP screen."
 )
+
+// mcpTokenStaleError is a granted MCP server with a secret and no readable copy of it.
+type mcpTokenStaleError struct{ server string }
+
+func (e mcpTokenStaleError) Error() string {
+	return "mcp server " + e.server + " has no readable copy of its token"
+}
 
 // HostRuntime is what the conductor needs to run a turn itself. Nil in Options means every
 // turn is a task, which is the only thing a conductor whose host has no runtime can do.
@@ -228,6 +240,9 @@ type hostRun struct {
 	// encoded is the brief, already base64'd, exactly as a task spec would carry it.
 	encoded string
 	bundles []skills.Bundle
+	// servers is the MCP servers the profile granted the assistant. Their tokens go into the
+	// child's environment directly, because there is no node to resolve the secrets.
+	servers []mcp.Server
 	// provider is where this turn's requests go and which variable its credential lands in.
 	provider *BriefProvider
 	// memoryKeyEnv is the variable the memory server's bearer has to land in, taken from
@@ -271,7 +286,11 @@ func (h *hostRun) run(ctx context.Context) {
 		c.logger.ErrorContext(ctx, "a host turn has no credential to spend",
 			"turn_id", r.turn.ID, "provider", h.provider.ID, "error", err)
 		said := hostNoCredential
-		if errors.Is(err, ErrCredentialStale) {
+		var stale mcpTokenStaleError
+		switch {
+		case errors.As(err, &stale):
+			said = fmt.Sprintf(hostMCPTokenStale, stale.server)
+		case errors.Is(err, ErrCredentialStale):
 			said = hostCredentialStale
 		}
 		h.giveUp(ctx, said)
@@ -513,6 +532,16 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 	}
 	if h.memoryKeyEnv != "" && c.host.MemoryAPIKey != "" {
 		env = append(env, h.memoryKeyEnv+"="+c.host.MemoryAPIKey)
+	}
+	// The same rule the brief promised the variable by: only a server with a secret has one.
+	for _, srv := range h.servers {
+		if srv.TokenSecretVersion == 0 {
+			continue
+		}
+		if srv.Token == "" {
+			return nil, mcpTokenStaleError{server: srv.Name}
+		}
+		env = append(env, mcp.TokenEnv(srv.Name)+"="+srv.Token)
 	}
 	for _, b := range h.bundles {
 		env = append(env, b.Env+"="+b.Encoded)
