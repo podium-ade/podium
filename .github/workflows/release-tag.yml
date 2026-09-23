@@ -1,0 +1,142 @@
+name: tag release
+
+# Cutting a release, by hand, from main.
+#
+# This workflow does exactly one thing: it puts a v* tag on main. It publishes nothing.
+# release.yml is what publishes, and `push: tags: ["v*"]` is the only thing that starts it,
+# so creating the tag IS triggering the release — there is no second button to press.
+#
+# Manual on purpose. A release is a decision, and `workflow_dispatch` is how a human makes
+# it with the version written down rather than inferred from a commit message.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v — 0.2.4, or 0.2.4-rc.1"
+        required: true
+        type: string
+
+# Read-only by default. The one job below needs no more than that: the tag is pushed with
+# the release token, not with GITHUB_TOKEN, for the reason spelled out in that step.
+permissions:
+  contents: read
+
+# One release at a time. Two runs racing to tag the same commit is a confusing way to find
+# out which of them won.
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag main
+    runs-on: ubuntu-latest
+    steps:
+      # workflow_dispatch can be started against any branch. A release comes off main, so a
+      # run picked from a feature branch is a mistake caught here rather than a tag pointing
+      # at code that was never merged.
+      - name: Refuse to tag anything but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::A release is cut from main. This run was started on ${GITHUB_REF_NAME}."
+          exit 1
+
+      # GITHUB_TOKEN cannot be used to push this tag. GitHub deliberately does not start a
+      # workflow for an event raised by GITHUB_TOKEN, to stop a workflow triggering itself
+      # for ever — so the tag would appear, release.yml would never run, and the failure is
+      # silent. A PAT or a GitHub App installation token has no such rule.
+      #
+      # Checked before the checkout, so an unset secret is one clear sentence rather than a
+      # push that fails on authentication four steps later.
+      - name: Refuse to run without a token that can start the release
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          if [ -z "${RELEASE_TAG_TOKEN}" ]; then
+            echo "::error::RELEASE_TAG_TOKEN is not set."
+            cat <<'MSG'
+
+          ============================================================
+           NO RELEASE TOKEN
+          ============================================================
+
+          This workflow pushes the tag that starts release.yml. It cannot use
+          GITHUB_TOKEN: GitHub does not start a workflow for an event raised by
+          GITHUB_TOKEN, so the tag would be created and the release would never
+          run — and nothing would say so.
+
+          Add a repository secret named RELEASE_TAG_TOKEN holding either:
+
+            - a fine-grained PAT on this repository with Contents: read & write, or
+            - a GitHub App installation token with the same.
+
+          ============================================================
+          MSG
+            exit 1
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: main
+          # The whole history, because the tag is checked against every tag that already
+          # exists and a shallow clone has none of them.
+          fetch-depth: 0
+          # What the push below authenticates as. See the step above.
+          token: ${{ secrets.RELEASE_TAG_TOKEN }}
+          persist-credentials: true
+
+      # A leading v is forgiven rather than refused: the input asks for 0.2.4 and half the
+      # world will type v0.2.4. Everything after this step uses the normalised value.
+      - name: Read and check the version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'${INPUT_VERSION}' is not a version. Expected 0.2.4, or 0.2.4-rc.1."
+            exit 1
+          fi
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::${tag} already exists. A tag is what was published; it is not re-cut."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}"         >> "$GITHUB_OUTPUT"
+          echo "Tagging $(git rev-parse --short HEAD) as ${tag}"
+
+      # The same gate release.yml opens with, run BEFORE the tag exists. Finding out that
+      # the licence is still a placeholder is cheap here and expensive one step later: a tag
+      # is public the moment it is pushed, and deleting it does not un-fetch it.
+      - name: Refuse to release unlicensed code
+        run: |
+          if grep -qi 'TODO' LICENSE; then
+            echo "::error file=LICENSE::LICENSE still contains a TODO placeholder."
+            echo "Choose a licence before tagging. release.yml refuses this tag anyway."
+            exit 1
+          fi
+
+      - name: Tag main and start the release
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Annotated, because goreleaser reads the tag and an annotated one carries who cut
+          # the release and when.
+          git tag -a "$TAG" -m "Release ${VERSION}"
+          git push origin "$TAG"
+          cat >> "$GITHUB_STEP_SUMMARY" <<MSG
+          ## Tagged \`${TAG}\`
+
+          At \`$(git rev-parse --short HEAD)\` on main.
+
+          release.yml is starting now — it builds and publishes the archives and the
+          images. Watch it here:
+
+          ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/release.yml
+          MSG
