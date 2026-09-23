@@ -41,6 +41,11 @@ vi.mock("../../lib/client", async () => {
   };
 });
 
+/** openActions opens a chat row's menu, where rename and delete live. */
+async function openActions(title = "August numbers") {
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${title}` }));
+}
+
 /** live is an async iterable a test can push frames into and never closes on its own,
  *  which is exactly how StreamChat behaves. */
 function live() {
@@ -546,7 +551,8 @@ describe("ChatPanel", () => {
     renameChat.mockResolvedValue({ chat: { ...chat, title: "Q3 forecast" } });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     const box = await screen.findByTestId("chat-title-input");
     await userEvent.clear(box);
     await userEvent.type(box, "Q3 forecast{Enter}");
@@ -560,13 +566,15 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     const box = await screen.findByTestId("chat-title-input");
     await userEvent.clear(box);
     await userEvent.type(box, "{Enter}");
     expect(renameChat).not.toHaveBeenCalled();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     await userEvent.type(await screen.findByTestId("chat-title-input"), "{Enter}");
     expect(renameChat).not.toHaveBeenCalled();
   });
@@ -575,7 +583,8 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     await userEvent.type(await screen.findByTestId("chat-title-input"), "nope{Escape}");
     expect(screen.queryByTestId("chat-title-input")).toBeNull();
     expect(renameChat).not.toHaveBeenCalled();
@@ -613,6 +622,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     deleteChat.mockResolvedValue({});
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
 
     expect(screen.getByText(/The conversation goes with it/)).toBeInTheDocument();
@@ -634,6 +644,7 @@ describe("ChatPanel", () => {
     mount();
     expect(await screen.findByText("running")).toBeInTheDocument();
     // And a delete warns about the task, exactly as it does for a running turn.
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     expect(screen.getByText(/A task is running in this chat/)).toBeInTheDocument();
   });
@@ -642,6 +653,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [{ ...chat, turnRunning: true }], nextCursor: "" });
     deleteChat.mockResolvedValue({});
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
 
     expect(screen.getByText(/Stop the task and delete August numbers/)).toBeInTheDocument();
@@ -652,6 +664,7 @@ describe("ChatPanel", () => {
     expect(deleteChat).not.toHaveBeenCalled();
     expect(screen.getByTestId("chat-list")).toHaveTextContent("August numbers");
 
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));
@@ -663,6 +676,7 @@ describe("ChatPanel", () => {
   it("keeps the chat when the confirm is declined", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     await userEvent.click(screen.getByRole("button", { name: "Keep" }));
 
@@ -676,6 +690,7 @@ describe("ChatPanel", () => {
     mount("/agent/chat/chat_01abc");
     await waitFor(() => expect(streamChat).toHaveBeenCalled());
 
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));

@@ -1,9 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Ellipsis,
+  Hash,
   MessageSquarePlus,
   Pencil,
   Search,
   Sparkles,
+  SquarePen,
   Trash2,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
@@ -17,8 +20,8 @@ import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { absolute, relative, toDate } from "../../lib/format";
-import { Badge } from "../Badge";
+import { relative, toDate } from "../../lib/format";
+import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
@@ -32,7 +35,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
@@ -346,31 +356,29 @@ function ChatRail({
   const groups = useMemo(() => groupChats(filtered), [filtered]);
 
   return (
-    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-72 sm:self-stretch sm:border-r sm:border-b-0">
-      <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
-        <Tooltip label="New chat, or press N">
-          <Button
-            type="button"
-            size="sm"
-            data-testid="chat-new"
-            disabled={creating}
-            onClick={onNew}
-            className="w-full justify-center"
-          >
-            <MessageSquarePlus />
-            {creating ? "Opening…" : "New chat"}
-          </Button>
-        </Tooltip>
+    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-64 sm:self-stretch sm:border-r sm:border-b-0">
+      <div className="flex flex-col gap-1 px-2 pt-3 pb-2">
+        <button
+          type="button"
+          data-testid="chat-new"
+          disabled={creating}
+          onClick={onNew}
+          className="group/new flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-fg transition-colors hover:bg-raised/70 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-60"
+        >
+          <SquarePen className="size-4 text-muted group-hover/new:text-fg" />
+          <span className="flex-1 text-left">{creating ? "Opening…" : "New chat"}</span>
+          <Kbd className="opacity-0 transition-opacity group-hover/new:opacity-100">N</Kbd>
+        </button>
         {ordered.length > 4 ? (
           <label className="relative block">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
-            <Input
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
+            <input
               data-testid="chat-search"
               aria-label="Search chats"
               value={query}
-              placeholder="Search"
+              placeholder="Search chats"
               onChange={(e) => setQuery(e.target.value)}
-              className="h-8 bg-bg pl-8"
+              className="h-9 w-full rounded-lg border border-transparent bg-transparent pr-2.5 pl-9 text-sm text-fg placeholder:text-faint transition-colors outline-none hover:bg-raised/70 focus:border-border focus:bg-bg"
             />
           </label>
         ) : null}
@@ -383,7 +391,7 @@ function ChatRail({
           aria-label="Chat"
           value={active}
           onChange={(e) => onOpen(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
         >
           <option value="">Pick a chat…</option>
           {ordered.map((c) => (
@@ -412,30 +420,27 @@ function ChatRail({
 
       <ul
         data-testid="chat-list"
-        className="hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
+        className="hidden min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
       >
         {loading
-          ? Array.from({ length: 4 }, (_, i) => (
-              <li key={i} className="space-y-1.5 px-2.5 py-2" aria-hidden>
-                <Skeleton className="h-3.5 w-3/5" />
-                <Skeleton className="h-3 w-4/5" />
+          ? Array.from({ length: 6 }, (_, i) => (
+              <li key={i} className="flex h-9 items-center px-2.5" aria-hidden>
+                <Skeleton className="h-3.5" style={{ width: `${55 + ((i * 17) % 35)}%` }} />
               </li>
             ))
           : null}
         {!loading && ordered.length === 0 ? (
-          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">
+          <li className="px-2.5 py-2 text-sm leading-relaxed text-muted">
             No chats yet. Start one and it appears here, newest first.
           </li>
         ) : null}
         {!loading && ordered.length > 0 && filtered.length === 0 ? (
-          <li className="px-2.5 py-2 text-xs leading-relaxed text-muted">No chats match.</li>
+          <li className="px-2.5 py-2 text-sm text-muted">No chats match.</li>
         ) : null}
         {groups.map((g) => (
-          <li key={g.label} className="mt-2 first:mt-0">
-            <p className="px-2.5 pt-1 pb-1 text-2xs font-medium tracking-wider text-faint uppercase">
-              {g.label}
-            </p>
-            <ul className="space-y-0.5">
+          <li key={g.label} className="pt-4 first:pt-1">
+            <p className="px-2.5 pb-1 text-xs font-medium text-faint">{g.label}</p>
+            <ul className="space-y-px">
               {g.chats.map((c) => (
                 <ChatRow
                   key={c.id}
@@ -513,7 +518,6 @@ function ChatRow({
             e.preventDefault();
             void submit();
           }}
-          className="px-2.5 py-2"
         >
           <Input
             data-testid="chat-title-input"
@@ -533,20 +537,30 @@ function ChatRow({
                 cancel();
               }
             }}
-            className="h-7 px-2"
+            className="h-9 rounded-lg px-2.5 text-sm"
           />
         </form>
       </li>
     );
   }
 
+  // Busy while the assistant is answering OR a task it delegated is still going: the turn
+  // ends the moment it has delegated, the work does not.
+  const running = chat.turnRunning || chat.taskRunning;
+  // Where the conversation lives. A mirrored thread is read here and answered there, and
+  // the mark is what stops a reader wondering why it has no composer.
+  const mirrored = chat.origin !== "" && chat.origin !== "web";
+  const where = mirrored ? (chat.channel ? `#${chat.channel}` : chat.origin) : "";
+  const hint = [where, chat.startedBy, chat.preview, relative(chat.lastMessageAt ?? chat.createdAt)]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <li
-      className={`group relative flex items-stretch rounded-lg ${
-        active
-          ? "bg-raised after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-accent"
-          : "hover:bg-raised/60"
-      }`}
+      className={cn(
+        "group relative flex h-9 items-center rounded-lg transition-colors",
+        active ? "bg-raised" : "hover:bg-raised/60",
+      )}
     >
       <button
         type="button"
@@ -555,69 +569,56 @@ function ChatRow({
           e.preventDefault();
           start();
         }}
+        title={hint}
         aria-current={active ? "true" : undefined}
-        className="min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 text-left outline-none group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8 focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <span className="flex items-baseline gap-2">
-          <span
-            className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium text-fg" : "text-fg"}`}
-          >
-            {chat.title}
+        {running ? (
+          <span className="relative flex size-2 shrink-0" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-run opacity-60" />
+            <span className="relative inline-flex size-2 rounded-full bg-run" />
           </span>
-          <span
-            className="tabular shrink-0 text-2xs text-faint"
-            title={absolute(chat.lastMessageAt ?? chat.createdAt)}
-          >
-            {relative(chat.lastMessageAt ?? chat.createdAt)}
-          </span>
+        ) : mirrored ? (
+          <Hash className="size-3.5 shrink-0 text-faint" aria-hidden />
+        ) : null}
+        <span className={cn("min-w-0 flex-1 truncate text-sm", active ? "text-fg" : "text-fg/85")}>
+          {chat.title}
         </span>
-        <span className="mt-1 flex items-center gap-1.5">
-          {/* Busy while the assistant is answering OR a task it delegated is still going:
-              the turn ends the moment it has delegated, the work does not. */}
-          {chat.turnRunning || chat.taskRunning ? <Badge tone="run">running</Badge> : null}
-          {/* Where the conversation lives. A mirrored thread is read here and answered
-              there, and the badge is what stops a reader wondering why it has no composer. */}
-          {chat.origin && chat.origin !== "web" ? (
-            <Badge tone="idle">{chat.channel ? `#${chat.channel}` : chat.origin}</Badge>
-          ) : null}
-          {/* text-2xs, like the badges beside it and the timestamp above: this row mixed
-              two type sizes, and the larger plain text did not sit level with the pills. */}
-          {chat.startedBy ? (
-            <span className="shrink-0 text-2xs text-muted">{chat.startedBy}</span>
-          ) : null}
-          <span className="min-w-0 flex-1 truncate text-2xs text-muted">
-            {chat.preview || "nothing said yet"}
-          </span>
-        </span>
+        {running ? <span className="sr-only">running</span> : null}
+        {where ? <span className="sr-only">{where}</span> : null}
+        {chat.startedBy ? <span className="sr-only">started by {chat.startedBy}</span> : null}
+        {chat.preview ? <span className="sr-only">{chat.preview}</span> : null}
       </button>
-      <div className="m-1 flex shrink-0 self-start opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-        <Tooltip label="Rename">
-          <Button
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
             type="button"
-            variant="ghost"
-            size="icon-xs"
-            data-testid="chat-rename"
-            aria-label={`Rename ${chat.title}`}
-            onClick={start}
+            data-testid="chat-actions"
+            aria-label={`Actions for ${chat.title}`}
+            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-border/60 hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-border/60 data-[state=open]:opacity-100"
           >
+            <Ellipsis className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        {/* Rename swaps the row for an input; handing focus back to the trigger would blur
+            it the moment it appears. */}
+        <DropdownMenuContent align="start" className="min-w-36" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuItem data-testid="chat-rename" aria-label={`Rename ${chat.title}`} onSelect={start}>
             <Pencil />
-          </Button>
-        </Tooltip>
-        <Tooltip label={`Delete ${chat.title}`}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="danger"
             data-testid="chat-delete"
             aria-label={`Delete ${chat.title}`}
             disabled={deleting}
-            onClick={() => onDelete(chat)}
-            className="hover:bg-err/12 hover:text-err"
+            onSelect={() => onDelete(chat)}
           >
             <Trash2 />
-          </Button>
-        </Tooltip>
-      </div>
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }
