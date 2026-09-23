@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Hash, Pencil } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Hash, Pencil, Search } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SlackChannel } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
-import { absolute, relative } from "../../lib/format";
+import { absolute, relative, toDate } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
 import { PageHeader } from "../PageHeader";
@@ -18,12 +18,43 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { ConductorDown } from "./ConductorDown";
 
 /** Matches store.MaxSlackChannelDescriptionRunes. */
 const MAX_DESCRIPTION = 500;
+
+/** How many rows one page shows. The catalogue is every channel the bot has been in, so it
+ * grows with the workspace rather than with traffic; a page keeps a long one readable
+ * without asking the conductor for a cursor it does not have. */
+const PAGE_SIZE = 20;
+
+type Sort = "recent" | "oldest" | "name" | "name-desc";
+type Described = "all" | "with" | "without";
+
+/** described is the operator's note, not Slack's own purpose field. Whitespace is nothing. */
+function hasDescription(ch: SlackChannel): boolean {
+  return ch.description.trim() !== "";
+}
+
+/** sortKeyName puts a channel Slack has not named yet after the named ones rather than
+ * sorting on a raw id that means nothing to a reader. */
+function sortKeyName(ch: SlackChannel): string {
+  return ch.name ? `0${ch.name.toLowerCase()}` : `1${ch.id.toLowerCase()}`;
+}
+
+function updatedMs(ch: SlackChannel): number {
+  return toDate(ch.updatedAt)?.getTime() ?? 0;
+}
 
 /**
  * ChannelsPanel is the catalogue of Slack channels this bot has been in, and the note an
@@ -36,6 +67,10 @@ export function ChannelsPanel() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<SlackChannel>();
+  const [query, setQuery] = useState("");
+  const [described, setDescribed] = useState<Described>("all");
+  const [sort, setSort] = useState<Sort>("recent");
+  const [page, setPage] = useState(1);
 
   const list = useQuery({
     queryKey: ["agent", "slack-channels"],
@@ -54,8 +89,47 @@ export function ChannelsPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
-  const channels = list.data?.channels ?? [];
+  // Its own memo, so the identity is stable across renders and the filter below actually
+  // memoises instead of recomputing every time anything on this page changes.
+  const channels = useMemo(() => list.data?.channels ?? [], [list.data?.channels]);
   const connected = list.data?.slackConnected ?? false;
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matches = channels.filter((ch) => {
+      if (described === "with" && !hasDescription(ch)) return false;
+      if (described === "without" && hasDescription(ch)) return false;
+      if (q === "") return true;
+      // Search the id too: a channel Slack has not named yet is only findable by it.
+      return (
+        ch.name.toLowerCase().includes(q) ||
+        ch.id.toLowerCase().includes(q) ||
+        ch.description.toLowerCase().includes(q)
+      );
+    });
+    const ordered = [...matches];
+    ordered.sort((a, b) => {
+      switch (sort) {
+        case "name":
+          return sortKeyName(a).localeCompare(sortKeyName(b));
+        case "name-desc":
+          return sortKeyName(b).localeCompare(sortKeyName(a));
+        case "oldest":
+          return updatedMs(a) - updatedMs(b);
+        default:
+          return updatedMs(b) - updatedMs(a);
+      }
+    });
+    return ordered;
+  }, [channels, query, described, sort]);
+
+  // Clamped rather than reset: a filter that shrinks the list past the current page should
+  // show the last page, not an empty one, and no effect has to fire to make that true.
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const current = Math.min(page, pages);
+  const start = (current - 1) * PAGE_SIZE;
+  const visible = shown.slice(start, start + PAGE_SIZE);
+  const filtering = query.trim() !== "" || described !== "all";
 
   if (list.isError && !isAgentUnreachable(list.error)) {
     return (
@@ -71,7 +145,8 @@ export function ChannelsPanel() {
         meta={
           channels.length > 0 ? (
             <Chip className="tabular">
-              {channels.length} {channels.length === 1 ? "channel" : "channels"}
+              {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
+              {channels.length === 1 ? "channel" : "channels"}
             </Chip>
           ) : undefined
         }
@@ -104,11 +179,116 @@ export function ChannelsPanel() {
       ) : null}
 
       {channels.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative block min-w-0 flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
+            <Input
+              data-testid="channel-search"
+              aria-label="Search channels"
+              value={query}
+              placeholder="Search name, id or context"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
+              className="h-8 bg-bg pl-8"
+            />
+          </label>
+          <Select
+            value={described}
+            onValueChange={(v) => {
+              setDescribed(v as Described);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Filter by context"
+              data-testid="channel-filter"
+              className="h-8 w-44"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All channels</SelectItem>
+              <SelectItem value="with">With context</SelectItem>
+              <SelectItem value="without">Without context</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={sort}
+            onValueChange={(v) => {
+              setSort(v as Sort);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Sort channels"
+              data-testid="channel-sort"
+              className="h-8 w-52"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recent">Recently updated</SelectItem>
+              <SelectItem value="oldest">Least recently updated</SelectItem>
+              <SelectItem value="name">Name A–Z</SelectItem>
+              <SelectItem value="name-desc">Name Z–A</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {shown.length > 0 ? (
         <ul className="space-y-2.5">
-          {channels.map((ch) => (
+          {visible.map((ch) => (
             <ChannelRow key={ch.id} channel={ch} onEdit={() => setEditing(ch)} />
           ))}
         </ul>
+      ) : null}
+
+      {channels.length > 0 && shown.length === 0 ? (
+        <Empty
+          icon={Hash}
+          title="No channels match"
+          hint="Clear the search, or widen the context filter."
+        />
+      ) : null}
+
+      {pages > 1 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="tabular text-2xs text-faint" data-testid="channel-range">
+            {start + 1}–{start + visible.length} of {shown.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="channel-prev"
+              disabled={current <= 1}
+              onClick={() => setPage(current - 1)}
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <span className="tabular text-2xs text-faint">
+              Page {current} of {pages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="channel-next"
+              disabled={current >= pages}
+              onClick={() => setPage(current + 1)}
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       <DescriptionDialog
