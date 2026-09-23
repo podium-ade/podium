@@ -126,7 +126,7 @@ func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 		Memory:   &BriefMemory{MCPURL: "http://host.docker.internal:8888/mcp/podium/", APIKeyEnv: "K"},
 	}
 	menu := []DelegablePlaybook{{Name: "podium", Summary: "develops Podium itself", Docker: true}}
-	c.hostBrief(b, menu)
+	c.hostBrief(b, menu, nil)
 
 	assert.Equal(t, RunsOnHost, b.RunsOn)
 	require.NotNil(t, b.Memory)
@@ -145,19 +145,19 @@ func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 func TestHostBriefOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
-	c.hostBrief(b, []DelegablePlaybook{{Name: "podium"}})
+	c.hostBrief(b, []DelegablePlaybook{{Name: "podium"}}, nil)
 	assert.Nil(t, b.Delegation, "no address to reach the conductor at is no delegation")
 
 	c = &Conductor{host: &HostRuntime{TurnURL: "http://127.0.0.1:8090"}}
 	b = &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
-	c.hostBrief(b, nil)
+	c.hostBrief(b, nil, nil)
 	assert.Nil(t, b.Delegation, "an empty menu is not a menu")
 }
 
 func TestHostBriefDropsMemoryThisHostCannotReach(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Memory: &BriefMemory{MCPURL: "http://host.docker.internal:8888/", APIKeyEnv: "K"}}
-	c.hostBrief(b, nil)
+	c.hostBrief(b, nil, nil)
 	assert.Nil(t, b.Memory, "the runtime fails a turn whose memory server it cannot reach")
 }
 

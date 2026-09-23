@@ -86,6 +86,15 @@ const repoSchema = z.strictObject({
 // One Agent Skill the turn may use. It carries a name and a digest and never the bytes: the
 // bundle rides in its own environment variable, exactly as a credential does. See skills.ts
 // for why, and internal/agent/conductor/brief.go for the other half of the contract.
+// One unfinished task this conversation started. Enough to recognise it and inject into
+// it; the instruction is only the head of the one that started it.
+const runningDelegationSchema = z.strictObject({
+  id: z.string().min(1),
+  playbook: z.string().min(1),
+  instruction: z.string().optional(),
+  started_at: z.string().optional(),
+});
+
 const skillRefSchema = z.strictObject({
   name: z.string().regex(SkillNameRE, `must match ${SkillNameRE.source}`).max(MaxSkillNameLen),
   // Hex, lower case, 64 characters: sha256 of the bundle document.
@@ -231,6 +240,10 @@ const briefSchema = z.strictObject({
       url: z.string().min(1),
       token_env: z.string().min(1),
       playbooks: z.array(delegablePlaybookSchema).min(1),
+      // What this conversation already has in flight. Absent when nothing is, which is
+      // the common case; present, it is what stops a second task being started for a job
+      // that is already running.
+      running: z.array(runningDelegationSchema).optional(),
     })
     .optional(),
   // Where this turn is running. Absent means a task container, which is what every brief

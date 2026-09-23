@@ -257,6 +257,22 @@ type BriefDelegation struct {
 	URL       string              `json:"url"`
 	TokenEnv  string              `json:"token_env"`
 	Playbooks []DelegablePlaybook `json:"playbooks"`
+	// Running is what this conversation already has in flight. Without it the assistant
+	// had to infer from the transcript whether a task it started earlier was still going,
+	// and a wrong guess starts a second task for the same job instead of injecting into
+	// the first. An empty list is the common case and is omitted.
+	Running []BriefRunningDelegation `json:"running,omitempty"`
+}
+
+// BriefRunningDelegation is one unfinished task this conversation started: enough to
+// recognise it and inject into it, and nothing more. The instruction is the head of the
+// one that started it, so the model can tell two tasks apart without being handed both in
+// full.
+type BriefRunningDelegation struct {
+	ID          string `json:"id"`
+	Playbook    string `json:"playbook"`
+	Instruction string `json:"instruction,omitempty"`
+	StartedAt   string `json:"started_at,omitempty"`
 }
 
 // BriefBrowser points the runtime at the headless Chrome running beside this turn. It

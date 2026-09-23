@@ -589,10 +589,12 @@ function ChatRow({
           {chat.origin && chat.origin !== "web" ? (
             <Badge tone="idle">{chat.channel ? `#${chat.channel}` : chat.origin}</Badge>
           ) : null}
+          {/* text-2xs, like the badges beside it and the timestamp above: this row mixed
+              two type sizes, and the larger plain text did not sit level with the pills. */}
           {chat.startedBy ? (
-            <span className="shrink-0 text-xs text-muted">{chat.startedBy}</span>
+            <span className="shrink-0 text-2xs text-muted">{chat.startedBy}</span>
           ) : null}
-          <span className="min-w-0 flex-1 truncate text-xs text-muted">
+          <span className="min-w-0 flex-1 truncate text-2xs text-muted">
             {chat.preview || "nothing said yet"}
           </span>
         </span>

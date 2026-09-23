@@ -196,7 +196,7 @@ func (h *HostRuntime) node() string {
 // the tools — and a reader had to hold two documents in their head to know what a turn
 // actually got. The assistant has none of those things to begin with (see job.go), so there
 // is nothing here to strip: what the brief says is what the turn was built with.
-func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook) {
+func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []BriefRunningDelegation) {
 	b.RunsOn = RunsOnHost
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
@@ -206,6 +206,7 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook) {
 			URL:       c.host.TurnURL,
 			TokenEnv:  TurnTokenEnv,
 			Playbooks: menu,
+			Running:   running,
 		}
 	}
 	if b.Memory == nil {
@@ -425,8 +426,48 @@ func (h *hostRun) run(ctx context.Context) {
 	// Whatever this turn started and the conversation has not been told about. Last, so it
 	// follows the turn's own words rather than pre-empting them — which is the whole reason
 	// the line is held rather than said inside the tool call.
+	// The model-written name of the conversation. A host turn has no node collecting
+	// artifacts, so it is read off the jail here, before the deferred cleanup removes it.
+	// Same file the task path receives as an artifact; only the pickup differs.
+	if status == store.TurnSucceeded {
+		h.applyChatTitle(done, jail)
+	}
 	c.sayAnnouncementsFor(done, r.turn.ID)
 	r.finish(done, status)
+}
+
+// hostArtifactsSubdir is where the runtime writes its own files inside a host turn's
+// workspace. The task path has AutoArtifactDir, an absolute path in the container; a host
+// turn works out of a jail, so the same directory is relative to jail.work.
+const hostArtifactsSubdir = ".podium/artifacts"
+
+// applyChatTitle names the conversation from the file the first turn wrote. Missing is the
+// normal case and not an error: only a first turn is asked for a title, and only a source
+// that can be renamed has anywhere to put one.
+func (h *hostRun) applyChatTitle(ctx context.Context, jail hostPaths) {
+	r := h.r
+	namer, ok := r.src.(autoTitler)
+	if !ok {
+		return
+	}
+	path := filepath.Join(jail.work, hostArtifactsSubdir, chatTitleArtifact)
+	raw, err := os.ReadFile(path) //nolint:gosec // a path this process built and owns
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			r.c.logger.WarnContext(ctx, "reading the chat title failed",
+				"turn_id", r.turn.ID, "path", path, "error", err)
+		}
+		return
+	}
+	// The same bound the task path reads under: a title is one short line, and anything
+	// larger is a runaway file rather than a name.
+	if len(raw) > 4<<10 {
+		raw = raw[:4<<10]
+	}
+	if err := namer.SetAutoTitle(ctx, r.ref, string(raw)); err != nil {
+		r.c.logger.WarnContext(ctx, "naming the chat from the turn failed",
+			"ref", r.ref, "error", err)
+	}
 }
 
 // giveUp posts one sentence and fails the turn. It is for the failures that happen before
