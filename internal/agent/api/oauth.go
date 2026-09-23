@@ -182,6 +182,19 @@ func (c *oauthClient) discover(ctx context.Context) (*oidcConfig, error) {
 // exact one, because an issuer at auth.example.com legitimately serving its token endpoint
 // from api.example.com is normal — and a redirect to evil.test is not.
 func sameSite(issuer, endpoint string) error {
+	eu, err := url.Parse(endpoint)
+	if err != nil {
+		return err
+	}
+	if eu.Scheme != "https" {
+		return fmt.Errorf("%s is not https", endpoint)
+	}
+	return sameHost(issuer, endpoint)
+}
+
+// sameHost is sameSite without the https rule, for MCP servers, which may be plain http on a
+// tailnet or a LAN.
+func sameHost(issuer, endpoint string) error {
 	iu, err := url.Parse(issuer)
 	if err != nil {
 		return err
@@ -189,9 +202,6 @@ func sameSite(issuer, endpoint string) error {
 	eu, err := url.Parse(endpoint)
 	if err != nil {
 		return err
-	}
-	if eu.Scheme != "https" {
-		return fmt.Errorf("%s is not https", endpoint)
 	}
 	if eu.Hostname() == iu.Hostname() {
 		return nil

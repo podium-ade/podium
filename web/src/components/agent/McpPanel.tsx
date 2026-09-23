@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -22,6 +22,7 @@ import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import { McpMark } from "./McpMark";
@@ -58,6 +60,7 @@ function definitionOf(server: McpServer, patch: { enabled?: boolean } = {}) {
     url: server.url,
     description: server.description,
     enabled: patch.enabled ?? server.enabled,
+    config: server.config,
   };
 }
 
@@ -452,6 +455,8 @@ function ServerDialog({
   const [url, setUrl] = useState(server?.url ?? "");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [token, setToken] = useState("");
+  const [config, setConfig] = useState(server?.config ?? "");
+  const [advanced, setAdvanced] = useState(config !== "");
   const [error, setError] = useState<string>();
 
   const preset = picked === undefined || picked === "custom" ? undefined : picked;
@@ -481,6 +486,7 @@ function ServerDialog({
         url: url.trim(),
         description: description.trim(),
         enabled,
+        config: config.trim(),
       };
       if (creating) {
         await agent.createMcpServer({ server: body, token: token.trim() });
@@ -581,6 +587,40 @@ function ServerDialog({
                 )}
               </Field>
             ) : null}
+
+            <Collapsible open={advanced} onOpenChange={setAdvanced}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"
+                >
+                  <ChevronRight
+                    aria-hidden
+                    className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")}
+                  />
+                  Advanced (YAML)
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <Field
+                  id={`${uid}-config`}
+                  label="Config"
+                  hint="Optional. Any harness options for this server, e.g. headers or timeout (ms). Stored in clear, so not for secrets — the token sets Authorization."
+                >
+                  {(control) => (
+                    <Textarea
+                      {...control}
+                      value={config}
+                      onChange={(e) => setConfig(e.target.value)}
+                      spellCheck={false}
+                      rows={5}
+                      placeholder={"headers:\n  X-Grafana-URL: https://<your-stack>.grafana.net"}
+                      className="font-mono text-xs"
+                    />
+                  )}
+                </Field>
+              </CollapsibleContent>
+            </Collapsible>
 
             <div className="flex items-center gap-2">
               <Switch
