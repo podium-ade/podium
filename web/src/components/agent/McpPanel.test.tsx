@@ -52,6 +52,7 @@ function server(over: Record<string, unknown> = {}) {
     expiresAt: undefined,
     refreshable: false,
     oauthSupported: false,
+    config: "",
     ...over,
   };
 }
@@ -227,7 +228,36 @@ describe("McpPanel", () => {
       url: "https://mcp.linear.app/mcp",
       description: "Issues and projects.",
       enabled: false,
+      config: "",
     });
+  });
+
+  it("keeps a server's YAML config when the switch flips it", async () => {
+    const config = "headers:\n  X-Grafana-URL: https://stack.grafana.net";
+    listMcpServers.mockResolvedValue({ servers: [server({ config })], maxPerPlaybook: 8 });
+    updateMcpServer.mockResolvedValue({ server: server({ config, enabled: false }) });
+    mount();
+    await userEvent.click(await screen.findByLabelText("linear is enabled"));
+
+    await waitFor(() => expect(updateMcpServer).toHaveBeenCalled());
+    const [req] = updateMcpServer.mock.calls[0] as [{ server: Record<string, unknown> }];
+    expect(req.server.config).toBe(config);
+  });
+
+  it("sends the advanced YAML with a new server", async () => {
+    createMcpServer.mockResolvedValue({ server: server({ name: "grafana" }) });
+    mount();
+    await userEvent.click(await screen.findByTestId("mcp-new"));
+    await userEvent.click(screen.getByTestId("mcp-preset-custom"));
+    await userEvent.type(screen.getByLabelText("Name"), "grafana");
+    await userEvent.type(screen.getByLabelText("URL"), "https://mcp.grafana.com/mcp");
+    await userEvent.click(screen.getByRole("button", { name: "Advanced (YAML)" }));
+    await userEvent.type(screen.getByLabelText("Config"), "headers:{enter}  X-Grafana-URL: https://stack.grafana.net");
+    await userEvent.click(screen.getByTestId("mcp-save"));
+
+    await waitFor(() => expect(createMcpServer).toHaveBeenCalled());
+    const [req] = createMcpServer.mock.calls[0] as [{ server: { config: string } }];
+    expect(req.server.config).toBe("headers:\n  X-Grafana-URL: https://stack.grafana.net");
   });
 
   it("stores a token on its own, and names the secret and the variable it lands in", async () => {

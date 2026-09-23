@@ -27,6 +27,11 @@ const MsgAccounting = "accounting"
 // next inbound into the same task instead of starting a new turn.
 const MsgQuestion = "question"
 
+// MsgActivity is one thing a turn did on its way to an answer: a finished tool call or a
+// reasoning block, as a small JSON document (agent/runtime/src/activity.ts). It is drawn by
+// a source that implements ActivityPoster and said to no other.
+const MsgActivity = "activity"
+
 // Where a turn's accounting came from. It goes in the log, because "the store was off and
 // the message did not arrive either" is a different problem from "the runtime said nothing".
 const (

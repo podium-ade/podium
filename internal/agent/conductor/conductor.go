@@ -710,7 +710,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// repository and a Docker daemon, and neither surface is anybody watching a cursor.
 	if j.onHost {
 		host := &hostRun{
-			r: run, encoded: encoded, bundles: bundles, provider: brief.Provider, menu: menu,
+			r: run, encoded: encoded, bundles: bundles, servers: servers,
+			provider: brief.Provider, menu: menu,
 		}
 		if brief.Memory != nil {
 			host.memoryKeyEnv = brief.Memory.APIKeyEnv
@@ -908,7 +909,9 @@ func (c *Conductor) brief(
 		})
 	}
 	for _, srv := range servers {
-		entry := BriefMCPServer{Name: srv.Name, URL: srv.URL}
+		// resolveMCPServers has already refused a config that does not parse.
+		config, _ := mcp.ParseConfig(srv.Config)
+		entry := BriefMCPServer{Name: srv.Name, URL: srv.URL, Config: config}
 		// A server with no stored credential is named without one. The env var is only
 		// promised where a secret is actually attached below, because a brief naming a
 		// variable the container does not have is a turn that fails on its harness config.
@@ -1086,6 +1089,9 @@ func resolveMCPServers(names []string, rows []mcp.Server) ([]mcp.Server, error) 
 			return nil, fmt.Errorf("no MCP server named %q is registered", name)
 		case !srv.Enabled:
 			return nil, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		if _, err := mcp.ParseConfig(srv.Config); err != nil {
+			return nil, fmt.Errorf("the MCP server %q: %w", name, err)
 		}
 		out = append(out, srv)
 	}

@@ -98,6 +98,9 @@ func (c *Conductor) mirrorHeard(ctx context.Context, src Source, ev InboundEvent
 func (c *Conductor) mirrorSaid(ctx context.Context, src Source, ref string, out Outbound) {
 	role := RoleAssistant
 	text := out.Text
+	if out.Type == OutActivity {
+		role = store.RoleActivity
+	}
 	if out.Type == OutProgress {
 		if text == Placeholder {
 			return

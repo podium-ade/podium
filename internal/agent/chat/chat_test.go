@@ -416,6 +416,27 @@ func TestProgressIsStoredAsTheTaskTalking(t *testing.T) {
 	assert.Equal(t, uint64(2), msgs[1].Seq)
 }
 
+func TestActivityIsStoredWithTheTaskItCameFrom(t *testing.T) {
+	st := newFakeStore()
+	st.add("chat_1", "alice")
+	src := newSource(t, st)
+	sub := src.Subscribe(context.Background(), "chat_1")
+	defer sub.Close()
+	ctx := context.Background()
+
+	doc := `{"kind":"tool","id":"c1","tool":"bash","status":"completed"}`
+	require.NoError(t, src.PostActivity(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutActivity, TaskID: "task_1", Text: doc,
+	}))
+
+	f := recv(t, sub)
+	require.Equal(t, FrameMessage, f.Kind)
+	assert.Equal(t, store.RoleActivity, f.Message.Role)
+	assert.Equal(t, doc, f.Message.Text)
+	assert.Equal(t, "task_1", f.Message.TaskID)
+	assert.False(t, src.tookSpoke("chat_1"), "a tool call is not an answer")
+}
+
 func TestThePlaceholderIsNotAMessage(t *testing.T) {
 	st := newFakeStore()
 	st.add("chat_1", "alice")
@@ -573,6 +594,9 @@ func TestTheTranscriptIsTheWholeConversation(t *testing.T) {
 	// are not what the next one needs to read.
 	_, err = src.Post(ctx, "chat_1", conductor.Outbound{Type: conductor.OutProgress, Text: "thinking"})
 	require.NoError(t, err)
+	require.NoError(t, src.PostActivity(ctx, "chat_1", conductor.Outbound{
+		Type: conductor.OutActivity, Text: `{"kind":"reasoning","text":"hm"}`,
+	}))
 
 	entries, err := src.FetchTranscript(ctx, "chat_1")
 	require.NoError(t, err)

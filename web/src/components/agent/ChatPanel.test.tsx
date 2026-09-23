@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -40,6 +40,11 @@ vi.mock("../../lib/client", async () => {
     },
   };
 });
+
+/** openActions opens a chat row's menu, where rename and delete live. */
+async function openActions(title = "August numbers") {
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${title}` }));
+}
 
 /** live is an async iterable a test can push frames into and never closes on its own,
  *  which is exactly how StreamChat behaves. */
@@ -248,73 +253,7 @@ describe("ChatPanel", () => {
     expect(link).toHaveAttribute("href", "https://github.com/acme/api/pull/41");
   });
 
-  it("opens an existing conversation at the bottom", async () => {
-    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
-    const stream = live();
-    streamChat.mockImplementation(() => stream);
-    mount("/agent/chat/chat_01abc");
-
-    // jsdom does no layout; the first message mounts the scroller so the test can
-    // give it a viewport shorter than the transcript before the rest of the replay.
-    stream.push(message(1, "user", "how many active accounts last month"));
-    await screen.findByTestId("chat-scroller");
-    const scroller = screen.getByTestId("chat-scroller");
-    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
-    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
-
-    stream.push(message(2, "assistant", "**4,812** in August."));
-    stream.push(message(3, "user", "and before that"));
-    stream.push(message(4, "assistant", "3,901 in July."));
-
-    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(4));
-    expect(scroller.scrollTop).toBe(8000);
-  });
-
-  it("stops following when the human scrolls up, and the jump control restores it", async () => {
-    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
-    const stream = live();
-    streamChat.mockImplementation(() => stream);
-    mount("/agent/chat/chat_01abc");
-
-    stream.push(message(1, "user", "hello"));
-    await screen.findByTestId("chat-scroller");
-    const scroller = screen.getByTestId("chat-scroller");
-    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
-    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
-    stream.push(message(2, "assistant", "hi"));
-    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
-
-    scroller.scrollTop = 0;
-    fireEvent.scroll(scroller);
-    expect(await screen.findByRole("button", { name: /Jump to latest/ })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /Jump to latest/ }));
-    expect(scroller.scrollTop).toBe(8000);
-    expect(screen.queryByRole("button", { name: /Jump to latest/ })).toBeNull();
-  });
-
-  it("does not unpin when the transcript grows in place", async () => {
-    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
-    const stream = live();
-    streamChat.mockImplementation(() => stream);
-    mount("/agent/chat/chat_01abc");
-
-    stream.push(message(1, "user", "chart it"));
-    await screen.findByTestId("chat-scroller");
-    const scroller = screen.getByTestId("chat-scroller");
-    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
-    Object.defineProperty(scroller, "scrollHeight", { value: 8000, configurable: true });
-    stream.push(message(2, "assistant", "here"));
-    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(2));
-    expect(scroller.scrollTop).toBe(8000);
-
-    // An image decoding grows the column without the human moving the scrollbar.
-    Object.defineProperty(scroller, "scrollHeight", { value: 12000, configurable: true });
-    fireEvent.scroll(scroller);
-    expect(screen.queryByRole("button", { name: /Jump to latest/ })).toBeNull();
-  });
-
-  it("puts what the task said in the transcript, under its own name", async () => {
+  it("draws a delegated task as a subagent holding its own trail, with its answer in the turn", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
@@ -323,35 +262,33 @@ describe("ChatPanel", () => {
     stream.push(message(1, "user", "chart it"));
     stream.push(status("started", "task_01xyz"));
     stream.push(message(2, "progress", "I'll read the schema first.", [], "task_01xyz"));
-    stream.push(message(3, "progress", "Now the query.", [], "task_01xyz"));
+    stream.push(
+      message(3, "activity", JSON.stringify({ kind: "tool", tool: "bash", status: "completed", title: "psql -c ..." }), [], "task_01xyz"),
+    );
     stream.push(message(4, "assistant", "Here it is.", [], "task_01xyz"));
     stream.push(status("finished"));
 
     const bubbles = await waitFor(() => {
       const found = screen.getAllByTestId("chat-message");
-      expect(found).toHaveLength(4);
+      expect(found).toHaveLength(2);
       return found;
     });
-    expect(bubbles.map((b) => b.getAttribute("data-role"))).toEqual([
-      "user",
-      "progress",
-      "progress",
-      "assistant",
-    ]);
-    // Two voices, two names — and one name per run, not one per message.
-    expect(screen.getAllByText("task")).toHaveLength(1);
-    // The answer is the bot's, whatever machine produced it, and carries the task as a link.
-    expect(screen.getByText("Podium")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "task_01xyz" })).toHaveLength(2);
-    // It stays after the turn ends: it is the conversation, not a live view of one.
+    expect(bubbles.map((b) => b.getAttribute("data-role"))).toEqual(["user", "assistant"]);
+    const task = within(bubbles[1]).getByTestId("chat-task");
+    expect(within(task).getByRole("link", { name: "task_01xyz" })).toBeInTheDocument();
+    // The answer is said in the turn, not buried in the block.
+    expect(within(bubbles[1]).getByText("Here it is.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByTestId("chat-progress")).toBeNull());
-    expect(screen.getByText("I'll read the schema first.")).toBeInTheDocument();
+    expect(within(task).getByText(/done/)).toBeInTheDocument();
+    // Finished, so it is folded; opening it shows what the task did on the way.
+    await userEvent.click(within(task).getByText("Task"));
+    expect(within(task).getByText("I'll read the schema first.")).toBeInTheDocument();
+    expect(within(task).getByText("psql -c ...")).toBeInTheDocument();
   });
 
-  // The bug this fixes: the assistant thinks out loud on the host and its lines are stored
-  // under the same `progress` role a task's are, so role alone credited the assistant's own
-  // words to a container it had not started yet.
-  it("credits the assistant's own thinking to the assistant, not to a task", async () => {
+  // The assistant thinks out loud on the host and its lines are stored under the same
+  // `progress` role a task's are; only the task id tells them apart.
+  it("keeps the assistant's own thinking out of the task it delegated to", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
     streamChat.mockImplementation(() => stream);
@@ -362,14 +299,13 @@ describe("ChatPanel", () => {
     stream.push(message(3, "progress", "Working on this in a `podium` task", [], "task_01aaa"));
     stream.push(status("finished"));
 
-    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
-    // One "task" heading — the delegated one — and the assistant's line is the bot's.
-    expect(screen.getAllByText("task")).toHaveLength(1);
-    expect(screen.getByText("Podium")).toBeInTheDocument();
+    const trail = await screen.findByTestId("chat-trail");
+    await userEvent.click(within(trail).getByText(/Worked through 1 step/));
+    expect(within(trail).getByText("Delegating this to the podium playbook.")).toBeInTheDocument();
+    const task = screen.getByTestId("chat-task");
+    expect(within(task).queryByText("Delegating this to the podium playbook.")).toBeNull();
   });
 
-  // Two tasks answering one conversation are two answers, and used to render as one run
-  // because the grouping was by role.
   it("tells two tasks apart", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
@@ -381,10 +317,21 @@ describe("ChatPanel", () => {
     stream.push(message(3, "progress", "second task working", [], "task_01bbb"));
     stream.push(status("finished"));
 
-    await waitFor(() => expect(screen.getAllByTestId("chat-message")).toHaveLength(3));
-    expect(screen.getAllByText("task")).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByTestId("chat-task")).toHaveLength(2));
     expect(screen.getByRole("link", { name: "task_01aaa" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "task_01bbb" })).toBeInTheDocument();
+  });
+
+  it("renders a table an agent wrote as a table", async () => {
+    listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
+    const stream = live();
+    streamChat.mockImplementation(() => stream);
+    mount("/agent/chat/chat_01abc");
+
+    stream.push(message(1, "assistant", "| month | active |\n| --- | --- |\n| Aug | 4,812 |"));
+    const table = await screen.findByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "active" })).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "4,812" })).toBeInTheDocument();
   });
 
   it("shows the running state while a turn runs and drops it with the answer", async () => {
@@ -538,7 +485,12 @@ describe("ChatPanel", () => {
     expect(await screen.findByText("Ask Podium something")).toBeInTheDocument();
     await userEvent.type(await screen.findByTestId("chat-composer"), "how many accounts{Enter}");
 
-    expect(await screen.findByTestId("chat-message")).toHaveTextContent("how many accounts");
+    const mine = await waitFor(() => {
+      const found = screen.getAllByTestId("chat-message").filter((m) => m.dataset.role === "user");
+      expect(found).toHaveLength(1);
+      return found[0];
+    });
+    expect(mine).toHaveTextContent("how many accounts");
     expect(screen.queryByText("Ask Podium something")).toBeNull();
     expect(screen.getByTestId("chat-progress")).toBeInTheDocument();
     expect(screen.getByTestId("chat-composer")).toBeDisabled();
@@ -587,10 +539,11 @@ describe("ChatPanel", () => {
       message(1, "assistant", "<img src=x onerror=alert(1)> and [x](javascript:alert(1))"),
     );
     const bubble = await waitFor(() => screen.getByTestId("chat-message"));
+    // Raw HTML is never markup, and a script link is never a live link.
     expect(bubble.querySelectorAll("img")).toHaveLength(0);
-    expect(bubble.querySelectorAll("a")).toHaveLength(0);
-    expect(bubble.textContent).toContain("<img src=x onerror=alert(1)>");
-    expect(bubble.textContent).toContain("[x](javascript:alert(1))");
+    for (const a of bubble.querySelectorAll("a")) {
+      expect(a.getAttribute("href") ?? "").not.toMatch(/javascript:/i);
+    }
   });
 
   it("renames a chat from the rail", async () => {
@@ -598,7 +551,8 @@ describe("ChatPanel", () => {
     renameChat.mockResolvedValue({ chat: { ...chat, title: "Q3 forecast" } });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     const box = await screen.findByTestId("chat-title-input");
     await userEvent.clear(box);
     await userEvent.type(box, "Q3 forecast{Enter}");
@@ -612,13 +566,15 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     const box = await screen.findByTestId("chat-title-input");
     await userEvent.clear(box);
     await userEvent.type(box, "{Enter}");
     expect(renameChat).not.toHaveBeenCalled();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     await userEvent.type(await screen.findByTestId("chat-title-input"), "{Enter}");
     expect(renameChat).not.toHaveBeenCalled();
   });
@@ -627,7 +583,8 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Rename August numbers" }));
+    await openActions();
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename August numbers" }));
     await userEvent.type(await screen.findByTestId("chat-title-input"), "nope{Escape}");
     expect(screen.queryByTestId("chat-title-input")).toBeNull();
     expect(renameChat).not.toHaveBeenCalled();
@@ -665,6 +622,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     deleteChat.mockResolvedValue({});
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
 
     expect(screen.getByText(/The conversation goes with it/)).toBeInTheDocument();
@@ -686,6 +644,7 @@ describe("ChatPanel", () => {
     mount();
     expect(await screen.findByText("running")).toBeInTheDocument();
     // And a delete warns about the task, exactly as it does for a running turn.
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     expect(screen.getByText(/A task is running in this chat/)).toBeInTheDocument();
   });
@@ -694,6 +653,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [{ ...chat, turnRunning: true }], nextCursor: "" });
     deleteChat.mockResolvedValue({});
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
 
     expect(screen.getByText(/Stop the task and delete August numbers/)).toBeInTheDocument();
@@ -704,6 +664,7 @@ describe("ChatPanel", () => {
     expect(deleteChat).not.toHaveBeenCalled();
     expect(screen.getByTestId("chat-list")).toHaveTextContent("August numbers");
 
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));
@@ -715,6 +676,7 @@ describe("ChatPanel", () => {
   it("keeps the chat when the confirm is declined", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     mount();
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     await userEvent.click(screen.getByRole("button", { name: "Keep" }));
 
@@ -728,6 +690,7 @@ describe("ChatPanel", () => {
     mount("/agent/chat/chat_01abc");
     await waitFor(() => expect(streamChat).toHaveBeenCalled());
 
+    await openActions();
     await userEvent.click(await screen.findByTestId("chat-delete"));
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));

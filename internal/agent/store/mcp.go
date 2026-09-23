@@ -13,9 +13,10 @@ import (
 // The MCP server registry. There is no file half to merge with — see internal/agent/mcp —
 // so these five methods are the whole of where a turn's MCP servers come from.
 //
-// No method here reads or writes a token. The credential is a Podium secret in the control
-// plane; what this table holds is the registration and the four characters of hint an
-// operator recognises it by.
+// The credential is a Podium secret in the control plane, and that is what a task gets. This
+// table holds the registration, the four characters of hint an operator recognises it by,
+// and a readable copy of the token for the assistant, which has no node to resolve a secret
+// (migration 0019).
 
 // ListMcpServers returns every registered server, sorted by name.
 func (s *Store) ListMcpServers(ctx context.Context) ([]mcp.Server, error) {
@@ -53,6 +54,7 @@ func (s *Store) InsertMcpServer(ctx context.Context, srv mcp.Server, login strin
 		Url:         srv.URL,
 		Description: srv.Description,
 		Enabled:     srv.Enabled,
+		Config:      srv.Config,
 		CreatedBy:   login,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
@@ -74,6 +76,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 		Url:         srv.URL,
 		Description: srv.Description,
 		Enabled:     srv.Enabled,
+		Config:      srv.Config,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
 	})
@@ -90,7 +93,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 // hint describes. The token itself is already in the control plane by the time this is
 // called — the order is deliberate, and api/mcp.go carries the reasoning.
 func (s *Store) SetMcpServerTokenMeta(
-	ctx context.Context, name, hint, login string, version int32,
+	ctx context.Context, name, hint, login string, version int32, token string,
 ) error {
 	now := time.Now().UTC()
 	n, err := s.q.SetMcpServerTokenMeta(ctx, db.SetMcpServerTokenMetaParams{
@@ -100,6 +103,7 @@ func (s *Store) SetMcpServerTokenMeta(
 		TokenSetAt:         &now,
 		TokenSecretVersion: version,
 		AuthKind:           mcp.AuthToken,
+		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("set mcp server %s token metadata: %w", name, err)
@@ -115,7 +119,7 @@ func (s *Store) SetMcpServerTokenMeta(
 // and is exclusive with it — either column set clears the other, so a server has one
 // credential and one story about where it came from.
 func (s *Store) SetMcpServerOAuth(
-	ctx context.Context, name, login string, version int32, o mcp.OAuth,
+	ctx context.Context, name, login string, version int32, o mcp.OAuth, token string,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
@@ -129,6 +133,7 @@ func (s *Store) SetMcpServerOAuth(
 		TokenSecretVersion: version,
 		AuthKind:           mcp.AuthOAuth,
 		Oauth:              raw,
+		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("set mcp server %s oauth: %w", name, err)
@@ -143,7 +148,7 @@ func (s *Store) SetMcpServerOAuth(
 // touch the provenance: the human who signed in is still the human who signed in, and a
 // background pass writing its own name over theirs would lose the only record of who did.
 func (s *Store) RefreshMcpServerOAuth(
-	ctx context.Context, name string, version int32, o mcp.OAuth,
+	ctx context.Context, name string, version int32, o mcp.OAuth, token string,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
@@ -153,6 +158,7 @@ func (s *Store) RefreshMcpServerOAuth(
 		Name:               name,
 		TokenSecretVersion: version,
 		Oauth:              raw,
+		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("refresh mcp server %s oauth: %w", name, err)
@@ -203,12 +209,14 @@ type mcpRow struct {
 	Url                string
 	Description        string
 	Enabled            bool
+	Config             string
 	TokenHint          string
 	TokenSetBy         string
 	TokenSetAt         *time.Time
 	TokenSecretVersion int32
 	AuthKind           string
 	Oauth              []byte
+	Token              string
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
@@ -220,10 +228,12 @@ func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
 		URL:                r.Url,
 		Description:        r.Description,
 		Enabled:            r.Enabled,
+		Config:             r.Config,
 		TokenHint:          r.TokenHint,
 		TokenSetBy:         r.TokenSetBy,
 		TokenSecretVersion: r.TokenSecretVersion,
 		AuthKind:           r.AuthKind,
+		Token:              r.Token,
 		CreatedBy:          r.CreatedBy,
 		UpdatedBy:          r.UpdatedBy,
 		UpdatedAt:          r.UpdatedAt.UTC(),

@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  errorOf,
+  resetTakesThinking,
+  takesThinking,
   AgentName,
   BrowserBinary,
   BrowserServer,
@@ -273,6 +276,33 @@ describe("writeConfig with the playbook's own MCP servers", () => {
     expect(config.mcp.wiki.headers).toBeUndefined();
   });
 
+  it("merges a server's config beside its token, with the form's fields winning", () => {
+    const grafana = {
+      name: "grafana",
+      url: "https://mcp.grafana.com/mcp",
+      token_env: "PODIUM_MCP_GRAFANA_TOKEN",
+      config: {
+        headers: { "X-Grafana-URL": "https://stack.grafana.net" },
+        timeout: 30000,
+        whatever: { nested: true },
+        url: "https://elsewhere/mcp",
+      },
+    };
+    const { config } = write({ mcpServers: [grafana] });
+    expect(config.mcp.grafana.headers).toEqual({
+      "X-Grafana-URL": "https://stack.grafana.net",
+      Authorization: "Bearer {env:PODIUM_MCP_GRAFANA_TOKEN}",
+    });
+    expect(config.mcp.grafana.timeout).toBe(30000);
+    expect(config.mcp.grafana.whatever).toEqual({ nested: true });
+    expect(config.mcp.grafana.url).toBe("https://mcp.grafana.com/mcp");
+  });
+
+  it("refuses a config the harness would expand", () => {
+    const leak = { name: "wiki", url: "http://wiki/mcp", config: { deep: ["{env:PODIUM_TURN_TOKEN}"] } };
+    expect(() => write({ mcpServers: [leak] })).toThrow(/may not reference/);
+  });
+
   it("enables the server's tools wholesale, whatever the playbook listed", () => {
     // Naming the server in mcp_servers is what granting it means. A playbook cannot
     // describe individual tools of a server whose tool list only exists once it is
@@ -355,6 +385,11 @@ describe("invocation", () => {
     expect(cwd).toBe("/tmp/podium-turn-abc");
   });
 
+  it("asks for reasoning only when the harness takes the flag", () => {
+    expect(invocation({ ...base, thinking: true }).argv).toContain("--thinking");
+    expect(invocation(base).argv).not.toContain("--thinking");
+  });
+
   it("passes an effort through as the variant, and omits it when the profile names none", () => {
     expect(invocation({ ...base, effort: "high" }).argv).toContain("--variant");
     expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
@@ -390,4 +425,34 @@ describe("resolveBrowserURL", () => {
     expect(await resolveBrowserURL("http://nowhere:9222", lookup)).toBe("http://nowhere:9222");
     expect(await resolveBrowserURL("not a url", lookup)).toBe("not a url");
   });
+});
+
+describe("errorOf", () => {
+  it("reads the harness's reason off an error event", () => {
+    expect(
+      errorOf({ type: "error", error: { name: "APIError", data: { message: "credit balance is too low" } } }),
+    ).toBe("credit balance is too low");
+    expect(errorOf({ type: "error", error: { name: "UnknownError" } })).toBe("UnknownError");
+    expect(errorOf({ type: "error" })).toBe("an unnamed error");
+    expect(errorOf({ type: "text" })).toBeUndefined();
+  });
+});
+
+describe("takesThinking", () => {
+  it("asks for reasoning only from a harness that says it takes the flag, and asks once", () => {
+    resetTakesThinking();
+    let asked = 0;
+    const old = () => {
+      asked++;
+      return "opencode run [message..]\n  --format  format\n  --variant  model variant";
+    };
+    expect(takesThinking({}, old)).toBe(false);
+    expect(takesThinking({}, old)).toBe(false);
+    expect(asked).toBe(1);
+
+    resetTakesThinking();
+    expect(takesThinking({}, () => "  --thinking  show thinking blocks")).toBe(true);
+    resetTakesThinking();
+  });
+
 });

@@ -91,6 +91,15 @@ it.`;
  */
 function hostBlock(brief: TurnBrief): string {
   const where = sourceLabels[brief.source.kind];
+  const servers = (brief.playbook.mcp_servers ?? []).map((s) => `\`${s.name}\``);
+  const reach = servers.length > 0 ? `, the tools of the MCP servers ${servers.join(", ")}` : "";
+  const direct =
+    servers.length > 0
+      ? `
+   The same goes for a small action one of your MCP servers does directly — editing a
+   ticket, reading an issue, posting a comment. Do it yourself; a task for one tool call is
+   a container started for nothing.`
+      : "";
   return `# This turn
 
 You are ${brief.profile.display_name}, answering one message of ${where}. You are running in
@@ -98,13 +107,13 @@ the conductor's own process — NOT in a container — which is why this turn is
 can do so little by itself.
 
 What you have here: this conversation, your memory if one is configured, the ability to fetch
-a URL, and the delegation tools below. What you do NOT have: a shell, a filesystem you should
+a URL${reach}, and the delegation tools below. What you do NOT have: a shell, a filesystem you should
 touch, a repository, a browser. There is no workspace, and a file you write goes nowhere.
 
 So there are exactly two things to do with a message, and you decide which in one step:
 
 1. **Answer it**, when the answer is already in this conversation, in your memory, or on a
-   page you can fetch.
+   page you can fetch.${direct}
 2. **Delegate it** otherwise — immediately, on your first tool call if you can.
 
 **Do not investigate first.** You have no repository and no shell, so anything you work out

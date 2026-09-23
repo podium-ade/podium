@@ -98,3 +98,26 @@ func TestAnUnknownOrDisabledServerFailsTheTurn(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `no MCP server named "notion"`)
 }
+
+// A server's YAML config reaches the brief as written.
+func TestAServersConfigIsCarriedInTheBrief(t *testing.T) {
+	playbook := profiles.Playbook{MCPServers: []string{"grafana"}}
+	c := skillsConductor(t, "", playbook)
+	playbook = c.profiles.Current().Playbooks["coder"]
+	srv := registered("grafana", true, 1)
+	srv.Config = "headers:\n  X-Grafana-URL: https://stack.grafana.net\ntimeout: 30000\nwhatever: yes\n"
+
+	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
+	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
+		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, []mcp.Server{srv}, choice)
+
+	require.Len(t, b.Playbook.MCPServers, 1)
+	config := b.Playbook.MCPServers[0].Config
+	assert.Equal(t, map[string]any{"X-Grafana-URL": "https://stack.grafana.net"}, config["headers"])
+	assert.Equal(t, 30000, config["timeout"])
+	assert.Equal(t, "yes", config["whatever"])
+
+	srv.Config = "- not a mapping"
+	_, err := resolveMCPServers([]string{"grafana"}, []mcp.Server{srv})
+	assert.Error(t, err)
+}

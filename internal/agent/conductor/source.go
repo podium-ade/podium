@@ -26,6 +26,7 @@ const (
 	OutFinal    = "final"
 	OutFailure  = "failure"
 	OutQuestion = "question"
+	OutActivity = "activity"
 )
 
 // Outbound is one thing the conductor wants said. Text is untrusted content when it came
@@ -110,6 +111,13 @@ type Attachment struct {
 	// the browser fetch GET /artifacts/{id} itself rather than relaying the bytes. Slack
 	// and Linear ignore it and upload Body.
 	ArtifactID string
+}
+
+// ActivityPoster is a Source that draws what a turn is doing — its tool calls and its
+// reasoning — beside what it says. Only the web chat is one: a Slack thread or a Linear
+// issue would be buried in it, so a source that is not one is told none of it.
+type ActivityPoster interface {
+	PostActivity(ctx context.Context, ref string, out Outbound) error
 }
 
 // Source is one place conversations happen. Steps 20 and 21 implement this same interface

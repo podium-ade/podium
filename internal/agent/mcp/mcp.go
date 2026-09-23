@@ -20,6 +20,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	yaml "go.yaml.in/yaml/v3"
 )
 
 // NameRE constrains a server name. It is the playbook rule with the same reasoning: the name
@@ -51,6 +53,12 @@ const MaxServers = 8
 // MaxDescriptionLen caps the operator's own note. It is shown in a browser and travels
 // nowhere else.
 const MaxDescriptionLen = 512
+
+// MaxConfigLen caps a server's YAML config.
+const MaxConfigLen = 4096
+
+// headerNameRE is an HTTP header field name (RFC 9110 token).
+var headerNameRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 // HeaderName and TokenPrefix are how every server's credential is presented, and they are
 // constants rather than columns: the MCP authorization specification says a bearer token
@@ -123,6 +131,8 @@ type Server struct {
 	URL         string
 	Description string
 	Enabled     bool
+	// Config is the operator's YAML for what the form does not show. See ParseConfig.
+	Config string
 	// TokenHint is the last four characters of the token, kept at save time. It is the only
 	// form any part of a token is read back in.
 	TokenHint  string
@@ -135,7 +145,12 @@ type Server struct {
 	// AuthKind is AuthNone, AuthToken or AuthOAuth.
 	AuthKind string
 	// OAuth is set for AuthOAuth and nil otherwise. SENSITIVE — see the type.
-	OAuth     *OAuth
+	OAuth *OAuth
+	// Token is SENSITIVE: the current access token, the same one the Podium secret holds. It
+	// is here for the assistant, which runs in the conductor's process and cannot resolve a
+	// secret; empty for a token stored before there was a copy. Never put in a brief, the
+	// proto or a log.
+	Token     string
 	CreatedBy string
 	UpdatedBy string
 	UpdatedAt time.Time
@@ -197,7 +212,79 @@ func (s Server) Validate() error {
 		errs = append(errs, fmt.Errorf("description is %d characters; the limit is %d",
 			len(s.Description), MaxDescriptionLen))
 	}
+	if _, err := ParseConfig(s.Config); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
+}
+
+// ParseConfig reads a server's YAML config: a mapping of harness options the form does not
+// show — `headers`, `timeout`, or anything else — passed through to the harness's entry for
+// this server as written. Empty is no config. The form's own fields (type, url, enabled) win
+// over any key of the same name.
+//
+// It is NOT a place for a credential. It is stored in clear and travels in the brief, which
+// anything that can read the task spec can read; the token is what goes in the secret store.
+func ParseConfig(raw string) (map[string]any, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	if len(raw) > MaxConfigLen {
+		return nil, fmt.Errorf("config is %d characters; the limit is %d", len(raw), MaxConfigLen)
+	}
+	var out map[string]any
+	if err := yaml.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("config must be a YAML mapping: %w", err)
+	}
+	var errs []error
+	if h, ok := out["headers"]; ok {
+		headers, ok := h.(map[string]any)
+		if !ok {
+			return nil, errors.New("config: headers must be a mapping of name to value")
+		}
+		for k, v := range headers {
+			switch {
+			case !headerNameRE.MatchString(k):
+				errs = append(errs, fmt.Errorf("config: %q is not a header name", k))
+			case strings.EqualFold(k, HeaderName):
+				errs = append(errs, fmt.Errorf("config: %s is set from the server's token; "+
+					"store the credential as the token instead", HeaderName))
+			}
+			if str, ok := v.(string); !ok {
+				errs = append(errs, fmt.Errorf("config: header %s must be a string", k))
+			} else if strings.ContainsAny(str, "\r\n") {
+				errs = append(errs, fmt.Errorf("config: header %s may not contain a line break", k))
+			}
+		}
+	}
+	// The harness expands {env:...} and {file:...} anywhere in its config, so a value holding
+	// one would send a variable from the turn's container — its GitHub token, its model key —
+	// to this server.
+	walkStrings(out, func(v string) {
+		if strings.Contains(v, "{env:") || strings.Contains(v, "{file:") {
+			errs = append(errs, fmt.Errorf("config: %q may not reference {env:} or {file:}", v))
+		}
+	})
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func walkStrings(v any, fn func(string)) {
+	switch t := v.(type) {
+	case string:
+		fn(t)
+	case map[string]any:
+		for k, x := range t {
+			fn(k)
+			walkStrings(x, fn)
+		}
+	case []any:
+		for _, x := range t {
+			walkStrings(x, fn)
+		}
+	}
 }
 
 // validateURL is the whole of what is assumed about an address: absolute, http or https, and

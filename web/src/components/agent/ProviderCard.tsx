@@ -689,7 +689,7 @@ function failure(err: unknown, provider: Provider): Result {
  * not send. Do not harden this away.
  *
  * It is still another company's text, so it is rendered as a React text node and never as
- * markup — markup in it is characters on a page, exactly as in lib/markdown.ts. The
+ * markup — markup in it is characters on a page. The
  * conductor has already bounded it and scrubbed anything key-shaped out of it, and the
  * paragraph it lands in wraps rather than overflowing the card.
  */
