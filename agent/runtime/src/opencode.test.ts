@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  errorOf,
+  resetTakesThinking,
+  takesThinking,
   AgentName,
   BrowserBinary,
   BrowserServer,
@@ -355,6 +358,11 @@ describe("invocation", () => {
     expect(cwd).toBe("/tmp/podium-turn-abc");
   });
 
+  it("asks for reasoning only when the harness takes the flag", () => {
+    expect(invocation({ ...base, thinking: true }).argv).toContain("--thinking");
+    expect(invocation(base).argv).not.toContain("--thinking");
+  });
+
   it("passes an effort through as the variant, and omits it when the profile names none", () => {
     expect(invocation({ ...base, effort: "high" }).argv).toContain("--variant");
     expect(invocation({ ...base, effort: "high" }).argv).toContain("high");
@@ -390,4 +398,34 @@ describe("resolveBrowserURL", () => {
     expect(await resolveBrowserURL("http://nowhere:9222", lookup)).toBe("http://nowhere:9222");
     expect(await resolveBrowserURL("not a url", lookup)).toBe("not a url");
   });
+});
+
+describe("errorOf", () => {
+  it("reads the harness's reason off an error event", () => {
+    expect(
+      errorOf({ type: "error", error: { name: "APIError", data: { message: "credit balance is too low" } } }),
+    ).toBe("credit balance is too low");
+    expect(errorOf({ type: "error", error: { name: "UnknownError" } })).toBe("UnknownError");
+    expect(errorOf({ type: "error" })).toBe("an unnamed error");
+    expect(errorOf({ type: "text" })).toBeUndefined();
+  });
+});
+
+describe("takesThinking", () => {
+  it("asks for reasoning only from a harness that says it takes the flag, and asks once", () => {
+    resetTakesThinking();
+    let asked = 0;
+    const old = () => {
+      asked++;
+      return "opencode run [message..]\n  --format  format\n  --variant  model variant";
+    };
+    expect(takesThinking({}, old)).toBe(false);
+    expect(takesThinking({}, old)).toBe(false);
+    expect(asked).toBe(1);
+
+    resetTakesThinking();
+    expect(takesThinking({}, () => "  --thinking  show thinking blocks")).toBe(true);
+    resetTakesThinking();
+  });
+
 });

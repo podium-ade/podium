@@ -63,6 +63,7 @@ left join (
   select cm.chat_id, cm.ts, cm.text,
          row_number() over (partition by cm.chat_id order by cm.seq desc) as rn
     from chat_messages cm
+   where cm.role <> 'activity'
 ) m on m.chat_id = c.id and m.rn = 1
 -- A chat with no login is a mirrored Slack thread: it belongs to the workspace, so every
 -- login sees it. There is no RBAC in this track and this is not it — it is the same
