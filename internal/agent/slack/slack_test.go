@@ -806,6 +806,31 @@ func TestFetchTranscriptResolvesUserMentions(t *testing.T) {
 	assert.Equal(t, "add @Bob’s suggestion, and @carol’s", entries[0].Text)
 }
 
+// A name the agent was shown can be used to tag that person back.
+func TestLinkMentionsTagsAResolvedName(t *testing.T) {
+	s := &Source{users: map[string]string{}}
+	s.mu.Lock()
+	s.rememberLocked("Bob", "U2")
+	s.rememberLocked("Ana", "U3")
+	s.rememberLocked("Ana Maria", "U4")
+	s.rememberLocked("Sam", "U5")
+	s.rememberLocked("Sam", "U6")
+	s.mu.Unlock()
+
+	assert.Equal(t, "ok <@U2>, done", s.linkMentions("ok @Bob, done"))
+	assert.Equal(t, "<@U2> <@U3>", s.linkMentions("@Bob @Ana"))
+	assert.Equal(t, "cc <@U4>", s.linkMentions("cc @Ana Maria"))
+	// Not a whole name, an email, or a name two people share: left as text.
+	assert.Equal(t, "@Bobby bob@Bob @Sam", s.linkMentions("@Bobby bob@Bob @Sam"))
+}
+
+// The label form of a mention is enough to learn the name, with no users.info call.
+func TestResolveMentionsRemembersALabel(t *testing.T) {
+	s := &Source{users: map[string]string{}}
+	assert.Equal(t, "ask @carol", s.resolveMentions(t.Context(), "ask <@U3|carol>"))
+	assert.Equal(t, "thanks <@U3>", s.linkMentions("thanks @carol"))
+}
+
 // One author costs one users.info however many times they spoke: the name cache is what
 // keeps a long thread from spending a call per message.
 func TestFetchTranscriptResolvesAnAuthorOnce(t *testing.T) {
