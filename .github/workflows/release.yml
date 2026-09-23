@@ -1,13 +1,28 @@
 name: release
 
-# A v* tag is the only thing that publishes anything. Everything else — including a push to
-# main — goes through ci.yml, which builds the same artifacts and throws them away.
+# Releasing is a manual act, run from main with the version written down. The first job that
+# leaves a mark tags main; every job after it builds and publishes from that tag.
+#
+# There is no `push: tags` trigger any more, and that is the point. The tag no longer STARTS
+# this workflow, it is created BY it — so one release is one run, a tag pushed by hand
+# publishes nothing, and GITHUB_TOKEN is enough to push it because nothing is waiting on the
+# push event. Everything that is not a release still goes through ci.yml, which builds the
+# same artifacts and throws them away.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v — 0.2.4, or 0.2.4-rc.1"
+        required: true
+        type: string
 
 permissions:
   contents: read
+
+# One release at a time. Two runs racing to tag is a confusing way to learn which won.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   # ===========================================================================
@@ -26,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }} # the LICENSE of the commit being released, not of main now
       - name: Refuse to release unlicensed code
         run: |
           if grep -qi 'TODO' LICENSE; then
@@ -56,12 +73,77 @@ jobs:
           fi
           echo "LICENSE looks like a real licence. Proceeding."
 
+  # ===========================================================================
+  # The tag. The first job that leaves a mark, and what everything below builds from.
+  #
+  # It runs AFTER the licence gate and BEFORE anything is published, because a tag is public
+  # the moment it is pushed and deleting it does not un-fetch it. The one check that can
+  # refuse a release outright therefore happens while refusing is still free.
+  #
+  # It tags github.sha — the commit this run was dispatched against — and not whatever main
+  # points at by now, so the tag, the sha-* image tags and the code in the artifacts are all
+  # one commit.
+  # ===========================================================================
+  tag:
+    name: tag main
+    needs: [license]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create and push the tag
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      # workflow_dispatch can be started against any branch. A release comes off main, and a
+      # tag pointing at code that was never merged is the mistake worth catching here.
+      - name: Refuse to release anything but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::A release is cut from main. This run was started on ${GITHUB_REF_NAME}."
+          exit 1
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0 # every existing tag, so a duplicate is caught before it is made
+
+      - name: Read and check the version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"   # a leading v is forgiven rather than refused
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'${INPUT_VERSION}' is not a version. Expected 0.2.4, or 0.2.4-rc.1."
+            exit 1
+          fi
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::${tag} already exists. A tag is what was published; it is not re-cut."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}"         >> "$GITHUB_OUTPUT"
+
+      - name: Tag main
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release ${VERSION}"
+          git push origin "$TAG"
+          echo "Tagged \`$(git rev-parse --short HEAD)\` as \`${TAG}\`." >> "$GITHUB_STEP_SUMMARY"
+
   release:
     name: goreleaser
     # agent-runtime too, and not just for ordering's sake: the agent image now builds FROM
     # the runtime image by digest, so the runtime has to exist before goreleaser builds the
     # conductor. This serialises the two halves of a release that used to run side by side.
-    needs: [license, agent-runtime]
+    needs: [tag, agent-runtime]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release and upload artifacts
@@ -70,6 +152,9 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # The tag, not main: goreleaser reads the version off the checked-out ref, and
+          # main may have moved since this run started.
+          ref: ${{ needs.tag.outputs.tag }}
           fetch-depth: 0 # the changelog is generated from history
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -145,7 +230,7 @@ jobs:
   # ===========================================================================
   agent-runtime:
     name: podium-agent-runtime
-    needs: [license]
+    needs: [tag]
     runs-on: ubuntu-latest
     permissions:
       packages: write # push to ghcr.io
@@ -159,16 +244,21 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
 
       # The tag set has to match the Go images exactly, or a version-matched default cannot
       # find its runtime. `latest` moves only on a real release, like every other image:
       # a prerelease tag carries a `-`, which is the whole test.
       - name: Work out the tags
         id: tags
+        env:
+          # The version the run was given, not the ref: this workflow is dispatched on main
+          # and GITHUB_REF_NAME would read "main".
+          RELEASE_VERSION: ${{ needs.tag.outputs.version }}
         run: |
           set -euo pipefail
-          ref="${GITHUB_REF_NAME}"          # v0.1.0, or v0.1.0-rc.1
-          version="${ref#v}"
+          version="${RELEASE_VERSION}"      # 0.1.0, or 0.1.0-rc.1
           major_minor="v$(echo "$version" | cut -d. -f1-2)"
           image=ghcr.io/${{ github.repository_owner }}/podium-agent-runtime
           tags="$image:$version,$image:$major_minor,$image:sha-${GITHUB_SHA::7}"
@@ -242,7 +332,7 @@ jobs:
   # ===========================================================================
   agent-runtime-dev:
     name: podium-agent-runtime-dev
-    needs: [agent-runtime]
+    needs: [tag, agent-runtime]
     runs-on: ubuntu-latest
     # Two architectures of a Go toolchain, a Docker client, golangci-lint and two global npm
     # packages, one of them under qemu. It is the slowest thing this workflow builds; the
@@ -253,6 +343,8 @@ jobs:
       id-token: write # cosign keyless signing
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
 
       # The same tag set as the base, computed the same way: a version-matched dev image is
       # the only kind worth publishing, since its toolchain is pinned to what this commit of
@@ -260,10 +352,11 @@ jobs:
       # carries a `-`, which is the whole test.
       - name: Work out the tags
         id: tags
+        env:
+          RELEASE_VERSION: ${{ needs.tag.outputs.version }}
         run: |
           set -euo pipefail
-          ref="${GITHUB_REF_NAME}"          # v0.1.0, or v0.1.0-rc.1
-          version="${ref#v}"
+          version="${RELEASE_VERSION}"      # 0.1.0, or 0.1.0-rc.1
           major_minor="v$(echo "$version" | cut -d. -f1-2)"
           image=ghcr.io/${{ github.repository_owner }}/podium-agent-runtime-dev
           tags="$image:$version,$image:$major_minor,$image:sha-${GITHUB_SHA::7}"
