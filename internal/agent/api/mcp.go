@@ -407,7 +407,7 @@ func (s *AgentService) CompleteMcpOAuth(
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.store.SetMcpServerOAuth(ctx, f.name, login, version, o); err != nil {
+	if err := s.store.SetMcpServerOAuth(ctx, f.name, login, version, o, tok.AccessToken); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server was signed in to", "mcp_server", f.name,
@@ -475,7 +475,7 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 			zero(token)
 			continue
 		}
-		if err := s.store.RefreshMcpServerOAuth(ctx, row.Name, version, next); err != nil {
+		if err := s.store.RefreshMcpServerOAuth(ctx, row.Name, version, next, tok.AccessToken); err != nil {
 			s.logger.ErrorContext(ctx, "an mcp token was refreshed and stored but the row "+
 				"could not be updated; the next refresh will use the previous refresh token",
 				"mcp_server", row.Name, "error", err)
@@ -498,7 +498,7 @@ func (s *AgentService) storeMcpToken(ctx context.Context, name string, token []b
 		return connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("the MCP server is registered but storing its token failed: %w", err))
 	}
-	if err := s.store.SetMcpServerTokenMeta(ctx, name, keyHint(token), login, version); err != nil {
+	if err := s.store.SetMcpServerTokenMeta(ctx, name, keyHint(token), login, version, string(token)); err != nil {
 		return storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server token was stored", "mcp_server", name,

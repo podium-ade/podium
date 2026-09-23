@@ -428,6 +428,9 @@ effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
 skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
                              # Unset means none. FILE ONLY — no browser override
+mcp_servers: []              # optional; MCP servers the ASSISTANT may use directly, by name,
+                             # out of the registry — so editing a ticket needs no task.
+                             # Unset means none, and it delegates instead. FILE ONLY
 max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
                              # is the opposite of a playbook's. FILE ONLY
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
@@ -436,8 +439,8 @@ timeout: 15m                 # optional; the wall clock on one assistant turn. U
 # channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
-`skills` and `max_turns` are file-only on purpose. What the process running beside your master
-key may execute, and for how long, is a decision that belongs in a repository next to a review
+`skills`, `mcp_servers` and `max_turns` are file-only on purpose. What the process running beside
+your master key may execute, reach, and for how long, is a decision that belongs in a repository next to a review
 — not behind a form in a browser. Everything above them can be overridden from the Assistant
 screen, which stores the override in the conductor's database and leaves the file alone.
 

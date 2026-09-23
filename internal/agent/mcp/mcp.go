@@ -135,7 +135,12 @@ type Server struct {
 	// AuthKind is AuthNone, AuthToken or AuthOAuth.
 	AuthKind string
 	// OAuth is set for AuthOAuth and nil otherwise. SENSITIVE — see the type.
-	OAuth     *OAuth
+	OAuth *OAuth
+	// Token is SENSITIVE: the current access token, the same one the Podium secret holds. It
+	// is here for the assistant, which runs in the conductor's process and cannot resolve a
+	// secret; empty for a token stored before there was a copy. Never put in a brief, the
+	// proto or a log.
+	Token     string
 	CreatedBy string
 	UpdatedBy string
 	UpdatedAt time.Time

@@ -84,6 +84,7 @@ type McpServer struct {
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
+	Token              string
 }
 
 type Relayed struct {
