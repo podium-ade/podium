@@ -493,7 +493,9 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		return "", nil
 	}
 	first := ""
-	for _, part := range Split(s.linkMentions(out.Text), MaxMessageChars) {
+	// Markdown first, then mentions: the mention pass writes <@U…>, which is mrkdwn's own
+	// syntax and must not be handed to a Markdown converter afterwards.
+	for _, part := range Split(s.linkMentions(toMrkdwn(out.Text)), MaxMessageChars) {
 		ts, err := s.write(ctx, func() (string, error) {
 			_, ts, err := s.api.PostMessageContext(ctx, channel,
 				slack.MsgOptionTS(thread), slack.MsgOptionText(part, false))
@@ -519,7 +521,7 @@ func (s *Source) Edit(ctx context.Context, ref, msgID string, out conductor.Outb
 	if msgID == "" {
 		return errors.New("slack: no message to edit")
 	}
-	text := s.linkMentions(out.Text)
+	text := s.linkMentions(toMrkdwn(out.Text))
 	if parts := Split(text, MaxMessageChars); len(parts) > 0 {
 		text = parts[0]
 	}
