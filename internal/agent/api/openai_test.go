@@ -36,6 +36,15 @@ func fakeOpenAI(t *testing.T, good ...string) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/models" {
+			if r.URL.Query().Get("client_version") == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"detail":[{"type":"missing","loc":["query","client_version"]}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.4"},{"slug":"gpt-5.3-codex"}]}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-5.4"},{"id":"gpt-5.3-codex"}]}`))
 	}))
 	t.Cleanup(srv.Close)

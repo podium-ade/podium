@@ -16,8 +16,10 @@ func validateOpenAIKey(ctx context.Context, hc *http.Client, baseURL string, key
 // validateOpenAICodexToken asks ChatGPT's Codex backend whether a subscription access token
 // works. The path is /models on the Codex root, not /v1/models: that root already is the
 // API, and a token that api.openai.com would refuse is the whole reason this path exists.
+// The backend 400s without a client_version query parameter, and lists models under
+// "models" by slug rather than "data" by id.
 func validateOpenAICodexToken(ctx context.Context, hc *http.Client, baseURL string, key []byte) ([]string, error) {
-	url := strings.TrimSuffix(baseURL, "/") + "/models"
+	url := strings.TrimSuffix(baseURL, "/") + "/models?client_version=" + codexClientVersion
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, &validationError{kind: errCannotValidate, detail: err.Error(), cause: err}
@@ -30,6 +32,10 @@ func validateOpenAICodexToken(ctx context.Context, hc *http.Client, baseURL stri
 	}
 	return doBearerModels(ctx, hc, req, url, key)
 }
+
+// codexClientVersion is the Codex CLI version the Codex backend is told it is talking to. The
+// backend hides models whose minimal_client_version is newer, so ask as the newest client.
+const codexClientVersion = "99.0.0"
 
 // validateBearerModels is GET <url> with a bearer, for an OpenAI-shaped model list.
 func validateBearerModels(ctx context.Context, hc *http.Client, url string, key []byte) ([]string, error) {
@@ -51,7 +57,12 @@ func doBearerModels(_ context.Context, hc *http.Client, req *http.Request, url s
 
 	switch res.StatusCode {
 	case http.StatusOK:
-		var body modelsResponse
+		var body struct {
+			modelsResponse
+			Models []struct {
+				Slug string `json:"slug"`
+			} `json:"models"`
+		}
 		if err := jsonDecodeLimited(res, &body); err != nil {
 			return nil, &validationError{
 				kind:   errCannotValidate,
@@ -59,7 +70,7 @@ func doBearerModels(_ context.Context, hc *http.Client, req *http.Request, url s
 				cause:  err,
 			}
 		}
-		ids := make([]string, 0, len(body.Data))
+		ids := make([]string, 0, len(body.Data)+len(body.Models))
 		for _, m := range body.Data {
 			if m.ID == "" {
 				continue
@@ -67,6 +78,14 @@ func doBearerModels(_ context.Context, hc *http.Client, req *http.Request, url s
 			ids = append(ids, m.ID)
 			if len(ids) == maxModelsReported {
 				break
+			}
+		}
+		for _, m := range body.Models {
+			if len(ids) == maxModelsReported {
+				break
+			}
+			if m.Slug != "" {
+				ids = append(ids, m.Slug)
 			}
 		}
 		return ids, nil
