@@ -183,7 +183,7 @@ type BriefMCPServer struct {
 	// TokenEnv names the environment variable holding the bearer token. Absent for a server
 	// registered without one, which reaches its turns unauthenticated.
 	TokenEnv string `json:"token_env,omitempty"`
-	// Config is the server's YAML config, parsed (mcp.ParseConfig). The runtime merges it
+	// Config is the server's JSON config, parsed (mcp.ParseConfig). The runtime merges it
 	// into the harness's entry for this server.
 	Config map[string]any `json:"config,omitempty"`
 }

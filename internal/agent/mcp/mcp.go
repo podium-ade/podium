@@ -14,14 +14,13 @@
 package mcp
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
-
-	yaml "go.yaml.in/yaml/v3"
 )
 
 // NameRE constrains a server name. It is the playbook rule with the same reasoning: the name
@@ -54,7 +53,7 @@ const MaxServers = 8
 // nowhere else.
 const MaxDescriptionLen = 512
 
-// MaxConfigLen caps a server's YAML config.
+// MaxConfigLen caps a server's JSON config.
 const MaxConfigLen = 4096
 
 // headerNameRE is an HTTP header field name (RFC 9110 token).
@@ -131,7 +130,7 @@ type Server struct {
 	URL         string
 	Description string
 	Enabled     bool
-	// Config is the operator's YAML for what the form does not show. See ParseConfig.
+	// Config is the operator's JSON for the harness's whole entry. See ParseConfig.
 	Config string
 	// TokenHint is the last four characters of the token, kept at save time. It is the only
 	// form any part of a token is read back in.
@@ -212,16 +211,18 @@ func (s Server) Validate() error {
 		errs = append(errs, fmt.Errorf("description is %d characters; the limit is %d",
 			len(s.Description), MaxDescriptionLen))
 	}
-	if _, err := ParseConfig(s.Config); err != nil {
+	if config, err := ParseConfig(s.Config); err != nil {
 		errs = append(errs, err)
+	} else if u, ok := config["url"]; ok && u != s.URL {
+		errs = append(errs, fmt.Errorf("config: url %v does not match the server's url %q", u, s.URL))
 	}
 	return errors.Join(errs...)
 }
 
-// ParseConfig reads a server's YAML config: a mapping of harness options the form does not
-// show — `headers`, `timeout`, or anything else — passed through to the harness's entry for
-// this server as written. Empty is no config. The form's own fields (type, url, enabled) win
-// over any key of the same name.
+// ParseConfig reads a server's JSON config: the whole of the harness's entry for this server —
+// `type`, `url`, `headers`, `timeout`, or anything else — passed through as written. Empty is
+// no config. `type` may only be "remote", and `enabled` is the registry's switch, not the
+// config's.
 //
 // It is NOT a place for a credential. It is stored in clear and travels in the brief, which
 // anything that can read the task spec can read; the token is what goes in the secret store.
@@ -233,14 +234,23 @@ func ParseConfig(raw string) (map[string]any, error) {
 		return nil, fmt.Errorf("config is %d characters; the limit is %d", len(raw), MaxConfigLen)
 	}
 	var out map[string]any
-	if err := yaml.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, fmt.Errorf("config must be a YAML mapping: %w", err)
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("config must be a JSON object: %w", err)
+	}
+	if out == nil {
+		return nil, errors.New("config must be a JSON object")
 	}
 	var errs []error
+	if t, ok := out["type"]; ok && t != "remote" {
+		errs = append(errs, fmt.Errorf("config: type must be \"remote\", not %v", t))
+	}
+	if _, ok := out["enabled"]; ok {
+		errs = append(errs, errors.New("config: enabled is set by the server's switch, not the config"))
+	}
 	if h, ok := out["headers"]; ok {
 		headers, ok := h.(map[string]any)
 		if !ok {
-			return nil, errors.New("config: headers must be a mapping of name to value")
+			return nil, errors.New("config: headers must be an object of name to value")
 		}
 		for k, v := range headers {
 			switch {
