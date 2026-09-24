@@ -135,8 +135,8 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
           <p className="max-w-2xl pb-1 text-xs leading-relaxed text-muted">
             The assistant answers a conversation in the conductor&apos;s own process, and starts
             a task from one of your playbooks when the work needs a machine. Its name and its
-            prompt come from <code className="font-mono">profile.yaml</code> and are not editable
-            here. The name labels every session already recorded. The fields below are
+            prompt come from <code className="font-mono">profile.yaml</code>, which you can edit
+            below. The name labels every session already recorded. The fields below are
             overrides: clear one and the file&apos;s value applies again.
           </p>
 

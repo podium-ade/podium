@@ -79,6 +79,12 @@ const (
 	// AgentServiceReloadProfileDirProcedure is the fully-qualified name of the AgentService's
 	// ReloadProfileDir RPC.
 	AgentServiceReloadProfileDirProcedure = "/podium.agent.v1.AgentService/ReloadProfileDir"
+	// AgentServiceGetProfileFileProcedure is the fully-qualified name of the AgentService's
+	// GetProfileFile RPC.
+	AgentServiceGetProfileFileProcedure = "/podium.agent.v1.AgentService/GetProfileFile"
+	// AgentServiceUpdateProfileFileProcedure is the fully-qualified name of the AgentService's
+	// UpdateProfileFile RPC.
+	AgentServiceUpdateProfileFileProcedure = "/podium.agent.v1.AgentService/UpdateProfileFile"
 	// AgentServiceCreatePlaybookProcedure is the fully-qualified name of the AgentService's
 	// CreatePlaybook RPC.
 	AgentServiceCreatePlaybookProcedure = "/podium.agent.v1.AgentService/CreatePlaybook"
@@ -211,6 +217,11 @@ type AgentServiceClient interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
+	// GetProfileFile returns profile.yaml as it is on disk, comments and all.
+	GetProfileFile(context.Context, *connect.Request[v1.GetProfileFileRequest]) (*connect.Response[v1.GetProfileFileResponse], error)
+	// UpdateProfileFile replaces profile.yaml and re-reads the profile directory. A file that
+	// does not load is refused, the previous file is put back, and nothing changes.
+	UpdateProfileFile(context.Context, *connect.Request[v1.UpdateProfileFileRequest]) (*connect.Response[v1.UpdateProfileFileResponse], error)
 	// CreatePlaybook writes playbooks/<name>.yaml in the profile directory and re-reads it.
 	// A name that already exists is refused.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
@@ -415,6 +426,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
 			connect.WithClientOptions(opts...),
 		),
+		getProfileFile: connect.NewClient[v1.GetProfileFileRequest, v1.GetProfileFileResponse](
+			httpClient,
+			baseURL+AgentServiceGetProfileFileProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetProfileFile")),
+			connect.WithClientOptions(opts...),
+		),
+		updateProfileFile: connect.NewClient[v1.UpdateProfileFileRequest, v1.UpdateProfileFileResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateProfileFileProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateProfileFile")),
+			connect.WithClientOptions(opts...),
+		),
 		createPlaybook: connect.NewClient[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse](
 			httpClient,
 			baseURL+AgentServiceCreatePlaybookProcedure,
@@ -587,6 +610,8 @@ type agentServiceClient struct {
 	getProfile                 *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	updateProfile              *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
 	reloadProfileDir           *connect.Client[v1.ReloadProfileDirRequest, v1.ReloadProfileDirResponse]
+	getProfileFile             *connect.Client[v1.GetProfileFileRequest, v1.GetProfileFileResponse]
+	updateProfileFile          *connect.Client[v1.UpdateProfileFileRequest, v1.UpdateProfileFileResponse]
 	createPlaybook             *connect.Client[v1.CreatePlaybookRequest, v1.CreatePlaybookResponse]
 	updatePlaybook             *connect.Client[v1.UpdatePlaybookRequest, v1.UpdatePlaybookResponse]
 	deletePlaybook             *connect.Client[v1.DeletePlaybookRequest, v1.DeletePlaybookResponse]
@@ -697,6 +722,16 @@ func (c *agentServiceClient) UpdateProfile(ctx context.Context, req *connect.Req
 // ReloadProfileDir calls podium.agent.v1.AgentService.ReloadProfileDir.
 func (c *agentServiceClient) ReloadProfileDir(ctx context.Context, req *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error) {
 	return c.reloadProfileDir.CallUnary(ctx, req)
+}
+
+// GetProfileFile calls podium.agent.v1.AgentService.GetProfileFile.
+func (c *agentServiceClient) GetProfileFile(ctx context.Context, req *connect.Request[v1.GetProfileFileRequest]) (*connect.Response[v1.GetProfileFileResponse], error) {
+	return c.getProfileFile.CallUnary(ctx, req)
+}
+
+// UpdateProfileFile calls podium.agent.v1.AgentService.UpdateProfileFile.
+func (c *agentServiceClient) UpdateProfileFile(ctx context.Context, req *connect.Request[v1.UpdateProfileFileRequest]) (*connect.Response[v1.UpdateProfileFileResponse], error) {
+	return c.updateProfileFile.CallUnary(ctx, req)
 }
 
 // CreatePlaybook calls podium.agent.v1.AgentService.CreatePlaybook.
@@ -885,6 +920,11 @@ type AgentServiceHandler interface {
 	// and a load failure is refused here and changes nothing, so a conductor is never left
 	// running half a profile.
 	ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error)
+	// GetProfileFile returns profile.yaml as it is on disk, comments and all.
+	GetProfileFile(context.Context, *connect.Request[v1.GetProfileFileRequest]) (*connect.Response[v1.GetProfileFileResponse], error)
+	// UpdateProfileFile replaces profile.yaml and re-reads the profile directory. A file that
+	// does not load is refused, the previous file is put back, and nothing changes.
+	UpdateProfileFile(context.Context, *connect.Request[v1.UpdateProfileFileRequest]) (*connect.Response[v1.UpdateProfileFileResponse], error)
 	// CreatePlaybook writes playbooks/<name>.yaml in the profile directory and re-reads it.
 	// A name that already exists is refused.
 	CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error)
@@ -1085,6 +1125,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("ReloadProfileDir")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceGetProfileFileHandler := connect.NewUnaryHandler(
+		AgentServiceGetProfileFileProcedure,
+		svc.GetProfileFile,
+		connect.WithSchema(agentServiceMethods.ByName("GetProfileFile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateProfileFileHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateProfileFileProcedure,
+		svc.UpdateProfileFile,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateProfileFile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	agentServiceCreatePlaybookHandler := connect.NewUnaryHandler(
 		AgentServiceCreatePlaybookProcedure,
 		svc.CreatePlaybook,
@@ -1271,6 +1323,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceUpdateProfileHandler.ServeHTTP(w, r)
 		case AgentServiceReloadProfileDirProcedure:
 			agentServiceReloadProfileDirHandler.ServeHTTP(w, r)
+		case AgentServiceGetProfileFileProcedure:
+			agentServiceGetProfileFileHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateProfileFileProcedure:
+			agentServiceUpdateProfileFileHandler.ServeHTTP(w, r)
 		case AgentServiceCreatePlaybookProcedure:
 			agentServiceCreatePlaybookHandler.ServeHTTP(w, r)
 		case AgentServiceUpdatePlaybookProcedure:
@@ -1396,6 +1452,14 @@ func (UnimplementedAgentServiceHandler) UpdateProfile(context.Context, *connect.
 
 func (UnimplementedAgentServiceHandler) ReloadProfileDir(context.Context, *connect.Request[v1.ReloadProfileDirRequest]) (*connect.Response[v1.ReloadProfileDirResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ReloadProfileDir is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetProfileFile(context.Context, *connect.Request[v1.GetProfileFileRequest]) (*connect.Response[v1.GetProfileFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetProfileFile is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateProfileFile(context.Context, *connect.Request[v1.UpdateProfileFileRequest]) (*connect.Response[v1.UpdateProfileFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdateProfileFile is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreatePlaybook(context.Context, *connect.Request[v1.CreatePlaybookRequest]) (*connect.Response[v1.CreatePlaybookResponse], error) {
