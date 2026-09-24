@@ -6,7 +6,7 @@ import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
-import { Textarea } from "../ui/textarea";
+import { YamlEditor } from "../yaml/YamlEditor";
 
 /**
  * ProfileFileCard edits profile.yaml on the conductor's host as text. A file that does not
@@ -74,13 +74,13 @@ function ProfileFileEditor({ content, path }: { content: string; path: string })
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Textarea
-            aria-label="profile.yaml"
+          <YamlEditor
+            id="profile-yaml"
+            label="profile.yaml"
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            spellCheck={false}
-            rows={24}
-            className="font-mono text-xs"
+            onChange={setText}
+            invalid={error !== undefined}
+            minLines={24}
           />
           {error ? (
             <Alert variant="destructive" role="alert">
