@@ -17,6 +17,7 @@ import { McpPanel } from "../components/agent/McpPanel";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
+import { ProfileFileCard } from "../components/agent/ProfileFileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButton";
 import { SessionsTable } from "../components/agent/SessionsTable";
@@ -408,6 +409,7 @@ function ProfileTab() {
         saving={save.isPending}
         onSave={(fields) => save.mutate(fields)}
       />
+      <ProfileFileCard />
     </div>
   );
 }

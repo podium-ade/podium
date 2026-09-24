@@ -808,14 +808,19 @@ specification says, so the credential has no header to configure. A server regis
 credential reaches its turns with no authorization header, which is what an unauthenticated
 server wants.
 
-**Anything else goes in the server's YAML config** (Advanced, on the form). It is passed through
-to the harness's entry for the server as written — `headers`, `timeout` (milliseconds), or any
-other key — and the form's own `url` wins over one of the same name:
+**Anything else goes in the server's JSON config** (Advanced, on the form). It is the harness's
+whole entry for the server, filled from the form when Advanced is opened, and passed through as
+written — `headers`, `timeout` (milliseconds), or any other key. Its `url` and the form's URL
+field are one value and must match; `type` may only be `"remote"`; and `enabled` is the form's
+switch, not a key here:
 
-```yaml
-headers:
-  X-Grafana-URL: https://<your-stack>.grafana.net
-timeout: 30000
+```json
+{
+  "type": "remote",
+  "url": "https://mcp.grafana.com/mcp",
+  "headers": { "X-Grafana-URL": "https://<your-stack>.grafana.net" },
+  "timeout": 30000
+}
 ```
 
 It is stored in clear and carried in the brief, so it is not for secrets: it may not set
@@ -979,6 +984,12 @@ with a name but single values with one writer: `profile.yaml` supplies the defau
 set in the UI overrides it. The screen shows the file's value beside each field, marks which
 are overridden, and clearing a field returns it to the file. Those overrides live in
 `settings` under `profile.overrides`.
+
+**`profile.yaml` itself is editable on Agent → Assistant**, as text, comments and all — for
+what the override fields do not cover, such as the assistant's `skills` or `mcp_servers`. A
+save writes the file and re-reads the profile directory; a file that does not load is refused
+and the previous one is put back, so a bad save leaves the running bot as it was. The profile
+directory has to be writable by the conductor for this, as it already does for playbook edits.
 
 **How a change reaches a running conductor.** An override write validates, stores, rebuilds the
 profile and swaps it in atomically — the next turn uses it, a turn already in flight is

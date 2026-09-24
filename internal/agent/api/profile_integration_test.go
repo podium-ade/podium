@@ -229,3 +229,47 @@ func TestReloadingWithNoProfileDirectorySaysSo(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
+
+// profile.yaml edited in a browser reaches the running profile, comments and all.
+func TestEditingProfileYAMLFromTheBrowserReachesTheRunningProfile(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	ctx := loginCtx("alice")
+	got, err := f.svc.GetProfileFile(ctx, connect.NewRequest(&agentv1.GetProfileFileRequest{}))
+	require.NoError(t, err)
+	assert.Contains(t, got.Msg.GetContent(), "display_name: Podium")
+	assert.Equal(t, filepath.Join(dir, "profile.yaml"), got.Msg.GetPath())
+
+	next := "# edited\nname: podium\ndisplay_name: Reporter\nsystem_prompt: file:./prompts/profile.md\n" +
+		"model: claude-opus-5\ndefault_playbook: general\n"
+	_, err = f.svc.UpdateProfileFile(ctx, connect.NewRequest(&agentv1.UpdateProfileFileRequest{Content: next}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "Reporter", f.live.Current().DisplayName)
+	raw, err := os.ReadFile(filepath.Join(dir, "profile.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, next, string(raw))
+}
+
+// A profile.yaml that does not load is refused, and the file on disk is the one from before.
+func TestAProfileYAMLThatDoesNotLoadIsRefusedAndPutBack(t *testing.T) {
+	f, dir := onDiskProfile(t)
+	path := filepath.Join(dir, "profile.yaml")
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	_, err = f.svc.UpdateProfileFile(loginCtx("alice"), connect.NewRequest(
+		&agentv1.UpdateProfileFileRequest{Content: "name: podium\nmodle: typo\n"}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after))
+	assert.Equal(t, "Podium", f.live.Current().DisplayName)
+}
+
+func TestProfileYAMLWithNoProfileDirectorySaysSo(t *testing.T) {
+	f := newProfileFixture(t)
+	_, err := f.svc.GetProfileFile(loginCtx("alice"), connect.NewRequest(&agentv1.GetProfileFileRequest{}))
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
