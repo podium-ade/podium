@@ -54,6 +54,21 @@ import { McpMark } from "./McpMark";
  * the conductor and is ignored there. Sending it back would be a claim this screen has no
  * business making.
  */
+// parseEntry reads the Advanced JSON as the harness entry it stands for, or undefined while it
+// is not (yet) a JSON object.
+function parseEntry(raw: string): Record<string, unknown> | undefined {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function entryJSON(entry: Record<string, unknown>) {
+  return JSON.stringify(entry, null, 2);
+}
+
 function definitionOf(server: McpServer, patch: { enabled?: boolean } = {}) {
   return {
     name: server.name,
@@ -459,6 +474,24 @@ function ServerDialog({
   const [advanced, setAdvanced] = useState(config !== "");
   const [error, setError] = useState<string>();
 
+  // The URL field and the JSON's url are one value, so editing either updates the other.
+  function changeUrl(next: string) {
+    setUrl(next);
+    const entry = parseEntry(config);
+    if (entry) setConfig(entryJSON({ ...entry, url: next.trim() }));
+  }
+
+  function changeConfig(next: string) {
+    setConfig(next);
+    const entry = parseEntry(next);
+    if (typeof entry?.url === "string") setUrl(entry.url);
+  }
+
+  function toggleAdvanced(open: boolean) {
+    setAdvanced(open);
+    if (open && config.trim() === "") setConfig(entryJSON({ type: "remote", url: url.trim() }));
+  }
+
   const preset = picked === undefined || picked === "custom" ? undefined : picked;
   const help = tokenHelp(preset);
   const picking = creating && picked === undefined;
@@ -505,7 +538,10 @@ function ServerDialog({
   if (creating && name.trim() !== "" && taken.has(name.trim())) {
     problems.push(`A server named ${name.trim()} is already registered.`);
   }
-  const ready = name.trim() !== "" && url.trim() !== "" && problems.length === 0;
+  const configProblems =
+    config.trim() !== "" && parseEntry(config) === undefined ? ["Config must be a JSON object."] : [];
+  const ready =
+    name.trim() !== "" && url.trim() !== "" && problems.length === 0 && configProblems.length === 0;
 
   const title = !creating
     ? `Edit ${server.name}`
@@ -563,7 +599,7 @@ function ServerDialog({
                 <Input
                   {...control}
                   value={url}
-                  onChange={(e) => setUrl(e.target.value)}
+                  onChange={(e) => changeUrl(e.target.value)}
                   spellCheck={false}
                   placeholder={preset?.url ?? "https://mcp.example.com/mcp"}
                   className="font-mono text-xs"
@@ -588,7 +624,7 @@ function ServerDialog({
               </Field>
             ) : null}
 
-            <Collapsible open={advanced} onOpenChange={setAdvanced}>
+            <Collapsible open={advanced} onOpenChange={toggleAdvanced}>
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
@@ -598,23 +634,23 @@ function ServerDialog({
                     aria-hidden
                     className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")}
                   />
-                  Advanced (YAML)
+                  Advanced (JSON)
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-2">
                 <Field
                   id={`${uid}-config`}
                   label="Config"
-                  hint="Optional. Any harness options for this server, e.g. headers or timeout (ms). Stored in clear, so not for secrets — the token sets Authorization."
+                  problems={configProblems}
+                  hint="The harness's whole entry for this server: add headers, timeout (ms) or any other option. Its url follows the URL field, and Enabled stays the switch below. Stored in clear, so not for secrets — the token sets Authorization."
                 >
                   {(control) => (
                     <Textarea
                       {...control}
                       value={config}
-                      onChange={(e) => setConfig(e.target.value)}
+                      onChange={(e) => changeConfig(e.target.value)}
                       spellCheck={false}
-                      rows={5}
-                      placeholder={"headers:\n  X-Grafana-URL: https://<your-stack>.grafana.net"}
+                      rows={8}
                       className="font-mono text-xs"
                     />
                   )}

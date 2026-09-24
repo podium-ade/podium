@@ -232,8 +232,8 @@ describe("McpPanel", () => {
     });
   });
 
-  it("keeps a server's YAML config when the switch flips it", async () => {
-    const config = "headers:\n  X-Grafana-URL: https://stack.grafana.net";
+  it("keeps a server's JSON config when the switch flips it", async () => {
+    const config = '{"type":"remote","url":"https://mcp.linear.app/mcp","timeout":30000}';
     listMcpServers.mockResolvedValue({ servers: [server({ config })], maxPerPlaybook: 8 });
     updateMcpServer.mockResolvedValue({ server: server({ config, enabled: false }) });
     mount();
@@ -244,20 +244,55 @@ describe("McpPanel", () => {
     expect(req.server.config).toBe(config);
   });
 
-  it("sends the advanced YAML with a new server", async () => {
-    createMcpServer.mockResolvedValue({ server: server({ name: "grafana" }) });
+  async function openCustom() {
     mount();
     await userEvent.click(await screen.findByTestId("mcp-new"));
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     await userEvent.type(screen.getByLabelText("Name"), "grafana");
     await userEvent.type(screen.getByLabelText("URL"), "https://mcp.grafana.com/mcp");
-    await userEvent.click(screen.getByRole("button", { name: "Advanced (YAML)" }));
-    await userEvent.type(screen.getByLabelText("Config"), "headers:{enter}  X-Grafana-URL: https://stack.grafana.net");
-    await userEvent.click(screen.getByTestId("mcp-save"));
+    await userEvent.click(screen.getByRole("button", { name: "Advanced (JSON)" }));
+  }
 
+  it("fills the advanced JSON with the whole entry and keeps its url in step with the form", async () => {
+    createMcpServer.mockResolvedValue({ server: server({ name: "grafana" }) });
+    await openCustom();
+    const box = screen.getByLabelText("Config");
+    expect(JSON.parse((box as HTMLTextAreaElement).value)).toEqual({
+      type: "remote",
+      url: "https://mcp.grafana.com/mcp",
+    });
+
+    await userEvent.clear(box);
+    await userEvent.click(box);
+    await userEvent.paste('{"type":"remote","url":"https://grafana.example/mcp","timeout":30000}');
+    expect(screen.getByLabelText("URL")).toHaveValue("https://grafana.example/mcp");
+
+    await userEvent.type(screen.getByLabelText("URL"), "2");
+    expect(JSON.parse((box as HTMLTextAreaElement).value)).toEqual({
+      type: "remote",
+      url: "https://grafana.example/mcp2",
+      timeout: 30000,
+    });
+
+    await userEvent.click(screen.getByTestId("mcp-save"));
     await waitFor(() => expect(createMcpServer).toHaveBeenCalled());
-    const [req] = createMcpServer.mock.calls[0] as [{ server: { config: string } }];
-    expect(req.server.config).toBe("headers:\n  X-Grafana-URL: https://stack.grafana.net");
+    const [req] = createMcpServer.mock.calls[0] as [{ server: { url: string; config: string } }];
+    expect(req.server.url).toBe("https://grafana.example/mcp2");
+    expect(JSON.parse(req.server.config)).toEqual({
+      type: "remote",
+      url: "https://grafana.example/mcp2",
+      timeout: 30000,
+    });
+  });
+
+  it("will not save advanced config that is not a JSON object", async () => {
+    await openCustom();
+    const box = screen.getByLabelText("Config");
+    await userEvent.clear(box);
+    await userEvent.click(box);
+    await userEvent.paste("headers:\n  X-Key: v");
+    expect(screen.getByText("Config must be a JSON object.")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-save")).toBeDisabled();
   });
 
   it("stores a token on its own, and names the secret and the variable it lands in", async () => {
