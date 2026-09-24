@@ -534,7 +534,13 @@ function SubscriptionPanel({
   if (!signing) {
     return (
       <div className="space-y-2">
-        <Button size="sm" data-testid={tid("provider-oauth-start")} disabled={starting} onClick={onStart}>
+        <Button
+          size="sm"
+          data-testid={tid("provider-oauth-start")}
+          disabled={starting}
+          onClick={onStart}
+          className="h-auto min-h-8 max-w-full whitespace-normal py-1.5 text-left"
+        >
           {starting ? <Spinner /> : <ShieldCheck />}
           {starting ? "Asking for a code…" : provider.subscription?.label}
         </Button>
