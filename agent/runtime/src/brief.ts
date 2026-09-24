@@ -121,7 +121,7 @@ const mcpServerSchema = z.strictObject({
   name: z.string().regex(McpNameRE, `must match ${McpNameRE.source}`),
   url: z.string().min(1),
   token_env: z.string().min(1).optional(),
-  // The server's YAML config, merged into the harness's entry for this server.
+  // The server's JSON config: the harness's entry for this server, which the runtime completes.
   config: z.record(z.string(), z.unknown()).optional(),
 });
 

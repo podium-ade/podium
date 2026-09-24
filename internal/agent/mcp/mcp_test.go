@@ -73,13 +73,15 @@ func TestADescriptionIsBounded(t *testing.T) {
 }
 
 func TestAConfigIsPassedThroughWhateverItHolds(t *testing.T) {
-	config, err := ParseConfig("headers:\n  X-Grafana-URL: https://stack.grafana.net\ntimeout: 30000\n" +
-		"oauth: false\nanything:\n  nested: [1, two]\n")
+	config, err := ParseConfig(`{"type": "remote", "url": "https://x/mcp",
+		"headers": {"X-Grafana-URL": "https://stack.grafana.net"}, "timeout": 30000,
+		"oauth": false, "anything": {"nested": [1, "two"]}}`)
 	require.NoError(t, err)
+	assert.Equal(t, "remote", config["type"])
 	assert.Equal(t, map[string]any{"X-Grafana-URL": "https://stack.grafana.net"}, config["headers"])
-	assert.Equal(t, 30000, config["timeout"])
+	assert.Equal(t, float64(30000), config["timeout"])
 	assert.Equal(t, false, config["oauth"])
-	assert.Equal(t, map[string]any{"nested": []any{1, "two"}}, config["anything"])
+	assert.Equal(t, map[string]any{"nested": []any{float64(1), "two"}}, config["anything"])
 
 	empty, err := ParseConfig("  \n")
 	require.NoError(t, err)
@@ -88,17 +90,24 @@ func TestAConfigIsPassedThroughWhateverItHolds(t *testing.T) {
 
 func TestAConfigRefusesWhatItCannotCarrySafely(t *testing.T) {
 	for _, raw := range []string{
-		"- not a mapping",
-		"headers: [a]",
-		"headers:\n  Authorization: Bearer x",
-		"headers:\n  \"bad name\": x",
-		"headers:\n  X-Key: 1",
-		"headers:\n  X-Key: \"{env:PODIUM_TURN_TOKEN}\"",
-		"deep:\n  - \"{file:/etc/passwd}\"",
-		strings.Repeat("#", MaxConfigLen+1),
+		"headers:\n  X-Key: v",
+		"[1]",
+		"null",
+		`{"type": "local", "command": ["sh"]}`,
+		`{"enabled": false}`,
+		`{"headers": ["a"]}`,
+		`{"headers": {"Authorization": "Bearer x"}}`,
+		`{"headers": {"bad name": "x"}}`,
+		`{"headers": {"X-Key": 1}}`,
+		`{"headers": {"X-Key": "{env:PODIUM_TURN_TOKEN}"}}`,
+		`{"deep": ["{file:/etc/passwd}"]}`,
+		strings.Repeat(" ", MaxConfigLen) + "{}",
 	} {
 		_, err := ParseConfig(raw)
 		assert.Error(t, err, raw)
 	}
-	assert.Error(t, Server{Name: "wiki", URL: "http://x/mcp", Config: "- nope"}.Validate())
+	assert.Error(t, Server{Name: "wiki", URL: "http://x/mcp", Config: "[]"}.Validate())
+	assert.Error(t, Server{Name: "wiki", URL: "http://x/mcp", Config: `{"url": "http://y/mcp"}`}.Validate(),
+		"the config's url has to be the server's")
+	assert.NoError(t, Server{Name: "wiki", URL: "http://x/mcp", Config: `{"url": "http://x/mcp"}`}.Validate())
 }
