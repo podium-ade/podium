@@ -27,6 +27,8 @@ const pollProviderOAuth = vi.fn();
 const updateProfile = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
+const getProfileFile = vi.fn();
+const updateProfileFile = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -49,6 +51,8 @@ vi.mock("../lib/client", async () => {
       listSkills: (...a: unknown[]) => listSkills(...a),
       listMcpServers: () => Promise.resolve({ servers: [] }),
       reloadProfileDir: () => Promise.resolve({}),
+      getProfileFile: (...a: unknown[]) => getProfileFile(...a),
+      updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
   };
@@ -157,6 +161,12 @@ describe("AgentPage", () => {
     pollProviderOAuth.mockReset();
     updateProfile.mockReset();
     listSecrets.mockReset();
+    getProfileFile.mockReset();
+    updateProfileFile.mockReset();
+    getProfileFile.mockResolvedValue({
+      content: "name: podium\n",
+      path: "/etc/podium/agent/profile.yaml",
+    });
     getProfile.mockResolvedValue(profileResponse);
     listSecrets.mockResolvedValue({ secrets: [] });
     getSettings.mockResolvedValue(notSet);
@@ -223,6 +233,24 @@ describe("AgentPage", () => {
     mount("/agent/profile");
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
     expect(screen.getByLabelText("Display name")).toHaveValue("");
+  });
+
+  it("saves profile.yaml as typed and shows a refusal inline", async () => {
+    updateProfileFile.mockRejectedValueOnce(new Error("modle: field not found"));
+    updateProfileFile.mockResolvedValueOnce({});
+    mount("/agent/profile");
+    const box = await screen.findByLabelText("profile.yaml");
+    expect(box).toHaveValue("name: podium\n");
+    expect(screen.getByText("/etc/podium/agent/profile.yaml")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-file-save")).toBeDisabled();
+
+    await userEvent.type(box, "modle: typo");
+    await userEvent.click(screen.getByTestId("profile-file-save"));
+    expect(await screen.findByText(/modle: field not found/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("profile-file-save"));
+    await waitFor(() => expect(updateProfileFile).toHaveBeenCalledTimes(2));
+    expect(updateProfileFile).toHaveBeenLastCalledWith({ content: "name: podium\nmodle: typo" });
   });
 
   it("renders playbooks without the talk tabs", async () => {

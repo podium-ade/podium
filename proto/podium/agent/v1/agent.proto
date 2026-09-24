@@ -68,6 +68,11 @@ service AgentService {
   // and a load failure is refused here and changes nothing, so a conductor is never left
   // running half a profile.
   rpc ReloadProfileDir(ReloadProfileDirRequest) returns (ReloadProfileDirResponse);
+  // GetProfileFile returns profile.yaml as it is on disk, comments and all.
+  rpc GetProfileFile(GetProfileFileRequest) returns (GetProfileFileResponse);
+  // UpdateProfileFile replaces profile.yaml and re-reads the profile directory. A file that
+  // does not load is refused, the previous file is put back, and nothing changes.
+  rpc UpdateProfileFile(UpdateProfileFileRequest) returns (UpdateProfileFileResponse);
   // CreatePlaybook writes playbooks/<name>.yaml in the profile directory and re-reads it.
   // A name that already exists is refused.
   rpc CreatePlaybook(CreatePlaybookRequest) returns (CreatePlaybookResponse);
@@ -1040,6 +1045,22 @@ message ReloadProfileDirRequest {}
 // is a caller that is about to read it again.
 message ReloadProfileDirResponse {}
 
+message GetProfileFileRequest {}
+
+message GetProfileFileResponse {
+  // content is profile.yaml verbatim.
+  string content = 1;
+  // path is where it lives on the conductor's host.
+  string path = 2;
+}
+
+message UpdateProfileFileRequest {
+  // content replaces profile.yaml verbatim.
+  string content = 1;
+}
+
+message UpdateProfileFileResponse {}
+
 message CreatePlaybookRequest {
   PlaybookDefinition playbook = 1;
 }
@@ -1233,8 +1254,9 @@ message McpServer {
   // false until something has looked; a server that answers nothing is not a server that
   // cannot be used, only one whose credential has to be pasted.
   bool oauth_supported = 19;
-  // config is the operator's YAML for what the form does not show — `headers`, `timeout`, or
-  // any other harness option — passed through as written, with the form's own fields winning.
+  // config is the operator's JSON for the harness's whole entry — `type`, `url`, `headers`,
+  // `timeout`, or any other option — passed through as written. `type` may only be "remote",
+  // `url` must match the server's, and `enabled` is the server's switch, not the config's.
   // It is stored and carried in clear, so it may not set Authorization — that is the token's
   // job.
   string config = 20;
