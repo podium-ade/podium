@@ -114,7 +114,9 @@ uploaded, and `keepWorkspace` stays false, so the volume is removed with the tas
 
 `workspace_publish_base: true` also stores the tar as the shared base for `workspace_repo`.
 It requires `workspace_repo`. A base is not a session snapshot and a session snapshot is
-not published as a base unless this is set.
+not published as a base unless this is set. The conductor sets it when the playbook env
+`PODIUM_PUBLISH_BASE=1` and the playbook names a repository. That task's workspace, after
+it has installed and built, becomes the tree the next session starts from.
 
 `workspace_warm` is how long the runtime should stay up after a turn, waiting for the next
 instruction. The node forwards it as `PODIUM_WORKSPACE_WARM_SECONDS`. Zero means exit when

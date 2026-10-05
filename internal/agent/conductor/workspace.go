@@ -16,6 +16,11 @@ const DefaultWorkspaceWarm = 5 * time.Minute
 // duration. The node turns the result into PODIUM_WORKSPACE_WARM_SECONDS for the runtime.
 const workspaceWarmEnv = "PODIUM_WORKSPACE_WARM"
 
+// workspacePublishEnv publishes this task's workspace as the shared base for the
+// playbook's first repository. It is off unless the value is "1": a session snapshot is
+// not a base anyone else should start from.
+const workspacePublishEnv = "PODIUM_PUBLISH_BASE"
+
 // applyWorkspace marks a node task as a session workspace. Host turns never call it:
 // they have no volume. The repo lets a session that has never snapshotted start from
 // the base, once one has been published.
@@ -26,6 +31,9 @@ func applyWorkspace(s *spec.TaskSpec, sessionID string, playbook profiles.Playbo
 	s.WorkspaceSession = sessionID
 	if len(playbook.Repos) > 0 {
 		s.WorkspaceRepo = playbook.Repos[0].URL
+	}
+	if playbook.Env[workspacePublishEnv] == "1" && s.WorkspaceRepo != "" {
+		s.WorkspacePublishBase = true
 	}
 	warm := DefaultWorkspaceWarm
 	if raw, ok := playbook.Env[workspaceWarmEnv]; ok {
