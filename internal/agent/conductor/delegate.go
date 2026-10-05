@@ -376,9 +376,9 @@ func (c *Conductor) startDelegatedTask(
 	if err != nil {
 		return nil, err
 	}
-	task, err := c.podium.CreateTask(ctx,
-		c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice, capabilitySecret),
-		int32(playbook.Priority))
+	taskSpec := c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice, capabilitySecret)
+	applyWorkspace(taskSpec, sess.ID, playbook)
+	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
 		if capabilitySecret != "" {
 			c.dropGitCapability(ctx, dlg.ID)

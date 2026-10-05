@@ -208,6 +208,10 @@ type sessionState struct {
 	// that started a delegated task, which is why a reply can land after the assistant
 	// has already finished.
 	awaitingTaskID string
+	// warmTaskID is a playbook task that has answered and is still up, waiting for the
+	// next instruction. A follow-up is injected into it. It is cleared when the task
+	// exits, which is when the node stores the snapshot.
+	warmTaskID string
 }
 
 // New validates the options and returns a Conductor.
@@ -358,8 +362,12 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		st = &sessionState{}
 		c.sessions[sess.ID] = st
 	}
-	if st.awaitingTaskID != "" {
-		taskID := st.awaitingTaskID
+	injectID := st.awaitingTaskID
+	if injectID == "" {
+		injectID = st.warmTaskID
+	}
+	if injectID != "" {
+		taskID := injectID
 		c.mu.Unlock()
 		if err := c.podium.InjectTask(ctx, taskID, ev.Text); err != nil {
 			c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
@@ -385,7 +393,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			}()
 			return
 		}
-		c.logger.InfoContext(ctx, "injected a reply into a running interactive turn",
+		c.logger.InfoContext(ctx, "injected a message into a running task",
 			"session_id", sess.ID, "task_id", taskID)
 		return
 	}
@@ -459,6 +467,29 @@ func (c *Conductor) setAwaiting(sessionID, taskID string) {
 		c.sessions[sessionID] = st
 	}
 	st.awaitingTaskID = taskID
+}
+
+// setWarm records that this session's task has answered and is waiting for a follow-up.
+func (c *Conductor) setWarm(sessionID, taskID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil {
+		st = &sessionState{}
+		c.sessions[sessionID] = st
+	}
+	st.warmTaskID = taskID
+}
+
+// clearWarm drops the warm task once it has exited.
+func (c *Conductor) clearWarm(sessionID, taskID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil || st.warmTaskID != taskID {
+		return
+	}
+	st.warmTaskID = ""
 }
 
 // clearAwaiting drops a parked question once the task speaks again, or ends.
@@ -575,6 +606,7 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j
 		if st == nil || !st.pending || ctx.Err() != nil {
 			if st != nil {
 				st.running = false
+				st.warmTaskID = ""
 			}
 			c.mu.Unlock()
 			return
@@ -760,6 +792,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret)
+	applyWorkspace(taskSpec, sess.ID, j.playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// The turn never started, so nothing will reach finish to clean this up.
@@ -781,10 +814,12 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	turn.TaskID = task.GetId()
 	run.turn = turn
 	run.taskID = task.GetId()
+	run.warm = taskSpec.WorkspaceWarm > 0
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
 		"playbook", j.name, "task_id", task.GetId(), "source", src.Kind())
 
 	run.run(ctx)
+	c.clearWarm(sess.ID, task.GetId())
 }
 
 // playbookNames is the menu as the names a token's grant is checked against.
