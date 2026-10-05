@@ -114,12 +114,15 @@ which node labels it requires, its timeout and its retry budget.
 A task gets:
 
 - **a private bridge network**, `podium-<task_id>`, shared only with its own sidecars,
-- **a fresh workspace volume**, `podium-ws-<task_id>`, mounted at `/workspace`,
+- **a workspace volume**, `podium-ws-<task_id>`, mounted at `/workspace` (fresh unless
+  `workspace_session` names a snapshot to restore),
 - **a tmpfs at `/podium/secrets`**, `noexec,nosuid`,
 - **`podium-runner` as PID 1**,
 - and `PODIUM_TASK_ID`, `PODIUM_LEASE_ID` and `PODIUM_WORKDIR` in its environment.
 
-All of it is removed when the task ends.
+All of it is removed when the task ends. A task with `workspace_session` (or
+`workspace_publish_base`) uploads a tar of the volume first; the volume itself is still
+removed. See [task-spec.md](task-spec.md#workspace).
 
 ### What a task is *not*, in this version
 
@@ -131,8 +134,10 @@ This is the part that saves you an afternoon:
 - **Not a cron job.** Nothing schedules a task on a timer. Something outside Podium submits it.
 - **Not restartable.** A terminal task has no outgoing edges in the state graph. "Re-run" in the
   UI creates a *new* task from the same spec; it is not a retry of the old one.
-- **Not a build cache.** `/workspace` is fresh every time and is deleted at the end. Nothing is
-  carried between tasks except what you put in the object store as an artifact.
+- **Not a build cache, unless the spec says so.** A one-shot task still gets a fresh
+  `/workspace` that is deleted at the end. A task with `workspace_session` restores the
+  one snapshot stored for that conversation and replaces it after a clean exit. The volume
+  on the node is still deleted. Artifacts are a separate copy.
 - **Not multi-machine.** A task and its sidecars are one pod on one node. There is no way to
   spread one task across two workers.
 - **Not interactive.** There is no exec, no shell, no attach and no port forward into a running
