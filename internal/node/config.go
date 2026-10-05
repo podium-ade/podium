@@ -97,6 +97,11 @@ type Config struct {
 	// (--labels privileged) so the specs that need it are the only ones that land here.
 	// See docs/security.md.
 	AllowPrivilegedSidecars bool `yaml:"allow_privileged_sidecars"`
+	// Runtime is the Docker runtime for the task container only, PODIUM_NODE_RUNTIME or
+	// --runtime. Empty uses the engine's default, which is runc. "runsc" is gVisor. It
+	// does not apply to sidecars, and it does not snapshot the workspace. Docker Desktop
+	// does not ship runsc. Off means the field stays empty.
+	Runtime string `yaml:"runtime"`
 }
 
 // DefaultConfig is the configuration a node with no file and no environment runs with.
@@ -169,6 +174,7 @@ func applyEnv(cfg *Config) {
 	envBool("PODIUM_NODE_IMAGE_CACHE_PRUNE", &cfg.ImageCachePrune)
 	envBool("PODIUM_NODE_EXIT_ON_DRAIN", &cfg.ExitOnDrain)
 	envBool("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", &cfg.AllowPrivilegedSidecars)
+	envString("PODIUM_NODE_RUNTIME", &cfg.Runtime)
 }
 
 func envBool(key string, dst *bool) {

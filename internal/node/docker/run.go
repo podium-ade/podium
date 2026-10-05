@@ -325,6 +325,12 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	applyResources(hostCfg, req.Spec.Resources)
 	applyTaskHardening(hostCfg, req.Spec.Hardening)
+	// gVisor, when the operator asked for it. Sidecars stay on the engine default: a
+	// privileged dind sidecar cannot run under runsc, and the workspace helper is not a
+	// sandbox. runsc does not make the snapshot and it does not make startup faster.
+	if e.runtime != "" {
+		hostCfg.Runtime = e.runtime
+	}
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 		networkName(req.TaskID): {NetworkID: netResp.ID, Aliases: []string{networkAlias}},
 	}}

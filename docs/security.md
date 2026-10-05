@@ -59,6 +59,12 @@ What that does **not** buy you:
 
 - **The container boundary is not a security boundary.** A kernel exploit from inside a
   container is a compromise of the node, and the node is root-equivalent on its host.
+  `PODIUM_NODE_RUNTIME=runsc` (or `--runtime runsc`) runs the **task container** under
+  gVisor, which is the fix for that kernel-syscall hole. It is off by default. Sidecars,
+  including a privileged docker-in-docker daemon, stay on the engine's default runtime.
+  runsc does not snapshot the workspace and it does not make a task start faster. Docker
+  Desktop does not ship it. Leave it off until a real agent turn has been seen to pass
+  under it: the runner socket, the secrets tmpfs, the clone and the install.
 - **There is no egress policy.** A task reaches its own sidecars by name, and it reaches the
   internet. Whether it can also reach the *host's* other networks — including a tailnet, or a
   database on the host's LAN — depends on the host's routing and firewall, and Docker's default
