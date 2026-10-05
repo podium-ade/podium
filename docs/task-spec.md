@@ -120,6 +120,12 @@ not published as a base unless this is set.
 instruction. The node forwards it as `PODIUM_WORKSPACE_WARM_SECONDS`. Zero means exit when
 the turn ends. The snapshot is taken when the process exits, not while it is waiting.
 
+The conductor sets it to 5m on a playbook task and on a delegated task. A playbook env
+`PODIUM_WORKSPACE_WARM=0s` leaves when the turn ends, and any other Go duration replaces
+the 5m. A host turn has no volume, so it is not set. A dry run does not wait. A follow-up
+that arrives while the task is still up is injected into it. One that arrives after the
+task has exited starts a new task, which restores the snapshot.
+
 The tar is a copy of the named volume `podium-ws-<task_id>`. It is not a `docker commit`:
 that would miss `/workspace`. Secret files live on the `/podium/secrets` tmpfs and are not
 in the volume, so they are not in the snapshot. The git token stays in the environment and

@@ -23,6 +23,7 @@ import { installHelper, mint, refreshGhToken } from "./gitcred.js";
 import * as oc from "./opencode.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { messageOf, reportTurn, say, warn, type Summary } from "./report.js";
+import { nextInboxLine, warmMillis } from "./warm.js";
 import {
   CloneError,
   TokenEnv,
@@ -242,6 +243,9 @@ async function main(): Promise<number> {
   }
 
   let finalText = "";
+  // reported is set once a warm turn has already sent its answer. The idle exit must
+  // not send that answer a second time.
+  let reported = false;
   // harnessError is the harness's own reason, from its error event, for a failure that
   // otherwise reads as nothing but an exit code.
   let harnessError: string | undefined;
@@ -459,6 +463,26 @@ async function main(): Promise<number> {
             : `The turn failed before I could answer: the harness exited ${code}.`;
         }
       }
+      // A clean answer can stay up for a follow-up. The answer is reported now, because
+      // the conductor does not finish the task until this process exits, and the person
+      // is waiting on the text. The next inject is the next instruction. Idle exits 0
+      // so the node can tar the workspace.
+      const warmMs = warmMillis(process.env);
+      if (warmMs > 0 && !cancelled && summary.code === ExitOK && inboxIter) {
+        await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
+        const waited = await nextInboxLine(() => inboxIter.next(), pendingInject, warmMs, controller.signal);
+        pendingInject = waited.pending;
+        if (waited.text !== undefined && !controller.signal.aborted) {
+          await say(invoke, "progress", `continuing with: ${waited.text}`);
+          instruction = waited.text;
+          finalText = "";
+          held = "";
+          harnessError = undefined;
+          reported = false;
+          continue;
+        }
+        reported = true;
+      }
       break;
     }
   } catch (err) {
@@ -481,7 +505,9 @@ async function main(): Promise<number> {
   // Nothing else needs a GitHub token now, and the turn's capability stops working the
   // moment the conductor records this turn as finished anyway.
   stopRefresh?.();
-  await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
+  if (!reported) {
+    await reportTurn(invoke, summary, finalText, matchAttachments(finalText, artifacts), artifacts);
+  }
   return summary.code;
 }
 
