@@ -1,6 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Cpu, Settings2, UserRound } from "lucide-react";
+import { Cpu, Server, Settings2, UserRound } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
@@ -12,6 +12,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProfileFileCard } from "../components/agent/ProfileFileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { SandboxBackends } from "../components/agent/SandboxBackends";
 import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButton";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
@@ -134,19 +135,9 @@ function SettingsTab() {
 
   const categories: { id: string; label: string; icon: LucideIcon }[] = [
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
+    { id: "backend", label: "Backend", icon: Server },
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
   ];
-
-  if (categories.length === 0) {
-    return (
-      <PageFrame title="Settings">
-        <Empty
-          title="Nothing to configure"
-          hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
-        />
-      </PageFrame>
-    );
-  }
 
   const fallback = categories[0].id;
   const current = categories.some((c) => c.id === tab) ? tab : "";
@@ -180,6 +171,15 @@ function SettingsTab() {
               the CLI and workers.
             </p>
             <IdentityCard />
+          </TabsContent>
+        ) : null}
+        {current === "backend" ? (
+          <TabsContent value="backend" className="min-w-0 flex-1 space-y-4">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+              Where a session's workspace runs. Self-hosted is this control plane's own nodes.
+              Modal and Daytona will run the same session once they are connected.
+            </p>
+            <SandboxBackends />
           </TabsContent>
         ) : null}
         {current === "models" ? (
