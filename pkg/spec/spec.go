@@ -56,6 +56,20 @@ type TaskSpec struct {
 	// offline mid-run, instead of marking it lost. It is off by default because a task
 	// that is not idempotent must not be silently run twice.
 	RetryOnNodeLoss bool `yaml:"retry_on_node_loss,omitempty" json:"retry_on_node_loss,omitempty"`
+	// WorkspaceSession is the conversation this volume belongs to. Empty keeps the volume
+	// ephemeral: nothing is restored and nothing is uploaded.
+	WorkspaceSession string `yaml:"workspace_session,omitempty" json:"workspace_session,omitempty"`
+	// WorkspaceRepo names the repository whose base snapshot may seed a session that has
+	// none of its own. With WorkspacePublishBase it is also where this task's workspace
+	// is published.
+	WorkspaceRepo string `yaml:"workspace_repo,omitempty" json:"workspace_repo,omitempty"`
+	// WorkspacePublishBase stores this task's workspace as the shared base for
+	// WorkspaceRepo. It requires WorkspaceRepo.
+	WorkspacePublishBase bool `yaml:"workspace_publish_base,omitempty" json:"workspace_publish_base,omitempty"`
+	// WorkspaceWarm is how long a runtime should stay up after a turn, waiting for the
+	// next instruction. Zero means leave when the turn ends. The node publishes it as
+	// PODIUM_WORKSPACE_WARM_SECONDS; the runtime is what waits.
+	WorkspaceWarm Duration `yaml:"workspace_warm,omitempty" json:"workspace_warm,omitempty"`
 }
 
 // Secret targets. A ref says where in the container the value should appear, never what
@@ -209,6 +223,12 @@ func (s *TaskSpec) Validate() error {
 	errs = append(errs, s.Hardening.validate()...)
 	errs = append(errs, s.validateSecrets()...)
 	errs = append(errs, s.validateSidecars()...)
+	if s.WorkspacePublishBase && strings.TrimSpace(s.WorkspaceRepo) == "" {
+		errs = append(errs, errors.New("workspace_publish_base requires workspace_repo"))
+	}
+	if s.WorkspaceWarm < 0 {
+		errs = append(errs, fmt.Errorf("workspace_warm must not be negative, got %s", s.WorkspaceWarm))
+	}
 	return errors.Join(errs...)
 }
 

@@ -10,13 +10,17 @@ import (
 
 func TestProtoRoundTrip(t *testing.T) {
 	want := &TaskSpec{
-		Image:       "ghcr.io/acme/build:1",
-		Command:     []string{"sh", "-c", "make"},
-		WorkingDir:  "/src",
-		Env:         map[string]string{"CI": "true"},
-		Labels:      []string{"linux/arm64"},
-		Timeout:     Duration(30 * time.Second),
-		MaxAttempts: 3,
+		Image:                "ghcr.io/acme/build:1",
+		Command:              []string{"sh", "-c", "make"},
+		WorkingDir:           "/src",
+		Env:                  map[string]string{"CI": "true"},
+		Labels:               []string{"linux/arm64"},
+		Timeout:              Duration(30 * time.Second),
+		MaxAttempts:          3,
+		WorkspaceSession:     "sess_1",
+		WorkspaceRepo:        "https://github.com/acme/app.git",
+		WorkspacePublishBase: true,
+		WorkspaceWarm:        Duration(5 * time.Minute),
 	}
 
 	p := want.ToProto()

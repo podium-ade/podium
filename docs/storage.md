@@ -135,8 +135,10 @@ A repository base is under `snapshots/bases/<repo>/<id>.tar`. The rows are `work
 and `workspace_bases`. One row each. A new upload writes the object, flips the row, then
 deletes the previous object. The cap is 8 GB, separate from the 512 MB artifact cap.
 
-The node streams the tar through `NodeService.UploadWorkspaceSnapshot`. It still never
-talks to S3. With no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
+The node streams the tar through `NodeService.UploadWorkspaceSnapshot`. The tar is a Docker
+copy of the named volume `podium-ws-<task_id>` mounted at `/workspace`, taken after a clean
+exit and restored after the next task creates its volume. It still never talks to S3. With
+no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
 
 ### Running without one
 
@@ -144,6 +146,8 @@ Leaving `PODIUM_S3_ENDPOINT` empty is supported and does exactly what it says:
 
 - artifacts are unavailable — a task that tries produces a non-fatal `error` event and still
   succeeds;
+- workspace snapshots are unavailable — a task with `workspace_session` still runs, and
+  nothing is restored or stored;
 - log roll-up never runs, so **nothing is ever pruned** and `task_log_chunks` grows for ever;
 - the UI's artifacts panel says the deployment has no object store, once, rather than per row.
 

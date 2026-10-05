@@ -35,6 +35,9 @@ const (
 	RoleTask = "task"
 	// RoleSidecar marks a sibling container the task talks to by name.
 	RoleSidecar = "sidecar"
+	// RoleWorkspace marks the short-lived container used to tar the workspace volume.
+	// It is created, never started, and removed before the task reports that it exited.
+	RoleWorkspace = "workspace"
 )
 
 // Options configures [New].
