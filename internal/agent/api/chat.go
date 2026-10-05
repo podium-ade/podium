@@ -175,7 +175,7 @@ func (s *AgentService) DeleteChat(
 	}
 	// A web chat is its owner's. A mirrored thread has no login; only the dev token, which
 	// is who can see it, may remove the copy. Another person's web chat is not found.
-	if row.Login != login && !(SeesAll(ctx) && row.Login == "") {
+	if row.Login != login && (!SeesAll(ctx) || row.Login != "") {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
