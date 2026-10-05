@@ -53,6 +53,9 @@ var notConfiguration = map[string]string{
 	// A playbook env value the conductor reads when it builds a task spec.
 	// Documented in docs/task-spec.md. An operator does not set it on the deployment.
 	"PODIUM_WORKSPACE_WARM": "per playbook, read by the conductor",
+	// Set to 1 on a playbook when that task should publish its workspace as the
+	// shared base for the playbook's first repository. Documented in docs/task-spec.md.
+	"PODIUM_PUBLISH_BASE": "per playbook, read by the conductor",
 	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
 	// the container. An operator never sets any of them: the brief is built per turn, and
 	// the three dry-run knobs are the test seam step 16 defined. They are documented in
