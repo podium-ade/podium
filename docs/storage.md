@@ -128,6 +128,16 @@ mc mirror --overwrite podium/podium ./podium-bucket-backup
 The `objectstore-data` volume is **not a cache**. Once a finished task's chunks have been pruned out of
 Postgres, the objects in that bucket are the only copy of its log.
 
+### Workspace snapshots
+
+A session workspace is a tar in the same bucket, under `snapshots/sessions/<session>/<id>.tar`.
+A repository base is under `snapshots/bases/<repo>/<id>.tar`. The rows are `workspace_snapshots`
+and `workspace_bases`. One row each. A new upload writes the object, flips the row, then
+deletes the previous object. The cap is 8 GB, separate from the 512 MB artifact cap.
+
+The node streams the tar through `NodeService.UploadWorkspaceSnapshot`. It still never
+talks to S3. With no `PODIUM_S3_ENDPOINT`, that RPC is refused and tasks stay ephemeral.
+
 ### Running without one
 
 Leaving `PODIUM_S3_ENDPOINT` empty is supported and does exactly what it says:

@@ -14,7 +14,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file podium/v1/node.proto.
  */
 export const file_podium_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyKUAgoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAEiEKBXNsb3RzGAYgASgLMhAucG9kaXVtLnYxLlNsb3RzSAASIwoGaW5qZWN0GAcgASgLMhEucG9kaXVtLnYxLkluamVjdEgAQgUKA21zZyKQAQoFSGVsbG8SDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCRIOCgZsYWJlbHMYAyADKAkSKQoIY2FwYWNpdHkYBCABKAsyFy5wb2RpdW0udjEuTm9kZUNhcGFjaXR5EhgKEHJ1bm5pbmdfdGFza19pZHMYBSADKAkSDwoHdmVyc2lvbhgGIAEoCSI0CghIZWxsb0FjaxIoCgV0YXNrcxgBIAMoCzIZLnBvZGl1bS52MS5UYXNrQ2hlY2twb2ludCJwCg5UYXNrQ2hlY2twb2ludBIPCgd0YXNrX2lkGAEgASgJEg0KBWFkb3B0GAIgASgIEhAKCGhpZ2hfc2VxGAMgASgEEhUKDXN0ZG91dF9vZmZzZXQYBCABKAMSFQoNc3RkZXJyX29mZnNldBgFIAEoAyJDCghOb2RlTG9hZBIVCg1ydW5uaW5nX3Rhc2tzGAEgASgFEg8KB2NwdV9wY3QYAiABKAESDwoHbWVtX3BjdBgDIAEoASKDAQoJSGVhcnRiZWF0EiEKBGxvYWQYASABKAsyEy5wb2RpdW0udjEuTm9kZUxvYWQSEgoKZnJlZV9zbG90cxgCIAEoBRIXCg9kaXNrX2ZyZWVfYnl0ZXMYAyABKAMSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIu4BCgZBc3NpZ24SDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRIhCgRzcGVjGAMgASgLMhMucG9kaXVtLnYxLlRhc2tTcGVjEiwKCGRlYWRsaW5lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzChByZXNvbHZlZF9zZWNyZXRzGAUgAygLMhkucG9kaXVtLnYxLlJlc29sdmVkU2VjcmV0EjsKFHJlZ2lzdHJ5X2NyZWRlbnRpYWxzGAYgAygLMh0ucG9kaXVtLnYxLlJlZ2lzdHJ5Q3JlZGVudGlhbCJGChJSZWdpc3RyeUNyZWRlbnRpYWwSDAoEaG9zdBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIQCghwYXNzd29yZBgDIAEoDCJKCg5SZXNvbHZlZFNlY3JldBIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAwiIwoDQWNrEg8KB3Rhc2tfaWQYASABKAkSCwoDc2VxGAIgASgEIikKBkNhbmNlbBIPCgd0YXNrX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSInCgZJbmplY3QSDwoHdGFza19pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhoKBVNsb3RzEhEKCW1heF90YXNrcxgBIAEoBSIVCgVEcmFpbhIMCgR1bmRvGAEgASgIIs4BCghMb2dDaHVuaxIqCgZzdHJlYW0YASABKA4yGi5wb2RpdW0udjEuTG9nQ2h1bmsuU3RyZWFtEhQKDHNpZGVjYXJfbmFtZRgCIAEoCRINCgVieXRlcxgDIAEoDBIVCg1zb3VyY2Vfb2Zmc2V0GAQgASgDIloKBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABIRCg1TVFJFQU1fU1RET1VUEAESEQoNU1RSRUFNX1NUREVSUhACEhIKDlNUUkVBTV9TSURFQ0FSEAMibgoLQXJ0aWZhY3RSZWYSEwoLYXJ0aWZhY3RfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpvYmplY3Rfa2V5GAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMSFAoMY29udGVudF90eXBlGAUgASgJIjoKB01lc3NhZ2USDAoEdHlwZRgBIAEoCRIMCgR0ZXh0GAIgASgJEhMKC2F0dGFjaG1lbnRzGAMgAygJIjcKBFN0ZXASDAoEbmFtZRgBIAEoCRIOCgZzdGF0dXMYAiABKAkSEQoJZXhpdF9jb2RlGAMgASgFIi8KBkV4aXRlZBIRCglleGl0X2NvZGUYASABKAUSEgoKb29tX2tpbGxlZBgCIAEoCCI+CghGaW5pc2hlZBIRCglleGl0X2NvZGUYASABKAUSHwoFdXNhZ2UYAiABKAsyEC5wb2RpdW0udjEuVXNhZ2UiPwoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRIRCglyZXRyeWFibGUYAiABKAgSEgoKYWJvcnRzX3J1bhgDIAEoCCKfAwoJVGFza0V2ZW50Eg8KB3Rhc2tfaWQYASABKAkSEAoIbGVhc2VfaWQYAiABKAkSCwoDc2VxGAMgASgEEiYKAnRzGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBImCgRraW5kGAUgASgOMhgucG9kaXVtLnYxLlRhc2tFdmVudEtpbmQSIgoDbG9nGAYgASgLMhMucG9kaXVtLnYxLkxvZ0NodW5rSAASHwoEc3RlcBgHIAEoCzIPLnBvZGl1bS52MS5TdGVwSAASIwoGZXhpdGVkGAggASgLMhEucG9kaXVtLnYxLkV4aXRlZEgAEicKCGZpbmlzaGVkGAkgASgLMhMucG9kaXVtLnYxLkZpbmlzaGVkSAASIQoFZXJyb3IYCiABKAsyEC5wb2RpdW0udjEuRXJyb3JIABIqCghhcnRpZmFjdBgLIAEoCzIWLnBvZGl1bS52MS5BcnRpZmFjdFJlZkgAEiUKB21lc3NhZ2UYDCABKAsyEi5wb2RpdW0udjEuTWVzc2FnZUgAQgkKB3BheWxvYWQqzwIKDVRhc2tFdmVudEtpbmQSHwobVEFTS19FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASIAocVEFTS19FVkVOVF9LSU5EX1BST1ZJU0lPTklORxABEhsKF1RBU0tfRVZFTlRfS0lORF9QVUxMSU5HEAISGwoXVEFTS19FVkVOVF9LSU5EX1NUQVJURUQQAxIXChNUQVNLX0VWRU5UX0tJTkRfTE9HEAQSGAoUVEFTS19FVkVOVF9LSU5EX1NURVAQBRIcChhUQVNLX0VWRU5UX0tJTkRfQVJUSUZBQ1QQBhIaChZUQVNLX0VWRU5UX0tJTkRfRVhJVEVEEAcSHAoYVEFTS19FVkVOVF9LSU5EX0ZJTklTSEVEEAgSGQoVVEFTS19FVkVOVF9LSU5EX0VSUk9SEAkSGwoXVEFTS19FVkVOVF9LSU5EX01FU1NBR0UQCjLlAQoLTm9kZVNlcnZpY2USPQoGRW5yb2xsEhgucG9kaXVtLnYxLkVucm9sbFJlcXVlc3QaGS5wb2RpdW0udjEuRW5yb2xsUmVzcG9uc2USPgoGU3RyZWFtEhYucG9kaXVtLnYxLk5vZGVNZXNzYWdlGhgucG9kaXVtLnYxLlNlcnZlck1lc3NhZ2UoATABElcKDlVwbG9hZEFydGlmYWN0EiAucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVxdWVzdBohLnBvZGl1bS52MS5VcGxvYWRBcnRpZmFjdFJlc3BvbnNlKAFCnwEKDWNvbS5wb2RpdW0udjFCCU5vZGVQcm90b1ABWj5naXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_podium_v1_common]);
+  fileDesc("ChRwb2RpdW0vdjEvbm9kZS5wcm90bxIJcG9kaXVtLnYxIpgBCg1FbnJvbGxSZXF1ZXN0Eg0KBXRva2VuGAEgASgJEhAKCGhvc3RuYW1lGAIgASgJEgwKBGFyY2gYAyABKAkSCgoCb3MYBCABKAkSEQoJY3B1X2NvcmVzGAUgASgFEhEKCW1lbW9yeV9tYhgGIAEoAxIWCg5kb2NrZXJfdmVyc2lvbhgHIAEoCRIOCgZsYWJlbHMYCCADKAkiMwoORW5yb2xsUmVzcG9uc2USDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCSJgChVVcGxvYWRBcnRpZmFjdFJlcXVlc3QSLwoIbWV0YWRhdGEYASABKAsyGy5wb2RpdW0udjEuQXJ0aWZhY3RNZXRhZGF0YUgAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIp4BChBBcnRpZmFjdE1ldGFkYXRhEg8KB25vZGVfaWQYASABKAkSEAoIbm9kZV9rZXkYAiABKAkSDwoHdGFza19pZBgDIAEoCRIQCghsZWFzZV9pZBgEIAEoCRIMCgRuYW1lGAUgASgJEhQKDGNvbnRlbnRfdHlwZRgGIAEoCRISCgpzaXplX2J5dGVzGAcgASgDEgwKBGtpbmQYCCABKAkiZQoWVXBsb2FkQXJ0aWZhY3RSZXNwb25zZRITCgthcnRpZmFjdF9pZBgBIAEoCRISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJInIKHlVwbG9hZFdvcmtzcGFjZVNuYXBzaG90UmVxdWVzdBI4CghtZXRhZGF0YRgBIAEoCzIkLnBvZGl1bS52MS5Xb3Jrc3BhY2VTbmFwc2hvdE1ldGFkYXRhSAASDwoFY2h1bmsYAiABKAxIAEIFCgNtc2cihQEKGVdvcmtzcGFjZVNuYXBzaG90TWV0YWRhdGESDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCRIPCgd0YXNrX2lkGAMgASgJEhIKCnNlc3Npb25faWQYBCABKAkSDAoEcmVwbxgFIAEoCRISCgpzaXplX2J5dGVzGAYgASgDIlkKH1VwbG9hZFdvcmtzcGFjZVNuYXBzaG90UmVzcG9uc2USEgoKb2JqZWN0X2tleRgBIAEoCRISCgpzaXplX2J5dGVzGAIgASgDEg4KBnNoYTI1NhgDIAEoCSJ4CiBEb3dubG9hZFdvcmtzcGFjZVNuYXBzaG90UmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEhAKCG5vZGVfa2V5GAIgASgJEg8KB3Rhc2tfaWQYAyABKAkSEgoKc2Vzc2lvbl9pZBgEIAEoCRIMCgRyZXBvGAUgASgJIm0KIURvd25sb2FkV29ya3NwYWNlU25hcHNob3RSZXNwb25zZRIwCgRpbmZvGAEgASgLMiAucG9kaXVtLnYxLldvcmtzcGFjZVNuYXBzaG90SW5mb0gAEg8KBWNodW5rGAIgASgMSABCBQoDbXNnIl4KFVdvcmtzcGFjZVNuYXBzaG90SW5mbxINCgVmb3VuZBgBIAEoCBISCgpvYmplY3Rfa2V5GAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSDgoGc2hhMjU2GAQgASgJIo4BCgtOb2RlTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLnBvZGl1bS52MS5IZWxsb0gAEikKCWhlYXJ0YmVhdBgCIAEoCzIULnBvZGl1bS52MS5IZWFydGJlYXRIABIqCgp0YXNrX2V2ZW50GAMgASgLMhQucG9kaXVtLnYxLlRhc2tFdmVudEgAQgUKA21zZyKUAgoNU2VydmVyTWVzc2FnZRIjCgZhc3NpZ24YASABKAsyES5wb2RpdW0udjEuQXNzaWduSAASHQoDYWNrGAIgASgLMg4ucG9kaXVtLnYxLkFja0gAEiMKBmNhbmNlbBgDIAEoCzIRLnBvZGl1bS52MS5DYW5jZWxIABIhCgVkcmFpbhgEIAEoCzIQLnBvZGl1bS52MS5EcmFpbkgAEigKCWhlbGxvX2FjaxgFIAEoCzITLnBvZGl1bS52MS5IZWxsb0Fja0gAEiEKBXNsb3RzGAYgASgLMhAucG9kaXVtLnYxLlNsb3RzSAASIwoGaW5qZWN0GAcgASgLMhEucG9kaXVtLnYxLkluamVjdEgAQgUKA21zZyKQAQoFSGVsbG8SDwoHbm9kZV9pZBgBIAEoCRIQCghub2RlX2tleRgCIAEoCRIOCgZsYWJlbHMYAyADKAkSKQoIY2FwYWNpdHkYBCABKAsyFy5wb2RpdW0udjEuTm9kZUNhcGFjaXR5EhgKEHJ1bm5pbmdfdGFza19pZHMYBSADKAkSDwoHdmVyc2lvbhgGIAEoCSI0CghIZWxsb0FjaxIoCgV0YXNrcxgBIAMoCzIZLnBvZGl1bS52MS5UYXNrQ2hlY2twb2ludCJwCg5UYXNrQ2hlY2twb2ludBIPCgd0YXNrX2lkGAEgASgJEg0KBWFkb3B0GAIgASgIEhAKCGhpZ2hfc2VxGAMgASgEEhUKDXN0ZG91dF9vZmZzZXQYBCABKAMSFQoNc3RkZXJyX29mZnNldBgFIAEoAyJDCghOb2RlTG9hZBIVCg1ydW5uaW5nX3Rhc2tzGAEgASgFEg8KB2NwdV9wY3QYAiABKAESDwoHbWVtX3BjdBgDIAEoASKDAQoJSGVhcnRiZWF0EiEKBGxvYWQYASABKAsyEy5wb2RpdW0udjEuTm9kZUxvYWQSEgoKZnJlZV9zbG90cxgCIAEoBRIXCg9kaXNrX2ZyZWVfYnl0ZXMYAyABKAMSJgoCdHMYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIu4BCgZBc3NpZ24SDwoHdGFza19pZBgBIAEoCRIQCghsZWFzZV9pZBgCIAEoCRIhCgRzcGVjGAMgASgLMhMucG9kaXVtLnYxLlRhc2tTcGVjEiwKCGRlYWRsaW5lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIzChByZXNvbHZlZF9zZWNyZXRzGAUgAygLMhkucG9kaXVtLnYxLlJlc29sdmVkU2VjcmV0EjsKFHJlZ2lzdHJ5X2NyZWRlbnRpYWxzGAYgAygLMh0ucG9kaXVtLnYxLlJlZ2lzdHJ5Q3JlZGVudGlhbCJGChJSZWdpc3RyeUNyZWRlbnRpYWwSDAoEaG9zdBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIQCghwYXNzd29yZBgDIAEoDCJKCg5SZXNvbHZlZFNlY3JldBIMCgRuYW1lGAEgASgJEg4KBnRhcmdldBgCIAEoCRILCgNrZXkYAyABKAkSDQoFdmFsdWUYBCABKAwiIwoDQWNrEg8KB3Rhc2tfaWQYASABKAkSCwoDc2VxGAIgASgEIikKBkNhbmNlbBIPCgd0YXNrX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSInCgZJbmplY3QSDwoHdGFza19pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhoKBVNsb3RzEhEKCW1heF90YXNrcxgBIAEoBSIVCgVEcmFpbhIMCgR1bmRvGAEgASgIIs4BCghMb2dDaHVuaxIqCgZzdHJlYW0YASABKA4yGi5wb2RpdW0udjEuTG9nQ2h1bmsuU3RyZWFtEhQKDHNpZGVjYXJfbmFtZRgCIAEoCRINCgVieXRlcxgDIAEoDBIVCg1zb3VyY2Vfb2Zmc2V0GAQgASgDIloKBlN0cmVhbRIWChJTVFJFQU1fVU5TUEVDSUZJRUQQABIRCg1TVFJFQU1fU1RET1VUEAESEQoNU1RSRUFNX1NUREVSUhACEhIKDlNUUkVBTV9TSURFQ0FSEAMibgoLQXJ0aWZhY3RSZWYSEwoLYXJ0aWZhY3RfaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpvYmplY3Rfa2V5GAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMSFAoMY29udGVudF90eXBlGAUgASgJIjoKB01lc3NhZ2USDAoEdHlwZRgBIAEoCRIMCgR0ZXh0GAIgASgJEhMKC2F0dGFjaG1lbnRzGAMgAygJIjcKBFN0ZXASDAoEbmFtZRgBIAEoCRIOCgZzdGF0dXMYAiABKAkSEQoJZXhpdF9jb2RlGAMgASgFIi8KBkV4aXRlZBIRCglleGl0X2NvZGUYASABKAUSEgoKb29tX2tpbGxlZBgCIAEoCCI+CghGaW5pc2hlZBIRCglleGl0X2NvZGUYASABKAUSHwoFdXNhZ2UYAiABKAsyEC5wb2RpdW0udjEuVXNhZ2UiPwoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRIRCglyZXRyeWFibGUYAiABKAgSEgoKYWJvcnRzX3J1bhgDIAEoCCKfAwoJVGFza0V2ZW50Eg8KB3Rhc2tfaWQYASABKAkSEAoIbGVhc2VfaWQYAiABKAkSCwoDc2VxGAMgASgEEiYKAnRzGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBImCgRraW5kGAUgASgOMhgucG9kaXVtLnYxLlRhc2tFdmVudEtpbmQSIgoDbG9nGAYgASgLMhMucG9kaXVtLnYxLkxvZ0NodW5rSAASHwoEc3RlcBgHIAEoCzIPLnBvZGl1bS52MS5TdGVwSAASIwoGZXhpdGVkGAggASgLMhEucG9kaXVtLnYxLkV4aXRlZEgAEicKCGZpbmlzaGVkGAkgASgLMhMucG9kaXVtLnYxLkZpbmlzaGVkSAASIQoFZXJyb3IYCiABKAsyEC5wb2RpdW0udjEuRXJyb3JIABIqCghhcnRpZmFjdBgLIAEoCzIWLnBvZGl1bS52MS5BcnRpZmFjdFJlZkgAEiUKB21lc3NhZ2UYDCABKAsyEi5wb2RpdW0udjEuTWVzc2FnZUgAQgkKB3BheWxvYWQqzwIKDVRhc2tFdmVudEtpbmQSHwobVEFTS19FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASIAocVEFTS19FVkVOVF9LSU5EX1BST1ZJU0lPTklORxABEhsKF1RBU0tfRVZFTlRfS0lORF9QVUxMSU5HEAISGwoXVEFTS19FVkVOVF9LSU5EX1NUQVJURUQQAxIXChNUQVNLX0VWRU5UX0tJTkRfTE9HEAQSGAoUVEFTS19FVkVOVF9LSU5EX1NURVAQBRIcChhUQVNLX0VWRU5UX0tJTkRfQVJUSUZBQ1QQBhIaChZUQVNLX0VWRU5UX0tJTkRfRVhJVEVEEAcSHAoYVEFTS19FVkVOVF9LSU5EX0ZJTklTSEVEEAgSGQoVVEFTS19FVkVOVF9LSU5EX0VSUk9SEAkSGwoXVEFTS19FVkVOVF9LSU5EX01FU1NBR0UQCjLTAwoLTm9kZVNlcnZpY2USPQoGRW5yb2xsEhgucG9kaXVtLnYxLkVucm9sbFJlcXVlc3QaGS5wb2RpdW0udjEuRW5yb2xsUmVzcG9uc2USPgoGU3RyZWFtEhYucG9kaXVtLnYxLk5vZGVNZXNzYWdlGhgucG9kaXVtLnYxLlNlcnZlck1lc3NhZ2UoATABElcKDlVwbG9hZEFydGlmYWN0EiAucG9kaXVtLnYxLlVwbG9hZEFydGlmYWN0UmVxdWVzdBohLnBvZGl1bS52MS5VcGxvYWRBcnRpZmFjdFJlc3BvbnNlKAEScgoXVXBsb2FkV29ya3NwYWNlU25hcHNob3QSKS5wb2RpdW0udjEuVXBsb2FkV29ya3NwYWNlU25hcHNob3RSZXF1ZXN0GioucG9kaXVtLnYxLlVwbG9hZFdvcmtzcGFjZVNuYXBzaG90UmVzcG9uc2UoARJ4ChlEb3dubG9hZFdvcmtzcGFjZVNuYXBzaG90EisucG9kaXVtLnYxLkRvd25sb2FkV29ya3NwYWNlU25hcHNob3RSZXF1ZXN0GiwucG9kaXVtLnYxLkRvd25sb2FkV29ya3NwYWNlU25hcHNob3RSZXNwb25zZTABQp8BCg1jb20ucG9kaXVtLnYxQglOb2RlUHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_podium_v1_common]);
 
 /**
  * @generated from message podium.v1.EnrollRequest
@@ -223,6 +223,216 @@ export const UploadArtifactResponseSchema: GenMessage<UploadArtifactResponse> = 
   messageDesc(file_podium_v1_node, 4);
 
 /**
+ * UploadWorkspaceSnapshotRequest is one message of a workspace upload. The first must be
+ * the metadata; every message after it must be a chunk.
+ *
+ * @generated from message podium.v1.UploadWorkspaceSnapshotRequest
+ */
+export type UploadWorkspaceSnapshotRequest = Message$1<"podium.v1.UploadWorkspaceSnapshotRequest"> & {
+  /**
+   * @generated from oneof podium.v1.UploadWorkspaceSnapshotRequest.msg
+   */
+  msg: {
+    /**
+     * @generated from field: podium.v1.WorkspaceSnapshotMetadata metadata = 1;
+     */
+    value: WorkspaceSnapshotMetadata;
+    case: "metadata";
+  } | {
+    /**
+     * @generated from field: bytes chunk = 2;
+     */
+    value: Uint8Array;
+    case: "chunk";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message podium.v1.UploadWorkspaceSnapshotRequest.
+ * Use `create(UploadWorkspaceSnapshotRequestSchema)` to create a new message.
+ */
+export const UploadWorkspaceSnapshotRequestSchema: GenMessage<UploadWorkspaceSnapshotRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 5);
+
+/**
+ * WorkspaceSnapshotMetadata opens a workspace upload. session_id stores a conversation's
+ * latest snapshot. repo, with an empty session_id, stores that repository's base snapshot.
+ * Exactly one of the two is set.
+ *
+ * @generated from message podium.v1.WorkspaceSnapshotMetadata
+ */
+export type WorkspaceSnapshotMetadata = Message$1<"podium.v1.WorkspaceSnapshotMetadata"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * SENSITIVE: never log. The same node key Hello presents.
+   *
+   * @generated from field: string node_key = 2;
+   */
+  nodeKey: string;
+
+  /**
+   * @generated from field: string task_id = 3;
+   */
+  taskId: string;
+
+  /**
+   * @generated from field: string session_id = 4;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string repo = 5;
+   */
+  repo: string;
+
+  /**
+   * @generated from field: int64 size_bytes = 6;
+   */
+  sizeBytes: bigint;
+};
+
+/**
+ * Describes the message podium.v1.WorkspaceSnapshotMetadata.
+ * Use `create(WorkspaceSnapshotMetadataSchema)` to create a new message.
+ */
+export const WorkspaceSnapshotMetadataSchema: GenMessage<WorkspaceSnapshotMetadata> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 6);
+
+/**
+ * @generated from message podium.v1.UploadWorkspaceSnapshotResponse
+ */
+export type UploadWorkspaceSnapshotResponse = Message$1<"podium.v1.UploadWorkspaceSnapshotResponse"> & {
+  /**
+   * @generated from field: string object_key = 1;
+   */
+  objectKey: string;
+
+  /**
+   * @generated from field: int64 size_bytes = 2;
+   */
+  sizeBytes: bigint;
+
+  /**
+   * @generated from field: string sha256 = 3;
+   */
+  sha256: string;
+};
+
+/**
+ * Describes the message podium.v1.UploadWorkspaceSnapshotResponse.
+ * Use `create(UploadWorkspaceSnapshotResponseSchema)` to create a new message.
+ */
+export const UploadWorkspaceSnapshotResponseSchema: GenMessage<UploadWorkspaceSnapshotResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 7);
+
+/**
+ * @generated from message podium.v1.DownloadWorkspaceSnapshotRequest
+ */
+export type DownloadWorkspaceSnapshotRequest = Message$1<"podium.v1.DownloadWorkspaceSnapshotRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * SENSITIVE: never log.
+   *
+   * @generated from field: string node_key = 2;
+   */
+  nodeKey: string;
+
+  /**
+   * @generated from field: string task_id = 3;
+   */
+  taskId: string;
+
+  /**
+   * @generated from field: string session_id = 4;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string repo = 5;
+   */
+  repo: string;
+};
+
+/**
+ * Describes the message podium.v1.DownloadWorkspaceSnapshotRequest.
+ * Use `create(DownloadWorkspaceSnapshotRequestSchema)` to create a new message.
+ */
+export const DownloadWorkspaceSnapshotRequestSchema: GenMessage<DownloadWorkspaceSnapshotRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 8);
+
+/**
+ * DownloadWorkspaceSnapshotResponse is one message of a download. The first is the info,
+ * and it is sent even when nothing is stored (found is false, and no chunks follow).
+ *
+ * @generated from message podium.v1.DownloadWorkspaceSnapshotResponse
+ */
+export type DownloadWorkspaceSnapshotResponse = Message$1<"podium.v1.DownloadWorkspaceSnapshotResponse"> & {
+  /**
+   * @generated from oneof podium.v1.DownloadWorkspaceSnapshotResponse.msg
+   */
+  msg: {
+    /**
+     * @generated from field: podium.v1.WorkspaceSnapshotInfo info = 1;
+     */
+    value: WorkspaceSnapshotInfo;
+    case: "info";
+  } | {
+    /**
+     * @generated from field: bytes chunk = 2;
+     */
+    value: Uint8Array;
+    case: "chunk";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message podium.v1.DownloadWorkspaceSnapshotResponse.
+ * Use `create(DownloadWorkspaceSnapshotResponseSchema)` to create a new message.
+ */
+export const DownloadWorkspaceSnapshotResponseSchema: GenMessage<DownloadWorkspaceSnapshotResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 9);
+
+/**
+ * @generated from message podium.v1.WorkspaceSnapshotInfo
+ */
+export type WorkspaceSnapshotInfo = Message$1<"podium.v1.WorkspaceSnapshotInfo"> & {
+  /**
+   * @generated from field: bool found = 1;
+   */
+  found: boolean;
+
+  /**
+   * @generated from field: string object_key = 2;
+   */
+  objectKey: string;
+
+  /**
+   * @generated from field: int64 size_bytes = 3;
+   */
+  sizeBytes: bigint;
+
+  /**
+   * @generated from field: string sha256 = 4;
+   */
+  sha256: string;
+};
+
+/**
+ * Describes the message podium.v1.WorkspaceSnapshotInfo.
+ * Use `create(WorkspaceSnapshotInfoSchema)` to create a new message.
+ */
+export const WorkspaceSnapshotInfoSchema: GenMessage<WorkspaceSnapshotInfo> = /*@__PURE__*/
+  messageDesc(file_podium_v1_node, 10);
+
+/**
  * NodeMessage is everything a node can send on the stream.
  *
  * @generated from message podium.v1.NodeMessage
@@ -257,7 +467,7 @@ export type NodeMessage = Message$1<"podium.v1.NodeMessage"> & {
  * Use `create(NodeMessageSchema)` to create a new message.
  */
 export const NodeMessageSchema: GenMessage<NodeMessage> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 5);
+  messageDesc(file_podium_v1_node, 11);
 
 /**
  * ServerMessage is everything the server can send on the stream.
@@ -318,7 +528,7 @@ export type ServerMessage = Message$1<"podium.v1.ServerMessage"> & {
  * Use `create(ServerMessageSchema)` to create a new message.
  */
 export const ServerMessageSchema: GenMessage<ServerMessage> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 6);
+  messageDesc(file_podium_v1_node, 12);
 
 /**
  * Hello opens the stream and carries the reconciliation input: which tasks the node still
@@ -365,7 +575,7 @@ export type Hello = Message$1<"podium.v1.Hello"> & {
  * Use `create(HelloSchema)` to create a new message.
  */
 export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 7);
+  messageDesc(file_podium_v1_node, 13);
 
 /**
  * HelloAck answers a Hello. It is always the first message the server sends on a stream
@@ -394,7 +604,7 @@ export type HelloAck = Message$1<"podium.v1.HelloAck"> & {
  * Use `create(HelloAckSchema)` to create a new message.
  */
 export const HelloAckSchema: GenMessage<HelloAck> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 8);
+  messageDesc(file_podium_v1_node, 14);
 
 /**
  * TaskCheckpoint is the server's view of one task the node still has a container for.
@@ -444,7 +654,7 @@ export type TaskCheckpoint = Message$1<"podium.v1.TaskCheckpoint"> & {
  * Use `create(TaskCheckpointSchema)` to create a new message.
  */
 export const TaskCheckpointSchema: GenMessage<TaskCheckpoint> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 9);
+  messageDesc(file_podium_v1_node, 15);
 
 /**
  * @generated from message podium.v1.NodeLoad
@@ -471,7 +681,7 @@ export type NodeLoad = Message$1<"podium.v1.NodeLoad"> & {
  * Use `create(NodeLoadSchema)` to create a new message.
  */
 export const NodeLoadSchema: GenMessage<NodeLoad> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 10);
+  messageDesc(file_podium_v1_node, 16);
 
 /**
  * Heartbeat is sent every 10s. Missing 3 marks the node unreachable, missing 12 offline.
@@ -505,7 +715,7 @@ export type Heartbeat = Message$1<"podium.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 11);
+  messageDesc(file_podium_v1_node, 17);
 
 /**
  * Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
@@ -560,7 +770,7 @@ export type Assign = Message$1<"podium.v1.Assign"> & {
  * Use `create(AssignSchema)` to create a new message.
  */
 export const AssignSchema: GenMessage<Assign> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 12);
+  messageDesc(file_podium_v1_node, 18);
 
 /**
  * RegistryCredential is the login the node sends with pulls from one registry host.
@@ -591,7 +801,7 @@ export type RegistryCredential = Message$1<"podium.v1.RegistryCredential"> & {
  * Use `create(RegistryCredentialSchema)` to create a new message.
  */
 export const RegistryCredentialSchema: GenMessage<RegistryCredential> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 13);
+  messageDesc(file_podium_v1_node, 19);
 
 /**
  * ResolvedSecret is one SecretRef with its plaintext value attached.
@@ -631,7 +841,7 @@ export type ResolvedSecret = Message$1<"podium.v1.ResolvedSecret"> & {
  * Use `create(ResolvedSecretSchema)` to create a new message.
  */
 export const ResolvedSecretSchema: GenMessage<ResolvedSecret> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 14);
+  messageDesc(file_podium_v1_node, 20);
 
 /**
  * Ack is the per-task high-water mark; the node may drop buffered events with seq <= this.
@@ -655,7 +865,7 @@ export type Ack = Message$1<"podium.v1.Ack"> & {
  * Use `create(AckSchema)` to create a new message.
  */
 export const AckSchema: GenMessage<Ack> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 15);
+  messageDesc(file_podium_v1_node, 21);
 
 /**
  * Cancel is idempotent and is also how server-side timeouts are delivered.
@@ -679,7 +889,7 @@ export type Cancel = Message$1<"podium.v1.Cancel"> & {
  * Use `create(CancelSchema)` to create a new message.
  */
 export const CancelSchema: GenMessage<Cancel> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 16);
+  messageDesc(file_podium_v1_node, 22);
 
 /**
  * Inject delivers one human message into a running task. It is how an interactive
@@ -707,7 +917,7 @@ export type Inject = Message$1<"podium.v1.Inject"> & {
  * Use `create(InjectSchema)` to create a new message.
  */
 export const InjectSchema: GenMessage<Inject> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 17);
+  messageDesc(file_podium_v1_node, 23);
 
 /**
  * Slots changes how many tasks the node runs at once, overriding the max_tasks in its own
@@ -735,7 +945,7 @@ export type Slots = Message$1<"podium.v1.Slots"> & {
  * Use `create(SlotsSchema)` to create a new message.
  */
 export const SlotsSchema: GenMessage<Slots> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 18);
+  messageDesc(file_podium_v1_node, 24);
 
 /**
  * Drain tells the node to stop accepting work and finish what it is running.
@@ -757,7 +967,7 @@ export type Drain = Message$1<"podium.v1.Drain"> & {
  * Use `create(DrainSchema)` to create a new message.
  */
 export const DrainSchema: GenMessage<Drain> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 19);
+  messageDesc(file_podium_v1_node, 25);
 
 /**
  * @generated from message podium.v1.LogChunk
@@ -797,7 +1007,7 @@ export type LogChunk = Message$1<"podium.v1.LogChunk"> & {
  * Use `create(LogChunkSchema)` to create a new message.
  */
 export const LogChunkSchema: GenMessage<LogChunk> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 20);
+  messageDesc(file_podium_v1_node, 26);
 
 /**
  * @generated from enum podium.v1.LogChunk.Stream
@@ -828,7 +1038,7 @@ export enum LogChunk_Stream {
  * Describes the enum podium.v1.LogChunk.Stream.
  */
 export const LogChunk_StreamSchema: GenEnum<LogChunk_Stream> = /*@__PURE__*/
-  enumDesc(file_podium_v1_node, 20, 0);
+  enumDesc(file_podium_v1_node, 26, 0);
 
 /**
  * ArtifactRef names an artifact the control plane has already stored. The node emits one
@@ -869,7 +1079,7 @@ export type ArtifactRef = Message$1<"podium.v1.ArtifactRef"> & {
  * Use `create(ArtifactRefSchema)` to create a new message.
  */
 export const ArtifactRefSchema: GenMessage<ArtifactRef> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 21);
+  messageDesc(file_podium_v1_node, 27);
 
 /**
  * Message is something the task wants a human (or a relay) to read while it runs. `type` is
@@ -902,7 +1112,7 @@ export type Message = Message$1<"podium.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 22);
+  messageDesc(file_podium_v1_node, 28);
 
 /**
  * Step is emitted by the runner. Reserved: unused in MVP-0.
@@ -931,7 +1141,7 @@ export type Step = Message$1<"podium.v1.Step"> & {
  * Use `create(StepSchema)` to create a new message.
  */
 export const StepSchema: GenMessage<Step> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 23);
+  messageDesc(file_podium_v1_node, 29);
 
 /**
  * @generated from message podium.v1.Exited
@@ -953,7 +1163,7 @@ export type Exited = Message$1<"podium.v1.Exited"> & {
  * Use `create(ExitedSchema)` to create a new message.
  */
 export const ExitedSchema: GenMessage<Exited> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 24);
+  messageDesc(file_podium_v1_node, 30);
 
 /**
  * @generated from message podium.v1.Finished
@@ -975,7 +1185,7 @@ export type Finished = Message$1<"podium.v1.Finished"> & {
  * Use `create(FinishedSchema)` to create a new message.
  */
 export const FinishedSchema: GenMessage<Finished> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 25);
+  messageDesc(file_podium_v1_node, 31);
 
 /**
  * @generated from message podium.v1.Error
@@ -1013,7 +1223,7 @@ export type Error = Message$1<"podium.v1.Error"> & {
  * Use `create(ErrorSchema)` to create a new message.
  */
 export const ErrorSchema: GenMessage<Error> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 26);
+  messageDesc(file_podium_v1_node, 32);
 
 /**
  * TaskEvent is ordered per task by seq, starting at 1. The server deduplicates on
@@ -1100,7 +1310,7 @@ export type TaskEvent = Message$1<"podium.v1.TaskEvent"> & {
  * Use `create(TaskEventSchema)` to create a new message.
  */
 export const TaskEventSchema: GenMessage<TaskEvent> = /*@__PURE__*/
-  messageDesc(file_podium_v1_node, 27);
+  messageDesc(file_podium_v1_node, 33);
 
 /**
  * TaskEventKind is the canonical event taxonomy. STEP arrives with the runner (step 04),
@@ -1213,6 +1423,30 @@ export const NodeService: GenService<{
     methodKind: "client_streaming";
     input: typeof UploadArtifactRequestSchema;
     output: typeof UploadArtifactResponseSchema;
+  },
+  /**
+   * UploadWorkspaceSnapshot stores one tar of a session workspace, or of a repository's
+   * base snapshot. The node streams the bytes. The server writes them to S3 and keeps a
+   * single row, replacing the previous object only after the new one is stored.
+   *
+   * @generated from rpc podium.v1.NodeService.UploadWorkspaceSnapshot
+   */
+  uploadWorkspaceSnapshot: {
+    methodKind: "client_streaming";
+    input: typeof UploadWorkspaceSnapshotRequestSchema;
+    output: typeof UploadWorkspaceSnapshotResponseSchema;
+  },
+  /**
+   * DownloadWorkspaceSnapshot streams the latest tar back. A session row wins. When that
+   * session has never been snapshotted, the repository's base snapshot is sent instead.
+   * found is false when neither exists; that is not an error.
+   *
+   * @generated from rpc podium.v1.NodeService.DownloadWorkspaceSnapshot
+   */
+  downloadWorkspaceSnapshot: {
+    methodKind: "server_streaming";
+    input: typeof DownloadWorkspaceSnapshotRequestSchema;
+    output: typeof DownloadWorkspaceSnapshotResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_node, 0);
