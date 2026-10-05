@@ -30,6 +30,9 @@ var notConfiguration = map[string]string{
 	"PODIUM_LEASE_ID":    "set by the node inside the task container",
 	"PODIUM_WORKDIR":     "set by the node inside the task container",
 	"PODIUM_EVENTS_SOCK": "set by the node inside the task container",
+	// Forwarded from the task spec's workspace_warm duration. The runtime waits
+	// that many seconds; an operator never sets this name on the deployment.
+	"PODIUM_WORKSPACE_WARM_SECONDS": "set by the node inside the task container",
 	// The conductor sets it on a HOST turn's runtime, which has no node to bind-mount a
 	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
 	// this is the name the runtime reads it under.
