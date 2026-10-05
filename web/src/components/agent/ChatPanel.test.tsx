@@ -821,4 +821,30 @@ describe("ChatPanel", () => {
     expect(await screen.findByTestId("chat-channel")).toHaveTextContent("#support");
   });
 
+  it("lists web chats and slack threads apart", async () => {
+    listChats.mockResolvedValue({
+      chats: [
+        chat,
+        {
+          ...chat,
+          id: "chat_slack",
+          title: "in the channel",
+          origin: "slack",
+          startedBy: "carol",
+        },
+      ],
+      nextCursor: "",
+    });
+    mount();
+
+    const web = await screen.findByTestId("chat-origin-web");
+    const slack = await screen.findByTestId("chat-origin-slack");
+    expect(web).toHaveTextContent("Web");
+    expect(slack).toHaveTextContent("Slack");
+    const list = screen.getByTestId("chat-list");
+    expect(list).toHaveTextContent("August numbers");
+    expect(list).toHaveTextContent("in the channel");
+    expect(list.textContent?.indexOf("Web")).toBeLessThan(list.textContent?.indexOf("Slack") ?? -1);
+  });
+
 });

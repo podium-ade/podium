@@ -133,20 +133,20 @@ func TestListSessionsIsNewestFirstAndPages(t *testing.T) {
 		ids = append(ids, sess.ID)
 	}
 
-	page, next, err := s.ListSessions(ctx, 2, "")
+	page, next, err := s.ListSessions(ctx, "", true, 2, "")
 	require.NoError(t, err)
 	require.Len(t, page, 2)
 	assert.Equal(t, ids[4], page[0].ID, "newest first")
 	assert.Equal(t, ids[3], page[1].ID)
 	require.Equal(t, ids[3], next)
 
-	page, next, err = s.ListSessions(ctx, 2, next)
+	page, next, err = s.ListSessions(ctx, "", true, 2, next)
 	require.NoError(t, err)
 	require.Len(t, page, 2)
 	assert.Equal(t, ids[2], page[0].ID)
 	assert.Equal(t, ids[1], page[1].ID)
 
-	page, next, err = s.ListSessions(ctx, 2, next)
+	page, next, err = s.ListSessions(ctx, "", true, 2, next)
 	require.NoError(t, err)
 	require.Len(t, page, 1)
 	assert.Empty(t, next, "a short page is the last page")

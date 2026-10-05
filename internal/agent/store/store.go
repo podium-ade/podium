@@ -192,9 +192,16 @@ func (s *Store) GetSessionByKey(ctx context.Context, sourceKey string) (Session,
 
 // ListSessions returns sessions newest first. The cursor is the last id of the previous
 // page, which sorts by time because every id is a ULID.
-func (s *Store) ListSessions(ctx context.Context, limit int, cursor string) ([]Session, string, error) {
+//
+// all is the dev token: every source. Otherwise only web-chat sessions owned by login.
+func (s *Store) ListSessions(ctx context.Context, login string, all bool, limit int, cursor string) ([]Session, string, error) {
 	limit = clampLimit(limit)
-	rows, err := s.q.ListSessions(ctx, db.ListSessionsParams{AfterID: cursor, PageLimit: int32(limit)})
+	rows, err := s.q.ListSessions(ctx, db.ListSessionsParams{
+		IncludeAll: all,
+		Login:      &login,
+		AfterID:    cursor,
+		PageLimit:  int32(limit),
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list sessions: %w", err)
 	}
@@ -682,11 +689,11 @@ func (s *Store) ChatParticipants(ctx context.Context, chatID string) ([]string, 
 	return rows, nil
 }
 
-// RenameChat sets the title of one of login's chats, or of a mirrored thread, which every
-// login can see and so any may rename. Another login's chat is not found, the same as every
-// other chat read: knowing the id is not access. The row it returns has AutoTitle cleared:
-// the name is the owner's now.
-func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, error) {
+// RenameChat sets the title of one of login's chats. shared is the dev token, and it is
+// what lets that token rename a mirrored thread. Another login's web chat is not found,
+// the same as every other chat read: knowing the id is not access. The row it returns has
+// AutoTitle cleared: the name is the owner's now.
+func (s *Store) RenameChat(ctx context.Context, id, login, title string, shared bool) (Chat, error) {
 	if login == "" {
 		return Chat{}, errors.New("rename chat: a login is required")
 	}
@@ -697,7 +704,9 @@ func (s *Store) RenameChat(ctx context.Context, id, login, title string) (Chat, 
 	if err != nil {
 		return Chat{}, err
 	}
-	row, err := s.q.RenameChat(ctx, db.RenameChatParams{ID: id, Login: &login, Title: cleaned})
+	row, err := s.q.RenameChat(ctx, db.RenameChatParams{
+		ID: id, Login: &login, Title: cleaned, IncludeShared: shared,
+	})
 	if noRows(err) {
 		return Chat{}, fmt.Errorf("%w: chat %s", ErrNotFound, id)
 	}
@@ -720,17 +729,20 @@ func (s *Store) GetChat(ctx context.Context, id string) (Chat, error) {
 	return chatFromRow(row), nil
 }
 
-// ListChats returns one login's own chats, newest first. Another login's are not returned
-// and cannot be paged into: the filter is in the query, not in the caller.
-func (s *Store) ListChats(ctx context.Context, login string, limit int, cursor string) ([]Chat, string, error) {
-	if login == "" {
+// ListChats returns chats newest first. all is the dev token and returns every chat,
+// including mirrored threads and other logins' web chats. Otherwise only this login's
+// web chats are returned, and another login's cannot be paged into: the filter is in
+// the query, not in the caller.
+func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int, cursor string) ([]Chat, string, error) {
+	if login == "" && !all {
 		return nil, "", errors.New("list chats: a login is required")
 	}
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
-		Login:     &login,
-		AfterID:   cursor,
-		PageLimit: int32(limit),
+		IncludeAll: all,
+		Login:      &login,
+		AfterID:    cursor,
+		PageLimit:  int32(limit),
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list chats of %s: %w", login, err)
@@ -955,20 +967,20 @@ func (s *Store) RunningChatTask(ctx context.Context, chatID string) (string, err
 	return turns[0].TaskID, nil
 }
 
-// DeleteChat removes one login's chat, or a mirrored thread's copy, and every message in it
-// (ON DELETE CASCADE). ErrNotFound means it was not there or not theirs: the two are the
-// same answer so the existence of another login's chat is not leaked. A mirrored thread has
-// no owner and every login sees it, so any may delete the copy; the thread itself lives in
-// Slack and is mirrored afresh by its next message. Sessions and turns are left alone —
-// they are the audit of the work, not the transcript.
-func (s *Store) DeleteChat(ctx context.Context, id, login string) error {
+// DeleteChat removes one login's chat and every message in it (ON DELETE CASCADE).
+// ErrNotFound means it was not there or not theirs: the two are the same answer so the
+// existence of another login's chat is not leaked. shared is the dev token removing a
+// mirrored copy; the thread itself lives in Slack and is mirrored afresh by its next
+// message. Sessions and turns are left alone — they are the audit of the work, not the
+// transcript.
+func (s *Store) DeleteChat(ctx context.Context, id, login string, shared bool) error {
 	if login == "" {
 		return errors.New("delete chat: a login is required")
 	}
 	if id == "" {
 		return errors.New("delete chat: an id is required")
 	}
-	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: &login})
+	n, err := s.q.DeleteChat(ctx, db.DeleteChatParams{ID: id, Login: &login, IncludeShared: shared})
 	if err != nil {
 		return fmt.Errorf("delete chat %s: %w", id, err)
 	}

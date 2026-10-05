@@ -50,18 +50,39 @@ func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Sessio
 
 const listSessions = `-- name: ListSessions :many
 select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions
-where ($1::text = '' or id < $1::text)
+where (
+  $1::bool
+  or (
+    source_kind = 'chat'
+    and exists (
+      select 1 from chats c
+      where c.source_key = sessions.source_key
+        and c.login = $2
+    )
+  )
+)
+and ($3::text = '' or id < $3::text)
 order by id desc
-limit $2::int
+limit $4::int
 `
 
 type ListSessionsParams struct {
-	AfterID   string
-	PageLimit int32
+	IncludeAll bool
+	Login      *string
+	AfterID    string
+	PageLimit  int32
 }
 
+// ListSessions is the same partition as ListChats. include_all is the dev token and returns
+// every source. Otherwise only web-chat sessions whose chat row is owned by this login —
+// a Slack, Linear or dev session has no such row, so a signed-in user does not see it.
 func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]Session, error) {
-	rows, err := q.db.Query(ctx, listSessions, arg.AfterID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listSessions,
+		arg.IncludeAll,
+		arg.Login,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
