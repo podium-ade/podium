@@ -1378,16 +1378,24 @@ first**, and the participants are everyone who has spoken.
 It is **read-only, and it is a copy**. Two consequences worth being clear about:
 
 - **You cannot reply from Podium.** The conversation lives in Slack and is answered there, so a
-  mirrored chat has no composer, and no rename or delete. That is not a missing feature of the UI:
-  a mirrored chat has no owning login, and every write filters on one.
+  mirrored chat has no composer. That is not a missing feature of the UI: a mirrored chat has no
+  owning login, and a send filters on one.
 - **Slack is still the only authority on what was said.** A turn is briefed from
   `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
   leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
   lossy because nothing depends on it being complete.
 
-A mirrored thread belongs to the workspace rather than to a login, so **every login sees it**. That
-is the same reach the Sessions screen has always had over the same conversations, and it is not
-RBAC — there is none in this track. See [`security.md`](security.md).
+A mirrored thread belongs to the workspace rather than to a login. Who sees it depends on how
+they reached Podium:
+
+- **Google Workspace** (and any other named login) sees only the web chats they created, and
+  only the sessions for those chats. Another person's chats, and every Slack thread, are absent.
+- **The dev token** — the local transport, which has no per-user identity — sees every chat and
+  every session. The chat list and the Sessions screen keep web turns and Slack turns in
+  separate groups. That token may rename or delete a mirrored copy; the thread itself stays in Slack.
+
+That is not a role. The proxy tells the conductor which of the two the caller is, and a browser
+cannot widen its own view. See [`security.md`](security.md).
 
 ### What the bot listens to
 

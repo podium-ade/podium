@@ -89,10 +89,19 @@ func newChatFixtureWith(t *testing.T, opts AgentServiceOptions) chatFixture {
 // proxyHeaders is what podium-server's reverse proxy adds on every hop: its own bearer and
 // its word about who is calling.
 func proxyHeaders(login string) connect.Interceptor {
+	return proxyHeadersScoped(login, false)
+}
+
+// proxyHeadersScoped is proxyHeaders, and all is the dev token's scope. A signed-in user
+// leaves it unset.
+func proxyHeadersScoped(login string, all bool) connect.Interceptor {
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			req.Header().Set("Authorization", "Bearer "+chatToken)
 			req.Header().Set(LoginHeader, login)
+			if all {
+				req.Header().Set(ScopeHeader, ScopeAll)
+			}
 			return next(ctx, req)
 		}
 	})
@@ -103,6 +112,12 @@ func proxyHeaders(login string) connect.Interceptor {
 func (f chatFixture) clientAs(login string) agentv1connect.AgentServiceClient {
 	return agentv1connect.NewAgentServiceClient(http.DefaultClient, f.url,
 		connect.WithInterceptors(proxyHeaders(login)))
+}
+
+// clientAll is the shared dev token: the same bearer, and the scope the proxy sets for it.
+func (f chatFixture) clientAll() agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(http.DefaultClient, f.url,
+		connect.WithInterceptors(proxyHeadersScoped("local", true)))
 }
 
 // streamAs opens StreamChat as one login. The interceptor above is unary-only, so a
@@ -262,8 +277,8 @@ func TestDeleteChatThroughTheService(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
-// A mirrored Slack thread has no owner, so the ownership check must not turn every login
-// away: whoever sees it in the list can delete the copy.
+// A mirrored Slack thread has no owner. A signed-in login cannot see it or delete the copy.
+// The dev token can: it is the view that lists every chat.
 func TestDeleteChatRemovesAMirroredThread(t *testing.T) {
 	f := newChatFixture(t)
 	ctx := context.Background()
@@ -272,6 +287,21 @@ func TestDeleteChatRemovesAMirroredThread(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = f.clientAs("bob").DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	_, err = f.store.GetChat(ctx, thread.ID)
+	require.NoError(t, err, "a signed-in user must leave the copy")
+
+	listed, err := f.client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, listed.Msg.GetChats(), "alice's login does not include a mirrored thread")
+
+	all, err := f.clientAll().ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, all.Msg.GetChats(), 1)
+	assert.Equal(t, thread.ID, all.Msg.GetChats()[0].GetId())
+
+	_, err = f.clientAll().DeleteChat(ctx, connect.NewRequest(&agentv1.DeleteChatRequest{ChatId: thread.ID}))
 	require.NoError(t, err)
 	_, err = f.store.GetChat(ctx, thread.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)

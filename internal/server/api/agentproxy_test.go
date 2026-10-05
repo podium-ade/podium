@@ -30,6 +30,7 @@ func echoHeaders(t *testing.T) (*httptest.Server, *[]*http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"authorization":` + quote(r.Header.Get("Authorization")) +
 			`,"login":` + quote(r.Header.Get(AgentLoginHeader)) +
+			`,"scope":` + quote(r.Header.Get(AgentScopeHeader)) +
 			`,"path":` + quote(r.URL.Path) + `}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -74,6 +75,7 @@ func TestAgentProxyReplacesTheCredentialAndAssertsTheLogin(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, "Bearer "+agentToken, got["authorization"])
 	assert.Equal(t, "alice@example.com", got["login"])
+	assert.Empty(t, got["scope"], "a signed-in user does not see every chat")
 	assert.Equal(t, agentProcedure, got["path"], "the Connect procedure path is forwarded verbatim")
 	require.Len(t, *seen, 1)
 }
@@ -89,6 +91,7 @@ func TestAgentProxyDropsAClientSuppliedLogin(t *testing.T) {
 		func(r *http.Request) {
 			r.Header.Set(AgentLoginHeader, "root")
 			r.Header.Add(AgentLoginHeader, "admin")
+			r.Header.Set(AgentScopeHeader, agentScopeAll)
 		})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -97,6 +100,7 @@ func TestAgentProxyDropsAClientSuppliedLogin(t *testing.T) {
 	assert.Equal(t, "alice@example.com", got["login"])
 	assert.NotContains(t, got["login"], "root")
 	assert.NotContains(t, got["login"], "admin")
+	assert.Empty(t, got["scope"], "a client cannot grant itself the dev token's view")
 }
 
 func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
@@ -105,15 +109,16 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name string
-		id   *transport.Identity
-		want string
+		name  string
+		id    *transport.Identity
+		want  string
+		scope string
 	}{
-		{"a tailnet user", &transport.Identity{Kind: transport.KindUser, Login: "bob@example.com"}, "bob@example.com"},
-		{"the local token", &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, "local"},
+		{"a tailnet user", &transport.Identity{Kind: transport.KindUser, Login: "bob@example.com"}, "bob@example.com", ""},
+		{"the local token", &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, "local", agentScopeAll},
 		// Only reachable by calling the proxy without the middleware, which is a wiring bug
 		// rather than a request; it must still not produce an empty header.
-		{"no identity at all", nil, "unknown"},
+		{"no identity at all", nil, "unknown", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,6 +127,7 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 			var got map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, tc.want, got["login"])
+			assert.Equal(t, tc.scope, got["scope"])
 		})
 	}
 }

@@ -24,6 +24,15 @@ import (
 // docs/security.md says so.
 const AgentLoginHeader = "X-Podium-Login"
 
+// AgentScopeHeader tells the conductor whether this caller is the shared dev token.
+// agentScopeAll is the operator view (every chat). A signed-in user gets no scope header,
+// which the conductor reads as "own chats only". A client-supplied value is stripped
+// with the login header: the browser must not be able to widen its own view.
+const (
+	AgentScopeHeader = "X-Podium-Scope"
+	agentScopeAll    = "all"
+)
+
 // localLogin is the login reported for the local transport, which has no per-user identity
 // at all. It is the same word WhoAmI answers there.
 const localLogin = "local"
@@ -67,8 +76,12 @@ func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger) (http.Handl
 		pr.SetXForwarded()
 		pr.Out.Header.Del("Authorization")
 		pr.Out.Header.Del(AgentLoginHeader)
+		pr.Out.Header.Del(AgentScopeHeader)
 		pr.Out.Header.Set("Authorization", "Bearer "+agentToken)
 		pr.Out.Header.Set(AgentLoginHeader, agentLogin(pr.In.Context()))
+		if agentSeesAll(pr.In.Context()) {
+			pr.Out.Header.Set(AgentScopeHeader, agentScopeAll)
+		}
 	}}
 	// -1 flushes every write immediately, which is what a server-streaming Connect call
 	// needs: step 21's StreamChat must arrive frame by frame, not buffered to completion.
@@ -115,6 +128,13 @@ func agentLogin(ctx context.Context) string {
 		return localLogin
 	}
 	return id.Login
+}
+
+// agentSeesAll is true only for the shared dev token. A Google Workspace user, and any
+// other named login, is not: they see the chats they own.
+func agentSeesAll(ctx context.Context) bool {
+	id, ok := transport.From(ctx)
+	return ok && id.Kind == transport.KindLocalToken
 }
 
 // writeConnectUnavailable answers a dial failure in the Connect protocol's own error shape
