@@ -393,6 +393,10 @@ reference it.
 
 ## When something is wrong
 
+The control plane places a task on the node with the most free slots that carries every label
+the task asks for and has room for its CPU and memory, sidecars included. A task it cannot
+place stays `queued` and says why.
+
 ### A task is stuck in `queued`
 
 The scheduler records why, and the CLI and UI both show it.
@@ -439,6 +443,9 @@ looking for a bug in it. Its event stream carries a synthetic `error` event nami
 Whether re-running is safe is your call; `retry_on_node_loss: true` in the spec makes Podium
 make it for you, and it is off by default because Podium does not know whether your task is
 idempotent.
+
+An agent turn sets `retry_on_node_loss` false on purpose. A turn may already have posted an
+answer, and running it again would say it twice. The thread is told the machine was lost, once.
 
 ### A task ended `failed` with no exit code
 
