@@ -192,6 +192,7 @@ describe("AgentPage", () => {
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Backend" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
@@ -254,6 +255,23 @@ describe("AgentPage", () => {
     );
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
+  });
+
+  it("shows self-hosted as the backend and the others as coming soon", async () => {
+    mount("/agent/settings/backend", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
+    expect(await screen.findByRole("tab", { name: "Backend" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("tab", { name: "Models" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Account" })).toBeNull();
+    expect(screen.queryByText("Nothing to configure")).toBeNull();
+
+    const backends = screen.getByRole("radiogroup", { name: "Backend" });
+    expect(within(backends).getByRole("radio", { name: /Self-hosted/ })).toBeChecked();
+    expect(within(backends).getByRole("radio", { name: /Modal/ })).toBeDisabled();
+    expect(within(backends).getByRole("radio", { name: /Daytona/ })).toBeDisabled();
+    expect(within(backends).getAllByText("Coming soon")).toHaveLength(2);
   });
 
   it("renders settings models without the talk tabs", async () => {
