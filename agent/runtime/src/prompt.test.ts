@@ -146,6 +146,22 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(slackFirst)).toContain("chat-title.txt");
   });
 
+  it("asks a host turn for its title where the conductor reads it, not in a container path", () => {
+    const first = {
+      ...golden(),
+      runs_on: "host" as const,
+      source: { kind: "chat" as const, ref: "chat_1" },
+      transcript: [{ role: "user" as const, author: "alice", ts: "2026-09-03T10:00:00Z", text: "hi" }],
+    };
+    const prompt = buildSystemPrompt(first);
+    expect(prompt).toContain(`${process.cwd()}/.podium/artifacts/chat-title.txt`);
+    expect(prompt).not.toContain("/workspace/.podium/artifacts/chat-title.txt");
+    // A container turn keeps the container path.
+    expect(buildSystemPrompt({ ...first, runs_on: undefined })).toContain(
+      "/workspace/.podium/artifacts/chat-title.txt",
+    );
+  });
+
   it("does not tell a host turn it has a container, because it has not got one", () => {
     const brief = golden();
     const task = buildSystemPrompt(brief);
