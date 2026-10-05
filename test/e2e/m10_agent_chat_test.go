@@ -227,7 +227,7 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	require.NotEmpty(t, playbooks.Msg.GetPlaybooks())
 	assert.Equal(t, "Podium", playbooks.Msg.GetAssistant().GetDisplayName())
 	assert.Equal(t, "claude", playbooks.Msg.GetAssistant().GetAgent(), "resolved, never empty")
-	assert.Equal(t, "claude-opus-5", playbooks.Msg.GetAssistant().GetModel())
+	assert.Equal(t, "claude-opus-5-5", playbooks.Msg.GetAssistant().GetModel())
 
 	created, err := client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{
 		Title: "August numbers",
