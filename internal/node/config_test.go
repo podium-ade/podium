@@ -241,3 +241,18 @@ func TestAllowPrivilegedSidecarsIsOffUnlessAskedFor(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, cfg.AllowPrivilegedSidecars, "the environment overlays the file both ways")
 }
+
+func TestRuntimeDefaultsToTheEngine(t *testing.T) {
+	require.Empty(t, DefaultConfig().Runtime)
+
+	path := filepath.Join(t.TempDir(), "node.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("server: http://127.0.0.1:8080\n"), 0o600))
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Empty(t, cfg.Runtime)
+
+	t.Setenv("PODIUM_NODE_RUNTIME", "runsc")
+	cfg, err = LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, "runsc", cfg.Runtime)
+}
