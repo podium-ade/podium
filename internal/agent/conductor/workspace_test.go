@@ -21,6 +21,20 @@ func TestApplyWorkspace(t *testing.T) {
 	assert.False(t, s.WorkspacePublishBase)
 }
 
+func TestApplyWorkspacePublishesABaseOnlyWhenAsked(t *testing.T) {
+	s := &spec.TaskSpec{Image: "alpine:3"}
+	pb := profiles.Playbook{
+		Repos: []profiles.Repo{{URL: "https://github.com/acme/app.git"}},
+		Env:   map[string]string{workspacePublishEnv: "1"},
+	}
+	applyWorkspace(s, "sess_1", pb)
+	assert.True(t, s.WorkspacePublishBase)
+
+	s = &spec.TaskSpec{Image: "alpine:3"}
+	applyWorkspace(s, "sess_1", profiles.Playbook{Env: map[string]string{workspacePublishEnv: "1"}})
+	assert.False(t, s.WorkspacePublishBase, "a base needs a repository to be stored under")
+}
+
 func TestApplyWorkspaceHonoursAZeroWarmWindow(t *testing.T) {
 	s := &spec.TaskSpec{Image: "alpine:3"}
 	applyWorkspace(s, "sess_1", profiles.Playbook{Env: map[string]string{workspaceWarmEnv: "0s"}})
