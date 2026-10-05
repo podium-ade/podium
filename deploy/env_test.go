@@ -50,6 +50,9 @@ var notConfiguration = map[string]string{
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",
+	// A playbook env value the conductor reads when it builds a task spec.
+	// Documented in docs/task-spec.md. An operator does not set it on the deployment.
+	"PODIUM_WORKSPACE_WARM": "per playbook, read by the conductor",
 	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
 	// the container. An operator never sets any of them: the brief is built per turn, and
 	// the three dry-run knobs are the test seam step 16 defined. They are documented in
