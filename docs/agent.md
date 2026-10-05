@@ -421,7 +421,7 @@ display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
                              # The assistant's prompt. A playbook layers its own on top of it
                              # for a task; a conversation has this one and no second prompt.
-model: claude-opus-5         # required. What the assistant answers on, and what a playbook
+model: claude-opus-5-5       # required. What the assistant answers on, and what a playbook
                              # inherits unless it names its own
 agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
@@ -1094,7 +1094,7 @@ to send the request:
 ```
 
 `id` is whatever the harness calls that provider; with `profile.model` it becomes
-`--model xai/grok-4.6`. `base_url` is optional and overrides where that provider is reached — an
+`--model xai/grok-4.7`. `base_url` is optional and overrides where that provider is reached — an
 egress proxy, or a test seam — and empty means the harness's own default. `api_key_env` names a
 secret and never holds one: a brief is an environment variable on a task spec, readable by
 anything that can read the spec, exactly like `memory.api_key_env`.
@@ -1108,10 +1108,12 @@ provider's choice and is usually the right one.
 The levels a model accepts are a property of that model, and the conductor holds a profile to
 them at load time:
 
-- `max` is Anthropic-only. A Grok model naming it fails to load rather than failing on the first
-  turn.
-- `grok-4.5` and older document `xhigh` as a synonym for `high`, so it is not offered for them:
-  a level that silently means a different level is worse than no level.
+- `max` is not an xAI level. The current Claude models and the GPT-6 models take it. A Grok
+  model naming it fails to load rather than failing on the first turn.
+- `claude-haiku-4-5` takes no effort setting. Naming one fails to load.
+- `grok-4.7` and `grok-4.6` take `xhigh`. `grok-4.5` and older document it as a synonym for
+  `high`, so it is not offered for them: a level that silently means a different level is worse
+  than no level.
 - A **playbook that switches backend and inherits the profile's effort** is checked with the model
   it will actually run on, not with the profile's — that combination is the one that would
   otherwise slip through.
