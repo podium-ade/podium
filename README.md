@@ -5,7 +5,7 @@
 <h1 align="center">Podium</h1>
 
 <p align="center">
-  <b>Deploy your own AI orchestration system. One deployment for your organization, on machines you own.</b>
+  <b>Your own AI orchestration system. One deployment, every team, on machines you own.</b>
 </p>
 
 <p align="center">
@@ -15,17 +15,24 @@
   <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
 </p>
 
-Podium is the system an organization stands up when it wants agents that cover more than one
-part of the business, and that take a request through to a result. Each part gets its own job —
-its own tools, repositories, model, and credentials — and every job that needs a machine runs
-in a sandbox on a worker you enrolled.
+Podium is how an organization puts AI to work on the jobs that actually move the business, and
+then watches it finish them.
 
-People start the work where they already are. A web chat, a Slack mention, a Linear assignment,
-or a pull request they tag on GitHub becomes a turn. The answer is posted back on that same
-thread, with the logs and the files the run produced.
+A bug lands in Slack or Linear, and Podium reads the code, runs what it needs to run, and posts
+the cause back on the thread. A pull request needs a review, and Podium reads the diff and
+writes the review. A change needs writing, and Podium edits the repository, runs the tests,
+opens the pull request, and can check the result in a browser before it says it is done.
+Someone asks what the numbers did last week, and Podium queries the warehouse and answers in
+the same conversation. Those are four jobs. The next one is a playbook you write, for whatever
+part of the organization needs it.
+
+One deployment covers all of them. Chat, Slack, Linear, and GitHub are doors into the same
+system. Each team gets its own tools, repositories, model, and credentials. When the work needs
+a machine, it runs in a sandbox on a worker you enrolled, and the answer comes back where the
+question started, with the logs and the files to show for it.
 
 You run the whole thing. The control plane, the conductor, the secrets, and the workers are
-yours. The model keys are yours. Nothing here is an account on somebody else's agent.
+yours. The model keys are yours.
 
 ---
 
@@ -33,10 +40,10 @@ yours. The model keys are yours. Nothing here is an account on somebody else's a
 
 A **playbook** is one job: an image, the tools that job may use, the repositories it may
 touch, the model it runs on, and the secrets it is allowed to hold. A turn that needs a
-machine is one run of one playbook — a **task** — and it ends when that run ends. A
+machine is one run of one playbook, a **task**, and it ends when that run ends. A
 conversation that only needs an answer stays with the **assistant**, on the conductor, and
 does not start a container. That split is what you get with the host runtime on. Without it,
-every turn is a task; the [Deploy](#deploy) section says which one a given install is.
+every turn is a task. The [Deploy](#deploy) section says which one a given install is.
 
 The jobs are yours to define. Four that the shape is built for:
 
@@ -44,10 +51,10 @@ The jobs are yours to define. Four that the shape is built for:
   and a shell. It reads the code, runs what it needs to run, and posts the findings back on
   the thread that asked.
 - **Review code.** A GitHub App you create in your own org turns a pull request you tag into
-  a turn, and posts the review as that App. The same review can be asked for from Slack; it
+  a turn, and posts the review as that App. The same review can be asked for from Slack. It
   is one conversation either way.
-- **Write code.** A playbook with write access to a repository, a toolchain, and — when the
-  change has a UI — a browser. It edits, runs the tests, opens the pull request, and can
+- **Write code.** A playbook with write access to a repository, a toolchain, and, when the
+  change has a UI, a browser. It edits, runs the tests, opens the pull request, and can
   check the result before it says it is done. The playbook that develops Podium itself is
   that job, pointed at this repository: [profile/README.md](profile/README.md).
 - **Answer an analytics question.** A playbook whose image has the warehouse client, and
@@ -91,7 +98,7 @@ pick one.
 | `podium` | The CLI. Submits and follows tasks, and exits with the task's own exit code. Talks only to the server. |
 | `podium-runner` | PID 1 inside every task container. Forwards signals, reaps orphans, reports events. Embedded in `podium-node`; never installed by hand. |
 
-The same workers also run an ordinary container task — a build, a batch, a sidecar database —
+The same workers also run an ordinary container task (a build, a batch, a sidecar database)
 with no agent in it. `podium run` is that path. The agent layer is what turns a conversation
 into those tasks and brings the result back.
 
@@ -105,7 +112,7 @@ into those tasks and brings the result back.
 > [docs/quickstart.md](docs/quickstart.md#building-the-images-yourself). Read
 > [docs/security.md](docs/security.md) before putting a deployment anywhere that matters.
 
-A control plane on this machine. Workers anywhere that can already reach it — a LAN, a
+A control plane on this machine. Workers anywhere that can already reach it: a LAN, a
 WireGuard mesh, a corporate VPN. The deployment is one compose file,
 [`deploy/docker-compose.host.yml`](deploy/docker-compose.host.yml), and one `.env`.
 
@@ -120,7 +127,7 @@ docker run --rm -v "$PWD:/out" --user "$(id -u):$(id -g)" \
 ```
 
 `init` writes `master.key` and `.env` with fresh credentials, and never overwrites either.
-Fill `PODIUM_SERVER` — this machine's address on your network, for example
+Fill `PODIUM_SERVER`, this machine's address on your network, for example
 `http://10.8.0.2:8080`. `0.0.0.0` is a bind address, not a URL.
 
 ```sh
@@ -155,7 +162,7 @@ echo 'PODIUM_MEMORY_LLM_API_KEY=...' >> .env
 docker compose up -d
 ```
 
-The full walkthrough — the master key, tearing it down, building the images — is
+The full walkthrough (the master key, tearing it down, building the images) is
 [docs/quickstart.md](docs/quickstart.md). Tailscale, if you want the control plane on a
 MagicDNS name with no shared token, is [docs/networking.md](docs/networking.md).
 
@@ -163,49 +170,14 @@ Two credentials the conductor does not invent, and both are how the organization
 
 - Slack, Linear, and the GitHub App are off until their tokens are set. Each is one group of
   variables in [deploy/.env.example](deploy/.env.example). The GitHub App is one you create
-  in your own org; Podium does not ship a Marketplace listing.
-- The assistant — the process that answers a conversation and delegates machine work —
+  in your own org. Podium does not ship a Marketplace listing.
+- The assistant, the process that answers a conversation and delegates machine work,
   runs when the conductor is started with its host runtime. The published `podium-agent`
   image is a static binary and runs every turn as a task instead. [docs/agent.md](docs/agent.md)
   is which one you have, and what each door (chat, Slack, Linear, GitHub) does with it.
 
 The playbook directory the image ships is a starter that holds nothing. Replace it with your
-own — one `profile.yaml`, one file per playbook — and re-read it from the UI. No restart.
-
----
-
-## What happens when things go wrong
-
-The control plane places work on the node with the most free slots that carries every label the
-task asks for and has room for its CPU and memory — its sidecars' included. A task it cannot
-place stays `queued` and says why.
-
-After that it keeps the promises placement made:
-
-- a node that takes an assignment and does not acknowledge it within 15 seconds loses it;
-- a task that outruns its `timeout` is stopped and ends `failed{reason: timeout}`;
-- a task that exceeds `resources.memory_mb` is OOM-killed and reported as such, not swapped;
-- a node that stops heartbeating is `unreachable` at 30 seconds and `offline` at 120, at which
-  point its tasks are requeued (`retry_on_node_loss: true`) or marked **`lost`** — which is not
-  `failed`: nothing about the task went wrong, its machine went away;
-- a node that comes back is told what the control plane actually holds for each container it
-  still has, so its logs resume at the right byte, and any container the control plane has
-  written off is torn down instead of being left running.
-
-A turn is the exception to the requeue: `retry_on_node_loss` is false, because a turn may
-already have posted an answer. A lost machine is said so in the thread, once.
-
-```sh
-podium node drain worker-3      # finishes what it has, takes nothing new
-podium node undrain worker-3
-podium node slots worker-3 2    # or just turn it down: 2 tasks at once, 0 to undo
-podium node rm worker-3         # once it is drained and idle
-```
-
-A node started with `--exit-on-drain` exits 0 when its last task finishes, which is the upgrade
-path. A slot count is the softer version of a drain: like draining it is stored against the node
-and survives both daemons restarting, and it goes up as well as down — the number is sent to the
-node, because a node enforces its own budget and rejects work it has no slot for.
+own (one `profile.yaml`, one file per playbook) and re-read it from the UI. No restart.
 
 ---
 
@@ -213,33 +185,33 @@ node, because a node enforces its own budget and rejects work it has no slot for
 
 **Start here**
 
-- **[docs/agent.md](docs/agent.md)** — the product: the assistant, playbooks, and how a turn runs
-- **[docs/quickstart.md](docs/quickstart.md)** — a control plane, a worker, and a first task
-- **[docs/concepts.md](docs/concepts.md)** — the nouns, and what a task is not
-- **[docs/security.md](docs/security.md)** — the trust model. Read before a node goes anywhere real
+- **[docs/agent.md](docs/agent.md)**: the product: the assistant, playbooks, and how a turn runs
+- **[docs/quickstart.md](docs/quickstart.md)**: a control plane, a worker, and a first task
+- **[docs/concepts.md](docs/concepts.md)**: the nouns, and what a task is not
+- **[docs/security.md](docs/security.md)**: the trust model. Read before a node goes anywhere real
 
 **Using it**
 
-- [docs/task-spec.md](docs/task-spec.md) — every spec field: secrets, sidecars, readiness, limits, hardening, artifacts
-- [docs/cli.md](docs/cli.md) — every command, its exit codes and its streams
-- [examples/](examples) — a task with a sidecar, secrets, limits, artifacts
-- [examples/agent/](examples/agent) — the starter profile a fresh install runs
-- [profile/](profile) — the playbook that develops this repository
+- [docs/task-spec.md](docs/task-spec.md): every spec field: secrets, sidecars, readiness, limits, hardening, artifacts
+- [docs/cli.md](docs/cli.md): every command, its exit codes and its streams
+- [examples/](examples): a task with a sidecar, secrets, limits, artifacts
+- [examples/agent/](examples/agent): the starter profile a fresh install runs
+- [profile/](profile): the playbook that develops this repository
 
 **Running it**
 
-- [docs/operations.md](docs/operations.md) — backup, restore, upgrade, drain, metrics, what to do when something is wrong
-- [docs/storage.md](docs/storage.md) — Postgres, the object store, a worker's data dir, the image cache
-- [docs/networking.md](docs/networking.md) — how clients reach the control plane, Tailscale, the ACL
-- [docs/node-setup.md](docs/node-setup.md) — setting up a worker
-- [deploy/README.md](deploy/README.md) — compose, the installer, the systemd unit
-- [deploy/.env.example](deploy/.env.example) — every `PODIUM_*` variable, commented
+- [docs/operations.md](docs/operations.md): backup, restore, upgrade, drain, metrics, and what to do when something is wrong
+- [docs/storage.md](docs/storage.md): Postgres, the object store, a worker's data dir, the image cache
+- [docs/networking.md](docs/networking.md): how clients reach the control plane, Tailscale, the ACL
+- [docs/node-setup.md](docs/node-setup.md): setting up a worker
+- [deploy/README.md](deploy/README.md): compose, the installer, the systemd unit
+- [deploy/.env.example](deploy/.env.example): every `PODIUM_*` variable, commented
 
 **Internals**
 
-- [docs/protocol.md](docs/protocol.md) — the node↔server stream, event ordering, acks, reconciliation
-- [docs/runner-events.md](docs/runner-events.md) — `podium-runner` as PID 1 and its event socket
-- [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, house rules, the things that will confuse you
+- [docs/protocol.md](docs/protocol.md): the node-to-server stream, event ordering, acks, reconciliation
+- [docs/runner-events.md](docs/runner-events.md): `podium-runner` as PID 1 and its event socket
+- [CONTRIBUTING.md](CONTRIBUTING.md): dev setup, house rules, the things that will confuse you
 
 ---
 
@@ -250,14 +222,14 @@ Every daemon is configured entirely by environment, and **one file is the whole 
 variable, and `go test ./deploy/...` fails the build if the code reads one that file does not
 mention.
 
-`podium-server init` writes the credentials. What you set beyond that falls into three tiers —
+`podium-server init` writes the credentials. What you set beyond that falls into three tiers.
 [`deploy/README.md`](deploy/README.md#what-you-have-to-configure) has the full version:
 
 | tier | | |
 |---|---|---|
-| **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself — this machine's address on your network |
+| **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
 | **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` / `PODIUM_AGENT_GITHUB_*` (those sources), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
-| **Just config** | ports, intervals, models, poll rates, labels, base URLs — all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
+| **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.
 
@@ -274,9 +246,9 @@ go build -tags noui ./...   # skip the embedded UI, no Node required
 
 > **Stop any running `podium-node` before `make test-integration` or `make e2e`.** Both suites
 > start real nodes against the host's Docker engine, and a node claims containers by the
-> `podium.task` label alone — no node scoping. Each side reports the other's containers to its
+> `podium.task` label alone, with no node scoping. Each side reports the other's containers to its
 > own control plane, which has never heard of them, and tears them down. You lose the test run
-> *and* whatever the live node was running, and it looks like flakiness or memory pressure. It is
+> and whatever the live node was running, and it looks like flakiness or memory pressure. It is
 > not. (`DOCKER_HOST` or `PODIUM_NODE_DOCKER_HOST` pointed at a second engine separates them too,
 > if you have one.)
 
@@ -288,7 +260,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Read [docs/security.md](docs/security.md) before deciding which machines run a node. The short
 version: **a `podium-node` is root-equivalent on its host**, and **a task container is
-untrusted**. Report a vulnerability privately — see [SECURITY.md](SECURITY.md).
+untrusted**. Report a vulnerability privately. See [SECURITY.md](SECURITY.md).
 
 ## License
 
