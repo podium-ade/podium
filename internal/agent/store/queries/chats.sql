@@ -6,8 +6,7 @@
 -- boundary and it is free, so every read is filtered by it.
 
 -- CreateChat takes login as a nullable text: a web chat is owned by the login that made
--- it, and a mirrored Slack thread is owned by nobody, which is what makes it readable by
--- every login and writable by none.
+-- it, and a mirrored Slack thread is owned by nobody. Only the dev token lists those.
 -- name: CreateChat :one
 insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
 values (@id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin)
@@ -18,15 +17,19 @@ select * from chats where id = @id;
 
 -- RenameChat is filtered by login so a rename cannot cross the partition even if
 -- the caller forgot to check. No row is not found, whether the chat is missing or
--- belongs to somebody else — the same answer every other chat read gives. A chat with no
--- login is a mirrored thread, which belongs to the workspace: whoever can see it (ListChats)
--- can rename it, and delete it below.
+-- belongs to somebody else — the same answer every other chat read gives.
 --
 -- It clears auto_title: a name a human typed is theirs, the same rule as a title
 -- supplied at create, so no later turn renames the chat over the top of it.
+--
+-- include_shared lets the dev token rename a mirrored thread (login is null). A signed-in
+-- user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
 -- name: RenameChat :one
 update chats set title = @title, auto_title = false
- where id = @id and (login = @login or login is null)
+ where id = @id and (
+   login = @login
+   or (@include_shared::bool and login is null)
+ )
 returning *;
 
 -- ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -65,10 +68,14 @@ left join (
     from chat_messages cm
    where cm.role <> 'activity'
 ) m on m.chat_id = c.id and m.rn = 1
--- A chat with no login is a mirrored Slack thread: it belongs to the workspace, so every
--- login sees it. There is no RBAC in this track and this is not it — it is the same
--- "everyone who can reach the bot can see what it did" the Sessions screen already has.
-where (c.login = @login or c.login is null)
+-- include_all is the shared dev token, which has no per-user identity and is the operator
+-- view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
+-- any other named login) is the other branch and sees only rows they own. A mirrored
+-- thread has no login, so that branch does not include it.
+where (
+    @include_all::bool
+    or c.login = @login
+  )
   and (@after_id::text = '' or c.id < @after_id::text)
 order by c.id desc
 limit @page_limit::int;
@@ -124,9 +131,13 @@ returning *;
 
 -- DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
 -- query so another owner's chat cannot be removed even if the id is known; zero rows
--- means it was not there or not theirs.
+-- means it was not there or not theirs. include_shared is the dev token removing a
+-- mirrored copy. It does not let that token delete a web chat it does not own.
 -- name: DeleteChat :execrows
-delete from chats where id = @id and (login = @login or login is null);
+delete from chats where id = @id and (
+  login = @login
+  or (@include_shared::bool and login is null)
+);
 
 -- LinkChatPullRequest is the automatic half of a chat's pull requests (0007): a turn's
 -- answer named this one. It is on-conflict-do-nothing, which is both halves of "one link

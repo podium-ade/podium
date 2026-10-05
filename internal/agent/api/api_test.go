@@ -13,6 +13,7 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/store"
 )
 
 // echoLogin reports the login the middleware put in the context, so a test can see the
@@ -67,6 +68,46 @@ func TestRequireBearerWithNoTokenRefusesEverything(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusUnauthorized, rec.Code, "header %q", header)
+	}
+}
+
+func TestReadableBy(t *testing.T) {
+	own := store.Chat{Login: "alice@example.com", Origin: store.OriginWeb}
+	other := store.Chat{Login: "bob@example.com", Origin: store.OriginWeb}
+	slack := store.Chat{Origin: store.OriginSlack, StartedBy: "carol"}
+
+	assert.True(t, readableBy(own, "alice@example.com", false))
+	assert.False(t, readableBy(other, "alice@example.com", false))
+	assert.False(t, readableBy(slack, "alice@example.com", false))
+	assert.True(t, readableBy(other, "local", true))
+	assert.True(t, readableBy(slack, "local", true))
+}
+
+func TestRequireBearerRecordsTheDevTokenScope(t *testing.T) {
+	h := RequireBearer("t", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if SeesAll(r.Context()) {
+			_, _ = w.Write([]byte("all"))
+			return
+		}
+		_, _ = w.Write([]byte("own"))
+	}))
+	for _, tc := range []struct {
+		scope string
+		want  string
+	}{
+		{"", "own"},
+		{"own", "own"},
+		{ScopeAll, "all"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer t")
+		if tc.scope != "" {
+			req.Header.Set(ScopeHeader, tc.scope)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, tc.want, rec.Body.String())
 	}
 }
 

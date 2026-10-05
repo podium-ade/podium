@@ -171,8 +171,7 @@ type CreateChatParams struct {
 // chats.login is the partition. There is no RBAC in this track, but a login is a natural
 // boundary and it is free, so every read is filtered by it.
 // CreateChat takes login as a nullable text: a web chat is owned by the login that made
-// it, and a mirrored Slack thread is owned by nobody, which is what makes it readable by
-// every login and writable by none.
+// it, and a mirrored Slack thread is owned by nobody. Only the dev token lists those.
 func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, createChat,
 		arg.ID,
@@ -203,19 +202,24 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 }
 
 const deleteChat = `-- name: DeleteChat :execrows
-delete from chats where id = $1 and (login = $2 or login is null)
+delete from chats where id = $1 and (
+  login = $2
+  or ($3::bool and login is null)
+)
 `
 
 type DeleteChatParams struct {
-	ID    string
-	Login *string
+	ID            string
+	Login         *string
+	IncludeShared bool
 }
 
 // DeleteChat takes the messages with the chat via ON DELETE CASCADE. The login is in the
 // query so another owner's chat cannot be removed even if the id is known; zero rows
-// means it was not there or not theirs.
+// means it was not there or not theirs. include_shared is the dev token removing a
+// mirrored copy. It does not let that token delete a web chat it does not own.
 func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteChat, arg.ID, arg.Login)
+	result, err := q.db.Exec(ctx, deleteChat, arg.ID, arg.Login, arg.IncludeShared)
 	if err != nil {
 		return 0, err
 	}
@@ -457,16 +461,20 @@ left join (
     from chat_messages cm
    where cm.role <> 'activity'
 ) m on m.chat_id = c.id and m.rn = 1
-where (c.login = $1 or c.login is null)
-  and ($2::text = '' or c.id < $2::text)
+where (
+    $1::bool
+    or c.login = $2
+  )
+  and ($3::text = '' or c.id < $3::text)
 order by c.id desc
-limit $3::int
+limit $4::int
 `
 
 type ListChatsParams struct {
-	Login     *string
-	AfterID   string
-	PageLimit int32
+	IncludeAll bool
+	Login      *string
+	AfterID    string
+	PageLimit  int32
 }
 
 type ListChatsRow struct {
@@ -498,11 +506,17 @@ type ListChatsRow struct {
 // this join, so the two joined columns are coalesced and the boolean is what the store
 // reads to decide "nobody has spoken here yet" — a lie about a timestamp would surface as
 // a chat that claims a message it does not have.
-// A chat with no login is a mirrored Slack thread: it belongs to the workspace, so every
-// login sees it. There is no RBAC in this track and this is not it — it is the same
-// "everyone who can reach the bot can see what it did" the Sessions screen already has.
+// include_all is the shared dev token, which has no per-user identity and is the operator
+// view: every web chat and every mirrored thread. A signed-in user (Google Workspace, or
+// any other named login) is the other branch and sees only rows they own. A mirrored
+// thread has no login, so that branch does not include it.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
-	rows, err := q.db.Query(ctx, listChats, arg.Login, arg.AfterID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listChats,
+		arg.IncludeAll,
+		arg.Login,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -541,26 +555,36 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 
 const renameChat = `-- name: RenameChat :one
 update chats set title = $1, auto_title = false
- where id = $2 and (login = $3 or login is null)
+ where id = $2 and (
+   login = $3
+   or ($4::bool and login is null)
+ )
 returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
 `
 
 type RenameChatParams struct {
-	Title string
-	ID    string
-	Login *string
+	Title         string
+	ID            string
+	Login         *string
+	IncludeShared bool
 }
 
 // RenameChat is filtered by login so a rename cannot cross the partition even if
 // the caller forgot to check. No row is not found, whether the chat is missing or
-// belongs to somebody else — the same answer every other chat read gives. A chat with no
-// login is a mirrored thread, which belongs to the workspace: whoever can see it (ListChats)
-// can rename it, and delete it below.
+// belongs to somebody else — the same answer every other chat read gives.
 //
 // It clears auto_title: a name a human typed is theirs, the same rule as a title
 // supplied at create, so no later turn renames the chat over the top of it.
+//
+// include_shared lets the dev token rename a mirrored thread (login is null). A signed-in
+// user never sets it, so a thread they cannot see cannot be renamed by guessing the id.
 func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, error) {
-	row := q.db.QueryRow(ctx, renameChat, arg.Title, arg.ID, arg.Login)
+	row := q.db.QueryRow(ctx, renameChat,
+		arg.Title,
+		arg.ID,
+		arg.Login,
+		arg.IncludeShared,
+	)
 	var i Chat
 	err := row.Scan(
 		&i.ID,

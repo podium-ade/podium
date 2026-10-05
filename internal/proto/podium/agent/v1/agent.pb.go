@@ -2876,7 +2876,11 @@ type Chat struct {
 	// Empty for a web chat and for a thread whose name has not been resolved yet. It is
 	// chrome — the title stays the first thing asked, so two threads in #support stay two
 	// conversations.
-	Channel       string `protobuf:"bytes,15,opt,name=channel,proto3" json:"channel,omitempty"`
+	Channel string `protobuf:"bytes,15,opt,name=channel,proto3" json:"channel,omitempty"`
+	// login is the Podium identity that owns a web chat. Empty for a mirrored thread, which
+	// belongs to the workspace. The dev token sees every login; a signed-in user is shown
+	// only rows whose login is their own.
+	Login         string `protobuf:"bytes,16,opt,name=login,proto3" json:"login,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3005,6 +3009,13 @@ func (x *Chat) GetParticipants() []string {
 func (x *Chat) GetChannel() string {
 	if x != nil {
 		return x.Channel
+	}
+	return ""
+}
+
+func (x *Chat) GetLogin() string {
+	if x != nil {
+		return x.Login
 	}
 	return ""
 }
@@ -7928,7 +7939,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\"\x90\x01\n" +
 	"\x15ListPlaybooksResponse\x127\n" +
 	"\tplaybooks\x18\x01 \x03(\v2\x19.podium.agent.v1.PlaybookR\tplaybooks\x128\n" +
-	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xca\x03\n" +
+	"\tassistant\x18\x03 \x01(\v2\x1a.podium.agent.v1.AssistantR\tassistantJ\x04\b\x02\x10\x03\"\xe0\x03\n" +
 	"\x04Chat\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x129\n" +
@@ -7946,7 +7957,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"started_by\x18\f \x01(\tR\tstartedBy\x12!\n" +
 	"\ftask_running\x18\x0e \x01(\bR\vtaskRunning\x12\"\n" +
 	"\fparticipants\x18\r \x03(\tR\fparticipants\x12\x18\n" +
-	"\achannel\x18\x0f \x01(\tR\achannelJ\x04\b\a\x10\b\"\x87\x01\n" +
+	"\achannel\x18\x0f \x01(\tR\achannel\x12\x14\n" +
+	"\x05login\x18\x10 \x01(\tR\x05loginJ\x04\b\a\x10\b\"\x87\x01\n" +
 	"\x0eChatAttachment\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12\x12\n" +
