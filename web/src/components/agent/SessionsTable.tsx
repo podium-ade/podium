@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
@@ -44,6 +44,17 @@ const KIND: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
   dev: { icon: Terminal, tone: "warn", label: "dev" },
 };
 
+function sessionSections(rows: Session[]): { key: string; label: string; rows: Session[] }[] {
+  const web = rows.filter((s) => s.sourceKind === "chat");
+  const slack = rows.filter((s) => s.sourceKind === "slack");
+  const other = rows.filter((s) => s.sourceKind !== "chat" && s.sourceKind !== "slack");
+  const out: { key: string; label: string; rows: Session[] }[] = [];
+  if (web.length > 0) out.push({ key: "web", label: "Web", rows: web });
+  if (slack.length > 0) out.push({ key: "slack", label: "Slack", rows: slack });
+  if (other.length > 0) out.push({ key: "other", label: "Other", rows: other });
+  return out;
+}
+
 function kindOf(sourceKind: string) {
   return KIND[sourceKind] ?? { icon: MessageSquare, tone: "idle" as Tone, label: sourceKind };
 }
@@ -74,13 +85,15 @@ export function SessionsTable() {
   });
 
   const rows = sessions.data?.sessions ?? [];
+  const sections = sessionSections(rows);
+  const split = sections.length > 1;
   const open = rows.find((s) => s.id === openID);
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Sessions"
-        description="Every conversation the conductor has taken part in (from the web chat, from Slack and from Linear) and the turns it spent inside each one."
+        description="Every conversation the conductor has taken part in. Web chats and Slack threads are listed apart, and the turns inside each one open on the right."
         meta={
           rows.length > 0 ? (
             <>
@@ -138,7 +151,22 @@ export function SessionsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((s) => {
+            {sections.map((section) => (
+              <Fragment key={section.key}>
+                {split ? (
+                  <TableRow
+                    data-testid={`session-section-${section.key}`}
+                    className="hover:bg-transparent"
+                  >
+                    <TableCell
+                      colSpan={7}
+                      className="pt-4 pb-1 text-xs font-medium tracking-wide text-faint uppercase"
+                    >
+                      {section.label}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {section.rows.map((s) => {
               const kind = kindOf(s.sourceKind);
               return (
                 <TableRow
@@ -192,7 +220,9 @@ export function SessionsTable() {
                   </TableCell>
                 </TableRow>
               );
-            })}
+                })}
+              </Fragment>
+            ))}
           </TableBody>
         </Table>
       ) : null}

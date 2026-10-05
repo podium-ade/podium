@@ -63,12 +63,12 @@ func TestTwoLoginsSeeDisjointChatLists(t *testing.T) {
 	bob, err := s.CreateChat(ctx, "bob", "bob's chat")
 	require.NoError(t, err)
 
-	aliceChats, _, err := s.ListChats(ctx, "alice", 0, "")
+	aliceChats, _, err := s.ListChats(ctx, "alice", false, 0, "")
 	require.NoError(t, err)
 	require.Len(t, aliceChats, 1)
 	assert.Equal(t, alice.ID, aliceChats[0].ID)
 
-	bobChats, _, err := s.ListChats(ctx, "bob", 0, "")
+	bobChats, _, err := s.ListChats(ctx, "bob", false, 0, "")
 	require.NoError(t, err)
 	require.Len(t, bobChats, 1)
 	assert.Equal(t, bob.ID, bobChats[0].ID)
@@ -76,14 +76,14 @@ func TestTwoLoginsSeeDisjointChatLists(t *testing.T) {
 	// The login is in the query, so no cursor reaches somebody else's chat: bob's is not
 	// in alice's list whether the page starts before it or after it.
 	for _, cursor := range []string{"", alice.ID, bob.ID} {
-		page, _, err := s.ListChats(ctx, "alice", 0, cursor)
+		page, _, err := s.ListChats(ctx, "alice", false, 0, cursor)
 		require.NoError(t, err)
 		for _, c := range page {
 			assert.Equal(t, "alice", c.Login, "cursor %q leaked a chat", cursor)
 		}
 	}
 
-	_, _, err = s.ListChats(ctx, "", 0, "")
+	_, _, err = s.ListChats(ctx, "", false, 0, "")
 	assert.ErrorContains(t, err, "a login is required")
 }
 
@@ -111,7 +111,7 @@ func TestTheChatListCarriesWhatTheRailShows(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	chats, next, err := s.ListChats(ctx, "alice", 0, "")
+	chats, next, err := s.ListChats(ctx, "alice", false, 0, "")
 	require.NoError(t, err)
 	require.Len(t, chats, 2)
 	assert.Empty(t, next, "one page holds both")
@@ -152,7 +152,7 @@ func TestTheChatListReportsARunningTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, running)
 
-	chats, _, err := s.ListChats(ctx, "alice", 0, "")
+	chats, _, err := s.ListChats(ctx, "alice", false, 0, "")
 	require.NoError(t, err)
 	byID := map[string]Chat{}
 	for _, c := range chats {
@@ -316,7 +316,7 @@ func TestAChatMayBeRenamed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Keep this", kept.Title, "a title supplied at create is never rewritten")
 
-	listed, _, err := s.ListChats(ctx, "alice", 0, "")
+	listed, _, err := s.ListChats(ctx, "alice", false, 0, "")
 	require.NoError(t, err)
 	byID := map[string]Chat{}
 	for _, c := range listed {
@@ -325,7 +325,7 @@ func TestAChatMayBeRenamed(t *testing.T) {
 	assert.Equal(t, "August numbers", byID[chat.ID].Title)
 
 	// A rename is the owner's word on the name, so a later turn must not write over it.
-	human, err := s.RenameChat(ctx, chat.ID, "alice", "Q3 forecast")
+	human, err := s.RenameChat(ctx, chat.ID, "alice", "Q3 forecast", false)
 	require.NoError(t, err)
 	assert.False(t, human.AutoTitle)
 	fromTurn, err := s.SetChatTitle(ctx, chat.ID, "a model wrote this")
@@ -376,12 +376,12 @@ func TestDeleteChatTakesItsMessagesAndNobodyElses(t *testing.T) {
 	bob, err := s.CreateChat(ctx, "bob", "bob's")
 	require.NoError(t, err)
 
-	err = s.DeleteChat(ctx, alice.ID, "bob")
+	err = s.DeleteChat(ctx, alice.ID, "bob", false)
 	assert.ErrorIs(t, err, ErrNotFound, "another login's chat is not there, not forbidden")
 	_, err = s.GetChat(ctx, alice.ID)
 	require.NoError(t, err, "bob's attempt must leave alice's chat")
 
-	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice"))
+	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice", false))
 	_, err = s.GetChat(ctx, alice.ID)
 	assert.ErrorIs(t, err, ErrNotFound)
 	msgs, err := s.ListChatMessages(ctx, alice.ID, 0)
@@ -391,12 +391,12 @@ func TestDeleteChatTakesItsMessagesAndNobodyElses(t *testing.T) {
 	_, err = s.GetChat(ctx, bob.ID)
 	require.NoError(t, err, "bob's chat is not in alice's delete")
 
-	err = s.DeleteChat(ctx, alice.ID, "alice")
+	err = s.DeleteChat(ctx, alice.ID, "alice", false)
 	assert.ErrorIs(t, err, ErrNotFound, "deleting a chat that is already gone is not found")
 
-	err = s.DeleteChat(ctx, "", "alice")
+	err = s.DeleteChat(ctx, "", "alice", false)
 	assert.ErrorContains(t, err, "an id is required")
-	err = s.DeleteChat(ctx, alice.ID, "")
+	err = s.DeleteChat(ctx, alice.ID, "", false)
 	assert.ErrorContains(t, err, "a login is required")
 }
 
@@ -416,7 +416,7 @@ func TestRenameChat(t *testing.T) {
 	bob, err := s.CreateChat(ctx, "bob", "bob's chat")
 	require.NoError(t, err)
 
-	renamed, err := s.RenameChat(ctx, chat.ID, "alice", "  Q3   forecast ")
+	renamed, err := s.RenameChat(ctx, chat.ID, "alice", "  Q3   forecast ", false)
 	require.NoError(t, err)
 	assert.Equal(t, "Q3 forecast", renamed.Title)
 	assert.Equal(t, chat.ID, renamed.ID)
@@ -425,22 +425,22 @@ func TestRenameChat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Q3 forecast", read.Title)
 
-	_, err = s.RenameChat(ctx, chat.ID, "bob", "stolen")
+	_, err = s.RenameChat(ctx, chat.ID, "bob", "stolen", false)
 	assert.ErrorIs(t, err, ErrNotFound, "knowing the id is not access")
 	still, err := s.GetChat(ctx, chat.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Q3 forecast", still.Title, "a refused rename must not write")
 
-	_, err = s.RenameChat(ctx, bob.ID, "alice", "stolen")
+	_, err = s.RenameChat(ctx, bob.ID, "alice", "stolen", false)
 	assert.ErrorIs(t, err, ErrNotFound)
 
-	_, err = s.RenameChat(ctx, "chat_nope", "alice", "gone")
+	_, err = s.RenameChat(ctx, "chat_nope", "alice", "gone", false)
 	assert.ErrorIs(t, err, ErrNotFound)
 
-	_, err = s.RenameChat(ctx, chat.ID, "alice", "   ")
+	_, err = s.RenameChat(ctx, chat.ID, "alice", "   ", false)
 	assert.ErrorIs(t, err, ErrInvalidChatTitle)
 
-	_, err = s.RenameChat(ctx, chat.ID, "", "no owner")
+	_, err = s.RenameChat(ctx, chat.ID, "", "no owner", false)
 	assert.ErrorContains(t, err, "a login is required")
 }
 
@@ -551,7 +551,7 @@ func TestDeletingAChatLeavesNoPullRequestsBehind(t *testing.T) {
 	require.NoError(t, s.DetachChatPullRequest(ctx, alice.ID,
 		"https://github.com/acme/api/pull/41"))
 
-	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice"))
+	require.NoError(t, s.DeleteChat(ctx, alice.ID, "alice", false))
 
 	var rows int
 	require.NoError(t, s.pool.QueryRow(ctx,
@@ -663,9 +663,9 @@ func TestAMessageRemembersWhoSaidIt(t *testing.T) {
 	assert.Equal(t, "alice", read[0].Author)
 }
 
-// A mirrored conversation is in every login's list, because it belongs to the workspace.
-// A web chat is still its owner's alone.
-func TestTheChatListShowsMirroredConversationsToEveryLogin(t *testing.T) {
+// A signed-in login sees its own web chats. A mirrored thread, and anybody else's web chat,
+// are the dev token's view (all=true).
+func TestASignedInLoginSeesOnlyItsOwnChats(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
@@ -676,8 +676,8 @@ func TestTheChatListShowsMirroredConversationsToEveryLogin(t *testing.T) {
 	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "carol", "in slack")
 	require.NoError(t, err)
 
-	ids := func(login string) map[string]Chat {
-		chats, _, err := s.ListChats(ctx, login, 0, "")
+	ids := func(login string, all bool) map[string]Chat {
+		chats, _, err := s.ListChats(ctx, login, all, 0, "")
 		require.NoError(t, err)
 		out := map[string]Chat{}
 		for _, c := range chats {
@@ -686,41 +686,48 @@ func TestTheChatListShowsMirroredConversationsToEveryLogin(t *testing.T) {
 		return out
 	}
 
-	forAlice := ids("alice")
+	forAlice := ids("alice", false)
 	assert.Contains(t, forAlice, mine.ID)
-	assert.Contains(t, forAlice, thread.ID)
+	assert.NotContains(t, forAlice, thread.ID, "a mirrored thread is not a signed-in user's chat")
 	assert.NotContains(t, forAlice, theirs.ID)
+	assert.Equal(t, OriginWeb, forAlice[mine.ID].Origin)
 
-	forBob := ids("bob")
+	forBob := ids("bob", false)
 	assert.Contains(t, forBob, theirs.ID)
-	assert.Contains(t, forBob, thread.ID, "the same thread, in somebody else's list")
+	assert.NotContains(t, forBob, thread.ID)
 	assert.NotContains(t, forBob, mine.ID)
 
-	assert.Equal(t, "carol", forAlice[thread.ID].StartedBy)
-	assert.Equal(t, OriginSlack, forAlice[thread.ID].Origin)
-	assert.Equal(t, OriginWeb, forAlice[mine.ID].Origin)
+	operator := ids("local", true)
+	assert.Contains(t, operator, mine.ID)
+	assert.Contains(t, operator, theirs.ID)
+	assert.Contains(t, operator, thread.ID)
+	assert.Equal(t, "carol", operator[thread.ID].StartedBy)
+	assert.Equal(t, OriginSlack, operator[thread.ID].Origin)
 }
 
-// A mirrored thread belongs to the workspace: every login lists it, so any login may rename
-// it or delete the copy — the same rule ListChats applies, and the only one that lets a
-// reader clear a thread out of the sidebar. The thread itself lives in Slack; its next
-// message mirrors it again.
-func TestAMirroredChatMayBeRenamedAndDeletedByWhoeverSeesIt(t *testing.T) {
+// A mirrored thread has no owner. A signed-in login cannot rename or delete the copy.
+// The dev token can: it is the view that lists the thread, and the thread itself lives
+// in Slack, so the next message mirrors it again.
+func TestOnlyTheDevTokenMayRenameOrDeleteAMirroredChat(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
 	thread, err := s.CreateMirrorChat(ctx, slackKey, OriginSlack, "alice", "in slack")
 	require.NoError(t, err)
 
-	renamed, err := s.RenameChat(ctx, thread.ID, "bob", "mine now")
+	_, err = s.RenameChat(ctx, thread.ID, "bob", "mine now", false)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	renamed, err := s.RenameChat(ctx, thread.ID, "local", "mine now", true)
 	require.NoError(t, err)
 	assert.Equal(t, "mine now", renamed.Title)
 	assert.Empty(t, renamed.Login, "renaming does not adopt it")
 
-	require.NoError(t, s.DeleteChat(ctx, thread.ID, "bob"))
+	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "bob", false), ErrNotFound)
+	require.NoError(t, s.DeleteChat(ctx, thread.ID, "local", true))
 	_, err = s.ChatBySourceKey(ctx, slackKey)
 	require.ErrorIs(t, err, ErrNotFound, "the key is free for the thread's next message to reopen")
-	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "bob"), ErrNotFound)
+	require.ErrorIs(t, s.DeleteChat(ctx, thread.ID, "local", true), ErrNotFound)
 }
 
 // The running flag follows the session that owns the conversation, whatever shape its key
@@ -738,22 +745,28 @@ func TestTheChatListReportsARunningTurnForAMirroredThread(t *testing.T) {
 	turn, err := s.CreateTurn(ctx, sess.ID, "C1/100.1/100.1", Backend{})
 	require.NoError(t, err)
 
-	chats, _, err := s.ListChats(ctx, "alice", 0, "")
+	chats, _, err := s.ListChats(ctx, "local", true, 0, "")
 	require.NoError(t, err)
+	var found bool
 	for _, c := range chats {
 		if c.ID == thread.ID {
+			found = true
 			assert.True(t, c.TurnRunning)
 		}
 	}
+	assert.True(t, found, "the dev token lists the mirrored thread")
 
 	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "done"))
-	chats, _, err = s.ListChats(ctx, "alice", 0, "")
+	chats, _, err = s.ListChats(ctx, "local", true, 0, "")
 	require.NoError(t, err)
+	found = false
 	for _, c := range chats {
 		if c.ID == thread.ID {
+			found = true
 			assert.False(t, c.TurnRunning)
 		}
 	}
+	assert.True(t, found)
 }
 
 // The assistant's turn ends the moment it has delegated; the work it delegated does not. The
@@ -774,7 +787,7 @@ func TestTheChatListReportsARunningDelegatedTask(t *testing.T) {
 	require.NoError(t, s.FinishTurn(ctx, turn.ID, TurnSucceeded, nil, nil, "started a task"))
 
 	listed := func() Chat {
-		chats, _, err := s.ListChats(ctx, "alice", 0, "")
+		chats, _, err := s.ListChats(ctx, "alice", false, 0, "")
 		require.NoError(t, err)
 		for _, c := range chats {
 			if c.ID == chat.ID {

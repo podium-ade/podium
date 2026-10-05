@@ -662,6 +662,10 @@ message Chat {
   // chrome — the title stays the first thing asked, so two threads in #support stay two
   // conversations.
   string channel = 15;
+  // login is the Podium identity that owns a web chat. Empty for a mirrored thread, which
+  // belongs to the workspace. The dev token sees every login; a signed-in user is shown
+  // only rows whose login is their own.
+  string login = 16;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id

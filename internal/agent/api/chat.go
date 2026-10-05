@@ -113,7 +113,7 @@ func (s *AgentService) RenameChat(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("rename chat: chat_id is required"))
 	}
-	row, err := s.store.RenameChat(ctx, req.Msg.GetChatId(), login, req.Msg.GetTitle())
+	row, err := s.store.RenameChat(ctx, req.Msg.GetChatId(), login, req.Msg.GetTitle(), SeesAll(ctx))
 	switch {
 	case errors.Is(err, store.ErrInvalidChatTitle):
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -124,7 +124,8 @@ func (s *AgentService) RenameChat(
 	return connect.NewResponse(&agentv1.RenameChatResponse{Chat: chatToProto(row)}), nil
 }
 
-// ListChats returns the caller's own chats, newest first.
+// ListChats returns chats newest first. A signed-in user gets their own web chats. The
+// dev token, which the proxy marks with X-Podium-Scope: all, gets every chat.
 func (s *AgentService) ListChats(
 	ctx context.Context, req *connect.Request[agentv1.ListChatsRequest],
 ) (*connect.Response[agentv1.ListChatsResponse], error) {
@@ -136,7 +137,7 @@ func (s *AgentService) ListChats(
 		return nil, err
 	}
 	page := req.Msg.GetPage()
-	rows, next, err := s.store.ListChats(ctx, login, int(page.GetLimit()), page.GetCursor())
+	rows, next, err := s.store.ListChats(ctx, login, SeesAll(ctx), int(page.GetLimit()), page.GetCursor())
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -172,16 +173,16 @@ func (s *AgentService) DeleteChat(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	// A chat with no login is a mirrored thread: it belongs to the workspace, and whoever can
-	// see it may remove the copy.
-	if row.Login != "" && row.Login != login {
+	// A web chat is its owner's. A mirrored thread has no login; only the dev token, which
+	// is who can see it, may remove the copy. Another person's web chat is not found.
+	if row.Login != login && (!SeesAll(ctx) || row.Login != "") {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	if err := s.stopRunningChatTask(ctx, chatID); err != nil {
 		return nil, err
 	}
 	s.stopChatTurnWork(ctx, chatID)
-	if err := s.store.DeleteChat(ctx, chatID, login); err != nil {
+	if err := s.store.DeleteChat(ctx, chatID, login, SeesAll(ctx) && row.Login == ""); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "a chat was deleted", "chat_id", chatID, "login", login)
@@ -430,7 +431,7 @@ func (s *AgentService) StreamChat(
 	if err != nil {
 		return storeError(err)
 	}
-	if !readableBy(row, login) {
+	if !readableBy(row, login, SeesAll(ctx)) {
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: chat %s", store.ErrNotFound, chatID))
 	}
 	// Who has spoken, for a conversation with more than one person in it. Loaded here and
@@ -553,16 +554,16 @@ func frameToProto(f chat.Frame) *agentv1.ChatFrame {
 	}
 }
 
-// readableBy reports whether login may READ this conversation. A web chat is its owner's
-// alone. A MIRRORED one is readable by every login: it belongs to the workspace rather than
-// to a Podium identity, which is the same reach the Sessions screen has always had over the
-// same conversations.
+// readableBy reports whether login may READ this conversation. A signed-in user reads a
+// web chat only when they own it. seeAll is the dev token, which reads every chat,
+// including mirrored threads and other people's web chats.
 //
-// Only reading. Sending, renaming and deleting all filter on `login = @login`, which a
-// mirrored chat's empty owner never matches, so all three refuse it without a line of their
-// own — the conversation is answered where it lives.
-func readableBy(c store.Chat, login string) bool {
-	return c.Login == login || c.Origin != store.OriginWeb
+// Sending still requires the owner. A mirrored thread is answered where it lives.
+func readableBy(c store.Chat, login string, seeAll bool) bool {
+	if seeAll {
+		return true
+	}
+	return c.Login != "" && c.Login == login
 }
 
 func chatToProto(c store.Chat) *agentv1.Chat {
@@ -578,6 +579,7 @@ func chatToProto(c store.Chat) *agentv1.Chat {
 		Effort:       c.Effort,
 		Origin:       c.Origin,
 		StartedBy:    c.StartedBy,
+		Login:        c.Login,
 		Participants: c.Participants,
 		Channel:      c.Channel,
 	}

@@ -1228,8 +1228,13 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	// open saw it land rather than finding it on the next reload.
 	require.Equal(t, msgs, watcher.rows(chat.ID), "what was written is what was announced")
 
-	// And it is in the list, for any login, because nobody owns it.
-	chats, _, err := st.ListChats(ctx, "whoever", 0, "")
+	// A named login does not list it. The dev token does: the thread belongs to the workspace.
+	owned, _, err := st.ListChats(ctx, "whoever", false, 0, "")
+	require.NoError(t, err)
+	for _, c := range owned {
+		assert.NotEqual(t, chat.ID, c.ID, "a signed-in login does not list a mirrored thread")
+	}
+	chats, _, err := st.ListChats(ctx, "local", true, 0, "")
 	require.NoError(t, err)
 	var found bool
 	for _, c := range chats {
@@ -1238,7 +1243,7 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 			assert.Equal(t, "alice", c.StartedBy)
 		}
 	}
-	assert.True(t, found, "a mirrored conversation belongs to the workspace, so every login lists it")
+	assert.True(t, found, "the dev token lists a mirrored conversation")
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)
