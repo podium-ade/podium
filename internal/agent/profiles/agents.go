@@ -30,9 +30,9 @@ const (
 	ProviderOpenAI    = "openai"
 )
 
-// The reasoning-effort levels. They are the Claude Agent SDK's own vocabulary, which xAI's
-// reasoning_effort shares for its first four; `max` is Anthropic-only and the catalogue
-// below is what says so per model.
+// The reasoning-effort levels. They are the Claude Agent SDK's own vocabulary. xAI's
+// reasoning_effort shares the first four and has no `max`. The current Claude and GPT-6
+// models take `max`. The catalogue below is what says so per model.
 const (
 	EffortLow    = "low"
 	EffortMedium = "medium"
@@ -41,8 +41,8 @@ const (
 	EffortMax    = "max"
 )
 
-// anthropicEfforts is every level the Claude models here accept.
-var anthropicEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
+// fullEfforts is every level the current Claude and GPT-6 models accept.
+var fullEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
 
 // grokEfforts stops at xhigh: xAI's reasoning_effort has no `max`.
 var grokEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
@@ -50,9 +50,6 @@ var grokEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
 // grokEffortsNoXHigh is for the Grok models that document xhigh as a synonym for high.
 // Offering a level that silently means another one is worse than not offering it.
 var grokEffortsNoXHigh = []string{EffortLow, EffortMedium, EffortHigh}
-
-// openaiEfforts matches Grok: OpenAI's reasoning_effort has no `max`.
-var openaiEfforts = grokEfforts
 
 // Model is one model a backend can be pointed at.
 type Model struct {
@@ -87,32 +84,37 @@ var Backends = []Backend{{
 	DisplayName:  "Claude",
 	Provider:     ProviderAnthropic,
 	Note:         "The Claude Agent SDK against Anthropic's API.",
-	DefaultModel: "claude-opus-5",
+	DefaultModel: "claude-opus-5-5",
 	Models: []Model{
 		{
-			ID: "claude-opus-5", DisplayName: "Claude Opus 5",
-			Note: "The default. Best on long agentic work.", ContextTokens: 1_000_000,
-			Efforts: anthropicEfforts,
+			ID: "claude-opus-5-5", DisplayName: "Claude Opus 5.5",
+			Note: "The default. For long-running agentic coding and knowledge work.", ContextTokens: 1_000_000,
+			Efforts: fullEfforts,
 		},
 		{
-			ID: "claude-sonnet-5", DisplayName: "Claude Sonnet 5",
-			Note:          "Cheaper, still strong. A good default for high-volume playbooks.",
-			ContextTokens: 1_000_000, Efforts: anthropicEfforts,
+			ID: "claude-sonnet-5-5", DisplayName: "Claude Sonnet 5.5",
+			Note:          "The best combination of speed and intelligence.",
+			ContextTokens: 1_000_000, Efforts: fullEfforts,
 		},
 		{
 			ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5",
-			Note:          "Fastest and cheapest. For narrow, well-specified playbooks.",
-			ContextTokens: 200_000, Efforts: anthropicEfforts,
+			Note:          "Fastest and cheapest. Takes no effort setting.",
+			ContextTokens: 200_000,
 		},
 		{
-			ID: "claude-opus-4-8", DisplayName: "Claude Opus 4.8",
-			Note:          "The previous Opus. Pin it when a playbook is tuned to it.",
-			ContextTokens: 1_000_000, Efforts: anthropicEfforts,
+			ID: "claude-opus-5", DisplayName: "Claude Opus 5",
+			Note:          "The previous pin. Pin it when a playbook is tuned to it.",
+			ContextTokens: 1_000_000, Efforts: fullEfforts,
+		},
+		{
+			ID: "claude-sonnet-5", DisplayName: "Claude Sonnet 5",
+			Note:          "The previous Sonnet.",
+			ContextTokens: 1_000_000, Efforts: fullEfforts,
 		},
 		{
 			ID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1",
 			Note:          "The most capable model, and the most expensive.",
-			ContextTokens: 1_000_000, Efforts: anthropicEfforts,
+			ContextTokens: 1_000_000, Efforts: fullEfforts,
 		},
 	},
 }, {
@@ -120,11 +122,16 @@ var Backends = []Backend{{
 	DisplayName:  "Grok",
 	Provider:     ProviderXAI,
 	Note:         "The same harness, pointed at xAI's Anthropic-compatible endpoint.",
-	DefaultModel: "grok-4.6",
+	DefaultModel: "grok-4.7",
 	Models: []Model{
 		{
+			ID: "grok-4.7", DisplayName: "Grok 4.7",
+			Note: "The default. Flagship for code and agentic work.", ContextTokens: 500_000,
+			Efforts: grokEfforts,
+		},
+		{
 			ID: "grok-4.6", DisplayName: "Grok 4.6",
-			Note: "The default. The only Grok that takes xhigh.", ContextTokens: 500_000,
+			Note: "The previous flagship. Takes the same effort levels, including xhigh.", ContextTokens: 500_000,
 			Efforts: grokEfforts,
 		},
 		{
@@ -148,27 +155,22 @@ var Backends = []Backend{{
 	DisplayName:  "OpenAI",
 	Provider:     ProviderOpenAI,
 	Note:         "The same harness, pointed at OpenAI's API — or at ChatGPT's Codex backend after a subscription sign-in.",
-	DefaultModel: "gpt-5.4",
+	DefaultModel: "gpt-6.1-sol",
 	Models: []Model{
 		{
-			ID: "gpt-5.4", DisplayName: "GPT-5.4",
-			Note: "The default. Strong on long agentic work.", ContextTokens: 400_000,
-			Efforts: openaiEfforts,
+			ID: "gpt-6.1-sol", DisplayName: "GPT-6.1 Sol",
+			Note: "The default. Near-Astra performance for complex work, at a lower cost.", ContextTokens: 1_050_000,
+			Efforts: fullEfforts,
 		},
 		{
-			ID: "gpt-5.5", DisplayName: "GPT-5.5",
-			Note:          "The newer flagship.",
-			ContextTokens: 400_000, Efforts: openaiEfforts,
+			ID: "gpt-6-luna", DisplayName: "GPT-6 Luna",
+			Note:          "Fastest and cheapest. For focused, high-volume tasks.",
+			ContextTokens: 1_050_000, Efforts: fullEfforts,
 		},
 		{
-			ID: "gpt-5.4-mini", DisplayName: "GPT-5.4 Mini",
-			Note:          "Cheaper and faster. A good default for high-volume playbooks.",
-			ContextTokens: 400_000, Efforts: openaiEfforts,
-		},
-		{
-			ID: "gpt-5.3-codex", DisplayName: "GPT-5.3 Codex",
-			Note:          "OpenAI's coding model. The one a ChatGPT subscription spends.",
-			ContextTokens: 400_000, Efforts: openaiEfforts,
+			ID: "gpt-6-astra", DisplayName: "GPT-6 Astra",
+			Note:          "The most capable model, and the most expensive.",
+			ContextTokens: 1_050_000, Efforts: fullEfforts,
 		},
 	},
 }}
@@ -247,7 +249,7 @@ func AgentNames() []string {
 }
 
 // Efforts is every level any model here accepts, weakest first.
-var Efforts = anthropicEfforts
+var Efforts = fullEfforts
 
 // Choice is what a turn actually runs on. Every field is resolved: Agent and Model are
 // never empty, and Effort is empty only when nothing anywhere named one, which means the

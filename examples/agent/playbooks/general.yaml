@@ -20,7 +20,7 @@ allowed_tools: [read, grep, glob, webfetch, bash]
 max_turns: 50
 timeout: 15m
 # agent: grok
-# model: grok-4.6
+# model: grok-4.7
 # effort: high
 # The Agent Skills a turn of this playbook may use, by name, out of the conductor's skill
 # library: the Skills screen in the web UI, plus PODIUM_AGENT_SKILLS_DIR on its host, which
