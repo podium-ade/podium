@@ -4,6 +4,7 @@
 // control.
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type { RepoRef } from "./brief.js";
@@ -116,7 +117,55 @@ export function repoCommands(
   return out;
 }
 
-/** cloneRepos checks every repo in the brief out under /workspace. */
+/**
+ * resumeCommands updates a checkout that is already on disk. A restored snapshot has a
+ * .git, and cloning again would wipe it. The token stays in the credential helper.
+ * Fast-forward is a separate command, and only when HEAD is the default branch: a turn
+ * that left a feature branch checked out keeps that branch.
+ */
+export function resumeCommands(
+  repo: RepoRef,
+  tokenAvailable: boolean,
+  root = WorkspaceDir,
+  git: GitPersona = FallbackPersona,
+  helper = "",
+): string[][] {
+  const dest = join(root, repo.name);
+  const fetch = ["-C", dest, "fetch", "--depth", String(CloneDepth), "origin", repo.default_branch];
+  const credential = helper !== "" ? helper : tokenAvailable ? CredentialHelper : "";
+  const out: string[][] = [
+    credential !== "" ? ["-c", `credential.helper=${credential}`, ...fetch] : fetch,
+    ["-C", dest, "config", "user.name", git.name],
+    ["-C", dest, "config", "user.email", git.email],
+  ];
+  if (credential !== "") {
+    out.push(["-C", dest, "config", "credential.helper", credential]);
+  }
+  return out;
+}
+
+/** fastForwardCommand moves the default branch up to what fetch just stored. */
+export function fastForwardCommand(repo: RepoRef, root = WorkspaceDir): string[] {
+  return ["-C", join(root, repo.name), "merge", "--ff-only", `origin/${repo.default_branch}`];
+}
+
+/** checkoutAt reports whether dest is already a git checkout, and which branch HEAD is. */
+function checkoutAt(dest: string): { present: boolean; branch: string } {
+  if (!existsSync(join(dest, ".git"))) {
+    return { present: false, branch: "" };
+  }
+  try {
+    const branch = execFileSync("git", ["-C", dest, "rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return { present: true, branch };
+  } catch {
+    return { present: true, branch: "" };
+  }
+}
+
+/** cloneRepos checks every repo in the brief out under /workspace, or fetches one that is already there. */
 export function cloneRepos(
   repos: RepoRef[],
   opts: {
@@ -131,14 +180,19 @@ export function cloneRepos(
   const token = opts.token;
   const has = token !== undefined && token !== "";
   const run = opts.run ?? gitRun(token);
+  const root = opts.root ?? WorkspaceDir;
+  const git = opts.git ?? FallbackPersona;
+  const helper = opts.helper ?? "";
   for (const repo of repos) {
-    for (const argv of repoCommands(
-      repo,
-      has,
-      opts.root ?? WorkspaceDir,
-      opts.git ?? FallbackPersona,
-      opts.helper ?? "",
-    )) {
+    const dest = join(root, repo.name);
+    const checkout = checkoutAt(dest);
+    const commands = checkout.present
+      ? resumeCommands(repo, has, root, git, helper)
+      : repoCommands(repo, has, root, git, helper);
+    if (checkout.present && checkout.branch === repo.default_branch) {
+      commands.push(fastForwardCommand(repo, root));
+    }
+    for (const argv of commands) {
       run(argv);
     }
   }
