@@ -35,6 +35,9 @@ const (
 	RoleTask = "task"
 	// RoleSidecar marks a sibling container the task talks to by name.
 	RoleSidecar = "sidecar"
+	// RoleWorkspace marks the short-lived container used to tar the workspace volume.
+	// It is created, never started, and removed before the task reports that it exited.
+	RoleWorkspace = "workspace"
 )
 
 // Options configures [New].
@@ -49,6 +52,9 @@ type Options struct {
 	// default: it hands that container root on the node's kernel, which is a decision
 	// about the machine and never a spec author's to make. See internal/node.Config.
 	AllowPrivilegedSidecars bool
+	// Runtime is the Docker runtime for the task container only. Empty uses the engine
+	// default. Sidecars and the workspace copy helper are never switched.
+	Runtime string
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -77,7 +83,9 @@ type Executor struct {
 	// A spec that asks for a privileged sidecar on a node where this is false fails at
 	// provisioning rather than quietly running unprivileged.
 	allowPrivilegedSidecars bool
-	log                     *slog.Logger
+	// runtime is Options.Runtime. Empty leaves HostConfig.Runtime unset.
+	runtime string
+	log     *slog.Logger
 
 	mu   sync.Mutex
 	runs map[string]*runState
@@ -149,6 +157,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 	logger.Info("docker executor ready",
 		"readiness_probe", probeStyle(canDialTaskNetworks(runtime.GOOS, info.OSType)),
 		"allow_privileged_sidecars", opts.AllowPrivilegedSidecars,
+		"runtime", opts.Runtime,
 		"api_version", cli.ClientVersion(),
 		"server_version", info.ServerVersion,
 		"cgroup_version", info.CgroupVersion,
@@ -167,6 +176,7 @@ func New(ctx context.Context, opts Options) (*Executor, error) {
 		directDial:              canDialTaskNetworks(runtime.GOOS, info.OSType),
 		images:                  NewImageCache(opts.DataDir),
 		allowPrivilegedSidecars: opts.AllowPrivilegedSidecars,
+		runtime:                 opts.Runtime,
 		log:                     logger,
 		runs:                    make(map[string]*runState),
 	}, nil

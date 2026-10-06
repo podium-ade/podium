@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,8 +13,10 @@ import {
   GitUserEmail,
   TokenEnv,
   cloneRepos,
+  fastForwardCommand,
   redact,
   repoCommands,
+  resumeCommands,
 } from "./repos.js";
 
 const token = "ghp_ThisIsNotARealToken0000000000000000";
@@ -105,7 +107,40 @@ describe("repoCommands with a minting helper", () => {
   });
 });
 
+describe("resumeCommands", () => {
+  it("fetches the default branch instead of cloning", () => {
+    expect(resumeCommands(repo, false)).toEqual([
+      ["-C", "/workspace/podium", "fetch", "--depth", "50", "origin", "main"],
+      ["-C", "/workspace/podium", "config", "user.name", "podium-agent"],
+      ["-C", "/workspace/podium", "config", "user.email", GitUserEmail],
+    ]);
+    expect(fastForwardCommand(repo)).toEqual([
+      "-C",
+      "/workspace/podium",
+      "merge",
+      "--ff-only",
+      "origin/main",
+    ]);
+  });
+
+  it("keeps the token out of the fetch argv", () => {
+    const flat = resumeCommands(repo, true).flat().join(" ");
+    expect(flat).not.toContain(token);
+    expect(flat).toContain("fetch");
+    expect(flat).toContain("$GITHUB_TOKEN");
+  });
+});
+
 describe("cloneRepos", () => {
+  it("fetches when the checkout is already there", () => {
+    const root = mkdtempSync(join(tmpdir(), "podium-workspace-"));
+    mkdirSync(join(root, "podium", ".git"), { recursive: true });
+    const seen: string[][] = [];
+    cloneRepos([repo], { root, run: (argv) => seen.push(argv) });
+    expect(seen[0]).toEqual(["-C", join(root, "podium"), "fetch", "--depth", "50", "origin", "main"]);
+    expect(seen.flat()).not.toContain("clone");
+  });
+
   it("runs every command for every repo, in order", () => {
     const seen: string[][] = [];
     cloneRepos([repo, { ...repo, name: "second" }], { run: (argv) => seen.push(argv) });
@@ -184,6 +219,55 @@ describe("cloneRepos against a real git", () => {
     const config = readFileSync(join(root, "podium", ".git", "config"), "utf8");
     expect(config).not.toContain("credential.helper");
     expect(config).not.toContain("helper");
+  });
+
+  it("fetches and keeps a file the snapshot added", () => {
+    const url = origin();
+    const root = mkdtempSync(join(tmpdir(), "podium-workspace-"));
+    const spec = { name: "podium", url, default_branch: "main" };
+    cloneRepos([spec], { root });
+    writeFileSync(join(root, "podium", "notes.txt"), "kept\n", "utf8");
+
+    const git = (...argv: string[]): void => {
+      execFileSync("git", ["-C", url, ...argv], { stdio: "ignore" });
+    };
+    writeFileSync(join(url, "README.md"), "second\n", "utf8");
+    git("add", "README.md");
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-m", "second");
+
+    cloneRepos([spec], { root });
+    expect(readFileSync(join(root, "podium", "README.md"), "utf8")).toBe("second\n");
+    expect(readFileSync(join(root, "podium", "notes.txt"), "utf8")).toBe("kept\n");
+  });
+
+  it("does not move a feature branch onto the default branch", () => {
+    const url = origin();
+    const root = mkdtempSync(join(tmpdir(), "podium-workspace-"));
+    const spec = { name: "podium", url, default_branch: "main" };
+    cloneRepos([spec], { root });
+    const dest = join(root, "podium");
+    execFileSync("git", ["-C", dest, "checkout", "-b", "feature"], { stdio: "ignore" });
+    writeFileSync(join(dest, "feature.txt"), "local\n", "utf8");
+    execFileSync("git", ["-C", dest, "add", "feature.txt"], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      ["-C", dest, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-m", "feature"],
+      { stdio: "ignore" },
+    );
+
+    writeFileSync(join(url, "README.md"), "moved\n", "utf8");
+    execFileSync("git", ["-C", url, "add", "README.md"], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      ["-C", url, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-m", "moved"],
+      { stdio: "ignore" },
+    );
+
+    cloneRepos([spec], { root });
+    const head = execFileSync("git", ["-C", dest, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" });
+    expect(head.trim()).toBe("feature");
+    expect(readFileSync(join(dest, "feature.txt"), "utf8")).toBe("local\n");
+    expect(readFileSync(join(dest, "README.md"), "utf8")).toBe("hello\n");
   });
 
   it("fails with git's own message, redacted, when the branch is not there", () => {
