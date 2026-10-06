@@ -218,6 +218,12 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			// wrote is closed after the first frame is flushed, so the reader below cannot
 			// be racing the handler's first write.
 			wrote := make(chan struct{})
+			// tookRest lets the handler finish. Reading the second frame has to happen
+			// before that: once the handler returns, the upstream server closes the
+			// connection, and on a busy runner the proxy's copy observes that close
+			// ("use of closed network connection") and aborts the client body with
+			// unexpected EOF. The bytes are what this test is proving.
+			tookRest := make(chan struct{})
 			frames := []string{"first\n", "second\n"}
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/connect+json")
@@ -231,8 +237,10 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 				<-release
 				_, _ = w.Write([]byte(frames[1]))
 				w.(http.Flusher).Flush()
+				<-tookRest
 			}))
 			defer upstream.Close()
+			defer close(tookRest)
 
 			proxy, err := NewAgentProxy(upstream.URL, agentToken, nil)
 			require.NoError(t, err)
@@ -265,10 +273,22 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			}
 			assert.Equal(t, frames[0], string(first))
 
-			// And the rest arrives once the upstream carries on.
+			// And the rest arrives once the upstream carries on, still before the handler
+			// returns. Same reason as the first read: a buffered proxy would not have
+			// these bytes yet, and waiting for the handler to finish races the close.
 			close(release)
-			rest, err := io.ReadAll(res.Body)
-			require.NoError(t, err)
+			rest := make([]byte, len(frames[1]))
+			gotRest := make(chan error, 1)
+			go func() {
+				_, err := io.ReadFull(res.Body, rest)
+				gotRest <- err
+			}()
+			select {
+			case err := <-gotRest:
+				require.NoError(t, err)
+			case <-time.After(10 * time.Second):
+				t.Fatal("the rest of the stream did not arrive through the proxy")
+			}
 			assert.Equal(t, frames[1], string(rest))
 		})
 	}
