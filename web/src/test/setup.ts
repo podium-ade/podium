@@ -1,8 +1,13 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 afterEach(cleanup);
+
+// findBy* and waitFor give up after 1s by default. A step that is a mocked RPC, a query
+// refetch and a navigation fits that on a laptop and not on a loaded CI runner, where
+// ChatPanel's "leaves the conversation when the open chat is deleted" failed for it.
+configure({ asyncUtilTimeout: 5000 });
 
 if (!("DOMRect" in globalThis)) {
   globalThis.DOMRect = class {
