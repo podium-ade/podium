@@ -23,6 +23,15 @@ var ErrMissing = errors.New("secrets: missing secret")
 // matching.
 var ErrInvalidSecret = errors.New("secrets: invalid secret")
 
+// ErrForbidden marks a caller who may not write or attach this secret.
+var ErrForbidden = errors.New("secrets: forbidden")
+
+// ErrNameTaken marks a name that already exists in the other scope.
+var ErrNameTaken = errors.New("secrets: name exists in the other scope")
+
+// ErrReservedName marks a personal secret that tried to take podium.agent.*.
+var ErrReservedName = errors.New("secrets: reserved global name")
+
 // Provider is where a value comes from. Only the builtin, Postgres-backed provider exists;
 // Vault, 1Password and cloud KMS would be further implementations of this interface and are
 // deliberately out of scope.
@@ -72,16 +81,32 @@ func (s *Service) KeyID() string {
 	return s.key.ID()
 }
 
-// Set stores a value under name, encrypted under the master key. The plaintext is zeroed
-// before Set returns, so the caller must not reuse the slice.
+// Set stores a global secret. The plaintext is zeroed before Set returns, so the caller
+// must not reuse the slice. The associated data is the name alone, so a row written before
+// scopes existed still decrypts.
 func (s *Service) Set(ctx context.Context, actor, name string, value []byte) (store.Secret, error) {
+	return s.SetScoped(ctx, actor, store.SecretScopeGlobal, "", name, value)
+}
+
+// SetScoped stores a global or personal secret. owner is empty for a global secret and the
+// owning login for a personal one. The plaintext is zeroed before SetScoped returns.
+func (s *Service) SetScoped(ctx context.Context, actor, scope, owner, name string, value []byte) (store.Secret, error) {
 	defer Zero(value)
 	if !s.Enabled() {
 		return store.Secret{}, ErrNoKey
 	}
+	if scope == "" {
+		scope = store.SecretScopeGlobal
+	}
+	if scope == store.SecretScopeGlobal {
+		owner = ""
+	}
 	if !spec.SecretNameRE.MatchString(name) {
 		return store.Secret{}, fmt.Errorf("%w: %q is not a valid secret name (%s)",
 			ErrInvalidSecret, name, spec.SecretNameRE.String())
+	}
+	if scope == store.SecretScopePersonal && (strings.HasPrefix(name, store.ReservedSecretPrefix) || name == "podium.agent") {
+		return store.Secret{}, fmt.Errorf("%w: %q", ErrReservedName, name)
 	}
 	if len(value) == 0 {
 		return store.Secret{}, fmt.Errorf("%w: %s has an empty value", ErrInvalidSecret, name)
@@ -91,22 +116,40 @@ func (s *Service) Set(ctx context.Context, actor, name string, value []byte) (st
 		return store.Secret{}, err
 	}
 	row, err := s.store.UpsertSecret(ctx, store.Secret{
+		Scope: scope, Owner: owner,
 		Name: name, Ciphertext: ciphertext, Nonce: nonce, KeyID: s.key.ID(), CreatedBy: actor,
 	})
 	if err != nil {
+		if errors.Is(err, store.ErrSecretNameTaken) {
+			return store.Secret{}, fmt.Errorf("%w: %s", ErrNameTaken, name)
+		}
+		if errors.Is(err, store.ErrReservedSecretName) {
+			return store.Secret{}, fmt.Errorf("%w: %s", ErrReservedName, name)
+		}
 		return store.Secret{}, err
 	}
 	s.audit(ctx, actor, store.ActionSecretSet, name, map[string]any{
 		"version": row.Version, "key_id": row.KeyID, "bytes": len(value),
+		"scope": row.Scope, "owner": row.Owner,
 	})
-	s.logger.InfoContext(ctx, "secret set", "name", name, "version", row.Version, "actor", actor)
+	s.logger.InfoContext(ctx, "secret set", "name", name, "scope", row.Scope, "owner", row.Owner,
+		"version", row.Version, "actor", actor)
 	return row, nil
 }
 
-// List returns metadata for every secret. Ciphertext is stripped: nothing outside this
-// package has any use for it.
+// List returns metadata for every secret, every owner included. Ciphertext is stripped.
+// The operator API uses ListVisible: this one is for rotation and the startup warning.
 func (s *Service) List(ctx context.Context) ([]store.Secret, error) {
-	rows, err := s.store.ListSecrets(ctx)
+	return stripSecrets(s.store.ListSecrets(ctx))
+}
+
+// ListVisible returns every global name plus one login's personal names. An empty owner
+// returns globals only. Another login's personal rows are not included. Ciphertext is stripped.
+func (s *Service) ListVisible(ctx context.Context, owner string) ([]store.Secret, error) {
+	return stripSecrets(s.store.ListVisibleSecrets(ctx, owner))
+}
+
+func stripSecrets(rows []store.Secret, err error) ([]store.Secret, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -117,14 +160,22 @@ func (s *Service) List(ctx context.Context) ([]store.Secret, error) {
 	return rows, nil
 }
 
-// Delete removes a secret. Tasks already assigned keep the copy in their Assign; the next
-// task that references the name fails to resolve.
+// Delete removes a global secret. Tasks already assigned keep the copy in their Assign;
+// the next task that references the name fails to resolve.
 func (s *Service) Delete(ctx context.Context, actor, name string) error {
-	if err := s.store.DeleteSecret(ctx, name); err != nil {
+	return s.DeleteScoped(ctx, actor, store.SecretScopeGlobal, "", name)
+}
+
+// DeleteScoped removes one secret.
+func (s *Service) DeleteScoped(ctx context.Context, actor, scope, owner, name string) error {
+	if scope == "" {
+		scope = store.SecretScopeGlobal
+	}
+	if err := s.store.DeleteScopedSecret(ctx, scope, owner, name); err != nil {
 		return err
 	}
-	s.audit(ctx, actor, store.ActionSecretDelete, name, nil)
-	s.logger.InfoContext(ctx, "secret deleted", "name", name, "actor", actor)
+	s.audit(ctx, actor, store.ActionSecretDelete, name, map[string]any{"scope": scope, "owner": owner})
+	s.logger.InfoContext(ctx, "secret deleted", "name", name, "scope", scope, "owner", owner, "actor", actor)
 	return nil
 }
 
@@ -142,21 +193,23 @@ func (s *Service) Resolve(ctx context.Context, taskID string, refs []spec.Secret
 		return nil, fmt.Errorf("%w: task %s references %d secret(s)", ErrNoKey, taskID, len(refs))
 	}
 
-	names := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		names = append(names, ref.Name)
-	}
-	rows, err := s.store.GetSecrets(ctx, names)
+	keys := secretKeys(refs)
+	rows, err := s.store.GetScopedSecrets(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
 
+	names := make([]string, 0, len(refs))
 	out := make([]Resolved, 0, len(refs))
 	for _, ref := range refs {
-		row, ok := rows[ref.Name]
+		names = append(names, ref.Name)
+		key := secretKey(ref)
+		row, ok := rows[key]
 		if !ok {
 			return nil, fmt.Errorf("%w %q", ErrMissing, ref.Name)
 		}
+		// Associated data is the name, matching Set. A global row written before scopes
+		// existed decrypts the same way.
 		value, err := s.key.Decrypt(row.Name, row.Ciphertext, row.Nonce)
 		if err != nil {
 			return nil, fmt.Errorf("secret %s (stored under key %s, server holds %s): %w",
@@ -185,20 +238,22 @@ func (s *Service) CheckRefs(ctx context.Context, refs []spec.SecretRef) error {
 	if !s.Enabled() {
 		return fmt.Errorf("%w: this task references %d secret(s)", ErrNoKey, len(refs))
 	}
-	names := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		names = append(names, ref.Name)
-	}
-	rows, err := s.store.GetSecrets(ctx, names)
+	rows, err := s.store.GetScopedSecrets(ctx, secretKeys(refs))
 	if err != nil {
 		return err
 	}
 	var missing []string
-	for _, name := range sortedUnique(names) {
-		if _, ok := rows[name]; !ok {
-			missing = append(missing, strconv.Quote(name))
+	seen := map[string]struct{}{}
+	for _, ref := range refs {
+		if _, ok := seen[ref.Name+"\x00"+ref.Owner]; ok {
+			continue
+		}
+		seen[ref.Name+"\x00"+ref.Owner] = struct{}{}
+		if _, ok := rows[secretKey(ref)]; !ok {
+			missing = append(missing, strconv.Quote(ref.Name))
 		}
 	}
+	sort.Strings(missing)
 	if len(missing) > 0 {
 		return fmt.Errorf("%w %s", ErrMissing, strings.Join(missing, ", "))
 	}
@@ -271,6 +326,21 @@ type builtin struct{ svc *Service }
 
 // Builtin returns the store-backed Provider for this service.
 func (s *Service) Builtin() Provider { return builtin{s} }
+
+func secretKey(ref spec.SecretRef) store.SecretKey {
+	if ref.Owner == "" {
+		return store.SecretKey{Scope: store.SecretScopeGlobal, Name: ref.Name}
+	}
+	return store.SecretKey{Scope: store.SecretScopePersonal, Owner: ref.Owner, Name: ref.Name}
+}
+
+func secretKeys(refs []spec.SecretRef) []store.SecretKey {
+	out := make([]store.SecretKey, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, secretKey(ref))
+	}
+	return out
+}
 
 func (b builtin) Resolve(ctx context.Context, name string) ([]byte, error) {
 	if !b.svc.Enabled() {

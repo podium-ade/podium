@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, KeyRound, Plus, RotateCw, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Copy, Plus, RotateCw, Trash2, TriangleAlert } from "lucide-react";
 import { Badge, Chip } from "../components/Badge";
-import { Empty } from "../components/Empty";
 import { PageFrame } from "../components/PageHeader";
 import { DeleteSecretDialog } from "../components/secrets/DeleteSecretDialog";
 import { SecretDialog } from "../components/secrets/SecretDialog";
@@ -10,6 +9,7 @@ import { TableSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Alert } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -19,7 +19,8 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { Tooltip } from "../components/ui/tooltip";
-import type { Secret } from "../gen/podium/v1/secret_pb";
+import { IdentityKind } from "../gen/podium/v1/identity_pb";
+import { SecretScope, type Secret } from "../gen/podium/v1/secret_pb";
 import { Code, connectCode, errorMessage, secrets } from "../lib/client";
 import { absolute, relative, toDate } from "../lib/format";
 import { useViewer } from "../lib/identity";
@@ -41,9 +42,11 @@ const STALE_DAYS = 90;
 export function SecretsPage() {
   const viewer = useViewer();
   const manage = canManageInfra(viewer);
+  const personal = viewer?.kind === IdentityKind.USER;
   const toast = useToast();
-  const [setting, setSetting] = useState<{ lockedName?: string }>();
+  const [setting, setSetting] = useState<{ lockedName?: string; scope: SecretScope }>();
   const [deleting, setDeleting] = useState<Secret>();
+  const [tab, setTab] = useState<"global" | "yours">("global");
 
   const query = useQuery({
     queryKey: ["secrets"],
@@ -61,6 +64,12 @@ export function SecretsPage() {
   // own, and dimming everything up to the last dot makes those runs visible without spending a
   // header row on each one — most namespaces here hold a single secret.
   const sorted = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
+  const globalRows = sorted.filter((s) => s.scope !== SecretScope.PERSONAL);
+  const yours = sorted.filter((s) => s.scope === SecretScope.PERSONAL);
+  const showYours = personal || yours.length > 0;
+  const creatingPersonal = showYours && tab === "yours";
+  const canCreate = creatingPersonal ? personal : manage;
+  const createScope = creatingPersonal ? SecretScope.PERSONAL : SecretScope.GLOBAL;
 
   // A key_id that differs from the rest means a master-key rotation stopped half way: those
   // rows are still readable with the old key and nothing else is.
@@ -74,14 +83,145 @@ export function SecretsPage() {
   const noMasterKey = connectCode(query.error) === Code.FailedPrecondition;
   const listFailed = query.error !== null && !noMasterKey;
 
+  const tableFor = (
+    list: Secret[],
+    empty: { title: string; info: string; scope: SecretScope; canCreate: boolean },
+  ) => (
+    <Table className="table-fixed">
+      <colgroup>
+        <col className="w-[32%]" />
+        <col className="w-[8%]" />
+        <col className="w-[16%]" />
+        <col className="w-[16%]" />
+        <col className="w-[12%]" />
+        <col className="w-[16%]" />
+      </colgroup>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead>Name</TableHead>
+          <TableHead>Version</TableHead>
+          <TableHead>Last set</TableHead>
+          <TableHead>Set by</TableHead>
+          <TableHead>Key</TableHead>
+          <TableHead />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {list.length === 0 ? (
+          <TableRow className="hover:bg-transparent">
+            <TableCell colSpan={6} className="px-6 py-16">
+              <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
+                <p className="text-sm font-medium text-fg">{empty.title}</p>
+                {empty.info ? <p className="text-xs leading-relaxed text-muted">{empty.info}</p> : null}
+                {empty.canCreate ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setSetting({ scope: empty.scope })}
+                    disabled={noMasterKey}
+                  >
+                    <Plus />
+                    New secret
+                  </Button>
+                ) : null}
+              </div>
+            </TableCell>
+          </TableRow>
+        ) : null}
+        {list.map((s) => {
+          const cut = s.name.lastIndexOf(".");
+          const stale = ageDays(s) >= STALE_DAYS;
+          const writable =
+            s.scope === SecretScope.PERSONAL ? personal : manage;
+          return (
+            <TableRow key={s.name}>
+              <TableCell className="overflow-hidden">
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate font-mono text-xs" title={s.name}>
+                    {cut > 0 ? (
+                      <span className="text-faint">{s.name.slice(0, cut + 1)}</span>
+                    ) : null}
+                    <span className="text-fg">{cut > 0 ? s.name.slice(cut + 1) : s.name}</span>
+                  </span>
+                  <CopyName name={s.name} />
+                </div>
+              </TableCell>
+              <TableCell className="text-xs whitespace-nowrap">
+                <span className="text-faint">v</span>
+                <span className="tabular text-fg">{s.version}</span>
+              </TableCell>
+              <TableCell className="text-xs whitespace-nowrap" title={absolute(s.updatedAt)}>
+                {stale ? (
+                  <Tooltip label="Not rotated in over 90 days. Anyone who has held a copy since then still holds a working one.">
+                    <span className="inline-flex items-center gap-1 text-warn">
+                      <TriangleAlert className="size-3.5" />
+                      {relative(s.updatedAt)}
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <span className="text-muted">{relative(s.updatedAt)}</span>
+                )}
+              </TableCell>
+              <TableCell className="overflow-hidden text-xs text-muted">
+                <span className="block truncate">{s.createdBy || "-"}</span>
+              </TableCell>
+              <TableCell className="overflow-hidden text-xs">
+                {mixedKeys && s.keyId !== commonKey ? (
+                  <Badge tone="warn" dot={false} className="font-mono">
+                    {s.keyId || "-"}
+                  </Badge>
+                ) : (
+                  <Chip className="font-mono">{s.keyId || "-"}</Chip>
+                )}
+              </TableCell>
+              <TableCell className="overflow-hidden">
+                {writable ? (
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      aria-label={`Rotate ${s.name}`}
+                      onClick={() =>
+                        setSetting({
+                          lockedName: s.name,
+                          scope:
+                            s.scope === SecretScope.PERSONAL
+                              ? SecretScope.PERSONAL
+                              : SecretScope.GLOBAL,
+                        })
+                      }
+                    >
+                      <RotateCw />
+                      Rotate
+                    </Button>
+                    <Tooltip label={`Delete ${s.name}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Delete ${s.name}`}
+                        onClick={() => setDeleting(s)}
+                        className="hover:bg-err/10 hover:text-err"
+                      >
+                        <Trash2 />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                ) : null}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+
   return (
     <PageFrame
         title="Secrets"
         actions={
-          manage ? (
+          canCreate ? (
             // Without a master key SetSecret refuses too, so the action is offered but inert
             // rather than failing after the operator has typed a value into it.
-            <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+            <Button size="sm" onClick={() => setSetting({ scope: createScope })} disabled={noMasterKey}>
               <Plus />
               New secret
             </Button>
@@ -133,109 +273,50 @@ export function SecretsPage() {
           them is "there is nothing here" — the alert above is the whole answer to the other. */}
       {query.isPending ? (
         <TableSkeleton cols={6} />
-      ) : rows.length === 0 ? (
-        query.error ? null : (
-          <Empty
-            icon={KeyRound}
-            title="No secrets yet"
-            hint="A task that names a secret Podium does not hold is refused at admission, so anything your specs or the agent reference has to be set here first."
-            action={
-              manage ? (
-                <Button size="sm" onClick={() => setSetting({})}>
-                  <Plus />
-                  New secret
-                </Button>
-              ) : undefined
-            }
-          />
-        )
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Last set</TableHead>
-              <TableHead>Set by</TableHead>
-              <TableHead>Key</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((s) => {
-              const cut = s.name.lastIndexOf(".");
-              const stale = ageDays(s) >= STALE_DAYS;
-              return (
-                <TableRow key={s.name}>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <span className="truncate font-mono text-xs" title={s.name}>
-                        {cut > 0 ? (
-                          <span className="text-faint">{s.name.slice(0, cut + 1)}</span>
-                        ) : null}
-                        <span className="text-fg">{cut > 0 ? s.name.slice(cut + 1) : s.name}</span>
-                      </span>
-                      <CopyName name={s.name} />
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">
-                    <span className="text-faint">v</span>
-                    <span className="tabular text-fg">{s.version}</span>
-                  </TableCell>
-                  <TableCell className="text-xs whitespace-nowrap" title={absolute(s.updatedAt)}>
-                    {stale ? (
-                      <Tooltip label="Not rotated in over 90 days. Anyone who has held a copy since then still holds a working one.">
-                        <span className="inline-flex items-center gap-1 text-warn">
-                          <TriangleAlert className="size-3.5" />
-                          {relative(s.updatedAt)}
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      <span className="text-muted">{relative(s.updatedAt)}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted">{s.createdBy || "-"}</TableCell>
-                  <TableCell className="text-xs">
-                    {/* The odd key out is the whole point of showing key_id at all. */}
-                    {mixedKeys && s.keyId !== commonKey ? (
-                      <Badge tone="warn" dot={false} className="font-mono">
-                        {s.keyId || "-"}
-                      </Badge>
-                    ) : (
-                      <Chip className="font-mono">{s.keyId || "-"}</Chip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {manage ? (
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          aria-label={`Rotate ${s.name}`}
-                          onClick={() => setSetting({ lockedName: s.name })}
-                        >
-                          <RotateCw />
-                          Rotate
-                        </Button>
-                        <Tooltip label={`Delete ${s.name}`}>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={`Delete ${s.name}`}
-                            onClick={() => setDeleting(s)}
-                            className="hover:bg-err/10 hover:text-err"
-                          >
-                            <Trash2 />
-                          </Button>
-                        </Tooltip>
-                      </div>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
+      ) : rows.length === 0 && query.error ? null : showYours ? (
+        <Tabs value={tab} onValueChange={(value) => setTab(value as "global" | "yours")}>
+          <TabsList>
+            <TabsTrigger value="global">Global</TabsTrigger>
+            <TabsTrigger value="yours">Yours</TabsTrigger>
+          </TabsList>
+          <TabsContent value="global" data-testid="secrets-global" className="space-y-2">
+            <p className="max-w-2xl text-xs leading-relaxed text-muted">
+              Admin-defined secrets that are accessible by the system. Set secrets here to
+              configure what tasks need to run.
+            </p>
+            {tableFor(globalRows, {
+              title: "No global secrets",
+              info: "",
+              scope: SecretScope.GLOBAL,
+              canCreate: manage,
             })}
-          </TableBody>
-        </Table>
+          </TabsContent>
+          <TabsContent value="yours" data-testid="secrets-yours" className="space-y-2">
+            <p className="max-w-2xl text-xs leading-relaxed text-muted">
+              Secrets only you can see and change. Set secrets here for tasks that should run
+              with your own credentials.
+            </p>
+            {tableFor(yours, {
+              title: "No secrets of yours yet",
+              info: "",
+              scope: SecretScope.PERSONAL,
+              canCreate: personal,
+            })}
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <div className="space-y-2">
+          <p className="max-w-2xl text-xs leading-relaxed text-muted">
+            Admin-defined secrets that are accessible by the system. Set secrets here to
+            configure what tasks need to run.
+          </p>
+          {tableFor(globalRows, {
+            title: "No secrets yet",
+            info: "",
+            scope: SecretScope.GLOBAL,
+            canCreate: manage,
+          })}
+        </div>
       )}
 
       {/* Both dialogs mount only while they are open, so a typed value has nowhere to sit once
@@ -246,6 +327,7 @@ export function SecretsPage() {
           onOpenChange={(open) => !open && setSetting(undefined)}
           existing={rows}
           lockedName={setting.lockedName}
+          scope={setting.scope}
         />
       ) : null}
       {deleting ? (

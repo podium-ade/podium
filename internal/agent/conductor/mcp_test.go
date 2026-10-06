@@ -45,7 +45,7 @@ func TestATurnsMCPServersAreNamedInTheBriefAndCredentialedOnTheSpec(t *testing.T
 	require.NoError(t, err)
 	assert.NotContains(t, encoded, "token")
 
-	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, servers, choice, "")
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, servers, choice, "", "")
 	assert.Contains(t, sp.Secrets, spec.SecretRef{
 		Name:   mcp.TokenSecret("linear"),
 		Target: spec.SecretTargetEnv,
@@ -66,7 +66,7 @@ func TestAPlaybookWithNoMCPServersGetsNone(t *testing.T) {
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil, choice)
 	assert.Nil(t, b.Playbook.MCPServers)
 
-	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "")
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "", "")
 	for _, ref := range sp.Secrets {
 		assert.NotContains(t, ref.Name, mcp.SecretPrefix)
 	}
@@ -75,7 +75,7 @@ func TestAPlaybookWithNoMCPServersGetsNone(t *testing.T) {
 // The playbook's order is the brief's order, whatever order the registry came back in.
 func TestTheResolvedServersFollowThePlaybooksOrder(t *testing.T) {
 	playbook := profiles.Playbook{MCPServers: []string{"wiki", "linear"}}
-	got, err := resolveMCPServers(playbook.MCPServers, []mcp.Server{
+	got, err := resolveMCPServers("", playbook.MCPServers, []mcp.Server{
 		registered("linear", true, 1), registered("wiki", true, 1),
 	})
 	require.NoError(t, err)
@@ -90,11 +90,11 @@ func TestTheResolvedServersFollowThePlaybooksOrder(t *testing.T) {
 func TestAnUnknownOrDisabledServerFailsTheTurn(t *testing.T) {
 	rows := []mcp.Server{registered("linear", false, 1)}
 
-	_, err := resolveMCPServers([]string{"linear"}, rows)
+	_, err := resolveMCPServers("", []string{"linear"}, rows)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "turned off")
 
-	_, err = resolveMCPServers([]string{"notion"}, rows)
+	_, err = resolveMCPServers("", []string{"notion"}, rows)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `no MCP server named "notion"`)
 }
@@ -118,6 +118,6 @@ func TestAServersConfigIsCarriedInTheBrief(t *testing.T) {
 	assert.Equal(t, "yes", config["whatever"])
 
 	srv.Config = "[]"
-	_, err := resolveMCPServers([]string{"grafana"}, []mcp.Server{srv})
+	_, err := resolveMCPServers("", []string{"grafana"}, []mcp.Server{srv})
 	assert.Error(t, err)
 }

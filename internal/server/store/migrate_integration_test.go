@@ -35,6 +35,7 @@ var migrationFiles = []string{
 	"0009_user_picture.sql",
 	"0010_workspace_snapshots.sql",
 	"0011_user_last_seen.sql",
+	"0012_secret_scope.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

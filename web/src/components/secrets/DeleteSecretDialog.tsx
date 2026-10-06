@@ -37,7 +37,7 @@ export function DeleteSecretDialog({
   const [typed, setTyped] = useState("");
 
   const remove = useMutation({
-    mutationFn: () => secrets.deleteSecret({ name: secret.name }),
+    mutationFn: () => secrets.deleteSecret({ name: secret.name, scope: secret.scope }),
     onSuccess: () => {
       toast(`${secret.name} deleted.`, "ok");
       void qc.invalidateQueries({ queryKey: ["secrets"] });

@@ -298,6 +298,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
       pids: draft.resources.pids,
     },
     secrets: draft.secrets,
+    userSecrets: draft.userSecrets,
     repos: draft.repos.map((r) => ({ name: r.name, url: r.url, defaultBranch: r.defaultBranch })),
     git: draft.git,
     slackChannels: draft.slackChannels,

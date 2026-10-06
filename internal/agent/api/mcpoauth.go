@@ -519,6 +519,7 @@ func mcpOAuthOf(f *mcpFlow, tok *tokenResponse) mcp.OAuth {
 // its own — which is what makes it safe for the authorization code to travel through one.
 type mcpFlow struct {
 	name          string
+	owner         string
 	issuer        string
 	tokenEndpoint string
 	clientID      string
