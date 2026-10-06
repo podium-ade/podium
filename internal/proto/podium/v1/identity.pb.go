@@ -132,8 +132,8 @@ type WhoAmIResponse struct {
 	// UI hides its Agent screen when it is false; `podium version` ignores it.
 	AgentEnabled bool `protobuf:"varint,7,opt,name=agent_enabled,json=agentEnabled,proto3" json:"agent_enabled,omitempty"`
 	// roles attached to this login. Empty for a node, the local token, or a user on an
-	// unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
-	// have "member".
+	// unclaimed instance. After a claim the owner has "owner", later Workspace sign-ins
+	// have "member", and an owner may promote someone to "admin".
 	Roles []string `protobuf:"bytes,8,rep,name=roles,proto3" json:"roles,omitempty"`
 	// claimed is true when a Google Workspace domain owns this instance.
 	Claimed bool `protobuf:"varint,9,opt,name=claimed,proto3" json:"claimed,omitempty"`

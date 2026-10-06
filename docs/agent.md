@@ -1985,20 +1985,22 @@ env:
 - **Two comments per Linear turn.** Progress edits one of them; it is not a running commentary.
 - **The Linear poll interval** is how long an assignment waits before anything happens: up to 30
   seconds by default, and never less than 10.
-- **No per-action RBAC.** Google Workspace sign-in can claim the instance for a domain; it does
-  not change what a Slack mention or a Linear assignment can make the bot do. See below.
+- **The bot is not behind RBAC.** Google Workspace sign-in can claim the instance for a domain
+  and gate the web UI; it does not change what a Slack mention or a Linear assignment can make
+  the bot do. See below.
 
 ---
 
-## No per-action RBAC
+## The bot is not behind RBAC
 
 **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
-credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain; it is
-not an allowlist of Slack or Linear users, and it does not add a read-only mode. Keep `secrets:`
-minimal per playbook, and do not put a credential in a playbook that anybody in a public channel can
-reach — but do not mistake that for a boundary around the secret store. `CreateTask` checks only
-that a named secret **exists**, so anyone who can reach the control plane can already mount any
-registered secret into an image and a command of their own. See
+credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain and
+enforces member / admin / owner on KindUser; it is not an allowlist of Slack or Linear users,
+and a member can still submit a task. Keep `secrets:` minimal per playbook, and do not put a
+credential in a playbook that anybody in a public channel can reach — but do not mistake that
+for a boundary around the secret store. `CreateTask` checks only that a named secret **exists**,
+so a member who can reach the control plane can already mount any registered secret into an
+image and a command of their own. See
 [`security.md`](security.md#5-the-conductor-and-the-bot).
 
 The two Slack tokens are as sensitive as `PODIUM_LOCAL_TOKEN`. So are the Linear API key (full
@@ -2195,8 +2197,8 @@ composer therefore offers exactly one choice — which model answers — and no 
 playbook, because there is nothing per message to pick: the turn chooses a playbook for each
 task it delegates, and may choose several while answering once.
 
-- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
-  is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
+- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. That
+  is a partition, not a role, and it is free. Knowing
   another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
   are the same partition: only the owner can change the title or remove a chat, and
   another login's id is `not_found`. The messages go with a delete. Sessions and turns it

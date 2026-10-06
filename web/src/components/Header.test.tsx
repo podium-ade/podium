@@ -38,6 +38,11 @@ describe("Header", () => {
     for (const label of ["Nodes", "Secrets", "Registries"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
+    expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/agent/settings",
+    );
   });
 
   // A control plane with no conductor has no Agent screen worth reaching, and WhoAmI is what
@@ -47,7 +52,7 @@ describe("Header", () => {
     expect(screen.queryByRole("link", { name: "Assistant" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Skills" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("still offers Settings when Google sign-in is on and there is no conductor", () => {

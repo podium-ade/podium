@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/podium-ade/podium/internal/server/store/db"
@@ -71,6 +72,113 @@ func (s *Store) GetUser(ctx context.Context, login string) (User, error) {
 	return userFromRow(row), nil
 }
 
+// TouchLastSeen records that login is here, at most once a minute. Identify uses it
+// for a live Google session, which does not go through UpsertUser.
+func (s *Store) TouchLastSeen(ctx context.Context, login string) error {
+	if login == "" {
+		return nil
+	}
+	if err := s.q.TouchUserLastSeen(ctx, login); err != nil {
+		return fmt.Errorf("touch last seen %s: %w", login, err)
+	}
+	return nil
+}
+
+// ListUsers returns every recorded login, most recently seen first. The list is the Users screen.
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.q.ListUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	out := make([]User, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, userFromRow(row))
+	}
+	return out, nil
+}
+
+// AssignRole replaces a login's roles with exactly one of owner, admin, member.
+// Demoting the last owner is ErrLastOwner: the Users screen would have no one left
+// who can promote anyone, and the instance would be stuck.
+func (s *Store) AssignRole(ctx context.Context, login, role string) (User, error) {
+	if login == "" {
+		return User{}, fmt.Errorf("assign role: login is required")
+	}
+	if !ValidRole(role) {
+		return User{}, fmt.Errorf("assign role %q: %w", role, ErrInvalidRole)
+	}
+
+	var out User
+	err := s.inTx(ctx, func(q *db.Queries) error {
+		// Lock every owner before writing so two concurrent demotions cannot leave
+		// the instance with none. Promoting someone does not need that lock.
+		if role != RoleOwner {
+			owners, err := q.ListOwnerLoginsForUpdate(ctx)
+			if err != nil {
+				return fmt.Errorf("lock owners: %w", err)
+			}
+			if len(owners) == 1 && owners[0] == login {
+				return ErrLastOwner
+			}
+		}
+		updated, err := q.SetUserRoles(ctx, db.SetUserRolesParams{
+			Login: login,
+			Roles: []string{role},
+		})
+		if noRows(err) {
+			return fmt.Errorf("user %s: %w", login, ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("set roles for %s: %w", login, err)
+		}
+		out = userFromRow(updated)
+		return nil
+	})
+	if err != nil {
+		return User{}, err
+	}
+	return out, nil
+}
+
+// ValidRole reports whether role is one of the three the API accepts.
+func ValidRole(role string) bool {
+	switch role {
+	case RoleOwner, RoleAdmin, RoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// CanonicalRole is the highest role in the list. Empty is RoleMember: after a claim,
+// a login with nothing assigned is a person, not an operator.
+func CanonicalRole(roles []string) string {
+	switch {
+	case slices.Contains(roles, RoleOwner):
+		return RoleOwner
+	case slices.Contains(roles, RoleAdmin):
+		return RoleAdmin
+	default:
+		return RoleMember
+	}
+}
+
+// HasRole reports whether roles satisfy need. Owner satisfies admin and member;
+// admin satisfies member; empty is member.
+func HasRole(roles []string, need string) bool {
+	got := CanonicalRole(roles)
+	switch need {
+	case RoleOwner:
+		return got == RoleOwner
+	case RoleAdmin:
+		return got == RoleOwner || got == RoleAdmin
+	case RoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
 // SetUserRoles replaces the role list on a user. Empty is allowed (an unclaimed human).
 func (s *Store) SetUserRoles(ctx context.Context, login string, roles []string) (User, error) {
 	if login == "" {
@@ -125,5 +233,6 @@ func userFromRow(row db.User) User {
 		HostedDomain: deref(row.HostedDomain),
 		PictureURL:   deref(row.PictureUrl),
 		FirstSeenAt:  row.FirstSeenAt.UTC(),
+		LastSeenAt:   row.LastSeenAt.UTC(),
 	}
 }

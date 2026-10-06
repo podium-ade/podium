@@ -345,6 +345,8 @@ func (s *Server) mux() http.Handler {
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
 		api.NewIdentityService(s.store, s.cfg.AgentEnabled(), s.cfg.GoogleEnabled()), opts...))
+	rpc.Handle(podiumv1connect.NewUserServiceHandler(
+		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
 		api.NewSecretService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
@@ -379,7 +381,8 @@ func (s *Server) mux() http.Handler {
 	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
 	// index.html, and the bundle asks the operator for one before it calls anything.
 	withAuth := func(h http.Handler) http.Handler {
-		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(), h))
+		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(),
+			auth.RestrictRBAC(s.store, s.cfg.GoogleEnabled(), h)))
 	}
 	authenticated := withAuth(rpc)
 	for _, service := range []string{
@@ -387,6 +390,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeServiceName,
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
+		podiumv1connect.UserServiceName,
 		podiumv1connect.SecretServiceName,
 		podiumv1connect.RegistryServiceName,
 		podiumv1connect.ArtifactServiceName,

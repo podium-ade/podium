@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// UserService is who is on this instance, and what they may do.
+//
+// Roles are enforced on KindUser after a Google Workspace claim. The local token and every
+// node still do everything: they are machine credentials, not people. Slack mentions and
+// Linear assignments are unchanged — this service is the web UI and the Connect API, not
+// the bot.
+service UserService {
+  // ListUsers returns every login the control plane has seen, most recently seen first.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // SetUserRole replaces the role on one login. Only an owner may call it. Demoting the
+  // last owner is FailedPrecondition: an instance with no owner cannot recover from the UI.
+  rpc SetUserRole(SetUserRoleRequest) returns (SetUserRoleResponse);
+}
+
+// User is a person Tailscale's WhoIs or a Google Workspace session has named. There is no
+// password and no credential on this row.
+message User {
+  string login = 1;
+  string display_name = 2;
+  // roles is almost always one of owner, admin, member. Empty is a human on an unclaimed
+  // instance, or a tailnet login that has not been assigned one yet; after a claim that
+  // is treated as member.
+  repeated string roles = 3;
+  string hosted_domain = 4;
+  // picture_url is an https Google avatar when they signed in that way. Empty otherwise.
+  // The Users screen does not render it as <img src>: CSP img-src is this origin.
+  string picture_url = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message SetUserRoleRequest {
+  string login = 1;
+  // role is owner, admin or member. Anything else is InvalidArgument.
+  string role = 2;
+}
+
+message SetUserRoleResponse {
+  User user = 1;
+}

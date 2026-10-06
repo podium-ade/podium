@@ -7,6 +7,7 @@ import { IdentityService } from "../gen/podium/v1/identity_pb";
 import { RegistryService } from "../gen/podium/v1/registry_pb";
 import { SecretService } from "../gen/podium/v1/secret_pb";
 import { TaskService } from "../gen/podium/v1/task_pb";
+import { UserService } from "../gen/podium/v1/user_pb";
 import { getToken, notifyRejected } from "./auth";
 
 // The tailnet transport wants no header at all — identity comes from the connection — so the
@@ -43,6 +44,7 @@ export const identity = createClient(IdentityService, transport);
 export const secrets = createClient(SecretService, transport);
 export const registries = createClient(RegistryService, transport);
 export const artifacts = createClient(ArtifactService, transport);
+export const users = createClient(UserService, transport);
 // The conductor's own service, on the SAME transport: podium-server reverse-proxies
 // /podium.agent.v1.AgentService/ to it, so the bearer interceptor and the 401 re-gate above
 // keep working and the page still only ever talks to its own origin.

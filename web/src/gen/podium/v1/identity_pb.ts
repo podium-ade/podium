@@ -80,8 +80,8 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
 
   /**
    * roles attached to this login. Empty for a node, the local token, or a user on an
-   * unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
-   * have "member".
+   * unclaimed instance. After a claim the owner has "owner", later Workspace sign-ins
+   * have "member", and an owner may promote someone to "admin".
    *
    * @generated from field: repeated string roles = 8;
    */

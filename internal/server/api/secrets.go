@@ -18,7 +18,8 @@ import (
 // There is deliberately no read endpoint. A value goes in through SetSecret and only ever
 // comes back out inside an Assign, on its way to the node about to run the task that
 // referenced it. Authorization is "any authenticated caller" in this slice; the actor is
-// recorded on the row and in the audit log so RBAC can be layered on later.
+// recorded on the row and in the audit log. After a Workspace claim, Set and Delete
+// require the admin role; List is open to members. The local token still does both.
 type SecretService struct {
 	secrets *secrets.Service
 	logger  *slog.Logger

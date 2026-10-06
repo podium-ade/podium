@@ -46,8 +46,8 @@ message WhoAmIResponse {
   // UI hides its Agent screen when it is false; `podium version` ignores it.
   bool agent_enabled = 7;
   // roles attached to this login. Empty for a node, the local token, or a user on an
-  // unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
-  // have "member".
+  // unclaimed instance. After a claim the owner has "owner", later Workspace sign-ins
+  // have "member", and an owner may promote someone to "admin".
   repeated string roles = 8;
   // claimed is true when a Google Workspace domain owns this instance.
   bool claimed = 9;

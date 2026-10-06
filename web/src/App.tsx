@@ -71,6 +71,7 @@ export function App() {
                     <Route path="/secrets" element={<SecretsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
+                    <Route path="/users" element={<Navigate to="/agent/settings/users" replace />} />
                     {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
                     <Route path="/agent/*" element={<AgentPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
