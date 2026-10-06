@@ -62,6 +62,8 @@ export type ProviderCardProps = {
   provider: Provider;
   settings?: ProviderSettings;
   loading?: boolean;
+  /** A member can see the row and cannot change the credential. */
+  readOnly?: boolean;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
@@ -89,6 +91,7 @@ export function ProviderCard({
   provider,
   settings,
   loading,
+  readOnly,
   onSave,
   onClear,
   onStartOAuth,
@@ -240,7 +243,7 @@ export function ProviderCard({
 
   const subscriptionStored = settings?.authKind === "oauth";
   const expired = oauthExpired(settings);
-  const showWork = !loading && (rotating || (!stored && open) || signing !== undefined);
+  const showWork = !readOnly && !loading && (rotating || (!stored && open) || signing !== undefined);
   const signInAgain = () => {
     setRotating(true);
     if (settings?.authKind === "oauth") setMode("subscription");
@@ -292,7 +295,7 @@ export function ProviderCard({
             </p>
           ) : null}
         </div>
-        {loading ? null : (
+        {loading || readOnly ? null : (
           <div className="flex shrink-0 items-center gap-2">
             {!stored && !showWork ? (
               <Button type="button" size="sm" onClick={() => setOpen(true)}>
@@ -338,15 +341,17 @@ export function ProviderCard({
                 The subscription token expired and could not be renewed. Chats that use this
                 model fail until you sign in again.
               </p>
-              <Button
-                type="button"
-                size="sm"
-                className="mt-2"
-                data-testid={tid("provider-sign-in-again")}
-                onClick={signInAgain}
-              >
-                Sign in again
-              </Button>
+              {readOnly ? null : (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2"
+                  data-testid={tid("provider-sign-in-again")}
+                  onClick={signInAgain}
+                >
+                  Sign in again
+                </Button>
+              )}
             </Alert>
           ) : null}
 

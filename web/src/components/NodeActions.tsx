@@ -26,6 +26,8 @@ import { Label } from "./ui/label";
 import { NodeStatus } from "../gen/podium/v1/common_pb";
 import type { Node } from "../gen/podium/v1/admin_pb";
 import { admin, Code, connectCode, errorMessage } from "../lib/client";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 type Action = "drain" | "undrain" | "delete" | "rekey";
 
@@ -112,6 +114,7 @@ function confirmFor(action: Action, node: Node): Confirm {
  * committed it by then; `status` is derived from heartbeats and is not ours to predict.
  */
 export function NodeActions({ node }: { node: Node }) {
+  const viewer = useViewer();
   const qc = useQueryClient();
   const toast = useToast();
   const [confirming, setConfirming] = useState<Action>();
@@ -160,6 +163,7 @@ export function NodeActions({ node }: { node: Node }) {
 
   const isDraining = node.draining || node.status === NodeStatus.DRAINING;
   const confirm = confirming ? confirmFor(confirming, node) : undefined;
+  if (!canManageInfra(viewer)) return null;
 
   return (
     <>

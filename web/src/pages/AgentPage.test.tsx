@@ -29,6 +29,7 @@ const listSecrets = vi.fn();
 const listSkills = vi.fn();
 const getProfileFile = vi.fn();
 const updateProfileFile = vi.fn();
+const listUsers = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -56,6 +57,7 @@ vi.mock("../lib/client", async () => {
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
+    users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
   };
 });
 
@@ -168,6 +170,8 @@ describe("AgentPage", () => {
       content: "name: podium\n",
       path: "/etc/podium/agent/profile.yaml",
     });
+    listUsers.mockReset();
+    listUsers.mockResolvedValue({ users: [] });
     getProfile.mockResolvedValue(profileResponse);
     listSecrets.mockResolvedValue({ secrets: [] });
     getSettings.mockResolvedValue(notSet);
@@ -192,6 +196,7 @@ describe("AgentPage", () => {
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Backend" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
@@ -277,6 +282,7 @@ describe("AgentPage", () => {
   it("renders settings models without the talk tabs", async () => {
     mount("/agent/settings/models");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
@@ -286,6 +292,28 @@ describe("AgentPage", () => {
     expect(screen.queryByText(/Claude · not set/i)).toBeNull();
     expect(screen.queryByText(/Grok · not set/i)).toBeNull();
     expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
+  });
+
+  it("renders users as a settings category", async () => {
+    listUsers.mockResolvedValue({
+      users: [
+        {
+          login: "alice@acme.com",
+          displayName: "Alice",
+          roles: ["owner"],
+          hostedDomain: "acme.com",
+          pictureUrl: "",
+        },
+      ],
+    });
+    mount("/agent/settings/users");
+    expect(await screen.findByRole("link", { name: "Users" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Permission")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("opens a deep link to one chat without an in-page tab row", async () => {

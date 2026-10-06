@@ -26,6 +26,12 @@ var (
 	// ErrDomainMismatch is returned by ClaimInstance when the typed domain is not the
 	// caller's, and by a Google sign-in whose Workspace is not the claimed one.
 	ErrDomainMismatch = errors.New("store: hosted domain does not match")
+	// ErrInvalidRole is returned by AssignRole for a string that is not owner, admin
+	// or member.
+	ErrInvalidRole = errors.New("store: invalid role")
+	// ErrLastOwner is returned by AssignRole when demoting the only remaining owner.
+	// An instance with no owner cannot recover from the UI.
+	ErrLastOwner = errors.New("store: cannot demote the last owner")
 )
 
 // Status mirrors the tasks.status column.
@@ -234,10 +240,11 @@ type Node struct {
 }
 
 // Roles stored on users.roles. The first person to claim the instance is RoleOwner;
-// later Google Workspace sign-ins from the same domain are RoleMember. Per-action
-// enforcement of the two is a later slice — today they record who claimed, and who joined.
+// later Google Workspace sign-ins from the same domain are RoleMember. An owner can
+// promote a member to RoleAdmin (infra) or RoleOwner (users and infra).
 const (
 	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
 	RoleMember = "member"
 )
 
@@ -251,6 +258,7 @@ type User struct {
 	HostedDomain string
 	PictureURL   string
 	FirstSeenAt  time.Time
+	LastSeenAt   time.Time
 }
 
 // Instance is the singleton claim: which Google Workspace owns this control plane, and who

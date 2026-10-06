@@ -297,6 +297,10 @@ func storeError(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, store.ErrInvalidTransition):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrInvalidRole):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, store.ErrLastOwner):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

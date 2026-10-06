@@ -145,6 +145,7 @@ type User struct {
 	FirstSeenAt  time.Time
 	HostedDomain *string
 	PictureUrl   *string
+	LastSeenAt   time.Time
 }
 
 type WorkspaceBasis struct {

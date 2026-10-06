@@ -34,6 +34,7 @@ var migrationFiles = []string{
 	"0006_node_slots.sql", "0007_registries.sql", "0008_google_claim.sql",
 	"0009_user_picture.sql",
 	"0010_workspace_snapshots.sql",
+	"0011_user_last_seen.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

@@ -22,6 +22,8 @@ import { Tooltip } from "../components/ui/tooltip";
 import type { Registry } from "../gen/podium/v1/registry_pb";
 import { Code, connectCode, errorMessage, registries } from "../lib/client";
 import { absolute, relative } from "../lib/format";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 /**
  * The Registries screen: one login per registry host, so tasks and playbooks can name an
@@ -29,6 +31,8 @@ import { absolute, relative } from "../lib/format";
  * metadata only; there is no read endpoint for a password and none is wanted.
  */
 export function RegistriesPage() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const toast = useToast();
   const [setting, setSetting] = useState<{ lockedHost?: string }>();
   const [deleting, setDeleting] = useState<Registry>();
@@ -53,10 +57,12 @@ export function RegistriesPage() {
     <PageFrame
         title="Registries"
         actions={
-          <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-            <Plus />
-            New registry
-          </Button>
+          manage ? (
+            <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+              <Plus />
+              New registry
+            </Button>
+          ) : null
         }
       >
 
@@ -99,10 +105,12 @@ export function RegistriesPage() {
             title="No registries yet"
             hint="Every pull is anonymous until a registry is added here. A private image fails on the node with pull access denied."
             action={
-              <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-                <Plus />
-                New registry
-              </Button>
+              manage ? (
+                <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+                  <Plus />
+                  New registry
+                </Button>
+              ) : undefined
             }
           />
         )
@@ -131,6 +139,7 @@ export function RegistriesPage() {
                 </TableCell>
                 <TableCell className="text-xs text-muted">{r.createdBy || "-"}</TableCell>
                 <TableCell>
+                  {manage ? (
                   <div className="flex items-center justify-end gap-1">
                     <Button
                       variant="outline"
@@ -153,6 +162,7 @@ export function RegistriesPage() {
                       </Button>
                     </Tooltip>
                   </div>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}

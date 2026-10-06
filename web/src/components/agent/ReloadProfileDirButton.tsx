@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agent, errorMessage } from "../../lib/client";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 /**
  * ReloadProfileDirButton re-reads the conductor's profile directory into the running process:
@@ -18,6 +20,7 @@ import { Button } from "../ui/button";
  * answering.
  */
 export function ReloadProfileDirButton() {
+  const viewer = useViewer();
   const qc = useQueryClient();
   const toast = useToast();
   const reload = useMutation({
@@ -28,6 +31,7 @@ export function ReloadProfileDirButton() {
     },
     onError: (err) => toast(errorMessage(err)),
   });
+  if (!canManageInfra(viewer)) return null;
 
   return (
     <Button

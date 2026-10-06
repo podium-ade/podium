@@ -38,6 +38,8 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import { McpMark } from "./McpMark";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 /**
  * McpPanel is the MCP server registry: the tools this bot can reach that are not built into
@@ -80,6 +82,8 @@ function definitionOf(server: McpServer, patch: { enabled?: boolean } = {}) {
 }
 
 export function McpPanel() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<McpServer | "new">();
@@ -123,10 +127,12 @@ export function McpPanel() {
     <PageFrame
         title="MCP servers"
         actions={
+          manage ? (
           <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new")}>
             <Plus />
             New server
           </Button>
+          ) : null
         }
       >
 
@@ -146,10 +152,12 @@ export function McpPanel() {
           title="No MCP servers"
           hint="Add one and it becomes available to the playbooks that name it."
           action={
+            manage ? (
             <Button type="button" size="sm" onClick={() => setEditing("new")}>
               <Plus />
               New server
             </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -164,6 +172,7 @@ export function McpPanel() {
                 (setEnabled.isPending && setEnabled.variables?.server.name === s.name) ||
                 (remove.isPending && remove.variables === s.name)
               }
+              readOnly={!manage}
               onToggle={(enabled) => setEnabled.mutate({ server: s, enabled })}
               onEdit={() => setEditing(s)}
               onDelete={() => remove.mutate(s.name)}
@@ -200,6 +209,7 @@ export function McpPanel() {
 function ServerRow({
   server,
   busy,
+  readOnly,
   onToggle,
   onEdit,
   onDelete,
@@ -207,6 +217,7 @@ function ServerRow({
 }: {
   server: McpServer;
   busy: boolean;
+  readOnly?: boolean;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -283,6 +294,8 @@ function ServerRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {readOnly ? null : (
+          <>
           <div className="flex items-center gap-2">
             <Switch
               id={`${uid}-enabled`}
@@ -322,6 +335,8 @@ function ServerRow({
               <Trash2 />
             </Button>
           </Tooltip>
+          </>
+          )}
         </div>
       </div>
 
@@ -331,6 +346,7 @@ function ServerRow({
         ) : (
           <Chip>no playbook names it</Chip>
         )}
+        {readOnly ? null : (
         <Button
           type="button"
           variant="outline"
@@ -342,6 +358,7 @@ function ServerRow({
           <LogIn />
           {signIn.isPending ? "Discovering…" : server.authKind === "oauth" ? "Sign in again" : "Sign in"}
         </Button>
+        )}
         <Button
           type="button"
           variant="outline"

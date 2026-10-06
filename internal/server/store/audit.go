@@ -20,6 +20,8 @@ const (
 	ActionRegistrySet     = "registry.set"
 	ActionRegistryDelete  = "registry.delete"
 	ActionRegistryResolve = "registry.resolve"
+
+	ActionUserRoleSet = "user.role.set"
 )
 
 // DefaultAuditLimit is how many rows ListAudit returns when the caller asks for none.

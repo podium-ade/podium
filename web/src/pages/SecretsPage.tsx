@@ -22,6 +22,8 @@ import { Tooltip } from "../components/ui/tooltip";
 import type { Secret } from "../gen/podium/v1/secret_pb";
 import { Code, connectCode, errorMessage, secrets } from "../lib/client";
 import { absolute, relative, toDate } from "../lib/format";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 /** Past this, a secret is old enough that nobody remembers who has a copy of it. */
 const STALE_DAYS = 90;
@@ -37,6 +39,8 @@ const STALE_DAYS = 90;
  * nothing stored for it to reach.
  */
 export function SecretsPage() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const toast = useToast();
   const [setting, setSetting] = useState<{ lockedName?: string }>();
   const [deleting, setDeleting] = useState<Secret>();
@@ -74,12 +78,14 @@ export function SecretsPage() {
     <PageFrame
         title="Secrets"
         actions={
-          // Without a master key SetSecret refuses too, so the action is offered but inert
-          // rather than failing after the operator has typed a value into it.
-          <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-            <Plus />
-            New secret
-          </Button>
+          manage ? (
+            // Without a master key SetSecret refuses too, so the action is offered but inert
+            // rather than failing after the operator has typed a value into it.
+            <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+              <Plus />
+              New secret
+            </Button>
+          ) : null
         }
       >
 
@@ -134,10 +140,12 @@ export function SecretsPage() {
             title="No secrets yet"
             hint="A task that names a secret Podium does not hold is refused at admission, so anything your specs or the agent reference has to be set here first."
             action={
-              <Button size="sm" onClick={() => setSetting({})}>
-                <Plus />
-                New secret
-              </Button>
+              manage ? (
+                <Button size="sm" onClick={() => setSetting({})}>
+                  <Plus />
+                  New secret
+                </Button>
+              ) : undefined
             }
           />
         )
@@ -198,28 +206,30 @@ export function SecretsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        aria-label={`Rotate ${s.name}`}
-                        onClick={() => setSetting({ lockedName: s.name })}
-                      >
-                        <RotateCw />
-                        Rotate
-                      </Button>
-                      <Tooltip label={`Delete ${s.name}`}>
+                    {manage ? (
+                      <div className="flex items-center justify-end gap-1">
                         <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Delete ${s.name}`}
-                          onClick={() => setDeleting(s)}
-                          className="hover:bg-err/10 hover:text-err"
+                          variant="outline"
+                          size="xs"
+                          aria-label={`Rotate ${s.name}`}
+                          onClick={() => setSetting({ lockedName: s.name })}
                         >
-                          <Trash2 />
+                          <RotateCw />
+                          Rotate
                         </Button>
-                      </Tooltip>
-                    </div>
+                        <Tooltip label={`Delete ${s.name}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Delete ${s.name}`}
+                            onClick={() => setDeleting(s)}
+                            className="hover:bg-err/10 hover:text-err"
+                          >
+                            <Trash2 />
+                          </Button>
+                        </Tooltip>
+                      </div>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               );

@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel } from "../lib/identity";
+import { canonicalRole, rbacEnforced, roleLabel } from "../lib/rbac";
 import { Avatar } from "./Avatar";
 import { GoogleSignIn } from "./SignInControls";
 import { Button } from "./ui/button";
@@ -36,6 +37,7 @@ export function IdentityCard() {
             <div className="truncate text-sm font-medium text-fg">{label.text}</div>
             <div className="truncate text-xs text-muted">
               {isUser ? viewer.login : "Not signed in with Google"}
+              {rbacEnforced(viewer) ? ` · ${roleLabel(canonicalRole(viewer.roles))}` : ""}
             </div>
           </div>
         </div>

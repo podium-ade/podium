@@ -1,6 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Cpu, Server, Settings2, UserRound } from "lucide-react";
+import { Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
@@ -21,11 +21,14 @@ import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
 import { PageActions, PageFrame } from "../components/PageHeader";
+import { UsersPage } from "./UsersPage";
+import { Alert } from "../components/ui/alert";
 import { useToast } from "../components/Toast";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 /**
  * Tab is one assistant screen. Chat, Sessions, Memory and Assistant are links in the app
@@ -132,6 +135,7 @@ function SettingsTab() {
 
   const categories: { id: string; label: string; icon: LucideIcon }[] = [
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
+    { id: "users", label: "Users", icon: Users },
     { id: "backend", label: "Backend", icon: Server },
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
   ];
@@ -160,6 +164,15 @@ function SettingsTab() {
               the CLI and workers.
             </p>
             <IdentityCard />
+          </section>
+        ) : null}
+        {current === "users" ? (
+          <section className="max-w-2xl space-y-4">
+            <p className="text-sm leading-relaxed text-muted">
+              Who can sign in, and what they can do. Roles are enforced on the API after a
+              Workspace claim; the local token and every node still do everything.
+            </p>
+            <UsersPage />
           </section>
         ) : null}
         {current === "backend" ? (
@@ -192,6 +205,7 @@ function SettingsTab() {
  */
 function ModelsPanel() {
   const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
@@ -230,6 +244,13 @@ function ModelsPanel() {
         />
       ) : null}
 
+      {!manage ? (
+        <Alert variant="info" title="Credentials are read-only for members">
+          An admin or owner can set and rotate provider keys. You can see which ones are
+          connected.
+        </Alert>
+      ) : null}
+
       <ul className="divide-y divide-border border-y border-border">
         {PROVIDERS.map((p) => (
           <li key={p.id}>
@@ -237,15 +258,16 @@ function ModelsPanel() {
               provider={p}
               settings={stored.find((s) => s.provider === p.id)}
               loading={settings.isPending}
+              readOnly={!manage}
               onSave={(key) => save.mutateAsync({ provider: p.id, key })}
               onClear={async () => {
                 await clear.mutateAsync(p.id);
               }}
               onStartOAuth={
-                p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+                manage && p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
               }
               onPollOAuth={
-                p.subscription
+                manage && p.subscription
                   ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
                   : undefined
               }
@@ -274,6 +296,8 @@ function ModelsPanel() {
  * holds rather than from what was typed before the last save.
  */
 function ProfileTab() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const profile = useQuery({
@@ -315,6 +339,7 @@ function ProfileTab() {
         agents={agents}
         loading={profile.isPending}
         saving={save.isPending}
+        readOnly={!manage}
         onSave={(fields) => save.mutate(fields)}
       />
       <ProfileFileCard />
