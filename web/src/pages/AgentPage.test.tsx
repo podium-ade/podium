@@ -41,6 +41,7 @@ vi.mock("../lib/client", async () => {
       listSessions: (...a: unknown[]) => listSessions(...a),
       listTurns: (...a: unknown[]) => listTurns(...a),
       listChats: (...a: unknown[]) => listChats(...a),
+      listMemories: () => Promise.resolve({ items: [], nextCursor: "" }),
       listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
       getProfile: (...a: unknown[]) => getProfile(...a),
@@ -203,6 +204,14 @@ describe("AgentPage", () => {
   it("redirects /agent to the chat screen", async () => {
     mount("/agent");
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
+  });
+
+  it("opens Memory on its own bar, not the chat screen", async () => {
+    mount("/agent/memory");
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
+    expect(await screen.findByTestId("memory-search")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-new")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Chat" })).toBeNull();
   });
 
   it("renders each assistant screen on its own route, without a tab row", async () => {

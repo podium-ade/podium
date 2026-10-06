@@ -267,5 +267,31 @@ describe("ProviderCard: the subscription sign-in", () => {
       }),
     );
     expect(screen.getByTestId("provider-key-meta-xai")).toHaveTextContent("not renewable");
+    expect(screen.queryByTestId("provider-sign-in-expired-xai")).toBeNull();
+  });
+
+  it("asks the user to sign in again when the subscription access token is past", () => {
+    mount(
+      create(ProviderSettingsSchema, {
+        provider: "xai",
+        keySet: true,
+        authKind: "oauth",
+        account: "someone@example.com",
+        refreshable: true,
+        expiresAt: timestampFromDate(new Date(Date.now() - 86_400_000)),
+      }),
+    );
+    expect(screen.getByText("Sign-in expired")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-key-meta-xai")).toHaveTextContent("renewal failed");
+    expect(screen.getByTestId("provider-sign-in-expired-xai")).toHaveTextContent(
+      "Sign in to Grok again",
+    );
+
+    fireEvent.click(screen.getByTestId("provider-sign-in-again-xai"));
+    expect(screen.getByTestId("provider-mode-subscription-xai")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("provider-oauth-start-xai")).toBeInTheDocument();
   });
 });

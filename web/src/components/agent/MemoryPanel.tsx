@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Brain, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Code } from "@connectrpc/connect";
 import type { Memory } from "../../gen/podium/agent/v1/agent_pb";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
@@ -41,6 +41,25 @@ const FACT_TONE: Record<string, Tone> = {
   observation: "ok",
 };
 
+type MemoryPage = { items: Memory[]; nextCursor: string };
+
+/** What the first read decided. The panel does not render until this exists. */
+type MemoryScreen =
+  | { kind: "unconfigured" }
+  | { kind: "failed"; error: unknown }
+  | { kind: "ready"; page: MemoryPage };
+
+/** One list call, classified. FailedPrecondition is a screen, not a thrown error. */
+async function readMemoryScreen(): Promise<MemoryScreen> {
+  try {
+    const res = await agent.listMemories({ cursor: "", limit: PAGE });
+    return { kind: "ready", page: { items: res.items, nextCursor: res.nextCursor } };
+  } catch (error) {
+    if (connectCode(error) === Code.FailedPrecondition) return { kind: "unconfigured" };
+    return { kind: "failed", error };
+  }
+}
+
 /**
  * MemoryPanel is the shared memory, and the only place a human sees it.
  *
@@ -55,15 +74,25 @@ export function MemoryPanel() {
   const [query, setQuery] = useState("");
   const [pages, setPages] = useState<string[]>([""]);
 
+  // Suspends until the first read classifies the screen. Rendering before that is how the
+  // empty bank paints, then gets replaced by "memory is not configured".
+  const screen = useSuspenseQuery({
+    queryKey: ["agent", "memories", "screen"],
+    queryFn: readMemoryScreen,
+  });
+
   useEffect(() => {
+    const next = typed.trim();
+    if (next === query) return;
     const id = setTimeout(() => {
-      setQuery(typed.trim());
+      setQuery(next);
       setPages([""]);
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);
-  }, [typed]);
+  }, [typed, query]);
 
   const searching = query !== "";
+  const ready = screen.data.kind === "ready";
 
   const list = useQuery({
     queryKey: ["agent", "memories", pages],
@@ -77,10 +106,11 @@ export function MemoryPanel() {
       }
       return { items: out, nextCursor: next };
     },
-    enabled: !searching,
-    // Asking for another page changes the key, so without this the list would blink back to
-    // a skeleton to show one more page of what is already on the screen.
-    placeholderData: (prev) => prev,
+    // The first page is the suspense read. This query exists for "load more", and it must
+    // not suspend: a new key would throw the whole screen away.
+    enabled: ready && !searching && pages.length > 1,
+    placeholderData: (prev) =>
+      prev ?? (screen.data.kind === "ready" ? screen.data.page : undefined),
   });
 
   const search = useQuery({
@@ -88,6 +118,8 @@ export function MemoryPanel() {
     queryFn: () => agent.searchMemories({ query, limit: PAGE }),
     enabled: searching,
   });
+  const searchPending = searching && search.isPending;
+  const morePending = !searching && pages.length > 1 && list.isPending && !list.data;
 
   const forget = useMutation({
     mutationFn: (id: string) => agent.deleteMemory({ id }),
@@ -98,10 +130,8 @@ export function MemoryPanel() {
     onError: (err) => toast(errorMessage(err)),
   });
 
-  const active = searching ? search : list;
-
   // An install with no memory service is not a broken page: the RPC says so by name.
-  if (connectCode(active.error) === Code.FailedPrecondition) {
+  if (screen.data.kind === "unconfigured") {
     return (
       <Empty
         icon={Brain}
@@ -111,16 +141,20 @@ export function MemoryPanel() {
     );
   }
 
-  const items = searching ? search.data?.items : list.data?.items;
-  const failed = active.isError && !isAgentUnreachable(active.error);
+  const page = pages.length > 1 && list.data ? list.data : screen.data.kind === "ready" ? screen.data.page : undefined;
+  const items = searching ? search.data?.items : page?.items;
+  const failed =
+    (searching ? search.isError : screen.data.kind === "failed") &&
+    !isAgentUnreachable(searching ? search.error : screen.data.kind === "failed" ? screen.data.error : undefined);
+  const failure = searching ? search.error : screen.data.kind === "failed" ? screen.data.error : undefined;
 
   return (
     <div className="space-y-5">
-      {isAgentUnreachable(active.error) ? (
+      {isAgentUnreachable(searching ? search.error : failure) ? (
         <ConductorDown
           what={searching ? "The search could not run" : "The memory could not be read"}
-          onRetry={() => void active.refetch()}
-          retrying={active.isFetching}
+          onRetry={() => void (searching ? search.refetch() : screen.refetch())}
+          retrying={searching ? search.isFetching : screen.isFetching}
         />
       ) : null}
 
@@ -150,7 +184,7 @@ export function MemoryPanel() {
         </div>
         <p className="text-2xs text-faint" aria-live="polite">
           {searching ? (
-            active.isPending ? (
+            searchPending ? (
               <>Searching for “{query}”…</>
             ) : (
               <>
@@ -159,24 +193,24 @@ export function MemoryPanel() {
                 {items && items.length > 0 ? ", closest first" : ""}
               </>
             )
-          ) : active.isPending ? (
+          ) : morePending ? (
             <>Reading the memory…</>
           ) : (
             <>
               <span className="tabular">{items?.length ?? 0}</span> most recent
-              {list.data?.nextCursor ? ", and there are more" : ""}
+              {page?.nextCursor ? ", and there are more" : ""}
             </>
           )}
         </p>
       </div>
 
-      {active.isPending ? <MemorySkeleton /> : null}
+      {searchPending || morePending ? <MemorySkeleton /> : null}
 
       {failed ? (
         <Empty
           icon={Brain}
           title={searching ? "Could not search the memory" : "Could not read the memory"}
-          hint={errorMessage(active.error)}
+          hint={errorMessage(failure)}
         />
       ) : null}
 
@@ -207,13 +241,13 @@ export function MemoryPanel() {
         ))}
       </ul>
 
-      {!searching && list.data?.nextCursor ? (
+      {!searching && page?.nextCursor ? (
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={list.isFetching}
-          onClick={() => setPages((p) => [...p, list.data.nextCursor])}
+          onClick={() => setPages((p) => [...p, page.nextCursor])}
         >
           {list.isFetching ? "Loading…" : "Load more"}
         </Button>
