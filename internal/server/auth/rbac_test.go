@@ -52,7 +52,7 @@ func TestRestrictRBACNoopWhenGoogleOff(t *testing.T) {
 func TestRestrictRBACSkipsMachines(t *testing.T) {
 	t.Parallel()
 	view := claimedView("alice@acme.com", store.RoleMember)
-	for _, kind := range []transport.IdentityKind{transport.KindLocalToken, transport.KindNode} {
+	for _, kind := range []transport.IdentityKind{transport.KindLocalToken, transport.KindNode, transport.KindAgent} {
 		t.Run(string(kind), func(t *testing.T) {
 			t.Parallel()
 			called := false

@@ -116,6 +116,7 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 	}{
 		{"a tailnet user", &transport.Identity{Kind: transport.KindUser, Login: "bob@example.com"}, "bob@example.com", ""},
 		{"the local token", &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, "local", agentScopeAll},
+		{"the conductor", &transport.Identity{Kind: transport.KindAgent, Login: "agent"}, "agent", ""},
 		// Only reachable by calling the proxy without the middleware, which is a wiring bug
 		// rather than a request; it must still not produce an empty header.
 		{"no identity at all", nil, "unknown", ""},

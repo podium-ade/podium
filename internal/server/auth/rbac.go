@@ -17,7 +17,7 @@ import (
 const artifactDownloadPrefix = "/artifacts/"
 
 // catalog is the role each Connect procedure on podium-server requires of a KindUser
-// after the instance is claimed. KindLocalToken and KindNode skip it entirely.
+// after the instance is claimed. KindLocalToken, KindAgent, and KindNode skip it entirely.
 //
 // An unclassified path defaults to admin: a new mutation is not accidentally public.
 // TestCatalogCoversEveryServerProcedure fails if a procedure is missing here.
@@ -111,9 +111,9 @@ var catalog = map[string]string{
 }
 
 // RestrictRBAC forbids a KindUser from procedures their role cannot call, once the
-// instance is claimed and Google sign-in is on. Nodes and the local token are not
-// humans and are not gated — workers and the CLI still use them. A no-op when
-// googleEnabled is false, so existing tailnet-only deployments do not change.
+// instance is claimed and Google sign-in is on. Nodes, the local token, and the
+// conductor are not humans and are not gated. A no-op when googleEnabled is false,
+// so existing tailnet-only deployments do not change.
 func RestrictRBAC(st instanceView, googleEnabled bool, next http.Handler) http.Handler {
 	if st == nil || !googleEnabled {
 		return next

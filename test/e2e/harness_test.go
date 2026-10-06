@@ -50,6 +50,10 @@ import (
 // fixture, not a secret.
 const devToken = "devtoken-e2e"
 
+// agentAPIToken is the conductor's bearer. It is not devToken: the server refuses a
+// conductor that presents the dev token.
+const agentAPIToken = "agent-api-e2e"
+
 // nodeReadyTimeout is how long a freshly started node gets to enroll, connect and show up
 // as online. Docker Desktop is slow to answer the first Info call of a process.
 const nodeReadyTimeout = 60 * time.Second
@@ -205,6 +209,9 @@ func (h *harness) startServer() {
 		}
 		for _, opt := range h.configure {
 			opt(&cfg)
+		}
+		if cfg.AgentURL != "" && cfg.AgentAPIToken == "" {
+			cfg.AgentAPIToken = agentAPIToken
 		}
 		srv, err = server.New(context.Background(), cfg, logger)
 		if err == nil {

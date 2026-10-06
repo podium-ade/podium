@@ -324,12 +324,13 @@ func TestTheComposeServerConfigurationStarts(t *testing.T) {
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			env := composeServiceEnv(t, tc.file, "server", map[string]string{
-				"PODIUM_PG_PASSWORD":   "pgpassword",
-				"PODIUM_LOCAL_TOKEN":   "devtoken",
-				"PODIUM_S3_SECRET_KEY": "s3secretkey",
-				"PODIUM_AGENT_TOKEN":   "agenttoken",
-				"TS_AUTHKEY":           "tskey-auth-notreal",
-				"PODIUM_TAILNET":       "tail0a1b2c",
+				"PODIUM_PG_PASSWORD":     "pgpassword",
+				"PODIUM_LOCAL_TOKEN":     "devtoken",
+				"PODIUM_S3_SECRET_KEY":   "s3secretkey",
+				"PODIUM_AGENT_TOKEN":     "agenttoken",
+				"PODIUM_AGENT_API_TOKEN": "agent-api",
+				"TS_AUTHKEY":             "tskey-auth-notreal",
+				"PODIUM_TAILNET":         "tail0a1b2c",
 			})
 			// The server reads its whole configuration from the environment, so the compose
 			// block IS the configuration: set it and ask the binary's own loader.

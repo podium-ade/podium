@@ -32,6 +32,8 @@ const (
 	IdentityKind_IDENTITY_KIND_NODE IdentityKind = 2
 	// The local transport's shared bearer token, which has no per-user identity.
 	IdentityKind_IDENTITY_KIND_LOCAL_TOKEN IdentityKind = 3
+	// The conductor, presenting PODIUM_AGENT_API_TOKEN. It is not the dev token.
+	IdentityKind_IDENTITY_KIND_AGENT IdentityKind = 4
 )
 
 // Enum value maps for IdentityKind.
@@ -41,12 +43,14 @@ var (
 		1: "IDENTITY_KIND_USER",
 		2: "IDENTITY_KIND_NODE",
 		3: "IDENTITY_KIND_LOCAL_TOKEN",
+		4: "IDENTITY_KIND_AGENT",
 	}
 	IdentityKind_value = map[string]int32{
 		"IDENTITY_KIND_UNSPECIFIED": 0,
 		"IDENTITY_KIND_USER":        1,
 		"IDENTITY_KIND_NODE":        2,
 		"IDENTITY_KIND_LOCAL_TOKEN": 3,
+		"IDENTITY_KIND_AGENT":       4,
 	}
 )
 
@@ -409,12 +413,13 @@ const file_podium_v1_identity_proto_rawDesc = "" +
 	"\rClaimResponse\x12#\n" +
 	"\rhosted_domain\x18\x01 \x01(\tR\fhostedDomain\x12\x1d\n" +
 	"\n" +
-	"claimed_by\x18\x02 \x01(\tR\tclaimedBy*|\n" +
+	"claimed_by\x18\x02 \x01(\tR\tclaimedBy*\x95\x01\n" +
 	"\fIdentityKind\x12\x1d\n" +
 	"\x19IDENTITY_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12IDENTITY_KIND_USER\x10\x01\x12\x16\n" +
 	"\x12IDENTITY_KIND_NODE\x10\x02\x12\x1d\n" +
-	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x032\x8c\x01\n" +
+	"\x19IDENTITY_KIND_LOCAL_TOKEN\x10\x03\x12\x17\n" +
+	"\x13IDENTITY_KIND_AGENT\x10\x042\x8c\x01\n" +
 	"\x0fIdentityService\x12=\n" +
 	"\x06WhoAmI\x12\x18.podium.v1.WhoAmIRequest\x1a\x19.podium.v1.WhoAmIResponse\x12:\n" +
 	"\x05Claim\x12\x17.podium.v1.ClaimRequest\x1a\x18.podium.v1.ClaimResponseB\xa3\x01\n" +
