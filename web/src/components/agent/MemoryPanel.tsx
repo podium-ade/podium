@@ -113,6 +113,14 @@ export function MemoryPanel() {
 
   const items = searching ? search.data?.items : list.data?.items;
   const failed = active.isError && !isAgentUnreachable(active.error);
+  // The warning is standing copy for a memory that has answered. Drawing it on the first
+  // paint flashes it for the whole round trip, and a host with no memory service then
+  // replaces this panel with the not-configured empty state.
+  const memoryKnown =
+    list.data !== undefined ||
+    search.data !== undefined ||
+    (list.isError && connectCode(list.error) !== Code.FailedPrecondition) ||
+    (search.isError && connectCode(search.error) !== Code.FailedPrecondition);
 
   return (
     <div className="space-y-5">
@@ -126,11 +134,13 @@ export function MemoryPanel() {
 
       {/* role="note" rather than the default status: this is standing copy, not something
           that just happened, and a live region that never changes is noise to a reader. */}
-      <Alert variant="warn" role="note" title="Treat every line here as something an agent was told">
-        Anything an agent reads (a Slack message, a ticket, a repository) can try to plant a
-        false memory here. This list is where a human catches it: forget anything that looks
-        wrong.
-      </Alert>
+      {memoryKnown ? (
+        <Alert variant="warn" role="note" title="Treat every line here as something an agent was told">
+          Anything an agent reads (a Slack message, a ticket, a repository) can try to plant a
+          false memory here. This list is where a human catches it: forget anything that looks
+          wrong.
+        </Alert>
+      ) : null}
 
       <div className="space-y-2">
         <div className="relative max-w-xl">
