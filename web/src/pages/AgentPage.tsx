@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Cpu, Server, Settings2, UserRound } from "lucide-react";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
@@ -122,14 +122,12 @@ export function AgentPage() {
 }
 
 /**
- * SettingsTab is one switcher and the open section. The names are tabs while they fit
- * on a row, and one menu once they do not. The address is the section, so back and a
- * deep link both land on it.
+ * SettingsTab is a side list of sections and the open one. The address is the
+ * section, so back and a deep link both land on it.
  */
 function SettingsTab() {
   const viewer = useViewer();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
   const categories: { id: string; label: string; icon: LucideIcon }[] = [
@@ -152,12 +150,9 @@ function SettingsTab() {
 
   return (
     <PageFrame title="Settings">
-      <div className="space-y-6">
-        <SettingsSectionNav
-          sections={categories}
-          current={current}
-          onChange={(id) => navigate(`/agent/settings/${id}`)}
-        />
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
+        <SettingsSectionNav sections={categories} current={current} />
+        <div className="min-w-0 flex-1">
         {current === "account" ? (
           <section className="max-w-2xl space-y-4">
             <p className="text-sm leading-relaxed text-muted">
@@ -181,6 +176,7 @@ function SettingsTab() {
             <ModelsPanel />
           </section>
         ) : null}
+        </div>
       </div>
     </PageFrame>
   );
