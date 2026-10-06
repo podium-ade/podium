@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ func echoHeaders(t *testing.T) (*httptest.Server, *[]*http.Request) {
 		_, _ = w.Write([]byte(`{"authorization":` + quote(r.Header.Get("Authorization")) +
 			`,"login":` + quote(r.Header.Get(AgentLoginHeader)) +
 			`,"scope":` + quote(r.Header.Get(AgentScopeHeader)) +
+			`,"infra":` + quote(r.Header.Get(AgentInfraHeader)) +
 			`,"path":` + quote(r.URL.Path) + `}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -131,6 +133,32 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 			assert.Equal(t, tc.scope, got["scope"])
 		})
 	}
+}
+
+func TestAgentProxyMarksAnAdminAndDropsAClientInfraHeader(t *testing.T) {
+	upstream, _ := echoHeaders(t)
+	proxy, err := NewAgentProxy(upstream.URL, agentToken, nil, func(ctx context.Context) bool {
+		id, ok := transport.From(ctx)
+		return ok && id.Login == "admin@acme.com"
+	})
+	require.NoError(t, err)
+
+	admin := call(t, proxy, &transport.Identity{Kind: transport.KindUser, Login: "admin@acme.com"}, nil)
+	require.Equal(t, http.StatusOK, admin.Code)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(admin.Body.Bytes(), &got))
+	assert.Equal(t, "1", got["infra"])
+
+	member := call(t, proxy, &transport.Identity{Kind: transport.KindUser, Login: "bob@acme.com"},
+		func(r *http.Request) { r.Header.Set(AgentInfraHeader, "1") })
+	require.Equal(t, http.StatusOK, member.Code)
+	require.NoError(t, json.Unmarshal(member.Body.Bytes(), &got))
+	assert.Empty(t, got["infra"], "a member cannot grant itself the bot MCP list")
+
+	local := call(t, proxy, &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, nil)
+	require.Equal(t, http.StatusOK, local.Code)
+	require.NoError(t, json.Unmarshal(local.Body.Bytes(), &got))
+	assert.Equal(t, "1", got["infra"], "the dev token may edit the bot list")
 }
 
 func TestAgentProxyRefusesANode(t *testing.T) {

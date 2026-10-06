@@ -349,7 +349,7 @@ func (s *Server) mux() http.Handler {
 	rpc.Handle(podiumv1connect.NewUserServiceHandler(
 		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
-		api.NewSecretService(s.secrets, s.logger), opts...))
+		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
@@ -405,7 +405,7 @@ func (s *Server) mux() http.Handler {
 	// conductor: a control plane whose agent is down is still a working task runner, and
 	// readyz is what a load balancer and the compose healthcheck gate on.
 	if s.cfg.AgentEnabled() {
-		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger)
+		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger, s.agentInfra)
 		if err != nil {
 			// Validate has already parsed the URL, so this cannot fire in a started
 			// server; refusing to serve the prefix beats serving it wrongly.
@@ -420,6 +420,21 @@ func (s *Server) mux() http.Handler {
 		withAuth(api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
 	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
+}
+
+// agentInfra is true for a signed-in admin or owner. The dev token is handled by the
+// proxy itself. A member, a missing user, and a lookup error are false: the Slack bot's
+// MCP list stays closed when the server cannot prove the caller may edit it.
+func (s *Server) agentInfra(ctx context.Context) bool {
+	id, ok := transport.From(ctx)
+	if !ok || id.Kind != transport.KindUser || id.Login == "" {
+		return false
+	}
+	user, err := s.store.GetUser(ctx, id.Login)
+	if err != nil {
+		return false
+	}
+	return store.HasRole(user.Roles, store.RoleAdmin)
 }
 
 // readyz reports whether the dependencies this process cannot work without are reachable.

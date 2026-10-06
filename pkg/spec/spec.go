@@ -95,6 +95,10 @@ type SecretRef struct {
 	Name   string `yaml:"name" json:"name"`
 	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 	Key    string `yaml:"key" json:"key"`
+	// Owner is the login a personal secret belongs to. Empty means the secret is global.
+	// A stored task from before this field existed has an empty owner and still resolves
+	// as global.
+	Owner string `yaml:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // Sidecar is a sibling container started before the task and reachable from it by the

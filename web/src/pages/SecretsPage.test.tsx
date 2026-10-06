@@ -4,6 +4,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { IdentityKind } from "../gen/podium/v1/identity_pb";
+import { SecretScope } from "../gen/podium/v1/secret_pb";
+import { ViewerContext, type Viewer } from "../lib/identity";
 import { SecretsPage } from "./SecretsPage";
 import { ToastHost } from "../components/Toast";
 
@@ -23,14 +26,33 @@ vi.mock("../lib/client", async () => {
   };
 });
 
-function mount() {
+function person(role: string): Viewer {
+  return {
+    login: "ada@acme.com",
+    displayName: "Ada",
+    kind: IdentityKind.USER,
+    agentEnabled: true,
+    serverVersion: "test",
+    roles: [role],
+    claimed: true,
+    hostedDomain: "acme.com",
+    canClaim: false,
+    googleAuthEnabled: true,
+    claimDomain: "acme.com",
+    pictureUrl: "",
+  };
+}
+
+function mount(viewer?: Viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <ToastHost>
-        <SecretsPage />
-      </ToastHost>
-    </QueryClientProvider>,
+    <ViewerContext.Provider value={viewer}>
+      <QueryClientProvider client={qc}>
+        <ToastHost>
+          <SecretsPage />
+        </ToastHost>
+      </QueryClientProvider>
+    </ViewerContext.Provider>,
   );
 }
 
@@ -210,7 +232,9 @@ describe("SecretsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete DB_PASSWORD" }));
     await userEvent.type(screen.getByLabelText(/to confirm/i), "DB_PASSWORD");
     await userEvent.click(screen.getByRole("button", { name: "Delete secret" }));
-    await waitFor(() => expect(deleteSecret).toHaveBeenCalledWith({ name: "DB_PASSWORD" }));
+    await waitFor(() =>
+      expect(deleteSecret).toHaveBeenCalledWith({ name: "DB_PASSWORD", scope: undefined }),
+    );
   });
 
   it("says the server has no master key when it answers FailedPrecondition", async () => {
@@ -225,5 +249,62 @@ describe("SecretsPage", () => {
     });
     mount();
     expect(await screen.findByText(/rotation stopped part way/i)).toBeInTheDocument();
+  });
+
+  it("shows Global and Yours, and a member cannot write a global secret", async () => {
+    listSecrets.mockResolvedValue({
+      secrets: [
+        { ...row, scope: SecretScope.GLOBAL },
+        { ...row, name: "linear_key", scope: SecretScope.PERSONAL, createdBy: "ada@acme.com" },
+      ],
+    });
+    mount(person("member"));
+    expect(await screen.findByRole("tab", { name: "Global" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Yours" })).toBeInTheDocument();
+    expect(screen.getByTestId("secrets-global")).toHaveTextContent("DB_PASSWORD");
+    expect(screen.queryByRole("button", { name: "Rotate DB_PASSWORD" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete DB_PASSWORD" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New secret" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Yours" }));
+    expect(screen.getByTestId("secrets-yours")).toHaveTextContent("linear_key");
+    expect(screen.getByRole("button", { name: "Rotate linear_key" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "New secret" })).toHaveLength(1);
+
+    setSecret.mockResolvedValue({ secret: { name: "notes", version: 1 } });
+    await userEvent.click(screen.getByRole("button", { name: "New secret" }));
+    await userEvent.type(screen.getByLabelText("Name"), "notes");
+    await userEvent.type(screen.getByLabelText("Value"), "mine");
+    await userEvent.click(screen.getByRole("button", { name: "Save secret" }));
+    await waitFor(() => expect(setSecret).toHaveBeenCalled());
+    expect(setSecret.mock.calls[0][0]).toMatchObject({ name: "notes", scope: SecretScope.PERSONAL });
+  });
+
+  it("lets an admin write global secrets and still only their own personal ones", async () => {
+    listSecrets.mockResolvedValue({
+      secrets: [
+        { ...row, scope: SecretScope.GLOBAL },
+        { ...row, name: "linear_key", scope: SecretScope.PERSONAL },
+      ],
+    });
+    mount(person("admin"));
+    expect(await screen.findByRole("button", { name: "Rotate DB_PASSWORD" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "New secret" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /another person/i })).toBeNull();
+
+    setSecret.mockResolvedValue({ secret: { name: "DB_PASSWORD", version: 4 } });
+    await userEvent.click(screen.getByRole("button", { name: "Rotate DB_PASSWORD" }));
+    await userEvent.type(screen.getByLabelText("Value"), "next");
+    await userEvent.click(screen.getByRole("button", { name: /Rotate to version/ }));
+    await waitFor(() => expect(setSecret).toHaveBeenCalled());
+    expect(setSecret.mock.calls[0][0]).toMatchObject({
+      name: "DB_PASSWORD",
+      scope: SecretScope.GLOBAL,
+    });
+
+    await userEvent.click(screen.getByRole("tab", { name: "Yours" }));
+    expect(screen.getByRole("button", { name: "Rotate linear_key" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rotate DB_PASSWORD" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "New secret" })).toHaveLength(1);
   });
 });

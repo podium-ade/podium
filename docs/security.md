@@ -30,8 +30,10 @@ Three consequences, and they are not negotiable:
   power with a longer name. The shipped systemd unit runs as root and says so.
 - **A node host is root-equivalent to whoever can submit tasks.** After a Workspace claim a
   member can still CreateTask, so in practice: every member who can reach the API can run
-  arbitrary code as root on every worker. Admins and owners can also drain nodes and set
-  secrets. The local token still does everything.
+  arbitrary code as root on every worker. That task may name only the member's own personal
+  secrets. A global secret is attached only by the conductor. Admins and owners can also drain
+  nodes and set global secrets. The local token can still set a global secret and still cannot
+  attach one.
 - **Run workers on machines that do nothing else.** A node is a machine you are willing to let
   arbitrary containers run on. Do not put one on a machine that also holds production data, a
   CI signing key, or somebody's laptop session.
@@ -200,17 +202,18 @@ SAML is not implemented.
   for a `grok` one, or `podium.agent.openai_api_key` for an `openai` one, never two. Keep
   `secrets:` minimal per playbook and do not put a credential in a playbook a public channel can
   reach.
-- **A playbook is not a boundary around secrets, and never was.** It decides what *this bot* hands
-  a turn, and that is worth keeping tight — but it stops nobody. `CreateTask` checks only that a
-  named secret **exists**; there is no authorisation over which secrets a caller may name. So
-  a member who can reach the control plane can already submit a task that mounts any registered
-  secret into an image and a command of their choosing, and print the value. Writing a playbook
-  or a secret is an admin action; *using* a named secret in a task spec is not. Restricting one
-  path while the other is open to members would be theatre, not a control. The only names a
-  playbook may not use are the reserved ones above, and that is a routing rule, not a privilege:
-  the conductor supplies them itself.
-  **The control is who can submit a task.** Put the control plane on a tailnet, keep the set of
-  people who can reach it small, and treat every registered secret as readable by every member.
+- **A global secret is attached only by the conductor.** `CreateTask` refuses a global name from
+  a member, an admin, the dev token, and a node. The error says the conductor attaches that
+  secret. A person can name their own personal secrets, and the conductor can name them when the
+  task is for that person. An admin can set and delete global values. A member can set and delete
+  only their own. The dev token can set a global value and cannot set a personal one. A list
+  returns every global name plus the caller's own personal names, and never another login's.
+  No API returns a value.
+  `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person, so a
+  playbook that names one fails the turn, and a Slack mention does not use the mentioner's
+  personal secrets or MCP servers. The server does not check that a global name appears on a
+  playbook: which globals a playbook grants is still the conductor's rule. A stolen conductor
+  token can still mount every global secret.
 - **A playbook with `repos:` and a GitHub token has write access to your repositories, and a
   prompt injection can steer it.** Podium ships no such playbook — see
   [`agent.md`](agent.md#playbooks-that-clone-repositories) — but it is the obvious one to write,
@@ -511,11 +514,17 @@ has Linear's server can read and write whatever the stored Linear token can.
 
 What it gives you:
 
-- **Registering is not granting.** The MCP screen holds an operator's list of servers this
-  conductor *can* reach; only a playbook's `mcp_servers:` decides which turns do. A token stored
-  and named by no playbook is spent by nothing.
-- **The token is a Podium secret and is never in a document.** It is stored as
-  `podium.agent.mcp.<name>_token`, attached to the task as `PODIUM_MCP_<NAME>_TOKEN`, and the
+- **Registering is not granting.** The MCP screen has two lists. Yours is the signed-in person's
+  servers, and a turn for that person resolves `mcp_servers:` against those rows only. The bot
+  list is the unowned rows Slack uses. It is for Slack, and it is not a Linear agent
+  installation. A Slack mention does not use the mentioner's servers. A member can edit Yours
+  and cannot edit the bot list. An admin can edit both, and cannot edit another person's row.
+  Only a playbook's `mcp_servers:` decides which names a turn asks for. A missing name fails
+  the turn and says which server. A token stored and named by no playbook is spent by nothing.
+- **The token is a Podium secret and is never in a document.** A bot row is stored as
+  `podium.agent.mcp.<name>_token`. A person's server uses a different global name that includes
+  a hash of their login, so two people who both register `linear` do not share a token. It is
+  attached to the task as `PODIUM_MCP_<NAME>_TOKEN`, and the
   brief and the harness config carry only the variable's name. No config file on disk and no
   task spec holds the value, and nothing — including the conductor — can read it back out of the
   secret store. What the UI shows is four characters kept at save time, and for a sign-in not
@@ -907,8 +916,9 @@ Everything below is a real hole, not a hypothetical:
 
 - **RBAC is KindUser after a Workspace claim, not a wall around the API.** Member / admin /
   owner is enforced on the web UI and Connect procedures. The local token and every node still
-  do everything, including running code as root on every worker. Members can still CreateTask
-  with any named secret. Slack mentions and Linear assignments are not roles.
+  do everything, including running code as root on every worker. Members can still CreateTask,
+  and a task may name only that member's own personal secrets. A global name is refused unless
+  the conductor attaches it. Slack mentions and Linear assignments are not roles.
 - **No egress policy for tasks.** Whether a task can reach the host's other networks is up to
   the host, untested, and probably yes.
 - **The local transport is plaintext**, secret values included.
@@ -942,10 +952,11 @@ Everything below is a real hole, not a hypothetical:
 - **An assistant turn has no step cap unless `profile.yaml: max_turns` sets one.** It always
   has a wall clock, though — `timeout`, fifteen minutes by default and with no "off" — so a
   stuck turn stops on its own rather than running until somebody notices.
-- **Anyone who can reach the control plane can run code with any registered secret**, through a
-  task spec or through a playbook: `CreateTask` checks that a named secret exists and never that
-  the caller may have it. A playbook's `secrets:` list scopes what one bot hands one turn; it is
-  not a boundary around the secret store.
+- **A global secret is mounted only when the conductor builds the turn.** A member, an admin,
+  the dev token, and a node are refused if they name one on `CreateTask`. A person can attach
+  their own personal secrets. The dev token can still set a global value. Which globals a
+  playbook grants is the conductor's rule, not a check the server makes against the playbook.
+  Slack does not use the mentioner's personal secrets or MCP servers.
 - **A playbook you give `repos:` and a GitHub token can push branches and open pull requests, and
   a prompt injection in a ticket, a comment or a cloned repository's own files can steer it.**
   Draft PRs, branch protection and a fine-grained token reduce this; nothing here removes it.

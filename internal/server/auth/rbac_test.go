@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/podium-ade/podium/internal/server/store"
@@ -107,7 +108,10 @@ func TestRestrictRBACMemberCanListAndCreateTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, hit(h, podiumv1connect.TaskServiceListTasksProcedure, user("bob@acme.com")).Code)
 	require.Equal(t, http.StatusOK, hit(h, podiumv1connect.UserServiceListUsersProcedure, user("bob@acme.com")).Code)
 	require.Equal(t, http.StatusOK, hit(h, podiumv1connect.SecretServiceListSecretsProcedure, user("bob@acme.com")).Code)
-	require.Equal(t, http.StatusForbidden, hit(h, podiumv1connect.SecretServiceSetSecretProcedure, user("bob@acme.com")).Code)
+	require.Equal(t, http.StatusOK, hit(h, podiumv1connect.SecretServiceSetSecretProcedure, user("bob@acme.com")).Code,
+		"a member may call SetSecret; the handler refuses a global write")
+	require.Equal(t, http.StatusOK, hit(h, agentv1connect.AgentServiceCreateMcpServerProcedure, user("bob@acme.com")).Code,
+		"a member may register their own MCP server; the conductor refuses a bot-list write")
 }
 
 func TestRestrictRBACUnclaimedPassesThrough(t *testing.T) {

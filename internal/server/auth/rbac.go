@@ -55,9 +55,12 @@ var catalog = map[string]string{
 	podiumv1connect.NodeServiceUploadWorkspaceSnapshotProcedure:   store.RoleAdmin,
 	podiumv1connect.NodeServiceDownloadWorkspaceSnapshotProcedure: store.RoleAdmin,
 
+	// Set and Delete are member so a person can write their own secret. The handler
+	// refuses a global write from anyone who is not an admin. KindAgent and the dev
+	// token skip this map and are checked in the handler too.
 	podiumv1connect.SecretServiceListSecretsProcedure:  store.RoleMember,
-	podiumv1connect.SecretServiceSetSecretProcedure:    store.RoleAdmin,
-	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleAdmin,
+	podiumv1connect.SecretServiceSetSecretProcedure:    store.RoleMember,
+	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleMember,
 
 	podiumv1connect.RegistryServiceListRegistriesProcedure: store.RoleMember,
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
@@ -100,13 +103,13 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceUploadSkillProcedure:                store.RoleAdmin,
 	agentv1connect.AgentServiceSetSkillEnabledProcedure:            store.RoleAdmin,
 	agentv1connect.AgentServiceDeleteSkillProcedure:                store.RoleAdmin,
-	agentv1connect.AgentServiceCreateMcpServerProcedure:            store.RoleAdmin,
-	agentv1connect.AgentServiceUpdateMcpServerProcedure:            store.RoleAdmin,
-	agentv1connect.AgentServiceDeleteMcpServerProcedure:            store.RoleAdmin,
-	agentv1connect.AgentServiceSetMcpServerTokenProcedure:          store.RoleAdmin,
-	agentv1connect.AgentServiceClearMcpServerTokenProcedure:        store.RoleAdmin,
-	agentv1connect.AgentServiceStartMcpOAuthProcedure:              store.RoleAdmin,
-	agentv1connect.AgentServiceCompleteMcpOAuthProcedure:           store.RoleAdmin,
+	agentv1connect.AgentServiceCreateMcpServerProcedure:            store.RoleMember,
+	agentv1connect.AgentServiceUpdateMcpServerProcedure:            store.RoleMember,
+	agentv1connect.AgentServiceDeleteMcpServerProcedure:            store.RoleMember,
+	agentv1connect.AgentServiceSetMcpServerTokenProcedure:          store.RoleMember,
+	agentv1connect.AgentServiceClearMcpServerTokenProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceStartMcpOAuthProcedure:              store.RoleMember,
+	agentv1connect.AgentServiceCompleteMcpOAuthProcedure:           store.RoleMember,
 	agentv1connect.AgentServiceSetSlackChannelDescriptionProcedure: store.RoleAdmin,
 }
 

@@ -81,6 +81,8 @@ type Secret struct {
 	KeyID      string
 	CreatedBy  string
 	UpdatedAt  time.Time
+	Scope      string
+	Owner      string
 }
 
 type Session struct {

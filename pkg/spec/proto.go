@@ -39,7 +39,7 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		p.Secrets = make([]*podiumv1.SecretRef, 0, len(s.Secrets))
 		for _, ref := range s.Secrets {
 			p.Secrets = append(p.Secrets, &podiumv1.SecretRef{
-				Name: ref.Name, Target: ref.Target, Key: ref.Key,
+				Name: ref.Name, Target: ref.Target, Key: ref.Key, Owner: ref.Owner,
 			})
 		}
 	}
@@ -83,7 +83,7 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		s.Secrets = make([]SecretRef, 0, len(p.GetSecrets()))
 		for _, ref := range p.GetSecrets() {
 			s.Secrets = append(s.Secrets, SecretRef{
-				Name: ref.GetName(), Target: ref.GetTarget(), Key: ref.GetKey(),
+				Name: ref.GetName(), Target: ref.GetTarget(), Key: ref.GetKey(), Owner: ref.GetOwner(),
 			})
 		}
 	}

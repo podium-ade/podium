@@ -177,6 +177,11 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 			Name: ref.Name, Target: ref.Target, Key: ref.Key,
 		})
 	}
+	for _, ref := range s.UserSecrets {
+		out.UserSecrets = append(out.UserSecrets, &agentv1.PlaybookSecretRef{
+			Name: ref.Name, Target: ref.Target, Key: ref.Key,
+		})
+	}
 	for _, r := range s.Repos {
 		out.Repos = append(out.Repos, &agentv1.PlaybookRepo{
 			Name: r.Name, Url: r.URL, DefaultBranch: r.DefaultBranch,

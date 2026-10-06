@@ -41,6 +41,9 @@ import (
 // fixture, not a secret.
 const devToken = "devtoken-integration"
 
+// agentToken is the conductor's bearer. Only that principal may attach a global secret.
+const agentToken = "agenttoken-integration"
+
 // assignTimeout is generous on purpose: the naive scheduler ticks once a second and a task has
 // to be claimed, assigned and pushed before a node sees it.
 const assignTimeout = 20 * time.Second
@@ -141,6 +144,7 @@ func newHarnessOn(t *testing.T, databaseURL string, opts ...func(*server.Config)
 		Transport:     server.TransportLocal,
 		LocalListen:   "127.0.0.1:0",
 		LocalToken:    devToken,
+		AgentAPIToken: agentToken,
 		MasterKeyFile: masterKeyFile(t),
 		Rollup:        logs.DefaultRollupConfig(),
 	}
@@ -190,6 +194,11 @@ func h2cClient(token string) *http.Client {
 	tr := &http.Transport{Protocols: new(http.Protocols)}
 	tr.Protocols.SetUnencryptedHTTP2(true)
 	return &http.Client{Transport: bearer{token: token, rt: tr}}
+}
+
+// agentTasks is the conductor's client. CreateTask with a global secret uses this bearer.
+func (h *harness) agentTasks() podiumv1connect.TaskServiceClient {
+	return podiumv1connect.NewTaskServiceClient(h2cClient(agentToken), h.url)
 }
 
 func (h *harness) createTask(labels []string, command ...string) *podiumv1.Task {
