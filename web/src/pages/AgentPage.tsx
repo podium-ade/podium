@@ -74,7 +74,6 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
 export function AgentPage() {
   const viewer = useViewer();
   const { pathname } = useLocation();
-  const chat = pathname.startsWith("/agent/chat");
 
   const onSettings = pathname === "/agent/settings" || pathname.startsWith("/agent/settings/");
   if (viewer && !viewer.agentEnabled && !onSettings) {
@@ -89,34 +88,30 @@ export function AgentPage() {
     );
   }
 
-  const routed = (
-    <Routes>
-      <Route index element={<Navigate to="/agent/chat" replace />} />
-      {tabs.map((t) => (
-        <Route key={t.path} path={t.route ?? t.path} element={t.element} />
-      ))}
-      {sidebarScreens.map((s) => (
-        <Route key={s.path} path={s.path} element={s.element} />
-      ))}
-      <Route path="*" element={<Navigate to="/agent/chat" replace />} />
-    </Routes>
-  );
-
-  const current = tabs.find((t) => {
-    const prefix = `/agent/${t.path}`;
-    return pathname === prefix || pathname.startsWith(`${prefix}/`);
-  });
-  const showFrame = pathname === "/agent" || pathname === "/agent/" || current != null;
-
-  if (!showFrame) {
-    // Playbooks, skills, MCP, channels and settings draw their own bar.
-    return <div className="h-full min-h-0">{routed}</div>;
-  }
-
+  // Chat, Sessions, Memory and Assistant each draw their own bar. The other
+  // screens already do. One shared bar kept Chat's full-bleed pane in place
+  // while the next screen mounted into it.
   return (
-    <PageFrame title={current?.title ?? "Chat"} bleed={chat}>
-      {routed}
-    </PageFrame>
+    <div className="h-full min-h-0">
+      <Routes>
+        <Route index element={<Navigate to="/agent/chat" replace />} />
+        {tabs.map((t) => (
+          <Route
+            key={t.path}
+            path={t.route ?? t.path}
+            element={
+              <PageFrame title={t.title} bleed={t.path === "chat"}>
+                {t.element}
+              </PageFrame>
+            }
+          />
+        ))}
+        {sidebarScreens.map((s) => (
+          <Route key={s.path} path={s.path} element={s.element} />
+        ))}
+        <Route path="*" element={<Navigate to="/agent/chat" replace />} />
+      </Routes>
+    </div>
   );
 }
 
