@@ -44,7 +44,7 @@ export function PageFrame({
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   return (
     <PageActionsContext.Provider value={slot}>
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-full min-h-0 flex-col bg-background">
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
           {back ? (
             <Link
@@ -73,7 +73,7 @@ export function PageFrame({
           ) : (
             <div
               className={cn(
-                "mx-auto w-full max-w-7xl animate-in px-6 py-6 fade-in-0 duration-200 lg:px-8",
+                "mx-auto w-full max-w-7xl px-6 py-6 lg:px-8",
                 bodyClassName ?? "space-y-5",
               )}
             >
