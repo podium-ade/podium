@@ -1,14 +1,7 @@
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import {
-  Brain,
-  Cpu,
-  History,
-  MessageSquare,
-  Settings2,
-  UserRound,
-} from "lucide-react";
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Cpu, Settings2, UserRound } from "lucide-react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
@@ -25,56 +18,36 @@ import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
-import { PageHeader } from "../components/PageHeader";
+import { PageActions, PageFrame } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
-import { Separator } from "../components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
-import { cn } from "../lib/utils";
 
 /**
- * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
- * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app
- * sidebar instead — they are destinations of their own, not something you switch between
- * while talking.
+ * Tab is one assistant screen. Chat, Sessions, Memory and Assistant are links in the app
+ * sidebar, as are Playbooks, Skills, MCP, Channels and Settings.
  *
- * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
- * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
- * is the pattern the nested Routes matches, and it exists only for Chat, whose own screen
- * takes a chat id after the segment.
+ * `route` exists only for Chat, whose own screen takes a chat id after the segment.
  *
  * Chat is first because that is the thing an operator opens this tab to do. Settings used to
  * lead, which put a credentials form in front of the conversation.
  */
 type Tab = {
   path: string;
-  label: string;
+  title: string;
   element: ReactNode;
   route?: string;
-  icon: LucideIcon;
 };
 
-type Group = { label: string; tabs: Tab[] };
-
-const groups: Group[] = [
-  {
-    label: "Talk",
-    tabs: [
-      { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*", icon: MessageSquare },
-      { path: "sessions", label: "Sessions", element: <SessionsTable />, icon: History },
-      { path: "memory", label: "Memory", element: <MemoryPanel />, icon: Brain },
-    ],
-  },
-  {
-    label: "Configure",
-    tabs: [{ path: "profile", label: "Assistant", element: <ProfileTab />, icon: UserRound }],
-  },
+const tabs: Tab[] = [
+  { path: "chat", title: "Chat", element: <ChatPanel />, route: "chat/*" },
+  { path: "sessions", title: "Sessions", element: <SessionsTable /> },
+  { path: "memory", title: "Memory", element: <MemoryPanel /> },
+  { path: "profile", title: "Assistant", element: <ProfileTab /> },
 ];
-
-const tabs: Tab[] = groups.flatMap((g) => g.tabs);
 
 /** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
 const sidebarScreens: { path: string; element: ReactNode }[] = [
@@ -91,26 +64,8 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
 ];
 
 /**
- * The tab bar is horizontal, and it is a row of links rather than `ui/tabs` on purpose: an
- * active tab here is a route, so the back button and a deep link both work, and only an
- * anchor gives that for free. The classes are `TabsTrigger`'s so it still reads as one
- * component family.
- *
- * It used to be a 192px rail, which put a second grey nav column immediately right of the
- * app's own and spent a quarter of the window before any content.
- */
-function tabLink({ isActive }: { isActive: boolean }) {
-  return cn(
-    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium whitespace-nowrap",
-    "transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-    "[&_svg]:size-3.5 [&_svg]:shrink-0",
-    isActive ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
-  );
-}
-
-/**
- * AgentPage is the bot's home in the UI: a tab shell whose active tab is a real route, so
- * the back button and a deep link both work.
+ * AgentPage is the assistant's screens. Chat, Sessions, Memory and Assistant live in the
+ * app sidebar. Each is still a real route, so the back button and a deep link both work.
  *
  * With no conductor configured there is nothing to show. The route still exists — a browser
  * that follows an old bookmark gets a sentence rather than a blank page — and the nav item
@@ -124,13 +79,13 @@ export function AgentPage() {
   const onSettings = pathname === "/agent/settings" || pathname.startsWith("/agent/settings/");
   if (viewer && !viewer.agentEnabled && !onSettings) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-16 lg:px-8">
+      <PageFrame title="Assistant">
         <Empty
           icon={Settings2}
           title="The conductor is not configured on this control plane"
           hint="Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server and run podium-agent beside it. See docs/agent.md."
         />
-      </div>
+      </PageFrame>
     );
   }
 
@@ -147,58 +102,21 @@ export function AgentPage() {
     </Routes>
   );
 
-  const showSubnav =
-    pathname === "/agent" ||
-    pathname === "/agent/" ||
-    groups.some((g) =>
-      g.tabs.some((t) => {
-        const prefix = `/agent/${t.path}`;
-        return pathname === prefix || pathname.startsWith(`${prefix}/`);
-      }),
-    );
+  const current = tabs.find((t) => {
+    const prefix = `/agent/${t.path}`;
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  });
+  const showFrame = pathname === "/agent" || pathname === "/agent/" || current != null;
+
+  if (!showFrame) {
+    // Playbooks, skills, MCP, channels and settings draw their own bar.
+    return <div className="h-full min-h-0">{routed}</div>;
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {showSubnav ? (
-        <div className="shrink-0 border-b border-border bg-panel/50">
-          <nav
-            aria-label="Agent"
-            className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2.5 lg:px-8"
-          >
-            {groups.map((g, i) => (
-              <Fragment key={g.label}>
-                {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
-                <div className="flex items-center gap-2">
-                  <span className="text-2xs font-medium tracking-wider text-faint uppercase">
-                    {g.label}
-                  </span>
-                  <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-                    {g.tabs.map((t) => (
-                      <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-                        <t.icon />
-                        {t.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                </div>
-              </Fragment>
-            ))}
-          </nav>
-        </div>
-      ) : null}
-
-      {/* Chat is a full-height pane and owns its own scrolling; every other tab is a page. */}
-      {chat ? (
-        <div className="min-h-0 flex-1 overflow-hidden">{routed}</div>
-      ) : (
-        // relative for the same reason as the shell's main — see App.tsx.
-        <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-7 lg:px-8">
-          <div key={pathname} className="mx-auto w-full max-w-7xl animate-in fade-in-0 duration-200">
-            {routed}
-          </div>
-        </div>
-      )}
-    </div>
+    <PageFrame title={current?.title ?? "Chat"} bleed={chat}>
+      {routed}
+    </PageFrame>
   );
 }
 
@@ -221,10 +139,12 @@ function SettingsTab() {
 
   if (categories.length === 0) {
     return (
-      <Empty
-        title="Nothing to configure"
-        hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
-      />
+      <PageFrame title="Settings">
+        <Empty
+          title="Nothing to configure"
+          hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
+        />
+      </PageFrame>
     );
   }
 
@@ -235,8 +155,7 @@ function SettingsTab() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Settings" description="Account and the model APIs this conductor can spend." />
+    <PageFrame title="Settings">
       <Tabs
         orientation="vertical"
         value={current}
@@ -269,7 +188,7 @@ function SettingsTab() {
           </TabsContent>
         ) : null}
       </Tabs>
-    </div>
+    </PageFrame>
   );
 }
 
@@ -389,11 +308,9 @@ function ProfileTab() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Assistant"
-        description="Who answers a conversation, and which model it answers on. Every editable field here overrides profile.yaml on the conductor's host."
-        actions={<ReloadProfileDirButton />}
-      />
+      <PageActions>
+        <ReloadProfileDirButton />
+      </PageActions>
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown
           what="The profile could not be read"

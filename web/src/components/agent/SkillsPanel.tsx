@@ -6,7 +6,7 @@ import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { humanBytes } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -106,17 +106,8 @@ export function SkillsPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Skills"
-        description="A folder the model can load mid-turn: SKILL.md and the files it names. A playbook names which skills a turn may use."
-        meta={
-          skills.length > 0 ? (
-            <Chip className="tabular">
-              {skills.length} {skills.length === 1 ? "skill" : "skills"}
-            </Chip>
-          ) : undefined
-        }
         actions={
           <Button
             type="button"
@@ -131,7 +122,7 @@ export function SkillsPanel() {
             New skill
           </Button>
         }
-      />
+      >
 
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
@@ -208,7 +199,7 @@ export function SkillsPanel() {
           ))}
         </ul>
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 

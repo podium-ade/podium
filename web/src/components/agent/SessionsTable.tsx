@@ -18,7 +18,7 @@ import { ranBy } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+
 import { TableSkeleton } from "../Skeleton";
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
@@ -91,20 +91,14 @@ export function SessionsTable() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Sessions"
-        description="Every conversation the conductor has taken part in. Web chats and Slack threads are listed apart, and the turns inside each one open on the right."
-        meta={
-          rows.length > 0 ? (
-            <>
-              <Chip>
-                {rows.length} {rows.length === 1 ? "session" : "sessions"}
-              </Chip>
-              <Chip>refreshed every {POLL_MS / 1000}s</Chip>
-            </>
-          ) : null
-        }
-      />
+      {rows.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip>
+            {rows.length} {rows.length === 1 ? "session" : "sessions"}
+          </Chip>
+          <Chip>refreshed every {POLL_MS / 1000}s</Chip>
+        </div>
+      ) : null}
 
       {sessions.isPending ? <TableSkeleton rows={5} cols={6} /> : null}
 

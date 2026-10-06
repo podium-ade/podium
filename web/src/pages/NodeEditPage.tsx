@@ -5,7 +5,7 @@ import { AlertTriangle, RotateCcw, Server } from "lucide-react";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { NodeActions } from "../components/NodeActions";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { CopyValue } from "../components/task/CopyValue";
 import { useToast } from "../components/Toast";
@@ -63,14 +63,13 @@ export function NodeEditPage() {
 
   if (!node) {
     return (
-      <div className="space-y-5">
-        <PageHeader title="Node" back={{ to: "/nodes", label: "Nodes" }} />
+      <PageFrame title="Node" back={{ to: "/nodes", label: "Nodes" }}>
         <Empty
           icon={Server}
           title="No such node"
           hint={`Nothing enrolled here has the ID ${id}. It may have been deleted, or the ID may be from another control plane.`}
         />
-      </div>
+      </PageFrame>
     );
   }
 
@@ -114,11 +113,9 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
   });
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         back={{ to: "/nodes", label: "Nodes" }}
         title={node.name}
-        description="What this machine is, and how much work the control plane gives it."
         actions={<NodeActions node={node} />}
         meta={
           <>
@@ -126,7 +123,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
             <CopyValue value={node.id} label="node ID" />
           </>
         }
-      />
+      >
 
       {listFailed ? (
         <Alert variant="warn" title="This page has stopped refreshing">
@@ -302,7 +299,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
         <span className="font-mono">PODIUM_NODE_*</span> environment, and a node re-advertises
         them on every reconnect.
       </p>
-    </div>
+    </PageFrame>
   );
 }
 

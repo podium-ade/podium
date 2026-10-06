@@ -16,7 +16,7 @@ import { absolute, relative } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { Field } from "../submit/Field";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
@@ -120,33 +120,15 @@ export function McpPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="MCP servers"
-        description={
-          <>
-            An MCP server is a set of tools the model can call over HTTP: Linear&apos;s issues,
-            a wiki, an internal API. Registering one here says this conductor <em>can</em> reach
-            it; a playbook naming it is what decides which turns <em>do</em>.
-          </>
-        }
-        meta={
-          servers.length > 0 ? (
-            <>
-              <Chip className="tabular">
-                {servers.length} {servers.length === 1 ? "server" : "servers"}
-              </Chip>
-              <Chip className="tabular">{servers.filter((s) => !s.enabled).length} disabled</Chip>
-            </>
-          ) : undefined
-        }
         actions={
           <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new")}>
             <Plus />
             New server
           </Button>
         }
-      />
+      >
 
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
@@ -205,7 +187,7 @@ export function McpPanel() {
           await reload();
         }}
       />
-    </div>
+    </PageFrame>
   );
 }
 

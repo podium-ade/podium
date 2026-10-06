@@ -74,8 +74,8 @@ test("the agent settings page validates and stores a provider key", async ({ pag
   await authenticate(page);
   await page.goto("/agent/settings/models");
 
-  // The Agent tab exists at all only because WhoAmI said the server proxies a conductor.
-  await expect(page.getByRole("link", { name: "Agent" })).toBeVisible();
+  // Chat is in the sidebar only because WhoAmI said the server proxies a conductor.
+  await expect(page.getByRole("link", { name: "Chat" })).toBeVisible();
   await expect(anthropicCard(page).getByText("Not set")).toBeVisible();
   await expect(page.getByText(/encrypted at rest by podium-server/i)).toBeVisible();
   await expect(page.getByTestId("provider-key-save-anthropic")).toBeDisabled();
@@ -157,8 +157,8 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/mcp$/);
   await expect(page.getByTestId("mcp-new")).toBeVisible();
 
-  // Back into the talk screens: Agent in the sidebar, then the remaining tabs.
-  await page.getByRole("link", { name: "Agent" }).click();
+  // Back into the talk screens. Chat, Sessions, Memory and Assistant are sidebar links.
+  await page.getByRole("link", { name: "Chat" }).click();
   await expect(page).toHaveURL(/\/agent\/chat$/);
 
   // The Assistant tab reads the profile the conductor is actually running, files and stored
