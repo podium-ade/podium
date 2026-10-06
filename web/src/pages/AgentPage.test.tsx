@@ -305,6 +305,9 @@ describe("AgentPage", () => {
     await within(await screen.findByTestId("provider-card-anthropic")).findByText("Not set");
     getSettings.mockResolvedValue(connected);
 
+    await userEvent.click(
+      within(screen.getByTestId("provider-card-anthropic")).getByRole("button", { name: "Connect" }),
+    );
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
@@ -342,7 +345,8 @@ describe("AgentPage", () => {
     );
     mount();
     expect(await screen.findByText(/podium-agent is not reachable/)).toBeInTheDocument();
-    // Not a blank card: the input is still there to try again with.
+    expect(screen.getByTestId("provider-card-anthropic")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]);
     expect(screen.getByTestId("provider-key-input-anthropic")).toBeInTheDocument();
   });
 

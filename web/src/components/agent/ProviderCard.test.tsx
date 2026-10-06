@@ -38,6 +38,11 @@ function withProviderMessage(message: string, code: Code, said: string): Connect
   return err;
 }
 
+async function connect() {
+  const button = screen.queryByRole("button", { name: "Connect" });
+  if (button) await userEvent.click(button);
+}
+
 function mount(settings?: ProviderSettings, loading = false) {
   return render(
     <ToastHost>
@@ -83,7 +88,9 @@ describe("ProviderCard", () => {
     expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(screen.getByText("Not set")).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
-    expect(screen.getByText(ANTHROPIC.how)).toBeInTheDocument();
+    expect(screen.getByTestId("provider-card-anthropic")).toHaveTextContent(ANTHROPIC.how);
+    expect(screen.queryByTestId("provider-key-save-anthropic")).toBeNull();
+    await connect();
     expect(screen.getByTestId("provider-key-save-anthropic")).toBeDisabled();
     // Nothing to remove yet, so no danger zone at all.
     expect(screen.queryByTestId("provider-key-remove-anthropic")).toBeNull();
@@ -91,6 +98,7 @@ describe("ProviderCard", () => {
 
   it("enables the button once there is something to save", async () => {
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     expect(screen.getByTestId("provider-key-save-anthropic")).toBeEnabled();
   });
@@ -105,6 +113,7 @@ describe("ProviderCard", () => {
   it("proves a saved key with a hint and the models it can see", async () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
+    await connect();
 
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
@@ -115,8 +124,8 @@ describe("ProviderCard", () => {
     expect(status.className).toContain("text-ok");
     expect(screen.getByText("claude-opus-5")).toBeInTheDocument();
     expect(screen.getByText("claude-haiku-4-5")).toBeInTheDocument();
-    // The key is out of the field the moment it is stored.
-    expect(screen.getByTestId("provider-key-input-anthropic")).toHaveValue("");
+    // The key field closes once the credential is stored.
+    expect(screen.queryByTestId("provider-key-input-anthropic")).toBeNull();
     expect(document.body.textContent).not.toContain(KEY);
   });
 
@@ -129,6 +138,7 @@ describe("ProviderCard", () => {
       }),
     );
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), "ant-api03-whatever");
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     expect(await screen.findByText(/looks unusual; validated anyway/)).toBeInTheDocument();
@@ -140,6 +150,7 @@ describe("ProviderCard", () => {
       new ConnectError("Anthropic rejected this key", Code.PermissionDenied),
     );
     mount(notSet);
+    await connect();
 
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
@@ -161,6 +172,7 @@ describe("ProviderCard", () => {
       withProviderMessage("Anthropic rejected this key", Code.PermissionDenied, said),
     );
     mount(notSet);
+    await connect();
 
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
@@ -182,6 +194,7 @@ describe("ProviderCard", () => {
       ),
     );
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
@@ -198,6 +211,7 @@ describe("ProviderCard", () => {
       new ConnectError("Anthropic rejected this key", Code.PermissionDenied),
     );
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     await screen.findByTestId("provider-key-status-anthropic");
@@ -215,6 +229,7 @@ describe("ProviderCard", () => {
       withProviderMessage("Anthropic rejected this key", Code.PermissionDenied, hostile),
     );
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
@@ -236,6 +251,7 @@ describe("ProviderCard", () => {
       new ConnectError("could not validate the key with Anthropic; nothing was saved", Code.Unavailable),
     );
     const view = mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     let status = await screen.findByTestId("provider-key-status-anthropic");
@@ -245,6 +261,7 @@ describe("ProviderCard", () => {
 
     onSave.mockRejectedValue(new ConnectError(AGENT_UNREACHABLE, Code.Unavailable));
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
     status = await screen.findByTestId("provider-key-status-anthropic");
@@ -255,6 +272,7 @@ describe("ProviderCard", () => {
   it("trims the whitespace and quotes a paste out of a .env file brings with it", async () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
+    await connect();
     const input = screen.getByTestId("provider-key-input-anthropic");
     await userEvent.click(input);
     await userEvent.paste(`  "${KEY}"  `);
@@ -266,12 +284,14 @@ describe("ProviderCard", () => {
   it("submits on Enter", async () => {
     onSave.mockResolvedValue(saved);
     mount(notSet);
+    await connect();
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), `${KEY}{Enter}`);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
   });
 
   it("hides the key by default and reveals it on request", async () => {
     mount(notSet);
+    await connect();
     const input = screen.getByTestId("provider-key-input-anthropic");
     expect(input).toHaveAttribute("type", "password");
     const toggle = screen.getByRole("button", { name: "Show the key" });
