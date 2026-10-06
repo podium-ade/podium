@@ -190,6 +190,25 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/chat$/);
 });
 
+// The profile.yaml editor once rendered forever: YamlEditor's `problems = []` default was a
+// new array every render, which reconfigured CodeMirror, whose update re-rendered the editor.
+// The page looked fine and swallowed every click, so the check is the console and a way out.
+test("the Assistant tab settles and lets you leave", async ({ page }) => {
+  await authenticate(page);
+  const loops: string[] = [];
+  page.on("console", (m) => {
+    if (m.text().startsWith("Maximum update depth")) loops.push(m.text());
+  });
+
+  await page.goto("/agent/profile");
+  await expect(page.getByTestId("profile-file-card")).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(loops).toEqual([]);
+
+  await page.getByRole("link", { name: "Sessions" }).click();
+  await expect(page).toHaveURL(/\/agent\/sessions$/);
+});
+
 test("the agent page makes no third-party requests", async ({ page }) => {
   await authenticate(page);
   const origin = new URL(SERVER).origin;
