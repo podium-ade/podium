@@ -209,7 +209,7 @@ describe("AgentPage", () => {
   it("opens Memory on its own bar, not the chat screen", async () => {
     mount("/agent/memory");
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByTestId("memory-search")).toBeInTheDocument();
+    expect(await screen.findByTestId("memory-search")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-new")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Chat" })).toBeNull();
   });

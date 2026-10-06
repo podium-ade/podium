@@ -125,7 +125,7 @@ describe("MemoryPanel", () => {
 
   it("says a search matched nothing without claiming the memory is empty", async () => {
     mount();
-    await userEvent.type(screen.getByTestId("memory-search"), "nothing like this");
+    await userEvent.type(await screen.findByTestId("memory-search"), "nothing like this");
     expect(await screen.findByText("Nothing remembered matches that.")).toBeInTheDocument();
   });
 
@@ -165,14 +165,18 @@ describe("MemoryPanel", () => {
       }),
     );
     mount();
-    // The standing warning is what a configured memory shows. It must not paint, then
-    // vanish, while this request is still in flight.
+    // The empty bank and the standing warning are other screens. Neither paints before
+    // this request says the service is missing.
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
     expect(screen.queryByText(/Treat every line here/)).toBeNull();
     rejectList(new ConnectError("memory is not configured on this host", Code.FailedPrecondition));
     expect(
       await screen.findByText("Memory is not configured on this host"),
     ).toBeInTheDocument();
     expect(screen.getByText(/PODIUM_AGENT_MEMORY_URL/)).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
     expect(screen.queryByText(/Treat every line here/)).toBeNull();
   });
 
@@ -184,7 +188,8 @@ describe("MemoryPanel", () => {
       }),
     );
     mount();
-    expect(screen.getByTestId("memory-search")).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
     expect(screen.queryByText(/Treat every line here/)).toBeNull();
 
     resolveList({ items: [], nextCursor: "" });
