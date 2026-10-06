@@ -92,6 +92,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		DataDir:                 cfg.DataDir,
 		DockerHost:              cfg.DockerHost,
 		AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
+		Runtime:                 cfg.Runtime,
 		Logger:                  logger,
 	})
 	if err != nil {

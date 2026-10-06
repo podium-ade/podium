@@ -30,6 +30,9 @@ var notConfiguration = map[string]string{
 	"PODIUM_LEASE_ID":    "set by the node inside the task container",
 	"PODIUM_WORKDIR":     "set by the node inside the task container",
 	"PODIUM_EVENTS_SOCK": "set by the node inside the task container",
+	// Forwarded from the task spec's workspace_warm duration. The runtime waits
+	// that many seconds; an operator never sets this name on the deployment.
+	"PODIUM_WORKSPACE_WARM_SECONDS": "set by the node inside the task container",
 	// The conductor sets it on a HOST turn's runtime, which has no node to bind-mount a
 	// runner in and so has to be told where one is. An operator sets PODIUM_AGENT_RUNNER_BIN;
 	// this is the name the runtime reads it under.
@@ -47,6 +50,12 @@ var notConfiguration = map[string]string{
 	// A task-spec knob, not a deployment one: it goes in the spec's own env: block and is
 	// documented in docs/task-spec.md.
 	"PODIUM_KILL_AFTER": "per-task, set in the task spec's env: block",
+	// A playbook env value the conductor reads when it builds a task spec.
+	// Documented in docs/task-spec.md. An operator does not set it on the deployment.
+	"PODIUM_WORKSPACE_WARM": "per playbook, read by the conductor",
+	// Set to 1 on a playbook when that task should publish its workspace as the
+	// shared base for the playbook's first repository. Documented in docs/task-spec.md.
+	"PODIUM_PUBLISH_BASE": "per playbook, read by the conductor",
 	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
 	// the container. An operator never sets any of them: the brief is built per turn, and
 	// the three dry-run knobs are the test seam step 16 defined. They are documented in

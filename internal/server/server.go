@@ -26,6 +26,7 @@ import (
 	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/internal/server/scheduler"
 	"github.com/podium-ade/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/server/snapshots"
 	"github.com/podium-ade/podium/internal/server/store"
 	"github.com/podium-ade/podium/internal/transport"
 	"github.com/podium-ade/podium/internal/transport/local"
@@ -117,6 +118,12 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, err
 	}
 	nodeSvc.SetArtifacts(artifactSvc)
+	snapSvc, err := newSnapshots(ctx, cfg, st, logger)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	nodeSvc.SetSnapshots(snapSvc)
 	logSvc.SetArchive(artifactSvc, cfg.Rollup)
 	warnAboutPlaintextTransport(ctx, cfg, st, logger)
 	if timing != scheduler.DefaultTiming() {
@@ -230,6 +237,30 @@ func newArtifacts(ctx context.Context, cfg Config, st *store.Store, logger *slog
 
 // artifactProbeTimeout bounds the start-up and readiness probes of the object store.
 const artifactProbeTimeout = 5 * time.Second
+
+// newSnapshots opens the workspace-snapshot half of the same bucket artifacts use. A
+// control plane with no PODIUM_S3_ENDPOINT still serves tasks; snapshot and restore are
+// refused and the node keeps today's ephemeral workspace.
+func newSnapshots(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) (*snapshots.Service, error) {
+	if !cfg.S3.Enabled() {
+		logger.Info("workspace snapshots are off: PODIUM_S3_ENDPOINT is not set")
+		return snapshots.New(st, nil, logger), nil
+	}
+	s3, err := artifacts.NewS3(cfg.S3)
+	if err != nil {
+		return nil, err
+	}
+	svc := snapshots.New(st, s3, logger)
+	probeCtx, cancel := context.WithTimeout(ctx, artifactProbeTimeout)
+	defer cancel()
+	if err := s3.EnsureBucket(probeCtx); err != nil {
+		logger.WarnContext(ctx, "the object store is not reachable; workspace snapshots will fail until it is",
+			"endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket, "error", err)
+	} else {
+		logger.Info("workspace snapshots enabled", "endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket)
+	}
+	return svc, nil
+}
 
 // loadMasterKey resolves PODIUM_MASTER_KEY_FILE, then PODIUM_MASTER_KEY. Returning (nil,
 // nil) is legitimate and means secrets are disabled: this is still a task runner without

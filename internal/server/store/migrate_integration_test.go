@@ -24,6 +24,8 @@ var expectedTables = []string{
 	"registries",
 	// instance and sessions arrive with 0008_google_claim.sql.
 	"instance", "sessions",
+	// workspace snapshots and bases arrive with 0010_workspace_snapshots.sql.
+	"workspace_snapshots", "workspace_bases",
 }
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
@@ -31,6 +33,7 @@ var migrationFiles = []string{
 	"0001_init.sql", "0002_tailnet.sql", "0003_secrets.sql", "0004_scheduler.sql", "0005_artifacts.sql",
 	"0006_node_slots.sql", "0007_registries.sql", "0008_google_claim.sql",
 	"0009_user_picture.sql",
+	"0010_workspace_snapshots.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

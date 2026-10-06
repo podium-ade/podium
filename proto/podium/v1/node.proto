@@ -19,6 +19,14 @@ service NodeService {
   // "nodes only ever talk to the server" is the invariant the whole networking design
   // rests on, and a presigned PUT straight from the node would break it.
   rpc UploadArtifact(stream UploadArtifactRequest) returns (UploadArtifactResponse);
+  // UploadWorkspaceSnapshot stores one tar of a session workspace, or of a repository's
+  // base snapshot. The node streams the bytes. The server writes them to S3 and keeps a
+  // single row, replacing the previous object only after the new one is stored.
+  rpc UploadWorkspaceSnapshot(stream UploadWorkspaceSnapshotRequest) returns (UploadWorkspaceSnapshotResponse);
+  // DownloadWorkspaceSnapshot streams the latest tar back. A session row wins. When that
+  // session has never been snapshotted, the repository's base snapshot is sent instead.
+  // found is false when neither exists; that is not an error.
+  rpc DownloadWorkspaceSnapshot(DownloadWorkspaceSnapshotRequest) returns (stream DownloadWorkspaceSnapshotResponse);
 }
 
 message EnrollRequest {
@@ -69,6 +77,59 @@ message ArtifactMetadata {
 
 message UploadArtifactResponse {
   string artifact_id = 1;
+  string object_key = 2;
+  int64 size_bytes = 3;
+  string sha256 = 4;
+}
+
+// UploadWorkspaceSnapshotRequest is one message of a workspace upload. The first must be
+// the metadata; every message after it must be a chunk.
+message UploadWorkspaceSnapshotRequest {
+  oneof msg {
+    WorkspaceSnapshotMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+// WorkspaceSnapshotMetadata opens a workspace upload. session_id stores a conversation's
+// latest snapshot. repo, with an empty session_id, stores that repository's base snapshot.
+// Exactly one of the two is set.
+message WorkspaceSnapshotMetadata {
+  string node_id = 1;
+  // SENSITIVE: never log. The same node key Hello presents.
+  string node_key = 2;
+  string task_id = 3;
+  string session_id = 4;
+  string repo = 5;
+  int64 size_bytes = 6;
+}
+
+message UploadWorkspaceSnapshotResponse {
+  string object_key = 1;
+  int64 size_bytes = 2;
+  string sha256 = 3;
+}
+
+message DownloadWorkspaceSnapshotRequest {
+  string node_id = 1;
+  // SENSITIVE: never log.
+  string node_key = 2;
+  string task_id = 3;
+  string session_id = 4;
+  string repo = 5;
+}
+
+// DownloadWorkspaceSnapshotResponse is one message of a download. The first is the info,
+// and it is sent even when nothing is stored (found is false, and no chunks follow).
+message DownloadWorkspaceSnapshotResponse {
+  oneof msg {
+    WorkspaceSnapshotInfo info = 1;
+    bytes chunk = 2;
+  }
+}
+
+message WorkspaceSnapshotInfo {
+  bool found = 1;
   string object_key = 2;
   int64 size_bytes = 3;
   string sha256 = 4;

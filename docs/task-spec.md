@@ -14,6 +14,10 @@ labels: [linux/arm64]              # node labels the task requires
 timeout: 1h                        # default
 max_attempts: 1                    # default
 retry_on_node_loss: false          # default: see below
+workspace_session: ""              # empty: the volume is ephemeral
+workspace_repo: ""                 # repository base, used when the session has no snapshot
+workspace_publish_base: false      # also store this workspace as that repo's base
+workspace_warm: 0s                 # how long the runtime waits for a follow-up
 
 secrets: []                        # see below
 sidecars: {}                       # see below
@@ -96,6 +100,38 @@ it, up to `max_attempts`.
 
 `lost` is deliberately not `failed`. Nothing about the task went wrong — its machine
 disappeared — and the two need different answers.
+
+## Workspace
+
+`workspace_session` names the conversation this task's `/workspace` belongs to. When it is
+set, the node restores that session's latest snapshot before the task starts, or the
+repository base named by `workspace_repo` when the session has none. After a clean exit it
+uploads a new tar and the control plane keeps that as the one snapshot for the session.
+The volume is still deleted at teardown. A cancel or an OOM does not replace the snapshot.
+
+Leave `workspace_session` empty for a one-shot task. Nothing is restored and nothing is
+uploaded, and `keepWorkspace` stays false, so the volume is removed with the task.
+
+`workspace_publish_base: true` also stores the tar as the shared base for `workspace_repo`.
+It requires `workspace_repo`. A base is not a session snapshot and a session snapshot is
+not published as a base unless this is set. The conductor sets it when the playbook env
+`PODIUM_PUBLISH_BASE=1` and the playbook names a repository. That task's workspace, after
+it has installed and built, becomes the tree the next session starts from.
+
+`workspace_warm` is how long the runtime should stay up after a turn, waiting for the next
+instruction. The node forwards it as `PODIUM_WORKSPACE_WARM_SECONDS`. Zero means exit when
+the turn ends. The snapshot is taken when the process exits, not while it is waiting.
+
+The conductor sets it to 5m on a playbook task and on a delegated task. A playbook env
+`PODIUM_WORKSPACE_WARM=0s` leaves when the turn ends, and any other Go duration replaces
+the 5m. A host turn has no volume, so it is not set. A dry run does not wait. A follow-up
+that arrives while the task is still up is injected into it. One that arrives after the
+task has exited starts a new task, which restores the snapshot.
+
+The tar is a copy of the named volume `podium-ws-<task_id>`. It is not a `docker commit`:
+that would miss `/workspace`. Secret files live on the `/podium/secrets` tmpfs and are not
+in the volume, so they are not in the snapshot. The git token stays in the environment and
+is resolved again on the next task.
 
 ## Secrets
 

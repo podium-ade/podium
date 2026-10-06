@@ -146,3 +146,21 @@ type User struct {
 	HostedDomain *string
 	PictureUrl   *string
 }
+
+type WorkspaceBasis struct {
+	Repo      string
+	ObjectKey string
+	SizeBytes int64
+	Sha256    string
+	UpdatedAt time.Time
+}
+
+type WorkspaceSnapshot struct {
+	SessionID string
+	ObjectKey string
+	SizeBytes int64
+	Sha256    string
+	NodeID    string
+	TaskID    string
+	UpdatedAt time.Time
+}

@@ -66,6 +66,9 @@ type turnRun struct {
 	acctFrom string
 	// errText is the last non-retryable error event. It goes to the log, never to a human.
 	errText string
+	// warm is set when this task stays up after it answers. The next message in the
+	// session is injected into it until the task exits.
+	warm bool
 }
 
 // run relays the task's messages and then records how the turn ended.
@@ -124,6 +127,9 @@ func (r *turnRun) run(ctx context.Context) {
 // noteInteractive parks or unparks this session for a human reply. A question is a
 // wait; anything else the task says means it is working again.
 func (r *turnRun) noteInteractive(ctx context.Context, msgType string) {
+	if msgType == OutFinal && r.warm {
+		r.c.setWarm(r.sess.ID, r.turn.TaskID)
+	}
 	if msgType == MsgQuestion || msgType == OutQuestion {
 		r.c.setAwaiting(r.sess.ID, r.turn.TaskID)
 		if err := r.src.React(ctx, r.ref, ReactionAwaiting); err != nil {
@@ -161,6 +167,7 @@ func (r *turnRun) cancelAbandoned(ctx context.Context, cause error) {
 // finish records the turn, shows the outcome and counts it.
 func (r *turnRun) finish(ctx context.Context, status string) {
 	r.c.clearAwaiting(r.sess.ID, r.turn.TaskID)
+	r.c.clearWarm(r.sess.ID, r.turn.TaskID)
 	var numTurns *int
 	var cost *float64
 	if r.acct != nil {
