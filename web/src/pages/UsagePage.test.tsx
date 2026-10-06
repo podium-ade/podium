@@ -171,7 +171,7 @@ describe("UsagePage", () => {
 
   it("says how many turns reported no cost, so a total is not read as complete", async () => {
     mount();
-    expect(await screen.findByText("1 turn reported no cost")).toBeVisible();
+    expect(await screen.findByText("1 reported no cost")).toBeVisible();
   });
 
   it.each([

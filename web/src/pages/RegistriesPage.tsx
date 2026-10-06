@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Container, Plus, RotateCw, Trash2 } from "lucide-react";
-import { Chip } from "../components/Badge";
+
 import { Empty } from "../components/Empty";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { DeleteRegistryDialog } from "../components/registries/DeleteRegistryDialog";
 import { RegistryDialog } from "../components/registries/RegistryDialog";
 import { TableSkeleton } from "../components/Skeleton";
@@ -50,24 +50,15 @@ export function RegistriesPage() {
   const listFailed = query.error !== null && !noMasterKey;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Registries"
-        description="Logins for the container registries your task and playbook images are pulled from."
         actions={
           <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
             <Plus />
             New registry
           </Button>
         }
-        meta={
-          rows.length > 0 ? (
-            <Chip>
-              {rows.length} {rows.length === 1 ? "registry" : "registries"}
-            </Chip>
-          ) : null
-        }
-      />
+      >
 
       <Alert variant="info" title="A login is matched by host">
         An image reference names its registry (for example{" "}
@@ -184,6 +175,6 @@ export function RegistriesPage() {
           onOpenChange={(open) => !open && setDeleting(undefined)}
         />
       ) : null}
-    </div>
+    </PageFrame>
   );
 }

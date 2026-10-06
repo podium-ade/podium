@@ -7,7 +7,7 @@ import { ArtifactsPanel } from "../components/ArtifactsPanel";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { LogViewer } from "../components/LogViewer";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { CopyValue, PathText } from "../components/task/CopyValue";
 import { TaskTimeline } from "../components/task/TaskTimeline";
@@ -101,16 +101,15 @@ function TaskDetail({ id }: { id: string }) {
 
   if (!task) {
     return (
-      <div className="space-y-5">
-        <PageHeader back={{ to: "/", label: "Tasks" }} title="Task not found" />
+      <PageFrame back={{ to: "/tasks", label: "Tasks" }} title="Task not found">
         <Alert variant="destructive" title="Could not load this task">
           {errorMessage(query.error) || `The control plane has no task with the ID ${id}.`} Check
           the ID, or pick the task from the list.
         </Alert>
-        <Link to="/" className={buttonVariants({ variant: "outline", size: "sm" })}>
+        <Link to="/tasks" className={buttonVariants({ variant: "outline", size: "sm" })}>
           Back to tasks
         </Link>
-      </div>
+      </PageFrame>
     );
   }
 
@@ -123,18 +122,10 @@ function TaskDetail({ id }: { id: string }) {
     !task.startedAt && !terminal && timeline.length === 0 && lines.length === 0;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        back={{ to: "/", label: "Tasks" }}
+    <PageFrame
+        back={{ to: "/tasks", label: "Tasks" }}
         title={
-          <CopyValue value={task.id} label="task ID" className="text-lg tracking-tight" />
-        }
-        description={
-          command ? (
-            <span className="font-mono text-xs break-words">{command}</span>
-          ) : (
-            "Runs the image's own entrypoint."
-          )
+          <CopyValue value={task.id} label="task ID" className="text-sm tracking-tight" />
         }
         meta={
           <>
@@ -165,7 +156,7 @@ function TaskDetail({ id }: { id: string }) {
             </Button>
           )
         }
-      />
+      >
 
       <Explain task={task} />
 
@@ -360,7 +351,7 @@ function TaskDetail({ id }: { id: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }
 

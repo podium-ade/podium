@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { SpecForm, type Advanced } from "../components/SpecForm";
 import { Alert } from "../components/ui/alert";
@@ -27,7 +27,7 @@ export function SubmitPage() {
 
   if (rerun !== "" && source.isPending) {
     return (
-      <div className="space-y-5">
+      <PageFrame title={rerun ? "Re-run task" : "New task"} back={{ to: "/tasks", label: "Tasks" }}>
         <div className="space-y-2">
           <Skeleton className="h-7 w-48" />
           <Skeleton className="h-4 w-96" />
@@ -37,23 +37,17 @@ export function SubmitPage() {
           <Skeleton className="h-96 w-full" />
           <Skeleton className="h-64 w-full" />
         </div>
-      </div>
+      </PageFrame>
     );
   }
 
   const spec = source.data?.task?.spec;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title={rerun ? "Re-run task" : "New task"}
-        description={
-          rerun
-            ? "A new task from this spec. A terminal task has no outgoing edges, so this is not a restart."
-            : "Queue work. The scheduler places it on the next eligible node."
-        }
-        back={{ to: "/", label: "Tasks" }}
-      />
+    <PageFrame
+      title={rerun ? "Re-run task" : "New task"}
+      back={{ to: "/tasks", label: "Tasks" }}
+    >
 
       {rerun !== "" && source.error ? (
         <Alert variant="warn" title={`Could not read ${rerun}`}>
@@ -73,7 +67,7 @@ export function SubmitPage() {
         // are pre-filled into the form itself.
         initialMode={spec && Object.keys(spec.sidecars).length > 0 ? "yaml" : "form"}
       />
-    </div>
+    </PageFrame>
   );
 }
 
