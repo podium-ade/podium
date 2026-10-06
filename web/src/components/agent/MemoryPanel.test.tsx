@@ -120,6 +120,7 @@ describe("MemoryPanel", () => {
       expect(searchMemories).toHaveBeenCalledWith({ query: "who owns the scheduler", limit: 25 }),
     );
     expect(await screen.findByText("a searched fact")).toBeInTheDocument();
+    expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 
   it("says a search matched nothing without claiming the memory is empty", async () => {
@@ -157,22 +158,39 @@ describe("MemoryPanel", () => {
   });
 
   it("says the memory is not configured rather than showing an error", async () => {
-    listMemories.mockRejectedValue(
-      new ConnectError("memory is not configured on this host", Code.FailedPrecondition),
+    let rejectList: (err: unknown) => void = () => {};
+    listMemories.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectList = reject;
+      }),
     );
     mount();
+    // The standing warning is what a configured memory shows. It must not paint, then
+    // vanish, while this request is still in flight.
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
+    rejectList(new ConnectError("memory is not configured on this host", Code.FailedPrecondition));
     expect(
       await screen.findByText("Memory is not configured on this host"),
     ).toBeInTheDocument();
     expect(screen.getByText(/PODIUM_AGENT_MEMORY_URL/)).toBeInTheDocument();
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
   });
 
   it("points a human at the empty memory rather than at nothing", async () => {
-    listMemories.mockResolvedValue({ items: [], nextCursor: "" });
+    let resolveList: (value: { items: never[]; nextCursor: string }) => void = () => {};
+    listMemories.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
     mount();
+    expect(screen.getByTestId("memory-search")).toBeInTheDocument();
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
+
+    resolveList({ items: [], nextCursor: "" });
     expect(await screen.findByText("Nothing remembered yet.")).toBeInTheDocument();
-    // The warning is on the screen whether or not there is anything on it: it is the reason
-    // the screen exists.
+    // The warning arrives with the answer. It is on the screen whether or not there is
+    // anything on it: it is the reason the screen exists.
     expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 
