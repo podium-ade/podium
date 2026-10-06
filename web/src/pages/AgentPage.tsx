@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Cpu, Settings2, UserRound } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
@@ -91,8 +91,12 @@ export function AgentPage() {
   // Chat, Sessions, Memory and Assistant each draw their own bar. The other
   // screens already do. One shared bar kept Chat's full-bleed pane in place
   // while the next screen mounted into it.
+  //
+  // Memory suspends until its first read classifies the screen. This boundary is
+  // what keeps that wait from committing an empty Memory page.
   return (
     <div className="h-full min-h-0">
+      <Suspense fallback={null}>
       <Routes>
         <Route index element={<Navigate to="/agent/chat" replace />} />
         {tabs.map((t) => (
@@ -111,6 +115,7 @@ export function AgentPage() {
         ))}
         <Route path="*" element={<Navigate to="/agent/chat" replace />} />
       </Routes>
+      </Suspense>
     </div>
   );
 }

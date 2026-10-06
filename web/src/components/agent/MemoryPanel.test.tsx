@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -30,7 +31,9 @@ function mount() {
     <QueryClientProvider client={qc}>
       <ToastHost>
         <MemoryRouter>
-          <MemoryPanel />
+          <Suspense fallback={null}>
+            <MemoryPanel />
+          </Suspense>
         </MemoryRouter>
       </ToastHost>
     </QueryClientProvider>,
