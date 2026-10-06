@@ -1292,6 +1292,14 @@ That needs a refresh token, which needs the `offline_access` scope
 (`PODIUM_AGENT_XAI_OAUTH_SCOPES`, on by default). The card says **auto-renewing** when it has
 one and **not renewable** when it does not.
 
+Once that access token's expiry is in the past, renewal has been failing and turns on
+that model fail. The **bell** at the right end of the page toolbar records it as an **alert**
+and keeps it open until you sign in again. After the token is valid, the same row moves to the
+history on this browser. The inbox has three looks: an alert needs a person, a standard
+notice is informational, and a system error is a failure of Podium itself. Only alerts
+are raised today. The Models card says **Sign-in expired** for the same fact, and
+**Sign in again** opens the subscription flow.
+
 **Where the refresh token lives, and why it is the exception.** It is in the conductor's own
 Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
 secret store has no read endpoint, by design, so a value put there cannot be read back to

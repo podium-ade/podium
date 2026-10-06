@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  AlertTriangle,
   KeyRound,
   RotateCw,
   ShieldCheck,
@@ -21,8 +22,10 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
+import { oauthExpired } from "../../lib/providerCredential";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
+import { Alert } from "../ui/alert";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -235,6 +238,11 @@ export function ProviderCard({
   }
 
   const subscriptionStored = settings?.authKind === "oauth";
+  const expired = oauthExpired(settings);
+  const signInAgain = () => {
+    setRotating(true);
+    if (settings?.authKind === "oauth") setMode("subscription");
+  };
 
   return (
     <Card
@@ -260,7 +268,9 @@ export function ProviderCard({
               {loading ? (
                 <Skeleton className="h-4 w-16" />
               ) : (
-                <Badge tone={keySet ? "ok" : "idle"}>{keySet ? "Connected" : "Not set"}</Badge>
+                <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
+                  {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+                </Badge>
               )}
             </CardTitle>
             <p className="mt-1 text-xs text-muted">
@@ -283,7 +293,11 @@ export function ProviderCard({
             {stored ? (
               <div className="flex items-start gap-2.5 rounded-lg border border-hairline bg-raised/40 px-3 py-2.5">
                 {subscriptionStored ? (
-                  <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
+                  expired ? (
+                    <AlertTriangle className="mt-px size-3.5 shrink-0 text-warn" />
+                  ) : (
+                    <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
+                  )
                 ) : (
                   <KeyRound className="mt-px size-3.5 shrink-0 text-muted" />
                 )}
@@ -294,6 +308,29 @@ export function ProviderCard({
                   <Connected settings={settings} />
                 </p>
               </div>
+            ) : null}
+
+            {expired && !editing ? (
+              <Alert
+                variant="warn"
+                role="alert"
+                data-testid={tid("provider-sign-in-expired")}
+                title={`Sign in to ${provider.models} again`}
+              >
+                <p>
+                  The subscription token expired and could not be renewed. Chats that use this
+                  model fail until you sign in again.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2"
+                  data-testid={tid("provider-sign-in-again")}
+                  onClick={signInAgain}
+                >
+                  Sign in again
+                </Button>
+              </Alert>
             ) : null}
 
             {editing && oauth ? (
@@ -456,7 +493,7 @@ export function ProviderCard({
       {stored ? (
         <CardFooter>
           {rotating ? null : (
-            <Button variant="outline" size="sm" onClick={() => setRotating(true)}>
+            <Button variant="outline" size="sm" onClick={signInAgain}>
               <RotateCw />
               {subscriptionStored ? "Sign in again" : "Rotate key"}
             </Button>
@@ -619,7 +656,11 @@ function Connected({ settings }: { settings?: ProviderSettings }) {
         subscription
         {settings.account ? ` · ${settings.account}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
-        {settings.refreshable ? " · auto-renewing" : " · not renewable"}
+        {settings.expiresAt && oauthExpired(settings)
+          ? " · renewal failed"
+          : settings.refreshable
+            ? " · auto-renewing"
+            : " · not renewable"}
       </>
     );
   }
