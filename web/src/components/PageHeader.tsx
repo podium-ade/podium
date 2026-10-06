@@ -20,10 +20,10 @@ export function PageActions({ children }: { children: ReactNode }) {
 }
 
 /**
- * PageFrame is a fixed 3rem toolbar: the page title, its current state, and its actions,
- * on one row. The side rail is the map. The body scrolls underneath, except a bleed page
- * (the chat), which keeps the height that remains. The notifications bell is the last
- * control on that row, on every page.
+ * PageFrame is a fixed toolbar, the same height as the sidebar wordmark: the page title,
+ * its current state, and its actions, on one row. The side rail is the map. The body
+ * scrolls underneath, except a bleed page (the chat), which keeps the height that remains.
+ * The notifications bell is the last control on that row, on every page.
  */
 export function PageFrame({
   title,
@@ -49,7 +49,7 @@ export function PageFrame({
   return (
     <PageActionsContext.Provider value={slot}>
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
           {back ? (
             <Link
               to={back.to}

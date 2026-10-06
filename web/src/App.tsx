@@ -55,7 +55,9 @@ export function App() {
       <TooltipProvider>
         <ToastHost>
           <TokenGate>
-            <BrowserRouter>
+            {/* A transition keeps the page you left on screen until the next one paints,
+                which reads as that page loading first. */}
+            <BrowserRouter useTransitions={false}>
               <NotificationsProvider>
                 <Routes>
                   <Route element={<Shell />}>
