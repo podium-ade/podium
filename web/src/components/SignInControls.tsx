@@ -21,12 +21,12 @@ export function SignInShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function GoogleSignIn({ claimed }: { claimed: boolean }) {
+export function GoogleSignIn({ claimed, bare = false }: { claimed: boolean; bare?: boolean }) {
   const errorCode = new URLSearchParams(window.location.search).get("auth_error") ?? "";
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <div className={bare ? undefined : "rounded-xl border border-border bg-card p-5 shadow-sm"}>
       {claimed ? (
-        <p className="text-center text-xs leading-relaxed text-muted">
+        <p className={bare ? "text-xs leading-relaxed text-muted" : "text-center text-xs leading-relaxed text-muted"}>
           This instance of Podium is claimed.
           <br />
           <br />

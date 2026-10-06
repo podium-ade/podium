@@ -72,6 +72,7 @@ async function tick(seconds = POLL_SECONDS) {
 /** signIn walks to the point where the card is polling, without any poll having run yet. */
 async function signIn() {
   const rendered = mount();
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
   fireEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
   fireEvent.click(screen.getByTestId("provider-oauth-start-xai"));
   // The start RPC resolves on a microtask; nothing is on the clock yet.
@@ -96,6 +97,7 @@ describe("ProviderCard: the subscription sign-in", () => {
 
   it("offers both ways in for a provider that has both", () => {
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(screen.getByTestId("provider-mode-key-xai")).toBeInTheDocument();
     expect(screen.getByTestId("provider-mode-subscription-xai")).toBeInTheDocument();
   });
@@ -203,6 +205,7 @@ describe("ProviderCard: the subscription sign-in", () => {
       ),
     );
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     fireEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
     fireEvent.click(screen.getByTestId("provider-oauth-start-xai"));
     await act(async () => {});

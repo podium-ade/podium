@@ -48,7 +48,7 @@ export function IdentityCard() {
             </a>
           </Button>
         ) : (
-          <GoogleSignIn claimed={claimed} />
+          <GoogleSignIn claimed={claimed} bare />
         )}
       </CardContent>
     </Card>

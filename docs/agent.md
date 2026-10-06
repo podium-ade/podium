@@ -1139,14 +1139,14 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings → Models** has one card per provider. Chat picks which model a
+operator sets it. **Settings → Models** has one row per provider. Chat picks which model a
 turn uses; this category is how those models get a credential.
 
 Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
 
-<!-- screenshot: Settings, Models category, an Anthropic card, an xAI card and an OpenAI card, none set -->
+<!-- screenshot: Settings, Models section, an Anthropic row, an xAI row and an OpenAI row, none set -->
 
-Paste the key and press **Validate & save**. What happens, in order:
+Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 
 1. The browser calls `SetProviderKey` on `podium-server`, which proxies it to the conductor.
 2. The conductor calls the provider's model list — **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`**
@@ -1207,7 +1207,7 @@ stored secret back**, by design — see [`security.md`](security.md#secrets).
 conductor's, so `GetSettings` asks the control plane whether the secret exists rather than
 believing its own row. Which means:
 
-| what you did | what the Settings card says |
+| what you did | what the Settings row says |
 |---|---|
 | `podium secret rm podium.agent.anthropic_api_key` | **Not set** — the stale row is ignored, not shown |
 | `podium secret set …` over a key the UI had saved | **Connected**, and *set outside this UI*: there is a key, and the stored hint is about the one it replaced, so it is withheld rather than shown beside a key it is not about |
@@ -2308,7 +2308,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one card per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one row per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
