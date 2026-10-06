@@ -229,8 +229,9 @@ test("a new chat stores the question and disables the composer", async ({ page }
   await authenticate(page);
   await page.goto("/agent/chat");
 
-  await page.getByTestId("chat-new").click();
-  // A chat is a real URL, so this is a deep link somebody can send to a colleague.
+  // Asking from the arrival creates the chat. The URL is a deep link after that.
+  await page.getByTestId("chat-composer").fill("how many active accounts last month");
+  await page.getByTestId("chat-send").click();
   await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
   const url = page.url();
 
@@ -238,9 +239,6 @@ test("a new chat stores the question and disables the composer", async ({ page }
   // there is nothing here to pick one with.
   await expect(page.getByTestId("chat-run-config")).toBeVisible();
   await expect(page.getByTestId("chat-playbook")).toHaveCount(0);
-
-  await page.getByTestId("chat-composer").fill("how many active accounts last month");
-  await page.getByTestId("chat-send").click();
 
   // The human's own bubble appears immediately, and the composer closes: turn-based, one
   // question in flight per conversation.
@@ -268,11 +266,9 @@ test("a chat turn streams progress and lands a final message", async ({ page }) 
   await authenticate(page);
   await page.goto("/agent/chat");
 
-  await page.getByTestId("chat-new").click();
-  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
-
   await page.getByTestId("chat-composer").fill("hello");
   await page.getByTestId("chat-send").click();
+  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
 
   // A progress line appears while the turn works — the whole reason StreamChat is a
   // server-streaming RPC and the proxy does not buffer.

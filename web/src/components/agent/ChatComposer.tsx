@@ -46,6 +46,8 @@ export interface ChatComposerProps {
   choice: AgentChoice;
   onChoiceChange: (next: AgentChoice) => void;
   onSend: (text: string, choice: AgentChoice) => void;
+  /** focusOnMount puts the caret in the box. The arrival uses it; a thread does not. */
+  focusOnMount?: boolean;
 }
 
 /**
@@ -66,6 +68,7 @@ export function ChatComposer({
   choice,
   onChoiceChange,
   onSend,
+  focusOnMount = false,
 }: ChatComposerProps) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<PendingFile[]>([]);
@@ -181,6 +184,7 @@ export function ChatComposer({
             ref={box}
             data-testid="chat-composer"
             aria-label="Message"
+            autoFocus={focusOnMount}
             value={text}
             rows={1}
             disabled={disabled}

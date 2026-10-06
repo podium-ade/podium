@@ -1,14 +1,13 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ellipsis,
-  MessageSquarePlus,
   Pencil,
   Search,
   Sparkles,
   SquarePen,
   Trash2,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
@@ -85,11 +84,34 @@ export function ChatPanel() {
     staleTime: 5 * 60_000,
   });
 
-  const create = useMutation({
-    mutationFn: (title: string) => agent.createChat({ title }),
-    onSuccess: async (res) => {
+  // The first question creates the chat. New chat, and N, only return to this
+  // arrival. Pressing them here does not insert an empty row.
+  const openBlank = () => {
+    if (active !== "") navigate("/agent/chat");
+  };
+  const ask = useMutation({
+    mutationFn: async (v: { text: string; choice: AgentChoice }) => {
+      const res = await agent.createChat({ title: "" });
+      const id = res.chat?.id ?? "";
+      if (id === "") throw new ConnectError("the conductor did not open a chat", Code.Internal);
+      try {
+        await agent.sendChatMessage({
+          chatId: id,
+          text: v.text,
+          agent: v.choice.agent,
+          model: v.choice.model,
+          effort: v.choice.effort,
+        });
+      } catch (err) {
+        await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
+        navigate(`/agent/chat/${id}`);
+        throw err;
+      }
+      return { id, text: v.text };
+    },
+    onSuccess: async ({ id, text }) => {
       await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-      if (res.chat) navigate(`/agent/chat/${res.chat.id}`);
+      navigate(`/agent/chat/${id}`, { state: { pendingText: text } });
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -119,19 +141,20 @@ export function ChatPanel() {
   const renameChat = (id: string, title: string) =>
     rename.mutateAsync({ id, title }).then(() => undefined);
 
-  // n opens a new chat when the composer is not focused, which is the one shortcut worth
-  // having on a page whose main control is a textarea.
+  // n returns to the blank arrival when the composer is not focused. On the arrival
+  // itself it does nothing: a second press must not open a second empty chat.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement;
       if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
+      if (active === "") return;
       e.preventDefault();
-      create.mutate("");
+      navigate("/agent/chat");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [create]);
+  }, [active, navigate]);
 
   if (connectCode(chats.error) === Code.FailedPrecondition) {
     return (
@@ -189,8 +212,8 @@ export function ChatPanel() {
           chats={list}
           active={active}
           loading={chats.isPending}
-          onNew={() => create.mutate("")}
-          creating={create.isPending}
+          onNew={openBlank}
+          creating={false}
           onOpen={(id) => navigate(`/agent/chat/${id}`)}
           onRename={renameChat}
           onDelete={setPendingDelete}
@@ -199,20 +222,12 @@ export function ChatPanel() {
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
           {active === "" ? (
-            <div className="grid min-h-0 flex-1 place-items-center p-6">
-              <Empty
-                className="max-w-lg border-0 bg-transparent px-4 py-10"
-                icon={Sparkles}
-                title={list.length === 0 ? "No chats yet" : "Pick a chat, or start a new one"}
-                hint={assistantHint(playbooks.data?.assistant?.displayName, playbookNames)}
-                action={
-                  <Button size="sm" disabled={create.isPending} onClick={() => create.mutate("")}>
-                    <MessageSquarePlus />
-                    {create.isPending ? "Opening…" : "New chat"}
-                  </Button>
-                }
-              />
-            </div>
+            <Arrival
+              botName={playbooks.data?.assistant?.displayName ?? "Podium"}
+              playbookNames={playbookNames}
+              sending={ask.isPending}
+              onSend={(text, choice) => ask.mutate({ text, choice })}
+            />
           ) : (
             // Keyed on the chat: a switch remounts the conversation, so its model choice
             // and scroll position start fresh without an effect resetting them.
@@ -713,10 +728,13 @@ function ConversationTitle({
   title,
   channel,
   onRename,
+  fallback = "Chat",
 }: {
   title: string;
   channel?: string;
   onRename: (title: string) => Promise<void>;
+  /** fallback is the title slot when the chat has no name yet. */
+  fallback?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -802,7 +820,7 @@ function ConversationTitle({
           disabled={!title}
           className="min-w-0 truncate rounded-md text-left text-base font-medium tracking-tight text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:text-muted"
         >
-          {title || "Chat"}
+          {title || fallback}
         </button>
       )}
     </div>
@@ -848,6 +866,7 @@ function Conversation({
   const qc = useQueryClient();
   const toast = useToast();
   const viewer = useViewer();
+  const location = useLocation();
   const stream = useChatStream(chatId);
   const botName = assistant?.displayName ?? "Podium";
   // A MIRRORED conversation is answered where it lives, so this end of it is read-only:
@@ -884,8 +903,13 @@ function Conversation({
 
   // pendingUser is the question that has been sent but not yet on the stream. Showing it
   // immediately is what stops the greeting (or the previous answer) flashing through the
-  // gap between the RPC returning and the stream catching up.
-  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(null);
+  // gap between the RPC returning and the stream catching up. A question sent from the
+  // arrival arrives as navigation state: the chat was created and the message stored
+  // before this conversation mounted.
+  const seeded = (location.state as { pendingText?: string } | null)?.pendingText;
+  const [pendingUser, setPendingUser] = useState<{ text: string; before: number } | null>(
+    seeded ? { text: seeded, before: 0 } : null,
+  );
 
   const send = useMutation({
     mutationFn: (v: { text: string; choice: AgentChoice }) =>
@@ -990,7 +1014,7 @@ function Conversation({
           }
           welcome={
             showWelcome ? (
-              <FirstMessage
+              <ArrivalWell
                 botName={botName}
                 playbookNames={playbookNames}
                 onSuggest={(text) => send.mutate({ text, choice })}
@@ -1037,7 +1061,51 @@ const SUGGESTIONS = [
   "What can you do on this stack?",
 ];
 
-function FirstMessage({
+/**
+ * Arrival is the chat before a conversation exists. It is the same composition as an
+ * empty thread: a title slot, the fact of what a turn does, and the composer at the bottom.
+ * Sending creates the chat.
+ */
+function Arrival({
+  botName,
+  playbookNames,
+  sending,
+  onSend,
+}: {
+  botName: string;
+  playbookNames: string[];
+  sending: boolean;
+  onSend: (text: string, choice: AgentChoice) => void;
+}) {
+  const { agents } = useAgents();
+  const [picked, setPicked] = useState<AgentChoice | undefined>(undefined);
+  const choice = picked ?? INHERIT;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ConversationTitle title="" fallback="New chat" onRename={async () => {}} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8 sm:px-5">
+          <ArrivalWell
+            botName={botName}
+            playbookNames={playbookNames}
+            suggesting={sending}
+            onSuggest={(text) => onSend(text, choice)}
+          />
+        </div>
+      </div>
+      <ChatComposer
+        focusOnMount
+        disabled={sending}
+        agents={agents}
+        choice={choice}
+        onChoiceChange={setPicked}
+        onSend={onSend}
+      />
+    </div>
+  );
+}
+
+function ArrivalWell({
   botName,
   playbookNames,
   onSuggest,
@@ -1049,15 +1117,12 @@ function FirstMessage({
   suggesting: boolean;
 }) {
   return (
-    <div className="flex flex-col items-center gap-4 py-12 text-center">
-      <span className="grid size-12 place-items-center rounded-2xl border border-border bg-panel text-accent shadow-xs">
-        <Sparkles className="size-5" />
-      </span>
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
       <div className="space-y-1.5">
         <p className="text-xl font-medium tracking-tight text-fg">Ask {botName} something</p>
         <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
-          {botName} answers here. When something needs a machine it starts a task on your nodes
-          and reports back. You will see each one it runs.
+          {botName} answers here. When something needs a machine it starts a task on your nodes and
+          reports back. You will see each one it runs.
         </p>
       </div>
       <div className="flex max-w-lg flex-wrap justify-center gap-2">
@@ -1067,7 +1132,7 @@ function FirstMessage({
             type="button"
             disabled={suggesting}
             onClick={() => onSuggest(prompt)}
-            className="rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-fg shadow-xs transition-colors hover:border-accent/40 hover:bg-raised disabled:opacity-50"
+            className="rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-fg shadow-xs outline-none transition-colors hover:border-accent/40 hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
             {prompt}
           </button>
@@ -1087,17 +1152,6 @@ function FirstMessage({
       ) : null}
     </div>
   );
-}
-
-/**
- * assistantHint is the sentence on the no-chat-selected screen. It names the playbooks so
- * that "it starts tasks" is concrete rather than a promise, and it degrades to the sentence
- * alone before ListPlaybooks has answered.
- */
-function assistantHint(botName: string | undefined, playbookNames: string[]): string {
-  const who = botName ?? "Podium";
-  const base = `Ask ${who} anything about your stack. It answers here, and starts a task on your nodes when the work needs a machine.`;
-  return playbookNames.length === 0 ? base : `${base} It can run ${playbookNames.join(", ")}.`;
 }
 
 function TranscriptSkeleton() {
