@@ -154,6 +154,7 @@ services:
       PODIUM_LOG_CHUNK_GRACE: ${PODIUM_LOG_CHUNK_GRACE:-24h}
       PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://127.0.0.1:8090}
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_AGENT_API_TOKEN:?set PODIUM_AGENT_API_TOKEN to a value other than PODIUM_LOCAL_TOKEN}
     volumes:
       - ${PODIUM_STATE_DIR:-server-state}:/var/lib/podium
     restart: unless-stopped
@@ -166,7 +167,7 @@ services:
     network_mode: host
     environment:
       PODIUM_AGENT_SERVER: http://127.0.0.1:8080
-      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:?}
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_AGENT_API_TOKEN:?set PODIUM_AGENT_API_TOKEN to a value other than PODIUM_LOCAL_TOKEN}
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:?}@127.0.0.1:${PODIUM_PG_PORT:-5432}/podium_agent
       PODIUM_AGENT_LISTEN: 127.0.0.1:8090   # only the server on this host talks to it
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:?set PODIUM_AGENT_TOKEN}

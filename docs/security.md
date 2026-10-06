@@ -589,8 +589,11 @@ key where the server offers one — and name it only in playbooks you would trus
 
 - The listen address **must resolve to loopback**; the server refuses to start otherwise. That
   check is what makes the rest of this acceptable.
-- Every RPC carries `Authorization: Bearer <PODIUM_LOCAL_TOKEN>`, compared in constant time.
-  There is one token for everything and everyone. It has no identity: audit rows say `local`.
+- The CLI, the web UI, and every node present `Authorization: Bearer <PODIUM_LOCAL_TOKEN>`,
+  compared in constant time. That bearer has no person: audit rows say `local`.
+- The conductor presents a second bearer, `PODIUM_AGENT_API_TOKEN`, and the server records
+  that caller as the agent. The two values are refused when they are the same. On a tailnet
+  neither token exists; WhoIs names the caller.
 - **The connection is unencrypted HTTP.** Everything crosses it in the clear, and that includes
   **resolved secret values**, which travel inside `Assign` from the server to the node. There is
   no TLS and no per-node key on the HTTP layer.

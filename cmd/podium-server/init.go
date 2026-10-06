@@ -27,13 +27,14 @@ const hostNetworkTransport = "host"
 // initSecrets are the values `init` mints. They are separated from the rendering so the
 // rendering is a pure function and can be tested without touching the filesystem.
 type initSecrets struct {
-	PGPassword  string
-	LocalToken  string
-	S3SecretKey string
-	AgentToken  string
-	MasterKey   string // the path the key was written to
-	Transport   string
-	Tailnet     string
+	PGPassword    string
+	LocalToken    string
+	S3SecretKey   string
+	AgentToken    string
+	AgentAPIToken string
+	MasterKey     string // the path the key was written to
+	Transport     string
+	Tailnet       string
 }
 
 func newInitCommand() *cobra.Command {
@@ -96,6 +97,7 @@ func newInitCommand() *cobra.Command {
 				{&values.LocalToken, 32},
 				{&values.S3SecretKey, 24},
 				{&values.AgentToken, 32},
+				{&values.AgentAPIToken, 32},
 			} {
 				if *gen.dst, err = randomSecret(gen.bytes); err != nil {
 					return err
@@ -154,6 +156,13 @@ func writeEnvFile(path, body string) error {
 	return f.Close()
 }
 
+// writeAgentAPIToken records the conductor's bearer. It is not the dev token: the server
+// accepts it as the agent principal, and refuses to start when the two match.
+func writeAgentAPIToken(b *strings.Builder, token string) {
+	b.WriteString("# The conductor's bearer for the control plane. Not PODIUM_LOCAL_TOKEN.\n")
+	b.WriteString("PODIUM_AGENT_API_TOKEN=" + token + "\n\n")
+}
+
 // renderEnv builds the .env body. Every variable the compose files require has a value;
 // everything optional is left to deploy/.env.example, which documents the whole set.
 func renderEnv(v initSecrets) string {
@@ -191,6 +200,7 @@ func renderEnv(v initSecrets) string {
 		b.WriteString("PODIUM_LOCAL_LISTEN=0.0.0.0:8080\n")
 		b.WriteString(local.UnsafeListenVar + "=true\n")
 		b.WriteString("PODIUM_LOCAL_TOKEN=" + v.LocalToken + "\n\n")
+		writeAgentAPIToken(&b, v.AgentAPIToken)
 		b.WriteString("# The URL clients and remote workers dial — this host's address on the\n")
 		b.WriteString("# network you already have. 0.0.0.0 is a bind address, not a URL.\n")
 		b.WriteString("# Example: http://10.8.0.2:8080  or  http://podium.corp.example:8080\n")
@@ -203,6 +213,7 @@ func renderEnv(v initSecrets) string {
 		// name, so sourcing this file is all it takes to configure a shell.
 		b.WriteString("# Where the CLI looks for the control plane. It presents the token above.\n")
 		b.WriteString("PODIUM_SERVER=http://127.0.0.1:8080\n\n")
+		writeAgentAPIToken(&b, v.AgentAPIToken)
 	}
 
 	b.WriteString("# The conductor's API token. podium-server presents it on every proxied call and\n")

@@ -194,6 +194,7 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 		return local.New(local.Options{
 			Listen:           cfg.LocalListen,
 			Token:            cfg.LocalToken,
+			AgentToken:       cfg.AgentAPIToken,
 			AllowNonLoopback: cfg.LocalAllowUnsafeListen,
 		})
 	}

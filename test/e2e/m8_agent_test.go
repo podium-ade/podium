@@ -82,7 +82,7 @@ func (a *agentProc) start() {
 	cmd := exec.CommandContext(context.Background(), filepath.Join(binDir, "podium-agent")) //nolint:gosec // this test's own build output
 	cmd.Env = append(os.Environ(),
 		"PODIUM_AGENT_SERVER="+a.h.url(),
-		"PODIUM_AGENT_API_TOKEN="+devToken,
+		"PODIUM_AGENT_API_TOKEN="+agentAPIToken,
 		"PODIUM_AGENT_DATABASE_URL="+a.databaseURL,
 		"PODIUM_AGENT_LISTEN="+a.addr,
 		"PODIUM_AGENT_TOKEN="+agentToken,

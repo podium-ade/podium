@@ -296,7 +296,7 @@ test fails if one is read by the code and missing from that file.
 | env | required | default | meaning |
 |---|---|---|---|
 | `PODIUM_AGENT_SERVER` | yes | — | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the server's `PODIUM_LOCAL_TOKEN`; empty on a tailnet, where WhoIs names the caller |
+| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the bearer this process presents to the control plane. It must differ from `PODIUM_LOCAL_TOKEN`; the server treats it as the conductor. Empty on a tailnet, where WhoIs names the caller |
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
@@ -2375,14 +2375,16 @@ PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
   docker compose -f deploy/docker-compose.dev.yml --profile memory up -d --wait hindsight
 
 make build agent-runtime
-# Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
-#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
+# Start podium-server as in docs/quickstart.md, plus the variables that mount the proxy.
+# PODIUM_AGENT_API_TOKEN is the conductor's bearer and must differ from PODIUM_LOCAL_TOKEN;
+# the server and the conductor both receive that same value.
+#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken PODIUM_AGENT_API_TOKEN=conductortoken
 # then podium-node, then the conductor below, and set the key in the UI at /agent/settings/models.
 # The CLI way, if you would rather not open a browser:
 podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 
 PODIUM_AGENT_SERVER=http://127.0.0.1:8080 \
-PODIUM_AGENT_API_TOKEN=devtoken \
+PODIUM_AGENT_API_TOKEN=conductortoken \
 PODIUM_AGENT_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium_agent \
 PODIUM_AGENT_TOKEN=agenttoken \
 PODIUM_AGENT_PROFILE_DIR=examples/agent \
