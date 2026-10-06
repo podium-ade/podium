@@ -219,26 +219,49 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			// wrote is closed after the first frame is flushed, so the reader below cannot
 			// be racing the handler's first write.
 			wrote := make(chan struct{})
-			// tookRest lets the handler finish. Reading the second frame has to happen
-			// before that: once the handler returns, the upstream server closes the
-			// connection, and on a busy runner the proxy's copy observes that close
-			// ("use of closed network connection") and aborts the client body with
-			// unexpected EOF. The bytes are what this test is proving.
+			// tookRest lets the handler finish. The upstream connection has to stay
+			// open until both frames have been read: httptest's server closes it
+			// when the handler returns, and on a busy runner the proxy's copy
+			// observes that ("use of closed network connection") and aborts the
+			// client body with unexpected EOF. Hijacking keeps the socket ours.
+			// A declared length is one byte longer than the two frames so the
+			// proxy's copy is still blocked while the client reads the second
+			// one; an exact length would let the proxy finish and race the read.
 			tookRest := make(chan struct{})
 			frames := []string{"first\n", "second\n"}
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "application/connect+json")
-				if tc.declareLength {
-					w.Header().Set("Content-Length", strconv.Itoa(len(frames[0])+len(frames[1])))
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				_ = r.Body.Close()
+				conn, bufrw, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Errorf("hijack upstream: %v", err)
+					close(wrote)
+					return
 				}
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(frames[0]))
-				w.(http.Flusher).Flush()
+				defer conn.Close()
+
+				_, _ = io.WriteString(bufrw, "HTTP/1.1 200 OK\r\nContent-Type: application/connect+json\r\n")
+				if tc.declareLength {
+					_, _ = io.WriteString(bufrw, "Content-Length: "+strconv.Itoa(len(frames[0])+len(frames[1])+1)+"\r\n\r\n")
+					_, _ = io.WriteString(bufrw, frames[0])
+				} else {
+					_, _ = io.WriteString(bufrw, "Transfer-Encoding: chunked\r\n\r\n")
+					writeChunk(bufrw, frames[0])
+				}
+				_ = bufrw.Flush()
 				close(wrote)
 				<-release
-				_, _ = w.Write([]byte(frames[1]))
-				w.(http.Flusher).Flush()
+				if tc.declareLength {
+					_, _ = io.WriteString(bufrw, frames[1])
+				} else {
+					writeChunk(bufrw, frames[1])
+				}
+				_ = bufrw.Flush()
 				<-tookRest
+				if !tc.declareLength {
+					_, _ = io.WriteString(bufrw, "0\r\n\r\n")
+					_ = bufrw.Flush()
+				}
 			}))
 			defer upstream.Close()
 			defer close(tookRest)
@@ -293,6 +316,13 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			assert.Equal(t, frames[1], string(rest))
 		})
 	}
+}
+
+func writeChunk(w io.Writer, frame string) {
+	_, _ = io.WriteString(w, strconv.FormatInt(int64(len(frame)), 16))
+	_, _ = io.WriteString(w, "\r\n")
+	_, _ = io.WriteString(w, frame)
+	_, _ = io.WriteString(w, "\r\n")
 }
 
 func TestNewAgentProxyRefusesAnUnparseableURL(t *testing.T) {
