@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Badge, type Tone } from "../components/Badge";
 import { Empty } from "../components/Empty";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
 import { TaskRowActions } from "../components/tasks/TaskRowActions";
 import { useToast } from "../components/Toast";
@@ -155,17 +155,15 @@ export function TasksPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Tasks"
-        description="Work that ran, is running, or is waiting for a node."
         actions={
           <Link to="/submit" className={buttonVariants({ size: "sm" })}>
             <Plus />
             New task
           </Link>
         }
-      />
+      >
 
       {hasList ? (
         <div className="grid max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4">
@@ -480,7 +478,7 @@ export function TasksPage() {
           a task that starts while you are on page 2 turns up at the top of page 1.
         </p>
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 

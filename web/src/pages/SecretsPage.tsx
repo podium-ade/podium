@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, KeyRound, Plus, RotateCw, Trash2, TriangleAlert } from "lucide-react";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { DeleteSecretDialog } from "../components/secrets/DeleteSecretDialog";
 import { SecretDialog } from "../components/secrets/SecretDialog";
 import { TableSkeleton } from "../components/Skeleton";
@@ -57,10 +57,6 @@ export function SecretsPage() {
   // own, and dimming everything up to the last dot makes those runs visible without spending a
   // header row on each one — most namespaces here hold a single secret.
   const sorted = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
-  const namespaces = useMemo(
-    () => new Set(rows.map((s) => s.name.split(".")[0])).size,
-    [rows],
-  );
 
   // A key_id that differs from the rest means a master-key rotation stopped half way: those
   // rows are still readable with the old key and nothing else is.
@@ -70,16 +66,13 @@ export function SecretsPage() {
     for (const s of rows) counts.set(s.keyId, (counts.get(s.keyId) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   }, [rows]);
-  const stale = useMemo(() => rows.filter((s) => ageDays(s) >= STALE_DAYS).length, [rows]);
 
   const noMasterKey = connectCode(query.error) === Code.FailedPrecondition;
   const listFailed = query.error !== null && !noMasterKey;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Secrets"
-        description="Values that tasks and the agent pull in by name when they run."
         actions={
           // Without a master key SetSecret refuses too, so the action is offered but inert
           // rather than failing after the operator has typed a value into it.
@@ -88,24 +81,7 @@ export function SecretsPage() {
             New secret
           </Button>
         }
-        meta={
-          rows.length > 0 ? (
-            <>
-              <Chip>
-                {rows.length} {rows.length === 1 ? "secret" : "secrets"}
-              </Chip>
-              <Chip>
-                {namespaces} {namespaces === 1 ? "namespace" : "namespaces"}
-              </Chip>
-              {stale > 0 ? (
-                <Badge tone="warn" dot={false}>
-                  {stale} not rotated in {STALE_DAYS}d
-                </Badge>
-              ) : null}
-            </>
-          ) : null
-        }
-      />
+      >
 
       <Alert variant="info" title="Values are write-only">
         A value cannot be viewed after it is saved: there is no read API, and it leaves the
@@ -269,7 +245,7 @@ export function SecretsPage() {
           onOpenChange={(open) => !open && setDeleting(undefined)}
         />
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 

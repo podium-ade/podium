@@ -4,9 +4,8 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { ChevronLeft, ChevronRight, Coins, Cpu, LayoutDashboard, TrendingDown, TrendingUp } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router";
 import { ConductorDown } from "../components/agent/ConductorDown";
-import { Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton, TableSkeleton } from "../components/Skeleton";
 import { BackendTable } from "../components/usage/BackendTable";
 import { RangePicker } from "../components/usage/RangePicker";
@@ -142,14 +141,13 @@ export function UsagePage() {
   // would be a table of dashes. The nav item that leads here is hidden in the same case.
   if (viewer && !viewer.agentEnabled) {
     return (
-      <div className="space-y-5">
-        <PageHeader title="Usage" description="What every task cost and what it used." />
+      <PageFrame title="Usage">
         <Empty
           icon={Coins}
           title="There is no conductor on this control plane"
           hint="Model cost is recorded per agent turn by podium-agent. Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server to see spend here. See docs/agent.md."
         />
-      </div>
+      </PageFrame>
     );
   }
 
@@ -252,22 +250,19 @@ export function UsagePage() {
   );
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Usage"
-        description="What ran, what it cost and what it used. Spend per task from the conductor; compute from the control plane."
-        meta={
-          <>
-            <Chip>{range.label}</Chip>
-            {unpriced > 0 ? (
-              <Chip className="border-warn/35 bg-warn/12 text-warn">
-                {unpriced} {unpriced === 1 ? "turn" : "turns"} reported no cost
-              </Chip>
-            ) : null}
-          </>
-        }
         actions={<RangePicker range={range} onChange={pick} />}
-      />
+      >
+
+      <nav aria-label="Usage views" className="flex items-center gap-1">
+        {TABS.map((t) => (
+          <NavLink key={t.path} to={t.to} end={t.end} className={tabLink}>
+            <t.icon />
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
 
       {down ? (
         <ConductorDown
@@ -281,15 +276,6 @@ export function UsagePage() {
           {errorMessage(usage.error)}
         </Alert>
       ) : null}
-
-      <nav aria-label="Usage views" className="flex items-center gap-0.5 border-b border-border pb-px">
-        {TABS.map((t) => (
-          <NavLink key={t.path} to={t.to} end={t.end} className={tabLink}>
-            <t.icon />
-            {t.label}
-          </NavLink>
-        ))}
-      </nav>
 
       <div role="group" aria-label="Totals" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
@@ -323,7 +309,7 @@ export function UsagePage() {
         <Route path="models" element={models} />
         <Route path="*" element={overview} />
       </Routes>
-    </div>
+    </PageFrame>
   );
 }
 
