@@ -1,19 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { Server } from "lucide-react";
 import { SettingsSectionNav } from "./SettingsSections";
-import { sectionsOverflow } from "./sectionsOverflow";
-
-describe("sectionsOverflow", () => {
-  it("stays tabs until the row is wider than its frame", () => {
-    expect(sectionsOverflow(0, 0)).toBe(false);
-    expect(sectionsOverflow(200, 0)).toBe(false);
-    expect(sectionsOverflow(200, 240)).toBe(false);
-    expect(sectionsOverflow(241, 240)).toBe(false);
-    expect(sectionsOverflow(242, 240)).toBe(true);
-  });
-});
 
 describe("SettingsSectionNav", () => {
   const sections = [
@@ -22,20 +11,19 @@ describe("SettingsSectionNav", () => {
     { id: "models", label: "Models", icon: Server },
   ];
 
-  it("uses tabs while the names fit", () => {
-    render(<SettingsSectionNav sections={sections} current="models" onChange={() => {}} />);
-    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByTestId("settings-section-menu")).toBeNull();
-  });
-
-  it("collapses to a menu of the open section", async () => {
-    const onChange = vi.fn();
+  it("lists the sections and marks the open one", () => {
     render(
-      <SettingsSectionNav sections={sections} current="backend" onChange={onChange} collapsed />,
+      <MemoryRouter>
+        <SettingsSectionNav sections={sections} current="models" />
+      </MemoryRouter>,
     );
-    expect(screen.queryByRole("tab", { name: "Backend" })).toBeNull();
-    await userEvent.click(screen.getByTestId("settings-section-menu"));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Models" }));
-    expect(onChange).toHaveBeenCalledWith("models");
+    expect(screen.getByRole("navigation", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute(
+      "href",
+      "/agent/settings/models",
+    );
+    expect(screen.getByRole("link", { name: "Backend" })).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 });
