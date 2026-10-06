@@ -191,9 +191,9 @@ describe("AgentPage", () => {
     mount("/agent/settings/account", { ...viewer, googleAuthEnabled: true });
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Backend" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Backend" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
       "href",
@@ -259,12 +259,12 @@ describe("AgentPage", () => {
 
   it("shows self-hosted as the backend and the others as coming soon", async () => {
     mount("/agent/settings/backend", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("tab", { name: "Backend" })).toHaveAttribute(
-      "aria-selected",
-      "true",
+    expect(await screen.findByRole("link", { name: "Backend" })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
-    expect(screen.queryByRole("tab", { name: "Models" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Account" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Models" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
     expect(screen.queryByText("Nothing to configure")).toBeNull();
 
     const backends = screen.getByRole("radiogroup", { name: "Backend" });
@@ -277,7 +277,7 @@ describe("AgentPage", () => {
   it("renders settings models without the talk tabs", async () => {
     mount("/agent/settings/models");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
@@ -305,6 +305,9 @@ describe("AgentPage", () => {
     await within(await screen.findByTestId("provider-card-anthropic")).findByText("Not set");
     getSettings.mockResolvedValue(connected);
 
+    await userEvent.click(
+      within(screen.getByTestId("provider-card-anthropic")).getByRole("button", { name: "Connect" }),
+    );
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
@@ -342,7 +345,8 @@ describe("AgentPage", () => {
     );
     mount();
     expect(await screen.findByText(/podium-agent is not reachable/)).toBeInTheDocument();
-    // Not a blank card: the input is still there to try again with.
+    expect(screen.getByTestId("provider-card-anthropic")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]);
     expect(screen.getByTestId("provider-key-input-anthropic")).toBeInTheDocument();
   });
 
