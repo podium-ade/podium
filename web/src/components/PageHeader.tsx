@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import { ChevronLeft } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
+import { useViewer } from "../lib/identity";
+import { NotificationBell } from "./NotificationBell";
 
 const PageActionsContext = createContext<HTMLDivElement | null>(null);
 
@@ -20,7 +22,8 @@ export function PageActions({ children }: { children: ReactNode }) {
 /**
  * PageFrame is a fixed 3rem toolbar: the page title, its current state, and its actions,
  * on one row. The side rail is the map. The body scrolls underneath, except a bleed page
- * (the chat), which keeps the height that remains.
+ * (the chat), which keeps the height that remains. The notifications bell is the last
+ * control on that row, on every page.
  */
 export function PageFrame({
   title,
@@ -42,6 +45,7 @@ export function PageFrame({
   children: ReactNode;
 }) {
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const who = useViewer();
   return (
     <PageActionsContext.Provider value={slot}>
       <div className="flex h-full min-h-0 flex-col bg-background">
@@ -60,6 +64,7 @@ export function PageFrame({
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {actions}
             <div ref={setSlot} className="flex items-center gap-2 empty:hidden" />
+            {who?.agentEnabled ? <NotificationBell /> : null}
           </div>
         </header>
         <div
