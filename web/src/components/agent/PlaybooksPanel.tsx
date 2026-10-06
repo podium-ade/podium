@@ -10,7 +10,7 @@ import type { PlaybookDraft } from "../../lib/playbook";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { TableSkeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -108,10 +108,9 @@ export function PlaybooksPanel() {
   };
 
   return (
-    <div className="flex min-h-[36rem] flex-col gap-5">
-      <PageHeader
+    <PageFrame
+      bodyClassName="flex min-h-0 flex-col gap-5"
         title="Playbooks"
-        description="A job on a node: image, prompt, tools. The assistant starts one, or a /name in chat does."
         actions={
           <div className="flex items-center gap-2">
             <ReloadProfileDirButton />
@@ -129,7 +128,7 @@ export function PlaybooksPanel() {
             </Button>
           </div>
         }
-      />
+      >
 
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown
@@ -268,7 +267,7 @@ export function PlaybooksPanel() {
         </section>
       </div>
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 

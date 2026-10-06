@@ -200,33 +200,17 @@ describe("AgentPage", () => {
     expect(screen.queryByLabelText("Dev token")).toBeNull();
   });
 
-  it("redirects /agent to the chat tab", async () => {
+  it("redirects /agent to the chat screen", async () => {
     mount("/agent");
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("has one tab per screen and each is a real route", async () => {
+  it("renders each assistant screen on its own route, without a tab row", async () => {
     mount("/agent/sessions");
     expect(await screen.findByText("No sessions yet.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Sessions" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    // The tabs this build ships. Playbooks, Skills and Settings live in the app sidebar,
-    // so they must not appear here. Add a line to the tabs array and this list together.
-    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Chat",
-      "Sessions",
-      "Memory",
-      "Assistant",
-    ]);
-
-    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
-    expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("link", { name: "Assistant" }));
-    expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
+    // Chat, Sessions, Memory and Assistant are in the app sidebar, not this page.
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
   });
 
   it("shows the assistant and the playbooks on their own routes", async () => {
@@ -277,12 +261,11 @@ describe("AgentPage", () => {
     expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
   });
 
-  it("keeps the Chat tab active on a deep link to one chat", async () => {
-    // /agent/chat/<id> is a real route, not a state flag, so a link into a conversation
-    // opens it with the tab lit.
+  it("opens a deep link to one chat without an in-page tab row", async () => {
+    // /agent/chat/<id> is a real route. The sidebar lights Chat; this page does not.
     mount("/agent/chat/chat_01abc");
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("saves a key through the RPC and shows it as set afterwards", async () => {

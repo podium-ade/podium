@@ -6,7 +6,7 @@ import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { absolute, relative, toDate } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -138,19 +138,13 @@ export function ChannelsPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Channels"
-        description="Tell the bot what each Slack channel is for. #support is customer complaints; #eng is engineering. The name also appears on mirrored threads in Chat."
-        meta={
-          channels.length > 0 ? (
-            <Chip className="tabular">
-              {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
-              {channels.length === 1 ? "channel" : "channels"}
-            </Chip>
-          ) : undefined
-        }
-      />
+    <PageFrame title="Channels">
+      {channels.length > 0 ? (
+        <Chip className="tabular">
+          {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
+          {channels.length === 1 ? "channel" : "channels"}
+        </Chip>
+      ) : null}
 
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
@@ -301,7 +295,7 @@ export function ChannelsPanel() {
           if (editing) save.mutate({ id: editing.id, description });
         }}
       />
-    </div>
+    </PageFrame>
   );
 }
 

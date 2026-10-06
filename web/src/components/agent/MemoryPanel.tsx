@@ -8,7 +8,7 @@ import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/
 import { absolute, relative } from "../../lib/format";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -116,11 +116,6 @@ export function MemoryPanel() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Memory"
-        description="One bank of durable facts, shared by every agent turn. A turn retains what it worked out; this is where a human reads it back and throws out what is wrong."
-      />
-
       {isAgentUnreachable(active.error) ? (
         <ConductorDown
           what={searching ? "The search could not run" : "The memory could not be read"}

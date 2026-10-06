@@ -6,7 +6,7 @@ import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { EnrollPanel } from "../components/EnrollPanel";
 import { NodeActions } from "../components/NodeActions";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { Alert } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
@@ -77,12 +77,10 @@ export function NodesPage() {
   const silent = nodes.filter((n) => !isConnected(n));
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Nodes"
-        description="The machines that run your tasks. Each one dials in, advertises its labels and capacity, and takes work until you drain it."
         actions={<EnrollPanel />}
-      />
+      >
 
       {/* A fleet of nothing has no health to summarise, and four zeroes read as an outage. */}
       {query.isPending || nodes.length > 0 ? (
@@ -198,7 +196,7 @@ export function NodesPage() {
           </p>
         </>
       )}
-    </div>
+    </PageFrame>
   );
 }
 

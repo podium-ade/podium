@@ -37,7 +37,7 @@ test("a running task appears, streams its log live, and the node is online", asy
   const taskId = out.match(/task_[0-9a-z]+/)?.[0];
   expect(taskId, `no task id in CLI output: ${out}`).toBeTruthy();
 
-  await page.goto("/");
+  await page.goto("/tasks");
   await expect(page.getByRole("link", { name: taskId! })).toBeVisible();
 
   await page.getByRole("link", { name: taskId! }).click();
@@ -58,7 +58,7 @@ test("the tasks list searches by image and by id prefix", async ({ page }) => {
     /task_[0-9a-z]+/,
   )![0];
 
-  await page.goto("/");
+  await page.goto("/tasks");
   await expect(page.getByRole("link", { name: taskId })).toBeVisible();
 
   // Server-side: the whole set is searched, not the page already on screen.
@@ -75,7 +75,7 @@ test("the tasks list searches by image and by id prefix", async ({ page }) => {
 
 test("a task can be submitted from the UI and watched to completion", async ({ page }) => {
   await authenticate(page);
-  await page.goto("/");
+  await page.goto("/tasks");
   await page.getByRole("link", { name: "New task" }).click();
   await expect(page).toHaveURL(/\/submit$/);
 
