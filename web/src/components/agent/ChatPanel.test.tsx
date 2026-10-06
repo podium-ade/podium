@@ -172,6 +172,16 @@ function mount(path = "/agent/chat") {
   );
 }
 
+/**
+ * onArrival waits for the blank arrival after leaving a thread. An empty thread shows the same
+ * greeting, so finding the text alone can grab the thread's copy just before the navigation
+ * unmounts it. The title slot says which screen this is: the arrival's reads "New chat".
+ */
+async function onArrival() {
+  await waitFor(() => expect(screen.getByTestId("chat-title")).toHaveTextContent("New chat"));
+  expect(screen.getByText(/Podium answers here/)).toBeInTheDocument();
+}
+
 describe("ChatPanel", () => {
   beforeEach(() => {
     listChats.mockReset();
@@ -535,7 +545,7 @@ describe("ChatPanel", () => {
     await userEvent.click(screen.getByTestId("chat-new"));
     await waitFor(() => expect(signals[0].aborted).toBe(true));
     expect(createChat).not.toHaveBeenCalled();
-    expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
+    await onArrival();
     expect(signals).toHaveLength(1);
 
     unmount();
@@ -707,7 +717,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));
 
-    expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
+    await onArrival();
   });
 
   it("says the conductor is down without breaking the page", async () => {
