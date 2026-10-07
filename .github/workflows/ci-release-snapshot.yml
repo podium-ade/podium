@@ -56,13 +56,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      # Podium has no licence yet. This is a warning here and a hard failure in
-      # release.yml, so the state is visible without blocking development.
+      # release.yml refuses to publish if LICENSE contains a TODO placeholder.
+      # Warn here so that state is visible without blocking development.
       - name: LICENSE placeholder check
         run: |
           if grep -qi 'TODO' LICENSE; then
             echo "::warning file=LICENSE::LICENSE is still a TODO placeholder. \
-          release.yml refuses to publish until a real licence is chosen."
+          release.yml refuses to publish until the Apache-2.0 text is restored."
           fi
 
       - uses: goreleaser/goreleaser-action@v6
