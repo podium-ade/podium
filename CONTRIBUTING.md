@@ -1,6 +1,7 @@
 # Contributing
 
-> Podium is [MIT licensed](LICENSE). By opening a pull request you agree that your
+> Podium is licensed under the [Apache License, Version 2.0](LICENSE)
+> (SPDX-License-Identifier: Apache-2.0). By opening a pull request you agree that your
 > contribution is offered under the same terms.
 
 ---
