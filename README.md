@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-3b2fd4.svg"></a>
+  <a href="LICENSE"><img alt="Apache-2.0 licence" src="https://img.shields.io/badge/licence-Apache%202.0-3b2fd4.svg"></a>
   <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/go-1.27%2B-00ADD8.svg"></a>
   <a href=".github/workflows/ci-go.yml"><img alt="ci / go" src="https://github.com/podium-ade/podium/actions/workflows/ci-go.yml/badge.svg"></a>
   <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
@@ -264,4 +264,6 @@ untrusted**. Report a vulnerability privately. See [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE).
+Podium is licensed under the [Apache License, Version 2.0](LICENSE).
+
+SPDX-License-Identifier: Apache-2.0

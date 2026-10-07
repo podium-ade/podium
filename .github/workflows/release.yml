@@ -26,15 +26,13 @@ concurrency:
 
 jobs:
   # ===========================================================================
-  # STOP. Podium has no licence yet.
+  # The project licence is the Apache License, Version 2.0 (see LICENSE).
   #
-  # LICENSE contains a placeholder that says so. Publishing archives and container
-  # images of code that carries no licence gives nobody the right to use it and
-  # cannot be undone by editing the file afterwards — the tag, the release and every
-  # copy anyone pulled are already out there.
-  #
-  # This job gates every other job in this workflow. Choosing the licence is the
-  # only way past it, and it is deliberately a decision a human makes.
+  # This job still gates every other job. A LICENSE file that contains a TODO
+  # placeholder is not a licence. Publishing archives and container images of
+  # code that carries no licence gives nobody the right to use it, and editing
+  # the file afterwards does not retract a tag, a release, or a copy already
+  # pulled.
   # ===========================================================================
   license:
     name: LICENSE must not be a TODO
@@ -60,9 +58,8 @@ jobs:
             cat <<'MSG'
 
           Nothing is published until a real licence text is in that file.
-          Choose one — Apache-2.0 and AGPL-3.0 are the two this project has been
-          weighing since step 01 — put the full text in LICENSE, add the SPDX
-          identifier to README.md, delete the tag, and tag again.
+          The chosen licence is Apache-2.0. Put that full text back in LICENSE,
+          keep the SPDX identifier in README.md, delete the tag, and tag again.
 
           Until then every artifact this workflow would produce is code that
           nobody has the right to use, and republishing under a licence later
