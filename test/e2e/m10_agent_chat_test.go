@@ -227,7 +227,7 @@ func TestChatTurnRoundTrip(t *testing.T) {
 	require.NotEmpty(t, playbooks.Msg.GetPlaybooks())
 	assert.Equal(t, "Podium", playbooks.Msg.GetAssistant().GetDisplayName())
 	assert.Equal(t, "claude", playbooks.Msg.GetAssistant().GetAgent(), "resolved, never empty")
-	assert.Equal(t, "claude-opus-5", playbooks.Msg.GetAssistant().GetModel())
+	assert.Equal(t, "claude-opus-5-5", playbooks.Msg.GetAssistant().GetModel())
 
 	created, err := client.CreateChat(ctx, connect.NewRequest(&agentv1.CreateChatRequest{
 		Title: "August numbers",
@@ -462,13 +462,18 @@ func TestChatsArePerLogin(t *testing.T) {
 	assert.Equal(t, map[string]string{devChat: "dev", bobChat: "bob"},
 		chatLogins(t, agent.databaseURL))
 
-	// dev's list holds dev's chat and nothing else.
+	// The browser on the local transport is the dev token, so its list holds every chat.
 	listed, err := client.ListChats(ctx, connect.NewRequest(&agentv1.ListChatsRequest{}))
 	require.NoError(t, err)
-	require.Len(t, listed.Msg.GetChats(), 1)
-	assert.Equal(t, devChat, listed.Msg.GetChats()[0].GetId())
+	got := map[string]bool{}
+	for _, c := range listed.Msg.GetChats() {
+		got[c.GetId()] = true
+	}
+	assert.True(t, got[devChat], "the dev token sees its own chat")
+	assert.True(t, got[bobChat], "the dev token sees another login's chat")
 
-	// bob's list holds bob's.
+	// A named login sees only its own. bob is presented the way a Google Workspace user is:
+	// a login, and no dev-token scope.
 	code, body = agent.postAs(listChatsPath, agentToken, "bob", `{}`)
 	require.Equal(t, http.StatusOK, code, body)
 	assert.Contains(t, body, bobChat)

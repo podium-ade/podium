@@ -57,6 +57,9 @@ type Request struct {
 	// this node stores no artifacts: the task still runs, and anything it asks to keep
 	// becomes a retryable error event.
 	Artifacts ArtifactUploader
+	// Workspace restores a snapshot into the volume and uploads a new one after a clean
+	// exit. Nil leaves the volume ephemeral, which is what a one-shot run is.
+	Workspace *Workspace
 }
 
 // Usage is a best-effort resource accounting for a finished task.
@@ -210,6 +213,11 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		return Result{}, fmt.Errorf("create volume %s: %w", volumeName(req.TaskID), err)
 	}
 
+	// Restore before sidecars, so one that shares the workspace sees the files.
+	if err := e.restoreWorkspace(ctx, req); err != nil {
+		return Result{}, err
+	}
+
 	// Sidecars are siblings on the task network, addressed by the name they are keyed
 	// under. The task container is not created until every one of them is ready, and
 	// their log streams are stopped again before this run emits its exit — a log event
@@ -317,6 +325,12 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 	applyResources(hostCfg, req.Spec.Resources)
 	applyTaskHardening(hostCfg, req.Spec.Hardening)
+	// gVisor, when the operator asked for it. Sidecars stay on the engine default: a
+	// privileged dind sidecar cannot run under runsc, and the workspace helper is not a
+	// sandbox. runsc does not make the snapshot and it does not make startup faster.
+	if e.runtime != "" {
+		hostCfg.Runtime = e.runtime
+	}
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 		networkName(req.TaskID): {NetworkID: netResp.ID, Aliases: []string{networkAlias}},
 	}}
@@ -420,6 +434,19 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	rs.mu.Unlock()
 	oom := exitedOOM(e.inspectAfterExit(ctx, cid), exitCode, killedByPodium)
 
+	// The volume still exists. A snapshot has to land before exited, because the caller
+	// tears the volume down once the run returns and the next session task will ask for
+	// it as soon as this one is terminal. A cancel or an OOM is not a finished turn:
+	// the previous snapshot stays.
+	if killedByPodium || oom {
+		if req.Workspace != nil && req.Workspace.Save != nil {
+			e.log.Info("workspace snapshot skipped", "task", req.TaskID,
+				"cancelled", killedByPodium, "oom", oom, "exit", exitCode)
+		}
+	} else if err := e.saveWorkspace(ctx, req); err != nil {
+		e.log.Error("saving the workspace snapshot failed", "task", req.TaskID, "error", err)
+	}
+
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})
 	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage})
 
@@ -507,6 +534,13 @@ func containerEnv(req Request, workdir string) []string {
 		"PODIUM_EVENTS_SOCK="+eventsTarget,
 		"PODIUM_INBOX_SOCK="+inboxTarget,
 	)
+	// The runtime reads this. The node does not keep the container alive on its own.
+	if req.Spec.WorkspaceWarm > 0 {
+		if _, set := req.Spec.Env["PODIUM_WORKSPACE_WARM_SECONDS"]; !set {
+			secs := int(req.Spec.WorkspaceWarm.Std().Round(time.Second).Seconds())
+			env = append(env, fmt.Sprintf("PODIUM_WORKSPACE_WARM_SECONDS=%d", secs))
+		}
+	}
 	return env
 }
 

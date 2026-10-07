@@ -16,5 +16,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // A shared CI runner is several times slower than a laptop, and a test that types a form
+    // with userEvent already takes over a second here. These budgets are for that runner.
+    testTimeout: 20_000,
   },
 });

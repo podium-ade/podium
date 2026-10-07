@@ -74,8 +74,8 @@ test("the agent settings page validates and stores a provider key", async ({ pag
   await authenticate(page);
   await page.goto("/agent/settings/models");
 
-  // The Agent tab exists at all only because WhoAmI said the server proxies a conductor.
-  await expect(page.getByRole("link", { name: "Agent" })).toBeVisible();
+  // Chat is in the sidebar only because WhoAmI said the server proxies a conductor.
+  await expect(page.getByRole("link", { name: "Chat" })).toBeVisible();
   await expect(anthropicCard(page).getByText("Not set")).toBeVisible();
   await expect(page.getByText(/encrypted at rest by podium-server/i)).toBeVisible();
   await expect(page.getByTestId("provider-key-save-anthropic")).toBeDisabled();
@@ -157,8 +157,8 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/mcp$/);
   await expect(page.getByTestId("mcp-new")).toBeVisible();
 
-  // Back into the talk screens: Agent in the sidebar, then the remaining tabs.
-  await page.getByRole("link", { name: "Agent" }).click();
+  // Back into the talk screens. Chat, Sessions, Memory and Assistant are sidebar links.
+  await page.getByRole("link", { name: "Chat" }).click();
   await expect(page).toHaveURL(/\/agent\/chat$/);
 
   // The Assistant tab reads the profile the conductor is actually running, files and stored
@@ -188,6 +188,25 @@ test("the agent tabs are real routes", async ({ page }) => {
   // And the back button works, because a tab is a navigation and not a state flag.
   await page.goBack();
   await expect(page).toHaveURL(/\/agent\/chat$/);
+});
+
+// The profile.yaml editor once rendered forever: YamlEditor's `problems = []` default was a
+// new array every render, which reconfigured CodeMirror, whose update re-rendered the editor.
+// The page looked fine and swallowed every click, so the check is the console and a way out.
+test("the Assistant tab settles and lets you leave", async ({ page }) => {
+  await authenticate(page);
+  const loops: string[] = [];
+  page.on("console", (m) => {
+    if (m.text().startsWith("Maximum update depth")) loops.push(m.text());
+  });
+
+  await page.goto("/agent/profile");
+  await expect(page.getByTestId("profile-file-card")).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(loops).toEqual([]);
+
+  await page.getByRole("link", { name: "Sessions" }).click();
+  await expect(page).toHaveURL(/\/agent\/sessions$/);
 });
 
 test("the agent page makes no third-party requests", async ({ page }) => {
@@ -229,8 +248,9 @@ test("a new chat stores the question and disables the composer", async ({ page }
   await authenticate(page);
   await page.goto("/agent/chat");
 
-  await page.getByTestId("chat-new").click();
-  // A chat is a real URL, so this is a deep link somebody can send to a colleague.
+  // Asking from the arrival creates the chat. The URL is a deep link after that.
+  await page.getByTestId("chat-composer").fill("how many active accounts last month");
+  await page.getByTestId("chat-send").click();
   await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
   const url = page.url();
 
@@ -238,9 +258,6 @@ test("a new chat stores the question and disables the composer", async ({ page }
   // there is nothing here to pick one with.
   await expect(page.getByTestId("chat-run-config")).toBeVisible();
   await expect(page.getByTestId("chat-playbook")).toHaveCount(0);
-
-  await page.getByTestId("chat-composer").fill("how many active accounts last month");
-  await page.getByTestId("chat-send").click();
 
   // The human's own bubble appears immediately, and the composer closes: turn-based, one
   // question in flight per conversation.
@@ -268,11 +285,9 @@ test("a chat turn streams progress and lands a final message", async ({ page }) 
   await authenticate(page);
   await page.goto("/agent/chat");
 
-  await page.getByTestId("chat-new").click();
-  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
-
   await page.getByTestId("chat-composer").fill("hello");
   await page.getByTestId("chat-send").click();
+  await expect(page).toHaveURL(/\/agent\/chat\/chat_/);
 
   // A progress line appears while the turn works — the whole reason StreamChat is a
   // server-streaming RPC and the proxy does not buffer.

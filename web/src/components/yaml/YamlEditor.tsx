@@ -15,6 +15,11 @@ import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import { Tooltip } from "../ui/tooltip";
 
+// NO_PROBLEMS is the default for `problems`. It has to be one array: a `= []` default is a
+// new array every render, and the lint effect below runs whenever `problems` changes, so a
+// caller that passes none would reconfigure the editor on every render, forever.
+const NO_PROBLEMS: YamlProblem[] = []
+
 export type YamlEditorHandle = {
   jumpTo: (line: number) => void
 }
@@ -55,7 +60,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(function
     label,
     value,
     onChange,
-    problems = [],
+    problems = NO_PROBLEMS,
     readOnly = false,
     invalid,
     minLines = 18,
@@ -127,7 +132,10 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(function
           EditorView.updateListener.of((update) => {
             const head = update.state.selection.main.head
             const line = update.state.doc.lineAt(head)
-            setCaret({ line: line.number, col: head - line.from + 1 })
+            const col = head - line.from + 1
+            // Every transaction lands here, including a lint reconfigure. Keep the same
+            // object when the caret has not moved, or each one costs a render.
+            setCaret((c) => (c.line === line.number && c.col === col ? c : { line: line.number, col }))
             if (syncing.current || !update.docChanged) return
             const next = update.state.doc.toString()
             if (next !== valueRef.current) onChangeRef.current?.(next)

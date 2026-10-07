@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Container, Plus, RotateCw, Trash2 } from "lucide-react";
-import { Chip } from "../components/Badge";
+
 import { Empty } from "../components/Empty";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { DeleteRegistryDialog } from "../components/registries/DeleteRegistryDialog";
 import { RegistryDialog } from "../components/registries/RegistryDialog";
 import { TableSkeleton } from "../components/Skeleton";
@@ -22,6 +22,8 @@ import { Tooltip } from "../components/ui/tooltip";
 import type { Registry } from "../gen/podium/v1/registry_pb";
 import { Code, connectCode, errorMessage, registries } from "../lib/client";
 import { absolute, relative } from "../lib/format";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 /**
  * The Registries screen: one login per registry host, so tasks and playbooks can name an
@@ -29,6 +31,8 @@ import { absolute, relative } from "../lib/format";
  * metadata only; there is no read endpoint for a password and none is wanted.
  */
 export function RegistriesPage() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const toast = useToast();
   const [setting, setSetting] = useState<{ lockedHost?: string }>();
   const [deleting, setDeleting] = useState<Registry>();
@@ -50,24 +54,17 @@ export function RegistriesPage() {
   const listFailed = query.error !== null && !noMasterKey;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Registries"
-        description="Logins for the container registries your task and playbook images are pulled from."
         actions={
-          <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-            <Plus />
-            New registry
-          </Button>
-        }
-        meta={
-          rows.length > 0 ? (
-            <Chip>
-              {rows.length} {rows.length === 1 ? "registry" : "registries"}
-            </Chip>
+          manage ? (
+            <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+              <Plus />
+              New registry
+            </Button>
           ) : null
         }
-      />
+      >
 
       <Alert variant="info" title="A login is matched by host">
         An image reference names its registry (for example{" "}
@@ -108,10 +105,12 @@ export function RegistriesPage() {
             title="No registries yet"
             hint="Every pull is anonymous until a registry is added here. A private image fails on the node with pull access denied."
             action={
-              <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-                <Plus />
-                New registry
-              </Button>
+              manage ? (
+                <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
+                  <Plus />
+                  New registry
+                </Button>
+              ) : undefined
             }
           />
         )
@@ -140,6 +139,7 @@ export function RegistriesPage() {
                 </TableCell>
                 <TableCell className="text-xs text-muted">{r.createdBy || "-"}</TableCell>
                 <TableCell>
+                  {manage ? (
                   <div className="flex items-center justify-end gap-1">
                     <Button
                       variant="outline"
@@ -162,6 +162,7 @@ export function RegistriesPage() {
                       </Button>
                     </Tooltip>
                   </div>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}
@@ -184,6 +185,6 @@ export function RegistriesPage() {
           onOpenChange={(open) => !open && setDeleting(undefined)}
         />
       ) : null}
-    </div>
+    </PageFrame>
   );
 }

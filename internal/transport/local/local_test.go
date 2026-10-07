@@ -36,6 +36,30 @@ func TestNewRequiresToken(t *testing.T) {
 	require.ErrorContains(t, err, "PODIUM_LOCAL_TOKEN")
 }
 
+func TestNewRefusesAnAgentTokenThatMatchesTheDevToken(t *testing.T) {
+	_, err := New(Options{Listen: "127.0.0.1:8080", Token: "same", AgentToken: "same"})
+	require.ErrorContains(t, err, "PODIUM_AGENT_API_TOKEN must differ")
+}
+
+func TestIdentifyNamesTheConductor(t *testing.T) {
+	l, err := New(Options{Listen: "127.0.0.1:0", Token: "dev", AgentToken: "conductor"})
+	require.NoError(t, err)
+
+	r, _ := http.NewRequest(http.MethodPost, "/podium.v1.TaskService/CreateTask", nil)
+	r.Header.Set("Authorization", "Bearer conductor")
+	id, err := l.Identify(r)
+	require.NoError(t, err)
+	require.Equal(t, transport.KindAgent, id.Kind)
+	require.Equal(t, "agent", id.Login)
+
+	r, _ = http.NewRequest(http.MethodPost, "/podium.v1.TaskService/CreateTask", nil)
+	r.Header.Set("Authorization", "Bearer dev")
+	id, err = l.Identify(r)
+	require.NoError(t, err)
+	require.Equal(t, transport.KindLocalToken, id.Kind)
+	require.Equal(t, "local", id.Login)
+}
+
 func TestNewDefaultsToLoopback(t *testing.T) {
 	l, err := New(Options{Token: "t"})
 	require.NoError(t, err)

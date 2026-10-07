@@ -17,6 +17,7 @@ export type PlaybookDraft = {
   priority: number
   resources: { cpu: number; memoryMb: number; pids: number }
   secrets: { name: string; target: string; key: string }[]
+  userSecrets: { name: string; target: string; key: string }[]
   repos: { name: string; url: string; defaultBranch: string }[]
   /** Undefined inherits the profile's persona, which is what a message field must be to mean that. */
   git?: { name: string; email: string }
@@ -51,6 +52,7 @@ export type PlaybookDoc = {
   priority?: number
   resources?: { cpu?: number; memory_mb?: number; pids?: number }
   secrets?: { name?: string; target?: string; key?: string }[]
+  user_secrets?: { name?: string; target?: string; key?: string }[]
   repos?: { name?: string; url?: string; default_branch?: string }[]
   git?: { name?: string; email?: string }
   slack_channels?: string[]
@@ -82,6 +84,7 @@ const PLAYBOOK_KEYS = [
   "priority",
   "resources",
   "secrets",
+  "user_secrets",
   "repos",
   "git",
   "slack_channels",
@@ -187,6 +190,22 @@ export function parsePlaybookValue(
     }
   }
 
+  if (root.user_secrets !== undefined && root.user_secrets !== null) {
+    if (!Array.isArray(root.user_secrets)) {
+      r.bad("user_secrets", "must be a list")
+    } else {
+      out.user_secrets = root.user_secrets.map((item, i) => {
+        const path = `user_secrets[${i}]`
+        const o = r.object(path, item, SECRET_KEYS, "playbook field") ?? {}
+        return {
+          name: r.string(`${path}.name`, o.name) ?? "",
+          target: r.string(`${path}.target`, o.target) ?? "",
+          key: r.string(`${path}.key`, o.key) ?? "",
+        }
+      })
+    }
+  }
+
   if (root.repos !== undefined && root.repos !== null) {
     if (!Array.isArray(root.repos)) {
       r.bad("repos", "must be a list")
@@ -282,6 +301,10 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   if (secrets.length > 0) {
     doc.secrets = secrets.map((s) => ({ name: s.name, target: s.target, key: s.key }))
   }
+  const userSecrets = playbook.userSecrets ?? []
+  if (userSecrets.length > 0) {
+    doc.user_secrets = userSecrets.map((s) => ({ name: s.name, target: s.target, key: s.key }))
+  }
   const repos = playbook.repos ?? []
   if (repos.length > 0) {
     doc.repos = repos.map((r) => ({
@@ -333,6 +356,9 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
     if (draft.resources.pids) doc.resources.pids = draft.resources.pids
   }
   if (draft.secrets.length > 0) doc.secrets = draft.secrets.map((s) => ({ ...s }))
+  if (draft.userSecrets.length > 0) {
+    doc.user_secrets = draft.userSecrets.map((s) => ({ ...s }))
+  }
   if (draft.repos.length > 0) {
     doc.repos = draft.repos.map((r) => ({
       name: r.name,
@@ -376,6 +402,11 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
       pids: doc.resources?.pids ?? 0,
     },
     secrets: (doc.secrets ?? []).map((s) => ({
+      name: s.name ?? "",
+      target: s.target || "env",
+      key: s.key ?? "",
+    })),
+    userSecrets: (doc.user_secrets ?? []).map((s) => ({
       name: s.name ?? "",
       target: s.target || "env",
       key: s.key ?? "",

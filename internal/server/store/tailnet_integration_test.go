@@ -20,13 +20,15 @@ func TestUpsertUser(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "user@example.com", first.Login)
 	require.Equal(t, "Example User", first.DisplayName)
-	require.Empty(t, first.Roles, "roles start empty; RBAC is a later slice")
+	require.Empty(t, first.Roles, "roles start empty until a claim or AssignRole")
 	require.False(t, first.FirstSeenAt.IsZero())
+	require.False(t, first.LastSeenAt.IsZero())
 
 	// Seeing the same person again is idempotent and does not move first_seen_at.
 	again, err := s.UpsertUser(ctx, "user@example.com", "Example User")
 	require.NoError(t, err)
 	require.Equal(t, first.FirstSeenAt, again.FirstSeenAt)
+	require.False(t, again.LastSeenAt.Before(first.LastSeenAt))
 
 	// A refreshed display name lands; an empty one does not erase what is known.
 	renamed, err := s.UpsertUser(ctx, "user@example.com", "Example U.")

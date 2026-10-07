@@ -26,6 +26,7 @@ import (
 	"github.com/podium-ade/podium/internal/server/nodes"
 	"github.com/podium-ade/podium/internal/server/scheduler"
 	"github.com/podium-ade/podium/internal/server/secrets"
+	"github.com/podium-ade/podium/internal/server/snapshots"
 	"github.com/podium-ade/podium/internal/server/store"
 	"github.com/podium-ade/podium/internal/transport"
 	"github.com/podium-ade/podium/internal/transport/local"
@@ -117,6 +118,12 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 		return nil, err
 	}
 	nodeSvc.SetArtifacts(artifactSvc)
+	snapSvc, err := newSnapshots(ctx, cfg, st, logger)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	nodeSvc.SetSnapshots(snapSvc)
 	logSvc.SetArchive(artifactSvc, cfg.Rollup)
 	warnAboutPlaintextTransport(ctx, cfg, st, logger)
 	if timing != scheduler.DefaultTiming() {
@@ -187,6 +194,7 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 		return local.New(local.Options{
 			Listen:           cfg.LocalListen,
 			Token:            cfg.LocalToken,
+			AgentToken:       cfg.AgentAPIToken,
 			AllowNonLoopback: cfg.LocalAllowUnsafeListen,
 		})
 	}
@@ -230,6 +238,30 @@ func newArtifacts(ctx context.Context, cfg Config, st *store.Store, logger *slog
 
 // artifactProbeTimeout bounds the start-up and readiness probes of the object store.
 const artifactProbeTimeout = 5 * time.Second
+
+// newSnapshots opens the workspace-snapshot half of the same bucket artifacts use. A
+// control plane with no PODIUM_S3_ENDPOINT still serves tasks; snapshot and restore are
+// refused and the node keeps today's ephemeral workspace.
+func newSnapshots(ctx context.Context, cfg Config, st *store.Store, logger *slog.Logger) (*snapshots.Service, error) {
+	if !cfg.S3.Enabled() {
+		logger.Info("workspace snapshots are off: PODIUM_S3_ENDPOINT is not set")
+		return snapshots.New(st, nil, logger), nil
+	}
+	s3, err := artifacts.NewS3(cfg.S3)
+	if err != nil {
+		return nil, err
+	}
+	svc := snapshots.New(st, s3, logger)
+	probeCtx, cancel := context.WithTimeout(ctx, artifactProbeTimeout)
+	defer cancel()
+	if err := s3.EnsureBucket(probeCtx); err != nil {
+		logger.WarnContext(ctx, "the object store is not reachable; workspace snapshots will fail until it is",
+			"endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket, "error", err)
+	} else {
+		logger.Info("workspace snapshots enabled", "endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket)
+	}
+	return svc, nil
+}
 
 // loadMasterKey resolves PODIUM_MASTER_KEY_FILE, then PODIUM_MASTER_KEY. Returning (nil,
 // nil) is legitimate and means secrets are disabled: this is still a task runner without
@@ -314,8 +346,10 @@ func (s *Server) mux() http.Handler {
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
 		api.NewIdentityService(s.store, s.cfg.AgentEnabled(), s.cfg.GoogleEnabled()), opts...))
+	rpc.Handle(podiumv1connect.NewUserServiceHandler(
+		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
-		api.NewSecretService(s.secrets, s.logger), opts...))
+		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
@@ -348,7 +382,8 @@ func (s *Server) mux() http.Handler {
 	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
 	// index.html, and the bundle asks the operator for one before it calls anything.
 	withAuth := func(h http.Handler) http.Handler {
-		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(), h))
+		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(),
+			auth.RestrictRBAC(s.store, s.cfg.GoogleEnabled(), h)))
 	}
 	authenticated := withAuth(rpc)
 	for _, service := range []string{
@@ -356,6 +391,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeServiceName,
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
+		podiumv1connect.UserServiceName,
 		podiumv1connect.SecretServiceName,
 		podiumv1connect.RegistryServiceName,
 		podiumv1connect.ArtifactServiceName,
@@ -369,7 +405,7 @@ func (s *Server) mux() http.Handler {
 	// conductor: a control plane whose agent is down is still a working task runner, and
 	// readyz is what a load balancer and the compose healthcheck gate on.
 	if s.cfg.AgentEnabled() {
-		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger)
+		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger, s.agentInfra)
 		if err != nil {
 			// Validate has already parsed the URL, so this cannot fire in a started
 			// server; refusing to serve the prefix beats serving it wrongly.
@@ -384,6 +420,21 @@ func (s *Server) mux() http.Handler {
 		withAuth(api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
 	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
+}
+
+// agentInfra is true for a signed-in admin or owner. The dev token is handled by the
+// proxy itself. A member, a missing user, and a lookup error are false: the Slack bot's
+// MCP list stays closed when the server cannot prove the caller may edit it.
+func (s *Server) agentInfra(ctx context.Context) bool {
+	id, ok := transport.From(ctx)
+	if !ok || id.Kind != transport.KindUser || id.Login == "" {
+		return false
+	}
+	user, err := s.store.GetUser(ctx, id.Login)
+	if err != nil {
+		return false
+	}
+	return store.HasRole(user.Roles, store.RoleAdmin)
 }
 
 // readyz reports whether the dependencies this process cannot work without are reachable.

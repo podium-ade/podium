@@ -84,7 +84,7 @@ export function ChatThread({
             data-testid="chat-scroller"
             className="absolute inset-0 flex flex-col overflow-y-auto"
           >
-            <div className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-8 sm:px-5">
+            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-5">
               {top}
               <ThreadPrimitive.Empty>{welcome}</ThreadPrimitive.Empty>
               <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />

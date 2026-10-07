@@ -296,7 +296,7 @@ test fails if one is read by the code and missing from that file.
 | env | required | default | meaning |
 |---|---|---|---|
 | `PODIUM_AGENT_SERVER` | yes | — | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the server's `PODIUM_LOCAL_TOKEN`; empty on a tailnet, where WhoIs names the caller |
+| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the bearer this process presents to the control plane. It must differ from `PODIUM_LOCAL_TOKEN`; the server treats it as the conductor. Empty on a tailnet, where WhoIs names the caller |
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
@@ -421,7 +421,7 @@ display_name: Podium         # required
 system_prompt: file:./prompts/profile.md   # required; inline, or file: relative to THIS file
                              # The assistant's prompt. A playbook layers its own on top of it
                              # for a task; a conversation has this one and no second prompt.
-model: claude-opus-5         # required. What the assistant answers on, and what a playbook
+model: claude-opus-5-5       # required. What the assistant answers on, and what a playbook
                              # inherits unless it names its own
 agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
@@ -1094,7 +1094,7 @@ to send the request:
 ```
 
 `id` is whatever the harness calls that provider; with `profile.model` it becomes
-`--model xai/grok-4.6`. `base_url` is optional and overrides where that provider is reached — an
+`--model xai/grok-4.7`. `base_url` is optional and overrides where that provider is reached — an
 egress proxy, or a test seam — and empty means the harness's own default. `api_key_env` names a
 secret and never holds one: a brief is an environment variable on a task spec, readable by
 anything that can read the spec, exactly like `memory.api_key_env`.
@@ -1108,10 +1108,12 @@ provider's choice and is usually the right one.
 The levels a model accepts are a property of that model, and the conductor holds a profile to
 them at load time:
 
-- `max` is Anthropic-only. A Grok model naming it fails to load rather than failing on the first
-  turn.
-- `grok-4.5` and older document `xhigh` as a synonym for `high`, so it is not offered for them:
-  a level that silently means a different level is worse than no level.
+- `max` is not an xAI level. The current Claude models and the GPT-6 models take it. A Grok
+  model naming it fails to load rather than failing on the first turn.
+- `claude-haiku-4-5` takes no effort setting. Naming one fails to load.
+- `grok-4.7` and `grok-4.6` take `xhigh`. `grok-4.5` and older document it as a synonym for
+  `high`, so it is not offered for them: a level that silently means a different level is worse
+  than no level.
 - A **playbook that switches backend and inherits the profile's effort** is checked with the model
   it will actually run on, not with the profile's — that combination is the one that would
   otherwise slip through.
@@ -1137,14 +1139,14 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings → Models** has one card per provider. Chat picks which model a
+operator sets it. **Settings → Models** has one row per provider. Chat picks which model a
 turn uses; this category is how those models get a credential.
 
 Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
 
-<!-- screenshot: Settings, Models category, an Anthropic card, an xAI card and an OpenAI card, none set -->
+<!-- screenshot: Settings, Models section, an Anthropic row, an xAI row and an OpenAI row, none set -->
 
-Paste the key and press **Validate & save**. What happens, in order:
+Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 
 1. The browser calls `SetProviderKey` on `podium-server`, which proxies it to the conductor.
 2. The conductor calls the provider's model list — **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`**
@@ -1205,7 +1207,7 @@ stored secret back**, by design — see [`security.md`](security.md#secrets).
 conductor's, so `GetSettings` asks the control plane whether the secret exists rather than
 believing its own row. Which means:
 
-| what you did | what the Settings card says |
+| what you did | what the Settings row says |
 |---|---|
 | `podium secret rm podium.agent.anthropic_api_key` | **Not set** — the stale row is ignored, not shown |
 | `podium secret set …` over a key the UI had saved | **Connected**, and *set outside this UI*: there is a key, and the stored hint is about the one it replaced, so it is withheld rather than shown beside a key it is not about |
@@ -1289,6 +1291,14 @@ is left alone, because a token with thirty minutes on it is more use than none.
 That needs a refresh token, which needs the `offline_access` scope
 (`PODIUM_AGENT_XAI_OAUTH_SCOPES`, on by default). The card says **auto-renewing** when it has
 one and **not renewable** when it does not.
+
+Once that access token's expiry is in the past, renewal has been failing and turns on
+that model fail. The **bell** at the right end of the page toolbar records it as an **alert**
+and keeps it open until you sign in again. After the token is valid, the same row moves to the
+history on this browser. The inbox has three looks: an alert needs a person, a standard
+notice is informational, and a system error is a failure of Podium itself. Only alerts
+are raised today. The Models card says **Sign-in expired** for the same fact, and
+**Sign in again** opens the subscription flow.
 
 **Where the refresh token lives, and why it is the exception.** It is in the conductor's own
 Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
@@ -1378,16 +1388,24 @@ first**, and the participants are everyone who has spoken.
 It is **read-only, and it is a copy**. Two consequences worth being clear about:
 
 - **You cannot reply from Podium.** The conversation lives in Slack and is answered there, so a
-  mirrored chat has no composer, and no rename or delete. That is not a missing feature of the UI:
-  a mirrored chat has no owning login, and every write filters on one.
+  mirrored chat has no composer. That is not a missing feature of the UI: a mirrored chat has no
+  owning login, and a send filters on one.
 - **Slack is still the only authority on what was said.** A turn is briefed from
   `conversations.replies`, never from the mirror, so an edited or deleted Slack message cannot
   leave the copy and the model disagreeing about the conversation. The mirror is allowed to be
   lossy because nothing depends on it being complete.
 
-A mirrored thread belongs to the workspace rather than to a login, so **every login sees it**. That
-is the same reach the Sessions screen has always had over the same conversations, and it is not
-RBAC — there is none in this track. See [`security.md`](security.md).
+A mirrored thread belongs to the workspace rather than to a login. Who sees it depends on how
+they reached Podium:
+
+- **Google Workspace** (and any other named login) sees only the web chats they created, and
+  only the sessions for those chats. Another person's chats, and every Slack thread, are absent.
+- **The dev token** — the local transport, which has no per-user identity — sees every chat and
+  every session. The chat list and the Sessions screen keep web turns and Slack turns in
+  separate groups. That token may rename or delete a mirrored copy; the thread itself stays in Slack.
+
+That is not a role. The proxy tells the conductor which of the two the caller is, and a browser
+cannot widen its own view. See [`security.md`](security.md).
 
 ### What the bot listens to
 
@@ -1967,20 +1985,22 @@ env:
 - **Two comments per Linear turn.** Progress edits one of them; it is not a running commentary.
 - **The Linear poll interval** is how long an assignment waits before anything happens: up to 30
   seconds by default, and never less than 10.
-- **No per-action RBAC.** Google Workspace sign-in can claim the instance for a domain; it does
-  not change what a Slack mention or a Linear assignment can make the bot do. See below.
+- **The bot is not behind RBAC.** Google Workspace sign-in can claim the instance for a domain
+  and gate the web UI; it does not change what a Slack mention or a Linear assignment can make
+  the bot do. See below.
 
 ---
 
-## No per-action RBAC
+## The bot is not behind RBAC
 
 **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
-credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain; it is
-not an allowlist of Slack or Linear users, and it does not add a read-only mode. Keep `secrets:`
-minimal per playbook, and do not put a credential in a playbook that anybody in a public channel can
-reach — but do not mistake that for a boundary around the secret store. `CreateTask` checks only
-that a named secret **exists**, so anyone who can reach the control plane can already mount any
-registered secret into an image and a command of their own. See
+credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain and
+enforces member / admin / owner on KindUser; it is not an allowlist of Slack or Linear users,
+and a member can still submit a task. Keep `secrets:` minimal per playbook, and do not put a
+credential in a playbook that anybody in a public channel can reach — but do not mistake that
+for a boundary around the secret store. `CreateTask` checks only that a named secret **exists**,
+so a member who can reach the control plane can already mount any registered secret into an
+image and a command of their own. See
 [`security.md`](security.md#5-the-conductor-and-the-bot).
 
 The two Slack tokens are as sensitive as `PODIUM_LOCAL_TOKEN`. So are the Linear API key (full
@@ -2177,8 +2197,8 @@ composer therefore offers exactly one choice — which model answers — and no 
 playbook, because there is nothing per message to pick: the turn chooses a playbook for each
 task it delegates, and may choose several while answering once.
 
-- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
-  is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
+- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. That
+  is a partition, not a role, and it is free. Knowing
   another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
   are the same partition: only the owner can change the title or remove a chat, and
   another login's id is `not_found`. The messages go with a delete. Sessions and turns it
@@ -2290,7 +2310,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one card per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one row per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |
@@ -2355,14 +2375,16 @@ PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
   docker compose -f deploy/docker-compose.dev.yml --profile memory up -d --wait hindsight
 
 make build agent-runtime
-# Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
-#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
+# Start podium-server as in docs/quickstart.md, plus the variables that mount the proxy.
+# PODIUM_AGENT_API_TOKEN is the conductor's bearer and must differ from PODIUM_LOCAL_TOKEN;
+# the server and the conductor both receive that same value.
+#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken PODIUM_AGENT_API_TOKEN=conductortoken
 # then podium-node, then the conductor below, and set the key in the UI at /agent/settings/models.
 # The CLI way, if you would rather not open a browser:
 podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 
 PODIUM_AGENT_SERVER=http://127.0.0.1:8080 \
-PODIUM_AGENT_API_TOKEN=devtoken \
+PODIUM_AGENT_API_TOKEN=conductortoken \
 PODIUM_AGENT_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium_agent \
 PODIUM_AGENT_TOKEN=agenttoken \
 PODIUM_AGENT_PROFILE_DIR=examples/agent \

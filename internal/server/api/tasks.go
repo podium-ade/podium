@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/server/secrets"
 	"github.com/podium-ade/podium/internal/server/store"
 	"github.com/podium-ade/podium/internal/transport"
 	"github.com/podium-ade/podium/pkg/spec"
@@ -76,14 +77,39 @@ func (s *TaskService) CreateTask(
 	if err := ts.Validate(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task spec: %w", err))
 	}
+	// Who may name a secret is settled before the row exists. A global name is the
+	// conductor's to attach. A personal name is the owner's, or the conductor's when the
+	// task is for that owner. A refusal is not a failed task: nothing was admitted.
+	if err := authorizeSecretAttach(ctx, ts.Secrets); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
 	// Admission checks that the named secrets exist. The scheduler still resolves their
 	// values at assignment — the value should be in server memory for as short a time as it
 	// can be — but *existence* is settled here, because the only thing that used to notice
 	// was a dispatch, and on a cluster with no node connected there is no dispatch. A task
 	// that could never run then sat queued forever instead of saying why.
+	//
+	// A missing personal secret, and nothing else, fails before a task exists: the error
+	// names the secret, and the conductor must not learn another login's names by listing.
+	// A missing global secret still leaves the failed row, including when the same spec
+	// also names a personal secret. ErrNoKey is not a missing name, so it leaves the row
+	// too: that is the record that this server has no master key.
 	var admission error
 	if s.secrets != nil && len(ts.Secrets) > 0 {
-		admission = s.secrets.CheckRefs(ctx, ts.Secrets)
+		global, personal := splitSecretRefs(ts.Secrets)
+		if len(global) > 0 {
+			if err := s.secrets.CheckRefs(ctx, global); err != nil {
+				admission = err
+			}
+		}
+		if admission == nil && len(personal) > 0 {
+			if err := s.secrets.CheckRefs(ctx, personal); err != nil {
+				if errors.Is(err, secrets.ErrMissing) {
+					return nil, connect.NewError(connect.CodeNotFound, err)
+				}
+				admission = err
+			}
+		}
 	}
 
 	task, err := s.store.CreateTask(ctx, store.NewTask{
@@ -281,6 +307,50 @@ func (s *TaskService) StreamTaskEvents(
 	return ctx.Err()
 }
 
+// authorizeSecretAttach is who may put a secret on a task. An empty owner is global, and
+// only the conductor attaches one. A set owner is that person's secret: the person, or the
+// conductor naming them. The error for a global name names the conductor, so a caller can
+// tell a permission failure from a missing secret.
+func authorizeSecretAttach(ctx context.Context, refs []spec.SecretRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	id, ok := transport.From(ctx)
+	if !ok {
+		return errors.New("the conductor attaches that secret")
+	}
+	for _, ref := range refs {
+		if ref.Owner == "" {
+			if id.Kind != transport.KindAgent {
+				return fmt.Errorf("the conductor attaches that secret %q", ref.Name)
+			}
+			continue
+		}
+		switch id.Kind {
+		case transport.KindAgent:
+		case transport.KindUser:
+			if id.Login != ref.Owner {
+				return fmt.Errorf("secret %q belongs to another person", ref.Name)
+			}
+		default:
+			return fmt.Errorf("secret %q is personal and this caller cannot attach it", ref.Name)
+		}
+	}
+	return nil
+}
+
+// splitSecretRefs separates company secrets from a person's. An empty owner is global.
+func splitSecretRefs(refs []spec.SecretRef) (global, personal []spec.SecretRef) {
+	for _, ref := range refs {
+		if ref.Owner == "" {
+			global = append(global, ref)
+		} else {
+			personal = append(personal, ref)
+		}
+	}
+	return global, personal
+}
+
 // login is the identity the transport middleware attached, or "unknown" when a handler was
 // reached without it.
 func login(ctx context.Context) string {
@@ -296,6 +366,10 @@ func storeError(err error) error {
 	case errors.Is(err, store.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, store.ErrInvalidTransition):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrInvalidRole):
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, store.ErrLastOwner):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

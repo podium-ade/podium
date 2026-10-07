@@ -52,6 +52,14 @@ func TestWhoAmI(t *testing.T) {
 				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_LOCAL_TOKEN,
 			},
 		},
+		{
+			name: "the conductor",
+			id:   transport.Identity{Kind: transport.KindAgent, Login: "agent"},
+			want: &podiumv1.WhoAmIResponse{
+				Login: "agent",
+				Kind:  podiumv1.IdentityKind_IDENTITY_KIND_AGENT,
+			},
+		},
 	}
 
 	for _, tc := range tests {

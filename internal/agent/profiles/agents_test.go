@@ -54,7 +54,12 @@ func TestValidateTriple(t *testing.T) {
 	}{
 		{name: "nothing set at all"},
 		{name: "a known triple", agent: AgentClaude, model: "claude-opus-5", effort: EffortMax},
-		{name: "grok at xhigh", agent: AgentGrok, model: "grok-4.6", effort: EffortXHigh},
+		{name: "grok at xhigh", agent: AgentGrok, model: "grok-4.7", effort: EffortXHigh},
+		{name: "openai at max", agent: AgentOpenAI, model: "gpt-6.1-sol", effort: EffortMax},
+		{
+			name: "haiku takes no effort", agent: AgentClaude, model: "claude-haiku-4-5",
+			effort: EffortHigh, wantErr: "claude-haiku-4-5 takes no effort setting",
+		},
 		{
 			name: "an agent that does not exist", agent: "gemini",
 			wantErr: `agent "gemini" is not one this conductor runs`,
@@ -151,10 +156,10 @@ func TestResolveAppliesTheOverrideOverThePlaybookOverTheProfile(t *testing.T) {
 	})
 
 	t.Run("a backend alone brings its own default model", func(t *testing.T) {
-		// Otherwise the turn would ask Claude for grok-4.6, or Grok for claude-sonnet-5.
+		// Otherwise the turn would ask Claude for grok-4.7, or Grok for claude-sonnet-5.
 		got := p.Resolve(playbook, Override{Agent: AgentGrok})
 		assert.Equal(t, AgentGrok, got.Agent)
-		assert.Equal(t, "grok-4.6", got.Model)
+		assert.Equal(t, "grok-4.7", got.Model)
 	})
 
 	t.Run("an effort alone leaves the model alone", func(t *testing.T) {

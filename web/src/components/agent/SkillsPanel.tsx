@@ -6,7 +6,7 @@ import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { humanBytes } from "../../lib/format";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
@@ -14,6 +14,8 @@ import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import type { SkillBundle } from "../../lib/skillZip";
 import { SkillEditor, type SkillFile } from "./SkillEditor";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 /**
  * SkillsPanel is the Agent Skills on this conductor. A folder that contains SKILL.md
@@ -21,6 +23,8 @@ import { SkillEditor, type SkillFile } from "./SkillEditor";
  * SKILL.md installs one skill per file.
  */
 export function SkillsPanel() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<AgentSkill | "new">();
@@ -106,18 +110,10 @@ export function SkillsPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="Skills"
-        description="A folder the model can load mid-turn: SKILL.md and the files it names. A playbook names which skills a turn may use."
-        meta={
-          skills.length > 0 ? (
-            <Chip className="tabular">
-              {skills.length} {skills.length === 1 ? "skill" : "skills"}
-            </Chip>
-          ) : undefined
-        }
         actions={
+          manage ? (
           <Button
             type="button"
             size="sm"
@@ -130,8 +126,9 @@ export function SkillsPanel() {
             <Plus />
             New skill
           </Button>
+          ) : null
         }
-      />
+      >
 
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
@@ -184,10 +181,12 @@ export function SkillsPanel() {
           title="No skills"
           hint="Nothing for a turn to pick up yet."
           action={
+            manage ? (
             <Button type="button" size="sm" onClick={() => setEditing("new")}>
               <Plus />
               New skill
             </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -199,16 +198,20 @@ export function SkillsPanel() {
               key={s.name}
               skill={s}
               deleting={remove.isPending}
-              onOpen={() => {
-                setSaveError("");
-                setEditing(s);
-              }}
-              onDelete={() => remove.mutate(s.name)}
+              onOpen={
+                manage
+                  ? () => {
+                      setSaveError("");
+                      setEditing(s);
+                    }
+                  : undefined
+              }
+              onDelete={manage ? () => remove.mutate(s.name) : undefined}
             />
           ))}
         </ul>
       ) : null}
-    </div>
+    </PageFrame>
   );
 }
 
@@ -220,8 +223,8 @@ function SkillRow({
 }: {
   skill: AgentSkill
   deleting: boolean
-  onOpen: () => void
-  onDelete: () => void
+  onOpen?: () => void
+  onDelete?: () => void
 }) {
   return (
     <li
@@ -234,6 +237,7 @@ function SkillRow({
           data-testid="skill-open"
           className="min-w-0 flex-1 cursor-pointer space-y-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-raised"
           onClick={onOpen}
+          disabled={!onOpen}
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-sm font-medium text-fg">{skill.name}</span>
@@ -249,31 +253,37 @@ function SkillRow({
             <p className="max-w-2xl text-xs leading-relaxed text-err">{skill.problem}</p>
           ) : null}
         </button>
-        <div className="flex shrink-0 items-center gap-1 pt-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid="skill-edit"
-            aria-label={`Edit ${skill.name}`}
-            onClick={onOpen}
-          >
-            <Pencil />
-            Edit
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            data-testid="skill-delete"
-            aria-label={`Delete ${skill.name}`}
-            disabled={deleting}
-            onClick={onDelete}
-            className="hover:bg-err/12 hover:text-err"
-          >
-            <Trash2 />
-          </Button>
-        </div>
+        {onOpen || onDelete ? (
+          <div className="flex shrink-0 items-center gap-1 pt-1">
+            {onOpen ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="skill-edit"
+                aria-label={`Edit ${skill.name}`}
+                onClick={onOpen}
+              >
+                <Pencil />
+                Edit
+              </Button>
+            ) : null}
+            {onDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                data-testid="skill-delete"
+                aria-label={`Delete ${skill.name}`}
+                disabled={deleting}
+                onClick={onDelete}
+                className="hover:bg-err/12 hover:text-err"
+              >
+                <Trash2 />
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-hairline pt-2.5">

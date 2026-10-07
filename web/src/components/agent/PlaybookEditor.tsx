@@ -161,6 +161,9 @@ export function PlaybookEditor({
   const [secretRows, setSecretRows] = useState<Row[]>(() =>
     (playbook?.secrets ?? []).map((s) => row(s.name, s.target || "env", s.key)),
   );
+  const [userSecretRows, setUserSecretRows] = useState<Row[]>(() =>
+    (playbook?.userSecrets ?? []).map((s) => row(s.name, s.target || "env", s.key)),
+  );
   const [envRows, setEnvRows] = useState<Row[]>(() =>
     Object.entries(playbook?.env ?? {}).map(([k, v]) => row(k, v)),
   );
@@ -215,6 +218,9 @@ export function PlaybookEditor({
     priority: Number(priority) || 0,
     resources: { cpu: Number(cpu) || 0, memoryMb: Number(memoryMb) || 0, pids: Number(pids) || 0 },
     secrets: secretRows
+      .filter((r) => r.a.trim() !== "")
+      .map((r) => ({ name: r.a.trim(), target: r.b || "env", key: r.c.trim() })),
+    userSecrets: userSecretRows
       .filter((r) => r.a.trim() !== "")
       .map((r) => ({ name: r.a.trim(), target: r.b || "env", key: r.c.trim() })),
     repos: repoRows
@@ -630,6 +636,48 @@ export function PlaybookEditor({
             <AddRow
               label="Add a secret"
               onClick={() => setSecretRows([...secretRows, row("", "env", "")])}
+            />
+            <div className="space-y-1 pt-2">
+              <h3 className="text-xs font-medium text-fg">Personal secrets</h3>
+              <p className="max-w-2xl text-2xs leading-relaxed text-faint">
+                These are the signed-in person&apos;s own secrets. A Slack turn has no person,
+                so a playbook that names one fails that turn.
+              </p>
+            </div>
+            {userSecretRows.map((r, i) => (
+              <div key={r.id} className="flex flex-wrap items-center gap-2" data-testid="user-secret-row">
+                <Input
+                  aria-label={`Personal secret name ${i + 1}`}
+                  value={r.a}
+                  onChange={(e) => setUserSecretRows(patch(userSecretRows, r.id, { a: e.target.value }))}
+                  placeholder="linear_key"
+                  className="h-8 max-w-xs font-mono text-xs"
+                />
+                <select
+                  aria-label={`Personal secret target ${i + 1}`}
+                  value={r.b || "env"}
+                  onChange={(e) => setUserSecretRows(patch(userSecretRows, r.id, { b: e.target.value }))}
+                  className="h-8 w-24 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+                >
+                  <option value="env">env</option>
+                  <option value="file">file</option>
+                </select>
+                <Input
+                  aria-label={`Personal secret key ${i + 1}`}
+                  value={r.c}
+                  onChange={(e) => setUserSecretRows(patch(userSecretRows, r.id, { c: e.target.value }))}
+                  placeholder="LINEAR_KEY"
+                  className="h-8 max-w-xs font-mono text-xs"
+                />
+                <RemoveRow
+                  label={`Remove personal secret ${i + 1}`}
+                  onClick={() => setUserSecretRows(userSecretRows.filter((x) => x.id !== r.id))}
+                />
+              </div>
+            ))}
+            <AddRow
+              label="Add a personal secret"
+              onClick={() => setUserSecretRows([...userSecretRows, row("", "env", "")])}
             />
             {secretNames.length === 0 && !secretsUnknown ? (
               <p className="text-2xs text-faint">

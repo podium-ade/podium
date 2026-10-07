@@ -801,10 +801,11 @@ func TestOnlyTheDevSourceMayAskForTaskEnvironment(t *testing.T) {
 	assert.Contains(t, env, conductor.BriefEnv, "the brief is the only thing the conductor puts there")
 }
 
-// TestASecondMessageWaitsForTheRunningTurn is the one-turn-per-session rule: the second
-// message does not start a second task while the first is in flight, and when it does start
-// one the brief has both human messages in it.
-func TestASecondMessageWaitsForTheRunningTurn(t *testing.T) {
+// TestAFollowUpWhileTheWorkspaceIsWarmIsInjected is the warm window: once the task has
+// answered and is still running, the next message goes into that task. It does not start
+// a second one. A message that arrives after the task has exited is a new task, and that
+// one restores the snapshot.
+func TestAFollowUpWhileTheWorkspaceIsWarmIsInjected(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
 	release := fake.HoldTasks()
@@ -817,54 +818,30 @@ func TestASecondMessageWaitsForTheRunningTurn(t *testing.T) {
 	ctx := context.Background()
 	start(t, st, fake, src)
 	require.NoError(t, src.Send(ctx, inbound("C1/1.1", "first question")))
-	waitFor(t, 30*time.Second, "the first task", func() bool { return len(fake.Specs()) == 1 })
-
-	// The second message arrives while the first turn is still running.
-	require.NoError(t, src.Send(ctx, inbound("C1/1.1", "actually, also this")))
-	waitFor(t, 30*time.Second, "the second message to be queued", func() bool {
+	waitFor(t, 30*time.Second, "the answer", func() bool {
 		return len(posts(src.Records(), conductor.OutFinal)) >= 1
 	})
-	assert.Len(t, fake.Specs(), 1, "a second turn must not start while one is running")
+	require.Len(t, fake.Specs(), 1)
+	assert.NotEmpty(t, fake.Specs()[0].GetWorkspaceSession())
+	assert.Equal(t, 5*time.Minute, fake.Specs()[0].GetWorkspaceWarm().AsDuration())
 
-	// Let the first turn end. The second starts by itself.
-	release()
-	waitFor(t, 60*time.Second, "the second task", func() bool { return len(fake.Specs()) == 2 })
-	waitFor(t, 60*time.Second, "both turns to finish", func() bool {
-		sess, err := st.GetSessionByKey(ctx, conductor.KindDev+":C1:1.1")
-		if err != nil {
-			return false
-		}
-		turns, err := st.ListTurns(ctx, sess.ID, 10)
-		if err != nil || len(turns) != 2 {
-			return false
-		}
-		return turns[0].Status == store.TurnSucceeded && turns[1].Status == store.TurnSucceeded
+	require.NoError(t, src.Send(ctx, inbound("C1/1.1", "actually, also this")))
+	waitFor(t, 30*time.Second, "the follow-up to be injected", func() bool {
+		return len(fake.Injects()) == 1
 	})
+	assert.Equal(t, "actually, also this", fake.Injects()[0].GetText())
+	assert.Len(t, fake.Specs(), 1, "a warm follow-up must not start a second task")
 
-	first := decodeBrief(t, fake.Specs()[0])
-	second := decodeBrief(t, fake.Specs()[1])
-	assert.Equal(t, "first question", first.Instruction)
-	assert.Equal(t, "actually, also this", second.Instruction,
-		"the second turn starts from the latest human message")
+	release()
+	waitFor(t, 60*time.Second, "the turn to finish", func() bool {
+		return turnStatus(st, conductor.KindDev+":C1:1.1") == store.TurnSucceeded
+	})
+	assert.Len(t, fake.Specs(), 1)
 
-	var texts []string
-	for _, e := range second.Transcript {
-		texts = append(texts, e.Text)
-	}
-	assert.Contains(t, texts, "first question")
-	assert.Contains(t, texts, "actually, also this",
-		"nothing said during a running turn is lost: it is in the next turn's transcript")
-
-	// Two tasks, and they ran one after the other rather than at once.
-	require.Len(t, fake.Specs(), 2)
-	sess, err := st.GetSessionByKey(ctx, conductor.KindDev+":C1:1.1")
-	require.NoError(t, err)
-	turns, err := st.ListTurns(ctx, sess.ID, 10)
-	require.NoError(t, err)
-	require.Len(t, turns, 2)
-	require.NotNil(t, turns[1].FinishedAt)
-	assert.False(t, turns[1].FinishedAt.After(turns[0].StartedAt.Add(time.Second)),
-		"the second turn started after the first one finished")
+	// The workspace is no longer warm, so the next message is a new task.
+	require.NoError(t, src.Send(ctx, inbound("C1/1.1", "and once more")))
+	waitFor(t, 60*time.Second, "the restored task", func() bool { return len(fake.Specs()) == 2 })
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
 }
 
 // TestARestartResumesTheTurnAndPostsTheFinalOnce kills the conductor mid-turn and brings it
@@ -1228,8 +1205,13 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 	// open saw it land rather than finding it on the next reload.
 	require.Equal(t, msgs, watcher.rows(chat.ID), "what was written is what was announced")
 
-	// And it is in the list, for any login, because nobody owns it.
-	chats, _, err := st.ListChats(ctx, "whoever", 0, "")
+	// A named login does not list it. The dev token does: the thread belongs to the workspace.
+	owned, _, err := st.ListChats(ctx, "whoever", false, 0, "")
+	require.NoError(t, err)
+	for _, c := range owned {
+		assert.NotEqual(t, chat.ID, c.ID, "a signed-in login does not list a mirrored thread")
+	}
+	chats, _, err := st.ListChats(ctx, "local", true, 0, "")
 	require.NoError(t, err)
 	var found bool
 	for _, c := range chats {
@@ -1238,7 +1220,7 @@ func TestAMirroredConversationIsReadableAsAChat(t *testing.T) {
 			assert.Equal(t, "alice", c.StartedBy)
 		}
 	}
-	assert.True(t, found, "a mirrored conversation belongs to the workspace, so every login lists it")
+	assert.True(t, found, "the dev token lists a mirrored conversation")
 
 	people, err := st.ChatParticipants(ctx, chat.ID)
 	require.NoError(t, err)

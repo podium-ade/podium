@@ -40,7 +40,7 @@ timeout: 2h
 # playbook with a two-hour timeout is the wrong place to spend the top of the effort range by
 # default, and the chat's picker can raise it for a message that needs it.
 agent: grok
-model: grok-4.6
+model: grok-4.7
 effort: high
 labels: [privileged]
 # A nested build is heavier than an ordinary turn: the daemon pulls its own images and

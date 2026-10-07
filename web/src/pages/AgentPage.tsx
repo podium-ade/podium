@@ -1,14 +1,7 @@
-import { Fragment, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import {
-  Brain,
-  Cpu,
-  History,
-  MessageSquare,
-  Settings2,
-  UserRound,
-} from "lucide-react";
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
@@ -19,62 +12,46 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
 import { ProfileFileCard } from "../components/agent/ProfileFileCard";
 import { ProviderCard } from "../components/agent/ProviderCard";
+import { SandboxBackends } from "../components/agent/SandboxBackends";
+import { SettingsSectionNav } from "../components/agent/SettingsSections";
 import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButton";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
-import { PageHeader } from "../components/PageHeader";
+import { PageActions, PageFrame } from "../components/PageHeader";
+import { UsersPage } from "./UsersPage";
+import { Alert } from "../components/ui/alert";
 import { useToast } from "../components/Toast";
-import { Separator } from "../components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
-import { cn } from "../lib/utils";
+import { canManageInfra } from "../lib/rbac";
 
 /**
- * Tab is one sub-route of /agent that still lives in this page's own bar. The array below
- * is the extension point for those; Playbooks, Skills, MCP and Settings are in the app
- * sidebar instead — they are destinations of their own, not something you switch between
- * while talking.
+ * Tab is one assistant screen. Chat, Sessions, Memory and Assistant are links in the app
+ * sidebar, as are Playbooks, Skills, MCP, Channels and Settings.
  *
- * `path` is the bare segment the NavLink builds `/agent/${path}` from — keep it that way,
- * because a relative NavLink does not go active inside the `/agent/*` splat route. `route`
- * is the pattern the nested Routes matches, and it exists only for Chat, whose own screen
- * takes a chat id after the segment.
+ * `route` exists only for Chat, whose own screen takes a chat id after the segment.
  *
  * Chat is first because that is the thing an operator opens this tab to do. Settings used to
  * lead, which put a credentials form in front of the conversation.
  */
 type Tab = {
   path: string;
-  label: string;
+  title: string;
   element: ReactNode;
   route?: string;
-  icon: LucideIcon;
 };
 
-type Group = { label: string; tabs: Tab[] };
-
-const groups: Group[] = [
-  {
-    label: "Talk",
-    tabs: [
-      { path: "chat", label: "Chat", element: <ChatPanel />, route: "chat/*", icon: MessageSquare },
-      { path: "sessions", label: "Sessions", element: <SessionsTable />, icon: History },
-      { path: "memory", label: "Memory", element: <MemoryPanel />, icon: Brain },
-    ],
-  },
-  {
-    label: "Configure",
-    tabs: [{ path: "profile", label: "Assistant", element: <ProfileTab />, icon: UserRound }],
-  },
+const tabs: Tab[] = [
+  { path: "chat", title: "Chat", element: <ChatPanel />, route: "chat/*" },
+  { path: "sessions", title: "Sessions", element: <SessionsTable /> },
+  { path: "memory", title: "Memory", element: <MemoryPanel /> },
+  { path: "profile", title: "Assistant", element: <ProfileTab /> },
 ];
-
-const tabs: Tab[] = groups.flatMap((g) => g.tabs);
 
 /** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
 const sidebarScreens: { path: string; element: ReactNode }[] = [
@@ -91,26 +68,8 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
 ];
 
 /**
- * The tab bar is horizontal, and it is a row of links rather than `ui/tabs` on purpose: an
- * active tab here is a route, so the back button and a deep link both work, and only an
- * anchor gives that for free. The classes are `TabsTrigger`'s so it still reads as one
- * component family.
- *
- * It used to be a 192px rail, which put a second grey nav column immediately right of the
- * app's own and spent a quarter of the window before any content.
- */
-function tabLink({ isActive }: { isActive: boolean }) {
-  return cn(
-    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium whitespace-nowrap",
-    "transition-colors duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-    "[&_svg]:size-3.5 [&_svg]:shrink-0",
-    isActive ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
-  );
-}
-
-/**
- * AgentPage is the bot's home in the UI: a tab shell whose active tab is a real route, so
- * the back button and a deep link both work.
+ * AgentPage is the assistant's screens. Chat, Sessions, Memory and Assistant live in the
+ * app sidebar. Each is still a real route, so the back button and a deep link both work.
  *
  * With no conductor configured there is nothing to show. The route still exists — a browser
  * that follows an old bookmark gets a sentence rather than a blank page — and the nav item
@@ -119,170 +78,134 @@ function tabLink({ isActive }: { isActive: boolean }) {
 export function AgentPage() {
   const viewer = useViewer();
   const { pathname } = useLocation();
-  const chat = pathname.startsWith("/agent/chat");
 
   const onSettings = pathname === "/agent/settings" || pathname.startsWith("/agent/settings/");
   if (viewer && !viewer.agentEnabled && !onSettings) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-16 lg:px-8">
+      <PageFrame title="Assistant">
         <Empty
           icon={Settings2}
           title="The conductor is not configured on this control plane"
           hint="Set PODIUM_AGENT_URL and PODIUM_AGENT_TOKEN on podium-server and run podium-agent beside it. See docs/agent.md."
         />
-      </div>
+      </PageFrame>
     );
   }
 
-  const routed = (
-    <Routes>
-      <Route index element={<Navigate to="/agent/chat" replace />} />
-      {tabs.map((t) => (
-        <Route key={t.path} path={t.route ?? t.path} element={t.element} />
-      ))}
-      {sidebarScreens.map((s) => (
-        <Route key={s.path} path={s.path} element={s.element} />
-      ))}
-      <Route path="*" element={<Navigate to="/agent/chat" replace />} />
-    </Routes>
-  );
-
-  const showSubnav =
-    pathname === "/agent" ||
-    pathname === "/agent/" ||
-    groups.some((g) =>
-      g.tabs.some((t) => {
-        const prefix = `/agent/${t.path}`;
-        return pathname === prefix || pathname.startsWith(`${prefix}/`);
-      }),
-    );
-
+  // Chat, Sessions, Memory and Assistant each draw their own bar. The other
+  // screens already do. One shared bar kept Chat's full-bleed pane in place
+  // while the next screen mounted into it.
+  //
+  // Memory suspends until its first read classifies the screen. This boundary is
+  // what keeps that wait from committing an empty Memory page.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {showSubnav ? (
-        <div className="shrink-0 border-b border-border bg-panel/50">
-          <nav
-            aria-label="Agent"
-            className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-6 py-2.5 lg:px-8"
-          >
-            {groups.map((g, i) => (
-              <Fragment key={g.label}>
-                {i > 0 ? <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" /> : null}
-                <div className="flex items-center gap-2">
-                  <span className="text-2xs font-medium tracking-wider text-faint uppercase">
-                    {g.label}
-                  </span>
-                  <div className="inline-flex h-9 items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-                    {g.tabs.map((t) => (
-                      <NavLink key={t.path} to={`/agent/${t.path}`} className={tabLink}>
-                        <t.icon />
-                        {t.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                </div>
-              </Fragment>
-            ))}
-          </nav>
-        </div>
-      ) : null}
-
-      {/* Chat is a full-height pane and owns its own scrolling; every other tab is a page. */}
-      {chat ? (
-        <div className="min-h-0 flex-1 overflow-hidden">{routed}</div>
-      ) : (
-        // relative for the same reason as the shell's main — see App.tsx.
-        <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-7 lg:px-8">
-          <div key={pathname} className="mx-auto w-full max-w-7xl animate-in fade-in-0 duration-200">
-            {routed}
-          </div>
-        </div>
-      )}
+    <div className="h-full min-h-0">
+      <Suspense fallback={null}>
+      <Routes>
+        <Route index element={<Navigate to="/agent/chat" replace />} />
+        {tabs.map((t) => (
+          <Route
+            key={t.path}
+            path={t.route ?? t.path}
+            element={
+              <PageFrame title={t.title} bleed={t.path === "chat"}>
+                {t.element}
+              </PageFrame>
+            }
+          />
+        ))}
+        {sidebarScreens.map((s) => (
+          <Route key={s.path} path={s.path} element={s.element} />
+        ))}
+        <Route path="*" element={<Navigate to="/agent/chat" replace />} />
+      </Routes>
+      </Suspense>
     </div>
   );
 }
 
 /**
- * SettingsTab is a category page, not a pile of cards. Cursor, Linear and GitHub all put
- * Account next to Models (or Billing, or Integrations) as tabs of one Settings screen;
- * shadcn Tabs is that pattern. The active category is a nested route so the back button
- * and a deep link both work.
+ * SettingsTab is a side list of sections and the open one. The address is the
+ * section, so back and a deep link both land on it.
  */
 function SettingsTab() {
   const viewer = useViewer();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
   const categories: { id: string; label: string; icon: LucideIcon }[] = [
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
+    { id: "users", label: "Users", icon: Users },
+    { id: "backend", label: "Backend", icon: Server },
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
   ];
 
-  if (categories.length === 0) {
-    return (
-      <Empty
-        title="Nothing to configure"
-        hint="Google Workspace sign-in is off on this control plane, and there is no conductor."
-      />
+  const fallback = categories[0]?.id ?? "";
+  const current = categories.some((c) => c.id === tab) ? tab : "";
+  if (!current) {
+    return fallback ? (
+      <Navigate to={`/agent/settings/${fallback}`} replace />
+    ) : (
+      <PageFrame title="Settings">
+        <p className="text-sm text-muted">Nothing to configure.</p>
+      </PageFrame>
     );
   }
 
-  const fallback = categories[0].id;
-  const current = categories.some((c) => c.id === tab) ? tab : "";
-  if (!current) {
-    return <Navigate to={`/agent/settings/${fallback}`} replace />;
-  }
-
   return (
-    <div className="space-y-6">
-      <PageHeader title="Settings" description="Account and the model APIs this conductor can spend." />
-      <Tabs
-        orientation="vertical"
-        value={current}
-        onValueChange={(id) => navigate(`/agent/settings/${id}`)}
-        className="flex-row items-start gap-8"
-      >
-        <TabsList
-          aria-label="Settings"
-          className="flex h-auto w-44 shrink-0 flex-col items-stretch gap-0.5 rounded-none border-0 bg-transparent p-0"
-        >
-          {categories.map((c) => (
-            <TabsTrigger key={c.id} value={c.id} className="w-full justify-start px-2.5">
-              <c.icon />
-              {c.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+    <PageFrame title="Settings">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
+        <SettingsSectionNav sections={categories} current={current} />
+        <div className="min-w-0 flex-1">
         {current === "account" ? (
-          <TabsContent value="account" className="min-w-0 flex-1 space-y-4">
-            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+          <section className="max-w-2xl space-y-4">
+            <p className="text-sm leading-relaxed text-muted">
               Who is signed in on this browser. The local token stays a machine credential for
               the CLI and workers.
             </p>
             <IdentityCard />
-          </TabsContent>
+          </section>
+        ) : null}
+        {current === "users" ? (
+          <section className="max-w-2xl space-y-4">
+            <p className="text-sm leading-relaxed text-muted">
+              Who can sign in, and what they can do. Roles are enforced on the API after a
+              Workspace claim; the local token and every node still do everything.
+            </p>
+            <UsersPage />
+          </section>
+        ) : null}
+        {current === "backend" ? (
+          <section className="space-y-4">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted">
+              Where a session's workspace runs. Self-hosted is this control plane's own nodes.
+              Modal and Daytona will run the same session once they are connected.
+            </p>
+            <SandboxBackends />
+          </section>
         ) : null}
         {current === "models" ? (
-          <TabsContent value="models" className="min-w-0 flex-1 space-y-4">
+          <section>
             <ModelsPanel />
-          </TabsContent>
+          </section>
         ) : null}
-      </Tabs>
-    </div>
+        </div>
+      </div>
+    </PageFrame>
   );
 }
 
 /**
- * ModelsPanel is one card per provider the conductor can spend. Every provider gets a card
+ * ModelsPanel is one row per provider the conductor can spend. Every provider gets a row
  * whether or not it is configured: a Grok playbook that cannot run is easier to understand
- * next to a card that says "Not set" than as a failure on the next turn.
+ * next to a row that says "Not set" than as a failure on the next turn.
  *
  * The picker in Chat is which model a turn uses. This panel is how those models get a
  * credential.
  */
 function ModelsPanel() {
   const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const settings = useQuery({
     queryKey: ["agent", "settings"],
@@ -321,29 +244,38 @@ function ModelsPanel() {
         />
       ) : null}
 
-      <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      {!manage ? (
+        <Alert variant="info" title="Credentials are read-only for members">
+          An admin or owner can set and rotate provider keys. You can see which ones are
+          connected.
+        </Alert>
+      ) : null}
+
+      <ul className="divide-y divide-border border-y border-border">
         {PROVIDERS.map((p) => (
-          <ProviderCard
-            key={p.id}
-            provider={p}
-            settings={stored.find((s) => s.provider === p.id)}
-            loading={settings.isPending}
-            onSave={(key) => save.mutateAsync({ provider: p.id, key })}
-            onClear={async () => {
-              await clear.mutateAsync(p.id);
-            }}
-            onStartOAuth={
-              p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
-            }
-            onPollOAuth={
-              p.subscription
-                ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
-                : undefined
-            }
-            onSignedIn={() => void reload()}
-          />
+          <li key={p.id}>
+            <ProviderCard
+              provider={p}
+              settings={stored.find((s) => s.provider === p.id)}
+              loading={settings.isPending}
+              readOnly={!manage}
+              onSave={(key) => save.mutateAsync({ provider: p.id, key })}
+              onClear={async () => {
+                await clear.mutateAsync(p.id);
+              }}
+              onStartOAuth={
+                manage && p.subscription ? () => agent.startProviderOAuth({ provider: p.id }) : undefined
+              }
+              onPollOAuth={
+                manage && p.subscription
+                  ? (flowId) => agent.pollProviderOAuth({ provider: p.id, flowId })
+                  : undefined
+              }
+              onSignedIn={() => void reload()}
+            />
+          </li>
         ))}
-      </div>
+      </ul>
       <p className="max-w-3xl text-xs leading-relaxed text-muted">
         Encrypted at rest by podium-server as{" "}
         {PROVIDERS.map((p, i) => (
@@ -364,6 +296,8 @@ function ModelsPanel() {
  * holds rather than from what was typed before the last save.
  */
 function ProfileTab() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const profile = useQuery({
@@ -389,11 +323,9 @@ function ProfileTab() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Assistant"
-        description="Who answers a conversation, and which model it answers on. Every editable field here overrides profile.yaml on the conductor's host."
-        actions={<ReloadProfileDirButton />}
-      />
+      <PageActions>
+        <ReloadProfileDirButton />
+      </PageActions>
       {isAgentUnreachable(profile.error) ? (
         <ConductorDown
           what="The profile could not be read"
@@ -407,6 +339,7 @@ function ProfileTab() {
         agents={agents}
         loading={profile.isPending}
         saving={save.isPending}
+        readOnly={!manage}
         onSave={(fields) => save.mutate(fields)}
       />
       <ProfileFileCard />

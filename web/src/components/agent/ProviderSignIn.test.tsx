@@ -72,6 +72,7 @@ async function tick(seconds = POLL_SECONDS) {
 /** signIn walks to the point where the card is polling, without any poll having run yet. */
 async function signIn() {
   const rendered = mount();
+  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
   fireEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
   fireEvent.click(screen.getByTestId("provider-oauth-start-xai"));
   // The start RPC resolves on a microtask; nothing is on the clock yet.
@@ -96,6 +97,7 @@ describe("ProviderCard: the subscription sign-in", () => {
 
   it("offers both ways in for a provider that has both", () => {
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(screen.getByTestId("provider-mode-key-xai")).toBeInTheDocument();
     expect(screen.getByTestId("provider-mode-subscription-xai")).toBeInTheDocument();
   });
@@ -203,6 +205,7 @@ describe("ProviderCard: the subscription sign-in", () => {
       ),
     );
     mount();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     fireEvent.click(screen.getByTestId("provider-mode-subscription-xai"));
     fireEvent.click(screen.getByTestId("provider-oauth-start-xai"));
     await act(async () => {});
@@ -267,5 +270,31 @@ describe("ProviderCard: the subscription sign-in", () => {
       }),
     );
     expect(screen.getByTestId("provider-key-meta-xai")).toHaveTextContent("not renewable");
+    expect(screen.queryByTestId("provider-sign-in-expired-xai")).toBeNull();
+  });
+
+  it("asks the user to sign in again when the subscription access token is past", () => {
+    mount(
+      create(ProviderSettingsSchema, {
+        provider: "xai",
+        keySet: true,
+        authKind: "oauth",
+        account: "someone@example.com",
+        refreshable: true,
+        expiresAt: timestampFromDate(new Date(Date.now() - 86_400_000)),
+      }),
+    );
+    expect(screen.getByText("Sign-in expired")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-key-meta-xai")).toHaveTextContent("renewal failed");
+    expect(screen.getByTestId("provider-sign-in-expired-xai")).toHaveTextContent(
+      "Sign in to Grok again",
+    );
+
+    fireEvent.click(screen.getByTestId("provider-sign-in-again-xai"));
+    expect(screen.getByTestId("provider-mode-subscription-xai")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("provider-oauth-start-xai")).toBeInTheDocument();
   });
 });

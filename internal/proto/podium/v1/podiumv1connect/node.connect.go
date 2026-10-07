@@ -40,6 +40,12 @@ const (
 	// NodeServiceUploadArtifactProcedure is the fully-qualified name of the NodeService's
 	// UploadArtifact RPC.
 	NodeServiceUploadArtifactProcedure = "/podium.v1.NodeService/UploadArtifact"
+	// NodeServiceUploadWorkspaceSnapshotProcedure is the fully-qualified name of the NodeService's
+	// UploadWorkspaceSnapshot RPC.
+	NodeServiceUploadWorkspaceSnapshotProcedure = "/podium.v1.NodeService/UploadWorkspaceSnapshot"
+	// NodeServiceDownloadWorkspaceSnapshotProcedure is the fully-qualified name of the NodeService's
+	// DownloadWorkspaceSnapshot RPC.
+	NodeServiceDownloadWorkspaceSnapshotProcedure = "/podium.v1.NodeService/DownloadWorkspaceSnapshot"
 )
 
 // NodeServiceClient is a client for the podium.v1.NodeService service.
@@ -55,6 +61,14 @@ type NodeServiceClient interface {
 	// "nodes only ever talk to the server" is the invariant the whole networking design
 	// rests on, and a presigned PUT straight from the node would break it.
 	UploadArtifact(context.Context) *connect.ClientStreamForClient[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
+	// UploadWorkspaceSnapshot stores one tar of a session workspace, or of a repository's
+	// base snapshot. The node streams the bytes. The server writes them to S3 and keeps a
+	// single row, replacing the previous object only after the new one is stored.
+	UploadWorkspaceSnapshot(context.Context) *connect.ClientStreamForClient[v1.UploadWorkspaceSnapshotRequest, v1.UploadWorkspaceSnapshotResponse]
+	// DownloadWorkspaceSnapshot streams the latest tar back. A session row wins. When that
+	// session has never been snapshotted, the repository's base snapshot is sent instead.
+	// found is false when neither exists; that is not an error.
+	DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest]) (*connect.ServerStreamForClient[v1.DownloadWorkspaceSnapshotResponse], error)
 }
 
 // NewNodeServiceClient constructs a client for the podium.v1.NodeService service. By default, it
@@ -86,14 +100,28 @@ func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nodeServiceMethods.ByName("UploadArtifact")),
 			connect.WithClientOptions(opts...),
 		),
+		uploadWorkspaceSnapshot: connect.NewClient[v1.UploadWorkspaceSnapshotRequest, v1.UploadWorkspaceSnapshotResponse](
+			httpClient,
+			baseURL+NodeServiceUploadWorkspaceSnapshotProcedure,
+			connect.WithSchema(nodeServiceMethods.ByName("UploadWorkspaceSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
+		downloadWorkspaceSnapshot: connect.NewClient[v1.DownloadWorkspaceSnapshotRequest, v1.DownloadWorkspaceSnapshotResponse](
+			httpClient,
+			baseURL+NodeServiceDownloadWorkspaceSnapshotProcedure,
+			connect.WithSchema(nodeServiceMethods.ByName("DownloadWorkspaceSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // nodeServiceClient implements NodeServiceClient.
 type nodeServiceClient struct {
-	enroll         *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
-	stream         *connect.Client[v1.NodeMessage, v1.ServerMessage]
-	uploadArtifact *connect.Client[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
+	enroll                    *connect.Client[v1.EnrollRequest, v1.EnrollResponse]
+	stream                    *connect.Client[v1.NodeMessage, v1.ServerMessage]
+	uploadArtifact            *connect.Client[v1.UploadArtifactRequest, v1.UploadArtifactResponse]
+	uploadWorkspaceSnapshot   *connect.Client[v1.UploadWorkspaceSnapshotRequest, v1.UploadWorkspaceSnapshotResponse]
+	downloadWorkspaceSnapshot *connect.Client[v1.DownloadWorkspaceSnapshotRequest, v1.DownloadWorkspaceSnapshotResponse]
 }
 
 // Enroll calls podium.v1.NodeService.Enroll.
@@ -111,6 +139,16 @@ func (c *nodeServiceClient) UploadArtifact(ctx context.Context) *connect.ClientS
 	return c.uploadArtifact.CallClientStream(ctx)
 }
 
+// UploadWorkspaceSnapshot calls podium.v1.NodeService.UploadWorkspaceSnapshot.
+func (c *nodeServiceClient) UploadWorkspaceSnapshot(ctx context.Context) *connect.ClientStreamForClient[v1.UploadWorkspaceSnapshotRequest, v1.UploadWorkspaceSnapshotResponse] {
+	return c.uploadWorkspaceSnapshot.CallClientStream(ctx)
+}
+
+// DownloadWorkspaceSnapshot calls podium.v1.NodeService.DownloadWorkspaceSnapshot.
+func (c *nodeServiceClient) DownloadWorkspaceSnapshot(ctx context.Context, req *connect.Request[v1.DownloadWorkspaceSnapshotRequest]) (*connect.ServerStreamForClient[v1.DownloadWorkspaceSnapshotResponse], error) {
+	return c.downloadWorkspaceSnapshot.CallServerStream(ctx, req)
+}
+
 // NodeServiceHandler is an implementation of the podium.v1.NodeService service.
 type NodeServiceHandler interface {
 	// Enroll exchanges a single-use enrollment token for a durable node identity. Called once.
@@ -124,6 +162,14 @@ type NodeServiceHandler interface {
 	// "nodes only ever talk to the server" is the invariant the whole networking design
 	// rests on, and a presigned PUT straight from the node would break it.
 	UploadArtifact(context.Context, *connect.ClientStream[v1.UploadArtifactRequest]) (*connect.Response[v1.UploadArtifactResponse], error)
+	// UploadWorkspaceSnapshot stores one tar of a session workspace, or of a repository's
+	// base snapshot. The node streams the bytes. The server writes them to S3 and keeps a
+	// single row, replacing the previous object only after the new one is stored.
+	UploadWorkspaceSnapshot(context.Context, *connect.ClientStream[v1.UploadWorkspaceSnapshotRequest]) (*connect.Response[v1.UploadWorkspaceSnapshotResponse], error)
+	// DownloadWorkspaceSnapshot streams the latest tar back. A session row wins. When that
+	// session has never been snapshotted, the repository's base snapshot is sent instead.
+	// found is false when neither exists; that is not an error.
+	DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest], *connect.ServerStream[v1.DownloadWorkspaceSnapshotResponse]) error
 }
 
 // NewNodeServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -151,6 +197,18 @@ func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(nodeServiceMethods.ByName("UploadArtifact")),
 		connect.WithHandlerOptions(opts...),
 	)
+	nodeServiceUploadWorkspaceSnapshotHandler := connect.NewClientStreamHandler(
+		NodeServiceUploadWorkspaceSnapshotProcedure,
+		svc.UploadWorkspaceSnapshot,
+		connect.WithSchema(nodeServiceMethods.ByName("UploadWorkspaceSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
+	nodeServiceDownloadWorkspaceSnapshotHandler := connect.NewServerStreamHandler(
+		NodeServiceDownloadWorkspaceSnapshotProcedure,
+		svc.DownloadWorkspaceSnapshot,
+		connect.WithSchema(nodeServiceMethods.ByName("DownloadWorkspaceSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.NodeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NodeServiceEnrollProcedure:
@@ -159,6 +217,10 @@ func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption
 			nodeServiceStreamHandler.ServeHTTP(w, r)
 		case NodeServiceUploadArtifactProcedure:
 			nodeServiceUploadArtifactHandler.ServeHTTP(w, r)
+		case NodeServiceUploadWorkspaceSnapshotProcedure:
+			nodeServiceUploadWorkspaceSnapshotHandler.ServeHTTP(w, r)
+		case NodeServiceDownloadWorkspaceSnapshotProcedure:
+			nodeServiceDownloadWorkspaceSnapshotHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -178,4 +240,12 @@ func (UnimplementedNodeServiceHandler) Stream(context.Context, *connect.BidiStre
 
 func (UnimplementedNodeServiceHandler) UploadArtifact(context.Context, *connect.ClientStream[v1.UploadArtifactRequest]) (*connect.Response[v1.UploadArtifactResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.UploadArtifact is not implemented"))
+}
+
+func (UnimplementedNodeServiceHandler) UploadWorkspaceSnapshot(context.Context, *connect.ClientStream[v1.UploadWorkspaceSnapshotRequest]) (*connect.Response[v1.UploadWorkspaceSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.UploadWorkspaceSnapshot is not implemented"))
+}
+
+func (UnimplementedNodeServiceHandler) DownloadWorkspaceSnapshot(context.Context, *connect.Request[v1.DownloadWorkspaceSnapshotRequest], *connect.ServerStream[v1.DownloadWorkspaceSnapshotResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.NodeService.DownloadWorkspaceSnapshot is not implemented"))
 }
