@@ -29,6 +29,14 @@ select * from delegations where turn_id = @turn_id order by created_at, id;
 -- name: ListRunningDelegations :many
 select * from delegations where status = 'running' order by created_at;
 
+-- ListRunningDelegationsForSession is the in-flight delegations of one conversation. A
+-- session is the conversation; trigger_ref is not: in a Slack thread it names the one message
+-- that asked, so a follow-up in the same thread has a ref of its own.
+-- name: ListRunningDelegationsForSession :many
+select * from delegations
+where session_id = @session_id and status = 'running'
+order by created_at;
+
 -- name: ListRunningDelegationsForRef :many
 select * from delegations
 where trigger_ref = @trigger_ref and status = 'running'

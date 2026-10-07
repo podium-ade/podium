@@ -46,6 +46,10 @@ const (
 	// hostFakePollEnv makes the fake poll until the delegation is terminal before it
 	// answers, which is what an agent that waits for its task looks like.
 	hostFakePollEnv = "CONDUCTOR_TEST_DELEGATE_POLL"
+	// hostFakeFollowUpEnv is a follow-up's text. The fake lists the conversation's
+	// delegations and injects the text into the first one instead of delegating, which is
+	// what the prompt tells an assistant to do with "actually, also…".
+	hostFakeFollowUpEnv = "CONDUCTOR_TEST_FOLLOW_UP"
 )
 
 // delegateReport is what the fake runtime says as its answer, so a test can assert on what
@@ -67,6 +71,10 @@ type delegateReport struct {
 	Final      string   `json:"final"`
 	Progress   string   `json:"progress"`
 	Polls      int      `json:"polls"`
+	// Running is the ids the brief listed as already running in this conversation, and
+	// Listed is what ListDelegations answered.
+	Running []string `json:"running"`
+	Listed  []string `json:"listed"`
 }
 
 // hostFakeDelegate is the fake runtime's delegation half, called from hostFakeRuntime when
@@ -87,6 +95,16 @@ func hostFakeDelegate(brief map[string]any) delegateReport {
 		entry, _ := p.(map[string]any)
 		name, _ := entry["name"].(string)
 		report.Menu = append(report.Menu, name)
+	}
+	running, _ := block["running"].([]any)
+	for _, r := range running {
+		entry, _ := r.(map[string]any)
+		id, _ := entry["id"].(string)
+		report.Running = append(report.Running, id)
+	}
+
+	if text := os.Getenv(hostFakeFollowUpEnv); text != "" {
+		return hostFakeFollowUp(report, token, text)
 	}
 
 	playbook, instruction, _ := strings.Cut(os.Getenv(hostFakeDelegateEnv), "|")
@@ -148,6 +166,41 @@ func hostFakeDelegate(brief map[string]any) delegateReport {
 		time.Sleep(100 * time.Millisecond)
 	}
 	report.Message = "the delegated task never finished"
+	return report
+}
+
+// hostFakeFollowUp is a turn that adds to work already running: it lists the conversation's
+// delegations and injects into the first, reporting what it saw and what the inject said.
+func hostFakeFollowUp(report delegateReport, token, text string) delegateReport {
+	status, body := turnCall(report.URL, token, "ListDelegations", map[string]string{})
+	if status != http.StatusOK {
+		report.Status = status
+		report.Code, report.Message = connectError(body)
+		return report
+	}
+	var listed struct {
+		Delegations []struct {
+			ID string `json:"id"`
+		} `json:"delegations"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		report.Message = "undecodable ListDelegations response: " + err.Error()
+		return report
+	}
+	for _, d := range listed.Delegations {
+		report.Listed = append(report.Listed, d.ID)
+	}
+	if len(report.Listed) == 0 {
+		report.Message = "nothing to inject into"
+		return report
+	}
+	report.ID = report.Listed[0]
+	report.Status, body = turnCall(report.URL, token, "InjectDelegation", map[string]string{
+		"id": report.ID, "text": text,
+	})
+	if report.Status != http.StatusOK {
+		report.Code, report.Message = connectError(body)
+	}
 	return report
 }
 
@@ -289,6 +342,56 @@ func TestAHostTurnDelegatesAndTheConversationOwnsTheTask(t *testing.T) {
 	assert.Equal(t, "opened #51 and the suite is green", dlgs[0].FinalText)
 	assert.Equal(t, "C1/10.1", dlgs[0].TriggerRef)
 	require.NotNil(t, dlgs[0].FinishedAt)
+}
+
+// TestAFollowUpInTheSameThreadReachesTheRunningTask is a Slack thread, where every message
+// has a ref of its own: channel/thread/message. Scoping "this conversation" by that ref showed
+// the second message nothing running, so the assistant started a second task beside the one
+// it should have added to. Reported from pop-os, where a triage follow-up did exactly that.
+func TestAFollowUpInTheSameThreadReachesTheRunningTask(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	t.Cleanup(release)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	message := func(ts, text string, env map[string]string) conductor.InboundEvent {
+		ev := inbound("C1/30.1/"+ts, text)
+		ev.SourceKey = conductor.KindDev + ":C1:30.1"
+		ev.Env = hostEnv(env)
+		return ev
+	}
+	first := message("30.1", "users without the permission can still approve payments",
+		map[string]string{hostFakeDelegateEnv: "dogfood|triage the approval permission"})
+	require.NoError(t, src.Send(context.Background(), first))
+	waitFor(t, 60*time.Second, "the first turn to delegate", func() bool {
+		return turnStatus(st, first.SourceKey) == store.TurnSucceeded && len(fake.TaskIDs()) == 1
+	})
+	running := delegationsOf(t, st, first.SourceKey)
+	require.Len(t, running, 1)
+	require.Equal(t, store.TurnRunning, running[0].Status, "the task is held, so it is still running")
+
+	second := message("30.2", "also they are still getting the email",
+		map[string]string{hostFakeFollowUpEnv: "also they are still getting the email"})
+	require.NoError(t, src.Send(context.Background(), second))
+	waitFor(t, 60*time.Second, "the follow-up turn to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) >= 2
+	})
+
+	report := delegated(t, src.Records())
+	assert.Equal(t, []string{running[0].ID}, report.Running,
+		"the follow-up's brief must list the task this thread already has running")
+	assert.Equal(t, []string{running[0].ID}, report.Listed, "and ListDelegations must find it")
+	assert.Equal(t, http.StatusOK, report.Status, "injecting into it is allowed: %s %s", report.Code, report.Message)
+	assert.Len(t, fake.TaskIDs(), 1, "the follow-up started no second task")
+	require.Len(t, fake.Injects(), 1)
+	assert.Equal(t, running[0].TaskID, fake.Injects()[0].GetTaskId())
+	assert.Equal(t, "also they are still getting the email", fake.Injects()[0].GetText())
 }
 
 // TestTheAnnouncementFollowsTheAssistantsOwnWords.

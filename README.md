@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-3b2fd4.svg"></a>
+  <a href="LICENSE"><img alt="Apache-2.0 licence" src="https://img.shields.io/badge/licence-Apache%202.0-3b2fd4.svg"></a>
   <a href="go.mod"><img alt="Go 1.27+" src="https://img.shields.io/badge/go-1.27%2B-00ADD8.svg"></a>
   <a href=".github/workflows/ci-go.yml"><img alt="ci / go" src="https://github.com/podium-ade/podium/actions/workflows/ci-go.yml/badge.svg"></a>
   <a href=".github/workflows/ci-web.yml"><img alt="ci / web" src="https://github.com/podium-ade/podium/actions/workflows/ci-web.yml/badge.svg"></a>
@@ -228,7 +228,7 @@ mention.
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` / `PODIUM_AGENT_GITHUB_*` (those sources), `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App under Settings → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.
@@ -264,4 +264,6 @@ untrusted**. Report a vulnerability privately. See [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE).
+Podium is licensed under the [Apache License, Version 2.0](LICENSE).
+
+SPDX-License-Identifier: Apache-2.0

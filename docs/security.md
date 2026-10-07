@@ -761,6 +761,10 @@ conductor's own Postgres, `podium_agent`, in clear. There is one per sign-in:
 - Every signed-in MCP server (see [`agent.md`](agent.md#signing-in-to-an-mcp-server)), in the
   `oauth` column of its `mcp_servers` row — **and, where the authorization server issued one on
   dynamic registration, a client secret beside it**.
+- A Slack or GitHub App saved from Settings → Connections, in the `connection.slack` and
+  `connection.github` settings rows. The conductor reads them back to open Socket Mode and
+  to sign as the App. The API returns a hint, the App id and the webhook listen address,
+  and never the tokens, the private key or the webhook secret.
 
 It is there because of the rule directly above. The secret store has no read endpoint by design,
 so a value put in it cannot be read back — and refreshing an hourly token without a human means
