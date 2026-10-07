@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
+import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
 import { ToastHost } from "../components/Toast";
@@ -30,6 +31,7 @@ const listSkills = vi.fn();
 const getProfileFile = vi.fn();
 const updateProfileFile = vi.fn();
 const listUsers = vi.fn();
+const getConnections = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -55,6 +57,11 @@ vi.mock("../lib/client", async () => {
       reloadProfileDir: () => Promise.resolve({}),
       getProfileFile: (...a: unknown[]) => getProfileFile(...a),
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
+      getConnections: (...a: unknown[]) => getConnections(...a),
+      setSlackConnection: () => Promise.resolve({}),
+      clearSlackConnection: () => Promise.resolve({}),
+      setGitHubConnection: () => Promise.resolve({}),
+      clearGitHubConnection: () => Promise.resolve({}),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
     users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
@@ -166,6 +173,12 @@ describe("AgentPage", () => {
     listSecrets.mockReset();
     getProfileFile.mockReset();
     updateProfileFile.mockReset();
+    getConnections.mockReset();
+    getConnections.mockResolvedValue({
+      slack: { configured: false, source: "" },
+      github: { configured: false, source: "", appId: "", webhookListen: "" },
+      linear: { available: false, configured: false },
+    });
     getProfileFile.mockResolvedValue({
       content: "name: podium\n",
       path: "/etc/podium/agent/profile.yaml",
@@ -198,6 +211,7 @@ describe("AgentPage", () => {
     expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Backend" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
@@ -269,6 +283,7 @@ describe("AgentPage", () => {
       "page",
     );
     expect(screen.queryByRole("link", { name: "Models" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
     expect(screen.queryByText("Nothing to configure")).toBeNull();
 
@@ -277,6 +292,49 @@ describe("AgentPage", () => {
     expect(within(backends).getByRole("radio", { name: /Modal/ })).toBeDisabled();
     expect(within(backends).getByRole("radio", { name: /Daytona/ })).toBeDisabled();
     expect(within(backends).getAllByText("Coming soon")).toHaveLength(2);
+  });
+
+  it("opens connections beside the other settings sections", async () => {
+    mount("/agent/settings/connections");
+    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
+    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+  });
+
+  it("hides connections from a member and keeps it for an admin and an owner", async () => {
+    const human = {
+      ...viewer,
+      login: "bob@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleMember],
+      claimed: true,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    };
+    mount("/agent/settings/models", human);
+    expect(await screen.findByRole("link", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(getConnections).not.toHaveBeenCalled();
+
+    cleanup();
+    mount("/agent/settings/connections", human);
+    expect(await screen.findByRole("link", { name: "Account" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(getConnections).not.toHaveBeenCalled();
+
+    cleanup();
+    mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
+    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+
+    cleanup();
+    mount("/agent/settings/models", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
+    expect(await screen.findByRole("link", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {

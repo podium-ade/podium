@@ -30,6 +30,25 @@ service AgentService {
   rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
   // ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
   rpc ClearProviderKey(ClearProviderKeyRequest) returns (ClearProviderKeyResponse);
+  // GetConnections reports GitHub, Slack and Linear as the UI may see them. It never
+  // returns a token or a private key: a hint computed at save time is the only fragment
+  // that comes back.
+  rpc GetConnections(GetConnectionsRequest) returns (GetConnectionsResponse);
+  // SetSlackConnection stores the Socket Mode tokens. A blank field keeps the saved
+  // value, so one token can be rotated. The conductor uses the saved pair the next time
+  // it starts, in place of PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN.
+  rpc SetSlackConnection(SetSlackConnectionRequest) returns (SetSlackConnectionResponse);
+  // ClearSlackConnection removes the saved pair. Calling it twice is not an error. The
+  // environment variables apply again on the next start.
+  rpc ClearSlackConnection(ClearSlackConnectionRequest) returns (ClearSlackConnectionResponse);
+  // SetGitHubConnection stores the App id, private key and, when reviews are on, the
+  // webhook pair. A blank private key or webhook secret keeps the saved one. The
+  // conductor uses this the next time it starts. The GitHub App environment variables
+  // are ignored.
+  rpc SetGitHubConnection(SetGitHubConnectionRequest) returns (SetGitHubConnectionResponse);
+  // ClearGitHubConnection removes the saved App. Calling it twice is not an error.
+  // The App is off on the next start.
+  rpc ClearGitHubConnection(ClearGitHubConnectionRequest) returns (ClearGitHubConnectionResponse);
   // StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
   // subscription instead of an API key. It stores nothing: it returns the code and the URL
   // a human has to visit, and PollProviderOAuth is what finishes.
@@ -377,6 +396,92 @@ message GetSettingsResponse {
   // providers is every provider this conductor knows, Anthropic included, in a stable
   // order. New clients read this and ignore the field above.
   repeated ProviderSettings providers = 2;
+}
+
+message GetConnectionsRequest {}
+
+// SlackConnection is the Socket Mode pair as the UI may see it.
+message SlackConnection {
+  bool configured = 1;
+  // source is "saved", "environment", or "" when Slack is off.
+  string source = 2;
+  // app_token_hint and bot_token_hint are the last four characters, or "" when unset.
+  string app_token_hint = 3;
+  string bot_token_hint = 4;
+  string set_by = 5;
+  google.protobuf.Timestamp set_at = 6;
+  // restart_required is true when this process is still running with a different pair
+  // than the one that will apply on the next start.
+  bool restart_required = 7;
+}
+
+// GitHubConnection is the App as the UI may see it. The private key itself is never
+// returned. app_id and webhook_listen are not secrets.
+message GitHubConnection {
+  bool configured = 1;
+  // reviews is true when the webhook secret and listen address are both set, which is
+  // what turns pull-request reviews on. The App can be configured for clone without them.
+  bool reviews = 2;
+  // source is "saved", "environment", or "" when the App is off.
+  string source = 3;
+  string app_id = 4;
+  bool private_key_set = 5;
+  string webhook_listen = 6;
+  bool webhook_secret_set = 7;
+  string webhook_secret_hint = 8;
+  string set_by = 9;
+  google.protobuf.Timestamp set_at = 10;
+  bool restart_required = 11;
+}
+
+// LinearConnection is a placeholder. available stays false until Linear can be saved
+// here. configured is true only when the environment still holds a key, which is the
+// only way the Linear source runs today.
+message LinearConnection {
+  bool available = 1;
+  bool configured = 2;
+}
+
+message GetConnectionsResponse {
+  SlackConnection slack = 1;
+  GitHubConnection github = 2;
+  LinearConnection linear = 3;
+}
+
+message SetSlackConnectionRequest {
+  // SENSITIVE: never log these fields.
+  string app_token = 1;
+  string bot_token = 2;
+}
+
+message SetSlackConnectionResponse {
+  SlackConnection slack = 1;
+}
+
+message ClearSlackConnectionRequest {}
+
+message ClearSlackConnectionResponse {
+  SlackConnection slack = 1;
+}
+
+message SetGitHubConnectionRequest {
+  string app_id = 1;
+  // SENSITIVE: the PEM. Never log it. Blank keeps the saved key.
+  string private_key = 2;
+  // SENSITIVE. Blank keeps the saved secret while a listen address is set. Clearing the
+  // listen address turns reviews off and drops the secret.
+  string webhook_secret = 3;
+  string webhook_listen = 4;
+}
+
+message SetGitHubConnectionResponse {
+  GitHubConnection github = 1;
+}
+
+message ClearGitHubConnectionRequest {}
+
+message ClearGitHubConnectionResponse {
+  GitHubConnection github = 1;
 }
 
 message SetProviderKeyRequest {

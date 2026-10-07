@@ -144,7 +144,17 @@ func (s *Store) RunningDelegations(ctx context.Context) ([]Delegation, error) {
 	return delegationsFromRows(rows), nil
 }
 
-// RunningDelegationsForRef is the in-flight delegations of one conversation, which is what
+// RunningDelegationsForSession is the in-flight delegations of one conversation: what a turn
+// is shown as already running, and what it may inject into.
+func (s *Store) RunningDelegationsForSession(ctx context.Context, sessionID string) ([]Delegation, error) {
+	rows, err := s.q.ListRunningDelegationsForSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list running delegations of session %s: %w", sessionID, err)
+	}
+	return delegationsFromRows(rows), nil
+}
+
+// RunningDelegationsForRef is the in-flight delegations answering one ref, which is what
 // deleting a chat has to stop.
 func (s *Store) RunningDelegationsForRef(ctx context.Context, ref string) ([]Delegation, error) {
 	rows, err := s.q.ListRunningDelegationsForRef(ctx, ref)

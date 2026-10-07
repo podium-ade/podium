@@ -9,9 +9,9 @@
 # Drop --skip=docker to build the container images too. That needs buildx and it creates
 # images on whatever engine is configured, so it is off by default here on purpose.
 #
-# BEFORE THE FIRST REAL RELEASE: LICENSE still says TODO. release.yml refuses to run until
-# that is resolved, and it must stay that way — a published archive that contains a
-# placeholder where its licence should be is a legal problem, not a formatting one.
+# LICENSE is the Apache License, Version 2.0. release.yml still refuses to publish if
+# that file contains a TODO placeholder. A published archive that contains a placeholder
+# where its licence should be is a legal problem, not a formatting one.
 version: 2
 
 project_name: podium
