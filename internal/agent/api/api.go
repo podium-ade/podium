@@ -167,11 +167,19 @@ type AgentServiceOptions struct {
 	// before the first mention. Nil means this conductor has no Slack source.
 	Slack  SlackDirectory
 	Logger *slog.Logger
+	// Env is the connection configuration the process was started with, before a saved
+	// connection replaced it. Running is what this process actually opened. GetConnections
+	// uses the two to say whether a restart is still owed. The zero value is an install
+	// with nothing configured, which is what tests that never touch connections want.
+	Env     config.Config
+	Running config.Config
 }
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
 	store              *store.Store
+	env                config.Config
+	running            config.Config
 	secrets            SecretStore
 	model              string
 	baseURL            string
@@ -257,6 +265,8 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	}
 	return &AgentService{
 		store:              opts.Store,
+		env:                opts.Env,
+		running:            opts.Running,
 		secrets:            opts.Secrets,
 		model:              opts.Model,
 		baseURL:            opts.AnthropicBaseURL,

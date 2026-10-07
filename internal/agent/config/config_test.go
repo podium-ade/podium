@@ -103,7 +103,7 @@ func TestGitHubSourceNeedsWebhookSecretAndListen(t *testing.T) {
 	cfg.GitHubWebhookSecret = "s"
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN")
+	assert.Contains(t, err.Error(), "listen address")
 
 	cfg.GitHubWebhookListen = "127.0.0.1:8091"
 	require.NoError(t, cfg.Validate())
@@ -315,11 +315,15 @@ func TestGitHubAppIsOffUnlessConfigured(t *testing.T) {
 	require.NoError(t, cfg.Validate(), "no GitHub App is a supported configuration")
 }
 
-func TestGitHubAppDefaults(t *testing.T) {
+func TestGitHubAppEnvIsIgnored(t *testing.T) {
 	t.Setenv("PODIUM_AGENT_GITHUB_APP_ID", "  123456  ")
+	t.Setenv("PODIUM_AGENT_GITHUB_APP_KEY", "-----BEGIN RSA PRIVATE KEY-----\n")
 	cfg := FromEnv()
 
-	assert.Equal(t, "123456", cfg.GitHubAppID, "an id pasted with whitespace is still an id")
+	assert.Empty(t, cfg.GitHubAppID, "the App id is saved under Settings → Connections")
+	assert.Empty(t, cfg.GitHubAppKey)
+	assert.False(t, cfg.GitHubAppEnabled())
+	assert.Equal(t, []string{"PODIUM_AGENT_GITHUB_APP_ID", "PODIUM_AGENT_GITHUB_APP_KEY"}, DeprecatedGitHubEnv())
 	assert.Equal(t, DefaultTaskURL, cfg.TaskURL,
 		"a task reaches this conductor through the bridge gateway, as it reaches Hindsight")
 }
@@ -334,7 +338,7 @@ func TestGitHubAppAcceptsAWholeConfiguration(t *testing.T) {
 	assert.Contains(t, string(got), "BEGIN RSA PRIVATE KEY")
 }
 
-func TestGitHubAppReadsTheKeyFromTheEnvironmentToo(t *testing.T) {
+func TestGitHubAppReadsAPastedKey(t *testing.T) {
 	cfg := withApp(t)
 	raw, err := os.ReadFile(cfg.GitHubAppKeyFile)
 	require.NoError(t, err)
@@ -353,13 +357,12 @@ func TestGitHubAppValidationNamesTheVariableThatIsWrong(t *testing.T) {
 		mut  func(*Config)
 		want string
 	}{
-		{"key without an id", func(c *Config) { c.GitHubAppID = "" }, "PODIUM_AGENT_GITHUB_APP_ID"},
-		{"id without a key", func(c *Config) { c.GitHubAppKeyFile = "" },
-			"PODIUM_AGENT_GITHUB_APP_KEY_FILE"},
+		{"key without an id", func(c *Config) { c.GitHubAppID = "" }, "App id"},
+		{"id without a key", func(c *Config) { c.GitHubAppKeyFile = "" }, "private key"},
 		{"both key forms at once", func(c *Config) { c.GitHubAppKey = "-----BEGIN RSA PRIVATE KEY-----" },
 			"both set"},
 		{"key file that is not there", func(c *Config) { c.GitHubAppKeyFile = "/nope/app.pem" },
-			"PODIUM_AGENT_GITHUB_APP_KEY_FILE"},
+			"key file"},
 		{"relative task url", func(c *Config) { c.TaskURL = "host.docker.internal:8090" },
 			"PODIUM_AGENT_TASK_URL"},
 		{"empty task url", func(c *Config) { c.TaskURL = "" }, "PODIUM_AGENT_TASK_URL"},

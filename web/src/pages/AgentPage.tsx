@@ -1,9 +1,10 @@
 import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
+import { Cable, Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
+import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
 import { McpCallback } from "../components/agent/McpCallback";
 import { McpPanel } from "../components/agent/McpPanel";
@@ -137,6 +138,7 @@ function SettingsTab() {
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
     { id: "users", label: "Users", icon: Users },
     { id: "backend", label: "Backend", icon: Server },
+    ...(viewer?.agentEnabled ? [{ id: "connections", label: "Connections", icon: Cable }] : []),
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
   ];
 
@@ -182,6 +184,11 @@ function SettingsTab() {
               Modal and Daytona will run the same session once they are connected.
             </p>
             <SandboxBackends />
+          </section>
+        ) : null}
+        {current === "connections" ? (
+          <section>
+            <ConnectionsPanel />
           </section>
         ) : null}
         {current === "models" ? (
