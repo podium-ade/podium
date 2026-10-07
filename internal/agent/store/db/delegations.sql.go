@@ -262,6 +262,53 @@ func (q *Queries) ListRunningDelegationsForRef(ctx context.Context, triggerRef s
 	return items, nil
 }
 
+const listRunningDelegationsForSession = `-- name: ListRunningDelegationsForSession :many
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations
+where session_id = $1 and status = 'running'
+order by created_at
+`
+
+// ListRunningDelegationsForSession is the in-flight delegations of one conversation. A
+// session is the conversation; trigger_ref is not: in a Slack thread it names the one message
+// that asked, so a follow-up in the same thread has a ref of its own.
+func (q *Queries) ListRunningDelegationsForSession(ctx context.Context, sessionID string) ([]Delegation, error) {
+	rows, err := q.db.Query(ctx, listRunningDelegationsForSession, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Delegation{}
+	for rows.Next() {
+		var i Delegation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.TurnID,
+			&i.TriggerRef,
+			&i.Playbook,
+			&i.Instruction,
+			&i.TaskID,
+			&i.Status,
+			&i.FinalText,
+			&i.CreatedAt,
+			&i.FinishedAt,
+			&i.NumTurns,
+			&i.CostUsd,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.Provider,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setDelegationTask = `-- name: SetDelegationTask :exec
 update delegations set task_id = $1 where id = $2
 `
