@@ -93,8 +93,19 @@ func (e *Executor) adopt(ctx context.Context, req AdoptRequest, em *emitter, rs 
 	if running {
 		waitCh, waitErrCh = e.cli.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
 	}
-	logsDone := e.streamLogsFrom(ctx, cid, em, req.SkipStdout, req.SkipStderr)
+	logsCtx, stopLogs := context.WithCancel(ctx)
+	defer stopLogs()
+	logsDone := e.streamLogsFrom(logsCtx, cid, em, req.SkipStdout, req.SkipStderr)
 
+	// A held task's container does not exit when its command does, and the event socket
+	// that would have said so died with the previous daemon. The runner also wrote the exit
+	// to a file for exactly this reader.
+	var heldCh <-chan int
+	if running && holds(insp.Config) {
+		heldCh = e.pollHoldExit(logsCtx, req.TaskID)
+	}
+
+	held, heldCode := false, 0
 	if running {
 		select {
 		case werr := <-waitErrCh:
@@ -103,12 +114,20 @@ func (e *Executor) adopt(ctx context.Context, req AdoptRequest, em *emitter, rs 
 			}
 			return Result{}, fmt.Errorf("adopt task %s: wait: %w", req.TaskID, werr)
 		case <-waitCh:
+		case heldCode = <-heldCh:
+			held = true
+			stopLogs()
 		}
 	}
 	select {
 	case <-logsDone:
 	case <-time.After(logDrainTimeout):
 		e.log.Warn("adopted log stream did not close", "task", req.TaskID)
+	}
+	if held {
+		em.emit(KindExited, ExitedPayload{ExitCode: heldCode})
+		em.emit(KindFinished, FinishedPayload{ExitCode: heldCode, Held: true})
+		return Result{ExitCode: heldCode, Held: true}, nil
 	}
 
 	if running {

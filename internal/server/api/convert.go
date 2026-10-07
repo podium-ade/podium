@@ -64,6 +64,17 @@ func taskToProto(t store.Task) *podiumv1.Task {
 	return out
 }
 
+func previewToProto(p store.Preview) *podiumv1.TaskPreview {
+	return &podiumv1.TaskPreview{
+		Via:           p.Via,
+		Address:       p.Address,
+		Urls:          p.URLs,
+		ExpiresAt:     timeToProto(p.ExpiresAt),
+		ReleasedAt:    timeToProto(p.ReleasedAt),
+		ReleaseReason: p.ReleaseReason,
+	}
+}
+
 func nodeToProto(n store.Node, live nodes.Snapshot, connected bool) *podiumv1.Node {
 	out := &podiumv1.Node{
 		Id:     n.ID,

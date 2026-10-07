@@ -381,6 +381,13 @@ type Playbook struct {
 	// holds a node slot (and a dind sidecar, if the playbook asked for one).
 	Interactive bool `yaml:"interactive" json:"interactive,omitempty"`
 
+	// Expose keeps a turn's containers up after it answers, with the named ports published
+	// for people to use — the app the turn built, running. It is a task spec's expose,
+	// passed through; `from` names the turn's own sidecars, `dind` for what a `docker: true`
+	// turn runs under compose. The turn's secrets stay in its environment for as long as
+	// the preview is up, so keep the ttl short. See docs/task-spec.md#expose.
+	Expose *spec.Expose `yaml:"expose" json:"expose,omitempty"`
+
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
 }

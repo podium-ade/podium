@@ -16,6 +16,7 @@ import (
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/server/artifacts"
 	"github.com/podium-ade/podium/internal/server/store"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // pollInterval bounds how long a subscriber waits before re-reading the store without a
@@ -175,9 +176,21 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 			s.markOOM(taskID)
 		}
 		return
+	case podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW:
+		// No transition: the ports are published before the command runs. What the node
+		// reports is kept so people can find them.
+		s.recordPreview(ctx, taskID, e.GetPreview())
+		return
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:
 		fin := e.GetFinished()
 		code := fin.GetExitCode()
+		if fin.GetHeld() {
+			// Before the transition, so no reader ever sees a finished task whose preview
+			// has not started counting down yet.
+			if _, _, err := s.store.HoldPreview(ctx, taskID, ts); err != nil {
+				s.logger.ErrorContext(ctx, "starting a preview's ttl failed", "task_id", taskID, "error", err)
+			}
+		}
 		to = store.StatusSucceeded
 		if code != 0 {
 			to = store.StatusFailed
@@ -242,6 +255,24 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 		}
 		s.logger.Log(ctx, level, "task transition from event rejected",
 			"task_id", taskID, "kind", KindString(e.GetKind()), "to", to, "error", err)
+	}
+}
+
+// recordPreview stores where a node published a task's ports.
+func (s *Service) recordPreview(ctx context.Context, taskID string, p *podiumv1.Preview) {
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "recording a preview failed: no task", "task_id", taskID, "error", err)
+		return
+	}
+	ttl := spec.DefaultExposeTTL
+	if x := task.Spec.Expose; x != nil && x.TTL > 0 {
+		ttl = x.TTL.Std()
+	}
+	if _, err := s.store.UpsertPreview(ctx, store.NewPreview{
+		TaskID: taskID, NodeID: task.NodeID, Via: p.GetVia(), Address: p.GetAddress(), URLs: p.GetUrls(), TTL: ttl,
+	}); err != nil {
+		s.logger.ErrorContext(ctx, "recording a preview failed", "task_id", taskID, "error", err)
 	}
 }
 

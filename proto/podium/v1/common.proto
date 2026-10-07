@@ -68,6 +68,26 @@ message TaskSpec {
   // inbox. Zero means exit when the turn ends. The node forwards it as
   // PODIUM_WORKSPACE_WARM_SECONDS; it does not itself keep the container alive.
   google.protobuf.Duration workspace_warm = 16;
+  // Keep the task's containers running after its command exits and make the named ports
+  // reachable from outside the node, until the ttl runs out or somebody releases it.
+  Expose expose = 17;
+}
+
+// Expose is a task that stays up as a preview once its command has exited.
+message Expose {
+  // How long the environment stays up after the command exits. Defaults to 1h.
+  google.protobuf.Duration ttl = 1;
+  // tailnet or lan; empty lets the node choose.
+  string via = 2;
+  // Keyed by name; the task sees each one's URL as PODIUM_URL_<NAME>.
+  map<string, ExposedPort> ports = 3;
+}
+
+// ExposedPort is one port a preview publishes, under the same number it listens on.
+message ExposedPort {
+  int32 port = 1;
+  // The sidecar that listens on port; empty means the task container.
+  string from = 2;
 }
 
 // SecretRef names a stored secret and says where the task wants it. Nothing here is

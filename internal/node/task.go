@@ -52,8 +52,21 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 	}
 
 	taskSpec := spec.FromProto(a.GetSpec())
-	go n.execute(buf, red, func(events chan<- docker.Event) error {
-		_, err := n.exec.Run(n.runCtx, docker.Request{
+	go n.execute(buf, red, func(events chan<- docker.Event) (bool, error) {
+		var preview *docker.Preview
+		if taskSpec.Expose != nil {
+			p, err := n.previews.ready(n.runCtx, taskID)
+			if err != nil {
+				// Retryable: the address was reserved, so this is the tailnet refusing a
+				// slot device, and another node or a later attempt may well get one.
+				events <- docker.Event{Kind: docker.KindError, TS: time.Now().UTC(), Payload: docker.ErrorPayload{
+					Message: "preview: " + err.Error(), Retryable: true, AbortsRun: true,
+				}}
+				return false, err
+			}
+			preview = p
+		}
+		res, err := n.exec.Run(n.runCtx, docker.Request{
 			TaskID:     taskID,
 			LeaseID:    a.GetLeaseId(),
 			Spec:       *taskSpec,
@@ -61,8 +74,9 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 			Registries: registries,
 			Artifacts:  artifactUploader{n},
 			Workspace:  n.workspaceHooks(taskID, taskSpec),
+			Preview:    preview,
 		}, events)
-		return err
+		return res.Held, err
 	})
 }
 
@@ -136,15 +150,15 @@ func zeroBytes(b []byte) {
 // does not survive a node restart. See the step 09 hand-off notes.
 func (n *Node) adoptTask(buf *buffer) {
 	stdout, stderr := buf.ackedBytes()
-	n.execute(buf, nil, func(events chan<- docker.Event) error {
-		_, err := n.exec.Adopt(n.runCtx, docker.AdoptRequest{
+	n.execute(buf, nil, func(events chan<- docker.Event) (bool, error) {
+		res, err := n.exec.Adopt(n.runCtx, docker.AdoptRequest{
 			TaskID:     buf.taskID,
 			LeaseID:    buf.leaseID,
 			FromSeq:    buf.high(),
 			SkipStdout: stdout,
 			SkipStderr: stderr,
 		}, events)
-		return err
+		return res.Held, err
 	})
 }
 
@@ -164,10 +178,15 @@ type pendingLog struct {
 // execute drives one container run: it consumes the executor's event channel, coalesces
 // log chunks, buffers every event for replay, and once the server has acked the last one
 // tears the task's resources down and frees the slot.
-func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event) error) {
+func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event) (bool, error)) {
 	events := make(chan docker.Event, 256)
 	done := make(chan error, 1)
-	go func() { done <- run(events) }()
+	var held bool
+	go func() {
+		h, err := run(events)
+		held = h
+		done <- err
+	}()
 
 	ticker := time.NewTicker(coalesceInterval)
 	defer ticker.Stop()
@@ -239,15 +258,61 @@ func (n *Node) execute(buf *buffer, red *redactor, run func(chan<- docker.Event)
 		return
 	}
 
-	if runErr == nil {
+	switch {
+	case runErr == nil && held && n.previews.hold(buf.taskID):
+		// The command is done and its task with it; the containers stay up as a preview
+		// until the control plane releases them.
+		n.logger.Info("task finished; keeping its environment up as a preview", "task_id", buf.taskID)
+	case runErr == nil:
 		// The executor cleans up after itself only on the failure path.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(n.runCtx), teardownTimeout)
 		if err := n.exec.Teardown(ctx, buf.taskID, false); err != nil {
 			n.logger.Error("tearing down task resources failed", "task_id", buf.taskID, "error", err)
 		}
 		cancel()
+		n.previews.release(buf.taskID)
+	default:
+		n.previews.release(buf.taskID)
 	}
 	n.removeTask(buf.taskID)
+	n.signal()
+}
+
+// attachPreview points a tailnet slot at a task's gateway once the engine has published
+// it. A failure leaves the task running with a preview nobody can reach, so it is loud.
+func (n *Node) attachPreview(taskID string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(n.runCtx), teardownTimeout)
+	defer cancel()
+	if _, err := n.previews.ready(ctx, taskID); err != nil {
+		n.logger.Error("bringing up the preview device failed", "task_id", taskID, "error", err)
+		return
+	}
+	ports, err := n.exec.GatewayPorts(ctx, taskID)
+	if err == nil {
+		err = n.previews.attach(taskID, ports)
+	}
+	if err != nil {
+		n.logger.Error("publishing the preview failed", "task_id", taskID, "error", err)
+	}
+}
+
+// releasePreview tears down a finished task this node was keeping up. A task that is not
+// held yet — its last events still in flight — only loses its lease, and execute tears it
+// down when it sees that.
+func (n *Node) releasePreview(taskID, reason string) {
+	if !n.previews.isHeld(taskID) {
+		n.previews.release(taskID)
+		return
+	}
+	n.logger.Info("releasing preview", "task_id", taskID, "reason", reason)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(n.runCtx), teardownTimeout)
+	defer cancel()
+	// Teardown first: the address goes back to the pool only once nothing is bound to it,
+	// or the next preview on it would fail to publish.
+	if err := n.exec.Teardown(ctx, taskID, false); err != nil {
+		n.logger.Error("tearing down a released preview failed", "task_id", taskID, "error", err)
+	}
+	n.previews.release(taskID)
 	n.signal()
 }
 
@@ -272,6 +337,9 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush, cl
 		return
 	}
 	closeRun()
+	if ev.Kind == docker.KindPreview {
+		go n.attachPreview(buf.taskID)
+	}
 	n.push(buf, toWire(ev))
 }
 

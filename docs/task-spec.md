@@ -42,6 +42,7 @@ decoder, and every one using only `alpine:3`, `pgvector/pgvector:pg16` or `redis
 | [`examples/secrets.yaml`](../examples/secrets.yaml) | both secret targets, and what redaction does not cover |
 | [`examples/limits.yaml`](../examples/limits.yaml) | limits and hardening, from inside the container — including an OOM kill |
 | [`examples/artifacts.yaml`](../examples/artifacts.yaml) | both ways to keep a file |
+| [`examples/preview.yaml`](../examples/preview.yaml) | leave what the task built running, with its ports published |
 
 ## Private registries
 
@@ -432,6 +433,71 @@ Three things worth knowing:
 
 `podium artifacts TASK_ID` lists them and `podium artifact get ARTIFACT_ID` downloads one;
 see [docs/cli.md](cli.md).
+
+## Expose
+
+A task that builds something can leave it running for people to use. `expose` keeps the
+task's containers up after its command exits and publishes the named ports outside the node,
+until the `ttl` runs out or somebody releases it.
+
+```yaml
+image: node:22
+command: ["sh", "-c", "make build test && (make serve &)"]
+sidecars:
+  accounts:     { image: ghcr.io/acme/accounts:dev }
+  applications: { image: ghcr.io/acme/applications:dev }
+expose:
+  ttl: 2h                  # counts from the command's exit; default 1h, capped by PODIUM_PREVIEW_MAX_TTL
+  via: tailnet             # tailnet or lan; omit to let the node choose
+  ports:
+    web:          { port: 3000 }                      # the task container
+    accounts:     { port: 5011, from: accounts }      # a sidecar, by name
+    applications: { port: 5012, from: applications }
+```
+
+**The task still ends when its command does.** It is `succeeded` or `failed` with the
+command's exit code, exactly as without `expose`, and anything following it — `podium run`,
+the conductor — sees it finish. What outlives it is the task's **preview**: its containers,
+its network and its workspace, and every process the command left running. `podium task get`
+shows where the preview is and when it expires; `podium task release TASK_ID` ends it early.
+
+**Every port is published on one address per task, under its own number.** An app built to
+call `localhost:5011` from `localhost:3000` works unchanged once it is told the address, and
+two previews never share one. Before the command starts, the task gets:
+
+| Variable | Example |
+|---|---|
+| `PODIUM_EXPOSE_HOST` | `100.101.7.20` |
+| `PODIUM_URL_<NAME>` — the name uppercased, `-` as `_` | `PODIUM_URL_ACCOUNTS=http://100.101.7.20:5011` |
+
+Build the app against those, not against `localhost`, or a browser elsewhere cannot follow
+its links. For services under a nested daemon (`docker: true` in a playbook), `from: dind`
+reaches whatever compose published there.
+
+Where the address comes from is the node's configuration, not the spec's
+([node-setup.md](node-setup.md#previews)):
+
+- **`tailnet`** — a Tailscale device the node lends to one preview at a time, with a stable
+  `100.x` address. Viewers must be people on the tailnet: tagged devices are refused.
+- **`lan`** — one of the node's own addresses, from a pool the operator set aside. Anything
+  that can reach the address can use the preview; there is no login on this path.
+
+A task is only placed on a node with a free address of the kind it asks for. When there is
+none it waits in the queue, `queued_reason: no online node has a free preview address for
+this task`, and is placed as soon as a preview is released.
+
+Things to know:
+
+- **A held preview keeps its node slot**, and its CPU and memory, until it is released. That
+  is what the ttl cap is for.
+- **Its secrets stay in its environment** for as long as it is up.
+- **Plain HTTP.** No certificate is issued for a `100.x` or a LAN address, so browser
+  features that need a secure context — `Secure` cookies, service workers — do not work on a
+  preview yet.
+- **Nothing it logs after the command exits reaches the task's record**: the event stream
+  ends at `finished`. `docker logs` on the node still has it.
+- **A cancelled command is not held.** Neither is one that never ran.
+- `timeout` covers the command only.
 
 ## Egress
 

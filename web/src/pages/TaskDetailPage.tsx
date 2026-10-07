@@ -10,6 +10,7 @@ import { LogViewer } from "../components/LogViewer";
 import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { CopyValue, PathText } from "../components/task/CopyValue";
+import { PreviewCard } from "../components/task/PreviewCard";
 import { TaskTimeline } from "../components/task/TaskTimeline";
 import { useToast } from "../components/Toast";
 import { Alert } from "../components/ui/alert";
@@ -49,6 +50,8 @@ import { specToYaml } from "../lib/spec";
 import { cn } from "../lib/utils";
 
 const POLL_MS = 5000;
+/** A finished task's preview only changes when somebody releases it or it expires. */
+const PREVIEW_POLL_MS = 30_000;
 
 /** Keyed on the task id so navigating between tasks starts a fresh log stream and a fresh
  *  accumulator instead of appending one task's output to another's. */
@@ -67,7 +70,11 @@ function TaskDetail({ id }: { id: string }) {
   const query = useQuery({
     queryKey: ["task", id],
     queryFn: () => tasks.getTask({ taskId: id }),
-    refetchInterval: (q) => (q.state.data && isTerminal(q.state.data.task!.status) ? false : POLL_MS),
+    refetchInterval: (q) => {
+      const t = q.state.data?.task;
+      if (!t || !isTerminal(t.status)) return POLL_MS;
+      return t.preview && !t.preview.releasedAt ? PREVIEW_POLL_MS : false;
+    },
   });
 
   const reread = useCallback(() => {
@@ -159,6 +166,8 @@ function TaskDetail({ id }: { id: string }) {
       >
 
       <Explain task={task} />
+
+      <PreviewCard task={task} />
 
       <Card>
         <div className="grid divide-y divide-hairline xl:grid-cols-[1.5fr_1fr_1fr] xl:divide-x xl:divide-y-0">
