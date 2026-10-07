@@ -450,9 +450,10 @@ func (c *Conductor) GetDelegation(ctx context.Context, token, id string) (store.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	case err != nil:
 		return store.Delegation{}, "", err
-	case dlg.TriggerRef != g.ref:
+	case dlg.SessionID != g.sessionID:
 		// Deliberately the same answer as "no such delegation": one conversation does not
-		// get to discover another's work by probing ids.
+		// get to discover another's work by probing ids. The session is the conversation;
+		// a Slack thread's ref is one message of it.
 		return store.Delegation{}, "", ErrDelegationNotFound
 	}
 	return dlg, c.delegationProgress(id), nil
@@ -469,7 +470,7 @@ func (c *Conductor) Delegations(ctx context.Context, token string) ([]store.Dele
 	if err != nil {
 		return nil, err
 	}
-	running, err := c.store.RunningDelegationsForRef(ctx, g.ref)
+	running, err := c.store.RunningDelegationsForSession(ctx, g.sessionID)
 	if err != nil {
 		return nil, err
 	}

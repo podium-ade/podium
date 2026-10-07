@@ -420,14 +420,18 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 // runningDelegations is what this conversation already has in flight, for the brief. A
 // failure is logged and the turn runs without the list: a thinner brief is worse than a
 // complete one and better than no turn.
-func (c *Conductor) runningDelegations(ctx context.Context, ref string) []BriefRunningDelegation {
-	if c.store == nil || ref == "" {
+//
+// The conversation is the session, not the ref. A Slack thread's ref names the message that
+// asked, so scoping by it showed a follow-up in the same thread nothing running, and the
+// assistant started a second task beside the one it should have injected into.
+func (c *Conductor) runningDelegations(ctx context.Context, sessionID string) []BriefRunningDelegation {
+	if c.store == nil || sessionID == "" {
 		return nil
 	}
-	rows, err := c.store.RunningDelegationsForRef(ctx, ref)
+	rows, err := c.store.RunningDelegationsForSession(ctx, sessionID)
 	if err != nil {
 		c.logger.WarnContext(ctx, "listing the conversation's running delegations failed",
-			"ref", ref, "error", err)
+			"session_id", sessionID, "error", err)
 		return nil
 	}
 	out := make([]BriefRunningDelegation, 0, len(rows))
@@ -719,7 +723,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	var menu []DelegablePlaybook
 	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.hostBrief(brief, menu, c.runningDelegations(ctx, ev.Ref))
+		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
