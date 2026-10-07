@@ -134,11 +134,15 @@ function SettingsTab() {
   const { pathname } = useLocation();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
+  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
+  const manage = canManageInfra(viewer);
   const categories: { id: string; label: string; icon: LucideIcon }[] = [
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
     { id: "users", label: "Users", icon: Users },
     { id: "backend", label: "Backend", icon: Server },
-    ...(viewer?.agentEnabled ? [{ id: "connections", label: "Connections", icon: Cable }] : []),
+    ...(viewer?.agentEnabled && manage
+      ? [{ id: "connections", label: "Connections", icon: Cable }]
+      : []),
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
   ];
 
