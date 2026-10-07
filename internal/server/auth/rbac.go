@@ -111,6 +111,13 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceStartMcpOAuthProcedure:              store.RoleMember,
 	agentv1connect.AgentServiceCompleteMcpOAuthProcedure:           store.RoleMember,
 	agentv1connect.AgentServiceSetSlackChannelDescriptionProcedure: store.RoleAdmin,
+
+	// GitHub and Slack live under Settings → Connections. Hints are still credentials.
+	agentv1connect.AgentServiceGetConnectionsProcedure:        store.RoleAdmin,
+	agentv1connect.AgentServiceSetSlackConnectionProcedure:    store.RoleAdmin,
+	agentv1connect.AgentServiceClearSlackConnectionProcedure:  store.RoleAdmin,
+	agentv1connect.AgentServiceSetGitHubConnectionProcedure:   store.RoleAdmin,
+	agentv1connect.AgentServiceClearGitHubConnectionProcedure: store.RoleAdmin,
 }
 
 // RestrictRBAC forbids a KindUser from procedures their role cannot call, once the

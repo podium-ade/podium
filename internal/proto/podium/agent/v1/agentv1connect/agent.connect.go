@@ -51,6 +51,21 @@ const (
 	// AgentServiceClearProviderKeyProcedure is the fully-qualified name of the AgentService's
 	// ClearProviderKey RPC.
 	AgentServiceClearProviderKeyProcedure = "/podium.agent.v1.AgentService/ClearProviderKey"
+	// AgentServiceGetConnectionsProcedure is the fully-qualified name of the AgentService's
+	// GetConnections RPC.
+	AgentServiceGetConnectionsProcedure = "/podium.agent.v1.AgentService/GetConnections"
+	// AgentServiceSetSlackConnectionProcedure is the fully-qualified name of the AgentService's
+	// SetSlackConnection RPC.
+	AgentServiceSetSlackConnectionProcedure = "/podium.agent.v1.AgentService/SetSlackConnection"
+	// AgentServiceClearSlackConnectionProcedure is the fully-qualified name of the AgentService's
+	// ClearSlackConnection RPC.
+	AgentServiceClearSlackConnectionProcedure = "/podium.agent.v1.AgentService/ClearSlackConnection"
+	// AgentServiceSetGitHubConnectionProcedure is the fully-qualified name of the AgentService's
+	// SetGitHubConnection RPC.
+	AgentServiceSetGitHubConnectionProcedure = "/podium.agent.v1.AgentService/SetGitHubConnection"
+	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
+	// ClearGitHubConnection RPC.
+	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
 	// AgentServiceStartProviderOAuthProcedure is the fully-qualified name of the AgentService's
 	// StartProviderOAuth RPC.
 	AgentServiceStartProviderOAuthProcedure = "/podium.agent.v1.AgentService/StartProviderOAuth"
@@ -179,6 +194,25 @@ type AgentServiceClient interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// GetConnections reports GitHub, Slack and Linear as the UI may see them. It never
+	// returns a token or a private key: a hint computed at save time is the only fragment
+	// that comes back.
+	GetConnections(context.Context, *connect.Request[v1.GetConnectionsRequest]) (*connect.Response[v1.GetConnectionsResponse], error)
+	// SetSlackConnection stores the Socket Mode tokens. A blank field keeps the saved
+	// value, so one token can be rotated. The conductor uses the saved pair the next time
+	// it starts, in place of PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN.
+	SetSlackConnection(context.Context, *connect.Request[v1.SetSlackConnectionRequest]) (*connect.Response[v1.SetSlackConnectionResponse], error)
+	// ClearSlackConnection removes the saved pair. Calling it twice is not an error. The
+	// environment variables apply again on the next start.
+	ClearSlackConnection(context.Context, *connect.Request[v1.ClearSlackConnectionRequest]) (*connect.Response[v1.ClearSlackConnectionResponse], error)
+	// SetGitHubConnection stores the App id, private key and, when reviews are on, the
+	// webhook pair. A blank private key or webhook secret keeps the saved one. The
+	// conductor uses this the next time it starts. The GitHub App environment variables
+	// are ignored.
+	SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error)
+	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
+	// The App is off on the next start.
+	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -364,6 +398,36 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceClearProviderKeyProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
+			connect.WithClientOptions(opts...),
+		),
+		getConnections: connect.NewClient[v1.GetConnectionsRequest, v1.GetConnectionsResponse](
+			httpClient,
+			baseURL+AgentServiceGetConnectionsProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetConnections")),
+			connect.WithClientOptions(opts...),
+		),
+		setSlackConnection: connect.NewClient[v1.SetSlackConnectionRequest, v1.SetSlackConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceSetSlackConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetSlackConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		clearSlackConnection: connect.NewClient[v1.ClearSlackConnectionRequest, v1.ClearSlackConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceClearSlackConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearSlackConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		setGitHubConnection: connect.NewClient[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceSetGitHubConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetGitHubConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		clearGitHubConnection: connect.NewClient[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse](
+			httpClient,
+			baseURL+AgentServiceClearGitHubConnectionProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
 			connect.WithClientOptions(opts...),
 		),
 		startProviderOAuth: connect.NewClient[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse](
@@ -600,6 +664,11 @@ type agentServiceClient struct {
 	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
 	setProviderKey             *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
 	clearProviderKey           *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
+	getConnections             *connect.Client[v1.GetConnectionsRequest, v1.GetConnectionsResponse]
+	setSlackConnection         *connect.Client[v1.SetSlackConnectionRequest, v1.SetSlackConnectionResponse]
+	clearSlackConnection       *connect.Client[v1.ClearSlackConnectionRequest, v1.ClearSlackConnectionResponse]
+	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
+	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
 	startProviderOAuth         *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
 	pollProviderOAuth          *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
 	listAgents                 *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
@@ -672,6 +741,31 @@ func (c *agentServiceClient) SetProviderKey(ctx context.Context, req *connect.Re
 // ClearProviderKey calls podium.agent.v1.AgentService.ClearProviderKey.
 func (c *agentServiceClient) ClearProviderKey(ctx context.Context, req *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
 	return c.clearProviderKey.CallUnary(ctx, req)
+}
+
+// GetConnections calls podium.agent.v1.AgentService.GetConnections.
+func (c *agentServiceClient) GetConnections(ctx context.Context, req *connect.Request[v1.GetConnectionsRequest]) (*connect.Response[v1.GetConnectionsResponse], error) {
+	return c.getConnections.CallUnary(ctx, req)
+}
+
+// SetSlackConnection calls podium.agent.v1.AgentService.SetSlackConnection.
+func (c *agentServiceClient) SetSlackConnection(ctx context.Context, req *connect.Request[v1.SetSlackConnectionRequest]) (*connect.Response[v1.SetSlackConnectionResponse], error) {
+	return c.setSlackConnection.CallUnary(ctx, req)
+}
+
+// ClearSlackConnection calls podium.agent.v1.AgentService.ClearSlackConnection.
+func (c *agentServiceClient) ClearSlackConnection(ctx context.Context, req *connect.Request[v1.ClearSlackConnectionRequest]) (*connect.Response[v1.ClearSlackConnectionResponse], error) {
+	return c.clearSlackConnection.CallUnary(ctx, req)
+}
+
+// SetGitHubConnection calls podium.agent.v1.AgentService.SetGitHubConnection.
+func (c *agentServiceClient) SetGitHubConnection(ctx context.Context, req *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error) {
+	return c.setGitHubConnection.CallUnary(ctx, req)
+}
+
+// ClearGitHubConnection calls podium.agent.v1.AgentService.ClearGitHubConnection.
+func (c *agentServiceClient) ClearGitHubConnection(ctx context.Context, req *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
+	return c.clearGitHubConnection.CallUnary(ctx, req)
 }
 
 // StartProviderOAuth calls podium.agent.v1.AgentService.StartProviderOAuth.
@@ -882,6 +976,25 @@ type AgentServiceHandler interface {
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
 	// ClearProviderKey removes the secret and the metadata. Calling it twice is not an error.
 	ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error)
+	// GetConnections reports GitHub, Slack and Linear as the UI may see them. It never
+	// returns a token or a private key: a hint computed at save time is the only fragment
+	// that comes back.
+	GetConnections(context.Context, *connect.Request[v1.GetConnectionsRequest]) (*connect.Response[v1.GetConnectionsResponse], error)
+	// SetSlackConnection stores the Socket Mode tokens. A blank field keeps the saved
+	// value, so one token can be rotated. The conductor uses the saved pair the next time
+	// it starts, in place of PODIUM_AGENT_SLACK_APP_TOKEN and PODIUM_AGENT_SLACK_BOT_TOKEN.
+	SetSlackConnection(context.Context, *connect.Request[v1.SetSlackConnectionRequest]) (*connect.Response[v1.SetSlackConnectionResponse], error)
+	// ClearSlackConnection removes the saved pair. Calling it twice is not an error. The
+	// environment variables apply again on the next start.
+	ClearSlackConnection(context.Context, *connect.Request[v1.ClearSlackConnectionRequest]) (*connect.Response[v1.ClearSlackConnectionResponse], error)
+	// SetGitHubConnection stores the App id, private key and, when reviews are on, the
+	// webhook pair. A blank private key or webhook secret keeps the saved one. The
+	// conductor uses this the next time it starts. The GitHub App environment variables
+	// are ignored.
+	SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error)
+	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
+	// The App is off on the next start.
+	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -1063,6 +1176,36 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceClearProviderKeyProcedure,
 		svc.ClearProviderKey,
 		connect.WithSchema(agentServiceMethods.ByName("ClearProviderKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetConnectionsHandler := connect.NewUnaryHandler(
+		AgentServiceGetConnectionsProcedure,
+		svc.GetConnections,
+		connect.WithSchema(agentServiceMethods.ByName("GetConnections")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetSlackConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceSetSlackConnectionProcedure,
+		svc.SetSlackConnection,
+		connect.WithSchema(agentServiceMethods.ByName("SetSlackConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearSlackConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceClearSlackConnectionProcedure,
+		svc.ClearSlackConnection,
+		connect.WithSchema(agentServiceMethods.ByName("ClearSlackConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetGitHubConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceSetGitHubConnectionProcedure,
+		svc.SetGitHubConnection,
+		connect.WithSchema(agentServiceMethods.ByName("SetGitHubConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceClearGitHubConnectionHandler := connect.NewUnaryHandler(
+		AgentServiceClearGitHubConnectionProcedure,
+		svc.ClearGitHubConnection,
+		connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceStartProviderOAuthHandler := connect.NewUnaryHandler(
@@ -1303,6 +1446,16 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
 		case AgentServiceClearProviderKeyProcedure:
 			agentServiceClearProviderKeyHandler.ServeHTTP(w, r)
+		case AgentServiceGetConnectionsProcedure:
+			agentServiceGetConnectionsHandler.ServeHTTP(w, r)
+		case AgentServiceSetSlackConnectionProcedure:
+			agentServiceSetSlackConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceClearSlackConnectionProcedure:
+			agentServiceClearSlackConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceSetGitHubConnectionProcedure:
+			agentServiceSetGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceClearGitHubConnectionProcedure:
+			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceStartProviderOAuthProcedure:
 			agentServiceStartProviderOAuthHandler.ServeHTTP(w, r)
 		case AgentServicePollProviderOAuthProcedure:
@@ -1412,6 +1565,26 @@ func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect
 
 func (UnimplementedAgentServiceHandler) ClearProviderKey(context.Context, *connect.Request[v1.ClearProviderKeyRequest]) (*connect.Response[v1.ClearProviderKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearProviderKey is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetConnections(context.Context, *connect.Request[v1.GetConnectionsRequest]) (*connect.Response[v1.GetConnectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetConnections is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetSlackConnection(context.Context, *connect.Request[v1.SetSlackConnectionRequest]) (*connect.Response[v1.SetSlackConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSlackConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearSlackConnection(context.Context, *connect.Request[v1.ClearSlackConnectionRequest]) (*connect.Response[v1.ClearSlackConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearSlackConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetGitHubConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearGitHubConnection is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error) {
