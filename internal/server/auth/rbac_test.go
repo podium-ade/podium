@@ -100,6 +100,22 @@ func TestRestrictRBACOwnerCanSetRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestRestrictRBACMemberCannotReadConnections(t *testing.T) {
+	t.Parallel()
+	view := claimedView("bob@acme.com", store.RoleMember)
+	h := RestrictRBAC(view, true, okHandler())
+	rec := hit(h, agentv1connect.AgentServiceGetConnectionsProcedure, user("bob@acme.com"))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Contains(t, rec.Body.String(), "admin")
+
+	admin := claimedView("cara@acme.com", store.RoleAdmin)
+	h = RestrictRBAC(admin, true, okHandler())
+	require.Equal(t, http.StatusOK, hit(h, agentv1connect.AgentServiceGetConnectionsProcedure, user("cara@acme.com")).Code)
+	owner := claimedView("alice@acme.com", store.RoleOwner)
+	h = RestrictRBAC(owner, true, okHandler())
+	require.Equal(t, http.StatusOK, hit(h, agentv1connect.AgentServiceSetGitHubConnectionProcedure, user("alice@acme.com")).Code)
+}
+
 func TestRestrictRBACMemberCanListAndCreateTasks(t *testing.T) {
 	t.Parallel()
 	view := claimedView("bob@acme.com", store.RoleMember)

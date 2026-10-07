@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
+import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { catalogue } from "../test/agents";
 import { AgentPage } from "./AgentPage";
 import { ToastHost } from "../components/Toast";
@@ -299,6 +300,41 @@ describe("AgentPage", () => {
     expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
+  });
+
+  it("hides connections from a member and keeps it for an admin and an owner", async () => {
+    const human = {
+      ...viewer,
+      login: "bob@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleMember],
+      claimed: true,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    };
+    mount("/agent/settings/models", human);
+    expect(await screen.findByRole("link", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(getConnections).not.toHaveBeenCalled();
+
+    cleanup();
+    mount("/agent/settings/connections", human);
+    expect(await screen.findByRole("link", { name: "Account" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(getConnections).not.toHaveBeenCalled();
+
+    cleanup();
+    mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
+    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+
+    cleanup();
+    mount("/agent/settings/models", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
+    expect(await screen.findByRole("link", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {
