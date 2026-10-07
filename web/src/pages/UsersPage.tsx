@@ -45,7 +45,7 @@ const CAPABILITIES: { label: string; member: boolean; admin: boolean; owner: boo
   { label: "See nodes, secrets, registries and who is here", member: true, admin: true, owner: true },
   { label: "Enroll, drain, rekey and delete nodes", member: false, admin: true, owner: true },
   { label: "Set and delete secrets and registries", member: false, admin: true, owner: true },
-  { label: "Configure keys, playbooks, skills and MCP", member: false, admin: true, owner: true },
+  { label: "Configure keys, connections, playbooks, skills and MCP", member: false, admin: true, owner: true },
   { label: "Change anyone's role", member: false, admin: false, owner: true },
 ];
 

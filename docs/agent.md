@@ -290,8 +290,10 @@ nothing while its node pulls a large image is not a task anyone gives up on.
 
 ## Configuration
 
-Environment only. Every variable is in [`../deploy/.env.example`](../deploy/.env.example), and a
-test fails if one is read by the code and missing from that file.
+Most of this is the environment. The GitHub App is not: it is saved under Settings →
+Connections, and `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are ignored.
+Every variable the code still reads is in [`../deploy/.env.example`](../deploy/.env.example),
+and a test fails if one is read and missing from that file.
 
 | env | required | default | meaning |
 |---|---|---|---|
@@ -307,11 +309,12 @@ test fails if one is read by the code and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
-| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode |
-| `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…` |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Settings → Connections stores the same pair and replaces these on the next start |
+| `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
 | `PODIUM_AGENT_LINEAR_URL` | no | `https://api.linear.app/graphql` | the GraphQL endpoint; a test seam and an egress hook, **not** a "which Linear" knob |
+| `PODIUM_AGENT_TASK_URL` | with a GitHub App | `http://host.docker.internal:8090` | this conductor as a **task container** reaches it, to mint a clone token. It stays in the environment: it is how a task reaches this process, not a property of the App |
 | `PODIUM_AGENT_UI_URL` | no | `PODIUM_AGENT_SERVER` | the Podium web UI as a **human** reaches it. Used only for the link a Linear comment falls back to when an attachment cannot be uploaded |
 | `PODIUM_AGENT_ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | where a pasted Anthropic key is validated; a test seam and an egress hook, **not** a BYOK knob |
 | `PODIUM_AGENT_XAI_BASE_URL` | no | `https://api.x.ai` | where an xAI credential is validated **and** where a Grok turn's container sends the agent SDK's requests |
@@ -339,6 +342,9 @@ conductor at all:
 Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
 and no Linear key, no source is started and the conductor listens to nothing — it says so at
 startup, which is a fine shape to run it in while you set a provider credential in the UI.
+Slack can be saved under Settings → Connections instead of its variables. A saved row replaces
+the environment for Slack on the next start. The GitHub App is only that screen. Linear is
+still environment only.
 
 ### Its own database
 
@@ -1329,8 +1335,10 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    internet.
 5. **Invite the bot to every channel you want it in**: `/invite @Podium`. It cannot see a channel
    it is not in, whatever its scopes say.
-6. Put both tokens in `.env` and start the conductor. The startup log names the sources it
-   enabled and the playbooks it loaded.
+6. Put both tokens in **Settings → Connections**, or in `.env`. A saved connection is what
+   the conductor reads the next time it starts; the environment applies only when nothing
+   is saved. Restart it after either change. The startup log names the sources it enabled
+   and the playbooks it loaded.
 7. **Reinstall the app** if you created it from an older manifest: `channels:read`,
    `groups:read` and `im:read` were added so the conductor can resolve `#support` from `C0123`
    and so **Channels** in the sidebar can list membership. Existing tokens keep the old scopes
@@ -1575,22 +1583,15 @@ must appear as *your* bot.
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
    `pull_requests: write`, `contents: write` (clone and push use the same App). Events:
    `issue_comment`, `pull_request_review`, `pull_request_review_comment`.
-2. Generate a private key. Put the PEM on the conductor host. This is
-   `PODIUM_AGENT_GITHUB_APP_KEY_FILE` — the same key clone tokens mint from.
-3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at
-   `PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN`, path `/webhooks/github`. That mux is **only** that
+2. Generate a private key. Paste the PEM under Settings → Connections, with the App id.
+   That is the same key clone tokens mint from. The old key-file variable is ignored.
+3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at the listen
+   address you save with the App, path `/webhooks/github`. That mux is **only** that
    route — see [`networking.md`](networking.md).
 4. Install the App on the repositories it should review.
-5. The App id and key turn clone on. Reviews need the extra pair:
-
-```sh
-PODIUM_AGENT_GITHUB_APP_ID=                  # already required to mint clone tokens
-PODIUM_AGENT_GITHUB_APP_KEY_FILE=            # path to the PEM
-PODIUM_AGENT_GITHUB_WEBHOOK_SECRET=          # the webhook secret GitHub shows
-PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN=127.0.0.1:8091
-```
-
-The webhook secret and listen are both-or-neither. The App can mint clone tokens without them.
+5. The App id and key turn clone on. Reviews need the webhook secret and listen address
+   on the same screen. Both or neither. The App can mint clone tokens without them.
+   The conductor uses the saved App the next time it starts.
 
 Then `@your-app review this` on a PR, or in Slack:
 
@@ -1744,12 +1745,14 @@ exactly when the push needed it. So `credential.helper` is a program git runs *e
 wants a password — once per clone, once per fetch, once per push — and each call returns a token
 minted seconds earlier.
 
-```sh
-# In deploy/.env, on the conductor's host:
-PODIUM_AGENT_GITHUB_APP_ID=123456
-PODIUM_AGENT_GITHUB_APP_KEY_FILE=/etc/podium/github-app.pem
-PODIUM_AGENT_TASK_URL=http://host.docker.internal:8090
-```
+Save the App id and paste the PEM under Settings → Connections. When you want pull-request
+reviews, save the webhook secret and listen address there too. The conductor uses that App
+the next time it starts. `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are
+ignored.
+
+`PODIUM_AGENT_TASK_URL` and `PODIUM_AGENT_LISTEN` stay in the environment: they are how a
+task reaches this process, not properties of the App. The task URL default is
+`http://host.docker.internal:8090`.
 
 On GitHub: create an App, give it **Contents: read and write** and **Pull requests: read and
 write** and nothing else, install it on the accounts holding the repositories your playbooks
