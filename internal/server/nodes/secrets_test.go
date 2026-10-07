@@ -115,7 +115,7 @@ func TestResolvedSecretsTravelInTheAssign(t *testing.T) {
 	defer node.disconnect()
 	h.awaitNodeStatus(node.id, podiumv1.NodeStatus_NODE_STATUS_ONLINE, 10*time.Second)
 
-	created, err := h.tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
+	created, err := h.agentTasks().CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
 		Spec: &podiumv1.TaskSpec{
 			Image:   "alpine:3",
 			Command: []string{"true"},
@@ -170,7 +170,7 @@ func TestAMissingSecretFailsTheTaskBeforeAnyNodeSeesIt(t *testing.T) {
 
 	setSecret(t, h, "PRESENT", "a value that exists")
 
-	created, err := h.tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
+	created, err := h.agentTasks().CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
 		Spec: &podiumv1.TaskSpec{
 			Image:   "alpine:3",
 			Command: []string{"true"},
@@ -197,7 +197,7 @@ func TestAMissingSecretFailsTheTaskBeforeAnyNodeSeesIt(t *testing.T) {
 	node.expectNoAssign(2 * time.Second)
 
 	// A task with a secret that does exist still runs on the same server.
-	ok, err := h.tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
+	ok, err := h.agentTasks().CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
 		Spec: &podiumv1.TaskSpec{
 			Image:   "alpine:3",
 			Command: []string{"true"},
@@ -224,7 +224,7 @@ func TestDeletingASecretFailsLaterTasks(t *testing.T) {
 	_, err := h.secrets.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{Name: "TEMPORARY"}))
 	require.NoError(t, err)
 
-	created, err := h.tasks.CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
+	created, err := h.agentTasks().CreateTask(ctx, connect.NewRequest(&podiumv1.CreateTaskRequest{
 		Spec: &podiumv1.TaskSpec{
 			Image:   "alpine:3",
 			Command: []string{"true"},

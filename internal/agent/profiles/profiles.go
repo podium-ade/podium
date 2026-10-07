@@ -320,7 +320,11 @@ type Playbook struct {
 	Priority  int              `yaml:"priority" json:"priority,omitempty"`
 	Resources spec.Resources   `yaml:"resources" json:"resources,omitempty"`
 	Secrets   []spec.SecretRef `yaml:"secrets" json:"secrets,omitempty"`
-	Repos     []Repo           `yaml:"repos" json:"repos,omitempty"`
+	// UserSecrets are personal secrets of the signed-in person a turn is for. A Slack turn
+	// has no person, so a playbook that names any fails that turn. They are not a second
+	// copy of secrets: a name here is never a company secret and cannot be podium.agent.*.
+	UserSecrets []spec.SecretRef `yaml:"user_secrets,omitempty" json:"user_secrets,omitempty"`
+	Repos       []Repo           `yaml:"repos" json:"repos,omitempty"`
 	// Git is who this playbook's turns commit as: it overrides the profile's, and unset
 	// inherits it. Unset in both leaves the runtime's fallback, which belongs to no GitHub
 	// account — see GitPersona for why that is a deployment failure rather than a cosmetic one.
@@ -643,6 +647,31 @@ func validateMCPServers(names []string) []error {
 	return errs
 }
 
+// refuseReservedSecrets is the conductor's own namespace: a playbook file does not get to
+// name a provider key, the memory key, a GitHub capability, or an MCP token.
+func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
+	var errs []error
+	for _, ref := range refs {
+		switch ref.Name {
+		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret,
+			OpenAIKeySecret, OpenAIRefreshSecret, MemoryKeySecret:
+			errs = append(errs, fmt.Errorf("%s may not name %s: the conductor decides what "+
+				"credential a turn gets, from the agent the playbook runs on", field, ref.Name))
+		}
+		if strings.HasPrefix(ref.Name, GitCapabilityPrefix) {
+			errs = append(errs, fmt.Errorf("%s may not name %s: a turn's authority to mint "+
+				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
+				"repositories that turn's playbook listed", field, ref.Name))
+		}
+		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) {
+			errs = append(errs, fmt.Errorf("%s may not name %s: an MCP server's token "+
+				"comes from mcp_servers, which is what decides whether this playbook has "+
+				"that server at all", field, ref.Name))
+		}
+	}
+	return errs
+}
+
 func (s Playbook) validate(path string) error {
 	var errs []error
 	if strings.TrimSpace(s.Image) == "" {
@@ -678,25 +707,11 @@ func (s Playbook) validate(path string) error {
 	if err := validateTriple(s.Agent, s.Model, s.Effort); err != nil {
 		errs = append(errs, err)
 	}
-	for _, ref := range s.Secrets {
-		switch ref.Name {
-		case AnthropicKeySecret, XAIKeySecret, XAIRefreshSecret,
-			OpenAIKeySecret, OpenAIRefreshSecret, MemoryKeySecret:
-			errs = append(errs, fmt.Errorf("secrets may not name %s: the conductor decides what "+
-				"credential a turn gets, from the agent the playbook runs on", ref.Name))
-		}
-		if strings.HasPrefix(ref.Name, GitCapabilityPrefix) {
-			errs = append(errs, fmt.Errorf("secrets may not name %s: a turn's authority to mint "+
-				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
-				"repositories that turn's playbook listed", ref.Name))
-		}
-		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) {
-			// The registry is what grants an MCP server to a playbook, and the token is
-			// how a turn uses one. A playbook that could name the secret directly would
-			// have the credential of a server it was never granted.
-			errs = append(errs, fmt.Errorf("secrets may not name %s: an MCP server's token "+
-				"comes from mcp_servers, which is what decides whether this playbook has "+
-				"that server at all", ref.Name))
+	errs = append(errs, refuseReservedSecrets("secrets", s.Secrets)...)
+	errs = append(errs, refuseReservedSecrets("user_secrets", s.UserSecrets)...)
+	for _, ref := range s.UserSecrets {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" {
+			errs = append(errs, fmt.Errorf("user_secrets may not name %s: that name is reserved for the conductor", ref.Name))
 		}
 	}
 	errs = append(errs, validateSkills(s.Skills)...)
@@ -756,7 +771,7 @@ func (s Playbook) validate(path string) error {
 	probe := spec.TaskSpec{
 		Image:     s.Image,
 		Env:       s.Env,
-		Secrets:   append([]spec.SecretRef(nil), s.Secrets...),
+		Secrets:   append(append([]spec.SecretRef(nil), s.Secrets...), s.UserSecrets...),
 		Resources: s.Resources,
 		Labels:    s.Labels,
 		Timeout:   s.Timeout,

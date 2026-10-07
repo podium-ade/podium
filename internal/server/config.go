@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/url"
@@ -79,6 +80,11 @@ type Config struct {
 	// is what makes the X-Podium-Login header trustworthy at the other end.
 	// SENSITIVE: never log it.
 	AgentToken string
+	// AgentAPIToken is PODIUM_AGENT_API_TOKEN: the bearer the conductor presents when it
+	// calls this server. On the local transport it is a different principal from
+	// LocalToken, so the conductor can be told apart from the CLI. Empty on a tailnet,
+	// where WhoIs names the caller. SENSITIVE: never log it.
+	AgentAPIToken string
 
 	// S3 is the PODIUM_S3_* object store: where artifacts and rolled-up logs live. An
 	// empty endpoint disables artifacts entirely, which is a supported configuration —
@@ -115,6 +121,7 @@ func ConfigFromEnv() Config {
 		TSAllowUntaggedNodes:   envBool("PODIUM_TS_ALLOW_UNTAGGED_NODES"),
 		AgentURL:               os.Getenv("PODIUM_AGENT_URL"),
 		AgentToken:             os.Getenv("PODIUM_AGENT_TOKEN"),
+		AgentAPIToken:          os.Getenv("PODIUM_AGENT_API_TOKEN"),
 		S3:                     artifacts.ConfigFromEnv(),
 		Rollup:                 logs.RollupConfigFromEnv(),
 		GoogleClientID:         os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_ID"),
@@ -226,6 +233,18 @@ func (c Config) validateAgent() error {
 	if c.AgentToken == "" {
 		return errors.New("PODIUM_AGENT_TOKEN is required when PODIUM_AGENT_URL is set: " +
 			"a proxy that forwards an unauthenticated request into the conductor is worse than no proxy")
+	}
+	// The tailnet names the conductor by WhoIs, so it has no second bearer. On the local
+	// transport the conductor must not present the dev token: that is the only way a later
+	// check can allow the conductor to attach a secret the CLI cannot.
+	if c.Transport == TransportLocal {
+		if c.AgentAPIToken == "" {
+			return errors.New("PODIUM_AGENT_API_TOKEN is required when PODIUM_AGENT_URL is set " +
+				"on the local transport: the conductor is its own principal and does not present PODIUM_LOCAL_TOKEN")
+		}
+		if subtle.ConstantTimeCompare([]byte(c.AgentAPIToken), []byte(c.LocalToken)) == 1 {
+			return errors.New("PODIUM_AGENT_API_TOKEN must differ from PODIUM_LOCAL_TOKEN")
+		}
 	}
 	return nil
 }

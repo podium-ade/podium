@@ -23,6 +23,7 @@ const draft: PlaybookDraft = {
   priority: 0,
   resources: { cpu: 0, memoryMb: 0, pids: 0 },
   secrets: [{ name: "podium.agent.github_token", target: "env", key: "GITHUB_TOKEN" }],
+  userSecrets: [{ name: "linear_key", target: "env", key: "LINEAR_KEY" }],
   repos: [],
   slackChannels: [],
   linear: false,
@@ -79,6 +80,9 @@ env:
     expect(docToDraft("reporter", doc!).interactive).toBe(true);
     expect(docToDraft("reporter", doc!).skills).toEqual(["pr-review"]);
     expect(docToDraft("reporter", doc!).env).toEqual({ CI: "true" });
+    expect(docToDraft("reporter", doc!).userSecrets).toEqual([
+      { name: "linear_key", target: "env", key: "LINEAR_KEY" },
+    ]);
   });
 });
 

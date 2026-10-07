@@ -34,8 +34,9 @@ There is no bug bounty and no SLA. This is one person's project.
 The following are documented in [`docs/security.md`](docs/security.md) and are current, deliberate
 limitations rather than vulnerabilities. Reporting them tells us nothing we have not written down:
 
-- **There is no per-action RBAC.** Google Workspace sign-in can bind the instance to a domain;
-  owner vs member is stored, not enforced, and the local token still does everything.
+- **RBAC gates Workspace users, not the CLI, nodes, or the bot.** After a Google Workspace
+  claim, member / admin / owner is enforced on KindUser. The local token and every node still
+  do everything, and a Slack mention or Linear assignment is still enough to run a playbook.
 - **A `podium-node` is root-equivalent on its host** — it holds the Docker socket. Running it as a
   non-root user in the `docker` group would be the same power with a longer name.
 - **The `local` transport is unencrypted**, and resolved secret values cross it. It is loopback-only

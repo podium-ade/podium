@@ -11,18 +11,22 @@ import (
 	"net/http"
 )
 
-// IdentityKind says which of the three authentication paths produced an Identity.
+// IdentityKind says which authentication path produced an Identity.
 type IdentityKind string
 
 // The canonical identity kinds.
 const (
-	// KindUser is a human operator: a tailnet login, or a dev token in MVP-0.
+	// KindUser is a human operator: a tailnet login, or a Google Workspace session.
 	KindUser IdentityKind = "user"
 	// KindNode is an enrolled node that has proved possession of its node key.
 	KindNode IdentityKind = "node"
 	// KindLocalToken is the shared bearer token of the local transport. It is trusted for
-	// both operator and node calls; a node only becomes KindNode once Hello validates.
+	// operator and node calls; a node only becomes KindNode once Hello validates.
 	KindLocalToken IdentityKind = "local_token"
+	// KindAgent is the conductor. It presents PODIUM_AGENT_API_TOKEN, which is a different
+	// bearer from PODIUM_LOCAL_TOKEN, so a rule can allow the conductor to do something
+	// the dev token cannot.
+	KindAgent IdentityKind = "agent"
 )
 
 // Identity is who the server believes is on the other end of a request.

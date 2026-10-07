@@ -81,6 +81,8 @@ type Secret struct {
 	KeyID      string
 	CreatedBy  string
 	UpdatedAt  time.Time
+	Scope      string
+	Owner      string
 }
 
 type Session struct {
@@ -145,6 +147,7 @@ type User struct {
 	FirstSeenAt  time.Time
 	HostedDomain *string
 	PictureUrl   *string
+	LastSeenAt   time.Time
 }
 
 type WorkspaceBasis struct {

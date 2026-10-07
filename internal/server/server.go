@@ -194,6 +194,7 @@ func newListener(cfg Config, st *store.Store, logger *slog.Logger) (transport.Li
 		return local.New(local.Options{
 			Listen:           cfg.LocalListen,
 			Token:            cfg.LocalToken,
+			AgentToken:       cfg.AgentAPIToken,
 			AllowNonLoopback: cfg.LocalAllowUnsafeListen,
 		})
 	}
@@ -345,8 +346,10 @@ func (s *Server) mux() http.Handler {
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewIdentityServiceHandler(
 		api.NewIdentityService(s.store, s.cfg.AgentEnabled(), s.cfg.GoogleEnabled()), opts...))
+	rpc.Handle(podiumv1connect.NewUserServiceHandler(
+		api.NewUserService(s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewSecretServiceHandler(
-		api.NewSecretService(s.secrets, s.logger), opts...))
+		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
@@ -379,7 +382,8 @@ func (s *Server) mux() http.Handler {
 	// embedded UI, whose assets are not secrets: a browser has no bearer token when it loads
 	// index.html, and the bundle asks the operator for one before it calls anything.
 	withAuth := func(h http.Handler) http.Handler {
-		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(), h))
+		return transport.WithIdentity(s.transport, auth.RestrictUnclaimed(s.store, s.cfg.GoogleEnabled(),
+			auth.RestrictRBAC(s.store, s.cfg.GoogleEnabled(), h)))
 	}
 	authenticated := withAuth(rpc)
 	for _, service := range []string{
@@ -387,6 +391,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.NodeServiceName,
 		podiumv1connect.NodeAdminServiceName,
 		podiumv1connect.IdentityServiceName,
+		podiumv1connect.UserServiceName,
 		podiumv1connect.SecretServiceName,
 		podiumv1connect.RegistryServiceName,
 		podiumv1connect.ArtifactServiceName,
@@ -400,7 +405,7 @@ func (s *Server) mux() http.Handler {
 	// conductor: a control plane whose agent is down is still a working task runner, and
 	// readyz is what a load balancer and the compose healthcheck gate on.
 	if s.cfg.AgentEnabled() {
-		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger)
+		agent, err := api.NewAgentProxy(s.cfg.AgentURL, s.cfg.AgentToken, s.logger, s.agentInfra)
 		if err != nil {
 			// Validate has already parsed the URL, so this cannot fire in a started
 			// server; refusing to serve the prefix beats serving it wrongly.
@@ -415,6 +420,21 @@ func (s *Server) mux() http.Handler {
 		withAuth(api.NewArtifactDownloadHandler(s.artifacts, s.logger)))
 	root.Handle("/", api.NewUIHandler(s.logger))
 	return root
+}
+
+// agentInfra is true for a signed-in admin or owner. The dev token is handled by the
+// proxy itself. A member, a missing user, and a lookup error are false: the Slack bot's
+// MCP list stays closed when the server cannot prove the caller may edit it.
+func (s *Server) agentInfra(ctx context.Context) bool {
+	id, ok := transport.From(ctx)
+	if !ok || id.Kind != transport.KindUser || id.Login == "" {
+		return false
+	}
+	user, err := s.store.GetUser(ctx, id.Login)
+	if err != nil {
+		return false
+	}
+	return store.HasRole(user.Roles, store.RoleAdmin)
 }
 
 // readyz reports whether the dependencies this process cannot work without are reachable.

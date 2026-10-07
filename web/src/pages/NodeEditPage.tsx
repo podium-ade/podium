@@ -18,6 +18,8 @@ import type { Node } from "../gen/podium/v1/admin_pb";
 import { NodeStatus } from "../gen/podium/v1/common_pb";
 import { admin, errorMessage } from "../lib/client";
 import { absolute, humanBytes, nodeStateLabel, nodeStateTone, relative } from "../lib/format";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 const POLL_MS = 5000;
 
@@ -77,6 +79,8 @@ export function NodeEditPage() {
 }
 
 function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const connected = isConnected(node);
@@ -156,8 +160,11 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
                 aria-describedby="node-slots-hint"
                 onChange={(e) => setSlots(e.target.value)}
                 className="tabular w-28"
+                disabled={!manage}
               />
             </div>
+            {manage ? (
+              <>
             <Button
               size="sm"
               disabled={!changed || save.isPending}
@@ -175,6 +182,8 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
                 <RotateCcw />
                 Use the node's {configured}
               </Button>
+            ) : null}
+              </>
             ) : null}
           </div>
 

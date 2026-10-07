@@ -90,10 +90,11 @@ export function Header() {
   const [openPath, setOpenPath] = useState<string | null>(null);
   const open = openPath === pathname;
   const agent = Boolean(who?.agentEnabled);
-  const showSettings = Boolean(agent || who?.googleAuthEnabled);
+  // Users lives on Settings even when this control plane has no conductor and no Google
+  // sign-in, so the link stays once WhoAmI has answered.
+  const showSettings = Boolean(who);
 
   const close = () => setOpenPath(null);
-
   return (
     <>
       <div className="flex h-12 w-full shrink-0 items-center gap-2 border-b border-sidebar-border bg-sidebar px-3 md:hidden">

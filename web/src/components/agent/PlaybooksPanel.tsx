@@ -18,6 +18,8 @@ import { Button } from "../ui/button";
 import { ConductorDown } from "./ConductorDown";
 import { PlaybookEditor } from "./PlaybookEditor";
 import { ReloadProfileDirButton } from "./ReloadProfileDirButton";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 const HINT_CHARS = 160;
 
@@ -26,6 +28,8 @@ const HINT_CHARS = 160;
  * Form or YAML. Saves write the file on the conductor and re-read the profile directory.
  */
 export function PlaybooksPanel() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<PlaybookDefinition | "new">();
@@ -112,6 +116,7 @@ export function PlaybooksPanel() {
       bodyClassName="flex min-h-0 flex-col gap-5"
         title="Playbooks"
         actions={
+          manage ? (
           <div className="flex items-center gap-2">
             <ReloadProfileDirButton />
             <Button
@@ -127,6 +132,7 @@ export function PlaybooksPanel() {
               New playbook
             </Button>
           </div>
+          ) : null
         }
       >
 
@@ -152,10 +158,12 @@ export function PlaybooksPanel() {
           title="No playbooks"
           hint="Nothing for the assistant to start yet."
           action={
+            manage ? (
             <Button type="button" size="sm" data-testid="playbook-new-empty" onClick={() => setEditing("new")}>
               <Plus />
               New playbook
             </Button>
+            ) : undefined
           }
         />
       ) : null}
@@ -290,6 +298,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
       pids: draft.resources.pids,
     },
     secrets: draft.secrets,
+    userSecrets: draft.userSecrets,
     repos: draft.repos.map((r) => ({ name: r.name, url: r.url, defaultBranch: r.defaultBranch })),
     git: draft.git,
     slackChannels: draft.slackChannels,

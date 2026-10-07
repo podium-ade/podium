@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
@@ -40,6 +42,8 @@ export function ProfileFileCard() {
 }
 
 function ProfileFileEditor({ content, path }: { content: string; path: string }) {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const [text, setText] = useState(content);
@@ -78,7 +82,8 @@ function ProfileFileEditor({ content, path }: { content: string; path: string })
             id="profile-yaml"
             label="profile.yaml"
             value={text}
-            onChange={setText}
+            onChange={manage ? setText : undefined}
+            readOnly={!manage}
             invalid={error !== undefined}
             minLines={24}
           />
@@ -89,16 +94,20 @@ function ProfileFileEditor({ content, path }: { content: string; path: string })
           ) : null}
         </CardContent>
         <CardFooter>
-          <Button
-            type="submit"
-            size="sm"
-            data-testid="profile-file-save"
-            disabled={save.isPending || text === content}
-          >
-            {save.isPending ? "Saving…" : "Save profile.yaml"}
-          </Button>
+          {manage ? (
+            <Button
+              type="submit"
+              size="sm"
+              data-testid="profile-file-save"
+              disabled={save.isPending || text === content}
+            >
+              {save.isPending ? "Saving…" : "Save profile.yaml"}
+            </Button>
+          ) : null}
           <span className="text-xs text-muted">
-            A file that does not load is refused and the previous one stays.
+            {manage
+              ? "A file that does not load is refused and the previous one stays."
+              : "An admin or owner can change this file."}
           </span>
         </CardFooter>
       </Card>

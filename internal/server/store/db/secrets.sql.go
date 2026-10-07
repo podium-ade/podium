@@ -10,11 +10,17 @@ import (
 )
 
 const deleteSecret = `-- name: DeleteSecret :execrows
-delete from secrets where name = $1
+delete from secrets where scope = $1 and owner = $2 and name = $3
 `
 
-func (q *Queries) DeleteSecret(ctx context.Context, name string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSecret, name)
+type DeleteSecretParams struct {
+	Scope string
+	Owner string
+	Name  string
+}
+
+func (q *Queries) DeleteSecret(ctx context.Context, arg DeleteSecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSecret, arg.Scope, arg.Owner, arg.Name)
 	if err != nil {
 		return 0, err
 	}
@@ -22,11 +28,17 @@ func (q *Queries) DeleteSecret(ctx context.Context, name string) (int64, error) 
 }
 
 const getSecret = `-- name: GetSecret :one
-select name, ciphertext, nonce, version, key_id, created_by, updated_at from secrets where name = $1
+select name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner from secrets where scope = $1 and owner = $2 and name = $3
 `
 
-func (q *Queries) GetSecret(ctx context.Context, name string) (Secret, error) {
-	row := q.db.QueryRow(ctx, getSecret, name)
+type GetSecretParams struct {
+	Scope string
+	Owner string
+	Name  string
+}
+
+func (q *Queries) GetSecret(ctx context.Context, arg GetSecretParams) (Secret, error) {
+	row := q.db.QueryRow(ctx, getSecret, arg.Scope, arg.Owner, arg.Name)
 	var i Secret
 	err := row.Scan(
 		&i.Name,
@@ -36,12 +48,16 @@ func (q *Queries) GetSecret(ctx context.Context, name string) (Secret, error) {
 		&i.KeyID,
 		&i.CreatedBy,
 		&i.UpdatedAt,
+		&i.Scope,
+		&i.Owner,
 	)
 	return i, err
 }
 
 const getSecrets = `-- name: GetSecrets :many
-select name, ciphertext, nonce, version, key_id, created_by, updated_at from secrets where name = any($1::text[]) order by name
+select name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner from secrets
+where scope = 'global' and owner = '' and name = any($1::text[])
+order by name
 `
 
 func (q *Queries) GetSecrets(ctx context.Context, names []string) ([]Secret, error) {
@@ -61,6 +77,8 @@ func (q *Queries) GetSecrets(ctx context.Context, names []string) ([]Secret, err
 			&i.KeyID,
 			&i.CreatedBy,
 			&i.UpdatedAt,
+			&i.Scope,
+			&i.Owner,
 		); err != nil {
 			return nil, err
 		}
@@ -73,7 +91,7 @@ func (q *Queries) GetSecrets(ctx context.Context, names []string) ([]Secret, err
 }
 
 const listSecrets = `-- name: ListSecrets :many
-select name, ciphertext, nonce, version, key_id, created_by, updated_at from secrets order by name
+select name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner from secrets order by scope, owner, name
 `
 
 func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
@@ -93,6 +111,8 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 			&i.KeyID,
 			&i.CreatedBy,
 			&i.UpdatedAt,
+			&i.Scope,
+			&i.Owner,
 		); err != nil {
 			return nil, err
 		}
@@ -105,7 +125,7 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 }
 
 const listSecretsForUpdate = `-- name: ListSecretsForUpdate :many
-select name, ciphertext, nonce, version, key_id, created_by, updated_at from secrets order by name for update
+select name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner from secrets order by scope, owner, name for update
 `
 
 // ListSecretsForUpdate is the rotation read: it locks every row so a concurrent SetSecret
@@ -127,6 +147,44 @@ func (q *Queries) ListSecretsForUpdate(ctx context.Context) ([]Secret, error) {
 			&i.KeyID,
 			&i.CreatedBy,
 			&i.UpdatedAt,
+			&i.Scope,
+			&i.Owner,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVisibleSecrets = `-- name: ListVisibleSecrets :many
+select name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner from secrets
+where scope = 'global' or (scope = 'personal' and owner = $1)
+order by scope, name
+`
+
+func (q *Queries) ListVisibleSecrets(ctx context.Context, owner string) ([]Secret, error) {
+	rows, err := q.db.Query(ctx, listVisibleSecrets, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Secret{}
+	for rows.Next() {
+		var i Secret
+		if err := rows.Scan(
+			&i.Name,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.Version,
+			&i.KeyID,
+			&i.CreatedBy,
+			&i.UpdatedAt,
+			&i.Scope,
+			&i.Owner,
 		); err != nil {
 			return nil, err
 		}
@@ -143,13 +201,15 @@ update secrets
 set ciphertext = $1,
     nonce      = $2,
     key_id     = $3
-where name = $4
+where scope = $4 and owner = $5 and name = $6
 `
 
 type ReEncryptSecretParams struct {
 	Ciphertext []byte
 	Nonce      []byte
 	KeyID      string
+	Scope      string
+	Owner      string
 	Name       string
 }
 
@@ -158,6 +218,8 @@ func (q *Queries) ReEncryptSecret(ctx context.Context, arg ReEncryptSecretParams
 		arg.Ciphertext,
 		arg.Nonce,
 		arg.KeyID,
+		arg.Scope,
+		arg.Owner,
 		arg.Name,
 	)
 	if err != nil {
@@ -166,19 +228,39 @@ func (q *Queries) ReEncryptSecret(ctx context.Context, arg ReEncryptSecretParams
 	return result.RowsAffected(), nil
 }
 
+const secretNameInOtherScope = `-- name: SecretNameInOtherScope :one
+select exists (
+  select 1 from secrets where name = $1 and scope <> $2
+) as taken
+`
+
+type SecretNameInOtherScopeParams struct {
+	Name  string
+	Scope string
+}
+
+func (q *Queries) SecretNameInOtherScope(ctx context.Context, arg SecretNameInOtherScopeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, secretNameInOtherScope, arg.Name, arg.Scope)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
+}
+
 const upsertSecret = `-- name: UpsertSecret :one
-insert into secrets (name, ciphertext, nonce, version, key_id, created_by, updated_at)
-values ($1, $2, $3, 1, $4, $5, now())
-on conflict (name) do update
+insert into secrets (scope, owner, name, ciphertext, nonce, version, key_id, created_by, updated_at)
+values ($1, $2, $3, $4, $5, 1, $6, $7, now())
+on conflict (scope, owner, name) do update
   set ciphertext = excluded.ciphertext,
       nonce      = excluded.nonce,
       version    = secrets.version + 1,
       key_id     = excluded.key_id,
       updated_at = now()
-returning name, ciphertext, nonce, version, key_id, created_by, updated_at
+returning name, ciphertext, nonce, version, key_id, created_by, updated_at, scope, owner
 `
 
 type UpsertSecretParams struct {
+	Scope      string
+	Owner      string
 	Name       string
 	Ciphertext []byte
 	Nonce      []byte
@@ -188,6 +270,8 @@ type UpsertSecretParams struct {
 
 func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) (Secret, error) {
 	row := q.db.QueryRow(ctx, upsertSecret,
+		arg.Scope,
+		arg.Owner,
 		arg.Name,
 		arg.Ciphertext,
 		arg.Nonce,
@@ -203,6 +287,8 @@ func (q *Queries) UpsertSecret(ctx context.Context, arg UpsertSecretParams) (Sec
 		&i.KeyID,
 		&i.CreatedBy,
 		&i.UpdatedAt,
+		&i.Scope,
+		&i.Owner,
 	)
 	return i, err
 }

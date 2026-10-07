@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ func echoHeaders(t *testing.T) (*httptest.Server, *[]*http.Request) {
 		_, _ = w.Write([]byte(`{"authorization":` + quote(r.Header.Get("Authorization")) +
 			`,"login":` + quote(r.Header.Get(AgentLoginHeader)) +
 			`,"scope":` + quote(r.Header.Get(AgentScopeHeader)) +
+			`,"infra":` + quote(r.Header.Get(AgentInfraHeader)) +
 			`,"path":` + quote(r.URL.Path) + `}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -116,6 +118,7 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 	}{
 		{"a tailnet user", &transport.Identity{Kind: transport.KindUser, Login: "bob@example.com"}, "bob@example.com", ""},
 		{"the local token", &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, "local", agentScopeAll},
+		{"the conductor", &transport.Identity{Kind: transport.KindAgent, Login: "agent"}, "agent", ""},
 		// Only reachable by calling the proxy without the middleware, which is a wiring bug
 		// rather than a request; it must still not produce an empty header.
 		{"no identity at all", nil, "unknown", ""},
@@ -130,6 +133,32 @@ func TestAgentProxyLoginPerIdentityKind(t *testing.T) {
 			assert.Equal(t, tc.scope, got["scope"])
 		})
 	}
+}
+
+func TestAgentProxyMarksAnAdminAndDropsAClientInfraHeader(t *testing.T) {
+	upstream, _ := echoHeaders(t)
+	proxy, err := NewAgentProxy(upstream.URL, agentToken, nil, func(ctx context.Context) bool {
+		id, ok := transport.From(ctx)
+		return ok && id.Login == "admin@acme.com"
+	})
+	require.NoError(t, err)
+
+	admin := call(t, proxy, &transport.Identity{Kind: transport.KindUser, Login: "admin@acme.com"}, nil)
+	require.Equal(t, http.StatusOK, admin.Code)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(admin.Body.Bytes(), &got))
+	assert.Equal(t, "1", got["infra"])
+
+	member := call(t, proxy, &transport.Identity{Kind: transport.KindUser, Login: "bob@acme.com"},
+		func(r *http.Request) { r.Header.Set(AgentInfraHeader, "1") })
+	require.Equal(t, http.StatusOK, member.Code)
+	require.NoError(t, json.Unmarshal(member.Body.Bytes(), &got))
+	assert.Empty(t, got["infra"], "a member cannot grant itself the bot MCP list")
+
+	local := call(t, proxy, &transport.Identity{Kind: transport.KindLocalToken, Login: "local"}, nil)
+	require.Equal(t, http.StatusOK, local.Code)
+	require.NoError(t, json.Unmarshal(local.Body.Bytes(), &got))
+	assert.Equal(t, "1", got["infra"], "the dev token may edit the bot list")
 }
 
 func TestAgentProxyRefusesANode(t *testing.T) {
@@ -218,26 +247,49 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			// wrote is closed after the first frame is flushed, so the reader below cannot
 			// be racing the handler's first write.
 			wrote := make(chan struct{})
-			// tookRest lets the handler finish. Reading the second frame has to happen
-			// before that: once the handler returns, the upstream server closes the
-			// connection, and on a busy runner the proxy's copy observes that close
-			// ("use of closed network connection") and aborts the client body with
-			// unexpected EOF. The bytes are what this test is proving.
+			// tookRest lets the handler finish. The upstream connection has to stay
+			// open until both frames have been read: httptest's server closes it
+			// when the handler returns, and on a busy runner the proxy's copy
+			// observes that ("use of closed network connection") and aborts the
+			// client body with unexpected EOF. Hijacking keeps the socket ours.
+			// A declared length is one byte longer than the two frames so the
+			// proxy's copy is still blocked while the client reads the second
+			// one; an exact length would let the proxy finish and race the read.
 			tookRest := make(chan struct{})
 			frames := []string{"first\n", "second\n"}
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "application/connect+json")
-				if tc.declareLength {
-					w.Header().Set("Content-Length", strconv.Itoa(len(frames[0])+len(frames[1])))
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				_ = r.Body.Close()
+				conn, bufrw, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Errorf("hijack upstream: %v", err)
+					close(wrote)
+					return
 				}
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(frames[0]))
-				w.(http.Flusher).Flush()
+				defer conn.Close()
+
+				_, _ = io.WriteString(bufrw, "HTTP/1.1 200 OK\r\nContent-Type: application/connect+json\r\n")
+				if tc.declareLength {
+					_, _ = io.WriteString(bufrw, "Content-Length: "+strconv.Itoa(len(frames[0])+len(frames[1])+1)+"\r\n\r\n")
+					_, _ = io.WriteString(bufrw, frames[0])
+				} else {
+					_, _ = io.WriteString(bufrw, "Transfer-Encoding: chunked\r\n\r\n")
+					writeChunk(bufrw, frames[0])
+				}
+				_ = bufrw.Flush()
 				close(wrote)
 				<-release
-				_, _ = w.Write([]byte(frames[1]))
-				w.(http.Flusher).Flush()
+				if tc.declareLength {
+					_, _ = io.WriteString(bufrw, frames[1])
+				} else {
+					writeChunk(bufrw, frames[1])
+				}
+				_ = bufrw.Flush()
 				<-tookRest
+				if !tc.declareLength {
+					_, _ = io.WriteString(bufrw, "0\r\n\r\n")
+					_ = bufrw.Flush()
+				}
 			}))
 			defer upstream.Close()
 			defer close(tookRest)
@@ -292,6 +344,13 @@ func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
 			assert.Equal(t, frames[1], string(rest))
 		})
 	}
+}
+
+func writeChunk(w io.Writer, frame string) {
+	_, _ = io.WriteString(w, strconv.FormatInt(int64(len(frame)), 16))
+	_, _ = io.WriteString(w, "\r\n")
+	_, _ = io.WriteString(w, frame)
+	_, _ = io.WriteString(w, "\r\n")
 }
 
 func TestNewAgentProxyRefusesAnUnparseableURL(t *testing.T) {

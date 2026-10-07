@@ -45,8 +45,12 @@ func (s *AgentService) ListMcpServers(
 		return nil, storeError(err)
 	}
 	users := s.playbooksByMcpServer()
+	mine := mcpPersonalOwner(Login(ctx))
 	out := make([]*agentv1.McpServer, 0, len(rows))
 	for _, row := range rows {
+		if row.Owner != "" && row.Owner != mine {
+			continue
+		}
 		out = append(out, s.mcpServerToProto(ctx, row, users))
 	}
 	return connect.NewResponse(&agentv1.ListMcpServersResponse{
@@ -72,6 +76,11 @@ func (s *AgentService) CreateMcpServer(
 	if err := s.requireMcpStore(); err != nil {
 		return nil, err
 	}
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
+	srv.Owner = owner
 	login := Login(ctx)
 	s.logger.InfoContext(ctx, "registering an mcp server",
 		"request", redactedMcpTokenRequest{name: srv.Name, token: req.Msg.GetToken()}, "login", login)
@@ -87,7 +96,7 @@ func (s *AgentService) CreateMcpServer(
 		return nil, storeError(err)
 	}
 	if token := trimPastedKey(req.Msg.GetToken()); token != "" {
-		if err := s.storeMcpToken(ctx, srv.Name, []byte(token), login); err != nil {
+		if err := s.storeMcpToken(ctx, srv.Owner, srv.Name, []byte(token), login); err != nil {
 			// The row is already in. Rolling it back would be the wrong repair: the
 			// registration is what the operator asked for and it is correct, and a server
 			// with no token is a state the model supports. They are told what failed and
@@ -96,7 +105,7 @@ func (s *AgentService) CreateMcpServer(
 		}
 	}
 	return connect.NewResponse(&agentv1.CreateMcpServerResponse{
-		Server: s.readMcpServer(ctx, srv.Name),
+		Server: s.readMcpServer(ctx, srv.Owner, srv.Name),
 	}), nil
 }
 
@@ -112,6 +121,11 @@ func (s *AgentService) UpdateMcpServer(
 	if err := s.requireMcpStore(); err != nil {
 		return nil, err
 	}
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
+	srv.Owner = owner
 	login := Login(ctx)
 
 	s.writeMu.Lock()
@@ -124,7 +138,7 @@ func (s *AgentService) UpdateMcpServer(
 		"url", srv.URL, "enabled", srv.Enabled, "playbooks", s.playbooksByMcpServer()[srv.Name],
 		"login", login)
 	return connect.NewResponse(&agentv1.UpdateMcpServerResponse{
-		Server: s.readMcpServer(ctx, srv.Name),
+		Server: s.readMcpServer(ctx, srv.Owner, srv.Name),
 	}), nil
 }
 
@@ -149,16 +163,20 @@ func (s *AgentService) DeleteMcpServer(
 	if err := s.requireMcpStore(); err != nil {
 		return nil, err
 	}
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
 	login := Login(ctx)
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
 	users := s.playbooksByMcpServer()
-	if err := s.deleteMcpToken(ctx, name); err != nil {
+	if err := s.deleteMcpToken(ctx, owner, name); err != nil {
 		return nil, err
 	}
-	if err := s.store.DeleteMcpServer(ctx, name); err != nil {
+	if err := s.store.DeleteMcpServerOwned(ctx, owner, name); err != nil {
 		return nil, s.mcpNotFound(err, name)
 	}
 	s.logger.InfoContext(ctx, "an mcp server was deleted", "mcp_server", name,
@@ -192,6 +210,10 @@ func (s *AgentService) SetMcpServerToken(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("the token is empty; use ClearMcpServerToken to remove one"))
 	}
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
 	login := Login(ctx)
 	// Logged through a redacting wrapper. Logging req.Msg directly would print the token:
 	// protobuf's String() does not know what a secret is.
@@ -203,14 +225,14 @@ func (s *AgentService) SetMcpServerToken(
 
 	// Read first so a token is never written for a name nobody registered: the secret would
 	// then be a credential with no row to describe it or delete it.
-	if _, err := s.store.McpServer(ctx, name); err != nil {
+	if _, err := s.store.McpServerOwned(ctx, owner, name); err != nil {
 		return nil, s.mcpNotFound(err, name)
 	}
-	if err := s.storeMcpToken(ctx, name, token, login); err != nil {
+	if err := s.storeMcpToken(ctx, owner, name, token, login); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&agentv1.SetMcpServerTokenResponse{
-		Server: s.readMcpServer(ctx, name),
+		Server: s.readMcpServer(ctx, owner, name),
 	}), nil
 }
 
@@ -228,20 +250,24 @@ func (s *AgentService) ClearMcpServerToken(
 	if err := s.requireMcpStore(); err != nil {
 		return nil, err
 	}
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
 	login := Login(ctx)
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if err := s.deleteMcpToken(ctx, name); err != nil {
+	if err := s.deleteMcpToken(ctx, owner, name); err != nil {
 		return nil, err
 	}
-	if err := s.store.ClearMcpServerTokenMeta(ctx, name, login); err != nil {
+	if err := s.store.ClearMcpServerTokenMeta(ctx, owner, name, login); err != nil {
 		return nil, s.mcpNotFound(err, name)
 	}
 	s.logger.InfoContext(ctx, "an mcp server token was removed", "mcp_server", name, "login", login)
 	return connect.NewResponse(&agentv1.ClearMcpServerTokenResponse{
-		Server: s.readMcpServer(ctx, name),
+		Server: s.readMcpServer(ctx, owner, name),
 	}), nil
 }
 
@@ -267,7 +293,11 @@ func (s *AgentService) StartMcpOAuth(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	row, err := s.store.McpServer(ctx, name)
+	owner, err := mcpWriteOwner(ctx, req.Msg.GetForBot())
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.store.McpServerOwned(ctx, owner, name)
 	if err != nil {
 		return nil, s.mcpNotFound(err, name)
 	}
@@ -308,6 +338,7 @@ func (s *AgentService) StartMcpOAuth(
 	}
 	f := &mcpFlow{
 		name:          name,
+		owner:         owner,
 		issuer:        as.meta.Issuer,
 		tokenEndpoint: as.meta.TokenEndpoint,
 		clientID:      reg.ClientID,
@@ -399,7 +430,7 @@ func (s *AgentService) CompleteMcpOAuth(
 	o := mcpOAuthOf(f, tok)
 	token := []byte(tok.AccessToken)
 	defer zero(token)
-	version, err := s.secrets.SetSecret(ctx, mcp.TokenSecret(f.name), token)
+	version, err := s.secrets.SetSecret(ctx, mcp.CredentialSecret(mcp.Server{Owner: f.owner, Name: f.name}), token)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("the sign-in worked but storing its token failed: %w", err))
@@ -407,7 +438,7 @@ func (s *AgentService) CompleteMcpOAuth(
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.store.SetMcpServerOAuth(ctx, f.name, login, version, o, tok.AccessToken); err != nil {
+	if err := s.store.SetMcpServerOAuth(ctx, f.owner, f.name, login, version, o, tok.AccessToken); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server was signed in to", "mcp_server", f.name,
@@ -416,7 +447,7 @@ func (s *AgentService) CompleteMcpOAuth(
 		"secret_version", version, "login", login)
 
 	return connect.NewResponse(&agentv1.CompleteMcpOAuthResponse{
-		Server: s.readMcpServer(ctx, f.name),
+		Server: s.readMcpServer(ctx, f.owner, f.name),
 	}), nil
 }
 
@@ -467,7 +498,7 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 		}
 
 		token := []byte(tok.AccessToken)
-		version, err := s.secrets.SetSecret(ctx, mcp.TokenSecret(row.Name), token)
+		version, err := s.secrets.SetSecret(ctx, mcp.CredentialSecret(row), token)
 		if err != nil {
 			s.logger.ErrorContext(ctx, "an mcp token was refreshed but could not be stored; "+
 				"turns will keep using the previous one until it expires",
@@ -475,7 +506,7 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 			zero(token)
 			continue
 		}
-		if err := s.store.RefreshMcpServerOAuth(ctx, row.Name, version, next, tok.AccessToken); err != nil {
+		if err := s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, version, next, tok.AccessToken); err != nil {
 			s.logger.ErrorContext(ctx, "an mcp token was refreshed and stored but the row "+
 				"could not be updated; the next refresh will use the previous refresh token",
 				"mcp_server", row.Name, "error", err)
@@ -490,26 +521,27 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 // storeMcpToken writes the secret and then the metadata that describes it, in that order:
 // a row claiming a token the control plane does not hold is the one state an operator
 // cannot diagnose, because the UI would say "connected" and every turn would disagree.
-func (s *AgentService) storeMcpToken(ctx context.Context, name string, token []byte, login string) error {
-	version, err := s.secrets.SetSecret(ctx, mcp.TokenSecret(name), token)
+func (s *AgentService) storeMcpToken(ctx context.Context, owner, name string, token []byte, login string) error {
+	secretName := mcp.CredentialSecret(mcp.Server{Owner: owner, Name: name})
+	version, err := s.secrets.SetSecret(ctx, secretName, token)
 	if err != nil {
 		// Verbatim: the control plane's own words are what an operator needs here — a
 		// missing master key reads very differently from a network failure.
 		return connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("the MCP server is registered but storing its token failed: %w", err))
 	}
-	if err := s.store.SetMcpServerTokenMeta(ctx, name, keyHint(token), login, version, string(token)); err != nil {
+	if err := s.store.SetMcpServerTokenMeta(ctx, owner, name, keyHint(token), login, version, string(token)); err != nil {
 		return storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server token was stored", "mcp_server", name,
-		"secret", mcp.TokenSecret(name), "secret_version", version, "login", login)
+		"secret", secretName, "secret_version", version, "login", login)
 	return nil
 }
 
 // deleteMcpToken removes the secret. NotFound is success — the goal state is that the
 // control plane does not hold it.
-func (s *AgentService) deleteMcpToken(ctx context.Context, name string) error {
-	err := s.secrets.DeleteSecret(ctx, mcp.TokenSecret(name))
+func (s *AgentService) deleteMcpToken(ctx context.Context, owner, name string) error {
+	err := s.secrets.DeleteSecret(ctx, mcp.CredentialSecret(mcp.Server{Owner: owner, Name: name}))
 	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 		return connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("removing the MCP server's token failed: %w", err))
@@ -520,8 +552,8 @@ func (s *AgentService) deleteMcpToken(ctx context.Context, name string) error {
 // readMcpServer is the row as the API reports it, after a write. A read that fails after a
 // successful write is not the write failing: the caller is answered with what it asked for
 // and the fresher copy is the next listing's job.
-func (s *AgentService) readMcpServer(ctx context.Context, name string) *agentv1.McpServer {
-	row, err := s.store.McpServer(ctx, name)
+func (s *AgentService) readMcpServer(ctx context.Context, owner, name string) *agentv1.McpServer {
+	row, err := s.store.McpServerOwned(ctx, owner, name)
 	if err != nil {
 		s.logger.WarnContext(ctx, "reading an mcp server back after a write failed",
 			"mcp_server", name, "error", err)
@@ -540,6 +572,35 @@ func (s *AgentService) requireMcpStore() error {
 			errors.New("this conductor has no Podium API client, so it cannot store a token"))
 	}
 	return nil
+}
+
+// mcpPersonalOwner is the login whose servers a list may include, or empty when the caller
+// is not a signed-in person. The dev token, the conductor, and "unknown" see the bot list only.
+func mcpPersonalOwner(login string) string {
+	switch login {
+	case "", "unknown", "local", "agent":
+		return ""
+	default:
+		return login
+	}
+}
+
+// mcpWriteOwner is which registry a mutation touches. A signed-in person writes their own
+// server unless they ask for the bot list, and only an admin or the dev token may do that.
+// A caller who is not a person keeps the bot list, which is what the existing registry was.
+func mcpWriteOwner(ctx context.Context, forBot bool) (string, error) {
+	login := Login(ctx)
+	if mcpPersonalOwner(login) == "" {
+		return "", nil
+	}
+	if forBot {
+		if !Infra(ctx) {
+			return "", connect.NewError(connect.CodePermissionDenied,
+				errors.New("only an admin can edit the bot's MCP servers"))
+		}
+		return "", nil
+	}
+	return login, nil
 }
 
 // mcpNotFound turns a store miss into the answer an operator needs.
@@ -607,8 +668,9 @@ func (s *AgentService) mcpServerToProto(
 		Playbooks:   users[row.Name],
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
+		Owner:       row.Owner,
 		TokenEnv:    mcp.TokenEnv(row.Name),
-		TokenSecret: mcp.TokenSecret(row.Name),
+		TokenSecret: mcp.CredentialSecret(row),
 	}
 	if !row.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(row.UpdatedAt)
@@ -623,7 +685,7 @@ func (s *AgentService) mcpServerToProto(
 			out.ExpiresAt = timestamppb.New(o.ExpiresAt)
 		}
 	}
-	version, verr := s.secretVersion(ctx, mcp.TokenSecret(row.Name))
+	version, verr := s.secretVersion(ctx, mcp.CredentialSecret(row))
 	if verr != nil {
 		// The control plane could not be asked. The row is what is left, and it is reported
 		// as-is rather than as "no token": a listing that silently disowned every credential

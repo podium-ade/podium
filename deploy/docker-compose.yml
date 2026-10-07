@@ -146,6 +146,9 @@ services:
       PODIUM_LOG_CHUNK_GRACE: ${PODIUM_LOG_CHUNK_GRACE:-24h}
       PODIUM_AGENT_URL: ${PODIUM_AGENT_URL-http://agent:8090}   # empty = no Agent screen
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
+      # The conductor's bearer. The default is not PODIUM_LOCAL_TOKEN's default: the server
+      # refuses to start when the two are the same.
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_AGENT_API_TOKEN:-agent}
     volumes:
       # The master key and the tsnet identity, neither recoverable. BACK IT UP:
       #   docker compose cp server:/var/lib/podium/master.key .
@@ -168,7 +171,7 @@ services:
       - server
     environment:
       PODIUM_AGENT_SERVER: http://server:8080
-      PODIUM_AGENT_API_TOKEN: ${PODIUM_LOCAL_TOKEN:-podium}
+      PODIUM_AGENT_API_TOKEN: ${PODIUM_AGENT_API_TOKEN:-agent}
       PODIUM_AGENT_DATABASE_URL: postgres://podium:${PODIUM_PG_PASSWORD:-podium}@postgres:5432/podium_agent
       PODIUM_AGENT_LISTEN: 0.0.0.0:8090   # no ports: the server proxies it, one origin one login
       PODIUM_AGENT_TOKEN: ${PODIUM_AGENT_TOKEN:-podium}
