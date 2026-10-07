@@ -296,7 +296,7 @@ test fails if one is read by the code and missing from that file.
 | env | required | default | meaning |
 |---|---|---|---|
 | `PODIUM_AGENT_SERVER` | yes | — | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the server's `PODIUM_LOCAL_TOKEN`; empty on a tailnet, where WhoIs names the caller |
+| `PODIUM_AGENT_API_TOKEN` | with `http://` | — | the bearer this process presents to the control plane. It must differ from `PODIUM_LOCAL_TOKEN`; the server treats it as the conductor. Empty on a tailnet, where WhoIs names the caller |
 | `PODIUM_AGENT_DATABASE_URL` | yes | — | the conductor's **own** database, `podium_agent` |
 | `PODIUM_AGENT_LISTEN` | no | `127.0.0.1:8090` | its Connect API, health and metrics |
 | `PODIUM_AGENT_TOKEN` | yes | — | the bearer `podium-server` presents on proxied `AgentService` calls |
@@ -1985,20 +1985,22 @@ env:
 - **Two comments per Linear turn.** Progress edits one of them; it is not a running commentary.
 - **The Linear poll interval** is how long an assignment waits before anything happens: up to 30
   seconds by default, and never less than 10.
-- **No per-action RBAC.** Google Workspace sign-in can claim the instance for a domain; it does
-  not change what a Slack mention or a Linear assignment can make the bot do. See below.
+- **The bot is not behind RBAC.** Google Workspace sign-in can claim the instance for a domain
+  and gate the web UI; it does not change what a Slack mention or a Linear assignment can make
+  the bot do. See below.
 
 ---
 
-## No per-action RBAC
+## The bot is not behind RBAC
 
 **Whoever can tag the bot, or assign it a ticket, can run code on a worker with that playbook's
-credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain; it is
-not an allowlist of Slack or Linear users, and it does not add a read-only mode. Keep `secrets:`
-minimal per playbook, and do not put a credential in a playbook that anybody in a public channel can
-reach — but do not mistake that for a boundary around the secret store. `CreateTask` checks only
-that a named secret **exists**, so anyone who can reach the control plane can already mount any
-registered secret into an image and a command of their own. See
+credentials.** Google Workspace sign-in, when configured, claims the web UI for a domain and
+enforces member / admin / owner on KindUser; it is not an allowlist of Slack or Linear users,
+and a member can still submit a task. Keep `secrets:` minimal per playbook, and do not put a
+credential in a playbook that anybody in a public channel can reach — but do not mistake that
+for a boundary around the secret store. `CreateTask` checks only that a named secret **exists**,
+so a member who can reach the control plane can already mount any registered secret into an
+image and a command of their own. See
 [`security.md`](security.md#5-the-conductor-and-the-bot).
 
 The two Slack tokens are as sensitive as `PODIUM_LOCAL_TOKEN`. So are the Linear API key (full
@@ -2195,8 +2197,8 @@ composer therefore offers exactly one choice — which model answers — and no 
 playbook, because there is nothing per message to pick: the turn chooses a playbook for each
 task it delegates, and may choose several while answering once.
 
-- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. There
-  is no RBAC in this track and this is not one — it is a partition, and it is free. Knowing
+- **A chat belongs to the login that created it**, and `ListChats` returns nobody else's. That
+  is a partition, not a role, and it is free. Knowing
   another login's chat id gets you `not_found`, not access. `RenameChat` and `DeleteChat`
   are the same partition: only the owner can change the title or remove a chat, and
   another login's id is `not_found`. The messages go with a delete. Sessions and turns it
@@ -2373,14 +2375,16 @@ PODIUM_MEMORY_LLM_API_KEY=$ANTHROPIC_API_KEY \
   docker compose -f deploy/docker-compose.dev.yml --profile memory up -d --wait hindsight
 
 make build agent-runtime
-# Start podium-server as in docs/quickstart.md, plus the two variables that mount the proxy:
-#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken
+# Start podium-server as in docs/quickstart.md, plus the variables that mount the proxy.
+# PODIUM_AGENT_API_TOKEN is the conductor's bearer and must differ from PODIUM_LOCAL_TOKEN;
+# the server and the conductor both receive that same value.
+#   PODIUM_AGENT_URL=http://127.0.0.1:8090 PODIUM_AGENT_TOKEN=agenttoken PODIUM_AGENT_API_TOKEN=conductortoken
 # then podium-node, then the conductor below, and set the key in the UI at /agent/settings/models.
 # The CLI way, if you would rather not open a browser:
 podium secret set podium.agent.anthropic_api_key            # value on stdin, no validation
 
 PODIUM_AGENT_SERVER=http://127.0.0.1:8080 \
-PODIUM_AGENT_API_TOKEN=devtoken \
+PODIUM_AGENT_API_TOKEN=conductortoken \
 PODIUM_AGENT_DATABASE_URL=postgres://podium:podium@127.0.0.1:5432/podium_agent \
 PODIUM_AGENT_TOKEN=agenttoken \
 PODIUM_AGENT_PROFILE_DIR=examples/agent \

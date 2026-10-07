@@ -119,8 +119,10 @@ var bankNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 type Config struct {
 	// Server is PODIUM_AGENT_SERVER: the Podium API base URL. Required.
 	Server string
-	// APIToken is PODIUM_AGENT_API_TOKEN, the local transport's bearer for the Podium API.
-	// Empty is correct on a tailnet, where WhoIs names the caller.
+	// APIToken is PODIUM_AGENT_API_TOKEN, the bearer this process presents to podium-server.
+	// On the local transport it must differ from PODIUM_LOCAL_TOKEN: the server treats it
+	// as the conductor, not as the dev token. Empty is correct on a tailnet, where WhoIs
+	// names the caller.
 	// SENSITIVE: never log it.
 	APIToken string
 	// DatabaseURL is PODIUM_AGENT_DATABASE_URL: the conductor's own database, podium_agent.

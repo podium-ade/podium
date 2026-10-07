@@ -55,6 +55,7 @@ func (l *Layer) identifySession(ctx context.Context, r *http.Request, tok string
 	if err != nil {
 		return transport.Identity{}, err
 	}
+	_ = l.store.TouchLastSeen(ctx, user.Login)
 	return sessionIdentity(r, user.Login, user.DisplayName), nil
 }
 

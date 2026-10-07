@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/identity.proto.
  */
 export const file_podium_v1_identity: GenFile = /*@__PURE__*/
-  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IsICCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgSDQoFcm9sZXMYCCADKAkSDwoHY2xhaW1lZBgJIAEoCBIVCg1ob3N0ZWRfZG9tYWluGAogASgJEhEKCWNhbl9jbGFpbRgLIAEoCBIbChNnb29nbGVfYXV0aF9lbmFibGVkGAwgASgIEhQKDGNsYWltX2RvbWFpbhgNIAEoCRITCgtwaWN0dXJlX3VybBgOIAEoCSIlCgxDbGFpbVJlcXVlc3QSFQoNaG9zdGVkX2RvbWFpbhgBIAEoCSI6Cg1DbGFpbVJlc3BvbnNlEhUKDWhvc3RlZF9kb21haW4YASABKAkSEgoKY2xhaW1lZF9ieRgCIAEoCSp8CgxJZGVudGl0eUtpbmQSHQoZSURFTlRJVFlfS0lORF9VTlNQRUNJRklFRBAAEhYKEklERU5USVRZX0tJTkRfVVNFUhABEhYKEklERU5USVRZX0tJTkRfTk9ERRACEh0KGUlERU5USVRZX0tJTkRfTE9DQUxfVE9LRU4QAzKMAQoPSWRlbnRpdHlTZXJ2aWNlEj0KBldob0FtSRIYLnBvZGl1bS52MS5XaG9BbUlSZXF1ZXN0GhkucG9kaXVtLnYxLldob0FtSVJlc3BvbnNlEjoKBUNsYWltEhcucG9kaXVtLnYxLkNsYWltUmVxdWVzdBoYLnBvZGl1bS52MS5DbGFpbVJlc3BvbnNlQqMBCg1jb20ucG9kaXVtLnYxQg1JZGVudGl0eVByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z");
+  fileDesc("Chhwb2RpdW0vdjEvaWRlbnRpdHkucHJvdG8SCXBvZGl1bS52MSIPCg1XaG9BbUlSZXF1ZXN0IsICCg5XaG9BbUlSZXNwb25zZRINCgVsb2dpbhgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSJQoEa2luZBgDIAEoDjIXLnBvZGl1bS52MS5JZGVudGl0eUtpbmQSDAoEdGFncxgEIAMoCRIWCg5zZXJ2ZXJfdmVyc2lvbhgFIAEoCRIVCg1zZXJ2ZXJfY29tbWl0GAYgASgJEhUKDWFnZW50X2VuYWJsZWQYByABKAgSDQoFcm9sZXMYCCADKAkSDwoHY2xhaW1lZBgJIAEoCBIVCg1ob3N0ZWRfZG9tYWluGAogASgJEhEKCWNhbl9jbGFpbRgLIAEoCBIbChNnb29nbGVfYXV0aF9lbmFibGVkGAwgASgIEhQKDGNsYWltX2RvbWFpbhgNIAEoCRITCgtwaWN0dXJlX3VybBgOIAEoCSIlCgxDbGFpbVJlcXVlc3QSFQoNaG9zdGVkX2RvbWFpbhgBIAEoCSI6Cg1DbGFpbVJlc3BvbnNlEhUKDWhvc3RlZF9kb21haW4YASABKAkSEgoKY2xhaW1lZF9ieRgCIAEoCSqVAQoMSWRlbnRpdHlLaW5kEh0KGUlERU5USVRZX0tJTkRfVU5TUEVDSUZJRUQQABIWChJJREVOVElUWV9LSU5EX1VTRVIQARIWChJJREVOVElUWV9LSU5EX05PREUQAhIdChlJREVOVElUWV9LSU5EX0xPQ0FMX1RPS0VOEAMSFwoTSURFTlRJVFlfS0lORF9BR0VOVBAEMowBCg9JZGVudGl0eVNlcnZpY2USPQoGV2hvQW1JEhgucG9kaXVtLnYxLldob0FtSVJlcXVlc3QaGS5wb2RpdW0udjEuV2hvQW1JUmVzcG9uc2USOgoFQ2xhaW0SFy5wb2RpdW0udjEuQ2xhaW1SZXF1ZXN0GhgucG9kaXVtLnYxLkNsYWltUmVzcG9uc2VCowEKDWNvbS5wb2RpdW0udjFCDUlkZW50aXR5UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM");
 
 /**
  * @generated from message podium.v1.WhoAmIRequest
@@ -80,8 +80,8 @@ export type WhoAmIResponse = Message<"podium.v1.WhoAmIResponse"> & {
 
   /**
    * roles attached to this login. Empty for a node, the local token, or a user on an
-   * unclaimed instance. After a claim the owner has "owner" and later Workspace sign-ins
-   * have "member".
+   * unclaimed instance. After a claim the owner has "owner", later Workspace sign-ins
+   * have "member", and an owner may promote someone to "admin".
    *
    * @generated from field: repeated string roles = 8;
    */
@@ -214,6 +214,13 @@ export enum IdentityKind {
    * @generated from enum value: IDENTITY_KIND_LOCAL_TOKEN = 3;
    */
   LOCAL_TOKEN = 3,
+
+  /**
+   * The conductor, presenting PODIUM_AGENT_API_TOKEN. It is not the dev token.
+   *
+   * @generated from enum value: IDENTITY_KIND_AGENT = 4;
+   */
+  AGENT = 4,
 }
 
 /**

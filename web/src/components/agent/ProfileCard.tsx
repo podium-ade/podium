@@ -36,6 +36,7 @@ export type ProfileCardProps = {
   agents: AgentBackend[];
   loading?: boolean;
   saving?: boolean;
+  readOnly?: boolean;
   onSave: (fields: ProfileFields) => void;
 };
 
@@ -49,7 +50,7 @@ export type ProfileCardProps = {
  * what the file says". That is why each row shows the file's value beside the input — an
  * operator has to be able to see what they are overriding, and get back to it in one click.
  */
-export function ProfileCard({ profile, agents, loading, saving, onSave }: ProfileCardProps) {
+export function ProfileCard({ profile, agents, loading, saving, readOnly, onSave }: ProfileCardProps) {
   const overridden = new Set(profile?.overridden ?? []);
   const held = (key: string, effective: string) => (overridden.has(key) ? effective : "");
 
@@ -154,6 +155,7 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder={profile?.fileDisplayName || "the file's value"}
               className="h-8 max-w-sm text-xs"
+              disabled={readOnly}
             />
           </Field>
 
@@ -211,12 +213,14 @@ export function ProfileCard({ profile, agents, loading, saving, onSave }: Profil
           </Field>
         </CardContent>
 
+        {readOnly ? null : (
         <CardFooter>
           <Button type="submit" size="sm" disabled={saving}>
             {saving ? "Saving…" : "Save profile"}
           </Button>
           <span className="text-xs text-muted">It applies to the next turn.</span>
         </CardFooter>
+        )}
       </Card>
     </form>
   );

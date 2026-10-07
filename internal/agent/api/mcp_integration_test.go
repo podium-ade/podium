@@ -486,7 +486,7 @@ func TestTheBackgroundPassRefreshesASignInAndKeepsTheRotatedToken(t *testing.T) 
 	require.NoError(t, err)
 	o := *row.OAuth
 	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
-	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "linear", row.TokenSecretVersion, o, row.Token))
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o, row.Token))
 
 	fx.svc.refreshMcpOnce(t.Context())
 	assert.Equal(t, []byte("mcp-access-refresh_token"), fx.secrets.set[mcp.TokenSecret("linear")])
@@ -524,7 +524,7 @@ func TestAFailedRefreshKeepsTheStoredToken(t *testing.T) {
 	require.NoError(t, err)
 	o := *row.OAuth
 	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
-	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "linear", row.TokenSecretVersion, o, row.Token))
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o, row.Token))
 
 	f.tokenErr = "invalid_grant"
 	fx.svc.refreshMcpOnce(t.Context())

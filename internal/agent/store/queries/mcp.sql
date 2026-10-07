@@ -1,23 +1,25 @@
 -- name: ListMcpServers :many
 select name, url, description, enabled, config, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
+       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
+       owner
 from mcp_servers
-order by name;
+order by owner, name;
 
 -- name: GetMcpServer :one
 select name, url, description, enabled, config, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at
+       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
+       owner
 from mcp_servers
-where name = @name;
+where owner = @owner and name = @name;
 
 -- Insert and update are separate statements rather than one upsert, exactly as the playbook
 -- and skill queries are: the row count says whether the name was already taken, and whether
 -- it was there to replace, without a read before the write.
 
 -- name: InsertMcpServer :execrows
-insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at)
-values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at)
-on conflict (name) do nothing;
+insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at, owner)
+values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at, @owner)
+on conflict (owner, name) do nothing;
 
 -- name: UpdateMcpServer :execrows
 -- The token columns are not in the set list: an edit to a server's address or description
@@ -29,7 +31,7 @@ set url = @url,
     config = @config,
     updated_by = @updated_by,
     updated_at = @updated_at
-where name = @name;
+where owner = @owner and name = @name;
 
 -- name: SetMcpServerTokenMeta :execrows
 -- Also clears any OAuth state: a pasted token replaces a sign-in, and leaving the refresh
@@ -44,7 +46,7 @@ set token_hint = @token_hint,
     token = @token,
     updated_by = @token_set_by,
     updated_at = @token_set_at
-where name = @name;
+where owner = @owner and name = @name;
 
 -- name: SetMcpServerOAuth :execrows
 -- The other way in: a sign-in. token_hint stays empty — an access token is not a thing to
@@ -59,7 +61,7 @@ set token_hint = '',
     token = @token,
     updated_by = @token_set_by,
     updated_at = @token_set_at
-where name = @name;
+where owner = @owner and name = @name;
 
 -- name: RefreshMcpServerOAuth :execrows
 -- The background pass, which is not a human: it moves the token and the expiry and touches
@@ -68,7 +70,7 @@ update mcp_servers
 set token_secret_version = @token_secret_version,
     oauth = @oauth,
     token = @token
-where name = @name;
+where owner = @owner and name = @name;
 
 -- name: ClearMcpServerTokenMeta :execrows
 -- The refresh token goes too, and that is what actually signs out: leaving it would let the
@@ -83,7 +85,7 @@ set token_hint = '',
     token = '',
     updated_by = @updated_by,
     updated_at = @updated_at
-where name = @name;
+where owner = @owner and name = @name;
 
 -- name: DeleteMcpServer :execrows
-delete from mcp_servers where name = @name;
+delete from mcp_servers where owner = @owner and name = @name;

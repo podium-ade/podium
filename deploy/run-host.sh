@@ -192,12 +192,20 @@ fi
 : "${PODIUM_AGENT_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_SERVER:=$PODIUM_SERVER}"
 : "${PODIUM_NODE_TRANSPORT:=$PODIUM_TRANSPORT}"
-# The local transport has one token and three processes that need it, which is why
-# docker-compose.yml fans PODIUM_LOCAL_TOKEN out into these two. Doing it here as well
-# keeps the host-binary path configured by the same one line of .env. Under tailnet
-# there is no shared token and both land empty, which is what that transport wants.
+# Nodes present the dev token. The conductor does not: PODIUM_AGENT_API_TOKEN is its
+# own principal, and copying PODIUM_LOCAL_TOKEN into it would make the two indistinguishable.
+# Under tailnet there is no shared token and both stay empty, which is what WhoIs wants.
 : "${PODIUM_NODE_LOCAL_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
-: "${PODIUM_AGENT_API_TOKEN:=${PODIUM_LOCAL_TOKEN:-}}"
+if [ "${PODIUM_TRANSPORT:-local}" = local ] && [ -n "${PODIUM_AGENT_URL:-}" ]; then
+	if [ -z "${PODIUM_AGENT_API_TOKEN:-}" ]; then
+		echo "PODIUM_AGENT_API_TOKEN is required when PODIUM_AGENT_URL is set: the conductor does not present PODIUM_LOCAL_TOKEN" >&2
+		exit 1
+	fi
+	if [ "$PODIUM_AGENT_API_TOKEN" = "$PODIUM_LOCAL_TOKEN" ]; then
+		echo "PODIUM_AGENT_API_TOKEN must differ from PODIUM_LOCAL_TOKEN" >&2
+		exit 1
+	fi
+fi
 export PODIUM_TRANSPORT PODIUM_MASTER_KEY_FILE PODIUM_DATABASE_URL PODIUM_AGENT_DATABASE_URL \
 	PODIUM_S3_ENDPOINT PODIUM_S3_BUCKET PODIUM_S3_ACCESS_KEY PODIUM_S3_USE_SSL \
 	PODIUM_AGENT_URL PODIUM_AGENT_PROFILE_DIR PODIUM_AGENT_SKILLS_DIR \

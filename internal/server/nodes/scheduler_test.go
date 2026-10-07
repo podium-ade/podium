@@ -820,11 +820,15 @@ func TestDeleteNodeRefusesANodeWithRunningTasks(t *testing.T) {
 func TestAnUnsatisfiableTaskFailsOnAnEmptyCluster(t *testing.T) {
 	h := newHarness(t)
 
-	created := h.createSpec(&podiumv1.TaskSpec{
-		Image:   "alpine:3",
-		Command: []string{"true"},
-		Secrets: []*podiumv1.SecretRef{{Name: "NOWHERE", Target: "env", Key: "NOWHERE"}},
-	})
+	res, err := h.agentTasks().CreateTask(context.Background(), connect.NewRequest(&podiumv1.CreateTaskRequest{
+		Spec: &podiumv1.TaskSpec{
+			Image:   "alpine:3",
+			Command: []string{"true"},
+			Secrets: []*podiumv1.SecretRef{{Name: "NOWHERE", Target: "env", Key: "NOWHERE"}},
+		},
+	}))
+	require.NoError(t, err)
+	created := res.Msg.GetTask()
 	assert.Equal(t, podiumv1.TaskStatus_TASK_STATUS_FAILED, created.GetStatus(),
 		"the response already says it failed; there is no node to wait for")
 	assert.Contains(t, created.GetFailureReason(), "NOWHERE")

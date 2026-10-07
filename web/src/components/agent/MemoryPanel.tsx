@@ -24,6 +24,8 @@ import {
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 /** How long the search box waits before asking. */
 const DEBOUNCE_MS = 300;
@@ -68,6 +70,8 @@ async function readMemoryScreen(): Promise<MemoryScreen> {
  * the provenance chips and the forget button are the point of the screen.
  */
 export function MemoryPanel() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const toast = useToast();
   const qc = useQueryClient();
   const [typed, setTyped] = useState("");
@@ -235,7 +239,7 @@ export function MemoryPanel() {
           <MemoryCard
             key={m.id}
             memory={m}
-            onForget={() => forget.mutate(m.id)}
+            onForget={manage ? () => forget.mutate(m.id) : undefined}
             forgetting={forget.isPending && forget.variables === m.id}
           />
         ))}
@@ -284,7 +288,7 @@ function MemoryCard({
   forgetting,
 }: {
   memory: Memory;
-  onForget: () => void;
+  onForget?: () => void;
   forgetting: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -305,6 +309,7 @@ function MemoryCard({
         <p className="min-w-0 flex-1 text-sm leading-relaxed break-words whitespace-pre-wrap text-fg">
           {memory.text}
         </p>
+        {onForget ? (
         <Tooltip label="Forget this memory">
           <Button
             type="button"
@@ -318,6 +323,7 @@ function MemoryCard({
             <Trash2 />
           </Button>
         </Tooltip>
+        ) : null}
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

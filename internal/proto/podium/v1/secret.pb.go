@@ -24,6 +24,57 @@ const (
 
 // Secret is the metadata of a stored secret. It never carries the value or the
 // ciphertext.
+// SecretScope says whether a secret is shared by the conductor or owned by one login.
+// Unspecified is global, so a caller from before scopes existed still writes a global secret.
+type SecretScope int32
+
+const (
+	SecretScope_SECRET_SCOPE_UNSPECIFIED SecretScope = 0
+	SecretScope_SECRET_SCOPE_GLOBAL      SecretScope = 1
+	SecretScope_SECRET_SCOPE_PERSONAL    SecretScope = 2
+)
+
+// Enum value maps for SecretScope.
+var (
+	SecretScope_name = map[int32]string{
+		0: "SECRET_SCOPE_UNSPECIFIED",
+		1: "SECRET_SCOPE_GLOBAL",
+		2: "SECRET_SCOPE_PERSONAL",
+	}
+	SecretScope_value = map[string]int32{
+		"SECRET_SCOPE_UNSPECIFIED": 0,
+		"SECRET_SCOPE_GLOBAL":      1,
+		"SECRET_SCOPE_PERSONAL":    2,
+	}
+)
+
+func (x SecretScope) Enum() *SecretScope {
+	p := new(SecretScope)
+	*p = x
+	return p
+}
+
+func (x SecretScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SecretScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_podium_v1_secret_proto_enumTypes[0].Descriptor()
+}
+
+func (SecretScope) Type() protoreflect.EnumType {
+	return &file_podium_v1_secret_proto_enumTypes[0]
+}
+
+func (x SecretScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SecretScope.Descriptor instead.
+func (SecretScope) EnumDescriptor() ([]byte, []int) {
+	return file_podium_v1_secret_proto_rawDescGZIP(), []int{0}
+}
+
 type Secret struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -31,9 +82,13 @@ type Secret struct {
 	Version int32 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	// key_id identifies the master key the value is encrypted under, so a half-finished
 	// rotation is visible.
-	KeyId         string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	CreatedBy     string                 `protobuf:"bytes,4,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	KeyId     string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	CreatedBy string                 `protobuf:"bytes,4,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// scope is global or personal. A list never includes another login's personal row.
+	Scope SecretScope `protobuf:"varint,6,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
+	// owner is the login of a personal secret, and empty for a global one.
+	Owner         string `protobuf:"bytes,7,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -103,11 +158,28 @@ func (x *Secret) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Secret) GetScope() SecretScope {
+	if x != nil {
+		return x.Scope
+	}
+	return SecretScope_SECRET_SCOPE_UNSPECIFIED
+}
+
+func (x *Secret) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
 type SetSecretRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// SENSITIVE: never log. Bytes rather than a string: a secret is not necessarily text.
-	Value         []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	// scope defaults to global when unspecified. A personal secret's owner is the caller;
+	// the request cannot name somebody else.
+	Scope         SecretScope `protobuf:"varint,3,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -154,6 +226,13 @@ func (x *SetSecretRequest) GetValue() []byte {
 		return x.Value
 	}
 	return nil
+}
+
+func (x *SetSecretRequest) GetScope() SecretScope {
+	if x != nil {
+		return x.Scope
+	}
+	return SecretScope_SECRET_SCOPE_UNSPECIFIED
 }
 
 type SetSecretResponse struct {
@@ -281,8 +360,10 @@ func (x *ListSecretsResponse) GetSecrets() []*Secret {
 }
 
 type DeleteSecretRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// scope defaults to global when unspecified.
+	Scope         SecretScope `protobuf:"varint,2,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -322,6 +403,13 @@ func (x *DeleteSecretRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *DeleteSecretRequest) GetScope() SecretScope {
+	if x != nil {
+		return x.Scope
+	}
+	return SecretScope_SECRET_SCOPE_UNSPECIFIED
 }
 
 type DeleteSecretResponse struct {
@@ -364,7 +452,7 @@ var File_podium_v1_secret_proto protoreflect.FileDescriptor
 
 const file_podium_v1_secret_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/secret.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa7\x01\n" +
+	"\x16podium/v1/secret.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xeb\x01\n" +
 	"\x06Secret\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x05R\aversion\x12\x15\n" +
@@ -372,18 +460,26 @@ const file_podium_v1_secret_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\x04 \x01(\tR\tcreatedBy\x129\n" +
 	"\n" +
-	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"<\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12,\n" +
+	"\x05scope\x18\x06 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\x12\x14\n" +
+	"\x05owner\x18\a \x01(\tR\x05owner\"j\n" +
 	"\x10SetSecretRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\">\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\x12,\n" +
+	"\x05scope\x18\x03 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\">\n" +
 	"\x11SetSecretResponse\x12)\n" +
 	"\x06secret\x18\x01 \x01(\v2\x11.podium.v1.SecretR\x06secret\"\x14\n" +
 	"\x12ListSecretsRequest\"B\n" +
 	"\x13ListSecretsResponse\x12+\n" +
-	"\asecrets\x18\x01 \x03(\v2\x11.podium.v1.SecretR\asecrets\")\n" +
+	"\asecrets\x18\x01 \x03(\v2\x11.podium.v1.SecretR\asecrets\"W\n" +
 	"\x13DeleteSecretRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x16\n" +
-	"\x14DeleteSecretResponse2\xf6\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12,\n" +
+	"\x05scope\x18\x02 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\"\x16\n" +
+	"\x14DeleteSecretResponse*_\n" +
+	"\vSecretScope\x12\x1c\n" +
+	"\x18SECRET_SCOPE_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13SECRET_SCOPE_GLOBAL\x10\x01\x12\x19\n" +
+	"\x15SECRET_SCOPE_PERSONAL\x10\x022\xf6\x01\n" +
 	"\rSecretService\x12F\n" +
 	"\tSetSecret\x12\x1b.podium.v1.SetSecretRequest\x1a\x1c.podium.v1.SetSecretResponse\x12L\n" +
 	"\vListSecrets\x12\x1d.podium.v1.ListSecretsRequest\x1a\x1e.podium.v1.ListSecretsResponse\x12O\n" +
@@ -403,32 +499,37 @@ func file_podium_v1_secret_proto_rawDescGZIP() []byte {
 	return file_podium_v1_secret_proto_rawDescData
 }
 
+var file_podium_v1_secret_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_podium_v1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_podium_v1_secret_proto_goTypes = []any{
-	(*Secret)(nil),                // 0: podium.v1.Secret
-	(*SetSecretRequest)(nil),      // 1: podium.v1.SetSecretRequest
-	(*SetSecretResponse)(nil),     // 2: podium.v1.SetSecretResponse
-	(*ListSecretsRequest)(nil),    // 3: podium.v1.ListSecretsRequest
-	(*ListSecretsResponse)(nil),   // 4: podium.v1.ListSecretsResponse
-	(*DeleteSecretRequest)(nil),   // 5: podium.v1.DeleteSecretRequest
-	(*DeleteSecretResponse)(nil),  // 6: podium.v1.DeleteSecretResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(SecretScope)(0),              // 0: podium.v1.SecretScope
+	(*Secret)(nil),                // 1: podium.v1.Secret
+	(*SetSecretRequest)(nil),      // 2: podium.v1.SetSecretRequest
+	(*SetSecretResponse)(nil),     // 3: podium.v1.SetSecretResponse
+	(*ListSecretsRequest)(nil),    // 4: podium.v1.ListSecretsRequest
+	(*ListSecretsResponse)(nil),   // 5: podium.v1.ListSecretsResponse
+	(*DeleteSecretRequest)(nil),   // 6: podium.v1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),  // 7: podium.v1.DeleteSecretResponse
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_podium_v1_secret_proto_depIdxs = []int32{
-	7, // 0: podium.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 1: podium.v1.SetSecretResponse.secret:type_name -> podium.v1.Secret
-	0, // 2: podium.v1.ListSecretsResponse.secrets:type_name -> podium.v1.Secret
-	1, // 3: podium.v1.SecretService.SetSecret:input_type -> podium.v1.SetSecretRequest
-	3, // 4: podium.v1.SecretService.ListSecrets:input_type -> podium.v1.ListSecretsRequest
-	5, // 5: podium.v1.SecretService.DeleteSecret:input_type -> podium.v1.DeleteSecretRequest
-	2, // 6: podium.v1.SecretService.SetSecret:output_type -> podium.v1.SetSecretResponse
-	4, // 7: podium.v1.SecretService.ListSecrets:output_type -> podium.v1.ListSecretsResponse
-	6, // 8: podium.v1.SecretService.DeleteSecret:output_type -> podium.v1.DeleteSecretResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	8, // 0: podium.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 1: podium.v1.Secret.scope:type_name -> podium.v1.SecretScope
+	0, // 2: podium.v1.SetSecretRequest.scope:type_name -> podium.v1.SecretScope
+	1, // 3: podium.v1.SetSecretResponse.secret:type_name -> podium.v1.Secret
+	1, // 4: podium.v1.ListSecretsResponse.secrets:type_name -> podium.v1.Secret
+	0, // 5: podium.v1.DeleteSecretRequest.scope:type_name -> podium.v1.SecretScope
+	2, // 6: podium.v1.SecretService.SetSecret:input_type -> podium.v1.SetSecretRequest
+	4, // 7: podium.v1.SecretService.ListSecrets:input_type -> podium.v1.ListSecretsRequest
+	6, // 8: podium.v1.SecretService.DeleteSecret:input_type -> podium.v1.DeleteSecretRequest
+	3, // 9: podium.v1.SecretService.SetSecret:output_type -> podium.v1.SetSecretResponse
+	5, // 10: podium.v1.SecretService.ListSecrets:output_type -> podium.v1.ListSecretsResponse
+	7, // 11: podium.v1.SecretService.DeleteSecret:output_type -> podium.v1.DeleteSecretResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_secret_proto_init() }
@@ -441,13 +542,14 @@ func file_podium_v1_secret_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_secret_proto_rawDesc), len(file_podium_v1_secret_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_podium_v1_secret_proto_goTypes,
 		DependencyIndexes: file_podium_v1_secret_proto_depIdxs,
+		EnumInfos:         file_podium_v1_secret_proto_enumTypes,
 		MessageInfos:      file_podium_v1_secret_proto_msgTypes,
 	}.Build()
 	File_podium_v1_secret_proto = out.File

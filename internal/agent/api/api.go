@@ -36,11 +36,16 @@ const LoginHeader = "X-Podium-Login"
 const (
 	ScopeHeader = "X-Podium-Scope"
 	ScopeAll    = "all"
+	// InfraHeader is set by podium-server when the caller may edit the Slack bot's MCP
+	// list: the dev token, or a signed-in admin or owner. A member does not get it.
+	InfraHeader = "X-Podium-Infra"
 )
 
 type loginKey struct{}
 
 type scopeKey struct{}
+
+type infraKey struct{}
 
 // RequireBearer refuses everything that does not present the conductor's token, and puts
 // the proxied login in the request context. The comparison is constant time: the token is
@@ -62,6 +67,9 @@ func RequireBearer(token string, next http.Handler) http.Handler {
 		if strings.TrimSpace(r.Header.Get(ScopeHeader)) == ScopeAll {
 			ctx = context.WithValue(ctx, scopeKey{}, ScopeAll)
 		}
+		if strings.TrimSpace(r.Header.Get(InfraHeader)) == "1" {
+			ctx = context.WithValue(ctx, infraKey{}, true)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -71,6 +79,13 @@ func RequireBearer(token string, next http.Handler) http.Handler {
 func SeesAll(ctx context.Context) bool {
 	v, _ := ctx.Value(scopeKey{}).(string)
 	return v == ScopeAll
+}
+
+// Infra reports whether this caller may edit the Slack bot's MCP list. The proxy sets the
+// header for the dev token and for an admin or owner. A member's request does not.
+func Infra(ctx context.Context) bool {
+	v, _ := ctx.Value(infraKey{}).(bool)
+	return v || SeesAll(ctx)
 }
 
 // Login is the operator the server says is calling, or "unknown" when a handler was

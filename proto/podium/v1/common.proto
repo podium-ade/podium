@@ -80,6 +80,9 @@ message SecretRef {
   // key is the environment variable name for target "env", or the absolute path the
   // value is mounted at for target "file".
   string key = 3;
+  // owner is the login of a personal secret. Empty means the secret is global, which is
+  // how a task stored before this field existed still resolves.
+  string owner = 4;
 }
 
 // Resources caps one container. The node applies the limits blindly; refusing a task that

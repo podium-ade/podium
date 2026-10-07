@@ -25,7 +25,14 @@ type Options struct {
 	// AllowNonLoopback says otherwise.
 	Listen string
 	// Token is the shared secret callers present as `Authorization: Bearer <token>`.
+	// It is PODIUM_LOCAL_TOKEN: the CLI, the web UI, and every node.
 	Token string
+	// AgentToken is PODIUM_AGENT_API_TOKEN. When set, a bearer that matches it is the
+	// conductor (KindAgent) rather than the dev token. It must differ from Token. Empty
+	// leaves the conductor unidentified, which is the tailnet path and any server that
+	// has no conductor.
+	// SENSITIVE: never log it. It is held only so Identify can compare it.
+	AgentToken string
 	// AllowNonLoopback lets Listen bind an address that is not loopback. It exists for a
 	// container, where loopback is the container's own and the published port is the real
 	// boundary; nothing in this process can tell that case from a routable interface on a
@@ -37,8 +44,9 @@ type Options struct {
 
 // Listener is the local transport's transport.Listener.
 type Listener struct {
-	addr  string
-	token string
+	addr       string
+	token      string
+	agentToken string
 }
 
 // New validates the options and returns the listener. It fails rather than binding a
@@ -55,7 +63,10 @@ func New(opts Options) (*Listener, error) {
 	if opts.Token == "" {
 		return nil, errors.New("local transport: PODIUM_LOCAL_TOKEN is required")
 	}
-	return &Listener{addr: addr, token: opts.Token}, nil
+	if opts.AgentToken != "" && subtle.ConstantTimeCompare([]byte(opts.AgentToken), []byte(opts.Token)) == 1 {
+		return nil, errors.New("local transport: PODIUM_AGENT_API_TOKEN must differ from PODIUM_LOCAL_TOKEN")
+	}
+	return &Listener{addr: addr, token: opts.Token, agentToken: opts.AgentToken}, nil
 }
 
 // UnsafeListenVar is the environment variable that waives the loopback rule. It is named
@@ -118,9 +129,11 @@ func (l *Listener) Listen(ctx context.Context) (net.Listener, error) {
 // Addr is the configured listen address, which is not the bound one when the port is 0.
 func (l *Listener) Addr() string { return l.addr }
 
-// Identify accepts `Authorization: Bearer <PODIUM_LOCAL_TOKEN>` and nothing else. Operators and
-// nodes present the same token in dev; a node's Identity becomes transport.KindNode only after
-// Hello proves possession of its node key.
+// Identify accepts two bearers and nothing else. PODIUM_LOCAL_TOKEN is the dev token
+// (KindLocalToken): the CLI, the web UI, and every node, until Hello promotes a node to
+// KindNode. PODIUM_AGENT_API_TOKEN, when configured, is the conductor (KindAgent). The
+// two values are refused at startup when they are the same, so a presented bearer names
+// exactly one of them.
 func (l *Listener) Identify(r *http.Request) (transport.Identity, error) {
 	const prefix = "Bearer "
 	h := r.Header.Get("Authorization")
@@ -128,6 +141,13 @@ func (l *Listener) Identify(r *http.Request) (transport.Identity, error) {
 		return transport.Identity{}, fmt.Errorf("local transport: missing bearer token: %w", transport.ErrUnauthenticated)
 	}
 	presented := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+	if l.agentToken != "" && subtle.ConstantTimeCompare([]byte(presented), []byte(l.agentToken)) == 1 {
+		return transport.Identity{
+			Kind:       transport.KindAgent,
+			Login:      "agent",
+			RemoteAddr: r.RemoteAddr,
+		}, nil
+	}
 	if subtle.ConstantTimeCompare([]byte(presented), []byte(l.token)) != 1 {
 		return transport.Identity{}, fmt.Errorf("local transport: wrong bearer token: %w", transport.ErrUnauthenticated)
 	}

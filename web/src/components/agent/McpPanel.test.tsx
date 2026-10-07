@@ -4,6 +4,8 @@ import { MemoryRouter } from "react-router";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { IdentityKind } from "../../gen/podium/v1/identity_pb";
+import { ViewerContext, type Viewer } from "../../lib/identity";
 import { ToastHost } from "../Toast";
 import { McpPanel } from "./McpPanel";
 
@@ -65,16 +67,35 @@ Object.defineProperty(window, "location", {
   configurable: true,
 });
 
-function mount() {
+function person(role: string): Viewer {
+  return {
+    login: "ada@acme.com",
+    displayName: "Ada",
+    kind: IdentityKind.USER,
+    agentEnabled: true,
+    serverVersion: "test",
+    roles: [role],
+    claimed: true,
+    hostedDomain: "acme.com",
+    canClaim: false,
+    googleAuthEnabled: true,
+    claimDomain: "acme.com",
+    pictureUrl: "",
+  };
+}
+
+function mount(viewer?: Viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}>
-      <ToastHost>
-        <MemoryRouter>
-          <McpPanel />
-        </MemoryRouter>
-      </ToastHost>
-    </QueryClientProvider>,
+    <ViewerContext.Provider value={viewer}>
+      <QueryClientProvider client={qc}>
+        <ToastHost>
+          <MemoryRouter>
+            <McpPanel />
+          </MemoryRouter>
+        </ToastHost>
+      </QueryClientProvider>
+    </ViewerContext.Provider>,
   );
 }
 
@@ -306,7 +327,11 @@ describe("McpPanel", () => {
     await userEvent.type(screen.getByLabelText("Token"), "lin_api_secret");
     await userEvent.click(screen.getByTestId("mcp-token-save"));
     await waitFor(() =>
-      expect(setMcpServerToken).toHaveBeenCalledWith({ name: "linear", token: "lin_api_secret" }),
+      expect(setMcpServerToken).toHaveBeenCalledWith({
+        name: "linear",
+        token: "lin_api_secret",
+        forBot: true,
+      }),
     );
   });
 
@@ -332,6 +357,7 @@ describe("McpPanel", () => {
       expect(startMcpOAuth).toHaveBeenCalledWith({
         name: "linear",
         redirectUri: "https://podium.example.ts.net/agent/mcp/callback",
+        forBot: true,
       }),
     );
     await waitFor(() =>
@@ -400,6 +426,42 @@ describe("McpPanel", () => {
     expect(deleteMcpServer).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByTestId("mcp-delete-confirm"));
-    await waitFor(() => expect(deleteMcpServer).toHaveBeenCalledWith({ name: "linear" }));
+    await waitFor(() =>
+      expect(deleteMcpServer).toHaveBeenCalledWith({ name: "linear", forBot: true }),
+    );
+  });
+
+  it("shows Yours and the Slack bot, and a member cannot edit the bot list", async () => {
+    listMcpServers.mockResolvedValue({
+      servers: [
+        server(),
+        server({ name: "notion", url: "https://mcp.notion.example/mcp", owner: "ada@acme.com" }),
+      ],
+      maxPerPlaybook: 8,
+    });
+    mount(person("member"));
+    expect(await screen.findByTestId("mcp-yours")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-bot")).toBeInTheDocument();
+    expect(screen.queryByText(/not a Linear agent installation/)).toBeNull();
+    expect(screen.queryByTestId("mcp-new")).toBeNull();
+    expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-edit")).toBeNull();
+    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-token")).toBeNull();
+    expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+  });
+
+  it("lets an admin write the bot list and their own servers", async () => {
+    listMcpServers.mockResolvedValue({
+      servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
+      maxPerPlaybook: 8,
+    });
+    mount(person("admin"));
+    expect(await screen.findByTestId("mcp-bot")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-yours")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-bot")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /another person/i })).toBeNull();
   });
 });

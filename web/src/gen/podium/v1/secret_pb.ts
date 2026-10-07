@@ -2,8 +2,8 @@
 // @generated from file podium/v1/secret.proto (package podium.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,12 +12,9 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/secret.proto.
  */
 export const file_podium_v1_secret: GenFile = /*@__PURE__*/
-  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEiewoGU2VjcmV0EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoBRIOCgZrZXlfaWQYAyABKAkSEgoKY3JlYXRlZF9ieRgEIAEoCRIuCgp1cGRhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIvChBTZXRTZWNyZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFdmFsdWUYAiABKAwiNgoRU2V0U2VjcmV0UmVzcG9uc2USIQoGc2VjcmV0GAEgASgLMhEucG9kaXVtLnYxLlNlY3JldCIUChJMaXN0U2VjcmV0c1JlcXVlc3QiOQoTTGlzdFNlY3JldHNSZXNwb25zZRIiCgdzZWNyZXRzGAEgAygLMhEucG9kaXVtLnYxLlNlY3JldCIjChNEZWxldGVTZWNyZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkiFgoURGVsZXRlU2VjcmV0UmVzcG9uc2Uy9gEKDVNlY3JldFNlcnZpY2USRgoJU2V0U2VjcmV0EhsucG9kaXVtLnYxLlNldFNlY3JldFJlcXVlc3QaHC5wb2RpdW0udjEuU2V0U2VjcmV0UmVzcG9uc2USTAoLTGlzdFNlY3JldHMSHS5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXF1ZXN0Gh4ucG9kaXVtLnYxLkxpc3RTZWNyZXRzUmVzcG9uc2USTwoMRGVsZXRlU2VjcmV0Eh4ucG9kaXVtLnYxLkRlbGV0ZVNlY3JldFJlcXVlc3QaHy5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVzcG9uc2VCoQEKDWNvbS5wb2RpdW0udjFCC1NlY3JldFByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEisQEKBlNlY3JldBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAUSDgoGa2V5X2lkGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFc2NvcGUYBiABKA4yFi5wb2RpdW0udjEuU2VjcmV0U2NvcGUSDQoFb3duZXIYByABKAkiVgoQU2V0U2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEg0KBXZhbHVlGAIgASgMEiUKBXNjb3BlGAMgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlIjYKEVNldFNlY3JldFJlc3BvbnNlEiEKBnNlY3JldBgBIAEoCzIRLnBvZGl1bS52MS5TZWNyZXQiFAoSTGlzdFNlY3JldHNSZXF1ZXN0IjkKE0xpc3RTZWNyZXRzUmVzcG9uc2USIgoHc2VjcmV0cxgBIAMoCzIRLnBvZGl1bS52MS5TZWNyZXQiSgoTRGVsZXRlU2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEiUKBXNjb3BlGAIgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlIhYKFERlbGV0ZVNlY3JldFJlc3BvbnNlKl8KC1NlY3JldFNjb3BlEhwKGFNFQ1JFVF9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1NFQ1JFVF9TQ09QRV9HTE9CQUwQARIZChVTRUNSRVRfU0NPUEVfUEVSU09OQUwQAjL2AQoNU2VjcmV0U2VydmljZRJGCglTZXRTZWNyZXQSGy5wb2RpdW0udjEuU2V0U2VjcmV0UmVxdWVzdBocLnBvZGl1bS52MS5TZXRTZWNyZXRSZXNwb25zZRJMCgtMaXN0U2VjcmV0cxIdLnBvZGl1bS52MS5MaXN0U2VjcmV0c1JlcXVlc3QaHi5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXNwb25zZRJPCgxEZWxldGVTZWNyZXQSHi5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVxdWVzdBofLnBvZGl1bS52MS5EZWxldGVTZWNyZXRSZXNwb25zZUKhAQoNY29tLnBvZGl1bS52MUILU2VjcmV0UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
- * Secret is the metadata of a stored secret. It never carries the value or the
- * ciphertext.
- *
  * @generated from message podium.v1.Secret
  */
 export type Secret = Message<"podium.v1.Secret"> & {
@@ -50,6 +47,20 @@ export type Secret = Message<"podium.v1.Secret"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 5;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * scope is global or personal. A list never includes another login's personal row.
+   *
+   * @generated from field: podium.v1.SecretScope scope = 6;
+   */
+  scope: SecretScope;
+
+  /**
+   * owner is the login of a personal secret, and empty for a global one.
+   *
+   * @generated from field: string owner = 7;
+   */
+  owner: string;
 };
 
 /**
@@ -74,6 +85,14 @@ export type SetSecretRequest = Message<"podium.v1.SetSecretRequest"> & {
    * @generated from field: bytes value = 2;
    */
   value: Uint8Array;
+
+  /**
+   * scope defaults to global when unspecified. A personal secret's owner is the caller;
+   * the request cannot name somebody else.
+   *
+   * @generated from field: podium.v1.SecretScope scope = 3;
+   */
+  scope: SecretScope;
 };
 
 /**
@@ -138,6 +157,13 @@ export type DeleteSecretRequest = Message<"podium.v1.DeleteSecretRequest"> & {
    * @generated from field: string name = 1;
    */
   name: string;
+
+  /**
+   * scope defaults to global when unspecified.
+   *
+   * @generated from field: podium.v1.SecretScope scope = 2;
+   */
+  scope: SecretScope;
 };
 
 /**
@@ -159,6 +185,37 @@ export type DeleteSecretResponse = Message<"podium.v1.DeleteSecretResponse"> & {
  */
 export const DeleteSecretResponseSchema: GenMessage<DeleteSecretResponse> = /*@__PURE__*/
   messageDesc(file_podium_v1_secret, 6);
+
+/**
+ * Secret is the metadata of a stored secret. It never carries the value or the
+ * ciphertext.
+ * SecretScope says whether a secret is shared by the conductor or owned by one login.
+ * Unspecified is global, so a caller from before scopes existed still writes a global secret.
+ *
+ * @generated from enum podium.v1.SecretScope
+ */
+export enum SecretScope {
+  /**
+   * @generated from enum value: SECRET_SCOPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SECRET_SCOPE_GLOBAL = 1;
+   */
+  GLOBAL = 1,
+
+  /**
+   * @generated from enum value: SECRET_SCOPE_PERSONAL = 2;
+   */
+  PERSONAL = 2,
+}
+
+/**
+ * Describes the enum podium.v1.SecretScope.
+ */
+export const SecretScopeSchema: GenEnum<SecretScope> = /*@__PURE__*/
+  enumDesc(file_podium_v1_secret, 0);
 
 /**
  * SecretService is the operator-facing secret store. There is deliberately no read

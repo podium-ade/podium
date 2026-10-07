@@ -25,6 +25,7 @@ var requiredByCompose = map[string][]string{
 		"PODIUM_LOCAL_TOKEN",
 		"PODIUM_S3_SECRET_KEY",
 		"PODIUM_AGENT_TOKEN",
+		"PODIUM_AGENT_API_TOKEN",
 	},
 	server.TransportTailnet: {
 		"PODIUM_PG_PASSWORD",
@@ -37,6 +38,7 @@ var requiredByCompose = map[string][]string{
 		"PODIUM_LOCAL_TOKEN",
 		"PODIUM_S3_SECRET_KEY",
 		"PODIUM_AGENT_TOKEN",
+		"PODIUM_AGENT_API_TOKEN",
 	},
 }
 
@@ -44,12 +46,13 @@ func TestInitMintsEveryValueComposeRefusesToStartWithout(t *testing.T) {
 	for transport, required := range requiredByCompose {
 		t.Run(transport, func(t *testing.T) {
 			env := parseEnv(t, renderEnv(initSecrets{
-				Transport:   transport,
-				Tailnet:     "tail0a1b2c",
-				PGPassword:  "pg",
-				LocalToken:  "dev",
-				S3SecretKey: "s3",
-				AgentToken:  "agent",
+				Transport:     transport,
+				Tailnet:       "tail0a1b2c",
+				PGPassword:    "pg",
+				LocalToken:    "dev",
+				S3SecretKey:   "s3",
+				AgentToken:    "agent",
+				AgentAPIToken: "agent-api",
 			}))
 			for _, name := range required {
 				require.NotEmpty(t, env[name],
@@ -76,7 +79,7 @@ func TestInitLeavesTailscaleKeysEmpty(t *testing.T) {
 func TestInitConfiguresTheCLI(t *testing.T) {
 	env := parseEnv(t, renderEnv(initSecrets{
 		Transport: server.TransportLocal, PGPassword: "pg", LocalToken: "dev",
-		S3SecretKey: "s3", AgentToken: "agent",
+		S3SecretKey: "s3", AgentToken: "agent", AgentAPIToken: "agent-api",
 	}))
 	require.NotEmpty(t, env["PODIUM_SERVER"])
 	require.NotEmpty(t, env["PODIUM_LOCAL_TOKEN"])
@@ -90,7 +93,7 @@ func TestInitConfiguresTheCLI(t *testing.T) {
 func TestInitHostNetworkUsesTheLocalTransport(t *testing.T) {
 	body := renderEnv(initSecrets{
 		Transport: hostNetworkTransport, PGPassword: "pg", LocalToken: "dev",
-		S3SecretKey: "s3", AgentToken: "agent",
+		S3SecretKey: "s3", AgentToken: "agent", AgentAPIToken: "agent-api",
 	})
 	env := parseEnv(t, body)
 	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"],
@@ -123,6 +126,8 @@ func TestInitCommandWritesUsableCredentials(t *testing.T) {
 	}
 	// Distinct values, not one secret reused: they guard different things.
 	require.NotEqual(t, env["PODIUM_LOCAL_TOKEN"], env["PODIUM_AGENT_TOKEN"])
+	require.NotEqual(t, env["PODIUM_LOCAL_TOKEN"], env["PODIUM_AGENT_API_TOKEN"])
+	require.NotEqual(t, env["PODIUM_AGENT_TOKEN"], env["PODIUM_AGENT_API_TOKEN"])
 	require.Equal(t, server.TransportLocal, env["PODIUM_TRANSPORT"])
 	require.Empty(t, env["PODIUM_SERVER"], "PODIUM_SERVER is this machine's address on the network; init cannot guess it")
 }
