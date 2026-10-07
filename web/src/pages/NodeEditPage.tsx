@@ -5,7 +5,7 @@ import { AlertTriangle, RotateCcw, Server } from "lucide-react";
 import { Badge, Chip } from "../components/Badge";
 import { Empty } from "../components/Empty";
 import { NodeActions } from "../components/NodeActions";
-import { PageHeader } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { CopyValue } from "../components/task/CopyValue";
 import { useToast } from "../components/Toast";
@@ -18,6 +18,8 @@ import type { Node } from "../gen/podium/v1/admin_pb";
 import { NodeStatus } from "../gen/podium/v1/common_pb";
 import { admin, errorMessage } from "../lib/client";
 import { absolute, humanBytes, nodeStateLabel, nodeStateTone, relative } from "../lib/format";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 const POLL_MS = 5000;
 
@@ -63,14 +65,13 @@ export function NodeEditPage() {
 
   if (!node) {
     return (
-      <div className="space-y-5">
-        <PageHeader title="Node" back={{ to: "/nodes", label: "Nodes" }} />
+      <PageFrame title="Node" back={{ to: "/nodes", label: "Nodes" }}>
         <Empty
           icon={Server}
           title="No such node"
           hint={`Nothing enrolled here has the ID ${id}. It may have been deleted, or the ID may be from another control plane.`}
         />
-      </div>
+      </PageFrame>
     );
   }
 
@@ -78,6 +79,8 @@ export function NodeEditPage() {
 }
 
 function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
   const qc = useQueryClient();
   const toast = useToast();
   const connected = isConnected(node);
@@ -114,11 +117,9 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
   });
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         back={{ to: "/nodes", label: "Nodes" }}
         title={node.name}
-        description="What this machine is, and how much work the control plane gives it."
         actions={<NodeActions node={node} />}
         meta={
           <>
@@ -126,7 +127,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
             <CopyValue value={node.id} label="node ID" />
           </>
         }
-      />
+      >
 
       {listFailed ? (
         <Alert variant="warn" title="This page has stopped refreshing">
@@ -159,8 +160,11 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
                 aria-describedby="node-slots-hint"
                 onChange={(e) => setSlots(e.target.value)}
                 className="tabular w-28"
+                disabled={!manage}
               />
             </div>
+            {manage ? (
+              <>
             <Button
               size="sm"
               disabled={!changed || save.isPending}
@@ -178,6 +182,8 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
                 <RotateCcw />
                 Use the node's {configured}
               </Button>
+            ) : null}
+              </>
             ) : null}
           </div>
 
@@ -302,7 +308,7 @@ function NodeEditor({ node, listFailed }: { node: Node; listFailed: boolean }) {
         <span className="font-mono">PODIUM_NODE_*</span> environment, and a node re-advertises
         them on every reconnect.
       </p>
-    </div>
+    </PageFrame>
   );
 }
 

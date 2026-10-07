@@ -150,7 +150,7 @@ The rest of this section is the same ground by component, with the per-variable 
 
 | `PODIUM_TRANSPORT=local` | |
 |---|---|
-| ⚙ `PODIUM_LOCAL_TOKEN` | the one shared bearer. The server, every node, the conductor and the CLI all present it. Whoever holds it can do everything. The web UI does not ask for it when Google sign-in is on |
+| ⚙ `PODIUM_LOCAL_TOKEN` | the dev bearer. The server, every node, and the CLI present it. The conductor does not: it presents `PODIUM_AGENT_API_TOKEN`. The web UI does not ask for the dev token when Google sign-in is on |
 | `PODIUM_LOCAL_LISTEN` | defaults to `127.0.0.1:8080` and **must** be loopback — the token is the only credential there is |
 | `PODIUM_LOCAL_ALLOW_UNSAFE_LISTEN` | waives that rule. Set by `docker-compose.yml` (loopback inside a container is the container's own) and by `docker-compose.host.yml` (the boundary is a network you already trust). On a public address it publishes the whole API behind one static token |
 
@@ -187,7 +187,7 @@ forwards an unauthenticated request into the conductor is worse than no proxy.
 | on `podium-agent` | |
 |---|---|
 | `PODIUM_AGENT_SERVER` | the Podium API base URL |
-| `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`. Unset on a tailnet |
+| `PODIUM_AGENT_API_TOKEN` | required whenever that URL is `http://`, and a different value from `PODIUM_LOCAL_TOKEN`. Unset on a tailnet |
 | `PODIUM_AGENT_DATABASE_URL` | its **own** database, `podium_agent`. It never opens the server's |
 | ⚙ `PODIUM_AGENT_TOKEN` | the same value as above. One line, both sides |
 | `PODIUM_AGENT_PROFILE_DIR` | must contain `profile.yaml`. In compose this is the path **inside** the container (default `/etc/podium/agent`). On `make stack-up` it defaults to `.podium/agent`, seeded once from the starter |

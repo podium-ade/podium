@@ -111,6 +111,14 @@ func TestValidate(t *testing.T) {
 			func(s *TaskSpec) { s.Env = map[string]string{"1VAR": "v"} }, "not a valid shell identifier",
 		},
 		"empty label": {func(s *TaskSpec) { s.Labels = []string{" "} }, "label must not be empty"},
+		"publish base without repo": {
+			func(s *TaskSpec) { s.WorkspacePublishBase = true },
+			"workspace_publish_base requires workspace_repo",
+		},
+		"negative workspace warm": {
+			func(s *TaskSpec) { s.WorkspaceWarm = Duration(-time.Second) },
+			"workspace_warm must not be negative",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := valid()

@@ -176,8 +176,21 @@ type TaskSpec struct {
 	// attempt (up to max_attempts) instead of marking it lost. Off by default: a task that
 	// is not idempotent must not be silently run twice.
 	RetryOnNodeLoss bool `protobuf:"varint,12,opt,name=retry_on_node_loss,json=retryOnNodeLoss,proto3" json:"retry_on_node_loss,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Conversation this task's /workspace belongs to. When set, the node restores that
+	// session's latest snapshot (or the repository base) before the task starts and uploads
+	// a new one after a clean exit. Empty keeps the volume ephemeral.
+	WorkspaceSession string `protobuf:"bytes,13,opt,name=workspace_session,json=workspaceSession,proto3" json:"workspace_session,omitempty"`
+	// Repository a base snapshot is stored under. Sent with the download so a session that
+	// has never snapshotted can start from the base.
+	WorkspaceRepo string `protobuf:"bytes,14,opt,name=workspace_repo,json=workspaceRepo,proto3" json:"workspace_repo,omitempty"`
+	// Also store this task's workspace as the shared base for workspace_repo.
+	WorkspacePublishBase bool `protobuf:"varint,15,opt,name=workspace_publish_base,json=workspacePublishBase,proto3" json:"workspace_publish_base,omitempty"`
+	// How long the runtime stays up after a turn, waiting for the next instruction on the
+	// inbox. Zero means exit when the turn ends. The node forwards it as
+	// PODIUM_WORKSPACE_WARM_SECONDS; it does not itself keep the container alive.
+	WorkspaceWarm *durationpb.Duration `protobuf:"bytes,16,opt,name=workspace_warm,json=workspaceWarm,proto3" json:"workspace_warm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskSpec) Reset() {
@@ -294,6 +307,34 @@ func (x *TaskSpec) GetRetryOnNodeLoss() bool {
 	return false
 }
 
+func (x *TaskSpec) GetWorkspaceSession() string {
+	if x != nil {
+		return x.WorkspaceSession
+	}
+	return ""
+}
+
+func (x *TaskSpec) GetWorkspaceRepo() string {
+	if x != nil {
+		return x.WorkspaceRepo
+	}
+	return ""
+}
+
+func (x *TaskSpec) GetWorkspacePublishBase() bool {
+	if x != nil {
+		return x.WorkspacePublishBase
+	}
+	return false
+}
+
+func (x *TaskSpec) GetWorkspaceWarm() *durationpb.Duration {
+	if x != nil {
+		return x.WorkspaceWarm
+	}
+	return nil
+}
+
 // SecretRef names a stored secret and says where the task wants it. Nothing here is
 // sensitive: it is the name of a value, never the value.
 type SecretRef struct {
@@ -304,7 +345,10 @@ type SecretRef struct {
 	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	// key is the environment variable name for target "env", or the absolute path the
 	// value is mounted at for target "file".
-	Key           string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	Key string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	// owner is the login of a personal secret. Empty means the secret is global, which is
+	// how a task stored before this field existed still resolves.
+	Owner         string `protobuf:"bytes,4,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -356,6 +400,13 @@ func (x *SecretRef) GetTarget() string {
 func (x *SecretRef) GetKey() string {
 	if x != nil {
 		return x.Key
+	}
+	return ""
+}
+
+func (x *SecretRef) GetOwner() string {
+	if x != nil {
+		return x.Owner
 	}
 	return ""
 }
@@ -786,7 +837,7 @@ var File_podium_v1_common_proto protoreflect.FileDescriptor
 
 const file_podium_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\x88\x05\n" +
+	"\x16podium/v1/common.proto\x12\tpodium.v1\x1a\x1egoogle/protobuf/duration.proto\"\xd4\x06\n" +
 	"\bTaskSpec\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x12\x1f\n" +
@@ -801,17 +852,22 @@ const file_podium_v1_common_proto_rawDesc = "" +
 	"\thardening\x18\n" +
 	" \x01(\v2\x14.podium.v1.HardeningR\thardening\x12.\n" +
 	"\asecrets\x18\v \x03(\v2\x14.podium.v1.SecretRefR\asecrets\x12+\n" +
-	"\x12retry_on_node_loss\x18\f \x01(\bR\x0fretryOnNodeLoss\x1a6\n" +
+	"\x12retry_on_node_loss\x18\f \x01(\bR\x0fretryOnNodeLoss\x12+\n" +
+	"\x11workspace_session\x18\r \x01(\tR\x10workspaceSession\x12%\n" +
+	"\x0eworkspace_repo\x18\x0e \x01(\tR\rworkspaceRepo\x124\n" +
+	"\x16workspace_publish_base\x18\x0f \x01(\bR\x14workspacePublishBase\x12@\n" +
+	"\x0eworkspace_warm\x18\x10 \x01(\v2\x19.google.protobuf.DurationR\rworkspaceWarm\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +
 	"\rSidecarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"I\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.podium.v1.SidecarR\x05value:\x028\x01\"_\n" +
 	"\tSecretRef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x10\n" +
-	"\x03key\x18\x03 \x01(\tR\x03key\"N\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\x12\x14\n" +
+	"\x05owner\x18\x04 \x01(\tR\x05owner\"N\n" +
 	"\tResources\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\x01R\x03cpu\x12\x1b\n" +
 	"\tmemory_mb\x18\x02 \x01(\x03R\bmemoryMb\x12\x12\n" +
@@ -905,16 +961,17 @@ var file_podium_v1_common_proto_depIdxs = []int32{
 	4,  // 3: podium.v1.TaskSpec.resources:type_name -> podium.v1.Resources
 	7,  // 4: podium.v1.TaskSpec.hardening:type_name -> podium.v1.Hardening
 	3,  // 5: podium.v1.TaskSpec.secrets:type_name -> podium.v1.SecretRef
-	13, // 6: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
-	12, // 7: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
-	5,  // 8: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
-	4,  // 9: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
-	6,  // 10: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 6: podium.v1.TaskSpec.workspace_warm:type_name -> google.protobuf.Duration
+	13, // 7: podium.v1.Readiness.timeout:type_name -> google.protobuf.Duration
+	12, // 8: podium.v1.Sidecar.env:type_name -> podium.v1.Sidecar.EnvEntry
+	5,  // 9: podium.v1.Sidecar.readiness:type_name -> podium.v1.Readiness
+	4,  // 10: podium.v1.Sidecar.resources:type_name -> podium.v1.Resources
+	6,  // 11: podium.v1.TaskSpec.SidecarsEntry.value:type_name -> podium.v1.Sidecar
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_common_proto_init() }

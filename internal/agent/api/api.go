@@ -29,7 +29,23 @@ import (
 // client-supplied copy is stripped there, so what arrives here is the server's word.
 const LoginHeader = "X-Podium-Login"
 
+// ScopeHeader is what podium-server's proxy sets so the conductor can tell a shared dev
+// token from a signed-in person. The proxy strips any client-supplied copy. ScopeAll is
+// the only value that widens a list; anything else, including a missing header, is one
+// login's own chats.
+const (
+	ScopeHeader = "X-Podium-Scope"
+	ScopeAll    = "all"
+	// InfraHeader is set by podium-server when the caller may edit the Slack bot's MCP
+	// list: the dev token, or a signed-in admin or owner. A member does not get it.
+	InfraHeader = "X-Podium-Infra"
+)
+
 type loginKey struct{}
+
+type scopeKey struct{}
+
+type infraKey struct{}
 
 // RequireBearer refuses everything that does not present the conductor's token, and puts
 // the proxied login in the request context. The comparison is constant time: the token is
@@ -47,8 +63,29 @@ func RequireBearer(token string, next http.Handler) http.Handler {
 		if login == "" {
 			login = "unknown"
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), loginKey{}, login)))
+		ctx := context.WithValue(r.Context(), loginKey{}, login)
+		if strings.TrimSpace(r.Header.Get(ScopeHeader)) == ScopeAll {
+			ctx = context.WithValue(ctx, scopeKey{}, ScopeAll)
+		}
+		if strings.TrimSpace(r.Header.Get(InfraHeader)) == "1" {
+			ctx = context.WithValue(ctx, infraKey{}, true)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// SeesAll reports whether this request is the shared dev token. A signed-in user is not,
+// whatever login header they might have hoped to send: the proxy is what sets the scope.
+func SeesAll(ctx context.Context) bool {
+	v, _ := ctx.Value(scopeKey{}).(string)
+	return v == ScopeAll
+}
+
+// Infra reports whether this caller may edit the Slack bot's MCP list. The proxy sets the
+// header for the dev token and for an admin or owner. A member's request does not.
+func Infra(ctx context.Context) bool {
+	v, _ := ctx.Value(infraKey{}).(bool)
+	return v || SeesAll(ctx)
 }
 
 // Login is the operator the server says is calling, or "unknown" when a handler was
@@ -254,7 +291,7 @@ func (s *AgentService) ListSessions(
 	ctx context.Context, req *connect.Request[agentv1.ListSessionsRequest],
 ) (*connect.Response[agentv1.ListSessionsResponse], error) {
 	page := req.Msg.GetPage()
-	rows, next, err := s.store.ListSessions(ctx, int(page.GetLimit()), page.GetCursor())
+	rows, next, err := s.store.ListSessions(ctx, Login(ctx), SeesAll(ctx), int(page.GetLimit()), page.GetCursor())
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -278,6 +315,13 @@ func (s *AgentService) GetSession(
 	if err != nil {
 		return nil, storeError(err)
 	}
+	ok, err := s.mayReadSession(ctx, row)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: session %s", store.ErrNotFound, id))
+	}
 	return connect.NewResponse(&agentv1.GetSessionResponse{Session: sessionToProto(row, s.slackNames(ctx))}), nil
 }
 
@@ -289,6 +333,17 @@ func (s *AgentService) ListTurns(
 	if id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("list turns: session_id is required"))
 	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	ok, err := s.mayReadSession(ctx, sess)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("%w: session %s", store.ErrNotFound, id))
+	}
 	rows, err := s.store.ListTurns(ctx, id, int(req.Msg.GetLimit()))
 	if err != nil {
 		return nil, storeError(err)
@@ -298,6 +353,27 @@ func (s *AgentService) ListTurns(
 		out = append(out, turnToProto(r))
 	}
 	return connect.NewResponse(&agentv1.ListTurnsResponse{Turns: out}), nil
+}
+
+// mayReadSession is the session half of the chat partition. The dev token sees every
+// source. A signed-in user sees a web-chat session only when they own that chat. Slack,
+// Linear and dev sessions have no such owner, so they are not returned.
+func (s *AgentService) mayReadSession(ctx context.Context, sess store.Session) (bool, error) {
+	if SeesAll(ctx) {
+		return true, nil
+	}
+	login := Login(ctx)
+	if login == "" || login == "unknown" || sess.SourceKind != "chat" {
+		return false, nil
+	}
+	row, err := s.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return row.Login == login, nil
 }
 
 // DefaultUsageDays is the range GetUsage reads when the request names neither end.

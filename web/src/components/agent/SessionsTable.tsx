@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
@@ -18,7 +18,7 @@ import { ranBy } from "../../lib/usage";
 import { cn } from "../../lib/utils";
 import { Badge, Chip, type Tone } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+
 import { TableSkeleton } from "../Skeleton";
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
@@ -43,6 +43,17 @@ const KIND: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
   linear: { icon: SquareKanban, tone: "lost", label: "linear" },
   dev: { icon: Terminal, tone: "warn", label: "dev" },
 };
+
+function sessionSections(rows: Session[]): { key: string; label: string; rows: Session[] }[] {
+  const web = rows.filter((s) => s.sourceKind === "chat");
+  const slack = rows.filter((s) => s.sourceKind === "slack");
+  const other = rows.filter((s) => s.sourceKind !== "chat" && s.sourceKind !== "slack");
+  const out: { key: string; label: string; rows: Session[] }[] = [];
+  if (web.length > 0) out.push({ key: "web", label: "Web", rows: web });
+  if (slack.length > 0) out.push({ key: "slack", label: "Slack", rows: slack });
+  if (other.length > 0) out.push({ key: "other", label: "Other", rows: other });
+  return out;
+}
 
 function kindOf(sourceKind: string) {
   return KIND[sourceKind] ?? { icon: MessageSquare, tone: "idle" as Tone, label: sourceKind };
@@ -74,24 +85,20 @@ export function SessionsTable() {
   });
 
   const rows = sessions.data?.sessions ?? [];
+  const sections = sessionSections(rows);
+  const split = sections.length > 1;
   const open = rows.find((s) => s.id === openID);
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Sessions"
-        description="Every conversation the conductor has taken part in (from the web chat, from Slack and from Linear) and the turns it spent inside each one."
-        meta={
-          rows.length > 0 ? (
-            <>
-              <Chip>
-                {rows.length} {rows.length === 1 ? "session" : "sessions"}
-              </Chip>
-              <Chip>refreshed every {POLL_MS / 1000}s</Chip>
-            </>
-          ) : null
-        }
-      />
+      {rows.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip>
+            {rows.length} {rows.length === 1 ? "session" : "sessions"}
+          </Chip>
+          <Chip>refreshed every {POLL_MS / 1000}s</Chip>
+        </div>
+      ) : null}
 
       {sessions.isPending ? <TableSkeleton rows={5} cols={6} /> : null}
 
@@ -138,7 +145,22 @@ export function SessionsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((s) => {
+            {sections.map((section) => (
+              <Fragment key={section.key}>
+                {split ? (
+                  <TableRow
+                    data-testid={`session-section-${section.key}`}
+                    className="hover:bg-transparent"
+                  >
+                    <TableCell
+                      colSpan={7}
+                      className="pt-4 pb-1 text-xs font-medium tracking-wide text-faint uppercase"
+                    >
+                      {section.label}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {section.rows.map((s) => {
               const kind = kindOf(s.sourceKind);
               return (
                 <TableRow
@@ -192,7 +214,9 @@ export function SessionsTable() {
                   </TableCell>
                 </TableRow>
               );
-            })}
+                })}
+              </Fragment>
+            ))}
           </TableBody>
         </Table>
       ) : null}

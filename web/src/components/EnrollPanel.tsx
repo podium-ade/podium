@@ -20,6 +20,8 @@ import {
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+import { useViewer } from "../lib/identity";
+import { canManageInfra } from "../lib/rbac";
 
 /** The TTLs an operator actually wants. A token is redeemed minutes after it is minted. */
 const TTLS: { value: string; label: string; seconds: number }[] = [
@@ -45,6 +47,7 @@ function parseLabels(raw: string): string[] {
  * a line appended under a form the operator might navigate away from.
  */
 export function EnrollPanel({ server = window.location.origin }: { server?: string }) {
+  const viewer = useViewer();
   const [open, setOpen] = useState(false);
   const [labels, setLabels] = useState("");
   const [ttl, setTtl] = useState("1h");
@@ -74,6 +77,8 @@ export function EnrollPanel({ server = window.location.origin }: { server?: stri
       setCopied(false);
     }
   }
+
+  if (!canManageInfra(viewer)) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

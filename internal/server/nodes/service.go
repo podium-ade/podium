@@ -18,6 +18,7 @@ import (
 	"github.com/podium-ade/podium/internal/ids"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/server/artifacts"
+	"github.com/podium-ade/podium/internal/server/snapshots"
 	"github.com/podium-ade/podium/internal/server/store"
 	"github.com/podium-ade/podium/internal/transport"
 )
@@ -52,6 +53,10 @@ type Service struct {
 
 	// artifacts is the object store UploadArtifact writes to, nil when none is configured.
 	artifacts *artifacts.Service
+
+	// snapshots is the workspace tar store. It shares the artifact bucket and is nil
+	// when no object store is configured.
+	snapshots *snapshots.Service
 
 	// allowUntagged mirrors PODIUM_TS_ALLOW_UNTAGGED_NODES. Off, a tailnet caller must carry
 	// the node tag to enroll; on, any tailnet device with a valid token may, which is the

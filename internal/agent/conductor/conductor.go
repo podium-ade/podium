@@ -208,6 +208,10 @@ type sessionState struct {
 	// that started a delegated task, which is why a reply can land after the assistant
 	// has already finished.
 	awaitingTaskID string
+	// warmTaskID is a playbook task that has answered and is still up, waiting for the
+	// next instruction. A follow-up is injected into it. It is cleared when the task
+	// exits, which is when the node stores the snapshot.
+	warmTaskID string
 }
 
 // New validates the options and returns a Conductor.
@@ -358,8 +362,12 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 		st = &sessionState{}
 		c.sessions[sess.ID] = st
 	}
-	if st.awaitingTaskID != "" {
-		taskID := st.awaitingTaskID
+	injectID := st.awaitingTaskID
+	if injectID == "" {
+		injectID = st.warmTaskID
+	}
+	if injectID != "" {
+		taskID := injectID
 		c.mu.Unlock()
 		if err := c.podium.InjectTask(ctx, taskID, ev.Text); err != nil {
 			c.logger.WarnContext(ctx, "injecting a reply into a running turn failed; queueing it as the next turn",
@@ -385,7 +393,7 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 			}()
 			return
 		}
-		c.logger.InfoContext(ctx, "injected a reply into a running interactive turn",
+		c.logger.InfoContext(ctx, "injected a message into a running task",
 			"session_id", sess.ID, "task_id", taskID)
 		return
 	}
@@ -459,6 +467,29 @@ func (c *Conductor) setAwaiting(sessionID, taskID string) {
 		c.sessions[sessionID] = st
 	}
 	st.awaitingTaskID = taskID
+}
+
+// setWarm records that this session's task has answered and is waiting for a follow-up.
+func (c *Conductor) setWarm(sessionID, taskID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil {
+		st = &sessionState{}
+		c.sessions[sessionID] = st
+	}
+	st.warmTaskID = taskID
+}
+
+// clearWarm drops the warm task once it has exited.
+func (c *Conductor) clearWarm(sessionID, taskID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.sessions[sessionID]
+	if st == nil || st.warmTaskID != taskID {
+		return
+	}
+	st.warmTaskID = ""
 }
 
 // clearAwaiting drops a parked question once the task speaks again, or ends.
@@ -575,6 +606,7 @@ func (c *Conductor) serve(ctx context.Context, src Source, sess store.Session, j
 		if st == nil || !st.pending || ctx.Err() != nil {
 			if st != nil {
 				st.running = false
+				st.warmTaskID = ""
 			}
 			c.mu.Unlock()
 			return
@@ -660,7 +692,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// skills are: a server an operator has just disabled must not be handed to the next
 	// turn, and a name that no longer resolves fails the job that names it rather than the
 	// whole conductor.
-	servers, err := c.mcpServers(ctx, j)
+	login := c.asker(ctx, src, sess)
+	servers, err := c.mcpServers(ctx, j, login)
 	if err != nil {
 		// The name is the operator's own and is safe to say, and saying it is the point: a
 		// playbook naming a server nobody registered is a five-second fix for whoever can
@@ -669,6 +702,13 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 			"turn_id", turn.ID, "job", j.name, "mcp_servers", j.mcpServers, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, TaskID: "", Text: fmt.Sprintf(
 			"`%s` asks for an MCP server I do not have, so nothing ran: %v", j.name, err)})
+		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
+		return
+	}
+	if _, err := userSecretRefs(login, j.playbook.UserSecrets); err != nil {
+		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
+			"turn_id", turn.ID, "job", j.name, "error", err)
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: err.Error()})
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
@@ -759,7 +799,8 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret)
+	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret, login)
+	applyWorkspace(taskSpec, sess.ID, j.playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
 		// The turn never started, so nothing will reach finish to clean this up.
@@ -770,7 +811,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		// "I could not start", and none of the reason is a human's business.
 		c.logger.WarnContext(ctx, "creating the turn's task failed",
 			"turn_id", turn.ID, "image", j.playbook.Image, "error", err)
-		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: "Something went wrong on my side and the work never started. An operator should check the logs."})
+		text := "Something went wrong on my side and the work never started. An operator should check the logs."
+		if len(j.playbook.UserSecrets) > 0 {
+			text = err.Error()
+		}
+		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: text})
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
@@ -781,10 +826,12 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	turn.TaskID = task.GetId()
 	run.turn = turn
 	run.taskID = task.GetId()
+	run.warm = taskSpec.WorkspaceWarm > 0
 	c.logger.InfoContext(ctx, "turn started", "turn_id", turn.ID, "session_id", sess.ID,
 		"playbook", j.name, "task_id", task.GetId(), "source", src.Kind())
 
 	run.run(ctx)
+	c.clearWarm(sess.ID, task.GetId())
 }
 
 // playbookNames is the menu as the names a token's grant is checked against.
@@ -985,7 +1032,7 @@ func (c *Conductor) openaiAuthKind() string {
 // own file names, and the one the backend it runs on needs.
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
-	servers []mcp.Server, choice profiles.Choice, capabilitySecret string,
+	servers []mcp.Server, choice profiles.Choice, capabilitySecret, login string,
 ) *spec.TaskSpec {
 	env := map[string]string{}
 	for k, v := range playbook.Env {
@@ -1017,7 +1064,8 @@ func (c *Conductor) taskSpec(
 		Labels:    append([]string(nil), playbook.Labels...),
 		Resources: playbook.Resources,
 		Timeout:   playbook.Timeout,
-		Secrets: append(append([]spec.SecretRef(nil), playbook.Secrets...),
+		Secrets: append(append(append([]spec.SecretRef(nil), globalSecretRefs(playbook.Secrets)...),
+			userSecretRefsOrEmpty(login, playbook.UserSecrets)...),
 			c.reservedSecrets(choice.Agent, servers, capabilitySecret)...),
 		MaxAttempts: 1,
 		// A turn is not idempotent: it may already have posted a final. Running it twice
@@ -1060,7 +1108,7 @@ func (c *Conductor) skillBundles(ctx context.Context, j job) ([]skills.Bundle, e
 // describes is the one outcome nobody can diagnose afterwards. The error is shown to the
 // human because a server name is the operator's own text, and it is the only part of this
 // failure anybody can act on.
-func (c *Conductor) mcpServers(ctx context.Context, j job) ([]mcp.Server, error) {
+func (c *Conductor) mcpServers(ctx context.Context, j job, login string) ([]mcp.Server, error) {
 	if len(j.mcpServers) == 0 {
 		return nil, nil
 	}
@@ -1071,14 +1119,94 @@ func (c *Conductor) mcpServers(ctx context.Context, j job) ([]mcp.Server, error)
 	if err != nil {
 		return nil, err
 	}
-	return resolveMCPServers(j.mcpServers, rows)
+	return resolveMCPServers(turnOwner(login), j.mcpServers, rows)
 }
 
-// resolveMCPServers picks the named servers out of the registry, in the order they were
-// named. Separated from the read so it can be asserted without a database.
-func resolveMCPServers(names []string, rows []mcp.Server) ([]mcp.Server, error) {
+// turnOwner is the MCP registry a turn reads. A Slack turn, the dev token, and the
+// conductor itself have no person, so they keep the unowned bot rows.
+func turnOwner(login string) string {
+	switch login {
+	case "", "unknown", "local", "agent":
+		return ""
+	default:
+		return login
+	}
+}
+
+// asker is the signed-in login a turn is for. Slack, Linear, and GitHub have none: a
+// mentioner's name is not a Podium login, and a mirrored chat's login is empty.
+func (c *Conductor) asker(ctx context.Context, src Source, sess store.Session) string {
+	kind := sess.SourceKind
+	if src != nil && src.Kind() != "" {
+		kind = src.Kind()
+	}
+	switch kind {
+	case SourceSlack, SourceLinear, SourceGitHub, KindDev:
+		return ""
+	}
+	if c.store == nil || sess.SourceKey == "" {
+		return ""
+	}
+	chat, err := c.store.ChatBySourceKey(ctx, sess.SourceKey)
+	if err != nil {
+		return ""
+	}
+	return chat.Login
+}
+
+// globalSecretRefs copies a playbook's company secrets and drops any owner. SecretRef
+// unmarshals owner from YAML, so a secrets: entry can arrive with one. Company secrets
+// stay global. Only user_secrets, stamped with the turn's login, are personal.
+func globalSecretRefs(refs []spec.SecretRef) []spec.SecretRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]spec.SecretRef, len(refs))
+	for i, ref := range refs {
+		ref.Owner = ""
+		out[i] = ref
+	}
+	return out
+}
+
+// userSecretRefs copies a playbook's personal secrets onto the person this turn is for.
+// A turn with no person cannot name any. The owner is set here so CreateTask can tell a
+// personal secret from a global one.
+func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	if turnOwner(login) == "" {
+		return nil, errors.New("there is no person for this turn, so it cannot use a personal secret")
+	}
+	out := make([]spec.SecretRef, len(refs))
+	for i, ref := range refs {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" {
+			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
+		}
+		out[i] = ref
+		out[i].Owner = login
+	}
+	return out, nil
+}
+
+func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef {
+	out, err := userSecretRefs(login, refs)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// resolveMCPServers picks the named servers out of one owner's registry, in the order they
+// were named. An empty owner is the bot list. Separated from the read so it can be asserted
+// without a database.
+func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, error) {
 	byName := make(map[string]mcp.Server, len(rows))
 	for _, r := range rows {
+		if r.Owner != owner {
+			continue
+		}
 		byName[r.Name] = r
 	}
 	out := make([]mcp.Server, 0, len(names))
@@ -1239,7 +1367,7 @@ func (c *Conductor) reservedSecrets(
 			continue
 		}
 		refs = append(refs, spec.SecretRef{
-			Name:   mcp.TokenSecret(srv.Name),
+			Name:   mcp.CredentialSecret(srv),
 			Target: spec.SecretTargetEnv,
 			Key:    mcp.TokenEnv(srv.Name),
 		})

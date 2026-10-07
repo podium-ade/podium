@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { ChevronRight, KeyRound, LogIn, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "../../gen/podium/agent/v1/agent_pb";
+import { IdentityKind } from "../../gen/podium/v1/identity_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import {
   CUSTOM_MCP_DESCRIPTION,
@@ -16,7 +17,7 @@ import { absolute, relative } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
 import { Empty } from "../Empty";
-import { PageHeader } from "../PageHeader";
+import { PageFrame } from "../PageHeader";
 import { Field } from "../submit/Field";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
@@ -38,6 +39,8 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
 import { McpMark } from "./McpMark";
+import { useViewer } from "../../lib/identity";
+import { canManageInfra } from "../../lib/rbac";
 
 /**
  * McpPanel is the MCP server registry: the tools this bot can reach that are not built into
@@ -80,9 +83,12 @@ function definitionOf(server: McpServer, patch: { enabled?: boolean } = {}) {
 }
 
 export function McpPanel() {
+  const viewer = useViewer();
+  const manage = canManageInfra(viewer);
+  const personal = viewer?.kind === IdentityKind.USER;
   const qc = useQueryClient();
   const toast = useToast();
-  const [editing, setEditing] = useState<McpServer | "new">();
+  const [editing, setEditing] = useState<McpServer | "new" | "new-bot">();
 
   const list = useQuery({ queryKey: ["agent", "mcp"], queryFn: () => agent.listMcpServers({}) });
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "mcp"] });
@@ -91,7 +97,10 @@ export function McpPanel() {
     // Enabling is an update of the whole registration, which is the only write there is: the
     // switch sends back what the row already said with one field flipped.
     mutationFn: (v: { server: McpServer; enabled: boolean }) =>
-      agent.updateMcpServer({ server: definitionOf(v.server, { enabled: v.enabled }) }),
+      agent.updateMcpServer({
+        server: definitionOf(v.server, { enabled: v.enabled }),
+        forBot: !v.server.owner,
+      }),
     onSuccess: async (_res, v) => {
       toast(
         `${v.server.name} is ${v.enabled ? "enabled" : "disabled"}. It applies to the next turn.`,
@@ -103,15 +112,56 @@ export function McpPanel() {
   });
 
   const remove = useMutation({
-    mutationFn: (name: string) => agent.deleteMcpServer({ name }),
-    onSuccess: async (_res, name) => {
-      toast(`${name} removed, and its token with it.`, "ok");
+    mutationFn: (v: { name: string; forBot: boolean }) =>
+      agent.deleteMcpServer({ name: v.name, forBot: v.forBot }),
+    onSuccess: async (_res, v) => {
+      toast(`${v.name} removed, and its token with it.`, "ok");
       await reload();
     },
     onError: (err) => toast(errorMessage(err)),
   });
 
   const servers = list.data?.servers ?? [];
+  const yours = servers.filter((s) => Boolean(s.owner));
+  const bot = servers.filter((s) => !s.owner);
+  const creating = editing === "new" || editing === "new-bot";
+  const editingServer = typeof editing === "object" ? editing : undefined;
+  const editingForBot = editing === "new-bot" || (editingServer !== undefined && !editingServer.owner);
+
+  const renderGroup = (title: string, testId: string, rows: McpServer[], readOnly: boolean) => (
+    <section data-testid={testId} className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-fg">{title}</h2>
+        {testId === "mcp-bot" && manage && personal ? (
+          <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new-bot")}>
+            <Plus />
+            New server
+          </Button>
+        ) : null}
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted">None yet.</p>
+      ) : (
+        <ul className="space-y-2.5">
+          {rows.map((s) => (
+            <ServerRow
+              key={`${s.owner}:${s.name}`}
+              server={s}
+              busy={
+                (setEnabled.isPending && setEnabled.variables?.server.name === s.name) ||
+                (remove.isPending && remove.variables?.name === s.name)
+              }
+              readOnly={readOnly}
+              onToggle={(enabled) => setEnabled.mutate({ server: s, enabled })}
+              onEdit={() => setEditing(s)}
+              onDelete={() => remove.mutate({ name: s.name, forBot: !s.owner })}
+              onTokenChanged={reload}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 
   if (list.isError && !isAgentUnreachable(list.error)) {
     return (
@@ -120,33 +170,22 @@ export function McpPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
+    <PageFrame
         title="MCP servers"
-        description={
-          <>
-            An MCP server is a set of tools the model can call over HTTP: Linear&apos;s issues,
-            a wiki, an internal API. Registering one here says this conductor <em>can</em> reach
-            it; a playbook naming it is what decides which turns <em>do</em>.
-          </>
-        }
-        meta={
-          servers.length > 0 ? (
-            <>
-              <Chip className="tabular">
-                {servers.length} {servers.length === 1 ? "server" : "servers"}
-              </Chip>
-              <Chip className="tabular">{servers.filter((s) => !s.enabled).length} disabled</Chip>
-            </>
-          ) : undefined
-        }
         actions={
-          <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new")}>
-            <Plus />
-            New server
-          </Button>
+          personal || manage ? (
+            <Button
+              type="button"
+              size="sm"
+              data-testid={personal ? "mcp-new-yours" : "mcp-new"}
+              onClick={() => setEditing(personal ? "new" : "new-bot")}
+            >
+              <Plus />
+              New server
+            </Button>
+          ) : null
         }
-      />
+      >
 
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
@@ -163,39 +202,22 @@ export function McpPanel() {
           icon={Plug}
           title="No MCP servers"
           hint="Add one and it becomes available to the playbooks that name it."
-          action={
-            <Button type="button" size="sm" onClick={() => setEditing("new")}>
-              <Plus />
-              New server
-            </Button>
-          }
         />
       ) : null}
 
       {servers.length > 0 ? (
-        <ul className="space-y-2.5">
-          {servers.map((s) => (
-            <ServerRow
-              key={s.name}
-              server={s}
-              busy={
-                (setEnabled.isPending && setEnabled.variables?.server.name === s.name) ||
-                (remove.isPending && remove.variables === s.name)
-              }
-              onToggle={(enabled) => setEnabled.mutate({ server: s, enabled })}
-              onEdit={() => setEditing(s)}
-              onDelete={() => remove.mutate(s.name)}
-              onTokenChanged={reload}
-            />
-          ))}
-        </ul>
+        <div className="space-y-8">
+          {personal || yours.length > 0 ? renderGroup("Yours", "mcp-yours", yours, !personal) : null}
+          {renderGroup("Slack bot", "mcp-bot", bot, !manage)}
+        </div>
       ) : null}
 
       <ServerDialog
-        key={editing === "new" ? "new" : (editing?.name ?? "closed")}
-        server={editing === "new" ? undefined : editing}
+        key={creating ? editing : (editingServer?.name ?? "closed")}
+        server={editingServer}
+        forBot={editingForBot}
         open={editing !== undefined}
-        taken={new Set(servers.map((s) => s.name))}
+        taken={new Set((editingForBot ? bot : yours).map((s) => s.name))}
         onOpenChange={(open) => {
           if (!open) setEditing(undefined);
         }}
@@ -205,7 +227,7 @@ export function McpPanel() {
           await reload();
         }}
       />
-    </div>
+    </PageFrame>
   );
 }
 
@@ -218,6 +240,7 @@ export function McpPanel() {
 function ServerRow({
   server,
   busy,
+  readOnly,
   onToggle,
   onEdit,
   onDelete,
@@ -225,6 +248,7 @@ function ServerRow({
 }: {
   server: McpServer;
   busy: boolean;
+  readOnly?: boolean;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -246,7 +270,11 @@ function ServerRow({
    */
   const signIn = useMutation({
     mutationFn: () =>
-      agent.startMcpOAuth({ name: server.name, redirectUri: callbackURL() }),
+      agent.startMcpOAuth({
+        name: server.name,
+        redirectUri: callbackURL(),
+        forBot: !server.owner,
+      }),
     onSuccess: (res) => {
       setSignInError(undefined);
       rememberPending({
@@ -301,6 +329,8 @@ function ServerRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {readOnly ? null : (
+          <>
           <div className="flex items-center gap-2">
             <Switch
               id={`${uid}-enabled`}
@@ -340,6 +370,8 @@ function ServerRow({
               <Trash2 />
             </Button>
           </Tooltip>
+          </>
+          )}
         </div>
       </div>
 
@@ -349,6 +381,7 @@ function ServerRow({
         ) : (
           <Chip>no playbook names it</Chip>
         )}
+        {readOnly ? null : (
         <Button
           type="button"
           variant="outline"
@@ -360,6 +393,8 @@ function ServerRow({
           <LogIn />
           {signIn.isPending ? "Discovering…" : server.authKind === "oauth" ? "Sign in again" : "Sign in"}
         </Button>
+        )}
+        {readOnly ? null : (
         <Button
           type="button"
           variant="outline"
@@ -370,6 +405,7 @@ function ServerRow({
           <KeyRound />
           {server.tokenSet && server.authKind !== "oauth" ? "Replace token" : "Paste a token"}
         </Button>
+        )}
         {server.tokenSetBy ? (
           <span className="ml-auto shrink-0 text-2xs text-faint">
             {server.authKind === "oauth" ? "signed in by" : "token by"} {server.tokenSetBy}
@@ -452,12 +488,14 @@ function ServerRow({
  */
 function ServerDialog({
   server,
+  forBot = false,
   open,
   taken,
   onOpenChange,
   onDone,
 }: {
   server?: McpServer;
+  forBot?: boolean;
   open: boolean;
   taken: Set<string>;
   onOpenChange: (open: boolean) => void;
@@ -522,10 +560,10 @@ function ServerDialog({
         config: config.trim(),
       };
       if (creating) {
-        await agent.createMcpServer({ server: body, token: token.trim() });
+        await agent.createMcpServer({ server: body, token: token.trim(), forBot });
         return true;
       }
-      await agent.updateMcpServer({ server: body });
+      await agent.updateMcpServer({ server: body, forBot });
       return false;
     },
     onSuccess: async (created) => {
@@ -788,7 +826,8 @@ function TokenDialog({
   }
 
   const save = useMutation({
-    mutationFn: () => agent.setMcpServerToken({ name: server.name, token: token.trim() }),
+    mutationFn: () =>
+      agent.setMcpServerToken({ name: server.name, token: token.trim(), forBot: !server.owner }),
     onSuccess: () => {
       toast(`${server.name}'s token is stored. It applies to the next turn.`, "ok");
       done();
@@ -797,7 +836,7 @@ function TokenDialog({
   });
 
   const clear = useMutation({
-    mutationFn: () => agent.clearMcpServerToken({ name: server.name }),
+    mutationFn: () => agent.clearMcpServerToken({ name: server.name, forBot: !server.owner }),
     onSuccess: () => {
       toast(`${server.name}'s token is removed. It stays registered.`, "ok");
       done();

@@ -35,9 +35,14 @@ func (s *Store) ListMcpServers(ctx context.Context) ([]mcp.Server, error) {
 	return out, nil
 }
 
-// McpServer reads one. ErrNotFound means it is not registered.
+// McpServer reads the bot's server of this name. ErrNotFound means it is not registered.
 func (s *Store) McpServer(ctx context.Context, name string) (mcp.Server, error) {
-	row, err := s.q.GetMcpServer(ctx, name)
+	return s.McpServerOwned(ctx, "", name)
+}
+
+// McpServerOwned reads one server. An empty owner is the bot list.
+func (s *Store) McpServerOwned(ctx context.Context, owner, name string) (mcp.Server, error) {
+	row, err := s.q.GetMcpServer(ctx, db.GetMcpServerParams{Owner: owner, Name: name})
 	if noRows(err) {
 		return mcp.Server{}, fmt.Errorf("%w: mcp server %s", ErrNotFound, name)
 	}
@@ -58,6 +63,7 @@ func (s *Store) InsertMcpServer(ctx context.Context, srv mcp.Server, login strin
 		CreatedBy:   login,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
+		Owner:       srv.Owner,
 	})
 	if err != nil {
 		return fmt.Errorf("insert mcp server %s: %w", srv.Name, err)
@@ -79,6 +85,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 		Config:      srv.Config,
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
+		Owner:       srv.Owner,
 	})
 	if err != nil {
 		return fmt.Errorf("update mcp server %s: %w", srv.Name, err)
@@ -93,10 +100,11 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 // hint describes. The token itself is already in the control plane by the time this is
 // called — the order is deliberate, and api/mcp.go carries the reasoning.
 func (s *Store) SetMcpServerTokenMeta(
-	ctx context.Context, name, hint, login string, version int32, token string,
+	ctx context.Context, owner, name, hint, login string, version int32, token string,
 ) error {
 	now := time.Now().UTC()
 	n, err := s.q.SetMcpServerTokenMeta(ctx, db.SetMcpServerTokenMetaParams{
+		Owner:              owner,
 		Name:               name,
 		TokenHint:          hint,
 		TokenSetBy:         login,
@@ -119,7 +127,7 @@ func (s *Store) SetMcpServerTokenMeta(
 // and is exclusive with it — either column set clears the other, so a server has one
 // credential and one story about where it came from.
 func (s *Store) SetMcpServerOAuth(
-	ctx context.Context, name, login string, version int32, o mcp.OAuth, token string,
+	ctx context.Context, owner, name, login string, version int32, o mcp.OAuth, token string,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
@@ -127,6 +135,7 @@ func (s *Store) SetMcpServerOAuth(
 	}
 	now := time.Now().UTC()
 	n, err := s.q.SetMcpServerOAuth(ctx, db.SetMcpServerOAuthParams{
+		Owner:              owner,
 		Name:               name,
 		TokenSetBy:         login,
 		TokenSetAt:         &now,
@@ -148,13 +157,14 @@ func (s *Store) SetMcpServerOAuth(
 // touch the provenance: the human who signed in is still the human who signed in, and a
 // background pass writing its own name over theirs would lose the only record of who did.
 func (s *Store) RefreshMcpServerOAuth(
-	ctx context.Context, name string, version int32, o mcp.OAuth, token string,
+	ctx context.Context, owner, name string, version int32, o mcp.OAuth, token string,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
 		return fmt.Errorf("encode mcp server %s oauth: %w", name, err)
 	}
 	n, err := s.q.RefreshMcpServerOAuth(ctx, db.RefreshMcpServerOAuthParams{
+		Owner:              owner,
 		Name:               name,
 		TokenSecretVersion: version,
 		Oauth:              raw,
@@ -170,8 +180,9 @@ func (s *Store) RefreshMcpServerOAuth(
 }
 
 // ClearMcpServerTokenMeta forgets a token that has been removed from the control plane.
-func (s *Store) ClearMcpServerTokenMeta(ctx context.Context, name, login string) error {
+func (s *Store) ClearMcpServerTokenMeta(ctx context.Context, owner, name, login string) error {
 	n, err := s.q.ClearMcpServerTokenMeta(ctx, db.ClearMcpServerTokenMetaParams{
+		Owner:     owner,
 		Name:      name,
 		UpdatedBy: login,
 		UpdatedAt: time.Now().UTC(),
@@ -189,7 +200,12 @@ func (s *Store) ClearMcpServerTokenMeta(ctx context.Context, name, login string)
 // caller is what deletes the secret, because a row that is gone must not leave a credential
 // behind it.
 func (s *Store) DeleteMcpServer(ctx context.Context, name string) error {
-	n, err := s.q.DeleteMcpServer(ctx, name)
+	return s.DeleteMcpServerOwned(ctx, "", name)
+}
+
+// DeleteMcpServerOwned removes one registration. An empty owner is the bot list.
+func (s *Store) DeleteMcpServerOwned(ctx context.Context, owner, name string) error {
+	n, err := s.q.DeleteMcpServer(ctx, db.DeleteMcpServerParams{Owner: owner, Name: name})
 	if err != nil {
 		return fmt.Errorf("delete mcp server %s: %w", name, err)
 	}
@@ -220,6 +236,7 @@ type mcpRow struct {
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
+	Owner              string
 }
 
 func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
@@ -237,6 +254,7 @@ func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
 		CreatedBy:          r.CreatedBy,
 		UpdatedBy:          r.UpdatedBy,
 		UpdatedAt:          r.UpdatedAt.UTC(),
+		Owner:              r.Owner,
 	}
 	if r.TokenSetAt != nil {
 		out.TokenSetAt = r.TokenSetAt.UTC()

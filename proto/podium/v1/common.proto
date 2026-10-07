@@ -55,6 +55,19 @@ message TaskSpec {
   // attempt (up to max_attempts) instead of marking it lost. Off by default: a task that
   // is not idempotent must not be silently run twice.
   bool retry_on_node_loss = 12;
+  // Conversation this task's /workspace belongs to. When set, the node restores that
+  // session's latest snapshot (or the repository base) before the task starts and uploads
+  // a new one after a clean exit. Empty keeps the volume ephemeral.
+  string workspace_session = 13;
+  // Repository a base snapshot is stored under. Sent with the download so a session that
+  // has never snapshotted can start from the base.
+  string workspace_repo = 14;
+  // Also store this task's workspace as the shared base for workspace_repo.
+  bool workspace_publish_base = 15;
+  // How long the runtime stays up after a turn, waiting for the next instruction on the
+  // inbox. Zero means exit when the turn ends. The node forwards it as
+  // PODIUM_WORKSPACE_WARM_SECONDS; it does not itself keep the container alive.
+  google.protobuf.Duration workspace_warm = 16;
 }
 
 // SecretRef names a stored secret and says where the task wants it. Nothing here is
@@ -67,6 +80,9 @@ message SecretRef {
   // key is the environment variable name for target "env", or the absolute path the
   // value is mounted at for target "file".
   string key = 3;
+  // owner is the login of a personal secret. Empty means the secret is global, which is
+  // how a task stored before this field existed still resolves.
+  string owner = 4;
 }
 
 // Resources caps one container. The node applies the limits blindly; refusing a task that

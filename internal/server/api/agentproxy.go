@@ -24,6 +24,19 @@ import (
 // docs/security.md says so.
 const AgentLoginHeader = "X-Podium-Login"
 
+// AgentScopeHeader tells the conductor whether this caller is the shared dev token.
+// agentScopeAll is the operator view (every chat). A signed-in user gets no scope header,
+// which the conductor reads as "own chats only". A client-supplied value is stripped
+// with the login header: the browser must not be able to widen its own view.
+const (
+	AgentScopeHeader = "X-Podium-Scope"
+	agentScopeAll    = "all"
+	// AgentInfraHeader matches internal/agent/api.InfraHeader. The proxy sets it for the
+	// dev token and for an admin or owner, and strips a client-supplied copy. A member
+	// editing the Slack bot's MCP list is refused by the conductor when this is absent.
+	AgentInfraHeader = "X-Podium-Infra"
+)
+
 // localLogin is the login reported for the local transport, which has no per-user identity
 // at all. It is the same word WhoAmI answers there.
 const localLogin = "local"
@@ -51,7 +64,11 @@ const (
 // own operational surface, they are unauthenticated on its listener, and publishing them
 // through an authenticated origin would put a second, differently-shaped health story in
 // front of an operator.
-func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger) (http.Handler, error) {
+//
+// infra, when set, says whether a signed-in person may edit the Slack bot's MCP list.
+// The dev token always may. Callers that pass only the logger leave infra unset, so a
+// KindUser is not marked as an operator.
+func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger, infra ...func(context.Context) bool) (http.Handler, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -67,8 +84,16 @@ func NewAgentProxy(agentURL, agentToken string, logger *slog.Logger) (http.Handl
 		pr.SetXForwarded()
 		pr.Out.Header.Del("Authorization")
 		pr.Out.Header.Del(AgentLoginHeader)
+		pr.Out.Header.Del(AgentScopeHeader)
+		pr.Out.Header.Del(AgentInfraHeader)
 		pr.Out.Header.Set("Authorization", "Bearer "+agentToken)
 		pr.Out.Header.Set(AgentLoginHeader, agentLogin(pr.In.Context()))
+		if agentSeesAll(pr.In.Context()) {
+			pr.Out.Header.Set(AgentScopeHeader, agentScopeAll)
+		}
+		if agentSeesAll(pr.In.Context()) || agentInfra(pr.In.Context(), infra) {
+			pr.Out.Header.Set(AgentInfraHeader, "1")
+		}
 	}}
 	// -1 flushes every write immediately, which is what a server-streaming Connect call
 	// needs: step 21's StreamChat must arrive frame by frame, not buffered to completion.
@@ -115,6 +140,22 @@ func agentLogin(ctx context.Context) string {
 		return localLogin
 	}
 	return id.Login
+}
+
+// agentSeesAll is true only for the shared dev token. A Google Workspace user, and any
+// other named login, is not: they see the chats they own.
+func agentSeesAll(ctx context.Context) bool {
+	id, ok := transport.From(ctx)
+	return ok && id.Kind == transport.KindLocalToken
+}
+
+// agentInfra is the optional admin check the server wires in. A missing function is false,
+// so a test proxy does not mark a signed-in person as an operator.
+func agentInfra(ctx context.Context, infra []func(context.Context) bool) bool {
+	if len(infra) == 0 || infra[0] == nil {
+		return false
+	}
+	return infra[0](ctx)
 }
 
 // writeConnectUnavailable answers a dial failure in the Connect protocol's own error shape

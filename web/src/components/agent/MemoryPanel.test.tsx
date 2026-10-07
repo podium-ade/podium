@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -30,7 +31,9 @@ function mount() {
     <QueryClientProvider client={qc}>
       <ToastHost>
         <MemoryRouter>
-          <MemoryPanel />
+          <Suspense fallback={null}>
+            <MemoryPanel />
+          </Suspense>
         </MemoryRouter>
       </ToastHost>
     </QueryClientProvider>,
@@ -120,11 +123,12 @@ describe("MemoryPanel", () => {
       expect(searchMemories).toHaveBeenCalledWith({ query: "who owns the scheduler", limit: 25 }),
     );
     expect(await screen.findByText("a searched fact")).toBeInTheDocument();
+    expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 
   it("says a search matched nothing without claiming the memory is empty", async () => {
     mount();
-    await userEvent.type(screen.getByTestId("memory-search"), "nothing like this");
+    await userEvent.type(await screen.findByTestId("memory-search"), "nothing like this");
     expect(await screen.findByText("Nothing remembered matches that.")).toBeInTheDocument();
   });
 
@@ -157,22 +161,44 @@ describe("MemoryPanel", () => {
   });
 
   it("says the memory is not configured rather than showing an error", async () => {
-    listMemories.mockRejectedValue(
-      new ConnectError("memory is not configured on this host", Code.FailedPrecondition),
+    let rejectList: (err: unknown) => void = () => {};
+    listMemories.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectList = reject;
+      }),
     );
     mount();
+    // The empty bank and the standing warning are other screens. Neither paints before
+    // this request says the service is missing.
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
+    rejectList(new ConnectError("memory is not configured on this host", Code.FailedPrecondition));
     expect(
       await screen.findByText("Memory is not configured on this host"),
     ).toBeInTheDocument();
     expect(screen.getByText(/PODIUM_AGENT_MEMORY_URL/)).toBeInTheDocument();
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
   });
 
   it("points a human at the empty memory rather than at nothing", async () => {
-    listMemories.mockResolvedValue({ items: [], nextCursor: "" });
+    let resolveList: (value: { items: never[]; nextCursor: string }) => void = () => {};
+    listMemories.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
     mount();
+    expect(screen.queryByTestId("memory-search")).toBeNull();
+    expect(screen.queryByText("Nothing remembered yet.")).toBeNull();
+    expect(screen.queryByText(/Treat every line here/)).toBeNull();
+
+    resolveList({ items: [], nextCursor: "" });
     expect(await screen.findByText("Nothing remembered yet.")).toBeInTheDocument();
-    // The warning is on the screen whether or not there is anything on it: it is the reason
-    // the screen exists.
+    // The warning arrives with the answer. It is on the screen whether or not there is
+    // anything on it: it is the reason the screen exists.
     expect(screen.getByText(/can try to plant a false memory/)).toBeInTheDocument();
   });
 

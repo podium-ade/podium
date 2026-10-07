@@ -106,8 +106,25 @@ func TestAgentProxyConfig(t *testing.T) {
 	ok := base
 	ok.AgentURL = "http://127.0.0.1:8090"
 	ok.AgentToken = "agenttoken"
+	ok.AgentAPIToken = "agent-api"
 	require.NoError(t, ok.Validate())
 	require.True(t, ok.AgentEnabled())
+
+	same := ok
+	same.AgentAPIToken = ok.LocalToken
+	require.ErrorContains(t, same.Validate(), "PODIUM_AGENT_API_TOKEN must differ")
+
+	missingAPI := ok
+	missingAPI.AgentAPIToken = ""
+	require.ErrorContains(t, missingAPI.Validate(), "PODIUM_AGENT_API_TOKEN is required")
+
+	// A tailnet names the conductor by WhoIs, so the second bearer is not required.
+	tailnet := ok
+	tailnet.Transport = TransportTailnet
+	tailnet.AgentAPIToken = ""
+	tailnet.TSHostname = "podium"
+	tailnet.TSStateDir = t.TempDir()
+	require.NoError(t, tailnet.Validate())
 
 	// A trailing slash is a host, not a path.
 	slash := ok
@@ -142,9 +159,11 @@ func TestAgentProxyConfig(t *testing.T) {
 func TestConfigFromEnvReadsTheAgentProxy(t *testing.T) {
 	t.Setenv("PODIUM_AGENT_URL", "http://127.0.0.1:8090")
 	t.Setenv("PODIUM_AGENT_TOKEN", "agenttoken")
+	t.Setenv("PODIUM_AGENT_API_TOKEN", "agent-api")
 	cfg := ConfigFromEnv()
 	require.Equal(t, "http://127.0.0.1:8090", cfg.AgentURL)
 	require.Equal(t, "agenttoken", cfg.AgentToken)
+	require.Equal(t, "agent-api", cfg.AgentAPIToken)
 }
 
 func TestGoogleConfig(t *testing.T) {

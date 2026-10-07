@@ -10,7 +10,7 @@ import (
 )
 
 const getUser = `-- name: GetUser :one
-select login, display_name, roles, first_seen_at, hosted_domain, picture_url from users where login = $1
+select login, display_name, roles, first_seen_at, hosted_domain, picture_url, last_seen_at from users where login = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
@@ -23,13 +23,70 @@ func (q *Queries) GetUser(ctx context.Context, login string) (User, error) {
 		&i.FirstSeenAt,
 		&i.HostedDomain,
 		&i.PictureUrl,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
+const listOwnerLoginsForUpdate = `-- name: ListOwnerLoginsForUpdate :many
+select login from users where 'owner' = any (roles) for update
+`
+
+func (q *Queries) ListOwnerLoginsForUpdate(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listOwnerLoginsForUpdate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var login string
+		if err := rows.Scan(&login); err != nil {
+			return nil, err
+		}
+		items = append(items, login)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsers = `-- name: ListUsers :many
+select login, display_name, roles, first_seen_at, hosted_domain, picture_url, last_seen_at from users order by last_seen_at desc, login
+`
+
+func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.Login,
+			&i.DisplayName,
+			&i.Roles,
+			&i.FirstSeenAt,
+			&i.HostedDomain,
+			&i.PictureUrl,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setUserRoles = `-- name: SetUserRoles :one
 update users set roles = $1 where login = $2
-returning login, display_name, roles, first_seen_at, hosted_domain, picture_url
+returning login, display_name, roles, first_seen_at, hosted_domain, picture_url, last_seen_at
 `
 
 type SetUserRolesParams struct {
@@ -47,18 +104,30 @@ func (q *Queries) SetUserRoles(ctx context.Context, arg SetUserRolesParams) (Use
 		&i.FirstSeenAt,
 		&i.HostedDomain,
 		&i.PictureUrl,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
+const touchUserLastSeen = `-- name: TouchUserLastSeen :exec
+update users set last_seen_at = now()
+where login = $1 and last_seen_at < now() - interval '1 minute'
+`
+
+func (q *Queries) TouchUserLastSeen(ctx context.Context, login string) error {
+	_, err := q.db.Exec(ctx, touchUserLastSeen, login)
+	return err
+}
+
 const upsertUser = `-- name: UpsertUser :one
-insert into users (login, display_name, hosted_domain, picture_url)
-values ($1, $2::text, $3::text, $4::text)
+insert into users (login, display_name, hosted_domain, picture_url, last_seen_at)
+values ($1, $2::text, $3::text, $4::text, now())
 on conflict (login) do update
   set display_name = coalesce($2::text, users.display_name),
       hosted_domain = coalesce(users.hosted_domain, $3::text),
-      picture_url = coalesce($4::text, users.picture_url)
-returning login, display_name, roles, first_seen_at, hosted_domain, picture_url
+      picture_url = coalesce($4::text, users.picture_url),
+      last_seen_at = now()
+returning login, display_name, roles, first_seen_at, hosted_domain, picture_url, last_seen_at
 `
 
 type UpsertUserParams struct {
@@ -83,6 +152,7 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, e
 		&i.FirstSeenAt,
 		&i.HostedDomain,
 		&i.PictureUrl,
+		&i.LastSeenAt,
 	)
 	return i, err
 }

@@ -29,6 +29,7 @@ const listSecrets = vi.fn();
 const listSkills = vi.fn();
 const getProfileFile = vi.fn();
 const updateProfileFile = vi.fn();
+const listUsers = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -41,6 +42,7 @@ vi.mock("../lib/client", async () => {
       listSessions: (...a: unknown[]) => listSessions(...a),
       listTurns: (...a: unknown[]) => listTurns(...a),
       listChats: (...a: unknown[]) => listChats(...a),
+      listMemories: () => Promise.resolve({ items: [], nextCursor: "" }),
       listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       streamChat: (...a: unknown[]) => streamChat(...a),
       getProfile: (...a: unknown[]) => getProfile(...a),
@@ -55,6 +57,7 @@ vi.mock("../lib/client", async () => {
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
+    users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
   };
 });
 
@@ -167,6 +170,8 @@ describe("AgentPage", () => {
       content: "name: podium\n",
       path: "/etc/podium/agent/profile.yaml",
     });
+    listUsers.mockReset();
+    listUsers.mockResolvedValue({ users: [] });
     getProfile.mockResolvedValue(profileResponse);
     listSecrets.mockResolvedValue({ secrets: [] });
     getSettings.mockResolvedValue(notSet);
@@ -190,8 +195,10 @@ describe("AgentPage", () => {
     mount("/agent/settings/account", { ...viewer, googleAuthEnabled: true });
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Account" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Backend" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
       "href",
@@ -200,33 +207,25 @@ describe("AgentPage", () => {
     expect(screen.queryByLabelText("Dev token")).toBeNull();
   });
 
-  it("redirects /agent to the chat tab", async () => {
+  it("redirects /agent to the chat screen", async () => {
     mount("/agent");
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("has one tab per screen and each is a real route", async () => {
+  it("opens Memory on its own bar, not the chat screen", async () => {
+    mount("/agent/memory");
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
+    expect(await screen.findByTestId("memory-search")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-new")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Chat" })).toBeNull();
+  });
+
+  it("renders each assistant screen on its own route, without a tab row", async () => {
     mount("/agent/sessions");
     expect(await screen.findByText("No sessions yet.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Sessions" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    // The tabs this build ships. Playbooks, Skills and Settings live in the app sidebar,
-    // so they must not appear here. Add a line to the tabs array and this list together.
-    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
-      "Chat",
-      "Sessions",
-      "Memory",
-      "Assistant",
-    ]);
-
-    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
-    expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("link", { name: "Assistant" }));
-    expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
+    // Chat, Sessions, Memory and Assistant are in the app sidebar, not this page.
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sessions" })).toBeNull();
   });
 
   it("shows the assistant and the playbooks on their own routes", async () => {
@@ -263,10 +262,28 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
   });
 
+  it("shows self-hosted as the backend and the others as coming soon", async () => {
+    mount("/agent/settings/backend", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
+    expect(await screen.findByRole("link", { name: "Backend" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByRole("link", { name: "Models" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
+    expect(screen.queryByText("Nothing to configure")).toBeNull();
+
+    const backends = screen.getByRole("radiogroup", { name: "Backend" });
+    expect(within(backends).getByRole("radio", { name: /Self-hosted/ })).toBeChecked();
+    expect(within(backends).getByRole("radio", { name: /Modal/ })).toBeDisabled();
+    expect(within(backends).getByRole("radio", { name: /Daytona/ })).toBeDisabled();
+    expect(within(backends).getAllByText("Coming soon")).toHaveLength(2);
+  });
+
   it("renders settings models without the talk tabs", async () => {
     mount("/agent/settings/models");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
@@ -277,12 +294,33 @@ describe("AgentPage", () => {
     expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
   });
 
-  it("keeps the Chat tab active on a deep link to one chat", async () => {
-    // /agent/chat/<id> is a real route, not a state flag, so a link into a conversation
-    // opens it with the tab lit.
+  it("renders users as a settings category", async () => {
+    listUsers.mockResolvedValue({
+      users: [
+        {
+          login: "alice@acme.com",
+          displayName: "Alice",
+          roles: ["owner"],
+          hostedDomain: "acme.com",
+          pictureUrl: "",
+        },
+      ],
+    });
+    mount("/agent/settings/users");
+    expect(await screen.findByRole("link", { name: "Users" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(await screen.findByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Permission")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+  });
+
+  it("opens a deep link to one chat without an in-page tab row", async () => {
+    // /agent/chat/<id> is a real route. The sidebar lights Chat; this page does not.
     mount("/agent/chat/chat_01abc");
     expect(await screen.findByTestId("chat-new")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("saves a key through the RPC and shows it as set afterwards", async () => {
@@ -295,6 +333,9 @@ describe("AgentPage", () => {
     await within(await screen.findByTestId("provider-card-anthropic")).findByText("Not set");
     getSettings.mockResolvedValue(connected);
 
+    await userEvent.click(
+      within(screen.getByTestId("provider-card-anthropic")).getByRole("button", { name: "Connect" }),
+    );
     await userEvent.type(screen.getByTestId("provider-key-input-anthropic"), KEY);
     await userEvent.click(screen.getByTestId("provider-key-save-anthropic"));
 
@@ -332,7 +373,8 @@ describe("AgentPage", () => {
     );
     mount();
     expect(await screen.findByText(/podium-agent is not reachable/)).toBeInTheDocument();
-    // Not a blank card: the input is still there to try again with.
+    expect(screen.getByTestId("provider-card-anthropic")).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]);
     expect(screen.getByTestId("provider-key-input-anthropic")).toBeInTheDocument();
   });
 

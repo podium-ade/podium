@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  AlertTriangle,
   KeyRound,
   RotateCw,
   ShieldCheck,
@@ -21,12 +22,13 @@ import {
 import type { Provider } from "../../lib/agents";
 import { errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative } from "../../lib/format";
+import { oauthExpired } from "../../lib/providerCredential";
 import { cn } from "../../lib/utils";
 import { Badge, Chip } from "../Badge";
+import { Alert } from "../ui/alert";
 import { Skeleton } from "../Skeleton";
 import { useToast } from "../Toast";
 import { Button } from "../ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
 import {
   Dialog,
   DialogContent,
@@ -60,6 +62,8 @@ export type ProviderCardProps = {
   provider: Provider;
   settings?: ProviderSettings;
   loading?: boolean;
+  /** A member can see the row and cannot change the credential. */
+  readOnly?: boolean;
   /** The RPCs, injected: the card itself talks to nothing. */
   onSave: (key: string) => Promise<SetProviderKeyResponse>;
   onClear: () => Promise<void>;
@@ -80,13 +84,14 @@ export type ProviderCardProps = {
  * sentences and three different colours.
  *
  * A configured provider shows no input. An empty password field on a card that already says
- * "Connected" reads as a credential that has gone missing, so replacing one is a deliberate
- * act behind "Rotate key".
+ * "Connected" reads as a credential that has gone missing, so the key field, the
+ * device-code sign-in, and the result stay under the row, behind Connect or Rotate.
  */
 export function ProviderCard({
   provider,
   settings,
   loading,
+  readOnly,
   onSave,
   onClear,
   onStartOAuth,
@@ -102,6 +107,7 @@ export function ProviderCard({
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [open, setOpen] = useState(false);
   const [signing, setSigning] = useState<Signing>();
   const [starting, setStarting] = useState(false);
 
@@ -109,7 +115,6 @@ export function ProviderCard({
   const hint = settings?.keyHint ?? "";
   const oauth = provider.subscription !== undefined && onStartOAuth !== undefined;
   const stored = keySet && !loading;
-  const editing = !loading && (!keySet || rotating);
   const tid = (name: string) => `${name}-${provider.id}`;
 
   // The polling loop. It lives in an effect so that leaving the tab, cancelling, or the
@@ -182,6 +187,7 @@ export function ProviderCard({
       setValue("");
       setReveal(false);
       setRotating(false);
+      setOpen(false);
       setResult({
         tone: "ok",
         text: `Saved. ••••${saved} works. ${res.models.length} ${
@@ -224,6 +230,7 @@ export function ProviderCard({
       await onClear();
       setConfirming(false);
       setRotating(false);
+      setOpen(false);
       setResult(undefined);
       setValue("");
       toast(`The ${provider.name} credential was removed.`, "ok");
@@ -235,243 +242,279 @@ export function ProviderCard({
   }
 
   const subscriptionStored = settings?.authKind === "oauth";
+  const expired = oauthExpired(settings);
+  const showWork = !readOnly && !loading && (rotating || (!stored && open) || signing !== undefined);
+  const signInAgain = () => {
+    setRotating(true);
+    if (settings?.authKind === "oauth") setMode("subscription");
+  };
 
   return (
-    <Card
-      data-testid={tid("provider-card")}
-      // A provider with no credential is an empty slot, and it should look like one before a
-      // word of it is read.
-      className={cn("flex flex-col", !stored && !loading && "border-dashed bg-card/40")}
-    >
-      {/* space-y-0: CardHeader spaces the children of its first block, and this one is a row. */}
-      <CardHeader className="[&>div:first-child]:space-y-0">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg",
-              stored ? "bg-fg text-bg" : "border border-border bg-raised/50 text-fg",
+    <div data-testid={tid("provider-card")} className="py-3">
+      <div className="flex items-start gap-3">
+        <span
+          className={cn(
+            "mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg",
+            stored ? "bg-fg text-bg" : "border border-border bg-raised/50 text-fg",
+          )}
+        >
+          <BackendMark id={provider.backendID} className="size-4 text-inherit" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold tracking-tight text-fg">{provider.models}</span>
+            {loading ? (
+              <Skeleton className="h-4 w-16" />
+            ) : (
+              <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
+                {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+              </Badge>
             )}
-          >
-            <BackendMark id={provider.backendID} className="size-4 text-inherit" />
-          </span>
-          <div className="min-w-0">
-            <CardTitle className="flex flex-wrap items-center gap-2">
-              {provider.models}
-              {loading ? (
-                <Skeleton className="h-4 w-16" />
-              ) : (
-                <Badge tone={keySet ? "ok" : "idle"}>{keySet ? "Connected" : "Not set"}</Badge>
-              )}
-            </CardTitle>
-            <p className="mt-1 text-xs text-muted">
-              {provider.name}
-              <span className="text-faint"> · {provider.how}</span>
-            </p>
           </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex-1 space-y-3">
-        {loading ? (
-          <div className="space-y-3" aria-busy="true" aria-label="Loading">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-8 w-36" />
-          </div>
-        ) : (
-          <>
-            {stored ? (
-              <div className="flex items-start gap-2.5 rounded-lg border border-hairline bg-raised/40 px-3 py-2.5">
-                {subscriptionStored ? (
-                  <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
+          <p className="mt-0.5 text-xs leading-relaxed text-muted">
+            {provider.name}
+            <span className="text-faint"> · {provider.how}</span>
+          </p>
+          {stored ? (
+            <p
+              data-testid={tid("provider-key-meta")}
+              className="mt-1 flex items-start gap-1.5 font-mono text-xs break-words text-muted"
+            >
+              {subscriptionStored ? (
+                expired ? (
+                  <AlertTriangle className="mt-px size-3.5 shrink-0 text-warn" />
                 ) : (
-                  <KeyRound className="mt-px size-3.5 shrink-0 text-muted" />
-                )}
-                <p
-                  data-testid={tid("provider-key-meta")}
-                  className="min-w-0 font-mono text-xs break-words text-muted"
-                >
-                  <Connected settings={settings} />
-                </p>
-              </div>
+                  <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
+                )
+              ) : (
+                <KeyRound className="mt-px size-3.5 shrink-0 text-muted" />
+              )}
+              <span>
+                <Connected settings={settings} />
+              </span>
+            </p>
+          ) : null}
+        </div>
+        {loading || readOnly ? null : (
+          <div className="flex shrink-0 items-center gap-2">
+            {!stored && !showWork ? (
+              <Button type="button" size="sm" onClick={() => setOpen(true)}>
+                Connect
+              </Button>
             ) : null}
-
-            {editing && oauth ? (
-              <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
-                {(["key", "subscription"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    aria-pressed={mode === m}
-                    data-testid={tid(`provider-mode-${m}`)}
-                    onClick={() => setMode(m)}
-                    className={cn(
-                      "inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium",
-                      "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                      mode === m ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
-                    )}
-                  >
-                    {m === "key" ? "API key" : "Subscription"}
-                  </button>
-                ))}
-              </div>
+            {stored && !rotating && !expired ? (
+              <Button variant="outline" size="sm" onClick={signInAgain}>
+                <RotateCw />
+                {subscriptionStored ? "Sign in again" : "Rotate key"}
+              </Button>
             ) : null}
-
-            {editing && oauth && mode === "subscription" ? (
-              <SubscriptionPanel
-                provider={provider}
-                signing={signing}
-                starting={starting}
-                onStart={() => void startSignIn()}
-                onCancel={() => setSigning(undefined)}
-                tid={tid}
-              />
-            ) : null}
-
-            {editing && !(oauth && mode === "subscription") ? (
-              <form
-                className="space-y-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void save();
-                }}
+            {stored ? (
+              <Button
+                variant="danger"
+                size="sm"
+                data-testid={tid("provider-key-remove")}
+                onClick={() => setConfirming(true)}
               >
-                <Label htmlFor={tid("provider-key")}>
-                  {keySet ? "Replacement API key" : "API key"}
-                </Label>
-                <div className="relative">
-                  <Input
-                    id={tid("provider-key")}
-                    data-testid={tid("provider-key-input")}
-                    type={reveal ? "text" : "password"}
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={
-                      keySet
-                        ? hint
-                          ? `Paste a new key to replace ••••${hint}`
-                          : "Paste a key to replace the one that is set"
-                        : provider.keyPlaceholder
-                    }
-                    value={value}
-                    // People copy out of a .env file, so the quotes and the whitespace
-                    // come with it. Trimming on the way in is kinder than an error.
-                    onChange={(e) => setValue(trimPasted(e.target.value))}
-                    className="pr-10 font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-pressed={reveal}
-                    aria-label={reveal ? "Hide the key" : "Show the key"}
-                    onClick={() => setReveal((v) => !v)}
-                    className="absolute top-1/2 right-0.5 -translate-y-1/2"
-                  >
-                    {reveal ? <EyeOff /> : <Eye />}
-                  </Button>
+                {subscriptionStored ? "Sign out" : "Remove key"}
+              </Button>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="mt-3 space-y-2 pl-12" aria-busy="true" aria-label="Loading">
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-8 w-28" />
+        </div>
+      ) : (
+        <div className="space-y-3 pl-12">
+          {expired && !rotating ? (
+            <Alert
+              variant="warn"
+              role="alert"
+              data-testid={tid("provider-sign-in-expired")}
+              title={`Sign in to ${provider.models} again`}
+              className="mt-3"
+            >
+              <p>
+                The subscription token expired and could not be renewed. Chats that use this
+                model fail until you sign in again.
+              </p>
+              {readOnly ? null : (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2"
+                  data-testid={tid("provider-sign-in-again")}
+                  onClick={signInAgain}
+                >
+                  Sign in again
+                </Button>
+              )}
+            </Alert>
+          ) : null}
+
+          {showWork ? (
+            <div className="mt-3 space-y-3 border-t border-hairline pt-3">
+              {oauth ? (
+                <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
+                  {(["key", "subscription"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={mode === m}
+                      data-testid={tid(`provider-mode-${m}`)}
+                      onClick={() => setMode(m)}
+                      className={cn(
+                        "inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium",
+                        "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                        mode === m ? "bg-raised text-fg shadow-xs" : "text-muted hover:text-fg",
+                      )}
+                    >
+                      {m === "key" ? "API key" : "Subscription"}
+                    </button>
+                  ))}
                 </div>
-                <p className="text-xs text-muted">
-                  From{" "}
-                  <a
-                    href={provider.consoleURL}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-accent hover:underline"
-                  >
-                    {new URL(provider.consoleURL).host}
-                  </a>
-                  .
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="submit"
-                    size="sm"
-                    data-testid={tid("provider-key-save")}
-                    disabled={value.trim() === "" || saving}
-                  >
-                    {saving ? <Spinner /> : null}
-                    {saving ? `Checking with ${provider.name}…` : "Validate & save"}
-                  </Button>
-                  {rotating ? (
+              ) : null}
+
+              {oauth && mode === "subscription" ? (
+                <SubscriptionPanel
+                  provider={provider}
+                  signing={signing}
+                  starting={starting}
+                  onStart={() => void startSignIn()}
+                  onCancel={() => setSigning(undefined)}
+                  tid={tid}
+                />
+              ) : (
+                <form
+                  className="space-y-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save();
+                  }}
+                >
+                  <Label htmlFor={tid("provider-key")}>
+                    {keySet ? "Replacement API key" : "API key"}
+                  </Label>
+                  <div className="relative max-w-xl">
+                    <Input
+                      id={tid("provider-key")}
+                      data-testid={tid("provider-key-input")}
+                      type={reveal ? "text" : "password"}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={
+                        keySet
+                          ? hint
+                            ? `Paste a new key to replace ••••${hint}`
+                            : "Paste a key to replace the one that is set"
+                          : provider.keyPlaceholder
+                      }
+                      value={value}
+                      // People copy out of a .env file, so the quotes and the whitespace
+                      // come with it. Trimming on the way in is kinder than an error.
+                      onChange={(e) => setValue(trimPasted(e.target.value))}
+                      className="pr-10 font-mono text-sm"
+                    />
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setRotating(false);
-                        setValue("");
-                      }}
+                      size="icon-sm"
+                      aria-pressed={reveal}
+                      aria-label={reveal ? "Hide the key" : "Show the key"}
+                      onClick={() => setReveal((v) => !v)}
+                      className="absolute top-1/2 right-0.5 -translate-y-1/2"
                     >
-                      Keep the current key
+                      {reveal ? <EyeOff /> : <Eye />}
                     </Button>
+                  </div>
+                  <p className="text-xs text-muted">
+                    From{" "}
+                    <a
+                      href={provider.consoleURL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-accent hover:underline"
+                    >
+                      {new URL(provider.consoleURL).host}
+                    </a>
+                    .
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      data-testid={tid("provider-key-save")}
+                      disabled={value.trim() === "" || saving}
+                    >
+                      {saving ? <Spinner /> : null}
+                      {saving ? `Checking with ${provider.name}…` : "Validate & save"}
+                    </Button>
+                    {rotating ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setRotating(false);
+                          setValue("");
+                        }}
+                      >
+                        Keep the current key
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : null}
+
+          {result ? (
+            <div
+              data-testid={tid("provider-key-status")}
+              role="status"
+              aria-live="polite"
+              className={cn(
+                "rounded-lg border px-3 py-2 text-xs",
+                result.tone === "ok"
+                  ? "border-ok/30 bg-ok/8 text-ok"
+                  : result.tone === "err"
+                    ? "border-err/30 bg-err/8 text-err"
+                    : "border-warn/30 bg-warn/8 text-warn",
+              )}
+            >
+              <p>{result.text}</p>
+              {result.tone !== "ok" && result.detail ? (
+                <p
+                  data-testid={tid("provider-key-detail")}
+                  className="mt-1.5 max-w-2xl rounded-md border border-border bg-raised px-2 py-1.5 text-xs break-words text-muted"
+                >
+                  <span className="font-semibold">{result.detail.label}:</span> {result.detail.text}
+                </p>
+              ) : null}
+              {result.tone === "ok" && result.note ? (
+                <p className="mt-1 text-warn">{result.note}</p>
+              ) : null}
+              {result.tone === "ok" && result.models.length > 0 ? (
+                <p className="mt-2 flex flex-wrap gap-1">
+                  {result.models.slice(0, MODEL_CHIPS).map((m) => (
+                    <Chip key={m}>{m}</Chip>
+                  ))}
+                  {result.models.length > MODEL_CHIPS ? (
+                    <Chip>+{result.models.length - MODEL_CHIPS} more</Chip>
                   ) : null}
-                </div>
-              </form>
-            ) : null}
-
-            {result ? (
-              <div
-                data-testid={tid("provider-key-status")}
-                role="status"
-                aria-live="polite"
-                className={cn(
-                  "rounded-lg border px-3 py-2 text-xs",
-                  result.tone === "ok"
-                    ? "border-ok/30 bg-ok/8 text-ok"
-                    : result.tone === "err"
-                      ? "border-err/30 bg-err/8 text-err"
-                      : "border-warn/30 bg-warn/8 text-warn",
-                )}
-              >
-                <p>{result.text}</p>
-                {result.tone !== "ok" && result.detail ? (
-                  <p
-                    data-testid={tid("provider-key-detail")}
-                    className="mt-1.5 max-w-2xl rounded-md border border-border bg-raised px-2 py-1.5 text-xs break-words text-muted"
-                  >
-                    <span className="font-semibold">{result.detail.label}:</span>{" "}
-                    {result.detail.text}
-                  </p>
-                ) : null}
-                {result.tone === "ok" && result.note ? (
-                  <p className="mt-1 text-warn">{result.note}</p>
-                ) : null}
-                {result.tone === "ok" && result.models.length > 0 ? (
-                  <p className="mt-2 flex flex-wrap gap-1">
-                    {result.models.slice(0, MODEL_CHIPS).map((m) => (
-                      <Chip key={m}>{m}</Chip>
-                    ))}
-                    {result.models.length > MODEL_CHIPS ? (
-                      <Chip>+{result.models.length - MODEL_CHIPS} more</Chip>
-                    ) : null}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        )}
-      </CardContent>
-
-      {stored ? (
-        <CardFooter>
-          {rotating ? null : (
-            <Button variant="outline" size="sm" onClick={() => setRotating(true)}>
-              <RotateCw />
-              {subscriptionStored ? "Sign in again" : "Rotate key"}
-            </Button>
-          )}
-          <Button
-            variant="danger"
-            size="sm"
-            data-testid={tid("provider-key-remove")}
-            className="ml-auto"
-            onClick={() => setConfirming(true)}
-          >
-            {subscriptionStored ? "Sign out" : "Remove key"}
-          </Button>
-        </CardFooter>
-      ) : null}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent className="max-w-md" showClose={false}>
@@ -502,17 +545,10 @@ export function ProviderCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }
 
-/**
- * SubscriptionPanel is the device-code flow: one button, then a code to read out and a URL
- * to open, then waiting.
- *
- * The code is the whole interaction, so it is rendered at a size somebody can read off a
- * screen and type on a phone, with a copy button for when they cannot.
- */
 function SubscriptionPanel({
   provider,
   signing,
@@ -619,7 +655,11 @@ function Connected({ settings }: { settings?: ProviderSettings }) {
         subscription
         {settings.account ? ` · ${settings.account}` : ""}
         {settings.setAt ? ` · ${relative(settings.setAt)}` : ""}
-        {settings.refreshable ? " · auto-renewing" : " · not renewable"}
+        {settings.expiresAt && oauthExpired(settings)
+          ? " · renewal failed"
+          : settings.refreshable
+            ? " · auto-renewing"
+            : " · not renewable"}
       </>
     );
   }

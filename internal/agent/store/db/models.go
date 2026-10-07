@@ -86,6 +86,7 @@ type McpServer struct {
 	UpdatedAt          time.Time
 	Token              string
 	Config             string
+	Owner              string
 }
 
 type Relayed struct {

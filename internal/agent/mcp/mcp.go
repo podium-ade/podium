@@ -14,6 +14,8 @@
 package mcp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,6 +128,8 @@ type OAuth struct {
 
 // Server is one registered MCP server. It is the row, and the API message is built from it.
 type Server struct {
+	// Owner is the login this server belongs to. Empty is the Slack bot list.
+	Owner       string
 	Name        string
 	URL         string
 	Description string
@@ -173,6 +177,23 @@ func (s Server) Refreshable() bool {
 // name it: the conductor decides which turns get which server, and a playbook that could
 // name the secret could hand the token to a container the registry never granted it to.
 func TokenSecret(name string) string { return SecretPrefix + name + "_token" }
+
+// PersonalTokenSecret is the global secret one person's server is stored as. The owner is
+// hashed because a login is an email and @ is not a legal secret name. Two people who both
+// register `linear` do not share a secret.
+func PersonalTokenSecret(owner, name string) string {
+	sum := sha256.Sum256([]byte(owner))
+	return SecretPrefix + "u" + hex.EncodeToString(sum[:8]) + "." + name + "_token"
+}
+
+// CredentialSecret is the Podium secret a server's token is stored as. A bot row keeps
+// TokenSecret. A personal row embeds the owner so it cannot collide with the bot's.
+func CredentialSecret(srv Server) string {
+	if srv.Owner == "" {
+		return TokenSecret(srv.Name)
+	}
+	return PersonalTokenSecret(srv.Owner, srv.Name)
+}
 
 // TokenEnv is where that secret lands in a task container, and what the brief's token_env
 // names. NameRE has already refused everything but lowercase alphanumerics and hyphens, so

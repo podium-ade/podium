@@ -358,10 +358,17 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
+	// The person this conversation belongs to. A Slack thread has none, so a playbook
+	// that names personal secrets fails here, before a task exists.
+	login := c.asker(ctx, g.src, sess)
+	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
+		return nil, err
+	}
 	// The delegated playbook's own MCP servers, resolved the same way a turn's are. The
 	// host turn that asked for this has none of its own — it delegates to a playbook that
-	// has what it needs, which is exactly what this line is.
-	servers, err := c.mcpServers(ctx, j)
+	// has what it needs, which is exactly what this line is. A person's servers are that
+	// person's rows; a Slack turn keeps the unowned bot list.
+	servers, err := c.mcpServers(ctx, j, login)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
@@ -376,9 +383,9 @@ func (c *Conductor) startDelegatedTask(
 	if err != nil {
 		return nil, err
 	}
-	task, err := c.podium.CreateTask(ctx,
-		c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice, capabilitySecret),
-		int32(playbook.Priority))
+	taskSpec := c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice, capabilitySecret, login)
+	applyWorkspace(taskSpec, sess.ID, playbook)
+	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
 		if capabilitySecret != "" {
 			c.dropGitCapability(ctx, dlg.ID)

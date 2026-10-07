@@ -172,6 +172,16 @@ function mount(path = "/agent/chat") {
   );
 }
 
+/**
+ * onArrival waits for the blank arrival after leaving a thread. An empty thread shows the same
+ * greeting, so finding the text alone can grab the thread's copy just before the navigation
+ * unmounts it. The title slot says which screen this is: the arrival's reads "New chat".
+ */
+async function onArrival() {
+  await waitFor(() => expect(screen.getByTestId("chat-title")).toHaveTextContent("New chat"));
+  expect(screen.getByText(/Podium answers here/)).toBeInTheDocument();
+}
+
 describe("ChatPanel", () => {
   beforeEach(() => {
     listChats.mockReset();
@@ -186,9 +196,12 @@ describe("ChatPanel", () => {
     streamChat.mockImplementation(() => live());
   });
 
-  it("says there is nothing yet and offers a new chat", async () => {
+  it("opens on a blank conversation you can already ask", async () => {
     mount();
-    expect(await screen.findByText("No chats yet")).toBeInTheDocument();
+    expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
+    expect(await screen.findByText("analyst")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Why did the nightly ETL fail?" })).toBeEnabled();
+    expect(screen.getByTestId("chat-composer")).toBeEnabled();
     expect(screen.getByTestId("chat-new")).toBeEnabled();
     expect(streamChat).not.toHaveBeenCalled();
   });
@@ -201,12 +214,21 @@ describe("ChatPanel", () => {
     expect(list).toHaveTextContent("how many active accounts");
   });
 
-  it("creates a chat and opens it", async () => {
+  it("creates a chat when the first question is sent", async () => {
     createChat.mockResolvedValue({ chat });
+    sendChatMessage.mockResolvedValue({ message: {} });
     mount();
-    await userEvent.click(await screen.findByTestId("chat-new"));
+    await userEvent.type(await screen.findByTestId("chat-composer"), "how many active accounts{Enter}");
     await waitFor(() => expect(createChat).toHaveBeenCalledWith({ title: "" }));
-    // Opening it is what starts the stream.
+    await waitFor(() =>
+      expect(sendChatMessage).toHaveBeenCalledWith({
+        chatId: "chat_01abc",
+        text: "how many active accounts",
+        agent: "",
+        model: "",
+        effort: "",
+      }),
+    );
     await waitFor(() =>
       expect(streamChat).toHaveBeenCalledWith(
         { chatId: "chat_01abc", fromSeq: 0n },
@@ -482,7 +504,7 @@ describe("ChatPanel", () => {
     sendChatMessage.mockImplementation(() => new Promise(() => {}));
     mount("/agent/chat/chat_01abc");
 
-    expect(await screen.findByText("Ask Podium something")).toBeInTheDocument();
+    expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
     await userEvent.type(await screen.findByTestId("chat-composer"), "how many accounts{Enter}");
 
     const mine = await waitFor(() => {
@@ -491,7 +513,7 @@ describe("ChatPanel", () => {
       return found[0];
     });
     expect(mine).toHaveTextContent("how many accounts");
-    expect(screen.queryByText("Ask Podium something")).toBeNull();
+    expect(screen.queryByText(/Podium answers here/)).toBeNull();
     expect(screen.getByTestId("chat-progress")).toBeInTheDocument();
     expect(screen.getByTestId("chat-composer")).toBeDisabled();
   });
@@ -518,15 +540,15 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(signals).toHaveLength(1));
     expect(signals[0].aborted).toBe(false);
 
-    // Switching chats through the rail: the first stream must be cancelled, not left open.
-    createChat.mockResolvedValue({ chat: { ...chat, id: "chat_02def" } });
+    // New chat leaves the thread for the blank arrival. The open stream closes, and
+    // nothing new is streamed until a question creates a chat.
     await userEvent.click(screen.getByTestId("chat-new"));
     await waitFor(() => expect(signals[0].aborted).toBe(true));
-    await waitFor(() => expect(signals).toHaveLength(2));
+    expect(createChat).not.toHaveBeenCalled();
+    await onArrival();
+    expect(signals).toHaveLength(1);
 
-    // And unmounting closes whatever is open.
     unmount();
-    await waitFor(() => expect(signals[1].aborted).toBe(true));
   });
 
   it("renders an untrusted answer as text, never as markup", async () => {
@@ -615,7 +637,7 @@ describe("ChatPanel", () => {
     expect(await screen.findByText("This chat is gone")).toBeInTheDocument();
     expect(screen.queryByText(/Nothing was lost/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Back to chats" }));
-    expect(await screen.findByText("Pick a chat, or start a new one")).toBeInTheDocument();
+    expect(await screen.findByText(/Podium answers here/)).toBeInTheDocument();
   });
 
   it("asks before deleting, and the chat goes when it is confirmed", async () => {
@@ -695,7 +717,7 @@ describe("ChatPanel", () => {
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     await userEvent.click(screen.getByTestId("chat-delete-confirm"));
 
-    expect(await screen.findByText("No chats yet")).toBeInTheDocument();
+    await onArrival();
   });
 
   it("says the conductor is down without breaking the page", async () => {
@@ -819,6 +841,32 @@ describe("ChatPanel", () => {
     await waitFor(() => expect(list).toHaveTextContent("#support"));
     expect(list).not.toHaveTextContent("slack");
     expect(await screen.findByTestId("chat-channel")).toHaveTextContent("#support");
+  });
+
+  it("lists web chats and slack threads apart", async () => {
+    listChats.mockResolvedValue({
+      chats: [
+        chat,
+        {
+          ...chat,
+          id: "chat_slack",
+          title: "in the channel",
+          origin: "slack",
+          startedBy: "carol",
+        },
+      ],
+      nextCursor: "",
+    });
+    mount();
+
+    const web = await screen.findByTestId("chat-origin-web");
+    const slack = await screen.findByTestId("chat-origin-slack");
+    expect(web).toHaveTextContent("Web");
+    expect(slack).toHaveTextContent("Slack");
+    const list = screen.getByTestId("chat-list");
+    expect(list).toHaveTextContent("August numbers");
+    expect(list).toHaveTextContent("in the channel");
+    expect(list.textContent?.indexOf("Web")).toBeLessThan(list.textContent?.indexOf("Slack") ?? -1);
   });
 
 });

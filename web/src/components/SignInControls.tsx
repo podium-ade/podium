@@ -10,31 +10,10 @@ import { Label } from "./ui/label";
 
 export function SignInShell({ children }: { children: ReactNode }) {
   return (
-    <div className="relative grid h-full place-items-center overflow-y-auto bg-background p-6">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(60%_100%_at_50%_0%,var(--color-accent),transparent)] opacity-[0.07]"
-      />
-      <div className="relative w-full max-w-sm">
-        <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <span
-            aria-hidden
-            className="grid size-10 place-items-center rounded-xl bg-accent/12 text-accent ring-1 ring-accent/25"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              className="size-5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-            >
-              <path d="M3 12.5V9m5 3.5V4m5 8.5V6.5" />
-            </svg>
-          </span>
-          <h1 className="font-mono text-base font-semibold tracking-tight">
-            podium<span className="text-accent">.</span>
-          </h1>
+    <div className="grid h-full place-items-center overflow-y-auto bg-background p-6">
+      <div className="w-full max-w-sm">
+        <div className="mb-7 text-center">
+          <h1 className="text-base font-semibold tracking-tight text-fg">Podium</h1>
         </div>
         {children}
       </div>
@@ -42,12 +21,12 @@ export function SignInShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function GoogleSignIn({ claimed }: { claimed: boolean }) {
+export function GoogleSignIn({ claimed, bare = false }: { claimed: boolean; bare?: boolean }) {
   const errorCode = new URLSearchParams(window.location.search).get("auth_error") ?? "";
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <div className={bare ? undefined : "rounded-xl border border-border bg-card p-5 shadow-sm"}>
       {claimed ? (
-        <p className="text-center text-xs leading-relaxed text-muted">
+        <p className={bare ? "text-xs leading-relaxed text-muted" : "text-center text-xs leading-relaxed text-muted"}>
           This instance of Podium is claimed.
           <br />
           <br />

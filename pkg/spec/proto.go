@@ -14,14 +14,20 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		return nil
 	}
 	p := &podiumv1.TaskSpec{
-		Image:           s.Image,
-		Command:         append([]string(nil), s.Command...),
-		WorkingDir:      s.WorkingDir,
-		Labels:          append([]string(nil), s.Labels...),
-		MaxAttempts:     int32(s.MaxAttempts),
-		RetryOnNodeLoss: s.RetryOnNodeLoss,
-		Resources:       s.Resources.toProto(),
-		Hardening:       s.Hardening.toProto(),
+		Image:                s.Image,
+		Command:              append([]string(nil), s.Command...),
+		WorkingDir:           s.WorkingDir,
+		Labels:               append([]string(nil), s.Labels...),
+		MaxAttempts:          int32(s.MaxAttempts),
+		RetryOnNodeLoss:      s.RetryOnNodeLoss,
+		WorkspaceSession:     s.WorkspaceSession,
+		WorkspaceRepo:        s.WorkspaceRepo,
+		WorkspacePublishBase: s.WorkspacePublishBase,
+		Resources:            s.Resources.toProto(),
+		Hardening:            s.Hardening.toProto(),
+	}
+	if s.WorkspaceWarm != 0 {
+		p.WorkspaceWarm = durationpb.New(s.WorkspaceWarm.Std())
 	}
 	if len(s.Env) > 0 {
 		p.Env = maps.Clone(s.Env)
@@ -33,7 +39,7 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		p.Secrets = make([]*podiumv1.SecretRef, 0, len(s.Secrets))
 		for _, ref := range s.Secrets {
 			p.Secrets = append(p.Secrets, &podiumv1.SecretRef{
-				Name: ref.Name, Target: ref.Target, Key: ref.Key,
+				Name: ref.Name, Target: ref.Target, Key: ref.Key, Owner: ref.Owner,
 			})
 		}
 	}
@@ -52,14 +58,20 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		return nil
 	}
 	s := &TaskSpec{
-		Image:           p.GetImage(),
-		Command:         append([]string(nil), p.GetCommand()...),
-		WorkingDir:      p.GetWorkingDir(),
-		Labels:          append([]string(nil), p.GetLabels()...),
-		MaxAttempts:     int(p.GetMaxAttempts()),
-		RetryOnNodeLoss: p.GetRetryOnNodeLoss(),
-		Resources:       resourcesFromProto(p.GetResources()),
-		Hardening:       hardeningFromProto(p.GetHardening()),
+		Image:                p.GetImage(),
+		Command:              append([]string(nil), p.GetCommand()...),
+		WorkingDir:           p.GetWorkingDir(),
+		Labels:               append([]string(nil), p.GetLabels()...),
+		MaxAttempts:          int(p.GetMaxAttempts()),
+		RetryOnNodeLoss:      p.GetRetryOnNodeLoss(),
+		WorkspaceSession:     p.GetWorkspaceSession(),
+		WorkspaceRepo:        p.GetWorkspaceRepo(),
+		WorkspacePublishBase: p.GetWorkspacePublishBase(),
+		Resources:            resourcesFromProto(p.GetResources()),
+		Hardening:            hardeningFromProto(p.GetHardening()),
+	}
+	if w := p.GetWorkspaceWarm(); w != nil {
+		s.WorkspaceWarm = Duration(w.AsDuration())
 	}
 	if len(p.GetEnv()) > 0 {
 		s.Env = maps.Clone(p.GetEnv())
@@ -71,7 +83,7 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		s.Secrets = make([]SecretRef, 0, len(p.GetSecrets()))
 		for _, ref := range p.GetSecrets() {
 			s.Secrets = append(s.Secrets, SecretRef{
-				Name: ref.GetName(), Target: ref.GetTarget(), Key: ref.GetKey(),
+				Name: ref.GetName(), Target: ref.GetTarget(), Key: ref.GetKey(), Owner: ref.GetOwner(),
 			})
 		}
 	}

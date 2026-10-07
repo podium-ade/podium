@@ -15,7 +15,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import type { Secret } from "../../gen/podium/v1/secret_pb";
+import { SecretScope, type Secret } from "../../gen/podium/v1/secret_pb";
 import { errorMessage, secrets } from "../../lib/client";
 import { humanBytes, relative } from "../../lib/format";
 import { cn } from "../../lib/utils";
@@ -57,12 +57,15 @@ export function SecretDialog({
   onOpenChange,
   existing,
   lockedName,
+  scope = SecretScope.GLOBAL,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The current list, so a name that is already taken can be recognised as it is typed. */
   existing: Secret[];
   lockedName?: string;
+  /** Global is the company list. Personal is the signed-in person's own. */
+  scope?: SecretScope;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -85,6 +88,7 @@ export function SecretDialog({
     mutationFn: async () =>
       secrets.setSecret({
         name: trimmed,
+        scope,
         value: file
           ? new Uint8Array(await file.arrayBuffer())
           : new TextEncoder().encode(value),

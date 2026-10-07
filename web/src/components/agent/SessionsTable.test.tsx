@@ -70,6 +70,28 @@ describe("SessionsTable", () => {
     expect(screen.getByText(/Mention the bot in Slack/)).toBeInTheDocument();
   });
 
+  it("lists web turns and slack turns apart", async () => {
+    listSessions.mockResolvedValue({
+      sessions: [
+        session,
+        {
+          ...session,
+          id: "sess_web",
+          sourceKind: "chat",
+          sourceKey: "chat:chat_01abc",
+        },
+      ],
+      nextCursor: "",
+    });
+    mount();
+    expect(await screen.findByTestId("session-section-web")).toHaveTextContent("Web");
+    expect(screen.getByTestId("session-section-slack")).toHaveTextContent("Slack");
+    const rows = screen.getAllByTestId("session-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("chat");
+    expect(rows[1]).toHaveTextContent("slack");
+  });
+
   it("shows the source, a readable conversation ref and the playbook", async () => {
     mount();
     const row = await screen.findByTestId("session-row");

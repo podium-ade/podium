@@ -60,6 +60,7 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 			Secrets:    injected,
 			Registries: registries,
 			Artifacts:  artifactUploader{n},
+			Workspace:  n.workspaceHooks(taskID, taskSpec),
 		}, events)
 		return err
 	})
