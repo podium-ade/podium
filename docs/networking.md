@@ -417,8 +417,9 @@ Nothing in Podium needs a public address:
   host port to firewall.
 - People reach it because they are on the tailnet, not because it is on the internet.
 
-GitHub App webhooks land on **a second listener** on `podium-agent`
-(`PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN`), muxed to `POST /webhooks/github` only, HMAC-verified.
+GitHub App webhooks land on **a second listener** on `podium-agent` (the listen address
+saved with the App under Settings → Connections), muxed to `POST /webhooks/github` only,
+HMAC-verified.
 Tailscale Funnel or a tunnel points at that address and nowhere else — so exposing a webhook
 never exposes the API or the UI. Slack is still Socket Mode (zero ingress). Linear is still
 polling.

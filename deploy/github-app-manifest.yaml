@@ -1,11 +1,11 @@
 # The GitHub App podium-agent connects as. Each operator creates THIS app in their own
 # GitHub org — Podium does not ship a Marketplace listing. Create it at
 # https://github.com/settings/apps/new (or the org equivalent) and paste these permissions
-# and events. docs/agent.md walks through the rest: private key, webhook URL, the four
-# environment variables.
+# and events. docs/agent.md walks through the rest: paste the private key and the webhook
+# secret under Settings → Connections. The GitHub App environment variables are ignored.
 #
-# Replace WEBHOOK_URL with whatever Tailscale Funnel / tunnel points at THIS conductor's
-# PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN, path /webhooks/github. Exposing that mux must not
+# Replace WEBHOOK_URL with whatever Tailscale Funnel / tunnel points at the listen address
+# saved with the App, path /webhooks/github. Exposing that mux must not
 # expose the AgentService or the UI; see docs/networking.md.
 #
 # The bot's GitHub identity is this App. Playbook turns still clone with

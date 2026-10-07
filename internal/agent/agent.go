@@ -23,6 +23,7 @@ import (
 	"github.com/podium-ade/podium/internal/agent/chat"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
+	"github.com/podium-ade/podium/internal/agent/connections"
 	"github.com/podium-ade/podium/internal/agent/ghreview"
 	"github.com/podium-ade/podium/internal/agent/github"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
@@ -77,6 +78,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if ignored := config.DeprecatedGitHubEnv(); len(ignored) > 0 {
+		logger.Warn("GitHub App environment variables are ignored. Set the App under Settings → Connections.",
+			"ignored", ignored)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("agent config: %w", err)
 	}
@@ -94,6 +99,25 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if err := st.Migrate(ctx); err != nil {
 		st.Close()
 		return nil, err
+	}
+
+	// A saved Slack connection replaces the environment. The GitHub App has no
+	// environment fallback: Settings → Connections is the only source, and a saved row
+	// is what this process uses. A half-set Slack pair is still a startup error.
+	envCfg := cfg
+	savedSlack, savedGitHub, err := connections.Load(ctx, st)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	cfg = connections.Overlay(cfg, savedSlack, savedGitHub)
+	if savedSlack != nil || savedGitHub != nil {
+		if err := cfg.Validate(); err != nil {
+			st.Close()
+			return nil, fmt.Errorf("agent config: saved connection: %w", err)
+		}
+		logger.Info("connections: using a saved connection",
+			"slack", savedSlack != nil, "github", savedGitHub != nil)
 	}
 
 	// Apply stored overrides before anything reads the profile. A failure here is not
@@ -387,6 +411,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 	a.svc = api.NewAgentService(api.AgentServiceOptions{
 		Store:               a.store,
+		Env:                 envCfg,
+		Running:             a.cfg,
 		Secrets:             a.podium,
 		Model:               profile.Model,
 		AnthropicBaseURL:    a.cfg.AnthropicBaseURL,
@@ -435,8 +461,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if !cfg.SlackEnabled() && !cfg.LinearEnabled() && !cfg.GitHubSourceEnabled() {
 		logger.Info("no Slack, Linear or GitHub review source: the web chat at /agent/chat is the only " +
 			"way to start a turn. Set both PODIUM_AGENT_SLACK_APP_TOKEN and " +
-			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or the GitHub App " +
-			"plus PODIUM_AGENT_GITHUB_WEBHOOK_SECRET and PODIUM_AGENT_GITHUB_WEBHOOK_LISTEN.")
+			"PODIUM_AGENT_SLACK_BOT_TOKEN, PODIUM_AGENT_LINEAR_API_KEY, or save a GitHub App " +
+			"with a webhook under Settings → Connections.")
 	}
 	return a, nil
 }
