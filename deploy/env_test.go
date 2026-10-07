@@ -56,6 +56,8 @@ var notConfiguration = map[string]string{
 	// Set to 1 on a playbook when that task should publish its workspace as the
 	// shared base for the playbook's first repository. Documented in docs/task-spec.md.
 	"PODIUM_PUBLISH_BASE": "per playbook, read by the conductor",
+	"PODIUM_HOLD":         "set by the node on a task whose spec exposes ports",
+	"PODIUM_URL_":         "the prefix of the per-port preview URLs the node sets on an exposing task",
 	// Written by the conductor onto a turn's task spec and read by the agent runtime inside
 	// the container. An operator never sets any of them: the brief is built per turn, and
 	// the three dry-run knobs are the test seam step 16 defined. They are documented in

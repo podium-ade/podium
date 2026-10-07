@@ -514,6 +514,7 @@ linear: false                                                # this is the playb
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
+expose: null                                                 # keep the turn up afterwards as a preview
 skills: []                                                   # Agent Skills this playbook may use
 mcp_servers: []                                              # MCP servers this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
@@ -649,6 +650,31 @@ work of this conversation and **inject** the person's words into the running con
 (`podium_inject_delegation`) instead of starting a second task. The runtime interrupts the
 harness and continues the same session, workspace kept. A playbook does not have to be
 `interactive` for that: inject is steering, `human_ask` is parking.
+
+#### `expose:` — leave what the turn built running
+
+A task spec's [`expose`](task-spec.md#expose), passed through. When the turn answers, its
+containers stay up and the named ports are published for people, and the thread gets the links
+and the expiry:
+
+```yaml
+docker: true
+expose:
+  ttl: 2h
+  ports:
+    web:          { port: 3000, from: dind }   # published by `docker compose` in the turn's daemon
+    accounts:     { port: 5011, from: dind }
+    applications: { port: 5012, from: dind }
+```
+
+`from` names the turn's own sidecars: `dind` for a `docker: true` turn, `chrome` for the browser,
+nothing for the turn's container. The turn is told the addresses before it starts, as
+`PODIUM_URL_<NAME>`, and should build the app against them rather than `localhost` — say so in
+the playbook's prompt. The assistant's delegation menu marks such a playbook `preview`.
+
+Mind what stays up with it: **the turn's secrets are still in its environment** for as long as
+the preview is, and it keeps its node slot. Keep the ttl short, and end it sooner with
+`podium task release TASK_ID`.
 
 #### `skills:` — third-party Agent Skills
 

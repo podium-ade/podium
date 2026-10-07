@@ -278,6 +278,18 @@ func (f *fakePodium) InjectTask(
 	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
 }
 
+func (f *fakePodium) ReleasePreview(
+	_ context.Context, req *connect.Request[podiumv1.ReleasePreviewRequest],
+) (*connect.Response[podiumv1.ReleasePreviewResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[req.Msg.GetTaskId()]
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
+	}
+	return connect.NewResponse(&podiumv1.ReleasePreviewResponse{Task: t.task}), nil
+}
+
 func (f *fakePodium) Injects() []*podiumv1.InjectTaskRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()

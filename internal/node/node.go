@@ -42,6 +42,10 @@ type Node struct {
 	// tsnet is the node's own Tailscale device under transport: tailnet, nil otherwise.
 	tsnet *tailnet.Client
 
+	// previews owns the addresses exposed tasks are published on, and remembers which
+	// finished tasks this node is keeping up until the control plane releases them.
+	previews *previewManager
+
 	// runCtx outlives the daemon's own context on purpose: a SIGTERM must not cancel a
 	// container run, because cancelling it makes the executor tear the container down.
 	// Killing the process instead leaves the container alive for the next incarnation to
@@ -144,6 +148,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		facts:      facts,
 		client:     client,
 		tsnet:      ts,
+		previews:   newPreviewManager(cfg, logger.With("node_id", id.NodeID)),
 		runCtx:     context.Background(),
 		tasks:      make(map[string]*buffer),
 		taskImages: make(map[string][]string),
@@ -196,6 +201,7 @@ func (n *Node) MetricsAddr() string {
 // Close releases the Docker client and leaves the tailnet. Running containers are deliberately
 // left alone: the next incarnation adopts them.
 func (n *Node) Close() error {
+	n.previews.close()
 	err := n.exec.Close()
 	if n.tsnet != nil {
 		if tsErr := n.tsnet.Close(); tsErr != nil && err == nil {
@@ -241,9 +247,24 @@ func (n *Node) discoverOwned(ctx context.Context) {
 		n.logger.WarnContext(ctx, "listing podium containers failed; nothing adopted", "error", err)
 		return
 	}
+	gateways := n.previewGateways(ctx)
 	for _, c := range owned {
 		if c.TaskID == "" || c.Role != docker.RoleTask {
 			continue
+		}
+		if hp, ok := gateways[c.TaskID]; ok {
+			// A task whose command already exited is a preview, not a run: there is nothing
+			// to adopt, only an address to take back. The control plane says whether it
+			// still wants it in the HelloAck.
+			_, held := n.exec.HeldExit(c.TaskID)
+			n.previews.restore(hp, held)
+			if held {
+				n.logger.InfoContext(ctx, "found a preview left up by a previous run", "task_id", c.TaskID,
+					"via", hp.Via, "address", hp.Address)
+				go n.attachPreview(c.TaskID)
+				continue
+			}
+			go n.attachPreview(c.TaskID)
 		}
 		dir := n.exec.TaskDir(c.TaskID)
 		leaseID := c.LeaseID
@@ -427,9 +448,12 @@ func (n *Node) freeSlots() int32 {
 	if n.diskFull() {
 		return 0
 	}
+	held := n.previews.heldCount()
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	free := n.maxTasks - len(n.tasks)
+	// A held preview is still containers on this machine, so it keeps its slot until it
+	// is released.
+	free := n.maxTasks - len(n.tasks) - held
 	if free < 0 || n.draining {
 		return 0
 	}

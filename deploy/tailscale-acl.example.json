@@ -15,7 +15,9 @@
     // Who is allowed to mint auth keys carrying these tags. Narrow "autogroup:admin" to a
     // specific group if you have one.
     "tag:podium-server": ["autogroup:admin"],
-    "tag:podium-node": ["autogroup:admin"]
+    "tag:podium-node": ["autogroup:admin"],
+    // A node's preview devices (PODIUM_NODE_PREVIEW_TAILNET_SLOTS). Only needed if you use them.
+    "tag:podium-preview": ["autogroup:admin"]
   },
 
   "acls": [
@@ -35,6 +37,15 @@
       "action": "accept",
       "src": ["autogroup:member"],
       "dst": ["tag:podium-server:443"]
+    },
+
+    // People reach previews: a finished task's ports, on whichever port the task exposes. The
+    // preview device checks WhoIs as well and refuses tagged devices. Nothing grants
+    // tag:podium-preview anything, so a task cannot use its preview as a way onto the tailnet.
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["tag:podium-preview:*"]
     }
   ],
 
@@ -50,6 +61,10 @@
     {
       "src": "tag:podium-server",
       "deny": ["tag:podium-node:443", "tag:podium-node:22"]
+    },
+    {
+      "src": "tag:podium-preview",
+      "deny": ["tag:podium-server:443", "tag:podium-node:443"]
     }
   ]
 }

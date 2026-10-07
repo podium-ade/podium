@@ -42,6 +42,8 @@ type exitedEvent struct {
 	envelope
 	ExitCode int    `json:"exit_code"`
 	Signal   string `json:"signal,omitempty"`
+	// Holding says the runner stays up: the container is not about to exit.
+	Holding bool `json:"holding,omitempty"`
 }
 
 // artifactEvent asks the node to collect a file out of the container. Path is inside the
@@ -95,8 +97,8 @@ func (c *eventClient) started(pid int) {
 	c.send(startedEvent{envelope: head(kindStarted), PID: pid})
 }
 
-func (c *eventClient) exited(code int, signal string) {
-	c.send(exitedEvent{envelope: head(kindExited), ExitCode: code, Signal: signal})
+func (c *eventClient) exited(code int, signal string, holding bool) {
+	c.send(exitedEvent{envelope: head(kindExited), ExitCode: code, Signal: signal, Holding: holding})
 }
 
 func (c *eventClient) artifact(name, path, contentType string) {

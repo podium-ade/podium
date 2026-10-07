@@ -47,6 +47,8 @@ export function detailOf(ev: TaskEvent): string {
       return `${ev.payload.value.name}: ${ev.payload.value.status}`;
     case "message":
       return `${ev.payload.value.type}: ${firstLine(ev.payload.value.text)}`;
+    case "preview":
+      return `published over ${ev.payload.value.via} on ${ev.payload.value.address}`;
     default:
       return "";
   }

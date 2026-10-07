@@ -339,8 +339,9 @@ func (s *Server) mux() http.Handler {
 	opts := []connect.HandlerOption{connect.WithCompressMinBytes(compressMinBytes)}
 
 	rpc := http.NewServeMux()
-	rpc.Handle(podiumv1connect.NewTaskServiceHandler(
-		api.NewTaskService(s.store, s.logs, s.nodes, s.secrets, s.logger), opts...))
+	tasks := api.NewTaskService(s.store, s.logs, s.nodes, s.secrets, s.logger)
+	tasks.SetMaxPreviewTTL(s.cfg.PreviewMaxTTL)
+	rpc.Handle(podiumv1connect.NewTaskServiceHandler(tasks, opts...))
 	rpc.Handle(podiumv1connect.NewNodeServiceHandler(s.nodes, opts...))
 	rpc.Handle(podiumv1connect.NewNodeAdminServiceHandler(
 		api.NewNodeAdminService(s.store, s.nodes.Registry(), s.nodes, s.logger), opts...))

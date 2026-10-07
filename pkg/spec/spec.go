@@ -23,6 +23,7 @@ const (
 	DefaultPIDs             = 4096
 	DefaultReadinessTimeout = time.Minute
 	DefaultHTTPPort         = 80
+	DefaultExposeTTL        = time.Hour
 )
 
 // ReservedSidecarName is the network alias the task container itself answers to, so no
@@ -70,6 +71,38 @@ type TaskSpec struct {
 	// next instruction. Zero means leave when the turn ends. The node publishes it as
 	// PODIUM_WORKSPACE_WARM_SECONDS; the runtime is what waits.
 	WorkspaceWarm Duration `yaml:"workspace_warm,omitempty" json:"workspace_warm,omitempty"`
+	// Expose keeps the task's containers up after its command exits and publishes the named
+	// ports outside the node, so people can use what the task built. See docs/task-spec.md.
+	Expose *Expose `yaml:"expose,omitempty" json:"expose,omitempty"`
+}
+
+// Ways a preview can be reached from outside its node.
+const (
+	ExposeViaTailnet = "tailnet"
+	ExposeViaLAN     = "lan"
+)
+
+// Expose is a task that stays up as a preview once its command has exited. Every port is
+// published on one address per task under its own number, so an app built to call
+// localhost:5011 from localhost:3000 works unchanged once it is told the address.
+type Expose struct {
+	TTL Duration `yaml:"ttl,omitempty" json:"ttl,omitempty"`
+	// Via is ExposeViaTailnet or ExposeViaLAN; empty lets the node choose.
+	Via   string                 `yaml:"via,omitempty" json:"via,omitempty"`
+	Ports map[string]ExposedPort `yaml:"ports" json:"ports"`
+}
+
+// ExposedPort is one published port. From names the sidecar listening on it; empty is the
+// task container.
+type ExposedPort struct {
+	Port int    `yaml:"port" json:"port"`
+	From string `yaml:"from,omitempty" json:"from,omitempty"`
+}
+
+// URLEnv is the variable a task reads a port's URL from: PODIUM_URL_ and the name,
+// uppercased, with dashes as underscores.
+func URLEnv(name string) string {
+	return "PODIUM_URL_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
 // Secret targets. A ref says where in the container the value should appear, never what
@@ -166,6 +199,7 @@ func (r Readiness) Probes() int {
 
 var (
 	envKeyRE      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	portNameRE    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	sidecarNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 )
 
@@ -187,6 +221,9 @@ func (s *TaskSpec) ApplyDefaults() {
 		}
 	}
 	s.Resources.applyDefaults()
+	if s.Expose != nil && s.Expose.TTL == 0 {
+		s.Expose.TTL = Duration(DefaultExposeTTL)
+	}
 	for name, sc := range s.Sidecars {
 		sc.Resources.applyDefaults()
 		if sc.Readiness.Timeout == 0 {
@@ -233,7 +270,46 @@ func (s *TaskSpec) Validate() error {
 	if s.WorkspaceWarm < 0 {
 		errs = append(errs, fmt.Errorf("workspace_warm must not be negative, got %s", s.WorkspaceWarm))
 	}
+	errs = append(errs, s.validateExpose()...)
 	return errors.Join(errs...)
+}
+
+func (s *TaskSpec) validateExpose() []error {
+	x := s.Expose
+	if x == nil {
+		return nil
+	}
+	var errs []error
+	if x.TTL <= 0 {
+		errs = append(errs, fmt.Errorf("expose.ttl must be positive, got %s", x.TTL))
+	}
+	switch x.Via {
+	case "", ExposeViaTailnet, ExposeViaLAN:
+	default:
+		errs = append(errs, fmt.Errorf("expose.via %q is not %s or %s", x.Via, ExposeViaTailnet, ExposeViaLAN))
+	}
+	if len(x.Ports) == 0 {
+		errs = append(errs, errors.New("expose.ports must name at least one port"))
+	}
+	byPort := map[int]string{}
+	for _, name := range sortedKeys(x.Ports) {
+		p := x.Ports[name]
+		field := "expose.ports." + name
+		if !portNameRE.MatchString(name) {
+			errs = append(errs, fmt.Errorf("%s: name must match %s; it becomes %s", field, portNameRE.String(), URLEnv(name)))
+		}
+		if p.Port < 1 || p.Port > 65535 {
+			errs = append(errs, fmt.Errorf("%s.port %d is not a port number", field, p.Port))
+		} else if other, dup := byPort[p.Port]; dup {
+			errs = append(errs, fmt.Errorf("%s.port %d is already exposed as %s; every port is published on the same address", field, p.Port, other))
+		} else {
+			byPort[p.Port] = name
+		}
+		if _, ok := s.Sidecars[p.From]; p.From != "" && !ok {
+			errs = append(errs, fmt.Errorf("%s.from %q is not a sidecar of this task", field, p.From))
+		}
+	}
+	return errs
 }
 
 // SecretNameRE is the shape of a secret name. It is deliberately narrow: a name reaches

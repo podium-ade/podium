@@ -122,7 +122,9 @@ A task gets:
 
 All of it is removed when the task ends. A task with `workspace_session` (or
 `workspace_publish_base`) uploads a tar of the volume first; the volume itself is still
-removed. See [task-spec.md](task-spec.md#workspace).
+removed. See [task-spec.md](task-spec.md#workspace). A task whose spec
+[exposes](task-spec.md#expose) ports stays up as a preview instead, until its ttl runs out or
+it is released.
 
 ### What a task is *not*, in this version
 
@@ -140,8 +142,9 @@ This is the part that saves you an afternoon:
   on the node is still deleted. Artifacts are a separate copy.
 - **Not multi-machine.** A task and its sidecars are one pod on one node. There is no way to
   spread one task across two workers.
-- **Not interactive.** There is no exec, no shell, no attach and no port forward into a running
-  task. You get its stdout and stderr.
+- **Not interactive.** There is no exec, no shell and no attach into a running task. You get
+  its stdout and stderr — and, when the spec asks for it, its ports, published as a
+  [preview](task-spec.md#expose) that outlives the command.
 - **Not idempotent by assumption.** `retry_on_node_loss` is **off by default** precisely because
   Podium does not know whether running your task twice is safe.
 

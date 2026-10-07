@@ -72,7 +72,7 @@ Kind-specific fields follow.
 | kind | fields | when |
 |---|---|---|
 | `started` | `pid` | the task command has been forked and exec'd successfully |
-| `exited` | `exit_code`, `signal` | the task command exited; `signal` is the `SIGxxx` name when one killed it, and absent otherwise |
+| `exited` | `exit_code`, `signal`, `holding` | the task command exited; `signal` is the `SIGxxx` name when one killed it, and absent otherwise. `holding` is set when the runner stays up afterwards (`PODIUM_HOLD=1`, a task that exposes ports) |
 | `artifact` | `name`, `path`, `content_type` | a file inside the container should be kept; `path` is the container path, `name` is what to call it |
 | `message` | `type`, `text`, `attachments` | the task has something for a human, or a relay, to read |
 
@@ -127,7 +127,10 @@ store. An undecodable line is logged and skipped; it never fails a task.
   from the Docker API, because that status transition must never go missing.
 - **`exited` is not.** The container's exit code comes from `ContainerWait`, which is the
   only source available for a container the node adopted after a restart. The runner's
-  `exited` is logged for diagnosis and goes no further.
+  `exited` is logged for diagnosis and goes no further — **unless it is `holding`**: a held
+  container does not exit, so that event is the exit. The runner also writes it to
+  `/podium/hold/exit`, a bind mount of the task's state directory, which is how a node that
+  restarted mid-command learns it.
 - **`artifact` starts a copy-and-upload.** The node reads the file out of the container with
   `CopyFromContainer` and streams it to the control plane over
   `NodeService.UploadArtifact`, then emits a `TaskEvent` of kind `artifact` naming what was
