@@ -98,7 +98,7 @@ describe.skipIf(unavailable !== null)(`${DevImage}`, () => {
     expect(run.stdout).toContain("MAKE: GNU Make");
     expect(run.stdout).toMatch(/GIT: git version \d/);
     expect(run.stdout).toMatch(/NODE: v2[2-9]\./);
-    expect(run.stdout).toMatch(/PNPM: 11\./);
+    expect(run.stdout).toMatch(/PNPM: 12\./);
   });
 
   it("has the docker client and both plugins, and no daemon", () => {
