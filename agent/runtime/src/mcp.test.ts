@@ -44,7 +44,7 @@ describe("initialize", () => {
     expect(res.serverInfo.name).toBe(ServerName);
   });
 
-  it("echoes the version opencode 1.18.29 actually asks for", async () => {
+  it("echoes the version opencode 1.18.35 actually asks for", async () => {
     // Traced against the real client: it sends 2025-11-25 on initialize.
     const h = newHandler(stubClient());
     const res = (await h("initialize", { protocolVersion: "2025-11-25" })) as Record<string, any>;

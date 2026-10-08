@@ -78,20 +78,17 @@ RUN set -eux; \
 # apt repository and no daemon.
 #
 # The CLI comes out of the static bundle, which also carries dockerd, containerd and runc;
-# only `docker` is extracted, so the image cannot start an engine even by accident. 28.5.2
-# is the version go.mod pins for github.com/docker/docker, so the client a turn types at is
-# the same generation as the API podium-node speaks, and it is the generation the docker:28
-# dind sidecar runs. A client talks to an older or newer daemon by negotiating the API
-# version down, so this pin is about matching the repository, not about compatibility.
+# only `docker` is extracted, so the image cannot start an engine even by accident. It is the
+# generation the docker:29 dind sidecar runs (internal/agent/conductor), so a turn's client and
+# its daemon match. go.mod's github.com/docker/docker is still v28, and that is fine: a client
+# talks to an older or newer daemon by negotiating the API version down.
 #
-# Compose v2.40.3 is the last of the Compose v2 line, which is what shipped alongside Docker
-# CE 28.x and what deploy/docker-compose*.yml is written for. Buildx is a self-contained
-# BuildKit client rather than part of the engine's release train, so it tracks its own
-# latest stable instead. Both go in /usr/local/lib/docker/cli-plugins, the documented
+# Compose and Buildx each track their own latest stable. deploy/docker-compose*.yml is plain
+# Compose Specification, which v5 reads as v2 did. Both go in /usr/local/lib/docker/cli-plugins, the documented
 # system-wide plugin directory, which keeps them working for any user in the image.
-ARG DOCKER_CLI_VERSION=28.5.2
-ARG COMPOSE_VERSION=v2.40.3
-ARG BUILDX_VERSION=v0.36.1
+ARG DOCKER_CLI_VERSION=29.8.2
+ARG COMPOSE_VERSION=v5.6.0
+ARG BUILDX_VERSION=v0.38.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -115,7 +112,7 @@ RUN set -eux; \
 # A turn that lints with a different v2 than CI is worse than one that does not lint at all,
 # because it reports clean on findings the pull request will fail on — images/dev.test.ts
 # reads the version back out of ci-go.yml and fails if these two drift.
-ARG GOLANGCI_LINT_VERSION=2.13.2
+ARG GOLANGCI_LINT_VERSION=2.14.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     dir="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-${arch}"; \
@@ -125,10 +122,10 @@ RUN set -eux; \
     rm -rf "/tmp/${dir}"; \
     golangci-lint --version
 
-# pnpm, the same 11.25.0 the base image's build stage uses, installed the same way. The base
+# pnpm, the same 12.10.1 the base image's build stage uses, installed the same way. The base
 # carries corepack, but corepack with no packageManager field in web/package.json resolves
 # whatever is latest at run time, which is a different pnpm on different days.
-ARG PNPM_VERSION=11.25.0
+ARG PNPM_VERSION=12.10.1
 RUN set -eux; \
     npm install --global "pnpm@${PNPM_VERSION}"; \
     npm cache clean --force; \
@@ -145,7 +142,7 @@ RUN set -eux; \
 # Pinned, and installed rather than fetched by npx at run time: a turn that cannot reach a
 # registry should still be able to look at a page, and two turns a week apart should drive
 # the browser the same way.
-ARG CHROME_DEVTOOLS_MCP_VERSION=1.8.0
+ARG CHROME_DEVTOOLS_MCP_VERSION=1.10.1
 RUN set -eux; \
     npm install --global "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"; \
     npm cache clean --force; \
