@@ -335,6 +335,40 @@ var personalMCPSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}_token$`
 // the values.
 func PersonalMCPSecretName(server string) string { return "mcp." + server + "_token" }
 
+// GitHubAccountSecret is the personal secret a person's connected GitHub account is stored
+// as. The conductor may write it for that person.
+const GitHubAccountSecret = "github.token"
+
+// ConnectionSecretPrefix is where the conductor keeps the credentials of its saved
+// connections: the GitHub App's key and secrets, and the Slack tokens.
+const ConnectionSecretPrefix = "podium.agent.connection."
+
+// UserGitTokenSecretPrefix is where the conductor keeps the scoped GitHub tokens it issued
+// a turn, so it can revoke them when the turn ends, even after a restart.
+const UserGitTokenSecretPrefix = "podium.agent.git_user_token."
+
+// ConductorReservedPrefix is the conductor's own namespace. A personal secret cannot take it.
+const ConductorReservedPrefix = "podium.agent."
+
+// ConductorMayRead reports whether the conductor may read a value back: a global in its own
+// namespace, or a credential it keeps on a person's list — their connected GitHub account,
+// and their MCP servers' tokens and sign-ins. No person may read any value.
+func ConductorMayRead(name, owner string) bool {
+	if owner != "" {
+		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name)
+	}
+	return strings.HasPrefix(name, ConductorReservedPrefix)
+}
+
+var personalMCPOAuthSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}\.oauth$`)
+
+// PersonalMCPOAuthSecretName is where one person's MCP sign-in keeps its client secret and
+// refresh token. The conductor writes and reads it. A playbook may not name it.
+func PersonalMCPOAuthSecretName(server string) string { return "mcp." + server + ".oauth" }
+
+// IsPersonalMCPOAuthSecret reports whether name is a personal MCP sign-in's secrets.
+func IsPersonalMCPOAuthSecret(name string) bool { return personalMCPOAuthSecretRE.MatchString(name) }
+
 // IsPersonalMCPSecret reports whether name is a personal MCP credential. The conductor
 // may write one of these for a person. A playbook may not name one.
 func IsPersonalMCPSecret(name string) bool { return personalMCPSecretRE.MatchString(name) }

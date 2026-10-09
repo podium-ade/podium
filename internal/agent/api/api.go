@@ -116,6 +116,9 @@ type SecretStore interface {
 	DeletePersonalSecret(ctx context.Context, owner, name string) error
 	// PersonalSecretVersion is the version of one person's secret, or 0 when it is absent.
 	PersonalSecretVersion(ctx context.Context, owner, name string) (int32, error)
+	// ReadSecret reads back one of the names the conductor keeps for itself, such as a
+	// saved connection's credentials. See spec.ConductorMayRead.
+	ReadSecret(ctx context.Context, owner, name string) ([]byte, error)
 }
 
 // AgentServiceOptions is what the handlers need. Everything but Store and Secrets is
@@ -144,6 +147,10 @@ type AgentServiceOptions struct {
 	// sign-in. An empty client id means API keys only.
 	OpenAIOAuthIssuer   string
 	OpenAIOAuthClientID string
+	// GitHubURL and GitHubAPIURL are where a person's GitHub account is connected. Empty
+	// means github.com.
+	GitHubURL    string
+	GitHubAPIURL string
 	// HTTPClient validates the key. Nil means a client with a timeout of its own.
 	HTTPClient *http.Client
 	// Memory is the shared-memory client. Nil is a supported configuration: the three
@@ -193,6 +200,8 @@ type AgentService struct {
 	xaiBaseURL         string
 	openaiBaseURL      string
 	openaiCodexBaseURL string
+	githubURL          string
+	githubAPIURL       string
 	// oauth is one client per provider that has one configured, keyed by provider name. A
 	// provider with no entry offers API keys only.
 	oauth      map[string]oauthSession
@@ -215,9 +224,10 @@ type AgentService struct {
 	// Both are process memory on purpose. A flow is a few hundred bytes with a PKCE
 	// verifier in it, it is worthless thirty minutes later, and a restart mid-sign-in
 	// should invalidate it rather than resume it.
-	flowMu   sync.Mutex
-	flows    map[string]*oauthFlow
-	mcpFlows map[string]*mcpFlow
+	flowMu      sync.Mutex
+	flows       map[string]*oauthFlow
+	mcpFlows    map[string]*mcpFlow
+	githubFlows map[string]*githubFlow
 
 	// writeMu serialises the read-validate-write of an override or an MCP registration, so
 	// two browsers saving at once cannot each validate against a set the other is changing.
@@ -259,6 +269,12 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 	if opts.OpenAIOAuthIssuer == "" {
 		opts.OpenAIOAuthIssuer = config.DefaultOpenAIOAuthIssuer
 	}
+	if opts.GitHubURL == "" {
+		opts.GitHubURL = defaultGitHubURL
+	}
+	if opts.GitHubAPIURL == "" {
+		opts.GitHubAPIURL = defaultGitHubAPIURL
+	}
 	oauth := map[string]oauthSession{}
 	// newOAuthClient / newCodexClient return nil without a client id, and a nil entry is
 	// never stored: the map having no key for a provider is what "API keys only" means
@@ -278,6 +294,8 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		model:              opts.Model,
 		baseURL:            opts.AnthropicBaseURL,
 		xaiBaseURL:         opts.XAIBaseURL,
+		githubURL:          strings.TrimSuffix(opts.GitHubURL, "/"),
+		githubAPIURL:       strings.TrimSuffix(opts.GitHubAPIURL, "/"),
 		openaiBaseURL:      opts.OpenAIBaseURL,
 		openaiCodexBaseURL: opts.OpenAICodexBaseURL,
 		oauth:              oauth,

@@ -14,9 +14,8 @@ import (
 // so these five methods are the whole of where a turn's MCP servers come from.
 //
 // The credential is a Podium secret in the control plane, and that is what a task gets. This
-// table holds the registration, the four characters of hint an operator recognises it by,
-// and a readable copy of the token for the assistant, which has no node to resolve a secret
-// (migration 0019).
+// table holds the registration and the four characters of hint an operator recognises it by.
+// The assistant reads the token back from the secret store.
 
 // ListMcpServers returns every registered server, sorted by name.
 func (s *Store) ListMcpServers(ctx context.Context) ([]mcp.Server, error) {
@@ -102,7 +101,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 // hint describes. The token itself is already in the control plane by the time this is
 // called — the order is deliberate, and api/mcp.go carries the reasoning.
 func (s *Store) SetMcpServerTokenMeta(
-	ctx context.Context, owner, name, hint, login string, version int32, token string,
+	ctx context.Context, owner, name, hint, login string, version int32,
 ) error {
 	now := time.Now().UTC()
 	n, err := s.q.SetMcpServerTokenMeta(ctx, db.SetMcpServerTokenMetaParams{
@@ -113,7 +112,6 @@ func (s *Store) SetMcpServerTokenMeta(
 		TokenSetAt:         &now,
 		TokenSecretVersion: version,
 		AuthKind:           mcp.AuthToken,
-		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("set mcp server %s token metadata: %w", name, err)
@@ -129,7 +127,7 @@ func (s *Store) SetMcpServerTokenMeta(
 // and is exclusive with it — either column set clears the other, so a server has one
 // credential and one story about where it came from.
 func (s *Store) SetMcpServerOAuth(
-	ctx context.Context, owner, name, login string, version int32, o mcp.OAuth, token string,
+	ctx context.Context, owner, name, login string, version int32, o mcp.OAuth,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
@@ -144,7 +142,6 @@ func (s *Store) SetMcpServerOAuth(
 		TokenSecretVersion: version,
 		AuthKind:           mcp.AuthOAuth,
 		Oauth:              raw,
-		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("set mcp server %s oauth: %w", name, err)
@@ -159,7 +156,7 @@ func (s *Store) SetMcpServerOAuth(
 // touch the provenance: the human who signed in is still the human who signed in, and a
 // background pass writing its own name over theirs would lose the only record of who did.
 func (s *Store) RefreshMcpServerOAuth(
-	ctx context.Context, owner, name string, version int32, o mcp.OAuth, token string,
+	ctx context.Context, owner, name string, version int32, o mcp.OAuth,
 ) error {
 	raw, err := json.Marshal(o)
 	if err != nil {
@@ -170,7 +167,6 @@ func (s *Store) RefreshMcpServerOAuth(
 		Name:               name,
 		TokenSecretVersion: version,
 		Oauth:              raw,
-		Token:              token,
 	})
 	if err != nil {
 		return fmt.Errorf("refresh mcp server %s oauth: %w", name, err)
@@ -234,7 +230,6 @@ type mcpRow struct {
 	TokenSecretVersion int32
 	AuthKind           string
 	Oauth              []byte
-	Token              string
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
@@ -253,7 +248,6 @@ func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
 		TokenSetBy:         r.TokenSetBy,
 		TokenSecretVersion: r.TokenSecretVersion,
 		AuthKind:           r.AuthKind,
-		Token:              r.Token,
 		CreatedBy:          r.CreatedBy,
 		UpdatedBy:          r.UpdatedBy,
 		UpdatedAt:          r.UpdatedAt.UTC(),

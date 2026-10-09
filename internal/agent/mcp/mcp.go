@@ -97,12 +97,10 @@ const (
 
 // OAuth is what a sign-in leaves behind: enough to refresh it, and enough to say who it is.
 //
-// IT HOLDS CREDENTIALS — RefreshToken, and ClientSecret where the authorization server
-// issued one. It is stored in the conductor's own database in clear, for the same reason the
-// subscription sign-in's refresh token is: Podium's secret store deliberately has no read
-// endpoint, so a value put there cannot be read back to refresh with. Neither field ever
-// leaves this process except to the authorization server's own token endpoint, and neither
-// is ever put in a brief, a task, a log or the proto.
+// In memory it holds credentials — RefreshToken, and ClientSecret where the authorization
+// server issued one. They are stored in Podium's secret store under OAuthSecret, and the row
+// keeps the rest. Neither ever leaves this process except to the authorization server's own
+// token endpoint, and neither is ever put in a brief, a task, a log or the proto.
 type OAuth struct {
 	// Issuer is the authorization server the protected-resource metadata named.
 	Issuer string `json:"issuer"`
@@ -115,7 +113,13 @@ type OAuth struct {
 	ClientSecret string `json:"client_secret,omitempty"`
 	// RefreshToken is what keeps the sign-in alive. Empty means it dies at ExpiresAt and a
 	// human has to sign in again.
+	//
+	// ClientSecret and RefreshToken are credentials. They are stored in Podium's secret
+	// store under OAuthSecret, never in the row: a row carries them only in memory, or on a
+	// database written before that, until the conductor moves them.
 	RefreshToken string `json:"refresh_token,omitempty"`
+	// Refreshable records that a refresh token is stored, so the row can say so without it.
+	Refreshable bool `json:"refreshable,omitempty"`
 	// ExpiresAt is when the stored access token stops working. Zero means the server did not
 	// say, which is treated as "there is nothing to refresh on a schedule".
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
@@ -159,7 +163,6 @@ type Server struct {
 	// is here for the assistant, which runs in the conductor's process and cannot resolve a
 	// secret; empty for a token stored before there was a copy. Never put in a brief, the
 	// proto or a log.
-	Token     string
 	CreatedBy string
 	UpdatedBy string
 	UpdatedAt time.Time
@@ -176,7 +179,16 @@ func (s Server) Kind() string {
 
 // Refreshable is whether the background pass has anything to work with.
 func (s Server) Refreshable() bool {
-	return s.Kind() == AuthOAuth && s.OAuth != nil && s.OAuth.RefreshToken != ""
+	return s.Kind() == AuthOAuth && s.OAuth != nil && (s.OAuth.Refreshable || s.OAuth.RefreshToken != "")
+}
+
+// OAuthSecret is where a sign-in's client secret and refresh token are stored: a bot
+// server's under the conductor's own names, a person's on their own secret list.
+func OAuthSecret(srv Server) string {
+	if srv.Owner == "" {
+		return SecretPrefix + srv.Name + ".oauth"
+	}
+	return spec.PersonalMCPOAuthSecretName(srv.Name)
 }
 
 // TokenSecret is the Podium secret one server's credential is stored as. A playbook may not

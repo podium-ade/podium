@@ -66,6 +66,18 @@ const (
 	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// ClearGitHubConnection RPC.
 	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
+	// AgentServiceGetGitHubAccountProcedure is the fully-qualified name of the AgentService's
+	// GetGitHubAccount RPC.
+	AgentServiceGetGitHubAccountProcedure = "/podium.agent.v1.AgentService/GetGitHubAccount"
+	// AgentServiceStartGitHubOAuthProcedure is the fully-qualified name of the AgentService's
+	// StartGitHubOAuth RPC.
+	AgentServiceStartGitHubOAuthProcedure = "/podium.agent.v1.AgentService/StartGitHubOAuth"
+	// AgentServiceCompleteGitHubOAuthProcedure is the fully-qualified name of the AgentService's
+	// CompleteGitHubOAuth RPC.
+	AgentServiceCompleteGitHubOAuthProcedure = "/podium.agent.v1.AgentService/CompleteGitHubOAuth"
+	// AgentServiceDisconnectGitHubAccountProcedure is the fully-qualified name of the AgentService's
+	// DisconnectGitHubAccount RPC.
+	AgentServiceDisconnectGitHubAccountProcedure = "/podium.agent.v1.AgentService/DisconnectGitHubAccount"
 	// AgentServiceStartProviderOAuthProcedure is the fully-qualified name of the AgentService's
 	// StartProviderOAuth RPC.
 	AgentServiceStartProviderOAuthProcedure = "/podium.agent.v1.AgentService/StartProviderOAuth"
@@ -198,8 +210,7 @@ type AgentServiceClient interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -225,6 +236,17 @@ type AgentServiceClient interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+	// connect one at all.
+	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
+	// StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+	// user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+	StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error)
+	// CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+	// personal secret github.token, which a playbook's user_secrets can name.
+	CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error)
+	// DisconnectGitHubAccount deletes the caller's github.token and the account record.
+	DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -454,6 +476,30 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceClearGitHubConnectionProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		getGitHubAccount: connect.NewClient[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse](
+			httpClient,
+			baseURL+AgentServiceGetGitHubAccountProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetGitHubAccount")),
+			connect.WithClientOptions(opts...),
+		),
+		startGitHubOAuth: connect.NewClient[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceStartGitHubOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StartGitHubOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		completeGitHubOAuth: connect.NewClient[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceCompleteGitHubOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CompleteGitHubOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		disconnectGitHubAccount: connect.NewClient[v1.DisconnectGitHubAccountRequest, v1.DisconnectGitHubAccountResponse](
+			httpClient,
+			baseURL+AgentServiceDisconnectGitHubAccountProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DisconnectGitHubAccount")),
 			connect.WithClientOptions(opts...),
 		),
 		startProviderOAuth: connect.NewClient[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse](
@@ -719,6 +765,10 @@ type agentServiceClient struct {
 	clearSlackConnection       *connect.Client[v1.ClearSlackConnectionRequest, v1.ClearSlackConnectionResponse]
 	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
 	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
+	getGitHubAccount           *connect.Client[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse]
+	startGitHubOAuth           *connect.Client[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse]
+	completeGitHubOAuth        *connect.Client[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse]
+	disconnectGitHubAccount    *connect.Client[v1.DisconnectGitHubAccountRequest, v1.DisconnectGitHubAccountResponse]
 	startProviderOAuth         *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
 	pollProviderOAuth          *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
 	listAgents                 *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
@@ -820,6 +870,26 @@ func (c *agentServiceClient) SetGitHubConnection(ctx context.Context, req *conne
 // ClearGitHubConnection calls podium.agent.v1.AgentService.ClearGitHubConnection.
 func (c *agentServiceClient) ClearGitHubConnection(ctx context.Context, req *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return c.clearGitHubConnection.CallUnary(ctx, req)
+}
+
+// GetGitHubAccount calls podium.agent.v1.AgentService.GetGitHubAccount.
+func (c *agentServiceClient) GetGitHubAccount(ctx context.Context, req *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
+	return c.getGitHubAccount.CallUnary(ctx, req)
+}
+
+// StartGitHubOAuth calls podium.agent.v1.AgentService.StartGitHubOAuth.
+func (c *agentServiceClient) StartGitHubOAuth(ctx context.Context, req *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error) {
+	return c.startGitHubOAuth.CallUnary(ctx, req)
+}
+
+// CompleteGitHubOAuth calls podium.agent.v1.AgentService.CompleteGitHubOAuth.
+func (c *agentServiceClient) CompleteGitHubOAuth(ctx context.Context, req *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error) {
+	return c.completeGitHubOAuth.CallUnary(ctx, req)
+}
+
+// DisconnectGitHubAccount calls podium.agent.v1.AgentService.DisconnectGitHubAccount.
+func (c *agentServiceClient) DisconnectGitHubAccount(ctx context.Context, req *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error) {
+	return c.disconnectGitHubAccount.CallUnary(ctx, req)
 }
 
 // StartProviderOAuth calls podium.agent.v1.AgentService.StartProviderOAuth.
@@ -1042,8 +1112,7 @@ type AgentServiceHandler interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -1069,6 +1138,17 @@ type AgentServiceHandler interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+	// connect one at all.
+	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
+	// StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+	// user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+	StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error)
+	// CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+	// personal secret github.token, which a playbook's user_secrets can name.
+	CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error)
+	// DisconnectGitHubAccount deletes the caller's github.token and the account record.
+	DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -1294,6 +1374,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceClearGitHubConnectionProcedure,
 		svc.ClearGitHubConnection,
 		connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetGitHubAccountHandler := connect.NewUnaryHandler(
+		AgentServiceGetGitHubAccountProcedure,
+		svc.GetGitHubAccount,
+		connect.WithSchema(agentServiceMethods.ByName("GetGitHubAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStartGitHubOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceStartGitHubOAuthProcedure,
+		svc.StartGitHubOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("StartGitHubOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCompleteGitHubOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceCompleteGitHubOAuthProcedure,
+		svc.CompleteGitHubOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("CompleteGitHubOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDisconnectGitHubAccountHandler := connect.NewUnaryHandler(
+		AgentServiceDisconnectGitHubAccountProcedure,
+		svc.DisconnectGitHubAccount,
+		connect.WithSchema(agentServiceMethods.ByName("DisconnectGitHubAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceStartProviderOAuthHandler := connect.NewUnaryHandler(
@@ -1568,6 +1672,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetGitHubConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceClearGitHubConnectionProcedure:
 			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceGetGitHubAccountProcedure:
+			agentServiceGetGitHubAccountHandler.ServeHTTP(w, r)
+		case AgentServiceStartGitHubOAuthProcedure:
+			agentServiceStartGitHubOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceCompleteGitHubOAuthProcedure:
+			agentServiceCompleteGitHubOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceDisconnectGitHubAccountProcedure:
+			agentServiceDisconnectGitHubAccountHandler.ServeHTTP(w, r)
 		case AgentServiceStartProviderOAuthProcedure:
 			agentServiceStartProviderOAuthHandler.ServeHTTP(w, r)
 		case AgentServicePollProviderOAuthProcedure:
@@ -1705,6 +1817,22 @@ func (UnimplementedAgentServiceHandler) SetGitHubConnection(context.Context, *co
 
 func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearGitHubConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetGitHubAccount is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StartGitHubOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CompleteGitHubOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DisconnectGitHubAccount is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error) {

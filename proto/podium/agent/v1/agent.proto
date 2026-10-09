@@ -22,8 +22,7 @@ service AgentService {
   // on task_id — that is why a task with no turn behind it simply has no cost, rather than
   // a cost of zero.
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
-  // GetSettings reports what the conductor is configured with. It reads no secret value:
-  // there is no read endpoint on the secret store, by design.
+  // GetSettings reports what the conductor is configured with. It returns no secret value.
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
   // SetProviderKey validates a provider key with the provider itself and, only if that
   // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -49,6 +48,17 @@ service AgentService {
   // ClearGitHubConnection removes the saved App. Calling it twice is not an error.
   // The App is off on the next start.
   rpc ClearGitHubConnection(ClearGitHubConnectionRequest) returns (ClearGitHubConnectionResponse);
+  // GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+  // connect one at all.
+  rpc GetGitHubAccount(GetGitHubAccountRequest) returns (GetGitHubAccountResponse);
+  // StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+  // user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+  rpc StartGitHubOAuth(StartGitHubOAuthRequest) returns (StartGitHubOAuthResponse);
+  // CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+  // personal secret github.token, which a playbook's user_secrets can name.
+  rpc CompleteGitHubOAuth(CompleteGitHubOAuthRequest) returns (CompleteGitHubOAuthResponse);
+  // DisconnectGitHubAccount deletes the caller's github.token and the account record.
+  rpc DisconnectGitHubAccount(DisconnectGitHubAccountRequest) returns (DisconnectGitHubAccountResponse);
   // StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
   // subscription instead of an API key. It stores nothing: it returns the code and the URL
   // a human has to visit, and PollProviderOAuth is what finishes.
@@ -446,6 +456,10 @@ message GitHubConnection {
   string set_by = 9;
   google.protobuf.Timestamp set_at = 10;
   bool restart_required = 11;
+  // client_id is the App's OAuth client id. With client_secret_set it lets people connect
+  // their own GitHub accounts. It applies without a restart.
+  string client_id = 12;
+  bool client_secret_set = 13;
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved
@@ -486,6 +500,10 @@ message SetGitHubConnectionRequest {
   // listen address turns reviews off and drops the secret.
   string webhook_secret = 3;
   string webhook_listen = 4;
+  // client_id is the App's OAuth client id. Blank turns account connection off.
+  string client_id = 5;
+  // SENSITIVE. Blank keeps the saved client secret while a client id is set.
+  string client_secret = 6;
 }
 
 message SetGitHubConnectionResponse {
@@ -496,6 +514,57 @@ message ClearGitHubConnectionRequest {}
 
 message ClearGitHubConnectionResponse {
   GitHubConnection github = 1;
+}
+
+// GitHubAccount is one person's connected GitHub account. The token is never returned.
+message GitHubAccount {
+  // available is true when the App has a client id and secret, so an account can be
+  // connected at all.
+  bool available = 1;
+  bool connected = 2;
+  string github_login = 3;
+  int64 github_id = 4;
+  string name = 5;
+  google.protobuf.Timestamp connected_at = 6;
+  // needs_reconnect is an account GitHub no longer accepts: its refresh token expired after
+  // six months unused, or the person revoked the App. Connecting again clears it.
+  bool needs_reconnect = 7;
+}
+
+message GetGitHubAccountRequest {}
+
+message GetGitHubAccountResponse {
+  GitHubAccount account = 1;
+}
+
+message StartGitHubOAuthRequest {
+  // redirect_uri is the web UI's own callback, supplied by the browser. Its path must be
+  // /agent/github/callback, and the App must list it as a callback URL.
+  string redirect_uri = 1;
+}
+
+message StartGitHubOAuthResponse {
+  string flow_id = 1;
+  string authorize_url = 2;
+  string state = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message CompleteGitHubOAuthRequest {
+  string flow_id = 1;
+  // SENSITIVE: never log this field.
+  string code = 2;
+  string state = 3;
+}
+
+message CompleteGitHubOAuthResponse {
+  GitHubAccount account = 1;
+}
+
+message DisconnectGitHubAccountRequest {}
+
+message DisconnectGitHubAccountResponse {
+  GitHubAccount account = 1;
 }
 
 message SetProviderKeyRequest {

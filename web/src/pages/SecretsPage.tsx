@@ -32,9 +32,9 @@ const STALE_DAYS = 90;
 /**
  * The Secrets screen shows metadata and nothing else.
  *
- * There is no read endpoint in `SecretService` and there must never be one: a value goes in
- * once and only ever comes back out inside an `Assign`, on its way to the node about to run the
- * task that asked for it. `ListSecrets` carries no value and no ciphertext, so the screen
+ * No person can read a value back, and there must never be a way to: a value goes in once and
+ * comes back out inside an `Assign`, on its way to the node about to run the task that asked
+ * for it, or to the conductor alone for its own credentials. `ListSecrets` carries no value and no ciphertext, so the screen
  * cannot leak one even by accident — and there is deliberately no "reveal" control to add one
  * to later. The reveal toggle in the set dialog unmasks that field's own draft; there is
  * nothing stored for it to reach.

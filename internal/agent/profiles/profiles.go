@@ -671,7 +671,8 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
 				"repositories that turn's playbook listed", field, ref.Name))
 		}
-		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) {
+		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) ||
+			spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			errs = append(errs, fmt.Errorf("%s may not name %s: an MCP server's token "+
 				"comes from mcp_servers, which is what decides whether this playbook has "+
 				"that server at all", field, ref.Name))
@@ -1053,4 +1054,19 @@ func (p *Profile) EffortFor(s Playbook) string {
 		return s.Effort
 	}
 	return p.Effort
+}
+
+// GitHubTokenSecret is the personal secret a connected GitHub account is stored as. A
+// playbook that names it in user_secrets opens pull requests as the person who asked.
+const GitHubTokenSecret = spec.GitHubAccountSecret
+
+// UsesGitHubAccount reports whether this playbook's turns push as the asker's own GitHub
+// account rather than the App.
+func (s Playbook) UsesGitHubAccount() bool {
+	for _, ref := range s.UserSecrets {
+		if ref.Name == GitHubTokenSecret {
+			return true
+		}
+	}
+	return false
 }

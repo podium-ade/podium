@@ -36,7 +36,7 @@ func TestMergeGitHubTurnsReviewsOffWhenListenIsCleared(t *testing.T) {
 		AppID: "123", PrivateKey: "pem",
 		WebhookSecret: "secret", WebhookListen: "0.0.0.0:8091",
 	}
-	got, err := MergeGitHub(saved, "123", "", "", "")
+	got, err := MergeGitHub(saved, "123", "", "", "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "pem", got.PrivateKey)
 	assert.Empty(t, got.WebhookSecret)
@@ -44,9 +44,26 @@ func TestMergeGitHubTurnsReviewsOffWhenListenIsCleared(t *testing.T) {
 }
 
 func TestMergeGitHubRejectsAListenAddressWithoutAPort(t *testing.T) {
-	_, err := MergeGitHub(nil, "123", "pem", "secret", "8091")
+	_, err := MergeGitHub(nil, "123", "pem", "secret", "8091", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "host:port")
+}
+
+func TestMergeGitHubKeepsTheClientSecretAndDropsItWithTheClientID(t *testing.T) {
+	saved := &GitHub{AppID: "123", PrivateKey: "pem", ClientID: "Iv23abc", ClientSecret: "csec"}
+	got, err := MergeGitHub(saved, "123", "", "", "", "Iv23abc", "")
+	require.NoError(t, err)
+	assert.Equal(t, "csec", got.ClientSecret)
+	assert.True(t, got.UserAuth())
+
+	got, err = MergeGitHub(saved, "123", "", "", "", "", "")
+	require.NoError(t, err)
+	assert.Empty(t, got.ClientID)
+	assert.Empty(t, got.ClientSecret)
+	assert.False(t, got.UserAuth())
+
+	_, err = MergeGitHub(nil, "123", "pem", "", "", "Iv23abc", "")
+	require.ErrorContains(t, err, "client secret")
 }
 
 func TestOverlayReplacesTheKeyFile(t *testing.T) {
@@ -69,7 +86,7 @@ func TestSavedGitHubKeyPassesTheSameCheckAsStartup(t *testing.T) {
 	require.NoError(t, err)
 	raw := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 
-	row, err := MergeGitHub(nil, "123456", string(raw), "whsec", "0.0.0.0:8091")
+	row, err := MergeGitHub(nil, "123456", string(raw), "whsec", "0.0.0.0:8091", "", "")
 	require.NoError(t, err)
 	cfg := Overlay(config.Config{
 		Listen:  "0.0.0.0:8090",
