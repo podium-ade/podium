@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // NameRE constrains a server name. It is the playbook rule with the same reasoning: the name
@@ -178,21 +180,28 @@ func (s Server) Refreshable() bool {
 // name the secret could hand the token to a container the registry never granted it to.
 func TokenSecret(name string) string { return SecretPrefix + name + "_token" }
 
-// PersonalTokenSecret is the global secret one person's server is stored as. The owner is
-// hashed because a login is an email and @ is not a legal secret name. Two people who both
-// register `linear` do not share a secret.
-func PersonalTokenSecret(owner, name string) string {
+// PersonalTokenSecret is the personal secret one person's server is stored as. The name
+// does not include the login: two people who both register `linear` share the name, and
+// the secret's owner separates the values. It is not a podium.agent name, so it can be
+// personal, and it is not the bot's global name, so the two do not collide.
+func PersonalTokenSecret(name string) string { return spec.PersonalMCPSecretName(name) }
+
+// LegacyPersonalTokenSecret is the global name a person's token was stored under before
+// it belonged on their own secret list. A login is an email, so the owner was hashed.
+// New writes use PersonalTokenSecret and remove this one.
+func LegacyPersonalTokenSecret(owner, name string) string {
 	sum := sha256.Sum256([]byte(owner))
 	return SecretPrefix + "u" + hex.EncodeToString(sum[:8]) + "." + name + "_token"
 }
 
 // CredentialSecret is the Podium secret a server's token is stored as. A bot row keeps
-// TokenSecret. A personal row embeds the owner so it cannot collide with the bot's.
+// TokenSecret, which is global. A personal row uses PersonalTokenSecret, which is that
+// person's own secret.
 func CredentialSecret(srv Server) string {
 	if srv.Owner == "" {
 		return TokenSecret(srv.Name)
 	}
-	return PersonalTokenSecret(srv.Owner, srv.Name)
+	return PersonalTokenSecret(srv.Name)
 }
 
 // TokenEnv is where that secret lands in a task container, and what the brief's token_env

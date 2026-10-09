@@ -206,8 +206,11 @@ SAML is not implemented.
   a member, an admin, the dev token, and a node. The error says the conductor attaches that
   secret. A person can name their own personal secrets, and the conductor can name them when the
   task is for that person. An admin can set and delete global values. A member can set and delete
-  only their own. The dev token can set a global value and cannot set a personal one. A list
-  returns every global name plus the caller's own personal names, and never another login's.
+  only their own. The dev token can set a global value and cannot set a personal one. The
+  conductor can store one personal name for a person, `mcp.<server>_token`, which is the
+  token that person saved on their own MCP server. A list returns every global name plus
+  the caller's own personal names, and never another login's. The conductor's list is
+  globals, plus that one MCP name when it asks about a login.
   No API returns a value.
   `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person, so a
   playbook that names one fails the turn, and a Slack mention does not use the mentioner's
@@ -522,9 +525,10 @@ What it gives you:
   Only a playbook's `mcp_servers:` decides which names a turn asks for. A missing name fails
   the turn and says which server. A token stored and named by no playbook is spent by nothing.
 - **The token is a Podium secret and is never in a document.** A bot row is stored as
-  `podium.agent.mcp.<name>_token`. A person's server uses a different global name that includes
-  a hash of their login, so two people who both register `linear` do not share a token. It is
-  attached to the task as `PODIUM_MCP_<NAME>_TOKEN`, and the
+  the global secret `podium.agent.mcp.<name>_token`. A person's server is stored as their
+  own secret `mcp.<name>_token`, so it shows on their secrets and not the company list.
+  Two people who both register `linear` share that name; the owner separates the values.
+  It is attached to the task as `PODIUM_MCP_<NAME>_TOKEN`, and the
   brief and the harness config carry only the variable's name. No config file on disk and no
   task spec holds the value, and nothing — including the conductor — can read it back out of the
   secret store. What the UI shows is four characters kept at save time, and for a sign-in not
@@ -538,8 +542,9 @@ What it gives you:
   `podium-server`, so there is no unauthenticated HTTP route anywhere in the sign-in — the code
   reaches the conductor over the same Connect API everything else does. See
   *docs/agent.md#signing-in-to-an-mcp-server*.
-- **A playbook cannot help itself to one.** `secrets:` may not name anything starting
-  `podium.agent.mcp.`, and `env:` may not set anything starting `PODIUM_MCP_`, so the registry
+- **A playbook cannot help itself to one.** `secrets:` and `user_secrets:` may not name
+  anything starting `podium.agent.mcp.` or a personal MCP credential `mcp.<server>_token`,
+  and `env:` may not set anything starting `PODIUM_MCP_`, so the registry
   and the allow-list are the only route from a token to a container.
 - **Remote only.** A local MCP server is a command line, and a command line typed into a browser
   form is a process in the turn's container with the turn's credentials. The two local servers a

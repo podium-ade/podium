@@ -85,6 +85,24 @@ func TestRegisteringAServerStoresItsTokenAsAPodiumSecret(t *testing.T) {
 	assert.Equal(t, "lin_api_0123456789", row.Token)
 }
 
+// A signed-in person's server stores its token as their secret, not a company secret.
+func TestAPersonalServerStoresItsTokenOnThatPersonsSecrets(t *testing.T) {
+	f := newMcpFixture(t)
+	req := linearReq(nil)
+	req.Msg.Token = "lin_api_0123456789"
+
+	got, err := f.svc.CreateMcpServer(loginCtx("ada@acme.com"), req)
+	require.NoError(t, err)
+	srv := got.Msg.GetServer()
+	assert.Equal(t, "ada@acme.com", srv.GetOwner())
+	assert.True(t, srv.GetTokenSet())
+	assert.Equal(t, mcp.PersonalTokenSecret("linear"), srv.GetTokenSecret())
+	assert.Equal(t, []byte("lin_api_0123456789"), f.secrets.set[mcp.PersonalTokenSecret("linear")])
+	assert.Equal(t, "ada@acme.com", f.secrets.owners[mcp.PersonalTokenSecret("linear")])
+	assert.NotContains(t, f.secrets.set, mcp.TokenSecret("linear"))
+	assert.NotContains(t, f.secrets.set, mcp.LegacyPersonalTokenSecret("ada@acme.com", "linear"))
+}
+
 // A server that needs no credential is a supported registration, not a half-finished one.
 func TestAServerCanBeRegisteredWithNoToken(t *testing.T) {
 	f := newMcpFixture(t)

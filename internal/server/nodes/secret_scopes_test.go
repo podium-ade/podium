@@ -214,6 +214,57 @@ func TestSecretScopesOnTheRealAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, podiumv1.TaskStatus_TASK_STATUS_FAILED, nokey.Msg.GetTask().GetStatus())
 	require.ErrorContains(t, errOrReason(nokey.Msg.GetTask().GetFailureReason()), "no master key")
+
+	// The conductor stores a person's MCP token on that person's list. It cannot write
+	// any other personal name, and a list that names them returns the credential without
+	// their other secrets. The dev token still cannot.
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "ADA_NOTE", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "ada@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	stored, err := agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "mcp.linear_token", Value: []byte("lin"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "ada@acme.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, stored.Msg.GetSecret().GetScope())
+	require.Equal(t, "ada@acme.com", stored.Msg.GetSecret().GetOwner())
+
+	adaList, err := ada.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{}))
+	require.NoError(t, err)
+	var sawMCP bool
+	for _, row := range adaList.Msg.GetSecrets() {
+		if row.GetName() == "mcp.linear_token" {
+			sawMCP = true
+			require.Equal(t, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, row.GetScope())
+			require.Equal(t, "ada@acme.com", row.GetOwner())
+		}
+	}
+	require.True(t, sawMCP)
+	bobList, err := bob.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{}))
+	require.NoError(t, err)
+	for _, row := range bobList.Msg.GetSecrets() {
+		require.NotEqual(t, "mcp.linear_token", row.GetName())
+	}
+	agentList, err := agent.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{}))
+	require.NoError(t, err)
+	for _, row := range agentList.Msg.GetSecrets() {
+		require.NotEqual(t, "mcp.linear_token", row.GetName())
+	}
+	agentAda, err := agent.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{Owner: "ada@acme.com"}))
+	require.NoError(t, err)
+	var agentSawMCP, agentSawNote bool
+	for _, row := range agentAda.Msg.GetSecrets() {
+		if row.GetName() == "mcp.linear_token" {
+			agentSawMCP = true
+		}
+		if row.GetName() == "ADA_NOTE" {
+			agentSawNote = true
+		}
+	}
+	require.True(t, agentSawMCP)
+	require.False(t, agentSawNote)
+	_, err = dev.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{Owner: "ada@acme.com"}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 }
 
 func errOrReason(reason string) error { return stringError(reason) }

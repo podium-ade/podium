@@ -170,5 +170,5 @@ func TestASlackTurnUsesTheUnownedMCPServer(t *testing.T) {
 		names = append(names, ref.GetName())
 		assert.Empty(t, ref.GetOwner(), "a slack turn attaches no personal secret")
 	}
-	assert.NotContains(t, names, mcp.PersonalTokenSecret("alice@acme.com", "linear"))
+	assert.NotContains(t, names, mcp.PersonalTokenSecret("linear"))
 }

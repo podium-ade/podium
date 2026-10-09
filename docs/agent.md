@@ -540,8 +540,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   `OPENAI_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is
   the brief, the next three come from the secrets, and the last two are where a skill's
   bundle and an MCP server's token travel.
-- **No MCP server token may appear in `secrets:`.** Anything starting `podium.agent.mcp.` is
-  refused. `mcp_servers` is what grants a server to a playbook, and naming its secret directly
+- **No MCP server token may appear in `secrets:` or `user_secrets:`.** Anything starting
+  `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
+  `mcp_servers` is what grants a server to a playbook, and naming its secret directly
   would be a turn holding the credential of a server it was never granted.
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
@@ -802,8 +803,9 @@ A turn of that playbook gets the server's tools as `mcp__linear__*`, and the tok
 it. A playbook that names none gets none — the harness is written a config with only the
 servers the brief carried.
 
-**The token never travels in the brief.** It is a Podium secret,
-`podium.agent.mcp.<name>_token`, which the conductor attaches to the task as
+**The token never travels in the brief.** A bot server's token is the global secret
+`podium.agent.mcp.<name>_token`. A person's server is their own secret `mcp.<name>_token`,
+which shows on their secrets. The conductor attaches either to the task as
 `PODIUM_MCP_<NAME>_TOKEN`; the brief names the variable and the harness config resolves it at
 run time, so no config file on disk and no task spec ever holds the value. It is the same
 split the model credentials and memory's key follow, for the same reason: a brief is an
