@@ -70,6 +70,10 @@ type turnGrant struct {
 	ref       string
 	src       Source
 	playbooks []string
+	// login is the Slack speaker's email, when Slack could read one. It chooses MCP
+	// servers for a delegated task. Personal secrets still follow asker, which is empty
+	// for Slack.
+	login string
 }
 
 // mintTurnToken issues a token for one host turn. It lives until revokeTurnToken, which
@@ -363,17 +367,19 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	// The person this conversation belongs to. A Slack thread has none, so a playbook
-	// that names personal secrets fails here, before a task exists.
+	// The person this conversation's personal secrets belong to. A Slack thread has none,
+	// so a playbook that names personal secrets fails here, before a task exists. MCP
+	// servers are chosen separately: a Slack speaker's email, stored on the turn grant,
+	// uses that person's rows.
 	login := c.asker(ctx, g.src, sess)
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
-	// The delegated playbook's own MCP servers, resolved the same way a turn's are. The
-	// host turn that asked for this has none of its own — it delegates to a playbook that
-	// has what it needs, which is exactly what this line is. A person's servers are that
-	// person's rows; a Slack turn keeps the unowned bot list.
-	servers, err := c.mcpServers(ctx, j, login)
+	mcpOwner := login
+	if mcpOwner == "" {
+		mcpOwner = g.login
+	}
+	servers, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}

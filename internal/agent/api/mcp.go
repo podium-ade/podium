@@ -81,6 +81,9 @@ func (s *AgentService) CreateMcpServer(
 		return nil, err
 	}
 	srv.Owner = owner
+	if owner != "" {
+		srv.Fallback = false
+	}
 	login := Login(ctx)
 	s.logger.InfoContext(ctx, "registering an mcp server",
 		"request", redactedMcpTokenRequest{name: srv.Name, token: req.Msg.GetToken()}, "login", login)
@@ -126,6 +129,9 @@ func (s *AgentService) UpdateMcpServer(
 		return nil, err
 	}
 	srv.Owner = owner
+	if owner != "" {
+		srv.Fallback = false
+	}
 	login := Login(ctx)
 
 	s.writeMu.Lock()
@@ -676,7 +682,7 @@ func (s *AgentService) requireMcpStore() error {
 }
 
 // mcpPersonalOwner is the login whose servers a list may include, or empty when the caller
-// is not a signed-in person. The dev token, the conductor, and "unknown" see the bot list only.
+// is not a signed-in person. The dev token, the conductor, and "unknown" see the global list only.
 func mcpPersonalOwner(login string) string {
 	switch login {
 	case "", "unknown", "local", "agent":
@@ -687,8 +693,8 @@ func mcpPersonalOwner(login string) string {
 }
 
 // mcpWriteOwner is which registry a mutation touches. A signed-in person writes their own
-// server unless they ask for the bot list, and only an admin or the dev token may do that.
-// A caller who is not a person keeps the bot list, which is what the existing registry was.
+// server unless they ask for the global list, and only an admin or the dev token may do that.
+// A caller who is not a person keeps the global list, which is what the existing registry was.
 func mcpWriteOwner(ctx context.Context, forBot bool) (string, error) {
 	login := Login(ctx)
 	if mcpPersonalOwner(login) == "" {
@@ -697,7 +703,7 @@ func mcpWriteOwner(ctx context.Context, forBot bool) (string, error) {
 	if forBot {
 		if !Infra(ctx) {
 			return "", connect.NewError(connect.CodePermissionDenied,
-				errors.New("only an admin can edit the bot's MCP servers"))
+				errors.New("only an admin can edit the global MCP servers"))
 		}
 		return "", nil
 	}
@@ -746,6 +752,7 @@ func mcpServerFromProto(msg *agentv1.McpServer) (mcp.Server, error) {
 		Description: strings.TrimSpace(msg.GetDescription()),
 		Enabled:     msg.GetEnabled(),
 		Config:      strings.TrimSpace(msg.GetConfig()),
+		Fallback:    msg.GetFallback(),
 	}
 	if err := srv.Validate(); err != nil {
 		return mcp.Server{}, connect.NewError(connect.CodeInvalidArgument, err)
@@ -770,6 +777,7 @@ func (s *AgentService) mcpServerToProto(
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
 		Owner:       row.Owner,
+		Fallback:    row.Owner == "" && row.Fallback,
 		TokenEnv:    mcp.TokenEnv(row.Name),
 		TokenSecret: mcp.CredentialSecret(row),
 	}

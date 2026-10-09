@@ -40,7 +40,7 @@ func (s *Store) McpServer(ctx context.Context, name string) (mcp.Server, error) 
 	return s.McpServerOwned(ctx, "", name)
 }
 
-// McpServerOwned reads one server. An empty owner is the bot list.
+// McpServerOwned reads one server. An empty owner is the global list.
 func (s *Store) McpServerOwned(ctx context.Context, owner, name string) (mcp.Server, error) {
 	row, err := s.q.GetMcpServer(ctx, db.GetMcpServerParams{Owner: owner, Name: name})
 	if noRows(err) {
@@ -64,6 +64,7 @@ func (s *Store) InsertMcpServer(ctx context.Context, srv mcp.Server, login strin
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
 		Owner:       srv.Owner,
+		Fallback:    srv.Fallback,
 	})
 	if err != nil {
 		return fmt.Errorf("insert mcp server %s: %w", srv.Name, err)
@@ -86,6 +87,7 @@ func (s *Store) UpdateMcpServer(ctx context.Context, srv mcp.Server, login strin
 		UpdatedBy:   login,
 		UpdatedAt:   time.Now().UTC(),
 		Owner:       srv.Owner,
+		Fallback:    srv.Fallback,
 	})
 	if err != nil {
 		return fmt.Errorf("update mcp server %s: %w", srv.Name, err)
@@ -203,7 +205,7 @@ func (s *Store) DeleteMcpServer(ctx context.Context, name string) error {
 	return s.DeleteMcpServerOwned(ctx, "", name)
 }
 
-// DeleteMcpServerOwned removes one registration. An empty owner is the bot list.
+// DeleteMcpServerOwned removes one registration. An empty owner is the global list.
 func (s *Store) DeleteMcpServerOwned(ctx context.Context, owner, name string) error {
 	n, err := s.q.DeleteMcpServer(ctx, db.DeleteMcpServerParams{Owner: owner, Name: name})
 	if err != nil {
@@ -237,6 +239,7 @@ type mcpRow struct {
 	UpdatedBy          string
 	UpdatedAt          time.Time
 	Owner              string
+	Fallback           bool
 }
 
 func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
@@ -255,6 +258,7 @@ func mcpServerFromRow(r mcpRow) (mcp.Server, error) {
 		UpdatedBy:          r.UpdatedBy,
 		UpdatedAt:          r.UpdatedAt.UTC(),
 		Owner:              r.Owner,
+		Fallback:           r.Fallback,
 	}
 	if r.TokenSetAt != nil {
 		out.TokenSetAt = r.TokenSetAt.UTC()

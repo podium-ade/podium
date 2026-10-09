@@ -63,6 +63,11 @@ type InboundEvent struct {
 	ChannelName string
 	// Author is the display name of the human who spoke.
 	Author string
+	// Login is a Podium login the source could infer for this speaker. Slack sets it
+	// from the workspace email when the bot can read one. Empty means the turn has no
+	// person for MCP purposes and uses the global list. It is not a secret and it is
+	// not written onto a mirrored chat: those stay unowned so the workspace can see them.
+	Login string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.

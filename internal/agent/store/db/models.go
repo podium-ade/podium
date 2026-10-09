@@ -87,6 +87,7 @@ type McpServer struct {
 	Token              string
 	Config             string
 	Owner              string
+	Fallback           bool
 }
 
 type Relayed struct {
