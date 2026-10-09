@@ -143,8 +143,8 @@ export function Header() {
               <Item to="/agent/memory" icon={Brain} onNavigate={close}>
                 Memory
               </Item>
-              <Item to="/agent/profile" icon={UserRound} onNavigate={close}>
-                Assistant
+              <Item to="/agent/assistants" icon={UserRound} onNavigate={close}>
+                Assistants
               </Item>
             </>
           ) : null}

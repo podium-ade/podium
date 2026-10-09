@@ -521,7 +521,7 @@ func (c *Conductor) acceptConversation(
 	sess, err := c.store.UpsertSession(ctx, store.Session{
 		SourceKind: src.Kind(),
 		SourceKey:  ev.SourceKey,
-		Profile:    profile.Name,
+		Profile:    sessionProfileName(profile.Name, ev.PersonalityName),
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
@@ -929,7 +929,7 @@ func (c *Conductor) brief(
 		Profile: BriefProfile{
 			Name:         profile.Name,
 			DisplayName:  profile.DisplayName,
-			SystemPrompt: profile.SystemPrompt,
+			SystemPrompt: systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt),
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},

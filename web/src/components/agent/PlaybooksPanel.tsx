@@ -145,8 +145,8 @@ export function PlaybooksPanel() {
       ) : null}
 
       {profile.data?.staleReason ? (
-        <Alert variant="warn" title="The conductor is running an older profile than the stored overrides would produce">
-          The overrides would not apply: {profile.data.staleReason}
+        <Alert variant="warn" title="The conductor is running an older profile than the saved assistant would produce">
+          The saved assistant would not apply: {profile.data.staleReason}
         </Alert>
       ) : null}
 

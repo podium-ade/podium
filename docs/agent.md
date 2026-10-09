@@ -10,7 +10,7 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 
 | | What it is | Where it runs |
 |---|---|---|
-| **Assistant** | Who you talk to. One per conductor. A name, a personality, a model, memory, and a short fixed tool list. `profile.yaml` *is* the assistant. | In this process, on your host. No container, no workspace. |
+| **Assistant** | Who you talk to. One active definition per conductor: a name, a personality, a model, memory, and a short fixed tool list. The saved definition is the assistant. `profile.yaml` is only the install seed, until the first save. | In this process, on your host. No container, no workspace. |
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
@@ -44,7 +44,7 @@ human picks. A conversation — the web chat — is answered here. A thread runs
 ```
 somebody says something in a CONVERSATION
   ↓  source (chat)                           normalises it into an InboundEvent
-  ↓  Assistant                               profile.yaml: the prompt, the model, the skills, the cap
+  ↓  Assistant                               the saved definition: the prompt, the model, the skills, the cap
   ↓  UpsertSession                            by source key; sessions.playbook is empty — there is none
   ↓  post "👀 working…"                       before any work starts
   ↓  FetchTranscript                          the conversation so far
@@ -433,22 +433,25 @@ agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
 skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
-                             # Unset means none. FILE ONLY — no browser override
+                             # Unset means none. An owner or admin can set this on Assistant.
 mcp_servers: []              # optional; MCP servers the ASSISTANT may use directly, by name,
                              # out of the registry — so editing a ticket needs no task.
-                             # Unset means none, and it delegates instead. FILE ONLY
+                             # Unset means none, and it delegates instead.
 max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
-                             # is the opposite of a playbook's. FILE ONLY
+                             # is the opposite of a playbook's.
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
-                             # and there is no "off". FILE ONLY
+                             # and there is no "off".
 # default_playbook is unused. A Slack mention or Linear ticket with no /playbook and no
 # channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
-`skills`, `mcp_servers` and `max_turns` are file-only on purpose. What the process running beside
-your master key may execute, reach, and for how long, is a decision that belongs in a repository next to a review
-— not behind a form in a browser. Everything above them can be overridden from the Assistant
-screen, which stores the override in the conductor's database and leaves the file alone.
+An owner or an admin sets every one of these on Assistant. The screen stores the whole
+assistant as a definition in the conductor's database (`settings` key `profile.assistants`):
+a list of definitions and which one is active. Today the screen edits the active one. A later
+release can add another definition to that same list. `profile.yaml` is the install seed. It
+applies until somebody saves, and after that the saved definition is the assistant. A member
+does not see the page. The name labels new sessions. Sessions already recorded keep the name
+they were given.
 
 **`max_turns` unset means no cap, and that is not the playbook rule.** A playbook always has
 one (50 by default) because a task runs unattended on a node. The assistant answers a
@@ -1003,42 +1006,60 @@ at all — `sessions.playbook` is empty, and the Sessions and Usage screens read
 A `/word` typed in a **chat** is just text: nothing strips it, because there is no playbook to
 select and eating the first word of somebody's question would only lose it.
 
-Changing a playbook **file** needs the conductor to re-read the profile directory: **Re-read the
-files**, on the Playbooks screen or on Agent → Assistant. There is no SIGHUP reload and no
-restart.
+Changing a playbook **file** needs the conductor to re-read the profile directory: **Reload**,
+on the Playbooks screen. There is no SIGHUP reload and no restart. Re-reading does not replace
+an assistant that has already been saved.
 
 ### Playbooks in the web UI
 
-**Playbooks** in the sidebar lists every `playbooks/<name>.yaml` the conductor has loaded, in
-full, read-only. **Agent → Assistant** sets the display name, the model and the default playbook
-as overrides of `profile.yaml`. Neither screen writes a playbook file: compose bind-mounts
-`PODIUM_AGENT_PROFILE_HOST` (or the named volume `agent-profile`) there, and the conductor
-never writes it.
+**Playbooks** in the sidebar lists every `playbooks/<name>.yaml` the conductor has loaded.
+**Assistants** is where Podium is maintained and where a person adds a voice of their own.
+Podium is the main agent: display name, prompt, model, skills, MCP servers, the step cap,
+the wall clock, and the git persona a playbook inherits. An owner or an admin can change it.
+A member can read it. The link is in the sidebar for anyone signed in while the conductor is on.
 
-Profile *settings* are the one thing a browser does write, because they are not definitions
-with a name but single values with one writer: `profile.yaml` supplies the default and a field
-set in the UI overrides it. The screen shows the file's value beside each field, marks which
-are overridden, and clearing a field returns it to the file. Those overrides live in
-`settings` under `profile.overrides`.
+The screen edits that definition directly. It does not show `profile.yaml`, and it has no
+source editor. `default_playbook` is not a control: a conversation does not run a default
+playbook. A `file:` prompt in the install seed is read once, as text, the first time the
+definition is saved. Editing that file afterwards does not change an assistant that has
+already been saved.
 
-**`profile.yaml` itself is editable on Agent → Assistant**, as text, comments and all — for
-what the override fields do not cover, such as the assistant's `skills` or `mcp_servers`. A
-save writes the file and re-reads the profile directory; a file that does not load is refused
-and the previous one is put back, so a bad save leaves the running bot as it was. The profile
-directory has to be writable by the conductor for this, as it already does for playbook edits.
+A conductor that has never saved still applies the older `profile.overrides` row, when one
+exists, on top of the install file. The first save writes `profile.assistants` and deletes
+that row, so the two cannot both apply.
 
-**How a change reaches a running conductor.** An override write validates, stores, rebuilds the
-profile and swaps it in atomically — the next turn uses it, a turn already in flight is
+### Personal assistants
+
+A personal assistant is a voice one person adds on top of Podium. The person sets a display
+name, instructions, and an optional model. The stored name is generated from that display
+name, once, and a later edit of the display name does not change it. It does not have its
+own skills, MCP servers, timeout, or computer. An empty model follows Podium. A choice in
+one chat still wins there. A web chat that names one still runs Podium, and those
+instructions are appended after Podium's prompt for that turn only. The stored prompt is not
+changed. Slack, GitHub, and Linear keep Podium. They do not address a personal assistant.
+
+Only the person who created it can see it, change it, or open a chat with it. Everyone else
+still has Podium. Podium is pinned first, and a new web chat uses it until that person picks
+another. The choice is per conversation.
+
+**Assistants** lists Podium, then the assistants that person made, then New. A personal
+assistant's editor is the display name, the instructions, and the model, in the same
+order as Podium. Deleting one leaves its chats readable under the display name they were
+given. A new message in one of those chats is refused, and a new chat cannot select it.
+Chat shows the same list above the threads and lists only the open assistant's conversations.
+
+**How a change reaches a running conductor.** A save validates, stores the catalog, rebuilds
+the profile and swaps it in atomically. The next turn uses it. A turn already in flight is
 untouched. The profile directory is read at start and **only** re-read when somebody asks —
-**Re-read the files**, on the Playbooks screen or on Agent → Assistant, which is
-`ReloadProfileDir`. Re-reading a file somebody is half way through saving on a timer would be
-a way to break a working bot by touching a keyboard; a human pressing a button is the one
-signal that says the editing has finished. Every conductor also re-reads the stored overrides
-every 15 seconds, which is what makes a second conductor on the same database, or a row
-changed with `psql`, land as well.
+**Reload**, on the Playbooks screen, which is `ReloadProfileDir`. Re-reading picks up
+playbooks and a prompt file. It does not replace a saved assistant. Re-reading a file
+somebody is half way through saving on a timer would be a way to break a working bot by
+touching a keyboard; a human pressing a button is the one signal that says the editing has
+finished. Every conductor also re-reads the saved assistant every 15 seconds, which is what
+makes a second conductor on the same database, or a row changed with `psql`, land as well.
 
 The re-read is all-or-nothing. `profile.yaml`, every `playbooks/<name>.yaml` and every prompt a
-`file:` names are loaded, the stored overrides are applied, and the result is validated by
+`file:` names are loaded, the saved assistant is applied, and the result is validated by
 exactly the code that runs at start-up — and only then swapped in. A directory that does not load
 is refused with the error naming the file, and the conductor keeps running the profile it already
 had. Nothing an operator can leave half-written on disk can stop a bot that is answering.

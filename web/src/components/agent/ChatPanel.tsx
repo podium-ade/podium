@@ -1,18 +1,19 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Ellipsis,
   Pencil,
+  Plus,
   Search,
   Sparkles,
-  SquarePen,
   Trash2,
 } from "lucide-react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
   type Assistant,
   type Chat,
+  type Personality,
 } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
 import { useChatStream } from "../../hooks/useChatStream";
@@ -20,6 +21,7 @@ import { INHERIT, type AgentChoice } from "../../lib/agents";
 import { agent, connectCode, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { relative, toDate } from "../../lib/format";
 import { useViewer } from "../../lib/identity";
+import { comparePersonalities, inheritedAssistant } from "../../lib/personality";
 import { cn } from "../../lib/utils";
 import { Empty } from "../Empty";
 import { Skeleton } from "../Skeleton";
@@ -41,12 +43,42 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
-import { Kbd } from "../ui/kbd";
 import { Tooltip } from "../ui/tooltip";
 import { ChatComposer } from "./ChatComposer";
 import { ChatPullRequests } from "./ChatPullRequests";
 import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
+
+const railRow =
+  "flex h-8 min-w-0 items-center rounded-md px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function RailHeading({ title, action }: { title: string; action?: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3 border-b border-border px-2 py-2.5">
+      <h2 className="min-w-0 flex-1 truncate px-2.5 text-base font-semibold text-fg">{title}</h2>
+      {action}
+    </div>
+  );
+}
+
+/**
+ * The first segment of /agent/chat is a chat id. `a` is the one reserved prefix, because
+ * chat ids are `chat_` plus a ULID, so a personality can live at /agent/chat/a/:id/:chatId
+ * without taking over an existing link.
+ */
+function parseChatPath(splat: string): { personalityId: string; chatId: string; redirect: boolean } {
+  const parts = splat.split("/").filter(Boolean);
+  if (parts[0] !== "a") return { personalityId: "", chatId: parts[0] ?? "", redirect: false };
+  if (!parts[1]) return { personalityId: "", chatId: "", redirect: true };
+  return { personalityId: parts[1], chatId: parts[2] ?? "", redirect: false };
+}
+
+function chatPath(personalityId: string, chatId = ""): string {
+  if (personalityId === "") return chatId === "" ? "/agent/chat" : `/agent/chat/${chatId}`;
+  return chatId === "" ? `/agent/chat/a/${personalityId}` : `/agent/chat/a/${personalityId}/${chatId}`;
+}
+
+type VoiceRow = { id: string; label: string; gone?: boolean };
 
 // The thread, its markdown and its highlighter are most of this screen's weight and none of
 // any other's, so they load with the first conversation opened.
@@ -65,18 +97,26 @@ const MAX_CHAT_TITLE = 80;
  */
 export function ChatPanel() {
   const navigate = useNavigate();
-  // The tab's route is `chat/*`, so the rest of the path is the chat id — which keeps
-  // /agent/chat/<id> a deep link and the back button a real navigation.
-  const active = (useParams()["*"] ?? "").split("/")[0];
+  // The tab's route is `chat/*`. The first segment is the chat id, except `a`, which names
+  // a personal assistant: /agent/chat/a/:id and /agent/chat/a/:id/:chatId.
+  const splat = useParams()["*"] ?? "";
+  const route = useMemo(() => parseChatPath(splat), [splat]);
+  const active = route.chatId;
+  const personalityId = route.personalityId;
   const qc = useQueryClient();
   const toast = useToast();
 
   const chats = useQuery({
-    queryKey: ["agent", "chats"],
-    queryFn: () => agent.listChats({}),
+    queryKey: ["agent", "chats", personalityId],
+    queryFn: () => agent.listChats({ filterPersonality: true, personalityId }),
     // A turn started in another tab, or by somebody else's browser on the same login,
     // changes turn_running and the preview. Nothing else here would notice.
     refetchInterval: 10_000,
+  });
+  const voices = useQuery({
+    queryKey: ["agent", "personalities"],
+    queryFn: () => agent.listPersonalities({}),
+    staleTime: 30_000,
   });
   const playbooks = useQuery({
     queryKey: ["agent", "playbooks"],
@@ -84,14 +124,23 @@ export function ChatPanel() {
     staleTime: 5 * 60_000,
   });
 
-  // The first question creates the chat. New chat, and N, only return to this
-  // arrival. Pressing them here does not insert an empty row.
+  const personalities = voices.data?.personalities ?? [];
+  // A failed or still-loading list is not "gone". Only a successful list that lacks the id is.
+  const assistantGone =
+    personalityId !== "" && voices.isSuccess && !personalities.some((p) => p.id === personalityId);
+  const blank = chatPath(personalityId);
+  const voiceRows = voiceRowsFor(personalities, personalityId, assistantGone, chats.data?.chats ?? []);
+
+  // The first question creates the chat. The Chats +, and N, only return to this
+  // arrival. Pressing them here does not insert an empty row. A deleted assistant
+  // has nothing new to open.
   const openBlank = () => {
-    if (active !== "") navigate("/agent/chat");
+    if (assistantGone) return;
+    if (active !== "") navigate(blank);
   };
   const ask = useMutation({
     mutationFn: async (v: { text: string; choice: AgentChoice }) => {
-      const res = await agent.createChat({ title: "" });
+      const res = await agent.createChat(personalityId === "" ? { title: "" } : { title: "", personalityId });
       const id = res.chat?.id ?? "";
       if (id === "") throw new ConnectError("the conductor did not open a chat", Code.Internal);
       try {
@@ -104,14 +153,14 @@ export function ChatPanel() {
         });
       } catch (err) {
         await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-        navigate(`/agent/chat/${id}`);
+        navigate(chatPath(personalityId, id));
         throw err;
       }
       return { id, text: v.text };
     },
     onSuccess: async ({ id, text }) => {
       await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-      navigate(`/agent/chat/${id}`, { state: { pendingText: text } });
+      navigate(chatPath(personalityId, id), { state: { pendingText: text } });
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -133,7 +182,7 @@ export function ChatPanel() {
       setPendingDelete(null);
       toast(`${chat.title} deleted.`, "ok");
       await qc.invalidateQueries({ queryKey: ["agent", "chats"] });
-      if (active === chat.id) navigate("/agent/chat");
+      if (active === chat.id) navigate(blank);
     },
     onError: (err) => toast(errorMessage(err)),
   });
@@ -148,13 +197,15 @@ export function ChatPanel() {
       if (e.key !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement;
       if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return;
-      if (active === "") return;
+      if (assistantGone || active === "") return;
       e.preventDefault();
-      navigate("/agent/chat");
+      navigate(blank);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, navigate]);
+  }, [active, assistantGone, blank, navigate]);
+
+  if (route.redirect) return <Navigate to="/agent/chat" replace />;
 
   if (connectCode(chats.error) === Code.FailedPrecondition) {
     return (
@@ -189,6 +240,10 @@ export function ChatPanel() {
   // playbook per piece of work, and naming them is how a reader learns the conversation can
   // reach a machine at all.
   const playbookNames = (playbooks.data?.playbooks ?? []).map((p) => p.name);
+  const selectedVoice = personalities.find((p) => p.id === personalityId);
+  const arrivalName = selectedVoice?.displayName || playbooks.data?.assistant?.displayName || "Podium";
+  // Bubbles keep Podium's display name. The chip shows this voice's model when it has one.
+  const answeredBy = inheritedAssistant(playbooks.data?.assistant, selectedVoice);
   const deleteStopsTask = pendingDelete?.turnRunning === true || pendingDelete?.taskRunning === true;
 
   return (
@@ -214,18 +269,29 @@ export function ChatPanel() {
           loading={chats.isPending}
           onNew={openBlank}
           creating={false}
-          onOpen={(id) => navigate(`/agent/chat/${id}`)}
+          newDisabled={assistantGone}
+          onOpen={(id) => navigate(chatPath(personalityId, id))}
           onRename={renameChat}
           onDelete={setPendingDelete}
           deletingId={remove.isPending ? remove.variables?.id : undefined}
           viewerLogin={viewerLogin}
+          voices={voiceRows}
+          voiceId={personalityId}
+          onPickVoice={(id) => {
+            if (id !== personalityId) navigate(chatPath(id));
+          }}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
-          {active === "" ? (
+          {assistantGone && active === "" ? (
+            <div className="grid min-h-0 flex-1 place-items-center p-6">
+              <p className="text-sm text-muted">That assistant was deleted.</p>
+            </div>
+          ) : active === "" ? (
             <Arrival
-              botName={playbooks.data?.assistant?.displayName ?? "Podium"}
+              botName={arrivalName}
               playbookNames={playbookNames}
               sending={ask.isPending}
+              assistant={answeredBy}
               onSend={(text, choice) => ask.mutate({ text, choice })}
             />
           ) : (
@@ -241,7 +307,8 @@ export function ChatPanel() {
               listedLogin={list.find((c) => c.id === active)?.login}
               listedEmpty={(list.find((c) => c.id === active)?.preview ?? "") === ""}
               onRename={(title) => renameChat(active, title)}
-              assistant={playbooks.data?.assistant}
+              onLeave={() => navigate(blank)}
+              assistant={answeredBy}
               playbookNames={playbookNames}
             />
           )}
@@ -378,22 +445,30 @@ function ChatRail({
   loading,
   onNew,
   creating,
+  newDisabled,
   onOpen,
   onRename,
   onDelete,
   deletingId,
   viewerLogin,
+  voices,
+  voiceId,
+  onPickVoice,
 }: {
   chats: Chat[];
   active: string;
   loading: boolean;
   onNew: () => void;
   creating: boolean;
+  newDisabled: boolean;
   onOpen: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (chat: Chat) => void;
   deletingId?: string;
   viewerLogin: string;
+  voices: VoiceRow[];
+  voiceId: string;
+  onPickVoice: (id: string) => void;
 }) {
   // Newest first. The server's order is not part of the contract, and "what I was just
   // doing" is the only order a chat list is ever read in.
@@ -411,21 +486,89 @@ function ChatRail({
   const split = origins.length > 1;
 
   return (
-    <div className="flex w-full min-h-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-64 sm:self-stretch sm:border-r sm:border-b-0">
-      <div className="flex flex-col gap-1 px-2 pt-3 pb-2">
-        <button
-          type="button"
-          data-testid="chat-new"
-          disabled={creating}
-          onClick={onNew}
-          className="group/new flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-fg transition-colors hover:bg-raised/70 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-60"
-        >
-          <SquarePen className="size-4 text-muted group-hover/new:text-fg" />
-          <span className="flex-1 text-left">{creating ? "Opening…" : "New chat"}</span>
-          <Kbd className="opacity-0 transition-opacity group-hover/new:opacity-100">N</Kbd>
-        </button>
+    <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-80 sm:self-stretch sm:border-r sm:border-b-0">
+      <div className="shrink-0 border-b border-border">
+      <nav aria-label="Assistants">
+        <RailHeading
+          title="Assistants"
+          action={
+            <Tooltip label="New assistant">
+              <Button variant="outline" size="icon-sm" asChild>
+                <Link to="/agent/assistants/new" aria-label="New assistant">
+                  <Plus />
+                </Link>
+              </Button>
+            </Tooltip>
+          }
+        />
+        <ul className="hidden max-h-48 flex-col gap-0.5 overflow-y-auto px-2 py-2 sm:flex">
+          {voices.map((voice) => (
+            <li key={voice.id || "podium"}>
+              {voice.gone ? (
+                <span
+                  aria-current="page"
+                  className={cn(railRow, "truncate bg-raised text-fg shadow-xs")}
+                >
+                  {voice.label}
+                </span>
+              ) : (
+                <Link
+                  to={chatPath(voice.id)}
+                  aria-current={voice.id === voiceId ? "page" : undefined}
+                  onClick={(e) => {
+                    if (voice.id === voiceId) e.preventDefault();
+                  }}
+                  className={cn(
+                    railRow,
+                    voice.id === voiceId
+                      ? "bg-raised text-fg shadow-xs"
+                      : "text-muted hover:bg-panel hover:text-fg",
+                  )}
+                >
+                  <span className="min-w-0 truncate">{voice.label}</span>
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      </nav>
+        <div className="mx-3 my-3 sm:hidden">
+          <select
+            aria-label="Assistant"
+            value={voiceId}
+            onChange={(e) => onPickVoice(e.target.value)}
+            className="min-w-0 w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
+          >
+            {voices.map((voice) => (
+              <option key={voice.id || "podium"} value={voice.id}>
+                {voice.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 flex-col">
+        <RailHeading
+          title="Chats"
+          action={
+            <Tooltip label={creating ? "Opening…" : "New chat"}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                data-testid="chat-new"
+                aria-label="New chat"
+                disabled={creating || newDisabled}
+                onClick={onNew}
+              >
+                <Plus />
+              </Button>
+            </Tooltip>
+          }
+        />
         {ordered.length > 4 ? (
-          <label className="relative block">
+          <label className="relative mx-2 mt-2 block">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
             <input
               data-testid="chat-search"
@@ -439,14 +582,12 @@ function ChatRail({
         ) : null}
       </div>
 
-      {/* On a narrow viewport the rail is a select rather than a drawer: one control, no
-          overlay, and the keyboard works. */}
-      <div className="mx-3 mb-3 flex items-center gap-2 sm:hidden">
+      <div className="mx-3 mt-2 mb-3 flex min-w-0 items-center gap-2 sm:hidden">
         <select
           aria-label="Chat"
           value={active}
           onChange={(e) => onOpen(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
+          className="min-w-0 w-full flex-1 rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-fg"
         >
           <option value="">Pick a chat…</option>
           {split
@@ -485,7 +626,7 @@ function ChatRail({
 
       <ul
         data-testid="chat-list"
-        className="hidden min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:block sm:h-0"
+        className="hidden min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-3 sm:block sm:h-0"
       >
         {loading
           ? Array.from({ length: 6 }, (_, i) => (
@@ -496,7 +637,9 @@ function ChatRail({
           : null}
         {!loading && ordered.length === 0 ? (
           <li className="px-2.5 py-2 text-sm leading-relaxed text-muted">
-            No chats yet. Start one and it appears here, newest first.
+            {newDisabled
+              ? "That assistant was deleted."
+              : "No chats yet. Start one and it appears here, newest first."}
           </li>
         ) : null}
         {!loading && ordered.length > 0 && filtered.length === 0 ? (
@@ -836,6 +979,7 @@ function Conversation({
   listedLogin,
   listedEmpty,
   onRename,
+  onLeave,
   assistant,
   playbookNames,
 }: {
@@ -859,10 +1003,10 @@ function Conversation({
    */
   listedEmpty?: boolean;
   onRename: (title: string) => Promise<void>;
+  onLeave: () => void;
   assistant?: Assistant;
   playbookNames: string[];
 }) {
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const viewer = useViewer();
@@ -936,6 +1080,10 @@ function Conversation({
       // The composer is disabled while a turn runs, so this is the race rather than the
       // rule: another tab got there first.
       if (err instanceof ConnectError && err.code === Code.FailedPrecondition) {
+        if (err.rawMessage === "That assistant was deleted.") {
+          toast("That assistant was deleted.");
+          return;
+        }
         toast("A turn is already running in this chat. Wait for the answer.");
         return;
       }
@@ -980,7 +1128,7 @@ function Conversation({
           title="This chat is gone"
           hint="It was deleted, or it was never yours. Pick another, or start a new one."
           action={
-            <Button size="sm" onClick={() => navigate("/agent/chat")}>
+            <Button size="sm" onClick={onLeave}>
               Back to chats
             </Button>
           }
@@ -1070,11 +1218,13 @@ function Arrival({
   botName,
   playbookNames,
   sending,
+  assistant,
   onSend,
 }: {
   botName: string;
   playbookNames: string[];
   sending: boolean;
+  assistant?: Assistant;
   onSend: (text: string, choice: AgentChoice) => void;
 }) {
   const { agents } = useAgents();
@@ -1097,6 +1247,7 @@ function Arrival({
         focusOnMount
         disabled={sending}
         agents={agents}
+        assistant={assistant}
         choice={choice}
         onChoiceChange={setPicked}
         onSend={onSend}
@@ -1189,4 +1340,23 @@ function storedChoice(chat?: Chat): AgentChoice | undefined {
   const effort = chat.effort ?? "";
   if (agent === "" && model === "" && effort === "") return undefined;
   return { agent, model, effort };
+}
+
+function voiceRowsFor(
+  personalities: Personality[],
+  personalityId: string,
+  gone: boolean,
+  chats: Chat[],
+): VoiceRow[] {
+  const rows: VoiceRow[] = [
+    { id: "", label: "Podium" },
+    ...[...personalities]
+      .sort(comparePersonalities)
+      .map((p) => ({ id: p.id, label: p.displayName || p.name })),
+  ];
+  if (gone) {
+    const label = chats.find((c) => c.personalityDisplay)?.personalityDisplay || "Deleted assistant";
+    rows.push({ id: personalityId, label, gone: true });
+  }
+  return rows;
 }
