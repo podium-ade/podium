@@ -17,11 +17,11 @@ import (
 // zero: those are real decisions (grant nothing, no step cap) and must not collapse into
 // "leave the file". The profile's name is absent. It labels every session row already written.
 type Overrides struct {
-	DisplayName     string    `json:"display_name,omitempty"`
-	Model           string    `json:"model,omitempty"`
-	Agent           string    `json:"agent,omitempty"`
-	Effort          string    `json:"effort,omitempty"`
-	DefaultPlaybook string    `json:"default_playbook,omitempty"`
+	DisplayName     string `json:"display_name,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Agent           string `json:"agent,omitempty"`
+	Effort          string `json:"effort,omitempty"`
+	DefaultPlaybook string `json:"default_playbook,omitempty"`
 	// SystemPrompt is the prompt text, not a file: reference. Nil leaves the file's prompt.
 	SystemPrompt *string `json:"system_prompt,omitempty"`
 	// Skills nil leaves the file. A pointer at an empty slice grants none.
