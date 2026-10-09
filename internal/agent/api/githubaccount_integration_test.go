@@ -8,20 +8,22 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/agent/connections"
+	"github.com/podium-ade/podium/internal/agent/github"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
 const githubRedirect = "https://podium.example.ts.net/agent/github/callback"
 
-// fakeGitHub answers the token exchange and /user. expiring makes it issue the eight-hour
-// tokens a GitHub App gives by default.
-func fakeGitHub(t *testing.T, expiring bool) *httptest.Server {
+// fakeGitHub answers the token exchange and /user. neverExpires makes it issue the tokens a
+// GitHub App gives when an admin opted out of expiration.
+func fakeGitHub(t *testing.T, neverExpires bool) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
@@ -32,9 +34,10 @@ func fakeGitHub(t *testing.T, expiring bool) *httptest.Server {
 			return
 		}
 		out := map[string]any{"access_token": "ghu_user_token", "token_type": "bearer"}
-		if expiring {
+		if !neverExpires {
 			out["expires_in"] = 28800
 			out["refresh_token"] = "ghr_refresh"
+			out["refresh_token_expires_in"] = 15811200
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
@@ -50,9 +53,9 @@ func fakeGitHub(t *testing.T, expiring bool) *httptest.Server {
 	return srv
 }
 
-func newGitHubAccountFixture(t *testing.T, expiring bool) settingsFixture {
+func newGitHubAccountFixture(t *testing.T, neverExpires bool) settingsFixture {
 	t.Helper()
-	gh := fakeGitHub(t, expiring)
+	gh := fakeGitHub(t, neverExpires)
 	f := newSettingsFixture(t, "https://example.invalid", gh.Client())
 	f.svc.githubURL = gh.URL
 	f.svc.githubAPIURL = gh.URL
@@ -96,8 +99,13 @@ func TestConnectingGitHubStoresTheTokenAsThePersonsSecret(t *testing.T) {
 	assert.True(t, acct.GetConnected())
 	assert.Equal(t, "ada-gh", acct.GetGithubLogin())
 	assert.Equal(t, int64(4242), acct.GetGithubId())
-	assert.Equal(t, "ghu_user_token", string(f.secrets.set["github.token"]))
+	var stored github.UserToken
+	require.NoError(t, json.Unmarshal(f.secrets.set["github.token"], &stored))
+	assert.Equal(t, "ghu_user_token", stored.AccessToken)
+	assert.Equal(t, "ghr_refresh", stored.RefreshToken)
+	assert.WithinDuration(t, time.Now().Add(8*time.Hour), stored.ExpiresAt, time.Minute)
 	assert.Equal(t, "ada@acme.com", f.secrets.owners["github.token"])
+	assert.NotContains(t, f.log.String(), "ghr_refresh")
 	assert.NotContains(t, done.Msg.String(), "ghu_user_token")
 	assert.NotContains(t, f.log.String(), "ghu_user_token")
 	assert.NotContains(t, f.log.String(), "good-code")
@@ -132,14 +140,14 @@ func TestAGitHubFlowBelongsToThePersonWhoStartedIt(t *testing.T) {
 	assert.NotContains(t, f.secrets.set, "github.token")
 }
 
-func TestConnectingGitHubRefusesExpiringTokens(t *testing.T) {
+func TestConnectingGitHubRefusesTokensThatNeverExpire(t *testing.T) {
 	f := newGitHubAccountFixture(t, true)
 	start := startGitHub(t, f, "ada@acme.com")
 	_, err := f.svc.CompleteGitHubOAuth(loginCtx("ada@acme.com"), connect.NewRequest(&agentv1.CompleteGitHubOAuthRequest{
 		FlowId: start.GetFlowId(), State: start.GetState(), Code: "good-code",
 	}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	assert.ErrorContains(t, err, "token expiration")
+	assert.ErrorContains(t, err, "never expire")
 	assert.NotContains(t, f.secrets.set, "github.token")
 }
 

@@ -526,6 +526,9 @@ message GitHubAccount {
   int64 github_id = 4;
   string name = 5;
   google.protobuf.Timestamp connected_at = 6;
+  // needs_reconnect is an account GitHub no longer accepts: its refresh token expired after
+  // six months unused, or the person revoked the App. Connecting again clears it.
+  bool needs_reconnect = 7;
 }
 
 message GetGitHubAccountRequest {}

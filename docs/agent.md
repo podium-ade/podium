@@ -1840,13 +1840,13 @@ person connects their account once, and nobody creates a personal access token.
 
 1. On the App's settings page on GitHub:
    - Add `https://<your Podium address>/agent/github/callback` as a **Callback URL**.
-   - Under **Optional features**, opt out of **User-to-server token expiration**. Podium does not
-     refresh the token, so it refuses one that expires.
+   - Under **Optional features**, keep **User-to-server token expiration** on. It is GitHub's
+     default, and Podium refuses a token that never expires.
    - Generate a **client secret**.
 2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
    with the App. They apply at once. No restart is needed.
-3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token as
-   that person's personal secret `github.token`.
+3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token and
+   its refresh token as that person's personal secret `github.token`.
 4. The playbook names it:
 
 ```yaml
@@ -1863,6 +1863,10 @@ A turn of that playbook then:
   the conductor revokes each one an hour after issuing it, and every one when the turn ends. It
   records them in the secret store, so a turn still running across a conductor restart has its
   tokens revoked too.
+- **Refreshes the person's token when it needs to.** GitHub's user token lives eight hours and
+  its refresh token six months. Before scoping, the conductor refreshes a token with less than
+  75 minutes left and stores both new tokens; a refresh token works once. One person's
+  refreshes run one at a time.
 - Commits as that person: their GitHub name and their `<id>+<login>@users.noreply.github.com`
   address, which GitHub links to their account. This replaces any `git:` persona.
 - Can reach only the playbook's repositories, and of those only the ones the App is installed
@@ -1875,7 +1879,9 @@ the credential helper and `GH_TOKEN`.
 
 The turn fails, and says why, when:
 
-- The person has not connected GitHub, or GitHub no longer accepts their connection.
+- The person has not connected GitHub, or GitHub no longer accepts their connection: the
+  refresh token went six months unused, or they revoked the App. Settings → Account then says
+  the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.

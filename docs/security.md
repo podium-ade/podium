@@ -772,7 +772,7 @@ is a Podium secret, encrypted under the master key:
 | A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
 | A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
 | The GitHub App's key and secrets, and the Slack tokens | `podium.agent.connection.*` |
-| A person's connected GitHub account | `github.token`, on that person's list |
+| A person's connected GitHub account: an access token that lives eight hours, and a refresh token that lives six months and works once | `github.token`, on that person's list |
 | The scoped GitHub tokens issued to a running turn | `podium.agent.git_user_token.<turn>` |
 
 A database written before this holds some of them in clear: refresh tokens and client secrets

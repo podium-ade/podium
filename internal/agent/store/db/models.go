@@ -68,11 +68,12 @@ type Delegation struct {
 }
 
 type GithubAccount struct {
-	Login       string
-	GithubID    int64
-	GithubLogin string
-	Name        string
-	ConnectedAt time.Time
+	Login          string
+	GithubID       int64
+	GithubLogin    string
+	Name           string
+	ConnectedAt    time.Time
+	NeedsReconnect bool
 }
 
 type LinearCursor struct {

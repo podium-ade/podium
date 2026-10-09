@@ -67,6 +67,15 @@ describe("GitHubAccountCard", () => {
     await waitFor(() => expect(disconnectGitHubAccount).toHaveBeenCalled());
   });
 
+  it("offers to reconnect an account GitHub no longer accepts", async () => {
+    getGitHubAccount.mockResolvedValue({
+      account: { available: true, connected: true, needsReconnect: true, githubLogin: "ada-gh" },
+    });
+    mount(<GitHubAccountCard />);
+    expect(await screen.findByText(/connection has expired/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reconnect github/i })).toBeInTheDocument();
+  });
+
   it("tells the person to contact an admin when connecting is unavailable", async () => {
     getGitHubAccount.mockResolvedValue({ account: { available: false, connected: false } });
     mount(<GitHubAccountCard />);

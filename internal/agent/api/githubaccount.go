@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/podium-ade/podium/internal/agent/connections"
+	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
@@ -159,14 +160,17 @@ func (s *AgentService) CompleteGitHubOAuth(
 			"login", login, "code_len", len(code), "error", err)
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
-	if tok.ExpiresIn > 0 || tok.RefreshToken != "" {
-		// Nothing refreshes this token, so one that dies in eight hours would fail turns
-		// silently tomorrow. Refuse it now, where someone can fix the App.
+	if tok.ExpiresAt.IsZero() || tok.RefreshToken == "" {
+		// A token that never expires is a leak that never ends. Refuse it, where someone can
+		// fix the App.
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(
-			"this GitHub App issues user tokens that expire. An admin should opt out of "+
+			"this GitHub App issues user tokens that never expire. An admin should turn on "+
 				"\"User-to-server token expiration\" under the App's Optional features, then connect again"))
 	}
-	token := []byte(tok.AccessToken)
+	token, err := json.Marshal(tok)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	defer zero(token)
 	user, err := s.githubUser(callCtx, tok.AccessToken)
 	if err != nil {
@@ -264,6 +268,7 @@ func (s *AgentService) githubAccountView(ctx context.Context, login string) (*ag
 		return nil, storeError(err)
 	}
 	out.Connected = true
+	out.NeedsReconnect = row.NeedsReconnect
 	out.GithubLogin = row.GitHubLogin
 	out.GithubId = row.GitHubID
 	out.Name = row.Name
@@ -271,7 +276,7 @@ func (s *AgentService) githubAccountView(ctx context.Context, login string) (*ag
 	return out, nil
 }
 
-func (s *AgentService) exchangeGitHubCode(ctx context.Context, f *githubFlow, code string) (*tokenResponse, error) {
+func (s *AgentService) exchangeGitHubCode(ctx context.Context, f *githubFlow, code string) (github.UserToken, error) {
 	form := url.Values{
 		"client_id":     {f.clientID},
 		"client_secret": {f.clientSecret},
@@ -282,27 +287,16 @@ func (s *AgentService) exchangeGitHubCode(ctx context.Context, f *githubFlow, co
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		s.githubURL+"/login/oauth/access_token", strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, err
+		return github.UserToken{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	res, err := s.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("GitHub could not be reached: %w", err)
+		return github.UserToken{}, fmt.Errorf("GitHub could not be reached: %w", err)
 	}
 	defer func() { _ = res.Body.Close() }()
-	var tok tokenResponse
-	if err := json.NewDecoder(io.LimitReader(res.Body, discoveryBodyLimit)).Decode(&tok); err != nil {
-		return nil, fmt.Errorf("GitHub answered %s with something that is not JSON", res.Status)
-	}
-	// GitHub reports a bad code as 200 with an error field.
-	if tok.Error != "" {
-		return nil, fmt.Errorf("GitHub refused the code: %s %s", tok.Error, tok.ErrorDesc)
-	}
-	if res.StatusCode != http.StatusOK || tok.AccessToken == "" {
-		return nil, fmt.Errorf("GitHub answered %s with no token", res.Status)
-	}
-	return &tok, nil
+	return github.ParseUserToken(res, time.Now())
 }
 
 func (s *AgentService) githubUser(ctx context.Context, token string) (githubUser, error) {

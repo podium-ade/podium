@@ -284,6 +284,9 @@ func (c *Conductor) githubPersona(ctx context.Context, login string, playbook pr
 		c.logger.ErrorContext(ctx, "reading a github account failed", "login", login, "error", err)
 		return nil, errors.New("your GitHub connection could not be read. An operator should check the logs")
 	}
+	if acct.NeedsReconnect {
+		return nil, errReconnect
+	}
 	return githubPersonaOf(acct), nil
 }
 
