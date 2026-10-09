@@ -724,7 +724,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	var menu []DelegablePlaybook
 	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID))
+		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
 	if err != nil {

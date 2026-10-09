@@ -95,6 +95,15 @@ const runningDelegationSchema = z.strictObject({
   started_at: z.string().optional(),
 });
 
+// A finished task of this conversation whose environment is still up.
+const livePreviewSchema = z.strictObject({
+  delegation_id: z.string().min(1),
+  playbook: z.string().min(1),
+  task_id: z.string().min(1),
+  urls: z.record(z.string(), z.string()).optional(),
+  expires_at: z.string().optional(),
+});
+
 const skillRefSchema = z.strictObject({
   name: z.string().regex(SkillNameRE, `must match ${SkillNameRE.source}`).max(MaxSkillNameLen),
   // Hex, lower case, 64 characters: sha256 of the bundle document.
@@ -111,6 +120,8 @@ const delegablePlaybookSchema = z.strictObject({
   docker: z.boolean().optional(),
   browser: z.boolean().optional(),
   repos: z.array(z.string()).optional(),
+  // The task stays up afterwards as a preview.
+  preview: z.boolean().optional(),
 });
 
 // One MCP server the turn may use. An address and, when the server needs one, the NAME of
@@ -246,6 +257,8 @@ const briefSchema = z.strictObject({
       // the common case; present, it is what stops a second task being started for a job
       // that is already running.
       running: z.array(runningDelegationSchema).optional(),
+      // Finished tasks whose environment is still up, which "I'm done" releases.
+      previews: z.array(livePreviewSchema).optional(),
     })
     .optional(),
   // Where this turn is running. Absent means a task container, which is what every brief

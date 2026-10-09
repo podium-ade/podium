@@ -294,6 +294,37 @@ describe("buildSystemPrompt", () => {
     expect(flat).toContain("say that it is running and that its answer will follow");
   });
 
+  it("lists live previews and says to release one when the person is done with it", () => {
+    const without = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: { url: "http://h", token_env: "T", playbooks: [{ name: "podium" }] },
+    });
+    expect(without).not.toContain("podium_release_preview");
+    const prompt = buildSystemPrompt({
+      ...golden(),
+      runs_on: "host" as const,
+      delegation: {
+        url: "http://h",
+        token_env: "T",
+        playbooks: [{ name: "dashboard-dev", preview: true }],
+        previews: [
+          {
+            delegation_id: "dlg_01",
+            playbook: "dashboard-dev",
+            task_id: "task_01",
+            urls: { web: "http://192.168.1.201:3000" },
+            expires_at: "2026-10-09T12:00:00Z",
+          },
+        ],
+      },
+    });
+    const flat = prompt.replace(/\s+/g, " ");
+    expect(flat).toContain("a preview that stays up after it finishes");
+    expect(flat).toContain("`dlg_01` (`dashboard-dev`, task `task_01`, up until 2026-10-09T12:00:00Z): web http://192.168.1.201:3000");
+    expect(flat).toContain("call `podium_release_preview` with its id");
+  });
+
   it("says nothing about delegating on a task's turn, which cannot", () => {
     expect(buildSystemPrompt(golden())).not.toContain("# Delegating work");
   });
