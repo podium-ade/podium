@@ -44,8 +44,7 @@ export function GitHubAccountCard() {
       <CardHeader>
         <CardTitle>GitHub account</CardTitle>
         <CardDescription>
-          Connect your GitHub account so the assistant opens pull requests as you. You do not
-          need a personal access token.
+          Connect your GitHub account so the assistant opens pull requests as you.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
