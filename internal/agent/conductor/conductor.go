@@ -696,8 +696,20 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// skills are: a server an operator has just disabled must not be handed to the next
 	// turn, and a name that no longer resolves fails the job that names it rather than the
 	// whole conductor.
+	//
+	// login is who personal secrets attach to. A Slack turn still has none of those: the
+	// speaker's email picks MCP servers only. A playbook that names user_secrets keeps
+	// failing a Slack turn, the same as before.
 	login := c.asker(ctx, src, sess)
-	servers, err := c.mcpServers(ctx, j, login)
+	speaker := ""
+	if src != nil && src.Kind() == SourceSlack {
+		speaker = strings.TrimSpace(ev.Login)
+	}
+	mcpOwner := login
+	if mcpOwner == "" {
+		mcpOwner = speaker
+	}
+	servers, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		// The name is the operator's own and is safe to say, and saying it is the point: a
 		// playbook naming a server nobody registered is a five-second fix for whoever can
@@ -772,6 +784,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 				ref:       ev.Ref,
 				src:       src,
 				playbooks: playbookNames(menu),
+				login:     speaker,
 			})
 			if err != nil {
 				// A turn that cannot delegate is still a turn that can answer, and this is
@@ -1137,8 +1150,9 @@ func turnOwner(login string) string {
 	}
 }
 
-// asker is the signed-in login a turn is for. Slack, Linear, and GitHub have none: a
-// mentioner's name is not a Podium login, and a mirrored chat's login is empty.
+// asker is the signed-in login a turn's personal secrets attach to. Slack, Linear, and
+// GitHub have none: a mentioner's name is not a Podium login, and a mirrored chat's login
+// is empty. A Slack speaker's email is a separate hint, used for MCP servers only.
 func (c *Conductor) asker(ctx context.Context, src Source, sess store.Session) string {
 	kind := sess.SourceKind
 	if src != nil && src.Kind() != "" {
@@ -1202,25 +1216,34 @@ func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef
 	return out
 }
 
-// resolveMCPServers picks the named servers out of one owner's registry, in the order they
-// were named. An empty owner is the bot list. Separated from the read so it can be asserted
-// without a database.
+// resolveMCPServers picks the named servers in the order the playbook named them.
+//
+// An empty owner is the global list, which a turn with no person uses in full. A person
+// uses their own row of that name. When they have none, a global row is used only if it
+// is enabled and its fallback switch is on. A row they turned off is not replaced by the
+// global one. Separated from the read so it can be asserted without a database.
 func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, error) {
-	byName := make(map[string]mcp.Server, len(rows))
+	personal := map[string]mcp.Server{}
+	global := map[string]mcp.Server{}
 	for _, r := range rows {
-		if r.Owner != owner {
-			continue
+		switch {
+		case r.Owner == "":
+			global[r.Name] = r
+		case owner != "" && strings.EqualFold(r.Owner, owner):
+			if prev, ok := personal[r.Name]; ok && prev.Owner == owner {
+				continue
+			}
+			personal[r.Name] = r
 		}
-		byName[r.Name] = r
 	}
 	out := make([]mcp.Server, 0, len(names))
 	for _, name := range names {
-		srv, ok := byName[name]
-		switch {
-		case !ok:
+		srv, ok, err := pickMCPServer(owner, name, personal, global)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			return nil, fmt.Errorf("no MCP server named %q is registered", name)
-		case !srv.Enabled:
-			return nil, fmt.Errorf("the MCP server %q is turned off", name)
 		}
 		if _, err := mcp.ParseConfig(srv.Config); err != nil {
 			return nil, fmt.Errorf("the MCP server %q: %w", name, err)
@@ -1228,6 +1251,36 @@ func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.S
 		out = append(out, srv)
 	}
 	return out, nil
+}
+
+// pickMCPServer chooses one name. The bool is false when nothing qualifies, which the
+// caller reports as unregistered. A disabled row is an error of its own: the playbook
+// named a server that exists and was turned off.
+func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, bool, error) {
+	if owner == "" {
+		srv, ok := global[name]
+		if !ok {
+			return mcp.Server{}, false, nil
+		}
+		if !srv.Enabled {
+			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		return srv, true, nil
+	}
+	if srv, ok := personal[name]; ok {
+		if !srv.Enabled {
+			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		return srv, true, nil
+	}
+	srv, ok := global[name]
+	if !ok || !srv.Fallback {
+		return mcp.Server{}, false, nil
+	}
+	if !srv.Enabled {
+		return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+	}
+	return srv, true, nil
 }
 
 // skills is the library one turn resolves its names against: the directories under

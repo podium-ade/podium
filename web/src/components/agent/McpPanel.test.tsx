@@ -431,7 +431,7 @@ describe("McpPanel", () => {
     );
   });
 
-  it("shows Yours and the Slack bot, and a member cannot edit the bot list", async () => {
+  it("hides Global from a member, including when they have no server of their own", async () => {
     listMcpServers.mockResolvedValue({
       servers: [
         server(),
@@ -439,29 +439,74 @@ describe("McpPanel", () => {
       ],
       maxPerPlaybook: 8,
     });
-    mount(person("member"));
+    const view = mount(person("member"));
     expect(await screen.findByTestId("mcp-yours")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-bot")).toBeInTheDocument();
-    expect(screen.queryByText(/not a Linear agent installation/)).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByTestId("mcp-global")).toBeNull();
+    expect(screen.queryByText("linear")).toBeNull();
+    expect(screen.getByText("notion")).toBeInTheDocument();
     expect(screen.queryByTestId("mcp-new")).toBeNull();
     expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
-    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-edit")).toBeNull();
-    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-token")).toBeNull();
     expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+    view.unmount();
+
+    listMcpServers.mockResolvedValue({ servers: [server()], maxPerPlaybook: 8 });
+    mount(person("member"));
+    expect(await screen.findByText("No MCP servers")).toBeInTheDocument();
+    expect(screen.queryByText("linear")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
-  it("lets an admin write the bot list and their own servers", async () => {
+  it("lets an admin open Global, and New server follows the open tab", async () => {
     listMcpServers.mockResolvedValue({
       servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
       maxPerPlaybook: 8,
     });
     mount(person("admin"));
-    expect(await screen.findByTestId("mcp-bot")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-yours")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+    expect(await screen.findByTestId("mcp-yours")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Yours" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("mcp-global")).toBeNull();
     expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
-    expect(within(screen.getByTestId("mcp-bot")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-new")).toBeNull();
     expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-yours")).queryByTestId("mcp-fallback")).toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Global" }));
+    const company = screen.getByTestId("mcp-global");
+    expect(within(company).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(within(company).getByText("linear")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-new-yours")).toBeNull();
     expect(screen.queryByRole("button", { name: /another person/i })).toBeNull();
+  });
+
+  it("keeps both tabs when an admin has no servers yet", async () => {
+    mount(person("admin"));
+    expect(await screen.findByRole("tab", { name: "Yours" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Global" })).toBeInTheDocument();
+    expect(screen.getByText("None yet.")).toBeInTheDocument();
+    expect(screen.queryByText("No MCP servers")).toBeNull();
+    expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
+  });
+
+  it("lets an admin share a global server when someone has none", async () => {
+    listMcpServers.mockResolvedValue({
+      servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
+      maxPerPlaybook: 8,
+    });
+    updateMcpServer.mockResolvedValue({ server: server({ fallback: true }) });
+    mount(person("admin"));
+    await userEvent.click(await screen.findByRole("tab", { name: "Global" }));
+    const company = screen.getByTestId("mcp-global");
+    expect(within(company).getByTestId("mcp-fallback")).toBeInTheDocument();
+    await userEvent.click(within(company).getByTestId("mcp-fallback"));
+    await waitFor(() =>
+      expect(updateMcpServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forBot: true,
+          server: expect.objectContaining({ name: "linear", enabled: true, fallback: true }),
+        }),
+      ),
+    );
   });
 });

@@ -1,14 +1,14 @@
 -- name: ListMcpServers :many
 select name, url, description, enabled, config, token_hint, token_set_by,
        token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
-       owner
+       owner, fallback
 from mcp_servers
 order by owner, name;
 
 -- name: GetMcpServer :one
 select name, url, description, enabled, config, token_hint, token_set_by,
        token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
-       owner
+       owner, fallback
 from mcp_servers
 where owner = @owner and name = @name;
 
@@ -17,8 +17,8 @@ where owner = @owner and name = @name;
 -- it was there to replace, without a read before the write.
 
 -- name: InsertMcpServer :execrows
-insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at, owner)
-values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at, @owner)
+insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at, owner, fallback)
+values (@name, @url, @description, @enabled, @config, @created_by, @updated_by, @updated_at, @owner, @fallback)
 on conflict (owner, name) do nothing;
 
 -- name: UpdateMcpServer :execrows
@@ -29,6 +29,7 @@ set url = @url,
     description = @description,
     enabled = @enabled,
     config = @config,
+    fallback = @fallback,
     updated_by = @updated_by,
     updated_at = @updated_at
 where owner = @owner and name = @name;
