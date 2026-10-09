@@ -2156,14 +2156,17 @@ type GitHubAccount struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// available is true when the App has a client id and secret, so an account can be
 	// connected at all.
-	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
-	Connected     bool                   `protobuf:"varint,2,opt,name=connected,proto3" json:"connected,omitempty"`
-	GithubLogin   string                 `protobuf:"bytes,3,opt,name=github_login,json=githubLogin,proto3" json:"github_login,omitempty"`
-	GithubId      int64                  `protobuf:"varint,4,opt,name=github_id,json=githubId,proto3" json:"github_id,omitempty"`
-	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
-	ConnectedAt   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=connected_at,json=connectedAt,proto3" json:"connected_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Available   bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
+	Connected   bool                   `protobuf:"varint,2,opt,name=connected,proto3" json:"connected,omitempty"`
+	GithubLogin string                 `protobuf:"bytes,3,opt,name=github_login,json=githubLogin,proto3" json:"github_login,omitempty"`
+	GithubId    int64                  `protobuf:"varint,4,opt,name=github_id,json=githubId,proto3" json:"github_id,omitempty"`
+	Name        string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	ConnectedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=connected_at,json=connectedAt,proto3" json:"connected_at,omitempty"`
+	// needs_reconnect is an account GitHub no longer accepts: its refresh token expired after
+	// six months unused, or the person revoked the App. Connecting again clears it.
+	NeedsReconnect bool `protobuf:"varint,7,opt,name=needs_reconnect,json=needsReconnect,proto3" json:"needs_reconnect,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GitHubAccount) Reset() {
@@ -2236,6 +2239,13 @@ func (x *GitHubAccount) GetConnectedAt() *timestamppb.Timestamp {
 		return x.ConnectedAt
 	}
 	return nil
+}
+
+func (x *GitHubAccount) GetNeedsReconnect() bool {
+	if x != nil {
+		return x.NeedsReconnect
+	}
+	return false
 }
 
 type GetGitHubAccountRequest struct {
@@ -10052,14 +10062,15 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x06github\x18\x01 \x01(\v2!.podium.agent.v1.GitHubConnectionR\x06github\"\x1e\n" +
 	"\x1cClearGitHubConnectionRequest\"Z\n" +
 	"\x1dClearGitHubConnectionResponse\x129\n" +
-	"\x06github\x18\x01 \x01(\v2!.podium.agent.v1.GitHubConnectionR\x06github\"\xde\x01\n" +
+	"\x06github\x18\x01 \x01(\v2!.podium.agent.v1.GitHubConnectionR\x06github\"\x87\x02\n" +
 	"\rGitHubAccount\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x1c\n" +
 	"\tconnected\x18\x02 \x01(\bR\tconnected\x12!\n" +
 	"\fgithub_login\x18\x03 \x01(\tR\vgithubLogin\x12\x1b\n" +
 	"\tgithub_id\x18\x04 \x01(\x03R\bgithubId\x12\x12\n" +
 	"\x04name\x18\x05 \x01(\tR\x04name\x12=\n" +
-	"\fconnected_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vconnectedAt\"\x19\n" +
+	"\fconnected_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vconnectedAt\x12'\n" +
+	"\x0fneeds_reconnect\x18\a \x01(\bR\x0eneedsReconnect\"\x19\n" +
 	"\x17GetGitHubAccountRequest\"T\n" +
 	"\x18GetGitHubAccountResponse\x128\n" +
 	"\aaccount\x18\x01 \x01(\v2\x1e.podium.agent.v1.GitHubAccountR\aaccount\"<\n" +

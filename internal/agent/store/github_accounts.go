@@ -16,6 +16,8 @@ type GitHubAccount struct {
 	GitHubLogin string
 	Name        string
 	ConnectedAt time.Time
+	// NeedsReconnect is an account whose refresh token GitHub refused.
+	NeedsReconnect bool
 }
 
 // GitHubAccount reads one login's account. ErrNotFound means none is connected.
@@ -29,8 +31,16 @@ func (s *Store) GitHubAccount(ctx context.Context, login string) (GitHubAccount,
 	}
 	return GitHubAccount{
 		Login: row.Login, GitHubID: row.GithubID, GitHubLogin: row.GithubLogin,
-		Name: row.Name, ConnectedAt: row.ConnectedAt,
+		Name: row.Name, ConnectedAt: row.ConnectedAt, NeedsReconnect: row.NeedsReconnect,
 	}, nil
+}
+
+// MarkGitHubAccountNeedsReconnect records that GitHub refused the account's refresh token.
+func (s *Store) MarkGitHubAccountNeedsReconnect(ctx context.Context, login string) error {
+	if err := s.q.SetGitHubAccountNeedsReconnect(ctx, login); err != nil {
+		return fmt.Errorf("mark github account for %s: %w", login, err)
+	}
+	return nil
 }
 
 // PutGitHubAccount records a connection, replacing an earlier one.

@@ -13,8 +13,8 @@
 # on the pull request.
 #
 # Replace PODIUM_URL with the address people open Podium at. The callback lets each person
-# connect their own GitHub account under Settings → Account. After creating the App, opt out of
-# user-to-server token expiration and generate a client secret. See
+# connect their own GitHub account under Settings → Account. After creating the App, keep
+# user-to-server token expiration on (the default) and generate a client secret. See
 # docs/agent.md#the-askers-own-github-account.
 name: Podium
 url: https://github.com/podium-ade/podium

@@ -131,9 +131,10 @@ type Options struct {
 	// the conductor's own bearer rather than generated, so a capability outlives a restart
 	// exactly as the turn holding it does. Empty with GitHub set is refused by New.
 	MintSecret string
-	// GitHubAPIURL is where a person's connected-account token is scoped and revoked. Empty
-	// means api.github.com. It exists for tests.
+	// GitHubAPIURL is where a person's connected-account token is scoped and revoked, and
+	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
 	GitHubAPIURL string
+	GitHubURL    string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -177,8 +178,10 @@ type Conductor struct {
 	// githubAPIURL is where a person's token is scoped and revoked, and userTokens the
 	// scoped tokens each running turn holds. See usertoken.go.
 	githubAPIURL string
+	githubURL    string
 	userTokensMu sync.Mutex
 	userTokens   map[string]*userTokenSet
+	loginLocks   map[string]*sync.Mutex
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -279,6 +282,7 @@ func New(opts Options) (*Conductor, error) {
 		gitTaskURL:         opts.GitTaskURL,
 		mintSecret:         opts.MintSecret,
 		githubAPIURL:       opts.GitHubAPIURL,
+		githubURL:          opts.GitHubURL,
 		sessions:           map[string]*sessionState{},
 		hostRuns:           map[string]func(){},
 		turnTokens:         map[string]turnGrant{},

@@ -63,7 +63,16 @@ export function GitHubAccountCard() {
             </div>
           </div>
         ) : null}
+        {account?.needsReconnect ? (
+          <Alert variant="warn">Your GitHub connection has expired. Reconnect it to keep opening pull requests as you.</Alert>
+        ) : null}
         {error ? <Alert variant="destructive">{error}</Alert> : null}
+        {account?.needsReconnect && account.available ? (
+          <Button type="button" className="w-full" onClick={() => connect.mutate()} disabled={busy}>
+            <GitPullRequest />
+            Reconnect GitHub
+          </Button>
+        ) : null}
         {account?.connected ? (
           <Button type="button" variant="outline" className="w-full" onClick={() => disconnect.mutate()} disabled={busy}>
             Disconnect GitHub

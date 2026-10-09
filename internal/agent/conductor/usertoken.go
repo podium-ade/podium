@@ -32,7 +32,14 @@ import (
 const (
 	userTokenTTL         = time.Hour
 	userTokenRenewBefore = 15 * time.Minute
+	// userTokenRefreshBefore is when the person's own token is refreshed: early enough that a
+	// scoped token issued from it lasts its full hour.
+	userTokenRefreshBefore = userTokenTTL + userTokenRenewBefore
 )
+
+// errReconnect is a person whose GitHub connection GitHub no longer accepts.
+var errReconnect = errors.New("your GitHub connection has expired. Reconnect it under " +
+	"Settings → Account, then ask again")
 
 // userTokenSet is the scoped tokens one turn has been issued and not yet revoked.
 type userTokenSet struct {
@@ -69,6 +76,9 @@ func (c *Conductor) mintUserToken(ctx context.Context, turnID string, scope GitS
 	if err != nil {
 		return GitCredential{}, err
 	}
+	if acct.NeedsReconnect {
+		return GitCredential{}, errReconnect
+	}
 	persona := githubPersonaOf(acct)
 	credential := func(tok github.Token) GitCredential {
 		return GitCredential{
@@ -99,18 +109,14 @@ func (c *Conductor) mintUserToken(ctx context.Context, turnID string, scope GitS
 	if err != nil {
 		return GitCredential{}, err
 	}
-	userToken, err := c.podium.ReadSecret(ctx, scope.Login, profiles.GitHubTokenSecret)
-	if connect.CodeOf(err) == connect.CodeNotFound {
-		return GitCredential{}, errors.New("the person this turn is for has disconnected GitHub")
-	}
+	userToken, err := c.personToken(ctx, scope.Login, tokens)
 	if err != nil {
 		return GitCredential{}, err
 	}
-	tok, err := tokens.Scope(ctx, string(userToken), scope.Owner, scope.Repos)
-	zeroBytes(userToken)
+	tok, err := tokens.Scope(ctx, userToken, scope.Owner, scope.Repos)
 	if errors.Is(err, github.ErrNotFound) {
-		return GitCredential{}, errors.New("GitHub no longer accepts this person's connection; " +
-			"they should reconnect it under Settings → Account")
+		c.markReconnect(ctx, scope.Login)
+		return GitCredential{}, errReconnect
 	}
 	if err != nil {
 		return GitCredential{}, err
@@ -138,6 +144,79 @@ func (c *Conductor) mintUserToken(ctx context.Context, turnID string, scope GitS
 		"turn_id", turnID, "login", scope.Login, "owner", scope.Owner, "repos", scope.Repos,
 		"expires_at", tok.ExpiresAt)
 	return credential(tok), nil
+}
+
+// personToken is the person's own access token, refreshed first when it is close to expiring.
+// GitHub refresh tokens are single-use, so one person's refreshes run one at a time: two turns
+// refreshing at once would each spend the other's token.
+func (c *Conductor) personToken(ctx context.Context, login string, tokens github.UserTokens) (string, error) {
+	lock := c.loginLock(login)
+	lock.Lock()
+	defer lock.Unlock()
+
+	raw, err := c.podium.ReadSecret(ctx, login, profiles.GitHubTokenSecret)
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return "", errors.New("the person this turn is for has disconnected GitHub")
+	}
+	if err != nil {
+		return "", err
+	}
+	var tok github.UserToken
+	err = json.Unmarshal(raw, &tok)
+	zeroBytes(raw)
+	if err != nil || tok.RefreshToken == "" {
+		// A token stored before connections expired. It cannot be refreshed.
+		c.markReconnect(ctx, login)
+		return "", errReconnect
+	}
+	if time.Until(tok.ExpiresAt) > userTokenRefreshBefore {
+		return tok.AccessToken, nil
+	}
+
+	next, err := tokens.Refresh(ctx, tok.RefreshToken)
+	if errors.Is(err, github.ErrRefreshRefused) {
+		c.markReconnect(ctx, login)
+		return "", errReconnect
+	}
+	if err != nil {
+		return "", err
+	}
+	stored, err := json.Marshal(next)
+	if err == nil {
+		_, err = c.podium.SetPersonalSecret(ctx, login, profiles.GitHubTokenSecret, stored)
+		zeroBytes(stored)
+	}
+	if err != nil {
+		// The old refresh token is spent, so this connection will need reconnecting once the
+		// new access token expires. This turn can still use it.
+		c.logger.ErrorContext(ctx, "a refreshed github token could not be stored; the person "+
+			"will have to reconnect", "login", login, "error", err)
+	} else {
+		c.logger.InfoContext(ctx, "refreshed a person's github token", "login", login,
+			"expires_at", next.ExpiresAt)
+	}
+	return next.AccessToken, nil
+}
+
+func (c *Conductor) loginLock(login string) *sync.Mutex {
+	c.userTokensMu.Lock()
+	defer c.userTokensMu.Unlock()
+	if c.loginLocks == nil {
+		c.loginLocks = map[string]*sync.Mutex{}
+	}
+	lock := c.loginLocks[login]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		c.loginLocks[login] = lock
+	}
+	return lock
+}
+
+func (c *Conductor) markReconnect(ctx context.Context, login string) {
+	if err := c.store.MarkGitHubAccountNeedsReconnect(ctx, login); err != nil {
+		c.logger.ErrorContext(ctx, "recording that a github account needs reconnecting failed",
+			"login", login, "error", err)
+	}
 }
 
 // revokeExpired revokes the tokens whose lifetime has passed. The current one is never
@@ -256,7 +335,7 @@ func (c *Conductor) userTokenClient(ctx context.Context) (github.UserTokens, err
 			"GitHub App has no client id and secret under Settings → Connections")
 	}
 	return github.UserTokens{
-		ClientID: app.ClientID, ClientSecret: app.ClientSecret, BaseURL: c.githubAPIURL,
+		ClientID: app.ClientID, ClientSecret: app.ClientSecret, BaseURL: c.githubAPIURL, WebURL: c.githubURL,
 	}, nil
 }
 

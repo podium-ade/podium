@@ -18,6 +18,7 @@ import (
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/connections"
+	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
@@ -72,9 +73,10 @@ func (v *fakeVault) has(owner, name string) bool {
 
 // fakeUserTokens is GitHub's scoped-token and revoke endpoints for one OAuth client.
 type fakeUserTokens struct {
-	mu      sync.Mutex
-	issued  int
-	revoked []string
+	mu        sync.Mutex
+	issued    int
+	refreshes int
+	revoked   []string
 }
 
 func (f *fakeUserTokens) handler(t *testing.T) http.Handler {
@@ -87,7 +89,7 @@ func (f *fakeUserTokens) handler(t *testing.T) http.Handler {
 			Repositories []string `json:"repositories"`
 		}
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-		if user != "Iv23abc" || pass != "csec" || body.AccessToken != "ghu_ada" {
+		if user != "Iv23abc" || pass != "csec" || (body.AccessToken != "ghu_ada" && body.AccessToken != "ghu_ada_2") {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -98,6 +100,21 @@ func (f *fakeUserTokens) handler(t *testing.T) http.Handler {
 		n := f.issued
 		f.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"token": "ghu_scoped_" + string(rune('0'+n)), "expires_at": nil})
+	})
+	mux.HandleFunc("POST /login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("client_secret") != "csec" ||
+			r.Form.Get("refresh_token") != "ghr_ada" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "bad_refresh_token"})
+			return
+		}
+		f.mu.Lock()
+		f.refreshes++
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "ghu_ada_2", "refresh_token": "ghr_ada_2", "expires_in": 28800,
+			"refresh_token_expires_in": 15811200,
+		})
 	})
 	mux.HandleFunc("DELETE /applications/Iv23abc/token", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -118,7 +135,9 @@ func TestAPersonsTurnGetsScopedTokensThatAreRevoked(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)
 
-	vault := &fakeVault{values: map[string][]byte{"ada@acme.com/github.token": []byte("ghu_ada")}}
+	vault := &fakeVault{values: map[string][]byte{
+		"ada@acme.com/github.token": storedUserToken(t, "ghu_ada", "ghr_ada", time.Now().Add(8*time.Hour)),
+	}}
 	mux := http.NewServeMux()
 	mux.Handle(podiumv1connect.NewSecretServiceHandler(vault))
 	plane := httptest.NewServer(mux)
@@ -145,7 +164,8 @@ func TestAPersonsTurnGetsScopedTokensThatAreRevoked(t *testing.T) {
 	newConductor := func() *conductor.Conductor {
 		c, err := conductor.New(conductor.Options{
 			Store: st, Podium: pc, Profiles: profiles.NewLive(testProfile(t)), Logger: quietLogger(),
-			MintSecret: "conductor-bearer", GitTaskURL: "http://conductor.test:8090", GitHubAPIURL: ghSrv.URL,
+			MintSecret: "conductor-bearer", GitTaskURL: "http://conductor.test:8090",
+			GitHubAPIURL: ghSrv.URL, GitHubURL: ghSrv.URL,
 		})
 		require.NoError(t, err)
 		return c
@@ -179,4 +199,106 @@ func TestAPersonsTurnGetsScopedTokensThatAreRevoked(t *testing.T) {
 
 	_, err = second.MintGitToken(ctx, capability)
 	require.ErrorIs(t, err, conductor.ErrBadCapability, "a turn whose tokens were revoked mints no more")
+}
+
+func storedUserToken(t *testing.T, access, refresh string, expires time.Time) []byte {
+	t.Helper()
+	raw, err := json.Marshal(github.UserToken{AccessToken: access, RefreshToken: refresh, ExpiresAt: expires})
+	require.NoError(t, err)
+	return raw
+}
+
+// userTokenHarness is a conductor with Ada connected, and one running turn that pushes as her.
+type userTokenHarness struct {
+	cond       *conductor.Conductor
+	st         *store.Store
+	vault      *fakeVault
+	gh         *fakeUserTokens
+	capability string
+}
+
+func newUserTokenHarness(t *testing.T, stored []byte) userTokenHarness {
+	t.Helper()
+	ctx := context.Background()
+	st := newStore(t)
+	vault := &fakeVault{values: map[string][]byte{"ada@acme.com/github.token": stored}}
+	mux := http.NewServeMux()
+	mux.Handle(podiumv1connect.NewSecretServiceHandler(vault))
+	plane := httptest.NewServer(mux)
+	t.Cleanup(plane.Close)
+	pc := podium.New(plane.URL, "agent-token")
+	gh := &fakeUserTokens{}
+	ghSrv := httptest.NewServer(gh.handler(t))
+	t.Cleanup(ghSrv.Close)
+
+	require.NoError(t, connections.SaveGitHub(ctx, st, pc, connections.GitHub{
+		AppID: "1", ClientID: "Iv23abc", ClientSecret: "csec",
+	}, nil))
+	require.NoError(t, st.PutGitHubAccount(ctx, store.GitHubAccount{
+		Login: "ada@acme.com", GitHubID: 4242, GitHubLogin: "ada-gh", ConnectedAt: time.Now(),
+	}))
+	sess, err := st.UpsertSession(ctx, store.Session{
+		SourceKind: conductor.SourceChat, SourceKey: "chat:1", Profile: "podium", Playbook: "general",
+	})
+	require.NoError(t, err)
+	turn, err := st.CreateTurn(ctx, sess.ID, "chat_1", store.Backend{})
+	require.NoError(t, err)
+	cond, err := conductor.New(conductor.Options{
+		Store: st, Podium: pc, Profiles: profiles.NewLive(testProfile(t)), Logger: quietLogger(),
+		MintSecret: "conductor-bearer", GitTaskURL: "http://conductor.test:8090",
+		GitHubAPIURL: ghSrv.URL, GitHubURL: ghSrv.URL,
+	})
+	require.NoError(t, err)
+	capability, err := cond.MintCapabilityForTest(turn.ID, conductor.GitScope{
+		Owner: "podium-ade", Repos: []string{"podium"}, Login: "ada@acme.com",
+	})
+	require.NoError(t, err)
+	return userTokenHarness{cond: cond, st: st, vault: vault, gh: gh, capability: capability}
+}
+
+// A person's token close to expiring is refreshed before it is scoped, and both new tokens
+// are stored: the old refresh token no longer works.
+func TestAPersonsTokenIsRefreshedBeforeItExpires(t *testing.T) {
+	h := newUserTokenHarness(t, storedUserToken(t, "ghu_ada", "ghr_ada", time.Now().Add(30*time.Minute)))
+
+	cred, err := h.cond.MintGitToken(context.Background(), h.capability)
+	require.NoError(t, err)
+	assert.Equal(t, "ghu_scoped_1", cred.Token)
+	assert.Equal(t, 1, h.gh.refreshes)
+
+	var stored github.UserToken
+	h.vault.mu.Lock()
+	require.NoError(t, json.Unmarshal(h.vault.values["ada@acme.com/github.token"], &stored))
+	h.vault.mu.Unlock()
+	assert.Equal(t, "ghu_ada_2", stored.AccessToken)
+	assert.Equal(t, "ghr_ada_2", stored.RefreshToken)
+	assert.WithinDuration(t, time.Now().Add(8*time.Hour), stored.ExpiresAt, time.Minute)
+}
+
+// A refresh token GitHub refuses, or a token stored before connections expired, marks the
+// account for reconnecting and says so to the turn.
+func TestARefusedRefreshAsksThePersonToReconnect(t *testing.T) {
+	for name, stored := range map[string]func(t *testing.T) []byte{
+		"refused": func(t *testing.T) []byte {
+			return storedUserToken(t, "ghu_ada", "ghr_spent", time.Now().Add(time.Minute))
+		},
+		"never expires": func(*testing.T) []byte { return []byte("ghu_ada") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newUserTokenHarness(t, stored(t))
+			_, err := h.cond.MintGitToken(context.Background(), h.capability)
+			require.ErrorContains(t, err, "Reconnect it under Settings")
+
+			acct, err := h.st.GitHubAccount(context.Background(), "ada@acme.com")
+			require.NoError(t, err)
+			assert.True(t, acct.NeedsReconnect)
+
+			require.NoError(t, h.st.PutGitHubAccount(context.Background(), store.GitHubAccount{
+				Login: "ada@acme.com", GitHubID: 4242, GitHubLogin: "ada-gh", ConnectedAt: time.Now(),
+			}))
+			acct, err = h.st.GitHubAccount(context.Background(), "ada@acme.com")
+			require.NoError(t, err)
+			assert.False(t, acct.NeedsReconnect, "connecting again clears it")
+		})
+	}
 }
