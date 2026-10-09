@@ -137,7 +137,7 @@ Two things this does not do, and one to keep in mind:
   privileged one owns the node and everything else running on it.
 
 `no-new-privileges` is kept even on a privileged sidecar. It buys little against a container that
-already holds every capability, and it costs nothing: `docker:28-dind` starts and runs nested
+already holds every capability, and it costs nothing: `docker:29-dind` starts and runs nested
 containers under it, which is asserted by an integration test.
 
 ### 4. Anyone who can reach the API — **trusted, with a domain claim when Google is on**

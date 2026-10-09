@@ -1249,11 +1249,11 @@ const (
 	// container that is already entitled to drive it.
 	dockerSidecarHost = "tcp://" + dockerSidecarName + ":2375"
 
-	// Pinned by digest like every other base image Podium runs, and to the same 28.x the
+	// Pinned by digest like every other base image Podium runs, and to the same 29.x the
 	// -dev runtime image's CLI is built against. The digest is the multi-arch index, so it
 	// resolves on amd64 and arm64 alike.
-	dockerSidecarImage = "docker:28-dind@sha256:" +
-		"2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac"
+	dockerSidecarImage = "docker:29-dind@sha256:" +
+		"1e08cdb63405ca788aea94ef35b792d1e299607c667d33d7bcbcae1fd2611ced"
 
 	// dockerSidecarReady is generous because dockerd is slow to listen: ~17s on an
 	// unloaded arm64 laptop, and a loaded node is slower than that by more than the
@@ -1277,8 +1277,8 @@ const (
 	// Pinned by digest, and the digest is the multi-arch index so it resolves on amd64 and
 	// arm64 alike. headless-shell rather than a full Chrome image: no window server, no
 	// extensions, no updater — the browser a turn actually needs is the rendering half.
-	browserSidecarImage = "chromedp/headless-shell:151.0.7922.109@sha256:" +
-		"2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04"
+	browserSidecarImage = "chromedp/headless-shell:156.0.8078.12@sha256:" +
+		"f70908c8020555a3bf89a070140913b443a03ead28c1a66563c3912a3b32b08d"
 
 	// browserSidecarReady is short because headless-shell listens in about a second. A
 	// browser that has not opened its port in thirty is not slow, it is broken.

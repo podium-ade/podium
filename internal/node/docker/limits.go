@@ -82,7 +82,7 @@ func applyTaskHardening(hc *container.HostConfig, h spec.Hardening) {
 // privileged is the one hole in that, and only a node's operator can open it: it hands the
 // container every capability and the host's devices, which is what a Docker daemon beside
 // the task needs to make its own cgroups and mount its own overlay. no-new-privileges
-// stays on even then — it was measured against docker:28-dind, which starts and runs
+// stays on even then — it was measured against docker:29-dind, which starts and runs
 // nested containers under it, and dropping it would widen the hole for nothing.
 func applySidecarHardening(hc *container.HostConfig, privileged bool) {
 	hc.SecurityOpt = append(hc.SecurityOpt, noNewPrivileges)

@@ -268,18 +268,18 @@ That is not only `scratch` images: **the Debian-based database images have no `n
 
 ### A Docker daemon beside the task
 
-Two sidecar fields, both off by default, exist for one shape: `docker:28-dind` as a sidecar, so
+Two sidecar fields, both off by default, exist for one shape: `docker:29-dind` as a sidecar, so
 a task can run `docker compose`, build images, or use testcontainers.
 
 ```yaml
 labels: [privileged]                    # see below; this is not automatic
-image: docker:28-dind                   # any image with the docker CLI will do
+image: docker:29-dind                   # any image with the docker CLI will do
 command: ["sh", "-c", "docker compose up -d && ./run-tests"]
 env:
   DOCKER_HOST: tcp://dind:2375          # so the CLI needs no -H
 sidecars:
   dind:
-    image: docker:28-dind
+    image: docker:29-dind
     privileged: true
     share_workspace: true
     env:
