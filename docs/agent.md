@@ -1031,9 +1031,10 @@ that row, so the two cannot both apply.
 ### Personal assistants
 
 A personal assistant is a voice one person adds on top of Podium. The person sets a display
-name and instructions. The stored name is generated from that display name, once, and a later
-edit of the display name does not change it. It does not have its own model, skills, MCP
-servers, timeout, or computer. A web chat that names one still runs Podium, and those
+name, instructions, and an optional model. The stored name is generated from that display
+name, once, and a later edit of the display name does not change it. It does not have its
+own skills, MCP servers, timeout, or computer. An empty model follows Podium. A choice in
+one chat still wins there. A web chat that names one still runs Podium, and those
 instructions are appended after Podium's prompt for that turn only. The stored prompt is not
 changed. Slack, GitHub, and Linear keep Podium. They do not address a personal assistant.
 
@@ -1042,10 +1043,10 @@ still has Podium. Podium is pinned first, and a new web chat uses it until that 
 another. The choice is per conversation.
 
 **Assistants** lists Podium, then the assistants that person made, then New. A personal
-assistant's editor is the display name and the instructions. Deleting one leaves its chats
-readable under the display name they were given. A new message in one of those chats is
-refused, and a new chat cannot select it. Chat shows the same list above the threads and
-lists only the open assistant's conversations.
+assistant's editor is the display name, the model, and the instructions. Deleting one
+leaves its chats readable under the display name they were given. A new message in one of
+those chats is refused, and a new chat cannot select it. Chat shows the same list above
+the threads and lists only the open assistant's conversations.
 
 **How a change reaches a running conductor.** A save validates, stores the catalog, rebuilds
 the profile and swaps it in atomically. The next turn uses it. A turn already in flight is
