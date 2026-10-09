@@ -35,6 +35,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
@@ -72,13 +73,14 @@ function entryJSON(entry: Record<string, unknown>) {
   return JSON.stringify(entry, null, 2);
 }
 
-function definitionOf(server: McpServer, patch: { enabled?: boolean } = {}) {
+function definitionOf(server: McpServer, patch: { enabled?: boolean; fallback?: boolean } = {}) {
   return {
     name: server.name,
     url: server.url,
     description: server.description,
     enabled: patch.enabled ?? server.enabled,
     config: server.config,
+    fallback: patch.fallback ?? server.fallback,
   };
 }
 
@@ -89,6 +91,7 @@ export function McpPanel() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<McpServer | "new" | "new-bot">();
+  const [tab, setTab] = useState<"yours" | "global">("yours");
 
   const list = useQuery({ queryKey: ["agent", "mcp"], queryFn: () => agent.listMcpServers({}) });
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "mcp"] });
@@ -96,16 +99,17 @@ export function McpPanel() {
   const setEnabled = useMutation({
     // Enabling is an update of the whole registration, which is the only write there is: the
     // switch sends back what the row already said with one field flipped.
-    mutationFn: (v: { server: McpServer; enabled: boolean }) =>
+    mutationFn: (v: { server: McpServer; enabled: boolean; fallback?: boolean }) =>
       agent.updateMcpServer({
-        server: definitionOf(v.server, { enabled: v.enabled }),
+        server: definitionOf(v.server, { enabled: v.enabled, fallback: v.fallback }),
         forBot: !v.server.owner,
       }),
     onSuccess: async (_res, v) => {
-      toast(
-        `${v.server.name} is ${v.enabled ? "enabled" : "disabled"}. It applies to the next turn.`,
-        "ok",
-      );
+      const what =
+        v.fallback === undefined
+          ? `${v.server.name} is ${v.enabled ? "enabled" : "disabled"}.`
+          : `${v.server.name} ${v.fallback ? "is shared when someone has no server of this name" : "is no longer shared"}.`;
+      toast(`${what} It applies to the next turn.`, "ok");
       await reload();
     },
     onError: (err) => toast(errorMessage(err)),
@@ -123,22 +127,19 @@ export function McpPanel() {
 
   const servers = list.data?.servers ?? [];
   const yours = servers.filter((s) => Boolean(s.owner));
-  const bot = servers.filter((s) => !s.owner);
+  const global = servers.filter((s) => !s.owner);
+  // Both lists only when a signed-in person may also edit the company list. A member
+  // never sees Global. The dev token is not a person, so the page is Global alone.
+  const showTabs = Boolean(personal && manage);
+  const creatingGlobal = showTabs ? tab === "global" : !personal;
   const creating = editing === "new" || editing === "new-bot";
   const editingServer = typeof editing === "object" ? editing : undefined;
   const editingForBot = editing === "new-bot" || (editingServer !== undefined && !editingServer.owner);
+  const loaded = !list.isPending && !(list.isError && isAgentUnreachable(list.error));
+  const singleList = personal ? yours : global;
 
-  const renderGroup = (title: string, testId: string, rows: McpServer[], readOnly: boolean) => (
-    <section data-testid={testId} className="space-y-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-fg">{title}</h2>
-        {testId === "mcp-bot" && manage && personal ? (
-          <Button type="button" size="sm" data-testid="mcp-new" onClick={() => setEditing("new-bot")}>
-            <Plus />
-            New server
-          </Button>
-        ) : null}
-      </div>
+  const renderList = (testId: string, rows: McpServer[], readOnly: boolean) => (
+    <div data-testid={testId} className="space-y-2.5">
       {rows.length === 0 ? (
         <p className="text-xs text-muted">None yet.</p>
       ) : (
@@ -153,6 +154,9 @@ export function McpPanel() {
               }
               readOnly={readOnly}
               onToggle={(enabled) => setEnabled.mutate({ server: s, enabled })}
+              onFallback={(fallback) =>
+                setEnabled.mutate({ server: s, enabled: s.enabled, fallback })
+              }
               onEdit={() => setEditing(s)}
               onDelete={() => remove.mutate({ name: s.name, forBot: !s.owner })}
               onTokenChanged={reload}
@@ -160,7 +164,7 @@ export function McpPanel() {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 
   if (list.isError && !isAgentUnreachable(list.error)) {
@@ -177,8 +181,8 @@ export function McpPanel() {
             <Button
               type="button"
               size="sm"
-              data-testid={personal ? "mcp-new-yours" : "mcp-new"}
-              onClick={() => setEditing(personal ? "new" : "new-bot")}
+              data-testid={creatingGlobal ? "mcp-new" : "mcp-new-yours"}
+              onClick={() => setEditing(creatingGlobal ? "new-bot" : "new")}
             >
               <Plus />
               New server
@@ -197,7 +201,7 @@ export function McpPanel() {
 
       {list.isPending ? <McpSkeleton /> : null}
 
-      {!list.isPending && servers.length === 0 ? (
+      {loaded && !showTabs && singleList.length === 0 ? (
         <Empty
           icon={Plug}
           title="No MCP servers"
@@ -205,19 +209,27 @@ export function McpPanel() {
         />
       ) : null}
 
-      {servers.length > 0 ? (
-        <div className="space-y-8">
-          {personal || yours.length > 0 ? renderGroup("Yours", "mcp-yours", yours, !personal) : null}
-          {renderGroup("Slack bot", "mcp-bot", bot, !manage)}
-        </div>
+      {loaded && showTabs ? (
+        <Tabs value={tab} onValueChange={(value) => setTab(value as "yours" | "global")}>
+          <TabsList>
+            <TabsTrigger value="yours">Yours</TabsTrigger>
+            <TabsTrigger value="global">Global</TabsTrigger>
+          </TabsList>
+          <TabsContent value="yours">{renderList("mcp-yours", yours, false)}</TabsContent>
+          <TabsContent value="global">{renderList("mcp-global", global, false)}</TabsContent>
+        </Tabs>
       ) : null}
+
+      {loaded && !showTabs && singleList.length > 0
+        ? renderList(personal ? "mcp-yours" : "mcp-global", singleList, false)
+        : null}
 
       <ServerDialog
         key={creating ? editing : (editingServer?.name ?? "closed")}
         server={editingServer}
         forBot={editingForBot}
         open={editing !== undefined}
-        taken={new Set((editingForBot ? bot : yours).map((s) => s.name))}
+        taken={new Set((editingForBot ? global : yours).map((s) => s.name))}
         onOpenChange={(open) => {
           if (!open) setEditing(undefined);
         }}
@@ -242,6 +254,7 @@ function ServerRow({
   busy,
   readOnly,
   onToggle,
+  onFallback,
   onEdit,
   onDelete,
   onTokenChanged,
@@ -250,6 +263,7 @@ function ServerRow({
   busy: boolean;
   readOnly?: boolean;
   onToggle: (enabled: boolean) => void;
+  onFallback: (fallback: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
   onTokenChanged: () => void;
@@ -343,6 +357,21 @@ function ServerRow({
               Enabled
             </Label>
           </div>
+          {!server.owner ? (
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${uid}-fallback`}
+                data-testid="mcp-fallback"
+                aria-label={`Use ${server.name} when someone has no server of this name`}
+                checked={server.fallback}
+                disabled={busy}
+                onCheckedChange={onFallback}
+              />
+              <Label htmlFor={`${uid}-fallback`} className="cursor-pointer">
+                Use when someone has none
+              </Label>
+            </div>
+          ) : null}
           <Tooltip label={`Edit ${server.name}`}>
             <Button
               type="button"
@@ -507,6 +536,7 @@ function ServerDialog({
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
+  const [fallback, setFallback] = useState(server?.fallback ?? false);
   const [token, setToken] = useState("");
   const [config, setConfig] = useState(server?.config ?? "");
   const [advanced, setAdvanced] = useState(config !== "");
@@ -558,6 +588,7 @@ function ServerDialog({
         description: description.trim(),
         enabled,
         config: config.trim(),
+        fallback: forBot ? fallback : false,
       };
       if (creating) {
         await agent.createMcpServer({ server: body, token: token.trim(), forBot });
@@ -707,6 +738,19 @@ function ServerDialog({
                 Enabled
               </Label>
             </div>
+            {forBot ? (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`${uid}-fallback`}
+                  checked={fallback}
+                  onCheckedChange={setFallback}
+                  aria-label="Use when someone has no server of this name"
+                />
+                <Label htmlFor={`${uid}-fallback`} className="cursor-pointer">
+                  Use when someone has none
+                </Label>
+              </div>
+            ) : null}
 
             {error ? (
               <Alert variant="destructive" role="alert">

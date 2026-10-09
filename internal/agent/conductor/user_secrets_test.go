@@ -140,17 +140,18 @@ func TestTwoPeopleDoNotShareAnMCPTokenSecret(t *testing.T) {
 	assert.NotEqual(t, alice, name)
 }
 
-// The registry filter is what a turn uses. Alice's row is not the bot's row, and a person
-// with no row fails by name rather than falling through to the bot.
+// The registry filter is what a turn uses. Alice's row is not the global row. A person
+// with no row of that name uses the global server only when its fallback switch is on,
+// and a row they turned off is not replaced by it.
 func TestMCPResolutionFollowsTheTurnsPerson(t *testing.T) {
-	bot := registered("linear", true, 1)
-	bot.URL = "https://bot.example/mcp"
+	global := registered("linear", true, 1)
+	global.URL = "https://global.example/mcp"
 	alice := registered("linear", true, 2)
 	alice.Owner = "alice@acme.com"
 	alice.URL = "https://alice.example/mcp"
 	bob := registered("linear", true, 3)
 	bob.Owner = "bob@acme.com"
-	rows := []mcp.Server{bot, alice, bob}
+	rows := []mcp.Server{global, alice, bob}
 
 	got, err := resolveMCPServers("alice@acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
@@ -158,11 +159,47 @@ func TestMCPResolutionFollowsTheTurnsPerson(t *testing.T) {
 	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
 	assert.Equal(t, "alice@acme.com", got[0].Owner)
 
-	slack, err := resolveMCPServers("", []string{"linear"}, rows)
+	// A Slack email that differs only in case still finds her row, and the stored owner
+	// is what the secret name was derived from.
+	folded, err := resolveMCPServers("Alice@Acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
-	require.Len(t, slack, 1)
-	assert.Equal(t, "https://bot.example/mcp", slack[0].URL)
-	assert.Empty(t, slack[0].Owner)
+	require.Len(t, folded, 1)
+	assert.Equal(t, "alice@acme.com", folded[0].Owner)
+
+	noPerson, err := resolveMCPServers("", []string{"linear"}, rows)
+	require.NoError(t, err)
+	require.Len(t, noPerson, 1)
+	assert.Equal(t, "https://global.example/mcp", noPerson[0].URL)
+	assert.Empty(t, noPerson[0].Owner)
+
+	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, rows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"linear"`)
+
+	shared := rows
+	shared[0].Fallback = true
+	got, err = resolveMCPServers("carol@acme.com", []string{"linear"}, shared)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "https://global.example/mcp", got[0].URL)
+
+	// Alice still wins while she has her own server, even with fallback on.
+	got, err = resolveMCPServers("alice@acme.com", []string{"linear"}, shared)
+	require.NoError(t, err)
+	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
+
+	off := append([]mcp.Server{}, shared...)
+	off[1].Enabled = false
+	_, err = resolveMCPServers("alice@acme.com", []string{"linear"}, off)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "turned off")
+
+	sharedOff := append([]mcp.Server{}, rows...)
+	sharedOff[0].Enabled = false
+	sharedOff[0].Fallback = true
+	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, sharedOff)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "turned off")
 
 	_, err = resolveMCPServers("carol@acme.com", []string{"notion"}, rows)
 	require.Error(t, err)

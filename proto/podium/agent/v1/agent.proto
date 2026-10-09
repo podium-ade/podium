@@ -1373,9 +1373,15 @@ message McpServer {
   // It is stored and carried in clear, so it may not set Authorization — that is the token's
   // job.
   string config = 20;
-  // owner is the login this server belongs to. Empty is the bot list, which Slack uses.
-  // A signed-in person's server is never listed to anyone else.
+  // owner is the login this server belongs to. Empty is the global list: the company
+  // identity, used by a turn that has no person. A signed-in person's server is never
+  // listed to anyone else.
   string owner = 21;
+  // fallback is set only on a global server. A person's turn that has no server of this
+  // name uses the global one when this is true. A turn with no person uses the global
+  // list either way. False until an admin allows it, so a company token is not spent
+  // on someone's behalf by default.
+  bool fallback = 22;
 }
 
 message ListMcpServersRequest {}
@@ -1399,8 +1405,8 @@ message CreateMcpServerRequest {
   // token is the credential to store with the registration, or empty for a server that
   // needs none. SENSITIVE: never log this field.
   string token = 2;
-  // for_bot writes the Slack bot list. Only an admin or the dev token may set it.
-  // A signed-in person who leaves it unset registers a server of their own.
+  // for_bot writes the global list. The name is historical. Only an admin or the dev
+  // token may set it. A signed-in person who leaves it unset registers a server of their own.
   bool for_bot = 3;
 }
 
@@ -1412,7 +1418,7 @@ message UpdateMcpServerRequest {
   // server.name names the registration to replace. The stored token is left alone —
   // SetMcpServerToken and ClearMcpServerToken are the only things that touch it.
   McpServer server = 1;
-  // for_bot edits the Slack bot list. A member who sets it is refused.
+  // for_bot edits the global list. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1422,7 +1428,7 @@ message UpdateMcpServerResponse {
 
 message DeleteMcpServerRequest {
   string name = 1;
-  // for_bot deletes from the Slack bot list. A member who sets it is refused.
+  // for_bot deletes from the global list. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1433,7 +1439,7 @@ message SetMcpServerTokenRequest {
   // SENSITIVE: never log this field. The handler wraps the request in a redacting
   // slog.LogValuer so no log site has to remember.
   string token = 2;
-  // for_bot stores the token on the Slack bot's server. A member who sets it is refused.
+  // for_bot stores the token on the global server. A member who sets it is refused.
   bool for_bot = 3;
 }
 
@@ -1443,7 +1449,7 @@ message SetMcpServerTokenResponse {
 
 message ClearMcpServerTokenRequest {
   string name = 1;
-  // for_bot clears the Slack bot's token. A member who sets it is refused.
+  // for_bot clears the global server's token. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1466,7 +1472,7 @@ message StartMcpOAuthRequest {
   // right default and not always the narrowest one — a server offering a write scope is a
   // server whose tools can write.
   string scope = 3;
-  // for_bot starts sign-in for the Slack bot's server. A member who sets it is refused.
+  // for_bot starts sign-in for the global server. A member who sets it is refused.
   bool for_bot = 4;
 }
 
