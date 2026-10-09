@@ -582,3 +582,40 @@ func TestAnMcpSignInInClearIsMovedIntoTheSecretStore(t *testing.T) {
 	require.NoError(t, json.Unmarshal(f.secrets.set[mcp.OAuthSecret(mcp.Server{Name: "linear"})], &got))
 	assert.Equal(t, "shhh", got.ClientSecret)
 }
+
+// A person signing in to their own server keeps the sign-in's secrets on their own list,
+// not as a company secret, and the refresh pass and sign-out find them there.
+func TestAPersonsSignInKeepsItsSecretsOnTheirList(t *testing.T) {
+	f := newFakeMcpServer(t)
+	fx := newSignInFixture(t, f)
+	ada := loginCtx("ada@acme.com")
+	_, err := fx.svc.CreateMcpServer(ada, linearReq(func(s *agentv1.McpServer) { s.Url = f.url() }))
+	require.NoError(t, err)
+	start, err := fx.svc.StartMcpOAuth(ada, connect.NewRequest(&agentv1.StartMcpOAuthRequest{
+		Name: "linear", RedirectUri: testRedirect,
+	}))
+	require.NoError(t, err)
+	_, err = fx.svc.CompleteMcpOAuth(ada, connect.NewRequest(&agentv1.CompleteMcpOAuthRequest{
+		FlowId: start.Msg.GetFlowId(), Code: "code-1", State: start.Msg.GetState(),
+	}))
+	require.NoError(t, err)
+
+	personal := mcp.OAuthSecret(mcp.Server{Owner: "ada@acme.com", Name: "linear"})
+	assert.Equal(t, "mcp.linear.oauth", personal)
+	assert.Equal(t, "ada@acme.com", fx.secrets.owners[personal], "the sign-in is Ada's secret")
+	assert.NotContains(t, fx.secrets.set, mcp.OAuthSecret(mcp.Server{Name: "linear"}), "and not a company one")
+
+	row, err := fx.svc.store.McpServerOwned(t.Context(), "ada@acme.com", "linear")
+	require.NoError(t, err)
+	assert.Empty(t, row.OAuth.RefreshToken)
+	o := *row.OAuth
+	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "ada@acme.com", "linear", row.TokenSecretVersion, o))
+	fx.svc.refreshMcpOnce(t.Context())
+	assert.Equal(t, []byte("mcp-access-refresh_token"), fx.secrets.set[mcp.PersonalTokenSecret("linear")],
+		"the refresh pass read Ada's refresh token from her list")
+
+	_, err = fx.svc.ClearMcpServerToken(ada, connect.NewRequest(&agentv1.ClearMcpServerTokenRequest{Name: "linear"}))
+	require.NoError(t, err)
+	assert.NotContains(t, fx.secrets.set, personal)
+}
