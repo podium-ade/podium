@@ -90,7 +90,16 @@ func (s *AgentService) CreateChat(
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.store.CreateChat(ctx, login, req.Msg.GetTitle())
+	var row store.Chat
+	if id := strings.TrimSpace(req.Msg.GetPersonalityId()); id == "" {
+		row, err = s.store.CreateChat(ctx, login, req.Msg.GetTitle())
+	} else {
+		voice, voiceErr := s.personalityForCaller(ctx, id, login)
+		if voiceErr != nil {
+			return nil, personalityError(voiceErr)
+		}
+		row, err = s.store.CreatePersonalityChat(ctx, login, req.Msg.GetTitle(), voice.ID, voice.DisplayName)
+	}
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -137,7 +146,10 @@ func (s *AgentService) ListChats(
 		return nil, err
 	}
 	page := req.Msg.GetPage()
-	rows, next, err := s.store.ListChats(ctx, login, SeesAll(ctx), int(page.GetLimit()), page.GetCursor())
+	rows, next, err := s.store.ListChats(ctx, login, SeesAll(ctx), int(page.GetLimit()), page.GetCursor(), store.ListChatsScope{
+		FilterPersonality: req.Msg.GetFilterPersonality(),
+		PersonalityID:     req.Msg.GetPersonalityId(),
+	})
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -285,9 +297,10 @@ func (s *AgentService) SendChatMessage(
 		Override: override,
 	})
 	switch {
-	case errors.Is(err, chat.ErrTurnRunning):
-		// The UI disables the composer, so a human never sees this. It is the server-side
-		// guarantee behind that: turn-based, one in flight per conversation.
+	case errors.Is(err, chat.ErrTurnRunning), errors.Is(err, chat.ErrPersonalityGone):
+		// The UI disables the composer while a turn runs, and it says so when the
+		// assistant this chat was bound to has been deleted. Either way the message
+		// was not stored.
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	case err != nil:
 		return nil, storeError(err)
@@ -568,20 +581,22 @@ func readableBy(c store.Chat, login string, seeAll bool) bool {
 
 func chatToProto(c store.Chat) *agentv1.Chat {
 	out := &agentv1.Chat{
-		Id:           c.ID,
-		Title:        c.Title,
-		CreatedAt:    timestamppb.New(c.CreatedAt),
-		Preview:      c.Preview,
-		TurnRunning:  c.TurnRunning,
-		TaskRunning:  c.TaskRunning,
-		Agent:        c.Agent,
-		Model:        c.Model,
-		Effort:       c.Effort,
-		Origin:       c.Origin,
-		StartedBy:    c.StartedBy,
-		Login:        c.Login,
-		Participants: c.Participants,
-		Channel:      c.Channel,
+		Id:                 c.ID,
+		Title:              c.Title,
+		CreatedAt:          timestamppb.New(c.CreatedAt),
+		Preview:            c.Preview,
+		TurnRunning:        c.TurnRunning,
+		TaskRunning:        c.TaskRunning,
+		Agent:              c.Agent,
+		Model:              c.Model,
+		Effort:             c.Effort,
+		Origin:             c.Origin,
+		StartedBy:          c.StartedBy,
+		Login:              c.Login,
+		Participants:       c.Participants,
+		Channel:            c.Channel,
+		PersonalityId:      c.PersonalityID,
+		PersonalityDisplay: c.PersonalityDisplay,
 	}
 	if c.LastMessageAt != nil {
 		out.LastMessageAt = timestamppb.New(*c.LastMessageAt)

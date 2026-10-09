@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Cable, Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
@@ -10,29 +10,26 @@ import { McpCallback } from "../components/agent/McpCallback";
 import { McpPanel } from "../components/agent/McpPanel";
 import { ConductorDown } from "../components/agent/ConductorDown";
 import { MemoryPanel } from "../components/agent/MemoryPanel";
-import { ProfileCard, type ProfileFields } from "../components/agent/ProfileCard";
-import { ProfileFileCard } from "../components/agent/ProfileFileCard";
+import { Assistants } from "../components/agent/Assistants";
+import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
 import { SandboxBackends } from "../components/agent/SandboxBackends";
 import { SettingsSectionNav } from "../components/agent/SettingsSections";
-import { ReloadProfileDirButton } from "../components/agent/ReloadProfileDirButton";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
 import { Empty } from "../components/Empty";
 import { IdentityCard } from "../components/IdentityCard";
-import { PageActions, PageFrame } from "../components/PageHeader";
+import { PageFrame } from "../components/PageHeader";
 import { UsersPage } from "./UsersPage";
 import { Alert } from "../components/ui/alert";
-import { useToast } from "../components/Toast";
-import { useAgents } from "../hooks/useAgents";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
 import { useViewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
 
 /**
- * Tab is one assistant screen. Chat, Sessions, Memory and Assistant are links in the app
+ * Tab is one assistant screen. Chat, Sessions, Memory and Assistants are links in the app
  * sidebar, as are Playbooks, Skills, MCP, Channels and Settings.
  *
  * `route` exists only for Chat, whose own screen takes a chat id after the segment.
@@ -51,7 +48,6 @@ const tabs: Tab[] = [
   { path: "chat", title: "Chat", element: <ChatPanel />, route: "chat/*" },
   { path: "sessions", title: "Sessions", element: <SessionsTable /> },
   { path: "memory", title: "Memory", element: <MemoryPanel /> },
-  { path: "profile", title: "Assistant", element: <ProfileTab /> },
 ];
 
 /** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
@@ -69,7 +65,7 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
 ];
 
 /**
- * AgentPage is the assistant's screens. Chat, Sessions, Memory and Assistant live in the
+ * AgentPage is the assistant's screens. Chat, Sessions, Memory and Assistants live in the
  * app sidebar. Each is still a real route, so the back button and a deep link both work.
  *
  * With no conductor configured there is nothing to show. The route still exists — a browser
@@ -93,7 +89,7 @@ export function AgentPage() {
     );
   }
 
-  // Chat, Sessions, Memory and Assistant each draw their own bar. The other
+  // Chat, Sessions, Memory and Assistants each draw their own bar. The other
   // screens already do. One shared bar kept Chat's full-bleed pane in place
   // while the next screen mounted into it.
   //
@@ -115,6 +111,8 @@ export function AgentPage() {
             }
           />
         ))}
+        <Route path="assistants/*" element={<Assistants />} />
+        <Route path="profile/*" element={<ProfileRedirect />} />
         {sidebarScreens.map((s) => (
           <Route key={s.path} path={s.path} element={s.element} />
         ))}
@@ -123,6 +121,16 @@ export function AgentPage() {
       </Suspense>
     </div>
   );
+}
+
+/** An old /agent/profile bookmark lands on Podium, on the same section when it still exists. */
+function ProfileRedirect() {
+  const rest = useParams()["*"] ?? "";
+  const section = rest.split("/").filter(Boolean)[0] ?? "";
+  if (isAssistantSection(section)) {
+    return <Navigate to={`/agent/assistants/podium/${section}`} replace />;
+  }
+  return <Navigate to="/agent/assistants" replace />;
 }
 
 /**
@@ -301,59 +309,4 @@ function ModelsPanel() {
   );
 }
 
-/**
- * ProfileTab owns the profile RPCs. The card is presentational, and it is remounted by key
- * whenever the stored profile changes so its fields re-seed from what the server actually
- * holds rather than from what was typed before the last save.
- */
-function ProfileTab() {
-  const viewer = useViewer();
-  const manage = canManageInfra(viewer);
-  const qc = useQueryClient();
-  const toast = useToast();
-  const profile = useQuery({
-    queryKey: ["agent", "profile"],
-    queryFn: () => agent.getProfile({}),
-  });
-  const { agents } = useAgents();
 
-  const save = useMutation({
-    mutationFn: (fields: ProfileFields) => agent.updateProfile(fields),
-    onSuccess: async () => {
-      toast("Profile saved. It applies to the next turn.", "ok");
-      await qc.invalidateQueries({ queryKey: ["agent", "profile"] });
-    },
-    onError: (err) => toast(errorMessage(err)),
-  });
-
-  if (profile.isError && !isAgentUnreachable(profile.error)) {
-    return <Empty title="Could not read the agent profile" hint={errorMessage(profile.error)} />;
-  }
-
-  const p = profile.data?.profile;
-
-  return (
-    <div className="space-y-5">
-      <PageActions>
-        <ReloadProfileDirButton />
-      </PageActions>
-      {isAgentUnreachable(profile.error) ? (
-        <ConductorDown
-          what="The profile could not be read"
-          onRetry={() => void profile.refetch()}
-          retrying={profile.isFetching}
-        />
-      ) : null}
-      <ProfileCard
-        key={p ? `${p.name}:${p.overridden.join(",")}:${p.updatedAt?.seconds ?? 0}` : "loading"}
-        profile={p}
-        agents={agents}
-        loading={profile.isPending}
-        saving={save.isPending}
-        readOnly={!manage}
-        onSave={(fields) => save.mutate(fields)}
-      />
-      <ProfileFileCard />
-    </div>
-  );
-}
