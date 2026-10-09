@@ -212,10 +212,12 @@ SAML is not implemented.
   the caller's own personal names, and never another login's. The conductor's list is
   globals, plus that one MCP name when it asks about a login.
   No API returns a value.
-  `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person, so a
-  playbook that names one fails the turn, and a Slack mention does not use the mentioner's
-  personal secrets or MCP servers. The server does not check that a global name appears on a
-  playbook: which globals a playbook grants is still the conductor's rule. A stolen conductor
+  `user_secrets:` on a playbook are that person's secrets. A Slack turn has no person for
+  those, so a playbook that names one fails the turn, and a Slack mention does not use the
+  mentioner's personal secrets. MCP servers are separate: when Slack shares an email that
+  matches their login, the mention uses that person's servers. The server does not check
+  that a global name appears on a playbook: which globals a playbook grants is still the
+  conductor's rule. A stolen conductor
   token can still mount every global secret.
 - **A playbook with `repos:` and a GitHub token has write access to your repositories, and a
   prompt injection can steer it.** Podium ships no such playbook — see
@@ -518,13 +520,15 @@ has Linear's server can read and write whatever the stored Linear token can.
 What it gives you:
 
 - **Registering is not granting.** The MCP screen has two lists. Yours is the signed-in person's
-  servers, and a turn for that person resolves `mcp_servers:` against those rows only. The bot
-  list is the unowned rows Slack uses. It is for Slack, and it is not a Linear agent
-  installation. A Slack mention does not use the mentioner's servers. A member can edit Yours
-  and cannot edit the bot list. An admin can edit both, and cannot edit another person's row.
+  servers. Global is the company list, used in full by a turn that has no person. A person's
+  turn uses their own row of that name. A global row fills in only when they have none and an
+  admin has allowed it; a row they turned off is not replaced. A Slack mention does this when
+  Slack shares an email that matches their login, and otherwise uses Global. It is not a Linear
+  agent installation. A member sees only Yours. An admin can edit both, and cannot edit another
+  person's row.
   Only a playbook's `mcp_servers:` decides which names a turn asks for. A missing name fails
   the turn and says which server. A token stored and named by no playbook is spent by nothing.
-- **The token is a Podium secret and is never in a document.** A bot row is stored as
+- **The token is a Podium secret and is never in a document.** A global row is stored as
   the global secret `podium.agent.mcp.<name>_token`. A person's server is stored as their
   own secret `mcp.<name>_token`, so it shows on their secrets and not the company list.
   Two people who both register `linear` share that name; the owner separates the values.
