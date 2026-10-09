@@ -164,6 +164,18 @@ func (s *Store) RunningDelegationsForRef(ctx context.Context, ref string) ([]Del
 	return delegationsFromRows(rows), nil
 }
 
+// FinishedDelegationsForSession is one conversation's delegated tasks that ended after
+// since, newest first, at most limit of them.
+func (s *Store) FinishedDelegationsForSession(ctx context.Context, sessionID string, since time.Time, limit int) ([]Delegation, error) {
+	rows, err := s.q.ListFinishedDelegationsForSession(ctx, db.ListFinishedDelegationsForSessionParams{
+		SessionID: sessionID, Since: &since, MaxRows: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list finished delegations of session %s: %w", sessionID, err)
+	}
+	return delegationsFromRows(rows), nil
+}
+
 func delegationsFromRows(rows []db.Delegation) []Delegation {
 	out := make([]Delegation, 0, len(rows))
 	for _, r := range rows {

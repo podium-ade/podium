@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/agent/v1/turn.proto.
  */
 export const file_podium_agent_v1_turn: GenFile = /*@__PURE__*/
-  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjgKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCSJDChBEZWxlZ2F0ZVJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIiChRHZXREZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCSJaChVHZXREZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uEhAKCHByb2dyZXNzGAIgASgJIhgKFkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QiSwoXTGlzdERlbGVnYXRpb25zUmVzcG9uc2USMAoLZGVsZWdhdGlvbnMYASADKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiI1ChdDYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiSwoYQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIzChdJbmplY3REZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIksKGEluamVjdERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iEgoQTWludFRva2VuUmVxdWVzdCKPAQoRTWludFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoKZXhwaXJlc19hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLYXV0aG9yX25hbWUYBCABKAkSFAoMYXV0aG9yX2VtYWlsGAUgASgJMvYDCgtUdXJuU2VydmljZRJPCghEZWxlZ2F0ZRIgLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0ZVJlcXVlc3QaIS5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGVSZXNwb25zZRJeCg1HZXREZWxlZ2F0aW9uEiUucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXF1ZXN0GiYucG9kaXVtLmFnZW50LnYxLkdldERlbGVnYXRpb25SZXNwb25zZRJkCg9MaXN0RGVsZWdhdGlvbnMSJy5wb2RpdW0uYWdlbnQudjEuTGlzdERlbGVnYXRpb25zUmVxdWVzdBooLnBvZGl1bS5hZ2VudC52MS5MaXN0RGVsZWdhdGlvbnNSZXNwb25zZRJnChBDYW5jZWxEZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkNhbmNlbERlbGVnYXRpb25SZXNwb25zZRJnChBJbmplY3REZWxlZ2F0aW9uEigucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXF1ZXN0GikucG9kaXVtLmFnZW50LnYxLkluamVjdERlbGVnYXRpb25SZXNwb25zZTJqChRHaXRDcmVkZW50aWFsU2VydmljZRJSCglNaW50VG9rZW4SIS5wb2RpdW0uYWdlbnQudjEuTWludFRva2VuUmVxdWVzdBoiLnBvZGl1bS5hZ2VudC52MS5NaW50VG9rZW5SZXNwb25zZULDAQoTY29tLnBvZGl1bS5hZ2VudC52MUIJVHVyblByb3RvUAFaQ2dpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL2FnZW50L3YxO2FnZW50djGiAgNQQViqAg9Qb2RpdW0uQWdlbnQuVjHKAg9Qb2RpdW1cQWdlbnRcVjHiAhtQb2RpdW1cQWdlbnRcVjFcR1BCTWV0YWRhdGHqAhFQb2RpdW06OkFnZW50OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chpwb2RpdW0vYWdlbnQvdjEvdHVybi5wcm90bxIPcG9kaXVtLmFnZW50LnYxItUBCgpEZWxlZ2F0aW9uEgoKAmlkGAEgASgJEhAKCHBsYXlib29rGAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEg8KB3Rhc2tfaWQYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmZpbmFsX3RleHQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjgKD0RlbGVnYXRlUmVxdWVzdBIQCghwbGF5Ym9vaxgBIAEoCRITCgtpbnN0cnVjdGlvbhgCIAEoCSJDChBEZWxlZ2F0ZVJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIiChRHZXREZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCSJaChVHZXREZWxlZ2F0aW9uUmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uEhAKCHByb2dyZXNzGAIgASgJIhgKFkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QiSwoXTGlzdERlbGVnYXRpb25zUmVzcG9uc2USMAoLZGVsZWdhdGlvbnMYASADKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiI1ChdDYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiSwoYQ2FuY2VsRGVsZWdhdGlvblJlc3BvbnNlEi8KCmRlbGVnYXRpb24YASABKAsyGy5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGlvbiIzChdJbmplY3REZWxlZ2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIksKGEluamVjdERlbGVnYXRpb25SZXNwb25zZRIvCgpkZWxlZ2F0aW9uGAEgASgLMhsucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRpb24iIwoVUmVsZWFzZVByZXZpZXdSZXF1ZXN0EgoKAmlkGAEgASgJIkkKFlJlbGVhc2VQcmV2aWV3UmVzcG9uc2USLwoKZGVsZWdhdGlvbhgBIAEoCzIbLnBvZGl1bS5hZ2VudC52MS5EZWxlZ2F0aW9uIhIKEE1pbnRUb2tlblJlcXVlc3QijwEKEU1pbnRUb2tlblJlc3BvbnNlEg0KBXRva2VuGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCmV4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhMKC2F1dGhvcl9uYW1lGAQgASgJEhQKDGF1dGhvcl9lbWFpbBgFIAEoCTLZBAoLVHVyblNlcnZpY2USTwoIRGVsZWdhdGUSIC5wb2RpdW0uYWdlbnQudjEuRGVsZWdhdGVSZXF1ZXN0GiEucG9kaXVtLmFnZW50LnYxLkRlbGVnYXRlUmVzcG9uc2USXgoNR2V0RGVsZWdhdGlvbhIlLnBvZGl1bS5hZ2VudC52MS5HZXREZWxlZ2F0aW9uUmVxdWVzdBomLnBvZGl1bS5hZ2VudC52MS5HZXREZWxlZ2F0aW9uUmVzcG9uc2USZAoPTGlzdERlbGVnYXRpb25zEicucG9kaXVtLmFnZW50LnYxLkxpc3REZWxlZ2F0aW9uc1JlcXVlc3QaKC5wb2RpdW0uYWdlbnQudjEuTGlzdERlbGVnYXRpb25zUmVzcG9uc2USZwoQQ2FuY2VsRGVsZWdhdGlvbhIoLnBvZGl1bS5hZ2VudC52MS5DYW5jZWxEZWxlZ2F0aW9uUmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5DYW5jZWxEZWxlZ2F0aW9uUmVzcG9uc2USZwoQSW5qZWN0RGVsZWdhdGlvbhIoLnBvZGl1bS5hZ2VudC52MS5JbmplY3REZWxlZ2F0aW9uUmVxdWVzdBopLnBvZGl1bS5hZ2VudC52MS5JbmplY3REZWxlZ2F0aW9uUmVzcG9uc2USYQoOUmVsZWFzZVByZXZpZXcSJi5wb2RpdW0uYWdlbnQudjEuUmVsZWFzZVByZXZpZXdSZXF1ZXN0GicucG9kaXVtLmFnZW50LnYxLlJlbGVhc2VQcmV2aWV3UmVzcG9uc2UyagoUR2l0Q3JlZGVudGlhbFNlcnZpY2USUgoJTWludFRva2VuEiEucG9kaXVtLmFnZW50LnYxLk1pbnRUb2tlblJlcXVlc3QaIi5wb2RpdW0uYWdlbnQudjEuTWludFRva2VuUmVzcG9uc2VCwwEKE2NvbS5wb2RpdW0uYWdlbnQudjFCCVR1cm5Qcm90b1ABWkNnaXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS9hZ2VudC92MTthZ2VudHYxogIDUEFYqgIPUG9kaXVtLkFnZW50LlYxygIPUG9kaXVtXEFnZW50XFYx4gIbUG9kaXVtXEFnZW50XFYxXEdQQk1ldGFkYXRh6gIRUG9kaXVtOjpBZ2VudDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * Delegation is one task a turn asked for.
@@ -285,6 +285,42 @@ export const InjectDelegationResponseSchema: GenMessage<InjectDelegationResponse
   messageDesc(file_podium_agent_v1_turn, 10);
 
 /**
+ * @generated from message podium.agent.v1.ReleasePreviewRequest
+ */
+export type ReleasePreviewRequest = Message<"podium.agent.v1.ReleasePreviewRequest"> & {
+  /**
+   * id is the delegation whose task's preview to release.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message podium.agent.v1.ReleasePreviewRequest.
+ * Use `create(ReleasePreviewRequestSchema)` to create a new message.
+ */
+export const ReleasePreviewRequestSchema: GenMessage<ReleasePreviewRequest> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 11);
+
+/**
+ * @generated from message podium.agent.v1.ReleasePreviewResponse
+ */
+export type ReleasePreviewResponse = Message<"podium.agent.v1.ReleasePreviewResponse"> & {
+  /**
+   * @generated from field: podium.agent.v1.Delegation delegation = 1;
+   */
+  delegation?: Delegation | undefined;
+};
+
+/**
+ * Describes the message podium.agent.v1.ReleasePreviewResponse.
+ * Use `create(ReleasePreviewResponseSchema)` to create a new message.
+ */
+export const ReleasePreviewResponseSchema: GenMessage<ReleasePreviewResponse> = /*@__PURE__*/
+  messageDesc(file_podium_agent_v1_turn, 12);
+
+/**
  * MintTokenRequest is deliberately empty. Everything the conductor needs to decide what to
  * mint is in the capability the caller presents in the X-Podium-Turn header.
  *
@@ -298,7 +334,7 @@ export type MintTokenRequest = Message<"podium.agent.v1.MintTokenRequest"> & {
  * Use `create(MintTokenRequestSchema)` to create a new message.
  */
 export const MintTokenRequestSchema: GenMessage<MintTokenRequest> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 11);
+  messageDesc(file_podium_agent_v1_turn, 13);
 
 /**
  * @generated from message podium.agent.v1.MintTokenResponse
@@ -349,7 +385,7 @@ export type MintTokenResponse = Message<"podium.agent.v1.MintTokenResponse"> & {
  * Use `create(MintTokenResponseSchema)` to create a new message.
  */
 export const MintTokenResponseSchema: GenMessage<MintTokenResponse> = /*@__PURE__*/
-  messageDesc(file_podium_agent_v1_turn, 12);
+  messageDesc(file_podium_agent_v1_turn, 14);
 
 /**
  * TurnService is what a TURN may ask of the conductor, and it is deliberately a service of
@@ -425,6 +461,17 @@ export const TurnService: GenService<{
     methodKind: "unary";
     input: typeof InjectDelegationRequestSchema;
     output: typeof InjectDelegationResponseSchema;
+  },
+  /**
+   * ReleasePreview takes down the preview a finished delegated task of this conversation
+   * left up, before its ttl does.
+   *
+   * @generated from rpc podium.agent.v1.TurnService.ReleasePreview
+   */
+  releasePreview: {
+    methodKind: "unary";
+    input: typeof ReleasePreviewRequestSchema;
+    output: typeof ReleasePreviewResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_agent_v1_turn, 0);

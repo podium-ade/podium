@@ -121,7 +121,7 @@ func (r *turnRun) run(ctx context.Context) {
 			"error_event", r.errText)
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.turn.TaskID, Text: result.Post})
 	}
-	if note := previewNote(task); note != "" {
+	if note := previewNote(task, false); note != "" {
 		r.c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.turn.TaskID, Text: note})
 	}
 	r.finish(ctx, result.Status)

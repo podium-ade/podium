@@ -47,6 +47,8 @@ var (
 	// ErrDelegationOver means the delegation is already terminal, so there is nothing to
 	// cancel.
 	ErrDelegationOver = errors.New("conductor: that delegation has already finished")
+	// ErrNoPreview means the delegation's task left no preview up to release.
+	ErrNoPreview = errors.New("conductor: that delegation has no preview to release")
 	// ErrNoDelegation means this conductor cannot delegate at all, because it has no host
 	// runtime and therefore no host turns to delegate from.
 	ErrNoDelegation = errors.New("conductor: this conductor runs no host turns, so nothing can delegate")
@@ -622,7 +624,7 @@ func (r *delegationRun) run(ctx context.Context) {
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: result.Post})
 	}
-	if note := previewNote(task); note != "" {
+	if note := previewNote(task, true); note != "" {
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Text: note})
 	}
 	r.finish(ctx, result.Status)

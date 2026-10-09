@@ -674,7 +674,9 @@ the playbook's prompt. The assistant's delegation menu marks such a playbook `pr
 
 Mind what stays up with it: **the turn's secrets are still in its environment** for as long as
 the preview is, and it keeps its node slot. Keep the ttl short, and end it sooner with
-`podium task release TASK_ID`.
+`podium task release TASK_ID` — or by telling the assistant you are done with it. Its brief
+lists the conversation's previews that are still up, and `podium_release_preview` takes one
+down.
 
 #### `skills:` — third-party Agent Skills
 

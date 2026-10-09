@@ -43,12 +43,13 @@ func TestPreviewNote(t *testing.T) {
 		Via: "tailnet", Address: "100.64.0.1", ExpiresAt: timestamppb.New(expires),
 		Urls: map[string]string{"web": "http://100.64.0.1:3000", "api": "http://100.64.0.1:5011"},
 	}}
-	note := previewNote(task)
+	note := previewNote(task, false)
 	assert.Contains(t, note, "until 18:05 UTC")
-	assert.Contains(t, note, "podium task release task_1")
+	assert.Contains(t, note, "End it sooner with `podium task release task_1`")
+	assert.Contains(t, previewNote(task, true), "Tell me when you're done with it")
 	assert.Regexp(t, `api: http://100\.64\.0\.1:5011\n• web: http://100\.64\.0\.1:3000$`, note)
 
 	task.Preview.ReleasedAt = timestamppb.Now()
-	assert.Empty(t, previewNote(task), "a released preview is not announced")
-	assert.Empty(t, previewNote(&podiumv1.Task{}), "nor is a task without one")
+	assert.Empty(t, previewNote(task, false), "a released preview is not announced")
+	assert.Empty(t, previewNote(&podiumv1.Task{}, false), "nor is a task without one")
 }

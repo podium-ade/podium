@@ -208,7 +208,7 @@ func (h *HostRuntime) node() string {
 // the tools — and a reader had to hold two documents in their head to know what a turn
 // actually got. The assistant has none of those things to begin with (see job.go), so there
 // is nothing here to strip: what the brief says is what the turn was built with.
-func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []BriefRunningDelegation) {
+func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []BriefRunningDelegation, previews []BriefPreview) {
 	b.RunsOn = RunsOnHost
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
@@ -219,6 +219,7 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 			TokenEnv:  TurnTokenEnv,
 			Playbooks: menu,
 			Running:   running,
+			Previews:  previews,
 		}
 	}
 	if b.Memory == nil {
