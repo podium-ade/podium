@@ -116,6 +116,9 @@ type SecretStore interface {
 	DeletePersonalSecret(ctx context.Context, owner, name string) error
 	// PersonalSecretVersion is the version of one person's secret, or 0 when it is absent.
 	PersonalSecretVersion(ctx context.Context, owner, name string) (int32, error)
+	// ReadSecret reads back one of the names the conductor keeps for itself, such as a
+	// saved connection's credentials. See spec.ConductorMayRead.
+	ReadSecret(ctx context.Context, owner, name string) ([]byte, error)
 }
 
 // AgentServiceOptions is what the handlers need. Everything but Store and Secrets is

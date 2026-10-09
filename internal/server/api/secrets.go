@@ -24,9 +24,9 @@ type userLookup interface {
 
 // SecretService implements podium.v1.SecretService.
 //
-// There is deliberately no read endpoint. A value goes in through SetSecret and only ever
-// comes back out inside an Assign, on its way to the node about to run the task that
-// referenced it. A list returns names and metadata: every global secret, plus the caller's
+// No person can read a value back. A value goes in through SetSecret and comes back out
+// inside an Assign, on its way to the node about to run the task that referenced it, or
+// through ReadSecret to the conductor alone, for its own credentials. A list returns names and metadata: every global secret, plus the caller's
 // own personal secrets, and never another login's.
 type SecretService struct {
 	secrets *secrets.Service
@@ -183,6 +183,24 @@ func (s *SecretService) listOwner(ctx context.Context, requested string) (owner 
 		}
 		return "", false, nil
 	}
+}
+
+// ReadSecret returns one value to the conductor, for the names it keeps for its own use.
+// Every other caller and every other name is refused the same way.
+func (s *SecretService) ReadSecret(
+	ctx context.Context,
+	req *connect.Request[podiumv1.ReadSecretRequest],
+) (*connect.Response[podiumv1.ReadSecretResponse], error) {
+	id, ok := transport.From(ctx)
+	name, owner := req.Msg.GetName(), strings.TrimSpace(req.Msg.GetOwner())
+	if !ok || id.Kind != transport.KindAgent || !spec.ConductorMayRead(name, owner) {
+		return nil, secretError(fmt.Errorf("%w: only the conductor reads a value back, and only its own", secrets.ErrForbidden))
+	}
+	value, err := s.secrets.ReadForConductor(ctx, spec.SecretRef{Name: name, Owner: owner})
+	if err != nil {
+		return nil, secretError(err)
+	}
+	return connect.NewResponse(&podiumv1.ReadSecretResponse{Value: value}), nil
 }
 
 func secretToProto(row store.Secret) *podiumv1.Secret {

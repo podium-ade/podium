@@ -260,6 +260,31 @@ func (s *Service) CheckRefs(ctx context.Context, refs []spec.SecretRef) error {
 	return nil
 }
 
+// ReadForConductor decrypts one secret for the conductor and audits the read. The caller
+// has already decided the conductor may read this name; see spec.ConductorMayRead.
+func (s *Service) ReadForConductor(ctx context.Context, ref spec.SecretRef) ([]byte, error) {
+	if !s.Enabled() {
+		return nil, ErrNoKey
+	}
+	key := secretKey(ref)
+	row, err := s.store.GetScopedSecret(ctx, key.Scope, key.Owner, ref.Name)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("%w %q", ErrMissing, ref.Name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	value, err := s.key.Decrypt(row.Name, row.Ciphertext, row.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("secret %s (stored under key %s, server holds %s): %w",
+			ref.Name, row.KeyID, s.key.ID(), err)
+	}
+	s.audit(ctx, "conductor", store.ActionSecretRead, ref.Name, map[string]any{
+		"scope": row.Scope, "owner": row.Owner, "version": row.Version,
+	})
+	return value, nil
+}
+
 // Rotate re-encrypts every stored secret and registry password from oldKey to newKey, each
 // table in one transaction. It is the offline `podium-server rotate-master-key` path: the
 // server is not running, or is still running under the old key and will be restarted with

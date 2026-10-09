@@ -717,10 +717,11 @@ shape and the same rotation. `podium-server gen-master-key` mints it.
   `select ... for update` over each whole table — secrets, then registries — in one transaction
   apiece, so neither is ever half under one key. Afterwards the old key decrypts nothing.
 
-**There is no read endpoint and there must never be one.** `SecretService` is
-`SetSecret`/`ListSecrets`/`DeleteSecret`. `ListSecrets` returns names, versions and key ids —
-no value, no ciphertext, in the message at all. A "reveal" button is not a feature that could be
-added later without changing the threat model.
+**No person can read a value back, and none ever should.** `ListSecrets` returns names,
+versions and key ids — no value, no ciphertext, in the message at all. A "reveal" button is not a
+feature that could be added later without changing the threat model. The one read is
+`ReadSecret`, which answers the conductor's principal alone, for its own credentials: see
+[What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).
 
 ### The minting endpoint
 
@@ -772,15 +773,32 @@ conductor's own Postgres, `podium_agent`, in clear. There is one per sign-in:
 - Every signed-in MCP server (see [`agent.md`](agent.md#signing-in-to-an-mcp-server)), in the
   `oauth` column of its `mcp_servers` row — **and, where the authorization server issued one on
   dynamic registration, a client secret beside it**.
-- A Slack or GitHub App saved from Settings → Connections, in the `connection.slack` and
-  `connection.github` settings rows. The conductor reads them back to open Socket Mode and
-  to sign as the App. The API returns a hint, the App id and the webhook listen address,
-  and never the tokens, the private key or the webhook secret.
+It is there because of the rule directly above: no person can read a value back from the secret
+store, and refreshing an hourly token without a human means reading the refresh token back every
+hour.
 
-It is there because of the rule directly above. The secret store has no read endpoint by design,
-so a value put in it cannot be read back — and refreshing an hourly token without a human means
-reading the refresh token back every hour. One of the two had to give, and adding a read
-endpoint to the secret store is the worse trade.
+### What the conductor reads back from the secret store
+
+`ReadSecret` returns a value to the conductor's principal and to no other caller, and only for
+the names it keeps for its own use (`spec.ConductorMayRead`). Every read is audited as
+`secret.read`.
+
+- **Its saved connections**, under `podium.agent.connection.*`: the GitHub App's private key,
+  webhook secret and client secret, and the Slack tokens. Settings → Connections writes them
+  there and keeps only what is not a credential in the `connection.slack` and
+  `connection.github` settings rows. A row saved before this, with its credentials in clear,
+  is moved on the conductor's first start after upgrading. The conductor reads them at start,
+  and when Settings → Connections or a person's GitHub connection needs them. The API returns
+  a hint, the App id, the client id and the webhook listen address, and never a credential.
+- **A person's connected GitHub account**, `github.token` under that person. The conductor
+  exchanges it for a token GitHub scopes to one turn's repositories, so the person's own token
+  never reaches a container.
+- **The scoped tokens it issued a turn**, under `podium.agent.git_user_token.<turn>`, so it can
+  revoke them when the turn ends even after a restart.
+
+The listed names appear on the Secrets screen like any global, and an admin can rotate one
+there. A stolen conductor token can read these values. It could already attach every global
+secret to a task it creates and read it there, so this adds little to what it reaches.
 
 What bounds it:
 

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/secret.proto.
  */
 export const file_podium_v1_secret: GenFile = /*@__PURE__*/
-  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEisQEKBlNlY3JldBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAUSDgoGa2V5X2lkGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFc2NvcGUYBiABKA4yFi5wb2RpdW0udjEuU2VjcmV0U2NvcGUSDQoFb3duZXIYByABKAkiZQoQU2V0U2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEg0KBXZhbHVlGAIgASgMEiUKBXNjb3BlGAMgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAQgASgJIjYKEVNldFNlY3JldFJlc3BvbnNlEiEKBnNlY3JldBgBIAEoCzIRLnBvZGl1bS52MS5TZWNyZXQiIwoSTGlzdFNlY3JldHNSZXF1ZXN0Eg0KBW93bmVyGAEgASgJIjkKE0xpc3RTZWNyZXRzUmVzcG9uc2USIgoHc2VjcmV0cxgBIAMoCzIRLnBvZGl1bS52MS5TZWNyZXQiWQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEiUKBXNjb3BlGAIgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAMgASgJIhYKFERlbGV0ZVNlY3JldFJlc3BvbnNlKl8KC1NlY3JldFNjb3BlEhwKGFNFQ1JFVF9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1NFQ1JFVF9TQ09QRV9HTE9CQUwQARIZChVTRUNSRVRfU0NPUEVfUEVSU09OQUwQAjL2AQoNU2VjcmV0U2VydmljZRJGCglTZXRTZWNyZXQSGy5wb2RpdW0udjEuU2V0U2VjcmV0UmVxdWVzdBocLnBvZGl1bS52MS5TZXRTZWNyZXRSZXNwb25zZRJMCgtMaXN0U2VjcmV0cxIdLnBvZGl1bS52MS5MaXN0U2VjcmV0c1JlcXVlc3QaHi5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXNwb25zZRJPCgxEZWxldGVTZWNyZXQSHi5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVxdWVzdBofLnBvZGl1bS52MS5EZWxldGVTZWNyZXRSZXNwb25zZUKhAQoNY29tLnBvZGl1bS52MUILU2VjcmV0UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEisQEKBlNlY3JldBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAUSDgoGa2V5X2lkGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFc2NvcGUYBiABKA4yFi5wb2RpdW0udjEuU2VjcmV0U2NvcGUSDQoFb3duZXIYByABKAkiZQoQU2V0U2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEg0KBXZhbHVlGAIgASgMEiUKBXNjb3BlGAMgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAQgASgJIjYKEVNldFNlY3JldFJlc3BvbnNlEiEKBnNlY3JldBgBIAEoCzIRLnBvZGl1bS52MS5TZWNyZXQiIwoSTGlzdFNlY3JldHNSZXF1ZXN0Eg0KBW93bmVyGAEgASgJIjkKE0xpc3RTZWNyZXRzUmVzcG9uc2USIgoHc2VjcmV0cxgBIAMoCzIRLnBvZGl1bS52MS5TZWNyZXQiWQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEiUKBXNjb3BlGAIgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAMgASgJIhYKFERlbGV0ZVNlY3JldFJlc3BvbnNlIjAKEVJlYWRTZWNyZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkiIwoSUmVhZFNlY3JldFJlc3BvbnNlEg0KBXZhbHVlGAEgASgMKl8KC1NlY3JldFNjb3BlEhwKGFNFQ1JFVF9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1NFQ1JFVF9TQ09QRV9HTE9CQUwQARIZChVTRUNSRVRfU0NPUEVfUEVSU09OQUwQAjLBAgoNU2VjcmV0U2VydmljZRJGCglTZXRTZWNyZXQSGy5wb2RpdW0udjEuU2V0U2VjcmV0UmVxdWVzdBocLnBvZGl1bS52MS5TZXRTZWNyZXRSZXNwb25zZRJMCgtMaXN0U2VjcmV0cxIdLnBvZGl1bS52MS5MaXN0U2VjcmV0c1JlcXVlc3QaHi5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXNwb25zZRJPCgxEZWxldGVTZWNyZXQSHi5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVxdWVzdBofLnBvZGl1bS52MS5EZWxldGVTZWNyZXRSZXNwb25zZRJJCgpSZWFkU2VjcmV0EhwucG9kaXVtLnYxLlJlYWRTZWNyZXRSZXF1ZXN0Gh0ucG9kaXVtLnYxLlJlYWRTZWNyZXRSZXNwb25zZUKhAQoNY29tLnBvZGl1bS52MUILU2VjcmV0UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message podium.v1.Secret
@@ -212,6 +212,49 @@ export const DeleteSecretResponseSchema: GenMessage<DeleteSecretResponse> = /*@_
   messageDesc(file_podium_v1_secret, 6);
 
 /**
+ * @generated from message podium.v1.ReadSecretRequest
+ */
+export type ReadSecretRequest = Message<"podium.v1.ReadSecretRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * owner is the login of a personal secret, and empty for a global one.
+   *
+   * @generated from field: string owner = 2;
+   */
+  owner: string;
+};
+
+/**
+ * Describes the message podium.v1.ReadSecretRequest.
+ * Use `create(ReadSecretRequestSchema)` to create a new message.
+ */
+export const ReadSecretRequestSchema: GenMessage<ReadSecretRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_secret, 7);
+
+/**
+ * @generated from message podium.v1.ReadSecretResponse
+ */
+export type ReadSecretResponse = Message<"podium.v1.ReadSecretResponse"> & {
+  /**
+   * SENSITIVE: never log.
+   *
+   * @generated from field: bytes value = 1;
+   */
+  value: Uint8Array;
+};
+
+/**
+ * Describes the message podium.v1.ReadSecretResponse.
+ * Use `create(ReadSecretResponseSchema)` to create a new message.
+ */
+export const ReadSecretResponseSchema: GenMessage<ReadSecretResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_secret, 8);
+
+/**
  * Secret is the metadata of a stored secret. It never carries the value or the
  * ciphertext.
  * SecretScope says whether a secret is shared by the conductor or owned by one login.
@@ -243,9 +286,9 @@ export const SecretScopeSchema: GenEnum<SecretScope> = /*@__PURE__*/
   enumDesc(file_podium_v1_secret, 0);
 
 /**
- * SecretService is the operator-facing secret store. There is deliberately no read
- * endpoint: a value goes in once and only ever comes back out inside an Assign, on its
- * way to the node that is about to run the task that asked for it.
+ * SecretService is the operator-facing secret store. No person can read a value back: it
+ * goes in once and comes back out inside an Assign, on its way to the node that is about to
+ * run the task that asked for it, or through ReadSecret to the conductor alone.
  *
  * @generated from service podium.v1.SecretService
  */
@@ -277,6 +320,20 @@ export const SecretService: GenService<{
     methodKind: "unary";
     input: typeof DeleteSecretRequestSchema;
     output: typeof DeleteSecretResponseSchema;
+  },
+  /**
+   * ReadSecret returns one value to the conductor and to no other caller, and only for the
+   * names the conductor keeps for its own use: its connection credentials
+   * (podium.agent.connection.*), the per-turn GitHub tokens it must revoke
+   * (podium.agent.git_user_token.*), and a person's connected account (github.token). Every
+   * read is audited.
+   *
+   * @generated from rpc podium.v1.SecretService.ReadSecret
+   */
+  readSecret: {
+    methodKind: "unary";
+    input: typeof ReadSecretRequestSchema;
+    output: typeof ReadSecretResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_secret, 0);

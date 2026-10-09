@@ -62,6 +62,8 @@ var catalog = map[string]string{
 	podiumv1connect.SecretServiceListSecretsProcedure:  store.RoleMember,
 	podiumv1connect.SecretServiceSetSecretProcedure:    store.RoleMember,
 	podiumv1connect.SecretServiceDeleteSecretProcedure: store.RoleMember,
+	// The handler refuses everyone but the conductor, which skips this table.
+	podiumv1connect.SecretServiceReadSecretProcedure: store.RoleOwner,
 
 	podiumv1connect.RegistryServiceListRegistriesProcedure: store.RoleMember,
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,

@@ -41,6 +41,9 @@ const (
 	// SecretServiceDeleteSecretProcedure is the fully-qualified name of the SecretService's
 	// DeleteSecret RPC.
 	SecretServiceDeleteSecretProcedure = "/podium.v1.SecretService/DeleteSecret"
+	// SecretServiceReadSecretProcedure is the fully-qualified name of the SecretService's ReadSecret
+	// RPC.
+	SecretServiceReadSecretProcedure = "/podium.v1.SecretService/ReadSecret"
 )
 
 // SecretServiceClient is a client for the podium.v1.SecretService service.
@@ -50,6 +53,12 @@ type SecretServiceClient interface {
 	// ListSecrets returns metadata only: names, versions and who set them.
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
+	// ReadSecret returns one value to the conductor and to no other caller, and only for the
+	// names the conductor keeps for its own use: its connection credentials
+	// (podium.agent.connection.*), the per-turn GitHub tokens it must revoke
+	// (podium.agent.git_user_token.*), and a person's connected account (github.token). Every
+	// read is audited.
+	ReadSecret(context.Context, *connect.Request[v1.ReadSecretRequest]) (*connect.Response[v1.ReadSecretResponse], error)
 }
 
 // NewSecretServiceClient constructs a client for the podium.v1.SecretService service. By default,
@@ -81,6 +90,12 @@ func NewSecretServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(secretServiceMethods.ByName("DeleteSecret")),
 			connect.WithClientOptions(opts...),
 		),
+		readSecret: connect.NewClient[v1.ReadSecretRequest, v1.ReadSecretResponse](
+			httpClient,
+			baseURL+SecretServiceReadSecretProcedure,
+			connect.WithSchema(secretServiceMethods.ByName("ReadSecret")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -89,6 +104,7 @@ type secretServiceClient struct {
 	setSecret    *connect.Client[v1.SetSecretRequest, v1.SetSecretResponse]
 	listSecrets  *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
 	deleteSecret *connect.Client[v1.DeleteSecretRequest, v1.DeleteSecretResponse]
+	readSecret   *connect.Client[v1.ReadSecretRequest, v1.ReadSecretResponse]
 }
 
 // SetSecret calls podium.v1.SecretService.SetSecret.
@@ -106,6 +122,11 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, req *connect.Req
 	return c.deleteSecret.CallUnary(ctx, req)
 }
 
+// ReadSecret calls podium.v1.SecretService.ReadSecret.
+func (c *secretServiceClient) ReadSecret(ctx context.Context, req *connect.Request[v1.ReadSecretRequest]) (*connect.Response[v1.ReadSecretResponse], error) {
+	return c.readSecret.CallUnary(ctx, req)
+}
+
 // SecretServiceHandler is an implementation of the podium.v1.SecretService service.
 type SecretServiceHandler interface {
 	// SetSecret creates or replaces a secret, bumping its version.
@@ -113,6 +134,12 @@ type SecretServiceHandler interface {
 	// ListSecrets returns metadata only: names, versions and who set them.
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error)
+	// ReadSecret returns one value to the conductor and to no other caller, and only for the
+	// names the conductor keeps for its own use: its connection credentials
+	// (podium.agent.connection.*), the per-turn GitHub tokens it must revoke
+	// (podium.agent.git_user_token.*), and a person's connected account (github.token). Every
+	// read is audited.
+	ReadSecret(context.Context, *connect.Request[v1.ReadSecretRequest]) (*connect.Response[v1.ReadSecretResponse], error)
 }
 
 // NewSecretServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -140,6 +167,12 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(secretServiceMethods.ByName("DeleteSecret")),
 		connect.WithHandlerOptions(opts...),
 	)
+	secretServiceReadSecretHandler := connect.NewUnaryHandler(
+		SecretServiceReadSecretProcedure,
+		svc.ReadSecret,
+		connect.WithSchema(secretServiceMethods.ByName("ReadSecret")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.SecretService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SecretServiceSetSecretProcedure:
@@ -148,6 +181,8 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 			secretServiceListSecretsHandler.ServeHTTP(w, r)
 		case SecretServiceDeleteSecretProcedure:
 			secretServiceDeleteSecretHandler.ServeHTTP(w, r)
+		case SecretServiceReadSecretProcedure:
+			secretServiceReadSecretHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -167,4 +202,8 @@ func (UnimplementedSecretServiceHandler) ListSecrets(context.Context, *connect.R
 
 func (UnimplementedSecretServiceHandler) DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.DeleteSecretResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SecretService.DeleteSecret is not implemented"))
+}
+
+func (UnimplementedSecretServiceHandler) ReadSecret(context.Context, *connect.Request[v1.ReadSecretRequest]) (*connect.Response[v1.ReadSecretResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.SecretService.ReadSecret is not implemented"))
 }

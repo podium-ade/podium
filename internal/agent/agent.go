@@ -105,10 +105,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	// environment fallback: Settings → Connections is the only source, and a saved row
 	// is what this process uses. A half-set Slack pair is still a startup error.
 	envCfg := cfg
-	savedSlack, savedGitHub, err := connections.Load(ctx, st)
+	pc := podium.New(cfg.Server, cfg.APIToken)
+	savedSlack, savedGitHub, err := connections.Load(ctx, st, pc)
 	if err != nil {
 		st.Close()
-		return nil, err
+		return nil, fmt.Errorf("agent: the saved connections' credentials are in podium-server's "+
+			"secret store, which could not be read: %w", err)
 	}
 	cfg = connections.Overlay(cfg, savedSlack, savedGitHub)
 	if savedSlack != nil || savedGitHub != nil {
@@ -133,7 +135,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		cfg:      cfg,
 		logger:   logger,
 		store:    st,
-		podium:   podium.New(cfg.Server, cfg.APIToken),
+		podium:   pc,
 		profiles: live,
 	}
 
@@ -440,12 +442,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	if host != nil {
 		a.turns = api.NewTurnService(a.conductor, logger)
 	}
-	// The minting surface, which unlike the turn surface is reached from a TASK. Only
-	// mounted when there is an App to mint from: without one there is nothing to serve and
-	// no reason to answer on the path at all.
-	if gh != nil {
-		a.gitcred = api.NewGitCredentialService(a.conductor, logger)
-	}
+	// The minting surface, which unlike the turn surface is reached from a TASK. It serves
+	// the App's installation tokens and the scoped tokens of a turn that pushes as the
+	// person who asked, which needs no App private key, so it is always mounted.
+	a.gitcred = api.NewGitCredentialService(a.conductor, logger)
 	a.http = &http.Server{
 		Handler:           a.mux(registry),
 		ReadHeaderTimeout: 10 * time.Second,

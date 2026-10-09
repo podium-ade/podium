@@ -202,6 +202,18 @@ func (c *Client) SetPersonalSecret(ctx context.Context, owner, name string, valu
 	return res.Msg.GetSecret().GetVersion(), nil
 }
 
+// ReadSecret reads one value back. The control plane answers only the conductor, and only
+// for the names it keeps for itself: see spec.ConductorMayRead. owner is empty for a global.
+func (c *Client) ReadSecret(ctx context.Context, owner, name string) ([]byte, error) {
+	res, err := c.Secrets.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: name, Owner: owner,
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("read secret %s: %w", name, err)
+	}
+	return res.Msg.GetValue(), nil
+}
+
 // SecretVersion is the version of one secret, or 0 when the control plane does not have it.
 // ListSecrets returns metadata only — names, versions and who set them — so this reads no
 // value and there is no endpoint that could.
