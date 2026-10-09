@@ -67,10 +67,10 @@ describe("GitHubAccountCard", () => {
     await waitFor(() => expect(disconnectGitHubAccount).toHaveBeenCalled());
   });
 
-  it("says an admin has to add the client when connecting is unavailable", async () => {
+  it("tells the person to contact an admin when connecting is unavailable", async () => {
     getGitHubAccount.mockResolvedValue({ account: { available: false, connected: false } });
     mount(<GitHubAccountCard />);
-    expect(await screen.findByText(/client ID and secret/)).toBeInTheDocument();
+    expect(await screen.findByText(/not enabled for your organization yet/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /connect github/i })).not.toBeInTheDocument();
   });
 });
