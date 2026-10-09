@@ -47,7 +47,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 
-const PERSONAL_SECTIONS = ["identity", "model", "instructions"] as const;
+const PERSONAL_SECTIONS = ["identity", "instructions", "model"] as const;
 
 type PersonalSection = (typeof PERSONAL_SECTIONS)[number];
 
@@ -59,16 +59,16 @@ const PERSONAL: { id: PersonalSection; label: string; icon: LucideIcon; sentence
     sentence: "A personal assistant is a voice on top of Podium. It uses Podium's skills and tools.",
   },
   {
-    id: "model",
-    label: "Model",
-    icon: Cpu,
-    sentence: "Pick a model for this voice, or leave it following Podium. A choice in one chat still wins there.",
-  },
-  {
     id: "instructions",
     label: "Instructions",
     icon: MessageSquare,
     sentence: "Added after Podium's prompt, for this voice's turns only.",
+  },
+  {
+    id: "model",
+    label: "Model",
+    icon: Cpu,
+    sentence: "Pick a model for this voice, or leave it following Podium. A choice in one chat still wins there.",
   },
 ];
 
@@ -366,12 +366,6 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
           <FieldNote text={displayNote(draft)} />
         </Field>
       </div>
-      <div hidden={section !== "model"}>
-        <VoiceModel
-          value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
-          onChange={(next) => setDraft({ ...draft, ...next })}
-        />
-      </div>
       <div hidden={section !== "instructions"}>
         <Field id="personality-instructions" label="Instructions">
           <Textarea
@@ -384,6 +378,12 @@ function PersonalityForm({ id, saved, section }: { id: string; saved: Personalit
           />
           <FieldNote text={instructionsNote(draft)} />
         </Field>
+      </div>
+      <div hidden={section !== "model"}>
+        <VoiceModel
+          value={{ agent: draft.agent, model: draft.model, effort: draft.effort }}
+          onChange={(next) => setDraft({ ...draft, ...next })}
+        />
       </div>
 
       <FormActions>
