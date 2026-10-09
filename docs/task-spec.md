@@ -482,6 +482,25 @@ Where the address comes from is the node's configuration, not the spec's
 - **`lan`** — one of the node's own addresses, from a pool the operator set aside. Anything
   that can reach the address can use the preview; there is no login on this path.
 
+**With no `ports`, `expose` only holds.** The containers stay up for the ttl and are released
+the same way, but nothing is published, and the task takes no address from the node, so any
+node runs it. That is for a task that publishes itself, through a tunnel it opens:
+
+```yaml
+expose: { ttl: 2h }                  # hold only: no ports, no via
+command:
+  - sh
+  - -c
+  - |
+    opentunnel up                    # a public https://<route>.<id>.opentunnel.xyz per route
+    opentunnel route add accounts:5011 --name accounts   # a sidecar, by name
+    make build test && (make serve &) && opentunnel route add 3000 --name web
+```
+
+The tunnel's background process outlives the command for exactly as long as the hold does.
+What it publishes is the tunnel's business: Podium shows no URLs for it, and a tunnel's link is
+usually public, with nothing but an unguessable name standing in for a login.
+
 A task is only placed on a node with a free address of the kind it asks for. When there is
 none it waits in the queue, `queued_reason: no online node has a free preview address for
 this task`, and is placed as soon as a preview is released.

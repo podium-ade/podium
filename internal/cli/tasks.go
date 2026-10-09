@@ -156,6 +156,10 @@ func previewState(p *podiumv1.TaskPreview) string {
 	switch {
 	case p.GetReleasedAt() != nil:
 		return fmt.Sprintf("released %s (%s)", stamp(p.GetReleasedAt().AsTime(), true), orDash(p.GetReleaseReason()))
+	case p.GetAddress() == "" && p.GetExpiresAt() != nil:
+		return fmt.Sprintf("held, publishing nothing, until %s", stamp(p.GetExpiresAt().AsTime(), true))
+	case p.GetAddress() == "":
+		return "held once the command exits, publishing nothing"
 	case p.GetExpiresAt() != nil:
 		return fmt.Sprintf("up over %s on %s until %s", p.GetVia(), p.GetAddress(), stamp(p.GetExpiresAt().AsTime(), true))
 	default:

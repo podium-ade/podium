@@ -320,7 +320,11 @@ func (n *Node) handleAssign(
 		return n.rejectAssign(ctx, stream, a, "node full")
 	}
 	if x := a.GetSpec().GetExpose(); x != nil {
-		if err := n.previews.reserve(a.GetTaskId(), x.GetVia()); err != nil {
+		via := x.GetVia()
+		if len(x.GetPorts()) == 0 {
+			via = holdOnly
+		}
+		if err := n.previews.reserve(a.GetTaskId(), via); err != nil {
 			return n.rejectAssign(ctx, stream, a, err.Error())
 		}
 	}

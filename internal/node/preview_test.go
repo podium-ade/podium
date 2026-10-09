@@ -94,3 +94,23 @@ func TestHeldPreviewsHoldASlot(t *testing.T) {
 	assert.False(t, m.hold("t1"), "a task released before it was held is not held")
 	assert.Zero(t, m.heldCount())
 }
+
+// A hold-only expose keeps its task up and its slot taken, and takes no address: a node with
+// no LAN pool and no tailnet slots still runs it, and its pools stay free for others.
+func TestHoldOnlyTakesNoAddress(t *testing.T) {
+	m, devs := testPreviews([]string{"192.168.1.201"}, 1)
+	require.NoError(t, m.reserve("t1", holdOnly))
+	p, err := m.ready(context.Background(), "t1")
+	require.NoError(t, err)
+	assert.Nil(t, p, "nothing to publish, so no plan")
+	assert.Empty(t, devs, "no slot device is brought up")
+
+	tailnet, lan := m.free()
+	assert.Equal(t, int32(1), tailnet)
+	assert.Equal(t, int32(1), lan)
+	assert.True(t, m.hold("t1"))
+	assert.Equal(t, []string{"t1"}, m.heldIDs(), "held, so it keeps its node slot")
+
+	bare, _ := testPreviews(nil, 0)
+	require.NoError(t, bare.reserve("t2", holdOnly), "a node that publishes nothing can still hold")
+}

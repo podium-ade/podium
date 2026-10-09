@@ -186,7 +186,8 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 // core with a Postgres asking for two costs three.
 func CostOf(ts spec.TaskSpec) TaskCost {
 	cost := TaskCost{CPU: ts.Resources.CPU, MemoryMB: int64(ts.Resources.MemoryMB)}
-	if ts.Expose != nil {
+	// A hold-only expose takes no address, so it does not wait for one.
+	if ts.Expose.Publishes() {
 		cost.Preview, cost.Via = true, ts.Expose.Via
 	}
 	for _, sc := range ts.Sidecars {

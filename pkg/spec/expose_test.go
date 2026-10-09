@@ -31,13 +31,13 @@ func TestValidateExpose(t *testing.T) {
 		expose Expose
 		want   string
 	}{
-		"no ports":        {Expose{TTL: Duration(time.Hour)}, "at least one port"},
-		"bad via":         {Expose{TTL: Duration(time.Hour), Via: "wan", Ports: map[string]ExposedPort{"web": {Port: 80}}}, `expose.via "wan"`},
-		"bad name":        {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"Web": {Port: 80}}}, "name must match"},
-		"bad port":        {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"web": {Port: 70000}}}, "not a port number"},
-		"duplicate port":  {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"a": {Port: 80}, "b": {Port: 80}}}, "already exposed as a"},
-		"unknown sidecar": {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"web": {Port: 80, From: "db"}}}, `from "db" is not a sidecar`},
-		"negative ttl":    {Expose{TTL: Duration(-time.Second), Ports: map[string]ExposedPort{"web": {Port: 80}}}, "expose.ttl must be positive"},
+		"via without ports": {Expose{TTL: Duration(time.Hour), Via: ExposeViaLAN}, "needs expose.ports"},
+		"bad via":           {Expose{TTL: Duration(time.Hour), Via: "wan", Ports: map[string]ExposedPort{"web": {Port: 80}}}, `expose.via "wan"`},
+		"bad name":          {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"Web": {Port: 80}}}, "name must match"},
+		"bad port":          {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"web": {Port: 70000}}}, "not a port number"},
+		"duplicate port":    {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"a": {Port: 80}, "b": {Port: 80}}}, "already exposed as a"},
+		"unknown sidecar":   {Expose{TTL: Duration(time.Hour), Ports: map[string]ExposedPort{"web": {Port: 80, From: "db"}}}, `from "db" is not a sidecar`},
+		"negative ttl":      {Expose{TTL: Duration(-time.Second), Ports: map[string]ExposedPort{"web": {Port: 80}}}, "expose.ttl must be positive"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -65,4 +65,19 @@ func TestProtoRoundTripExpose(t *testing.T) {
 	}
 	want.ApplyDefaults()
 	assert.Equal(t, want, FromProto(want.ToProto()))
+}
+
+// A hold-only expose keeps the task up and publishes nothing, for a task that publishes
+// itself through a tunnel of its own.
+func TestHoldOnlyExpose(t *testing.T) {
+	s, err := ParseTaskSpec(strings.NewReader("image: alpine:3\nexpose: { ttl: 30m }\n"))
+	require.NoError(t, err)
+	require.NotNil(t, s.Expose)
+	assert.False(t, s.Expose.Publishes())
+	assert.Equal(t, Duration(30*time.Minute), s.Expose.TTL)
+	assert.Equal(t, s, FromProto(s.ToProto()))
+
+	var none *Expose
+	assert.False(t, none.Publishes())
+	assert.True(t, (&Expose{Ports: map[string]ExposedPort{"web": {Port: 3000}}}).Publishes())
 }

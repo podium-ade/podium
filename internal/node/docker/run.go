@@ -240,8 +240,12 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 
 	// The gateway comes up after the sidecars it forwards to and before the task, whose
 	// command is told the URLs it serves under.
+	//
+	// A hold-only expose has no gateway and no address. It still reports a preview, an
+	// empty one, because that is what the control plane keeps the ttl and the release on.
 	expose := req.Spec.Expose
-	if expose != nil {
+	switch {
+	case expose.Publishes():
 		if req.Preview == nil {
 			return Result{}, fmt.Errorf("%w: the task exposes ports and this node publishes no previews", errPreviewNotSupported)
 		}
@@ -251,6 +255,8 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		em.emit(KindPreview, PreviewPayload{
 			Via: req.Preview.Via, Address: req.Preview.Address, URLs: req.Preview.URLs(expose),
 		})
+	case expose != nil:
+		em.emit(KindPreview, PreviewPayload{})
 	}
 
 	workdir := req.Spec.WorkingDir
@@ -294,7 +300,10 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	initFalse := false
 	env := containerEnv(req, workdir)
 	if expose != nil {
-		env = append(append(env, holdEnvVar+"=1"), req.Preview.Env(expose)...)
+		env = append(env, holdEnvVar+"=1")
+	}
+	if expose.Publishes() {
+		env = append(env, req.Preview.Env(expose)...)
 	}
 	cfg := &container.Config{
 		Image:      req.Spec.Image,

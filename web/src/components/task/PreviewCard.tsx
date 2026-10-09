@@ -50,8 +50,12 @@ export function PreviewCard({ task }: { task: Task }) {
             {released
               ? `Released ${absolute(p.releasedAt)}${p.releaseReason ? ` (${p.releaseReason})` : ""}.`
               : expires
-                ? `Over ${p.via} on ${p.address}, until ${expires.toLocaleString()}.`
-                : `Over ${p.via} on ${p.address}. It stays up once the command exits.`}
+                ? p.address
+                  ? `Over ${p.via} on ${p.address}, until ${expires.toLocaleString()}.`
+                  : `Held, publishing nothing, until ${expires.toLocaleString()}.`
+                : p.address
+                  ? `Over ${p.via} on ${p.address}. It stays up once the command exits.`
+                  : "Held once the command exits. Nothing is published."}
           </CardDescription>
         </div>
         {!released && expires ? (
