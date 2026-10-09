@@ -9,18 +9,20 @@ import (
 )
 
 type Chat struct {
-	ID        string
-	Title     string
-	Login     *string
-	CreatedAt time.Time
-	AutoTitle bool
-	Agent     string
-	Model     string
-	Effort    string
-	SourceKey *string
-	StartedBy string
-	Origin    string
-	Channel   string
+	ID                 string
+	Title              string
+	Login              *string
+	CreatedAt          time.Time
+	AutoTitle          bool
+	Agent              string
+	Model              string
+	Effort             string
+	SourceKey          *string
+	StartedBy          string
+	Origin             string
+	Channel            string
+	PersonalityID      *string
+	PersonalityDisplay string
 }
 
 type ChatMessage struct {
@@ -88,6 +90,18 @@ type McpServer struct {
 	Config             string
 	Owner              string
 	Fallback           bool
+}
+
+type Personality struct {
+	ID           string
+	Login        string
+	Name         string
+	DisplayName  string
+	Instructions string
+	UpdatedAt    time.Time
+	Agent        string
+	Model        string
+	Effort       string
 }
 
 type Relayed struct {

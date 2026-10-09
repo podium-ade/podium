@@ -28,6 +28,10 @@ const pollProviderOAuth = vi.fn();
 const updateProfile = vi.fn();
 const listSecrets = vi.fn();
 const listSkills = vi.fn();
+const listPersonalities = vi.fn();
+const createPersonality = vi.fn();
+const updatePersonality = vi.fn();
+const deletePersonality = vi.fn();
 const getProfileFile = vi.fn();
 const updateProfileFile = vi.fn();
 const listUsers = vi.fn();
@@ -53,6 +57,10 @@ vi.mock("../lib/client", async () => {
       pollProviderOAuth: (...a: unknown[]) => pollProviderOAuth(...a),
       updateProfile: (...a: unknown[]) => updateProfile(...a),
       listSkills: (...a: unknown[]) => listSkills(...a),
+      listPersonalities: (...a: unknown[]) => listPersonalities(...a),
+      createPersonality: (...a: unknown[]) => createPersonality(...a),
+      updatePersonality: (...a: unknown[]) => updatePersonality(...a),
+      deletePersonality: (...a: unknown[]) => deletePersonality(...a),
       listMcpServers: () => Promise.resolve({ servers: [] }),
       reloadProfileDir: () => Promise.resolve({}),
       getProfileFile: (...a: unknown[]) => getProfileFile(...a),
@@ -79,6 +87,11 @@ const profileResponse = {
     fileDisplayName: "Podium",
     fileModel: "claude-opus-5",
     fileDefaultPlaybook: "general",
+    systemPrompt: "you are Podium",
+    fileSystemPrompt: "you are Podium",
+    agent: "claude",
+    fileAgent: "claude",
+    timeout: "15m0s",
     overridden: [] as string[],
     updatedBy: "",
   },
@@ -193,6 +206,11 @@ describe("AgentPage", () => {
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
     listPlaybooks.mockResolvedValue({ playbooks: [], profileDisplayName: "Podium" });
     listSkills.mockResolvedValue({ skills: [], skillsDir: "", maxBytes: 131072n, maxFiles: 64 });
+    listPersonalities.mockReset();
+    createPersonality.mockReset();
+    updatePersonality.mockReset();
+    deletePersonality.mockReset();
+    listPersonalities.mockResolvedValue({ personalities: [] });
   });
 
   it("says plainly that there is no conductor when the server has none", () => {
@@ -245,25 +263,143 @@ describe("AgentPage", () => {
   it("shows the assistant and the playbooks on their own routes", async () => {
     mount("/agent/profile");
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
-    expect(screen.getByLabelText("Display name")).toHaveValue("");
+    expect(screen.getByLabelText("Display name")).toHaveValue("Podium");
+    expect(screen.getByRole("link", { name: "Identity" })).toHaveAttribute("aria-current", "page");
+    const assistants = screen.getByRole("navigation", { name: "Assistants" });
+    expect(within(assistants).getByRole("link", { name: /Podium/ })).toHaveAttribute("aria-current", "page");
+    expect(within(assistants).getByText("Built-in")).toBeInTheDocument();
+    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("href", "/agent/assistants/new");
+    expect(screen.queryByLabelText("Name", { selector: "#assistant-name" })).toBeNull();
+    expect(screen.getByLabelText("Name", { selector: "#assistant-git-name" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
+    expect(screen.queryByText(/profile\.yaml/)).toBeNull();
   });
 
-  it("saves profile.yaml as typed and shows a refusal inline", async () => {
-    updateProfileFile.mockRejectedValueOnce(new Error("modle: field not found"));
-    updateProfileFile.mockResolvedValueOnce({});
+  it("saves the whole assistant when the display name changes", async () => {
+    updateProfile.mockResolvedValue({});
     mount("/agent/profile");
-    const box = await screen.findByLabelText("profile.yaml");
-    expect(box).toHaveValue("name: podium\n");
-    expect(screen.getByText("/etc/podium/agent/profile.yaml")).toBeInTheDocument();
-    expect(screen.getByTestId("profile-file-save")).toBeDisabled();
+    const box = await screen.findByLabelText("Display name");
+    await userEvent.clear(box);
+    await userEvent.type(box, "Night");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateProfile).toHaveBeenCalled());
+    expect(updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "podium",
+        displayName: "Night",
+        systemPrompt: "you are Podium",
+        agent: "claude",
+        model: "claude-opus-5",
+        timeout: "15m0s",
+        skills: [],
+        mcpServers: [],
+        maxTurns: 0,
+      }),
+    );
+  });
 
-    await userEvent.type(box, "modle: typo");
-    await userEvent.click(screen.getByTestId("profile-file-save"));
-    expect(await screen.findByText(/modle: field not found/)).toBeInTheDocument();
+  it("opens instructions from the address and refuses an unknown section", async () => {
+    const first = mount("/agent/profile/instructions");
+    expect(await screen.findByLabelText("System prompt")).toHaveValue("you are Podium");
+    expect(screen.getByRole("link", { name: "Instructions" })).toHaveAttribute("aria-current", "page");
+    first.unmount();
 
-    await userEvent.click(screen.getByTestId("profile-file-save"));
-    await waitFor(() => expect(updateProfileFile).toHaveBeenCalledTimes(2));
-    expect(updateProfileFile).toHaveBeenLastCalledWith({ content: "name: podium\nmodle: typo" });
+    mount("/agent/profile/nope");
+    expect(await screen.findByLabelText("Display name")).toHaveValue("Podium");
+  });
+
+  it("lets a member read Podium and an admin save it", async () => {
+    const human: Viewer = {
+      ...viewer,
+      login: "bob@acme.com",
+      kind: IdentityKind.USER,
+      roles: [RoleMember],
+      claimed: true,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    };
+    const member = mount("/agent/profile", human);
+    expect(await screen.findByLabelText("Display name")).toBeDisabled();
+    expect(screen.getByText("Owners set this assistant.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByTestId("chat-new")).toBeNull();
+    expect(getProfile).toHaveBeenCalled();
+    member.unmount();
+
+    getProfile.mockClear();
+    mount("/agent/profile", { ...human, roles: [RoleAdmin] });
+    expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.queryByText("Owners set this assistant.")).toBeNull();
+    expect(getProfile).toHaveBeenCalled();
+  });
+
+  it("creates a personal assistant and leaves it selected", async () => {
+    const created = {
+      id: "pers_01",
+      name: "night-owl",
+      displayName: "Night Owl",
+      instructions: "Speak briefly.",
+      agent: "grok",
+      model: "grok-4.6",
+      effort: "",
+    };
+    createPersonality.mockImplementation(async () => {
+      listPersonalities.mockResolvedValue({ personalities: [created] });
+      return { personality: created };
+    });
+    const user = userEvent.setup();
+    mount("/agent/assistants/new");
+    expect(await screen.findByText(/voice on top of Podium/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name", { selector: "#personality-name" })).toBeNull();
+    expect(screen.queryByLabelText("Name", { selector: "#assistant-git-name" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Model" })).toHaveAttribute("href", "/agent/assistants/new/model");
+    await user.type(screen.getByLabelText("Display name"), "Night Owl");
+    await user.click(screen.getByRole("link", { name: "Model" }));
+    expect(await screen.findByText(/leave it following Podium/)).toBeInTheDocument();
+    const picker = await screen.findByRole("button", { name: "Assistant: agent and model" });
+    expect(picker).toBeEnabled();
+    expect(picker).toHaveTextContent("Podium's model");
+    await user.click(picker);
+    await user.click(await screen.findByText("grok-4.6"));
+    const assistants = screen.getByRole("navigation", { name: "Assistants" });
+    expect(within(assistants).getByRole("link", { name: "New" })).toHaveAttribute("aria-current", "page");
+    await user.click(screen.getByRole("link", { name: "Instructions" }));
+    await user.type(screen.getByLabelText("Instructions"), "Speak briefly.");
+    const save = screen.getByRole("button", { name: "Save" });
+    await waitFor(() => expect(save).toBeEnabled());
+    await user.click(save);
+    await waitFor(() =>
+      expect(createPersonality).toHaveBeenCalledWith({
+        name: "",
+        displayName: "Night Owl",
+        instructions: "Speak briefly.",
+        agent: "grok",
+        model: "grok-4.6",
+        effort: "",
+      }),
+    );
+    expect(await screen.findByRole("link", { name: "Talk to it" })).toHaveAttribute(
+      "href",
+      "/agent/chat/a/pers_01",
+    );
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Assistants" })).getByRole("link", { name: "Night Owl" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("sends an unknown personal section back to Podium", async () => {
+    mount("/agent/assistants/new/reach");
+    expect(await screen.findByLabelText("Display name")).toHaveValue("Podium");
+  });
+
+  it("sends an old source address back to the assistant", async () => {
+    mount("/agent/profile/source");
+    expect(await screen.findByLabelText("Display name")).toHaveValue("Podium");
+    expect(screen.queryByLabelText("profile.yaml")).toBeNull();
   });
 
   it("renders playbooks without the talk tabs", async () => {

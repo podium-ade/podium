@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
+import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { Header } from "./Header";
 
 const base: Viewer = {
@@ -49,7 +50,7 @@ describe("Header", () => {
   // says so. A server built before agent_enabled existed sends nothing and reads as false.
   it("hides the Assistant tab when the server has no conductor", () => {
     mount(base);
-    expect(screen.queryByRole("link", { name: "Assistant" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Skills" })).toBeNull();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
@@ -61,13 +62,39 @@ describe("Header", () => {
       "href",
       "/agent/settings",
     );
-    expect(screen.queryByRole("link", { name: "Assistant" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
   });
 
   it("hides it before WhoAmI has answered at all", () => {
     mount(undefined);
-    expect(screen.queryByRole("link", { name: "Assistant" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  });
+
+  it("shows Assistants to a member, an admin, and an owner", () => {
+    const human: Viewer = {
+      ...base,
+      agentEnabled: true,
+      login: "bob@acme.com",
+      displayName: "Bob",
+      kind: IdentityKind.USER,
+      roles: [RoleMember],
+      claimed: true,
+      googleAuthEnabled: true,
+      hostedDomain: "acme.com",
+    };
+    const member = mount(human);
+    expect(screen.getByRole("link", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    expect(screen.getByText("Assistant", { selector: "p" })).toBeInTheDocument();
+    member.unmount();
+
+    const admin = mount({ ...human, roles: [RoleAdmin] });
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    admin.unmount();
+
+    mount({ ...human, roles: [RoleOwner] });
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
   });
 
   it("shows the assistant screens, Playbooks and Skills when the server proxies a conductor", () => {
@@ -78,9 +105,9 @@ describe("Header", () => {
       "/agent/sessions",
     );
     expect(screen.getByRole("link", { name: "Memory" })).toHaveAttribute("href", "/agent/memory");
-    expect(screen.getByRole("link", { name: "Assistant" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute(
       "href",
-      "/agent/profile",
+      "/agent/assistants",
     );
     expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute(
       "href",
@@ -170,13 +197,23 @@ describe("Header", () => {
     const who = { ...base, agentEnabled: true };
     const first = mount(who, "/agent/chat");
     expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Assistant" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Assistants" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Playbooks" })).not.toHaveAttribute("aria-current");
     first.unmount();
 
     const deep = mount(who, "/agent/chat/chat_01abc");
     expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
     deep.unmount();
+
+    const voice = mount(who, "/agent/chat/a/pers_01");
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Assistants" })).not.toHaveAttribute("aria-current");
+    voice.unmount();
+
+    const defined = mount(who, "/agent/assistants");
+    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
+    defined.unmount();
 
     mount(who, "/agent/playbooks");
     expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute("aria-current", "page");

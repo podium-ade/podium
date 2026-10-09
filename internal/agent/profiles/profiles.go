@@ -36,7 +36,8 @@ const (
 )
 
 // NameRE constrains a profile name and a playbook name. A playbook name also has to survive being
-// typed after a slash in Slack.
+// typed after a slash in Slack, so it stays lowercase. A personal assistant's stored name is
+// generated to match this too. People edit the display name.
 var NameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // PlaybookPrefixRE matches a leading /playbook on a mention. It is anchored at the very start and

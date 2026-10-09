@@ -139,6 +139,7 @@ describe("ChatComposer", () => {
     const onChoiceChange = vi.fn();
     mount({ onChoiceChange });
     await userEvent.click(screen.getByTestId("chat-effort"));
+    expect(await screen.findByText("Effort")).not.toHaveClass("uppercase");
     await userEvent.click(await screen.findByRole("radio", { name: "Low" }));
     expect(onChoiceChange).toHaveBeenCalledWith({ agent: "", model: "", effort: "low" });
   });

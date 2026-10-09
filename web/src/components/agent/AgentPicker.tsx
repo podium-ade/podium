@@ -462,7 +462,7 @@ function EffortStrip({
   const options = ["", ...efforts];
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-2xs font-medium tracking-wide text-faint uppercase">Effort</span>
+      <span className="text-2xs font-medium text-faint">Effort</span>
       <div
         role="radiogroup"
         aria-label={`${label}: reasoning effort`}

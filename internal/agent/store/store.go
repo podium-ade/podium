@@ -576,6 +576,12 @@ type Chat struct {
 	// Channel is the Slack channel's human name for a mirrored thread, without a leading #.
 	// Empty for a web chat and for a thread whose name has not been resolved yet.
 	Channel string
+	// PersonalityID is the personal assistant this chat talks to. Empty means Podium.
+	// There is no foreign key: deleting the assistant leaves the chat readable.
+	PersonalityID string
+	// PersonalityDisplay is that assistant's display name at the moment the chat was
+	// opened, so a deleted assistant's threads stay labeled.
+	PersonalityDisplay string
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it is. The id is
@@ -606,9 +612,22 @@ type ChatMessage struct {
 	TaskID string
 }
 
-// CreateChat opens a chat owned by login. An empty title becomes DefaultChatTitle, and
-// AutoTitle stays true so the first query may rename it. A supplied title is kept.
+// CreateChat opens a Podium chat owned by login. An empty title becomes DefaultChatTitle,
+// and AutoTitle stays true so the first query may rename it. A supplied title is kept.
 func (s *Store) CreateChat(ctx context.Context, login, title string) (Chat, error) {
+	return s.createChat(ctx, login, title, "", "")
+}
+
+// CreatePersonalityChat opens a chat bound to one of login's assistants. display is
+// snapshotted onto the row so the thread stays labeled after that assistant is deleted.
+func (s *Store) CreatePersonalityChat(ctx context.Context, login, title, personalityID, display string) (Chat, error) {
+	if strings.TrimSpace(personalityID) == "" {
+		return Chat{}, errors.New("create chat: a personality id is required")
+	}
+	return s.createChat(ctx, login, title, personalityID, display)
+}
+
+func (s *Store) createChat(ctx context.Context, login, title, personalityID, display string) (Chat, error) {
 	if login == "" {
 		return Chat{}, errors.New("create chat: a login is required")
 	}
@@ -620,14 +639,20 @@ func (s *Store) CreateChat(ctx context.Context, login, title string) (Chat, erro
 	}
 	id := ids.New("chat")
 	key := ChatSourceKey(id)
+	var pid *string
+	if personalityID != "" {
+		pid = &personalityID
+	}
 	row, err := s.q.CreateChat(ctx, db.CreateChatParams{
-		ID:        id,
-		Title:     title,
-		Login:     &login,
-		CreatedAt: time.Now().UTC(),
-		AutoTitle: auto,
-		SourceKey: &key,
-		Origin:    OriginWeb,
+		ID:                 id,
+		Title:              title,
+		Login:              &login,
+		CreatedAt:          time.Now().UTC(),
+		AutoTitle:          auto,
+		SourceKey:          &key,
+		Origin:             OriginWeb,
+		PersonalityID:      pid,
+		PersonalityDisplay: display,
 	})
 	if err != nil {
 		return Chat{}, fmt.Errorf("create chat for %s: %w", login, err)
@@ -729,20 +754,35 @@ func (s *Store) GetChat(ctx context.Context, id string) (Chat, error) {
 	return chatFromRow(row), nil
 }
 
+// ListChatsScope narrows a list to one assistant. The zero value lists every chat the
+// caller can already see. FilterPersonality with an empty PersonalityID is Podium:
+// only rows whose personality_id is null. A set id matches that assistant.
+type ListChatsScope struct {
+	FilterPersonality bool
+	PersonalityID     string
+}
+
 // ListChats returns chats newest first. all is the dev token and returns every chat,
 // including mirrored threads and other logins' web chats. Otherwise only this login's
 // web chats are returned, and another login's cannot be paged into: the filter is in
-// the query, not in the caller.
-func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int, cursor string) ([]Chat, string, error) {
+// the query, not in the caller. An optional scope limits the page to one assistant;
+// leaving it out keeps the previous "every chat" result.
+func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int, cursor string, scope ...ListChatsScope) ([]Chat, string, error) {
 	if login == "" && !all {
 		return nil, "", errors.New("list chats: a login is required")
 	}
+	var sc ListChatsScope
+	if len(scope) > 0 {
+		sc = scope[0]
+	}
 	limit = clampLimit(limit)
 	rows, err := s.q.ListChats(ctx, db.ListChatsParams{
-		IncludeAll: all,
-		Login:      &login,
-		AfterID:    cursor,
-		PageLimit:  int32(limit),
+		IncludeAll:        all,
+		Login:             &login,
+		AfterID:           cursor,
+		FilterPersonality: sc.FilterPersonality,
+		PersonalityID:     sc.PersonalityID,
+		PageLimit:         int32(limit),
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list chats of %s: %w", login, err)
@@ -754,16 +794,18 @@ func (s *Store) ListChats(ctx context.Context, login string, all bool, limit int
 			owner = *r.Login
 		}
 		c := Chat{
-			ID:          r.ID,
-			Title:       r.Title,
-			Login:       owner,
-			Origin:      r.Origin,
-			StartedBy:   r.StartedBy,
-			CreatedAt:   r.CreatedAt.UTC(),
-			AutoTitle:   r.AutoTitle,
-			TurnRunning: r.TurnRunning,
-			TaskRunning: r.TaskRunning,
-			Channel:     r.Channel,
+			ID:                 r.ID,
+			Title:              r.Title,
+			Login:              owner,
+			Origin:             r.Origin,
+			StartedBy:          r.StartedBy,
+			CreatedAt:          r.CreatedAt.UTC(),
+			AutoTitle:          r.AutoTitle,
+			TurnRunning:        r.TurnRunning,
+			TaskRunning:        r.TaskRunning,
+			Channel:            r.Channel,
+			PersonalityID:      deref(r.PersonalityID),
+			PersonalityDisplay: r.PersonalityDisplay,
 		}
 		if r.HasMessage {
 			at := r.LastMessageAt.UTC()
@@ -923,15 +965,17 @@ func chatFromRow(row db.Chat) Chat {
 		login = *row.Login
 	}
 	return Chat{
-		ID:         row.ID,
-		Title:      row.Title,
-		Login:      login,
-		Origin:     row.Origin,
-		StartedBy:  row.StartedBy,
-		CreatedAt:  row.CreatedAt.UTC(),
-		AutoTitle:  row.AutoTitle,
-		ChatChoice: ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
-		Channel:    row.Channel,
+		ID:                 row.ID,
+		Title:              row.Title,
+		Login:              login,
+		Origin:             row.Origin,
+		StartedBy:          row.StartedBy,
+		CreatedAt:          row.CreatedAt.UTC(),
+		AutoTitle:          row.AutoTitle,
+		ChatChoice:         ChatChoice{Agent: row.Agent, Model: row.Model, Effort: row.Effort},
+		Channel:            row.Channel,
+		PersonalityID:      deref(row.PersonalityID),
+		PersonalityDisplay: row.PersonalityDisplay,
 	}
 }
 
