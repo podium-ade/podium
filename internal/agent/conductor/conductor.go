@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +131,10 @@ type Options struct {
 	// the conductor's own bearer rather than generated, so a capability outlives a restart
 	// exactly as the turn holding it does. Empty with GitHub set is refused by New.
 	MintSecret string
+	// GitHubAPIURL is where a person's connected-account token is scoped and revoked, and
+	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
+	GitHubAPIURL string
+	GitHubURL    string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -170,6 +175,13 @@ type Conductor struct {
 	github     *github.Client
 	gitTaskURL string
 	mintSecret string
+	// githubAPIURL is where a person's token is scoped and revoked, and userTokens the
+	// scoped tokens each running turn holds. See usertoken.go.
+	githubAPIURL string
+	githubURL    string
+	userTokensMu sync.Mutex
+	userTokens   map[string]*userTokenSet
+	loginLocks   map[string]*sync.Mutex
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -269,6 +281,8 @@ func New(opts Options) (*Conductor, error) {
 		github:             opts.GitHub,
 		gitTaskURL:         opts.GitTaskURL,
 		mintSecret:         opts.MintSecret,
+		githubAPIURL:       opts.GitHubAPIURL,
+		githubURL:          opts.GitHubURL,
 		sessions:           map[string]*sessionState{},
 		hostRuns:           map[string]func(){},
 		turnTokens:         map[string]turnGrant{},
@@ -722,7 +736,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	if _, err := userSecretRefs(login, j.playbook.UserSecrets); err != nil {
+	persona, err := c.githubPersona(ctx, login, j.playbook)
+	if err == nil {
+		_, err = userSecretRefs(login, j.playbook.UserSecrets)
+	}
+	if err != nil {
 		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
 			"turn_id", turn.ID, "job", j.name, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: err.Error()})
@@ -731,6 +749,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	if persona != nil {
+		brief.Git = persona
+	}
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -808,7 +829,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	// The capability, before the task: admission refuses a spec naming a secret the control
 	// plane does not have, so the secret has to exist by the time CreateTask is called.
-	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook)
+	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login)
 	if err != nil {
 		c.logger.WarnContext(ctx, "preparing the turn's github credential failed",
 			"turn_id", turn.ID, "playbook", j.name, "error", err)
@@ -823,7 +844,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if err != nil {
 		// The turn never started, so nothing will reach finish to clean this up.
 		if capabilitySecret != "" {
-			c.dropGitCapability(ctx, turn.ID)
+			c.dropGitCapability(ctx, turn.ID, j.playbook)
 		}
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
@@ -949,7 +970,7 @@ func (c *Conductor) brief(
 	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
 	// carry that either. Set only when there is something to mint for, which
 	// provisionGitCapability decides from the same playbook.
-	if c.github != nil {
+	if c.github != nil || j.playbook.UsesGitHubAccount() {
 		if scope, err := gitScopeOf(j.playbook); err == nil && len(scope.Repos) > 0 {
 			b.GitCredentials = &BriefGitCredentials{URL: c.gitTaskURL, TokenEnv: GitTokenEnv}
 		}
@@ -1205,7 +1226,8 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	}
 	out := make([]spec.SecretRef, len(refs))
 	for i, ref := range refs {
-		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" || spec.IsPersonalMCPSecret(ref.Name) {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" ||
+			spec.IsPersonalMCPSecret(ref.Name) || spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
 		}
 		out[i] = ref
@@ -1214,12 +1236,16 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	return out, nil
 }
 
+// userSecretRefsOrEmpty is what a task spec attaches. A connected GitHub account is not
+// among them: the turn redeems a capability for a token scoped to it instead.
 func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef {
 	out, err := userSecretRefs(login, refs)
 	if err != nil {
 		return nil
 	}
-	return out
+	return slices.DeleteFunc(out, func(ref spec.SecretRef) bool {
+		return ref.Name == profiles.GitHubTokenSecret
+	})
 }
 
 // resolveMCPServers picks the named servers in the order the playbook named them.

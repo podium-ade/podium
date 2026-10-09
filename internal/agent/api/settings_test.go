@@ -117,6 +117,16 @@ func (f *fakeSecrets) SetPersonalSecret(_ context.Context, owner, name string, v
 	return f.versions[name], nil
 }
 
+func (f *fakeSecrets) ReadSecret(_ context.Context, owner, name string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	value, ok := f.set[name]
+	if !ok || f.owners[name] != owner {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("secret not found"))
+	}
+	return append([]byte(nil), value...), nil
+}
+
 func (f *fakeSecrets) DeletePersonalSecret(_ context.Context, owner, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

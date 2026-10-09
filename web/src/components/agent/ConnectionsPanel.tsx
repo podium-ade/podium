@@ -48,7 +48,7 @@ export function ConnectionsPanel() {
       {query.data ? (
         <div className="space-y-4">
           <GitHubCard
-            key={`${query.data.github?.source ?? ""}|${query.data.github?.appId ?? ""}|${query.data.github?.webhookListen ?? ""}|${query.data.github?.setAt?.seconds ?? ""}`}
+            key={`${query.data.github?.source ?? ""}|${query.data.github?.appId ?? ""}|${query.data.github?.webhookListen ?? ""}|${query.data.github?.clientId ?? ""}|${query.data.github?.setAt?.seconds ?? ""}`}
             connection={query.data.github}
           />
           <SlackCard connection={query.data.slack} />
@@ -78,6 +78,8 @@ function GitHubCard({ connection }: { connection?: GitHubConnection }) {
   const [privateKey, setPrivateKey] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [listen, setListen] = useState(gh?.webhookListen ?? "");
+  const [clientId, setClientId] = useState(gh?.clientId ?? "");
+  const [clientSecret, setClientSecret] = useState("");
   const [error, setError] = useState("");
 
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "connections"] });
@@ -88,10 +90,13 @@ function GitHubCard({ connection }: { connection?: GitHubConnection }) {
         privateKey,
         webhookSecret,
         webhookListen: listen.trim(),
+        clientId: clientId.trim(),
+        clientSecret,
       }),
     onSuccess: async (res) => {
       setPrivateKey("");
       setWebhookSecret("");
+      setClientSecret("");
       setError("");
       toast(res.github?.restartRequired ? "GitHub saved. Restart the conductor to use it." : "GitHub saved.", "ok");
       await reload();
@@ -186,6 +191,37 @@ function GitHubCard({ connection }: { connection?: GitHubConnection }) {
             autoComplete="off"
             placeholder="0.0.0.0:8091"
             className="font-mono"
+          />
+        </Field>
+        <Field
+          label="Client ID"
+          htmlFor="github-client-id"
+          hint="Optional. Lets people connect their own GitHub accounts under Settings → Account, so a playbook can open pull requests as them. Clear it to turn that off."
+        >
+          <Input
+            id="github-client-id"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            autoComplete="off"
+            placeholder="Iv23li…"
+            className="font-mono"
+          />
+        </Field>
+        <Field
+          label="Client secret"
+          htmlFor="github-client-secret"
+          hint={
+            gh?.clientSecretSet
+              ? "Saved. Leave blank to keep it while a client ID is set."
+              : "Generated on the GitHub App's settings page. Required with a client ID."
+          }
+        >
+          <Input
+            id="github-client-secret"
+            type="password"
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            autoComplete="off"
           />
         </Field>
       </div>

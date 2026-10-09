@@ -16,6 +16,7 @@ const (
 	ActionSecretDelete  = "secret.delete"
 	ActionSecretResolve = "secret.resolve"
 	ActionSecretRotate  = "secret.rotate"
+	ActionSecretRead    = "secret.read"
 
 	ActionRegistrySet     = "registry.set"
 	ActionRegistryDelete  = "registry.delete"

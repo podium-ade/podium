@@ -95,9 +95,11 @@ func TestThePodiumPlaybookCanRunTheStackAndLookAtIt(t *testing.T) {
 	require.Equal(t, 8192, dogfood.Resources.MemoryMB)
 	require.Equal(t, 4.0, dogfood.Resources.CPU)
 
+	require.Empty(t, dogfood.Secrets, "no model credential may be named here; the conductor attaches that itself")
 	require.Equal(t, []spec.SecretRef{{
-		Name: "podium.agent.github_token", Target: spec.SecretTargetEnv, Key: "GITHUB_TOKEN",
-	}}, dogfood.Secrets, "no model credential may be named here; the conductor attaches that itself")
+		Name: profiles.GitHubTokenSecret, Target: spec.SecretTargetEnv, Key: "GITHUB_TOKEN",
+	}}, dogfood.UserSecrets, "it pushes as the person who asked")
+	require.True(t, dogfood.UsesGitHubAccount())
 	require.Equal(t, []profiles.Repo{{
 		Name: "podium", URL: "https://github.com/podium-ade/podium", DefaultBranch: "main",
 	}}, dogfood.Repos)

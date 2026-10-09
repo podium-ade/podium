@@ -188,7 +188,7 @@ func (r *turnRun) finish(ctx context.Context, status string) {
 	}
 	// The turn is over, so its authority to mint a GitHub token is too. Mint already
 	// refuses a capability whose work has finished; this removes the row as well.
-	r.c.dropGitCapability(ctx, r.turn.ID)
+	r.c.dropGitCapability(ctx, r.turn.ID, r.job.playbook)
 	answer := r.answer()
 	if err := r.c.store.FinishTurn(ctx, r.turn.ID, status, numTurns, cost, answer); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how the turn ended failed",

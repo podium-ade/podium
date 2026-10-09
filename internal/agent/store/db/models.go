@@ -67,6 +67,15 @@ type Delegation struct {
 	Provider    *string
 }
 
+type GithubAccount struct {
+	Login          string
+	GithubID       int64
+	GithubLogin    string
+	Name           string
+	ConnectedAt    time.Time
+	NeedsReconnect bool
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time
@@ -86,7 +95,6 @@ type McpServer struct {
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
-	Token              string
 	Config             string
 	Owner              string
 	Fallback           bool

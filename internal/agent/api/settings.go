@@ -13,10 +13,10 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // The providers this control plane knows. A provider is a set of credentials and an
@@ -138,13 +138,10 @@ func providerSettingKey(provider string) string { return "provider." + provider 
 
 // providerRow is the jsonb of the settings row.
 //
-// It holds CREDENTIALS: the refresh token of an OAuth sign-in, and the bearer a turn
-// spends — an API key as pasted, or the access token minted from that refresh token. See
-// docs/security.md. They are here rather than only in Podium's encrypted secret store for
-// a blunt reason: the secret store has no read endpoint, by design (proto/podium/v1/
-// secret.proto), so a value put there cannot be read back — not to refresh with, and not
-// to spend on a turn this process runs itself. Treat podium_agent's database as holding
-// credentials, because it does.
+// It holds no credential. The bearer a turn spends is the provider's Podium secret, and a
+// sign-in's refresh token is another (refreshSecret). The conductor reads both back from the
+// secret store, which answers it for its own names. A row written before that may still
+// carry them, and providerRow moves them.
 type providerRow struct {
 	KeyHint       string    `json:"key_hint"`
 	SetBy         string    `json:"set_by"`
@@ -157,16 +154,24 @@ type providerRow struct {
 	Account string `json:"account,omitempty"`
 	// ExpiresAt is when the stored access token stops working. Zero for an API key.
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
-	// RefreshToken is SENSITIVE. It never leaves this process except to the provider's own
-	// token endpoint, it is never put in a brief, in a task, or in a log, and it is never
-	// copied into the proto.
+	// RefreshToken is SENSITIVE and held only in memory: putProviderRow stores it as
+	// refreshSecret and writes the row without it. It never leaves this process except to the
+	// provider's own token endpoint.
 	RefreshToken string `json:"refresh_token,omitempty"`
-	// Credential is SENSITIVE: the bearer a turn spends, the same one the secret store
-	// holds for a task's container. A host turn runs in THIS process (conductor/host.go)
-	// and has no node to resolve a secret for it, so the value it spends has to be
-	// readable here. Never copied into the proto, a brief, or a log.
+	// Refreshable records that a refresh token is stored.
+	Refreshable bool `json:"refreshable,omitempty"`
+	// Credential is a copy of the bearer that rows from before the secret store answered the
+	// conductor carried in clear. It is read only to be removed.
 	Credential string `json:"credential,omitempty"`
 }
+
+// refreshSecret is where a provider sign-in's refresh token is stored.
+func refreshSecret(p providerSpec) string {
+	return spec.ConductorReservedPrefix + "oauth." + p.name + ".refresh_token"
+}
+
+// refreshable is whether the row's sign-in can be refreshed.
+func (r providerRow) refreshable() bool { return r.Refreshable || r.RefreshToken != "" }
 
 // authKind is the row's kind, defaulting an old row to what it must have been.
 func (r providerRow) authKind() string {
@@ -244,7 +249,7 @@ func (s *AgentService) providerState(ctx context.Context, p providerSpec) (*agen
 		out.SetBy = row.SetBy
 		out.AuthKind = row.authKind()
 		out.Account = row.Account
-		out.Refreshable = row.RefreshToken != ""
+		out.Refreshable = row.refreshable()
 		if !row.SetAt.IsZero() {
 			out.SetAt = timestamppb.New(row.SetAt)
 		}
@@ -350,10 +355,6 @@ func (s *AgentService) SetProviderKey(
 func (s *AgentService) storeCredential(
 	ctx context.Context, p providerSpec, key []byte, row providerRow,
 ) (providerRow, error) {
-	// The host's own copy, written on the same path as the secret so the two can never
-	// disagree about which credential is current: SetProviderKey and the refresh pass both
-	// come through here.
-	row.Credential = string(key)
 	version, err := s.secrets.SetSecret(ctx, p.secret, key)
 	if err != nil {
 		// Verbatim: the control plane's own words are what an operator needs here — a
@@ -362,6 +363,30 @@ func (s *AgentService) storeCredential(
 			fmt.Errorf("the credential is valid but storing it failed: %w", err))
 	}
 	row.SecretVersion = version
+	return s.putProviderRow(ctx, p, row)
+}
+
+// putProviderRow stores a sign-in's refresh token in the secret store, or removes it when
+// the row no longer has one, and then writes the row without any credential.
+func (s *AgentService) putProviderRow(ctx context.Context, p providerSpec, row providerRow) (providerRow, error) {
+	switch {
+	case row.RefreshToken != "":
+		refresh := []byte(row.RefreshToken)
+		_, err := s.secrets.SetSecret(ctx, refreshSecret(p), refresh)
+		zero(refresh)
+		if err != nil {
+			return providerRow{}, connect.NewError(connect.CodeOf(err),
+				fmt.Errorf("storing the refresh token failed: %w", err))
+		}
+		row.Refreshable = true
+	case !row.Refreshable && p.oauth:
+		if err := s.secrets.DeleteSecret(ctx, refreshSecret(p)); err != nil &&
+			connect.CodeOf(err) != connect.CodeNotFound {
+			return providerRow{}, connect.NewError(connect.CodeOf(err),
+				fmt.Errorf("removing the refresh token failed: %w", err))
+		}
+	}
+	row.RefreshToken, row.Credential = "", ""
 	if err := s.store.PutSetting(ctx, providerSettingKey(p.name), row); err != nil {
 		return providerRow{}, storeError(err)
 	}
@@ -387,9 +412,15 @@ func (s *AgentService) ClearProviderKey(
 		connect.CodeOf(err) != connect.CodeNotFound {
 		return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the key failed: %w", err))
 	}
-	// The row carries the refresh token, so deleting the row is what actually signs out:
-	// leaving it would let the background pass mint a new access token for a provider the
-	// operator has just disconnected.
+	// The refresh token goes too, and that is what actually signs out: leaving it would let
+	// the background pass mint a new access token for a provider the operator has just
+	// disconnected.
+	if p.oauth {
+		if err := s.secrets.DeleteSecret(ctx, refreshSecret(p)); err != nil &&
+			connect.CodeOf(err) != connect.CodeNotFound {
+			return nil, connect.NewError(connect.CodeOf(err), fmt.Errorf("removing the refresh token failed: %w", err))
+		}
+	}
 	if err := s.store.DeleteSetting(ctx, providerSettingKey(p.name)); err != nil {
 		return nil, storeError(err)
 	}
@@ -555,7 +586,7 @@ func (s *AgentService) PollProviderOAuth(
 	}
 	s.logger.InfoContext(ctx, "a subscription sign-in was stored", "provider", p.name,
 		"login", flow.startedBy, "account", stored.Account, "expires_at", stored.ExpiresAt,
-		"refreshable", stored.RefreshToken != "", "models", len(models))
+		"refreshable", stored.Refreshable, "models", len(models))
 
 	out.Provider = providerSettings(p.name, stored, s.currentModel())
 	return connect.NewResponse(out), nil
@@ -606,6 +637,42 @@ func (s *AgentService) ListAgents(
 	return connect.NewResponse(out), nil
 }
 
+// MoveCredentialsIntoStore moves the credentials a database written before the secret store
+// answered the conductor still holds in clear: providers' refresh tokens and bearer copies,
+// and MCP sign-ins' refresh tokens and client secrets. A failure is logged and the move is
+// tried again on the next start, or for a provider on its next read.
+func (s *AgentService) MoveCredentialsIntoStore(ctx context.Context) {
+	if s.store == nil || s.secrets == nil {
+		return
+	}
+	for _, p := range providerSpecs {
+		if _, _, err := s.providerRow(ctx, p); err != nil {
+			s.logger.WarnContext(ctx, "reading a provider row to move its credential failed",
+				"provider", p.name, "error", err)
+		}
+	}
+	rows, err := s.store.ListMcpServers(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading the mcp registry to move its sign-ins failed", "error", err)
+		return
+	}
+	for _, row := range rows {
+		if row.OAuth == nil || (row.OAuth.RefreshToken == "" && row.OAuth.ClientSecret == "") {
+			continue
+		}
+		o, err := s.vaultMcpOAuth(ctx, row.Owner, row.Name, *row.OAuth)
+		if err == nil {
+			err = s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, row.TokenSecretVersion, o)
+		}
+		if err != nil {
+			s.logger.WarnContext(ctx, "moving an mcp sign-in's secrets into the secret store failed; "+
+				"it is tried again on the next start", "mcp_server", row.Name, "error", err)
+			continue
+		}
+		s.logger.InfoContext(ctx, "moved an mcp sign-in's secrets into the secret store", "mcp_server", row.Name)
+	}
+}
+
 // RefreshTokens keeps stored OAuth credentials alive until the process stops — the
 // subscription sign-in's, and every signed-in MCP server's.
 //
@@ -644,15 +711,26 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 			continue
 		}
 		row, ok, err := s.providerRow(ctx, p)
-		if err != nil || !ok || row.authKind() != AuthOAuth || row.RefreshToken == "" {
+		if err != nil || !ok || row.authKind() != AuthOAuth || !row.refreshable() {
 			continue
 		}
 		if !row.ExpiresAt.IsZero() && time.Until(row.ExpiresAt) > refreshLead {
 			continue
 		}
+		refresh := row.RefreshToken
+		if refresh == "" {
+			raw, err := s.secrets.ReadSecret(ctx, "", refreshSecret(p))
+			if err != nil {
+				s.logger.WarnContext(ctx, "reading a subscription's refresh token failed; this "+
+					"will be tried again", "provider", p.name, "error", err)
+				continue
+			}
+			refresh = string(raw)
+			zero(raw)
+		}
 
 		callCtx, cancel := context.WithTimeout(ctx, validateTimeout)
-		tok, err := client.refresh(callCtx, row.RefreshToken)
+		tok, err := client.refresh(callCtx, refresh)
 		cancel()
 		if err != nil {
 			s.logger.WarnContext(ctx, "refreshing a subscription token failed; the stored one "+
@@ -663,6 +741,7 @@ func (s *AgentService) refreshOnce(ctx context.Context) {
 
 		token := []byte(tok.AccessToken)
 		next := row
+		next.RefreshToken = refresh
 		next.ExpiresAt = expiryOf(tok)
 		if tok.RefreshToken != "" {
 			// A provider that rotates refresh tokens invalidates the old one, so keeping
@@ -707,6 +786,10 @@ func (s *AgentService) oauthFor(p providerSpec) (oauthSession, error) {
 
 // providerRow reads a provider's metadata row. The second result is false when nothing was
 // ever set for it.
+//
+// A row that still carries a credential in clear is moved: the refresh token into the secret
+// store, and the bearer copy dropped, since the provider's secret already holds it. If the
+// move fails the row is returned as it was and the move is tried on the next read.
 func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (providerRow, bool, error) {
 	var row providerRow
 	err := s.store.GetSetting(ctx, providerSettingKey(p.name), &row)
@@ -716,34 +799,33 @@ func (s *AgentService) providerRow(ctx context.Context, p providerSpec) (provide
 	case err != nil:
 		return providerRow{}, false, storeError(err)
 	}
+	if (row.RefreshToken != "" || row.Credential != "") && s.secrets != nil {
+		moved, err := s.putProviderRow(ctx, p, row)
+		if err != nil {
+			s.logger.WarnContext(ctx, "moving a provider's stored credential into the secret store "+
+				"failed; it is tried again on the next read", "provider", p.name, "error", err)
+			return row, true, nil
+		}
+		return moved, true, nil
+	}
 	return row, true, nil
 }
 
-// HostCredential is the bearer a host turn spends for one provider. It is the same
-// credential the provider's Podium secret holds, which is what makes a host turn and a
-// container turn spend the same thing.
-//
-// The two ways of having nothing are told apart, because they need different actions from an
-// operator. No row at all is somebody who has not set a credential. A row with no readable
-// copy is somebody who HAS — every credential stored before host turns existed is like that,
-// since the secret store it went into has no read endpoint — and the fix is to save it again
-// rather than to go looking for a screen that already says Connected.
+// HostCredential is the bearer a host turn spends for one provider, read back from the
+// provider's Podium secret: the same one a container turn is given.
 func (s *AgentService) HostCredential(ctx context.Context, provider string) (string, error) {
 	p, err := findProvider(provider)
 	if err != nil {
 		return "", err
 	}
-	row, ok, err := s.providerRow(ctx, p)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
+	value, err := s.secrets.ReadSecret(ctx, "", p.secret)
+	if connect.CodeOf(err) == connect.CodeNotFound {
 		return "", fmt.Errorf("no credential is stored for %s", p.name)
 	}
-	if row.Credential == "" {
-		return "", fmt.Errorf("%s: %w", p.name, conductor.ErrCredentialStale)
+	if err != nil {
+		return "", fmt.Errorf("reading the %s credential: %w", p.name, err)
 	}
-	return row.Credential, nil
+	return string(value), nil
 }
 
 // The in-flight sign-in map. It is per process and is deliberately not persisted: a device
@@ -838,7 +920,7 @@ func providerSettings(provider string, row providerRow, model string) *agentv1.P
 		SetBy:       row.SetBy,
 		AuthKind:    row.authKind(),
 		Account:     row.Account,
-		Refreshable: row.RefreshToken != "",
+		Refreshable: row.refreshable(),
 	}
 	if !row.SetAt.IsZero() {
 		out.SetAt = timestamppb.New(row.SetAt)

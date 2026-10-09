@@ -74,6 +74,74 @@ func TestSecretScopesOnTheRealAPI(t *testing.T) {
 	}))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 
+	// The conductor stores a person's connected account under that person.
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("bob-gh"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	_, err = ada.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = dev.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "NOPE", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_GLOBAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	// Only the conductor reads a value back, and only the names it keeps for itself.
+	read, err := agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "github.token", Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "bob-gh", string(read.Msg.GetValue()))
+	_, err = bob.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "github.token", Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = owner.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{Name: "COMPANY"}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{Name: "COMPANY"}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "a company secret is not the conductor's")
+	setGlobal(t, agent, "podium.agent.connection.github.private_key")
+	read, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "podium.agent.connection.github.private_key",
+	}))
+	require.NoError(t, err)
+	require.NotEmpty(t, read.Msg.GetValue())
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "podium.agent.connection.github.private_key",
+	}))
+	require.NoError(t, err)
+
+	// A person's MCP sign-in keeps its refresh token on their list, written and read by the
+	// conductor alone.
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "mcp.linear.oauth", Value: []byte(`{"refresh_token":"r"}`),
+		Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	read, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "mcp.linear.oauth", Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"refresh_token":"r"}`, string(read.Msg.GetValue()))
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "mcp.linear.oauth", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "github.token", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+
 	adaNote := setPersonal(t, ada, "ADA_NOTE", "ada-value")
 	require.Equal(t, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, adaNote.GetScope())
 	require.Equal(t, "ada@acme.com", adaNote.GetOwner())

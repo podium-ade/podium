@@ -11,11 +11,18 @@
 # The bot's GitHub identity is this App. Playbook turns still clone with
 # podium.agent.github_token; they must not `gh pr comment`. The App is the only writer
 # on the pull request.
+#
+# Replace PODIUM_URL with the address people open Podium at. The callback lets each person
+# connect their own GitHub account under Settings → Account. After creating the App, keep
+# user-to-server token expiration on (the default) and generate a client secret. See
+# docs/agent.md#the-askers-own-github-account.
 name: Podium
 url: https://github.com/podium-ade/podium
 hook_attributes:
   url: WEBHOOK_URL
   active: true
+callback_urls:
+  - PODIUM_URL/agent/github/callback
 description: >-
   Podium reviews a pull request when you tag it, as one conversation whether you asked
   on GitHub or in Slack. One turn of the assistant, which may start a playbook. There is

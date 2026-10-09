@@ -1357,15 +1357,14 @@ notice is informational, and a system error is a failure of Podium itself. Only 
 are raised today. The Models card says **Sign-in expired** for the same fact, and
 **Sign in again** opens the subscription flow.
 
-**Where the refresh token lives, and why it is the exception.** It is in the conductor's own
-Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
-secret store has no read endpoint, by design, so a value put there cannot be read back to
-refresh with. It never leaves the host: no turn is handed it, it is in no brief and no log, and
-it is never copied into an API response. **Treat `podium_agent`'s database as holding a
-credential, because it does** — see [`security.md`](security.md#secrets).
+**Where the refresh token lives.** It is a Podium secret,
+`podium.agent.oauth.<provider>.refresh_token`, which the conductor alone reads back to refresh
+with. No turn is handed it, it is in no brief and no log, and it is never copied into an API
+response. See [`security.md`](security.md#the-conductors-credentials-are-in-the-secret-store).
 
-**Sign out** deletes the secret *and* the row, which is what actually signs you out: leaving the
-row would let the background pass mint a new access token for a provider you just disconnected.
+**Sign out** deletes the access token *and* the refresh token, which is what actually signs you
+out: leaving the refresh token would let the background pass mint a new access token for a
+provider you just disconnected.
 Pasting an API key over a sign-in does the same to the refresh token, for the same reason.
 
 ---
@@ -1779,8 +1778,8 @@ before anything happens.
 
 ### The GitHub credential
 
-There are two ways a turn gets one, and the second is better in every respect that matters. Both
-work; a playbook needs no change to move between them.
+There are three ways a turn gets one: a GitHub App, the asker's own GitHub account, and a
+personal access token. A playbook needs no change to move between the App and a token.
 
 #### A GitHub App — short-lived, scoped, nobody's personal access
 
@@ -1833,6 +1832,62 @@ Two things to know before you turn it on:
 
 A task also becomes able to reach the conductor, at `PODIUM_AGENT_TASK_URL`, for that one method
 and no other. See [`security.md`](security.md#the-minting-endpoint).
+
+#### The asker's own GitHub account
+
+A playbook can push and open pull requests as the person who asked, instead of as the App. Each
+person connects their account once, and nobody creates a personal access token.
+
+1. On the App's settings page on GitHub:
+   - Add `https://<your Podium address>/agent/github/callback` as a **Callback URL**.
+   - Under **Optional features**, keep **User-to-server token expiration** on. It is GitHub's
+     default, and Podium refuses a token that never expires.
+   - Generate a **client secret**.
+2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
+   with the App. They apply at once. No restart is needed.
+3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token and
+   its refresh token as that person's personal secret `github.token`.
+4. The playbook names it:
+
+```yaml
+user_secrets:
+  - { name: github.token, target: env, key: GITHUB_TOKEN }
+```
+
+A turn of that playbook then:
+
+- **Never holds the person's token.** It gets a capability, as an App turn does, and its
+  credential helper redeems it at the conductor. The conductor exchanges the person's token for
+  one GitHub scopes to the playbook's `repos:`, with contents and pull requests write only.
+- **Holds each scoped token for one hour at most.** GitHub gives a scoped token no expiry, so
+  the conductor revokes each one an hour after issuing it, and every one when the turn ends. It
+  records them in the secret store, so a turn still running across a conductor restart has its
+  tokens revoked too.
+- **Refreshes the person's token when it needs to.** GitHub's user token lives eight hours and
+  its refresh token six months. Before scoping, the conductor refreshes a token with less than
+  75 minutes left and stores both new tokens; a refresh token works once. One person's
+  refreshes run one at a time.
+- Commits as that person: their GitHub name and their `<id>+<login>@users.noreply.github.com`
+  address, which GitHub links to their account. This replaces any `git:` persona.
+- Can reach only the playbook's repositories, and of those only the ones the App is installed
+  on that the person can also reach. The pull request shows the person as its author, marked as
+  made through the App.
+
+The `user_secrets:` line is what opts a playbook in. The conductor does not attach
+`github.token` to the task, so `GITHUB_TOKEN` is not set: git and `gh` get the scoped token from
+the credential helper and `GH_TOKEN`.
+
+The turn fails, and says why, when:
+
+- The person has not connected GitHub, or GitHub no longer accepts their connection: the
+  refresh token went six months unused, or they revoked the App. Settings → Account then says
+  the connection expired and offers **Reconnect GitHub**.
+- The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
+- The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
+  the web chat.
+
+Disconnect under Settings → Account deletes the token. To revoke the grant on GitHub too, use
+**Settings → Applications → Authorized GitHub Apps** on GitHub.
 
 #### A personal access token — the older path, still supported
 

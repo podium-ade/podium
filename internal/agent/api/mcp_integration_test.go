@@ -3,6 +3,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -79,10 +80,6 @@ func TestRegisteringAServerStoresItsTokenAsAPodiumSecret(t *testing.T) {
 	assert.Equal(t, []byte("lin_api_0123456789"), f.secrets.set[mcp.TokenSecret("linear")])
 	assert.NotContains(t, srv.String(), "lin_api_0123456789")
 
-	// And a readable copy on the row, for the assistant, which cannot resolve the secret.
-	row, err := f.svc.store.McpServer(t.Context(), "linear")
-	require.NoError(t, err)
-	assert.Equal(t, "lin_api_0123456789", row.Token)
 }
 
 // A signed-in person's server stores its token as their secret, not a company secret.
@@ -199,9 +196,6 @@ func TestClearingATokenKeepsTheRegistration(t *testing.T) {
 	assert.Empty(t, got.Msg.GetServer().GetTokenHint())
 	assert.Empty(t, got.Msg.GetServer().GetTokenSetBy())
 	assert.NotContains(t, f.secrets.set, mcp.TokenSecret("linear"))
-	row, err := f.svc.store.McpServer(t.Context(), "linear")
-	require.NoError(t, err)
-	assert.Empty(t, row.Token, "the readable copy goes with the secret")
 
 	list, err := f.svc.ListMcpServers(t.Context(), connect.NewRequest(&agentv1.ListMcpServersRequest{}))
 	require.NoError(t, err)
@@ -318,14 +312,15 @@ func TestSigningInToAnMcpServerEndToEnd(t *testing.T) {
 	assert.Equal(t, []byte("mcp-access-authorization_code"),
 		fx.secrets.set[mcp.TokenSecret("linear")])
 
-	// And the refresh token stayed in the conductor's own database, never on the wire.
+	// The refresh token is in the secret store too, and the row only says there is one.
 	row, err := fx.svc.store.McpServer(t.Context(), "linear")
 	require.NoError(t, err)
 	require.NotNil(t, row.OAuth)
-	assert.Equal(t, "mcp-refresh-2", row.OAuth.RefreshToken)
+	assert.Empty(t, row.OAuth.RefreshToken)
+	assert.True(t, row.OAuth.Refreshable)
+	assert.Equal(t, "mcp-refresh-2", mcpRefreshIn(t, fx.secrets, "linear"))
 	assert.Equal(t, "client-abc", row.OAuth.ClientID)
 	assert.Equal(t, f.url(), row.OAuth.Resource)
-	assert.Equal(t, "mcp-access-authorization_code", row.Token)
 	assert.NotContains(t, srv.String(), "mcp-refresh-2")
 	assert.NotContains(t, srv.String(), "mcp-access-authorization_code")
 }
@@ -474,6 +469,15 @@ func TestClearingASignInRemovesTheRefreshToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, row.OAuth)
 	assert.NotContains(t, fx.secrets.set, mcp.TokenSecret("linear"))
+	assert.NotContains(t, fx.secrets.set, mcp.OAuthSecret(mcp.Server{Name: "linear"}))
+}
+
+// mcpRefreshIn is the refresh token a bot server's sign-in keeps in the secret store.
+func mcpRefreshIn(t *testing.T, f *fakeSecrets, name string) string {
+	t.Helper()
+	var got mcpOAuthSecrets
+	require.NoError(t, json.Unmarshal(f.set[mcp.OAuthSecret(mcp.Server{Name: name})], &got))
+	return got.RefreshToken
 }
 
 // The background pass is what stops a token issued for an hour becoming a turn failing an
@@ -504,7 +508,7 @@ func TestTheBackgroundPassRefreshesASignInAndKeepsTheRotatedToken(t *testing.T) 
 	require.NoError(t, err)
 	o := *row.OAuth
 	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
-	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o, row.Token))
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o))
 
 	fx.svc.refreshMcpOnce(t.Context())
 	assert.Equal(t, []byte("mcp-access-refresh_token"), fx.secrets.set[mcp.TokenSecret("linear")])
@@ -512,8 +516,8 @@ func TestTheBackgroundPassRefreshesASignInAndKeepsTheRotatedToken(t *testing.T) 
 	after, err := fx.svc.store.McpServer(t.Context(), "linear")
 	require.NoError(t, err)
 	require.NotNil(t, after.OAuth)
-	assert.Equal(t, "mcp-refresh-2", after.OAuth.RefreshToken)
-	assert.Equal(t, "mcp-access-refresh_token", after.Token, "the readable copy follows the refresh")
+	assert.Empty(t, after.OAuth.RefreshToken)
+	assert.Equal(t, "mcp-refresh-2", mcpRefreshIn(t, fx.secrets, "linear"))
 	assert.True(t, after.OAuth.ExpiresAt.After(time.Now().UTC().Add(30*time.Minute)))
 	// The human who signed in is still the human who signed in: a background pass does not
 	// write its own name over theirs.
@@ -542,7 +546,7 @@ func TestAFailedRefreshKeepsTheStoredToken(t *testing.T) {
 	require.NoError(t, err)
 	o := *row.OAuth
 	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
-	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o, row.Token))
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "", "linear", row.TokenSecretVersion, o))
 
 	f.tokenErr = "invalid_grant"
 	fx.svc.refreshMcpOnce(t.Context())
@@ -551,5 +555,67 @@ func TestAFailedRefreshKeepsTheStoredToken(t *testing.T) {
 	after, err := fx.svc.store.McpServer(t.Context(), "linear")
 	require.NoError(t, err)
 	require.NotNil(t, after.OAuth)
-	assert.Equal(t, "mcp-refresh-2", after.OAuth.RefreshToken)
+	assert.Equal(t, "mcp-refresh-2", mcpRefreshIn(t, fx.secrets, "linear"))
+}
+
+// A sign-in stored before the secret store answered the conductor keeps its refresh token and
+// client secret in the row. The start-up pass moves them.
+func TestAnMcpSignInInClearIsMovedIntoTheSecretStore(t *testing.T) {
+	f := newMcpFixture(t)
+	_, err := f.svc.CreateMcpServer(t.Context(), linearReq(nil))
+	require.NoError(t, err)
+	require.NoError(t, f.svc.store.SetMcpServerOAuth(t.Context(), "", "linear", "ada", 1, mcp.OAuth{
+		Issuer: "https://auth.example", ClientID: "client-abc", ClientSecret: "shhh", RefreshToken: "refresh-old",
+	}))
+
+	f.svc.MoveCredentialsIntoStore(t.Context())
+
+	row, err := f.svc.store.McpServer(t.Context(), "linear")
+	require.NoError(t, err)
+	require.NotNil(t, row.OAuth)
+	assert.Empty(t, row.OAuth.RefreshToken)
+	assert.Empty(t, row.OAuth.ClientSecret)
+	assert.True(t, row.Refreshable())
+	assert.Equal(t, "refresh-old", mcpRefreshIn(t, f.secrets, "linear"))
+
+	var got mcpOAuthSecrets
+	require.NoError(t, json.Unmarshal(f.secrets.set[mcp.OAuthSecret(mcp.Server{Name: "linear"})], &got))
+	assert.Equal(t, "shhh", got.ClientSecret)
+}
+
+// A person signing in to their own server keeps the sign-in's secrets on their own list,
+// not as a company secret, and the refresh pass and sign-out find them there.
+func TestAPersonsSignInKeepsItsSecretsOnTheirList(t *testing.T) {
+	f := newFakeMcpServer(t)
+	fx := newSignInFixture(t, f)
+	ada := loginCtx("ada@acme.com")
+	_, err := fx.svc.CreateMcpServer(ada, linearReq(func(s *agentv1.McpServer) { s.Url = f.url() }))
+	require.NoError(t, err)
+	start, err := fx.svc.StartMcpOAuth(ada, connect.NewRequest(&agentv1.StartMcpOAuthRequest{
+		Name: "linear", RedirectUri: testRedirect,
+	}))
+	require.NoError(t, err)
+	_, err = fx.svc.CompleteMcpOAuth(ada, connect.NewRequest(&agentv1.CompleteMcpOAuthRequest{
+		FlowId: start.Msg.GetFlowId(), Code: "code-1", State: start.Msg.GetState(),
+	}))
+	require.NoError(t, err)
+
+	personal := mcp.OAuthSecret(mcp.Server{Owner: "ada@acme.com", Name: "linear"})
+	assert.Equal(t, "mcp.linear.oauth", personal)
+	assert.Equal(t, "ada@acme.com", fx.secrets.owners[personal], "the sign-in is Ada's secret")
+	assert.NotContains(t, fx.secrets.set, mcp.OAuthSecret(mcp.Server{Name: "linear"}), "and not a company one")
+
+	row, err := fx.svc.store.McpServerOwned(t.Context(), "ada@acme.com", "linear")
+	require.NoError(t, err)
+	assert.Empty(t, row.OAuth.RefreshToken)
+	o := *row.OAuth
+	o.ExpiresAt = time.Now().UTC().Add(time.Minute)
+	require.NoError(t, fx.svc.store.RefreshMcpServerOAuth(t.Context(), "ada@acme.com", "linear", row.TokenSecretVersion, o))
+	fx.svc.refreshMcpOnce(t.Context())
+	assert.Equal(t, []byte("mcp-access-refresh_token"), fx.secrets.set[mcp.PersonalTokenSecret("linear")],
+		"the refresh pass read Ada's refresh token from her list")
+
+	_, err = fx.svc.ClearMcpServerToken(ada, connect.NewRequest(&agentv1.ClearMcpServerTokenRequest{Name: "linear"}))
+	require.NoError(t, err)
+	assert.NotContains(t, fx.secrets.set, personal)
 }
