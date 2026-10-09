@@ -1357,15 +1357,14 @@ notice is informational, and a system error is a failure of Podium itself. Only 
 are raised today. The Models card says **Sign-in expired** for the same fact, and
 **Sign in again** opens the subscription flow.
 
-**Where the refresh token lives, and why it is the exception.** It is in the conductor's own
-Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
-secret store has no read endpoint, by design, so a value put there cannot be read back to
-refresh with. It never leaves the host: no turn is handed it, it is in no brief and no log, and
-it is never copied into an API response. **Treat `podium_agent`'s database as holding a
-credential, because it does** — see [`security.md`](security.md#secrets).
+**Where the refresh token lives.** It is a Podium secret,
+`podium.agent.oauth.<provider>.refresh_token`, which the conductor alone reads back to refresh
+with. No turn is handed it, it is in no brief and no log, and it is never copied into an API
+response. See [`security.md`](security.md#the-conductors-credentials-are-in-the-secret-store).
 
-**Sign out** deletes the secret *and* the row, which is what actually signs you out: leaving the
-row would let the background pass mint a new access token for a provider you just disconnected.
+**Sign out** deletes the access token *and* the refresh token, which is what actually signs you
+out: leaving the refresh token would let the background pass mint a new access token for a
+provider you just disconnected.
 Pasting an API key over a sign-in does the same to the refresh token, for the same reason.
 
 ---

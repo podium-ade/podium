@@ -1222,7 +1222,8 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	}
 	out := make([]spec.SecretRef, len(refs))
 	for i, ref := range refs {
-		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" || spec.IsPersonalMCPSecret(ref.Name) {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" ||
+			spec.IsPersonalMCPSecret(ref.Name) || spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
 		}
 		out[i] = ref

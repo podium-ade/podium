@@ -94,7 +94,6 @@ type McpServer struct {
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
-	Token              string
 	Config             string
 	Owner              string
 	Fallback           bool

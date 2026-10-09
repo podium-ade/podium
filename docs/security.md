@@ -580,12 +580,10 @@ And what it does not give you:
   also means a mistyped host is a host that gets sent the token. A sign-in is the exception in
   one direction only: the authorization server does validate it, but a mistyped host is still a
   host whose discovery document decides where the browser is sent.
-- **A sign-in puts two more credentials in the conductor's own database, in clear.** The refresh
-  token, and a client secret where the authorization server issued one. That is the same trade
-  the subscription sign-in already makes and for the same blunt reason — the secret store has no
-  read endpoint by design, so a value put there cannot be read back to refresh with. It means
-  `podium_agent`'s database holds credentials for every signed-in server, and a backup of it
-  does too. See *The credentials that are not only in the secret store*.
+- **A sign-in keeps two more credentials**: the refresh token, and a client secret where the
+  authorization server issued one. They are Podium secrets like the access token, which the
+  conductor reads back to refresh with. See
+  [The conductor's credentials are in the secret store](#the-conductors-credentials-are-in-the-secret-store).
 - **A signed-in server's grant is only as narrow as the scope asked for.** Empty asks for what
   the server advertises, which is frequently everything it has. The operator's own `scope` is
   the only control, and nothing checks that what came back is what was asked for beyond
@@ -761,81 +759,64 @@ What it costs, stated plainly:
 - **`PODIUM_AGENT_LISTEN` must be an address a node can route to.** A conductor on loopback cannot
   serve this, and start-up refuses the combination rather than letting every clone fail.
 
-### The credentials that are not only in the secret store
+### The conductor's credentials are in the secret store
 
-Every OAuth sign-in this conductor does issues an access token **and** a refresh token. The
-access token is a Podium secret like any other. The refresh token is not: it lives in the
-conductor's own Postgres, `podium_agent`, in clear. There is one per sign-in:
+The conductor's own database, `podium_agent`, holds no credential. Every one the conductor keeps
+is a Podium secret, encrypted under the master key:
 
-- A subscription sign-in to xAI (see [`agent.md`](agent.md#signing-in-with-a-subscription)),
-  in the `provider.xai` settings row.
-- A subscription sign-in to OpenAI / ChatGPT Codex, in the `provider.openai` settings row.
-- Every signed-in MCP server (see [`agent.md`](agent.md#signing-in-to-an-mcp-server)), in the
-  `oauth` column of its `mcp_servers` row — **and, where the authorization server issued one on
-  dynamic registration, a client secret beside it**.
-It is there because of the rule directly above: no person can read a value back from the secret
-store, and refreshing an hourly token without a human means reading the refresh token back every
-hour.
+| What | Secret |
+|---|---|
+| A model credential: an API key, or the access token of a subscription sign-in | the provider's own `podium.agent.*` secret |
+| A subscription sign-in's refresh token | `podium.agent.oauth.<provider>.refresh_token` |
+| A bot MCP server's token | `podium.agent.mcp.<name>_token` |
+| A bot MCP sign-in's refresh token and client secret | `podium.agent.mcp.<name>.oauth` |
+| A person's MCP server token, and its sign-in's secrets | `mcp.<name>_token` and `mcp.<name>.oauth`, on that person's list |
+| The GitHub App's key and secrets, and the Slack tokens | `podium.agent.connection.*` |
+| A person's connected GitHub account | `github.token`, on that person's list |
+| The scoped GitHub tokens issued to a running turn | `podium.agent.git_user_token.<turn>` |
+
+A database written before this holds some of them in clear: refresh tokens and client secrets
+in the `provider.*` and `connection.*` settings rows and the `mcp_servers.oauth` column, and
+copies of model credentials and MCP tokens for host turns. The conductor moves them into the
+secret store on its first start after upgrading, and migration `0026` drops the MCP token
+column. A move that fails is logged and tried again on the next start.
 
 ### What the conductor reads back from the secret store
 
 `ReadSecret` returns a value to the conductor's principal and to no other caller, and only for
-the names it keeps for its own use (`spec.ConductorMayRead`). Every read is audited as
-`secret.read`.
+its own names (`spec.ConductorMayRead`): any global under `podium.agent.`, and on a person's list
+`github.token`, `mcp.<name>_token` and `mcp.<name>.oauth`. Every read is audited as
+`secret.read`. It reads them:
 
-- **Its saved connections**, under `podium.agent.connection.*`: the GitHub App's private key,
-  webhook secret and client secret, and the Slack tokens. Settings → Connections writes them
-  there and keeps only what is not a credential in the `connection.slack` and
-  `connection.github` settings rows. A row saved before this, with its credentials in clear,
-  is moved on the conductor's first start after upgrading. The conductor reads them at start,
-  and when Settings → Connections or a person's GitHub connection needs them. The API returns
-  a hint, the App id, the client id and the webhook listen address, and never a credential.
-- **A person's connected GitHub account**, `github.token` under that person. The conductor
-  exchanges it for a token GitHub scopes to one turn's repositories, so the person's own token
-  never reaches a container.
-- **The scoped tokens it issued a turn**, under `podium.agent.git_user_token.<turn>`, so it can
-  revoke them when the turn ends even after a restart.
+- **For a host turn**, which runs in the conductor's own process (see
+  [`agent.md`](agent.md#a-host-turn-and-delegation)) with no node to resolve a secret for it: the
+  model credential and the tokens of the MCP servers the assistant was granted.
+- **For the refresh pass**: a subscription's or an MCP sign-in's refresh token, and an MCP
+  sign-in's client secret.
+- **For its connections**: at start, and when Settings → Connections or a person's GitHub
+  connection needs them. The API returns a hint, the App id, the client id and the webhook listen
+  address, and never a credential.
+- **For a person's GitHub account**: to exchange it for a token GitHub scopes to one turn's
+  repositories, so the person's own token never reaches a container, and to revoke the tokens it
+  issued when the turn ends, even after a restart.
 
-The listed names appear on the Secrets screen like any global, and an admin can rotate one
-there. A stolen conductor token can read these values. It could already attach every global
-secret to a task it creates and read it there, so this adds little to what it reaches.
+The global names appear on the Secrets screen like any other, and an admin can rotate one there.
+A stolen conductor token can read these values. It could already attach every global secret to
+a task it creates and read it there, so this adds little to what it reaches.
 
-What bounds it:
+What else bounds them:
 
-- They **never leave the host**. Nothing here is attached to a turn, put in a brief or a task
-  spec, written to a log line, or copied into an API response — `ProviderSettings` and
+- They are in no brief, no task spec, no API response and no log line. `ProviderSettings` and
   `McpServer` each carry a boolean saying a refresh token exists, and nothing more.
-- Each is spent only against the token endpoint it was discovered with, which was checked
-  against its own issuer's host before anything was sent to it. An MCP server's endpoint is
-  stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later by
-  a discovery document that has since changed.
+- A refresh token is spent only against the token endpoint it was discovered with, which was
+  checked against its own issuer's host before anything was sent to it. An MCP server's endpoint
+  is stored with the sign-in rather than re-discovered, so a refresh cannot be redirected later
+  by a discovery document that has since changed.
 - Signing out deletes them, and so does pasting a key or a token over the sign-in.
-
-The **model credential itself** is in that row too, for the same reason, on an install that
-runs host turns: the bearer a turn spends — an API key as pasted, or the access token minted
-from the refresh token above — is written to `provider.<name>` beside it. A host turn runs in
-the conductor's own process (see [`agent.md`](agent.md#a-host-turn-and-delegation)) and has no
-node to resolve a secret for it, so a credential it can never read back is a credential it
-cannot spend. It is written on the one path `SetProviderKey` and the refresh pass share, so the
-host and a container can never disagree about which credential is current.
-
-The bound on it is the same: it is in no brief, no task spec, no API response and no log line.
-It does reach one more place than a task's copy does — the environment of the host turn's
-runtime, and therefore anything on that machine that can read a process's environment. A task's
-credential is equally visible through `docker inspect` on its node; the difference is that a
-host turn's node is the conductor's own machine.
-
-An **MCP server's access token** is copied the same way, into the `token` column of its
-`mcp_servers` row, on every path that writes the secret — a pasted token, a sign-in and a
-refresh — and cleared with it. It is spent only by an assistant whose `profile.yaml` names the
-server in `mcp_servers`, and it reaches that turn's runtime environment and nowhere else. A
-token stored before the column existed has no copy, and the assistant says so by name rather
-than connecting without one: save it again, or wait for a signed-in server's next refresh.
-
-**So treat `podium_agent`'s database as holding credentials, because it does.** Back it up the
-way you would back up a secret, and give it the same access controls as the control plane's
-own database. An install with `PODIUM_AGENT_HOST_RUNTIME` unset, no subscription sign-in and no
-signed-in MCP server has nothing here.
+- A host turn's credential reaches one more place than a task's copy does: the environment of
+  the host turn's runtime, and therefore anything on that machine that can read a process's
+  environment. A task's credential is equally visible through `docker inspect` on its node; the
+  difference is that a host turn's node is the conductor's own machine.
 
 ### In flight
 
@@ -1016,10 +997,9 @@ Everything below is a real hole, not a hypothetical:
 - **A provider credential can be replaced or removed by an admin**, and the only record of who
   did it is `set_by` on the current one. That includes signing the bot in to somebody's Grok or
   ChatGPT subscription, and signing it out again. Members can see whether a key is set.
-- **Every OAuth refresh token is stored in clear in the conductor's own database** — the
-  subscription sign-in's, and one per signed-in MCP server, with a dynamically issued client
-  secret beside it where there is one — because the secret store deliberately has no read
-  endpoint and refreshing needs one. See *The credentials that are not only in the secret store*.
+- **The conductor can read its own credentials back from the secret store**, to refresh a
+  sign-in and to run a host turn. A stolen conductor token reads them too. See
+  [What the conductor reads back](#what-the-conductor-reads-back-from-the-secret-store).
 - **`X-Podium-Login` is a plain header.** The conductor trusts it because `PODIUM_AGENT_TOKEN`
   proves the request came through `podium-server`. That holds only while the conductor's
   listener is loopback or a network only the server can reach.

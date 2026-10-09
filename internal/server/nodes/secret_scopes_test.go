@@ -120,6 +120,23 @@ func TestSecretScopesOnTheRealAPI(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
+	// A person's MCP sign-in keeps its refresh token on their list, written and read by the
+	// conductor alone.
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "mcp.linear.oauth", Value: []byte(`{"refresh_token":"r"}`),
+		Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	read, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "mcp.linear.oauth", Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"refresh_token":"r"}`, string(read.Msg.GetValue()))
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "mcp.linear.oauth", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+
 	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
 		Name: "github.token", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
 	}))

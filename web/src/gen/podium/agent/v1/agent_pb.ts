@@ -5167,8 +5167,7 @@ export const AgentService: GenService<{
     output: typeof GetUsageResponseSchema;
   },
   /**
-   * GetSettings reports what the conductor is configured with. It reads no secret value:
-   * there is no read endpoint on the secret store, by design.
+   * GetSettings reports what the conductor is configured with. It returns no secret value.
    *
    * @generated from rpc podium.agent.v1.AgentService.GetSettings
    */

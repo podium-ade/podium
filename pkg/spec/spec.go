@@ -347,15 +347,27 @@ const ConnectionSecretPrefix = "podium.agent.connection."
 // a turn, so it can revoke them when the turn ends, even after a restart.
 const UserGitTokenSecretPrefix = "podium.agent.git_user_token."
 
-// ConductorMayRead reports whether the conductor may read a value back. Only its own
-// credentials qualify, and a person's connected GitHub account, which it exchanges for a
-// token scoped to one turn. No person may read any value.
+// ConductorReservedPrefix is the conductor's own namespace. A personal secret cannot take it.
+const ConductorReservedPrefix = "podium.agent."
+
+// ConductorMayRead reports whether the conductor may read a value back: a global in its own
+// namespace, or a credential it keeps on a person's list — their connected GitHub account,
+// and their MCP servers' tokens and sign-ins. No person may read any value.
 func ConductorMayRead(name, owner string) bool {
 	if owner != "" {
-		return name == GitHubAccountSecret
+		return name == GitHubAccountSecret || IsPersonalMCPSecret(name) || IsPersonalMCPOAuthSecret(name)
 	}
-	return strings.HasPrefix(name, ConnectionSecretPrefix) || strings.HasPrefix(name, UserGitTokenSecretPrefix)
+	return strings.HasPrefix(name, ConductorReservedPrefix)
 }
+
+var personalMCPOAuthSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}\.oauth$`)
+
+// PersonalMCPOAuthSecretName is where one person's MCP sign-in keeps its client secret and
+// refresh token. The conductor writes and reads it. A playbook may not name it.
+func PersonalMCPOAuthSecretName(server string) string { return "mcp." + server + ".oauth" }
+
+// IsPersonalMCPOAuthSecret reports whether name is a personal MCP sign-in's secrets.
+func IsPersonalMCPOAuthSecret(name string) bool { return personalMCPOAuthSecretRE.MatchString(name) }
 
 // IsPersonalMCPSecret reports whether name is a personal MCP credential. The conductor
 // may write one of these for a person. A playbook may not name one.
