@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/secret.proto.
  */
 export const file_podium_v1_secret: GenFile = /*@__PURE__*/
-  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEisQEKBlNlY3JldBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAUSDgoGa2V5X2lkGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFc2NvcGUYBiABKA4yFi5wb2RpdW0udjEuU2VjcmV0U2NvcGUSDQoFb3duZXIYByABKAkiVgoQU2V0U2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEg0KBXZhbHVlGAIgASgMEiUKBXNjb3BlGAMgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlIjYKEVNldFNlY3JldFJlc3BvbnNlEiEKBnNlY3JldBgBIAEoCzIRLnBvZGl1bS52MS5TZWNyZXQiFAoSTGlzdFNlY3JldHNSZXF1ZXN0IjkKE0xpc3RTZWNyZXRzUmVzcG9uc2USIgoHc2VjcmV0cxgBIAMoCzIRLnBvZGl1bS52MS5TZWNyZXQiSgoTRGVsZXRlU2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEiUKBXNjb3BlGAIgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlIhYKFERlbGV0ZVNlY3JldFJlc3BvbnNlKl8KC1NlY3JldFNjb3BlEhwKGFNFQ1JFVF9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1NFQ1JFVF9TQ09QRV9HTE9CQUwQARIZChVTRUNSRVRfU0NPUEVfUEVSU09OQUwQAjL2AQoNU2VjcmV0U2VydmljZRJGCglTZXRTZWNyZXQSGy5wb2RpdW0udjEuU2V0U2VjcmV0UmVxdWVzdBocLnBvZGl1bS52MS5TZXRTZWNyZXRSZXNwb25zZRJMCgtMaXN0U2VjcmV0cxIdLnBvZGl1bS52MS5MaXN0U2VjcmV0c1JlcXVlc3QaHi5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXNwb25zZRJPCgxEZWxldGVTZWNyZXQSHi5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVxdWVzdBofLnBvZGl1bS52MS5EZWxldGVTZWNyZXRSZXNwb25zZUKhAQoNY29tLnBvZGl1bS52MUILU2VjcmV0UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChZwb2RpdW0vdjEvc2VjcmV0LnByb3RvEglwb2RpdW0udjEisQEKBlNlY3JldBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAUSDgoGa2V5X2lkGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFc2NvcGUYBiABKA4yFi5wb2RpdW0udjEuU2VjcmV0U2NvcGUSDQoFb3duZXIYByABKAkiZQoQU2V0U2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEg0KBXZhbHVlGAIgASgMEiUKBXNjb3BlGAMgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAQgASgJIjYKEVNldFNlY3JldFJlc3BvbnNlEiEKBnNlY3JldBgBIAEoCzIRLnBvZGl1bS52MS5TZWNyZXQiIwoSTGlzdFNlY3JldHNSZXF1ZXN0Eg0KBW93bmVyGAEgASgJIjkKE0xpc3RTZWNyZXRzUmVzcG9uc2USIgoHc2VjcmV0cxgBIAMoCzIRLnBvZGl1bS52MS5TZWNyZXQiWQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIMCgRuYW1lGAEgASgJEiUKBXNjb3BlGAIgASgOMhYucG9kaXVtLnYxLlNlY3JldFNjb3BlEg0KBW93bmVyGAMgASgJIhYKFERlbGV0ZVNlY3JldFJlc3BvbnNlKl8KC1NlY3JldFNjb3BlEhwKGFNFQ1JFVF9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1NFQ1JFVF9TQ09QRV9HTE9CQUwQARIZChVTRUNSRVRfU0NPUEVfUEVSU09OQUwQAjL2AQoNU2VjcmV0U2VydmljZRJGCglTZXRTZWNyZXQSGy5wb2RpdW0udjEuU2V0U2VjcmV0UmVxdWVzdBocLnBvZGl1bS52MS5TZXRTZWNyZXRSZXNwb25zZRJMCgtMaXN0U2VjcmV0cxIdLnBvZGl1bS52MS5MaXN0U2VjcmV0c1JlcXVlc3QaHi5wb2RpdW0udjEuTGlzdFNlY3JldHNSZXNwb25zZRJPCgxEZWxldGVTZWNyZXQSHi5wb2RpdW0udjEuRGVsZXRlU2VjcmV0UmVxdWVzdBofLnBvZGl1bS52MS5EZWxldGVTZWNyZXRSZXNwb25zZUKhAQoNY29tLnBvZGl1bS52MUILU2VjcmV0UHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message podium.v1.Secret
@@ -87,12 +87,20 @@ export type SetSecretRequest = Message<"podium.v1.SetSecretRequest"> & {
   value: Uint8Array;
 
   /**
-   * scope defaults to global when unspecified. A personal secret's owner is the caller;
-   * the request cannot name somebody else.
+   * scope defaults to global when unspecified. A person's own write ignores owner:
+   * the owner is the caller. The conductor may set owner, and only for a personal
+   * MCP credential (mcp.<server>_token), which is that person's secret.
    *
    * @generated from field: podium.v1.SecretScope scope = 3;
    */
   scope: SecretScope;
+
+  /**
+   * owner is the login of a personal secret. Only the conductor may set it.
+   *
+   * @generated from field: string owner = 4;
+   */
+  owner: string;
 };
 
 /**
@@ -123,6 +131,14 @@ export const SetSecretResponseSchema: GenMessage<SetSecretResponse> = /*@__PURE_
  * @generated from message podium.v1.ListSecretsRequest
  */
 export type ListSecretsRequest = Message<"podium.v1.ListSecretsRequest"> & {
+  /**
+   * owner, when set by the conductor, includes that login's personal MCP credentials
+   * along with every global name. A person who sets it must name themselves. Any
+   * other caller who sets it is refused.
+   *
+   * @generated from field: string owner = 1;
+   */
+  owner: string;
 };
 
 /**
@@ -164,6 +180,14 @@ export type DeleteSecretRequest = Message<"podium.v1.DeleteSecretRequest"> & {
    * @generated from field: podium.v1.SecretScope scope = 2;
    */
   scope: SecretScope;
+
+  /**
+   * owner is the login of a personal secret. Only the conductor may set it, and
+   * only for a personal MCP credential. A person's own delete ignores it.
+   *
+   * @generated from field: string owner = 3;
+   */
+  owner: string;
 };
 
 /**

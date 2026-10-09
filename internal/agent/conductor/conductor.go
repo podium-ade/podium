@@ -1185,7 +1185,7 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	}
 	out := make([]spec.SecretRef, len(refs))
 	for i, ref := range refs {
-		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" || spec.IsPersonalMCPSecret(ref.Name) {
 			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
 		}
 		out[i] = ref
@@ -1370,11 +1370,17 @@ func (c *Conductor) reservedSecrets(
 		if srv.TokenSecretVersion == 0 {
 			continue
 		}
-		refs = append(refs, spec.SecretRef{
+		ref := spec.SecretRef{
 			Name:   mcp.CredentialSecret(srv),
 			Target: spec.SecretTargetEnv,
 			Key:    mcp.TokenEnv(srv.Name),
-		})
+		}
+		// A person's server is their secret. The owner is what makes CreateTask resolve
+		// it from their list rather than the company list.
+		if srv.Owner != "" {
+			ref.Owner = srv.Owner
+		}
+		refs = append(refs, ref)
 	}
 	// This turn's authority to mint a GitHub token, when it has one. The playbook cannot
 	// name this secret itself — profiles refuses the prefix — so being handed it here is

@@ -109,6 +109,13 @@ type SecretStore interface {
 	SetSecret(ctx context.Context, name string, value []byte) (version int32, err error)
 	DeleteSecret(ctx context.Context, name string) error
 	SecretVersion(ctx context.Context, name string) (int32, error)
+	// SetPersonalSecret stores a secret owned by one login. The conductor uses it for
+	// the token a person saved on their own MCP server, so the secret shows on their
+	// list and not the company list.
+	SetPersonalSecret(ctx context.Context, owner, name string, value []byte) (version int32, err error)
+	DeletePersonalSecret(ctx context.Context, owner, name string) error
+	// PersonalSecretVersion is the version of one person's secret, or 0 when it is absent.
+	PersonalSecretVersion(ctx context.Context, owner, name string) (int32, error)
 }
 
 // AgentServiceOptions is what the handlers need. Everything but Store and Secrets is

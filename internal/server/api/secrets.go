@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -13,6 +14,7 @@ import (
 	"github.com/podium-ade/podium/internal/server/secrets"
 	"github.com/podium-ade/podium/internal/server/store"
 	"github.com/podium-ade/podium/internal/transport"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // userLookup is the user row a global write checks. *store.Store satisfies it.
@@ -51,7 +53,7 @@ func (s *SecretService) SetSecret(
 	value := req.Msg.GetValue()
 	defer secrets.Zero(value)
 
-	scope, owner, err := s.authorizeWrite(ctx, req.Msg.GetScope())
+	scope, owner, err := s.authorizeWrite(ctx, req.Msg.GetScope(), name, req.Msg.GetOwner())
 	if err != nil {
 		return nil, secretError(err)
 	}
@@ -63,17 +65,25 @@ func (s *SecretService) SetSecret(
 }
 
 // ListSecrets returns metadata only: every global name plus the caller's own personal
-// names. A dev token, the conductor, and a node have no personal secrets, so they see globals.
+// names. A dev token and a node have no personal secrets, so they see globals. The
+// conductor sees globals, and, when it names a login, that login's MCP credentials.
 func (s *SecretService) ListSecrets(
 	ctx context.Context,
-	_ *connect.Request[podiumv1.ListSecretsRequest],
+	req *connect.Request[podiumv1.ListSecretsRequest],
 ) (*connect.Response[podiumv1.ListSecretsResponse], error) {
-	rows, err := s.secrets.ListVisible(ctx, visibleOwner(ctx))
+	owner, agentMCPOnly, err := s.listOwner(ctx, req.Msg.GetOwner())
+	if err != nil {
+		return nil, secretError(err)
+	}
+	rows, err := s.secrets.ListVisible(ctx, owner)
 	if err != nil {
 		return nil, secretError(err)
 	}
 	out := make([]*podiumv1.Secret, 0, len(rows))
 	for _, row := range rows {
+		if agentMCPOnly && row.Scope == store.SecretScopePersonal && !spec.IsPersonalMCPSecret(row.Name) {
+			continue
+		}
 		out = append(out, secretToProto(row))
 	}
 	return connect.NewResponse(&podiumv1.ListSecretsResponse{Secrets: out}), nil
@@ -85,7 +95,7 @@ func (s *SecretService) DeleteSecret(
 	ctx context.Context,
 	req *connect.Request[podiumv1.DeleteSecretRequest],
 ) (*connect.Response[podiumv1.DeleteSecretResponse], error) {
-	scope, owner, err := s.authorizeWrite(ctx, req.Msg.GetScope())
+	scope, owner, err := s.authorizeWrite(ctx, req.Msg.GetScope(), req.Msg.GetName(), req.Msg.GetOwner())
 	if err != nil {
 		return nil, secretError(err)
 	}
@@ -95,15 +105,21 @@ func (s *SecretService) DeleteSecret(
 	return connect.NewResponse(&podiumv1.DeleteSecretResponse{}), nil
 }
 
-// authorizeWrite decides the scope and owner a caller may write. A personal secret's owner
-// is always the caller: the request cannot name somebody else.
-func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.SecretScope) (scope, owner string, err error) {
+// authorizeWrite decides the scope and owner a caller may write. A person's own personal
+// secret is always theirs: the request cannot name somebody else. The conductor may write
+// one personal name for somebody else, and only an MCP credential, because that is the
+// token a person saved on their own MCP server.
+func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.SecretScope, name, requestedOwner string) (scope, owner string, err error) {
 	id, ok := transport.From(ctx)
 	if !ok {
 		return "", "", fmt.Errorf("%w: unauthenticated", secrets.ErrForbidden)
 	}
+	requestedOwner = strings.TrimSpace(requestedOwner)
 	switch requested {
 	case podiumv1.SecretScope_SECRET_SCOPE_UNSPECIFIED, podiumv1.SecretScope_SECRET_SCOPE_GLOBAL:
+		if requestedOwner != "" {
+			return "", "", fmt.Errorf("%w: a global secret has no owner", secrets.ErrInvalidSecret)
+		}
 		switch id.Kind {
 		case transport.KindLocalToken, transport.KindAgent:
 			return store.SecretScopeGlobal, "", nil
@@ -120,21 +136,53 @@ func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.S
 			return "", "", fmt.Errorf("%w: only an admin can set a global secret", secrets.ErrForbidden)
 		}
 	case podiumv1.SecretScope_SECRET_SCOPE_PERSONAL:
-		if id.Kind != transport.KindUser || id.Login == "" {
+		switch id.Kind {
+		case transport.KindUser:
+			if id.Login == "" {
+				return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
+			}
+			if requestedOwner != "" && requestedOwner != id.Login {
+				return "", "", fmt.Errorf("%w: a personal secret belongs to the caller", secrets.ErrForbidden)
+			}
+			return store.SecretScopePersonal, id.Login, nil
+		case transport.KindAgent:
+			if requestedOwner == "" || !spec.IsPersonalMCPSecret(name) {
+				return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
+			}
+			return store.SecretScopePersonal, requestedOwner, nil
+		default:
 			return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
 		}
-		return store.SecretScopePersonal, id.Login, nil
 	default:
 		return "", "", fmt.Errorf("%w: unknown secret scope", secrets.ErrInvalidSecret)
 	}
 }
 
-func visibleOwner(ctx context.Context) string {
+// listOwner is whose personal secrets a list may include. agentMCPOnly means the caller
+// is the conductor naming a login, and the list must keep that login's other secrets out.
+func (s *SecretService) listOwner(ctx context.Context, requested string) (owner string, agentMCPOnly bool, err error) {
 	id, ok := transport.From(ctx)
-	if !ok || id.Kind != transport.KindUser {
-		return ""
+	if !ok {
+		return "", false, fmt.Errorf("%w: unauthenticated", secrets.ErrForbidden)
 	}
-	return id.Login
+	requested = strings.TrimSpace(requested)
+	switch id.Kind {
+	case transport.KindUser:
+		if requested != "" && requested != id.Login {
+			return "", false, fmt.Errorf("%w: a list shows only your own secrets", secrets.ErrForbidden)
+		}
+		return id.Login, false, nil
+	case transport.KindAgent:
+		if requested == "" {
+			return "", false, nil
+		}
+		return requested, true, nil
+	default:
+		if requested != "" {
+			return "", false, fmt.Errorf("%w: a list shows only your own secrets", secrets.ErrForbidden)
+		}
+		return "", false, nil
+	}
 }
 
 func secretToProto(row store.Secret) *podiumv1.Secret {

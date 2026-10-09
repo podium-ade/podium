@@ -58,6 +58,7 @@ type fakeSecrets struct {
 	mu       sync.Mutex
 	set      map[string][]byte
 	versions map[string]int32
+	owners   map[string]string
 	deleted  []string
 	setErr   error
 	delErr   error
@@ -65,7 +66,7 @@ type fakeSecrets struct {
 }
 
 func newFakeSecrets() *fakeSecrets {
-	return &fakeSecrets{set: map[string][]byte{}, versions: map[string]int32{}}
+	return &fakeSecrets{set: map[string][]byte{}, versions: map[string]int32{}, owners: map[string]string{}}
 }
 
 func (f *fakeSecrets) SetSecret(_ context.Context, name string, value []byte) (int32, error) {
@@ -97,6 +98,49 @@ func (f *fakeSecrets) SecretVersion(_ context.Context, name string) (int32, erro
 	defer f.mu.Unlock()
 	if f.listErr != nil {
 		return 0, f.listErr
+	}
+	if f.owners[name] != "" {
+		return 0, nil
+	}
+	return f.versions[name], nil
+}
+
+func (f *fakeSecrets) SetPersonalSecret(_ context.Context, owner, name string, value []byte) (int32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.setErr != nil {
+		return 0, f.setErr
+	}
+	f.set[name] = append([]byte(nil), value...)
+	f.versions[name]++
+	f.owners[name] = owner
+	return f.versions[name], nil
+}
+
+func (f *fakeSecrets) DeletePersonalSecret(_ context.Context, owner, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.delErr != nil {
+		return f.delErr
+	}
+	if f.owners[name] != owner {
+		return connect.NewError(connect.CodeNotFound, errors.New("secret not found"))
+	}
+	delete(f.set, name)
+	delete(f.versions, name)
+	delete(f.owners, name)
+	f.deleted = append(f.deleted, name)
+	return nil
+}
+
+func (f *fakeSecrets) PersonalSecretVersion(_ context.Context, owner, name string) (int32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return 0, f.listErr
+	}
+	if f.owners[name] != owner {
+		return 0, nil
 	}
 	return f.versions[name], nil
 }

@@ -181,16 +181,37 @@ func (c *Client) SetSecret(ctx context.Context, name string, value []byte) (int3
 	return res.Msg.GetSecret().GetVersion(), nil
 }
 
+// SetPersonalSecret stores a secret owned by one login. The conductor uses it when a
+// person saves an MCP token, so the value lands on their list.
+func (c *Client) SetPersonalSecret(ctx context.Context, owner, name string, value []byte) (int32, error) {
+	res, err := c.Secrets.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: name, Value: value, Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: owner,
+	}))
+	if err != nil {
+		return 0, fmt.Errorf("set secret %s: %w", name, err)
+	}
+	return res.Msg.GetSecret().GetVersion(), nil
+}
+
 // SecretVersion is the version of one secret, or 0 when the control plane does not have it.
 // ListSecrets returns metadata only — names, versions and who set them — so this reads no
 // value and there is no endpoint that could.
 func (c *Client) SecretVersion(ctx context.Context, name string) (int32, error) {
-	res, err := c.Secrets.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{}))
+	return c.secretVersion(ctx, "", name)
+}
+
+// PersonalSecretVersion is the version of one person's secret, or 0 when it is absent.
+func (c *Client) PersonalSecretVersion(ctx context.Context, owner, name string) (int32, error) {
+	return c.secretVersion(ctx, owner, name)
+}
+
+func (c *Client) secretVersion(ctx context.Context, owner, name string) (int32, error) {
+	res, err := c.Secrets.ListSecrets(ctx, connect.NewRequest(&podiumv1.ListSecretsRequest{Owner: owner}))
 	if err != nil {
 		return 0, fmt.Errorf("list secrets: %w", err)
 	}
 	for _, s := range res.Msg.GetSecrets() {
-		if s.GetName() == name {
+		if s.GetName() == name && (owner == "" || s.GetOwner() == owner) {
 			return s.GetVersion(), nil
 		}
 	}
@@ -202,6 +223,17 @@ func (c *Client) SecretVersion(ctx context.Context, name string) (int32, error) 
 func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 	_, err := c.Secrets.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
 		Name: name,
+	}))
+	if err != nil {
+		return fmt.Errorf("delete secret %s: %w", name, err)
+	}
+	return nil
+}
+
+// DeletePersonalSecret removes one person's secret. NotFound is the server's, unchanged.
+func (c *Client) DeletePersonalSecret(ctx context.Context, owner, name string) error {
+	_, err := c.Secrets.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: name, Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: owner,
 	}))
 	if err != nil {
 		return fmt.Errorf("delete secret %s: %w", name, err)

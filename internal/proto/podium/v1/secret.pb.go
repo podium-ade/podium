@@ -177,9 +177,12 @@ type SetSecretRequest struct {
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// SENSITIVE: never log. Bytes rather than a string: a secret is not necessarily text.
 	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	// scope defaults to global when unspecified. A personal secret's owner is the caller;
-	// the request cannot name somebody else.
-	Scope         SecretScope `protobuf:"varint,3,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
+	// scope defaults to global when unspecified. A person's own write ignores owner:
+	// the owner is the caller. The conductor may set owner, and only for a personal
+	// MCP credential (mcp.<server>_token), which is that person's secret.
+	Scope SecretScope `protobuf:"varint,3,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
+	// owner is the login of a personal secret. Only the conductor may set it.
+	Owner         string `protobuf:"bytes,4,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,6 +238,13 @@ func (x *SetSecretRequest) GetScope() SecretScope {
 	return SecretScope_SECRET_SCOPE_UNSPECIFIED
 }
 
+func (x *SetSecretRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
 type SetSecretResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Secret        *Secret                `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
@@ -280,7 +290,11 @@ func (x *SetSecretResponse) GetSecret() *Secret {
 }
 
 type ListSecretsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// owner, when set by the conductor, includes that login's personal MCP credentials
+	// along with every global name. A person who sets it must name themselves. Any
+	// other caller who sets it is refused.
+	Owner         string `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -313,6 +327,13 @@ func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecretsRequest) Descriptor() ([]byte, []int) {
 	return file_podium_v1_secret_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListSecretsRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
 }
 
 type ListSecretsResponse struct {
@@ -363,7 +384,10 @@ type DeleteSecretRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// scope defaults to global when unspecified.
-	Scope         SecretScope `protobuf:"varint,2,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
+	Scope SecretScope `protobuf:"varint,2,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
+	// owner is the login of a personal secret. Only the conductor may set it, and
+	// only for a personal MCP credential. A person's own delete ignores it.
+	Owner         string `protobuf:"bytes,3,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -410,6 +434,13 @@ func (x *DeleteSecretRequest) GetScope() SecretScope {
 		return x.Scope
 	}
 	return SecretScope_SECRET_SCOPE_UNSPECIFIED
+}
+
+func (x *DeleteSecretRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
 }
 
 type DeleteSecretResponse struct {
@@ -462,19 +493,22 @@ const file_podium_v1_secret_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12,\n" +
 	"\x05scope\x18\x06 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\x12\x14\n" +
-	"\x05owner\x18\a \x01(\tR\x05owner\"j\n" +
+	"\x05owner\x18\a \x01(\tR\x05owner\"\x80\x01\n" +
 	"\x10SetSecretRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\x12,\n" +
-	"\x05scope\x18\x03 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\">\n" +
+	"\x05scope\x18\x03 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\x12\x14\n" +
+	"\x05owner\x18\x04 \x01(\tR\x05owner\">\n" +
 	"\x11SetSecretResponse\x12)\n" +
-	"\x06secret\x18\x01 \x01(\v2\x11.podium.v1.SecretR\x06secret\"\x14\n" +
-	"\x12ListSecretsRequest\"B\n" +
+	"\x06secret\x18\x01 \x01(\v2\x11.podium.v1.SecretR\x06secret\"*\n" +
+	"\x12ListSecretsRequest\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\"B\n" +
 	"\x13ListSecretsResponse\x12+\n" +
-	"\asecrets\x18\x01 \x03(\v2\x11.podium.v1.SecretR\asecrets\"W\n" +
+	"\asecrets\x18\x01 \x03(\v2\x11.podium.v1.SecretR\asecrets\"m\n" +
 	"\x13DeleteSecretRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12,\n" +
-	"\x05scope\x18\x02 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\"\x16\n" +
+	"\x05scope\x18\x02 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\x12\x14\n" +
+	"\x05owner\x18\x03 \x01(\tR\x05owner\"\x16\n" +
 	"\x14DeleteSecretResponse*_\n" +
 	"\vSecretScope\x12\x1c\n" +
 	"\x18SECRET_SCOPE_UNSPECIFIED\x10\x00\x12\x17\n" +
