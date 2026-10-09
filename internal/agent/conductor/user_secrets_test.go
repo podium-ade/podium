@@ -41,7 +41,8 @@ func TestASignedInTurnAttachesThatPersonsSecretsAndMCPCredential(t *testing.T) {
 		Name: "company_webhook", Target: spec.SecretTargetEnv, Key: "HOOK",
 	})
 	assert.Contains(t, sp.Secrets, spec.SecretRef{
-		Name: mcp.PersonalTokenSecret("alice@acme.com", "linear"), Target: spec.SecretTargetEnv, Key: mcp.TokenEnv("linear"),
+		Name: mcp.PersonalTokenSecret("linear"), Target: spec.SecretTargetEnv, Key: mcp.TokenEnv("linear"),
+		Owner: "alice@acme.com",
 	})
 	for _, ref := range sp.Secrets {
 		assert.NotEqual(t, mcp.TokenSecret("linear"), ref.Name)
@@ -114,19 +115,29 @@ func TestPersonalSecretNamesReservedForTheConductorAreRefused(t *testing.T) {
 	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: profiles.MemoryKeySecret}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), profiles.MemoryKeySecret)
+
+	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: mcp.PersonalTokenSecret("linear")}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), mcp.PersonalTokenSecret("linear"))
 }
 
-// Two registrations of the same server name stay on different secrets, and neither is the
-// bot's secret. The owner is hashed because a login is an email.
+// Two people who register the same server share a secret name. The owner on the secret
+// separates the values, and neither name is the bot's global secret. The old global name
+// hashed the login because a global name has to be unique.
 func TestTwoPeopleDoNotShareAnMCPTokenSecret(t *testing.T) {
-	alice := mcp.PersonalTokenSecret("alice@acme.com", "linear")
-	bob := mcp.PersonalTokenSecret("bob@acme.com", "linear")
-	assert.NotEqual(t, alice, bob)
-	assert.NotEqual(t, alice, mcp.TokenSecret("linear"))
-	assert.NotEqual(t, bob, mcp.TokenSecret("linear"))
-	assert.NotContains(t, alice, "@")
-	assert.Equal(t, alice, mcp.CredentialSecret(mcp.Server{Owner: "alice@acme.com", Name: "linear"}))
+	name := mcp.PersonalTokenSecret("linear")
+	assert.Equal(t, "mcp.linear_token", name)
+	assert.NotEqual(t, name, mcp.TokenSecret("linear"))
+	assert.NotContains(t, name, "podium.agent")
+	assert.Equal(t, name, mcp.CredentialSecret(mcp.Server{Owner: "alice@acme.com", Name: "linear"}))
+	assert.Equal(t, name, mcp.CredentialSecret(mcp.Server{Owner: "bob@acme.com", Name: "linear"}))
 	assert.Equal(t, mcp.TokenSecret("linear"), mcp.CredentialSecret(mcp.Server{Name: "linear"}))
+
+	alice := mcp.LegacyPersonalTokenSecret("alice@acme.com", "linear")
+	bob := mcp.LegacyPersonalTokenSecret("bob@acme.com", "linear")
+	assert.NotEqual(t, alice, bob)
+	assert.NotContains(t, alice, "@")
+	assert.NotEqual(t, alice, name)
 }
 
 // The registry filter is what a turn uses. Alice's row is not the bot's row, and a person

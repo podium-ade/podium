@@ -46,6 +46,9 @@ func TestACredentialsSecretAndVariableComeFromTheName(t *testing.T) {
 func TestTheDerivedSecretNameIsOneATaskSpecAccepts(t *testing.T) {
 	for _, name := range []string{"linear", "my-wiki", "a", strings.Repeat("x", 32)} {
 		assert.Regexp(t, spec.SecretNameRE, TokenSecret(name), name)
+		assert.Regexp(t, spec.SecretNameRE, PersonalTokenSecret(name), name)
+		assert.True(t, spec.IsPersonalMCPSecret(PersonalTokenSecret(name)), name)
+		assert.False(t, spec.IsPersonalMCPSecret(TokenSecret(name)), name)
 	}
 }
 
