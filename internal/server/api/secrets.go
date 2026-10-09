@@ -146,7 +146,8 @@ func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.S
 			}
 			return store.SecretScopePersonal, id.Login, nil
 		case transport.KindAgent:
-			if requestedOwner == "" || (!spec.IsPersonalMCPSecret(name) && name != spec.GitHubAccountSecret) {
+			if requestedOwner == "" || (!spec.IsPersonalMCPSecret(name) && !spec.IsPersonalMCPOAuthSecret(name) &&
+				name != spec.GitHubAccountSecret) {
 				return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
 			}
 			return store.SecretScopePersonal, requestedOwner, nil

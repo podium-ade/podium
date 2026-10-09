@@ -641,6 +641,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	a.publishMemoryKey(runCtx)
 	go a.reconcileProfile(runCtx)
+	// Before the refresh pass, so it reads from the secret store rather than from rows a
+	// database written before the move still holds in clear.
+	a.svc.MoveCredentialsIntoStore(runCtx)
 	// A subscription access token lives about an hour and a turn can run for half of one,
 	// so nothing but this keeps a signed-in provider working past its first hour.
 	go a.svc.RefreshTokens(runCtx)

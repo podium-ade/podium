@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -444,12 +445,17 @@ func (s *AgentService) CompleteMcpOAuth(
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.store.SetMcpServerOAuth(ctx, f.owner, f.name, login, version, o, tok.AccessToken); err != nil {
+	stored, err := s.vaultMcpOAuth(ctx, f.owner, f.name, o)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeOf(err),
+			fmt.Errorf("the sign-in worked but storing its refresh token failed: %w", err))
+	}
+	if err := s.store.SetMcpServerOAuth(ctx, f.owner, f.name, login, version, stored); err != nil {
 		return nil, storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server was signed in to", "mcp_server", f.name,
 		"issuer", f.issuer, "account", o.Account, "scope", o.Scope,
-		"expires_at", o.ExpiresAt, "refreshable", o.RefreshToken != "",
+		"expires_at", o.ExpiresAt, "refreshable", stored.Refreshable,
 		"secret_version", version, "login", login)
 
 	return connect.NewResponse(&agentv1.CompleteMcpOAuthResponse{
@@ -477,6 +483,13 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 		o := *row.OAuth
 		if !o.ExpiresAt.IsZero() && time.Until(o.ExpiresAt) > refreshLead {
 			continue
+		}
+		if o.RefreshToken == "" {
+			if err := s.readMcpOAuth(ctx, row, &o); err != nil {
+				s.logger.WarnContext(ctx, "reading an mcp server's refresh token failed; this will "+
+					"be tried again", "mcp_server", row.Name, "error", err)
+				continue
+			}
 		}
 
 		callCtx, cancel := context.WithTimeout(ctx, validateTimeout)
@@ -512,7 +525,14 @@ func (s *AgentService) refreshMcpOnce(ctx context.Context) {
 			zero(token)
 			continue
 		}
-		if err := s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, version, next, tok.AccessToken); err != nil {
+		stored, err := s.vaultMcpOAuth(ctx, row.Owner, row.Name, next)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "an mcp token was refreshed but its refresh token could not "+
+				"be stored; the next refresh will use the previous one", "mcp_server", row.Name, "error", err)
+			zero(token)
+			continue
+		}
+		if err := s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, version, stored); err != nil {
 			s.logger.ErrorContext(ctx, "an mcp token was refreshed and stored but the row "+
 				"could not be updated; the next refresh will use the previous refresh token",
 				"mcp_server", row.Name, "error", err)
@@ -536,7 +556,11 @@ func (s *AgentService) storeMcpToken(ctx context.Context, owner, name string, to
 		return connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("the MCP server is registered but storing its token failed: %w", err))
 	}
-	if err := s.store.SetMcpServerTokenMeta(ctx, owner, name, keyHint(token), login, version, string(token)); err != nil {
+	// A pasted token replaces a sign-in, and the sign-in's refresh token goes with it.
+	if err := s.dropMcpOAuth(ctx, owner, name); err != nil {
+		return connect.NewError(connect.CodeOf(err), err)
+	}
+	if err := s.store.SetMcpServerTokenMeta(ctx, owner, name, keyHint(token), login, version); err != nil {
 		return storeError(err)
 	}
 	s.logger.InfoContext(ctx, "an mcp server token was stored", "mcp_server", name,
@@ -544,13 +568,82 @@ func (s *AgentService) storeMcpToken(ctx context.Context, owner, name string, to
 	return nil
 }
 
-// deleteMcpToken removes the secret. NotFound is success — the goal state is that the
-// control plane does not hold it.
+// deleteMcpToken removes the token and any sign-in's refresh token. NotFound is success —
+// the goal state is that the control plane does not hold them.
 func (s *AgentService) deleteMcpToken(ctx context.Context, owner, name string) error {
 	err := s.dropMcpSecret(ctx, owner, name)
 	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 		return connect.NewError(connect.CodeOf(err),
 			fmt.Errorf("removing the MCP server's token failed: %w", err))
+	}
+	if err := s.dropMcpOAuth(ctx, owner, name); err != nil {
+		return connect.NewError(connect.CodeOf(err), err)
+	}
+	return nil
+}
+
+// mcpOAuthSecrets is what a sign-in keeps in the secret store rather than in its row.
+type mcpOAuthSecrets struct {
+	ClientSecret string `json:"client_secret,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+// vaultMcpOAuth stores a sign-in's client secret and refresh token in the secret store and
+// returns the bag without them, which is what the row may hold. A bag that holds neither and
+// is already marked refreshable was stored before, and is left as it is.
+func (s *AgentService) vaultMcpOAuth(ctx context.Context, owner, name string, o mcp.OAuth) (mcp.OAuth, error) {
+	secrets := mcpOAuthSecrets{ClientSecret: o.ClientSecret, RefreshToken: o.RefreshToken}
+	if secrets == (mcpOAuthSecrets{}) {
+		if o.Refreshable {
+			return o, nil
+		}
+		return o, s.dropMcpOAuth(ctx, owner, name)
+	}
+	o.ClientSecret, o.RefreshToken = "", ""
+	o.Refreshable = secrets.RefreshToken != ""
+	raw, err := json.Marshal(secrets)
+	if err != nil {
+		return mcp.OAuth{}, err
+	}
+	defer zero(raw)
+	secretName := mcp.OAuthSecret(mcp.Server{Owner: owner, Name: name})
+	if owner == "" {
+		_, err = s.secrets.SetSecret(ctx, secretName, raw)
+	} else {
+		_, err = s.secrets.SetPersonalSecret(ctx, owner, secretName, raw)
+	}
+	if err != nil {
+		return mcp.OAuth{}, err
+	}
+	return o, nil
+}
+
+// readMcpOAuth fills a sign-in's client secret and refresh token from the secret store.
+func (s *AgentService) readMcpOAuth(ctx context.Context, row mcp.Server, o *mcp.OAuth) error {
+	raw, err := s.secrets.ReadSecret(ctx, row.Owner, mcp.OAuthSecret(row))
+	if err != nil {
+		return err
+	}
+	defer zero(raw)
+	var secrets mcpOAuthSecrets
+	if err := json.Unmarshal(raw, &secrets); err != nil {
+		return fmt.Errorf("an mcp sign-in's stored secrets do not decode: %w", err)
+	}
+	o.ClientSecret, o.RefreshToken = secrets.ClientSecret, secrets.RefreshToken
+	return nil
+}
+
+// dropMcpOAuth removes a sign-in's secrets. NotFound is success.
+func (s *AgentService) dropMcpOAuth(ctx context.Context, owner, name string) error {
+	secretName := mcp.OAuthSecret(mcp.Server{Owner: owner, Name: name})
+	var err error
+	if owner == "" {
+		err = s.secrets.DeleteSecret(ctx, secretName)
+	} else {
+		err = s.secrets.DeletePersonalSecret(ctx, owner, secretName)
+	}
+	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+		return fmt.Errorf("removing the MCP server's sign-in failed: %w", err)
 	}
 	return nil
 }
@@ -585,8 +678,8 @@ func (s *AgentService) dropMcpSecret(ctx context.Context, owner, name string) er
 }
 
 // mcpSecretVersion is the control plane's version of this server's credential. A person's
-// server is their secret. A token still stored under the old global name is moved onto
-// that secret when this conductor still holds a copy of the value.
+// server is their secret. A token still stored under the old global name is read back and
+// moved onto that secret.
 func (s *AgentService) mcpSecretVersion(ctx context.Context, row mcp.Server) (int32, error) {
 	name := mcp.CredentialSecret(row)
 	if row.Owner == "" {
@@ -599,15 +692,19 @@ func (s *AgentService) mcpSecretVersion(ctx context.Context, row mcp.Server) (in
 		}
 		return version, err
 	}
-	legacy, lerr := s.secretVersion(ctx, mcp.LegacyPersonalTokenSecret(row.Owner, row.Name))
-	if lerr != nil || legacy == 0 || row.Token == "" {
-		if lerr == nil && legacy > 0 && row.Token == "" {
-			s.logger.WarnContext(ctx, "a personal mcp token is still a global secret and this "+
-				"conductor has no copy to move", "mcp_server", row.Name)
-		}
+	legacyName := mcp.LegacyPersonalTokenSecret(row.Owner, row.Name)
+	legacy, lerr := s.secretVersion(ctx, legacyName)
+	if lerr != nil || legacy == 0 {
 		return 0, lerr
 	}
-	moved, merr := s.secrets.SetPersonalSecret(ctx, row.Owner, name, []byte(row.Token))
+	value, rerr := s.secrets.ReadSecret(ctx, "", legacyName)
+	if rerr != nil {
+		s.logger.WarnContext(ctx, "a personal mcp token is still a global secret and could not be read",
+			"mcp_server", row.Name, "error", rerr)
+		return 0, nil
+	}
+	moved, merr := s.secrets.SetPersonalSecret(ctx, row.Owner, name, value)
+	zero(value)
 	if merr != nil {
 		s.logger.WarnContext(ctx, "a personal mcp token is still a global secret and could not be moved",
 			"mcp_server", row.Name, "error", merr)
@@ -631,9 +728,12 @@ func (s *AgentService) personalSecretVersion(ctx context.Context, owner, name st
 func (s *AgentService) noteMovedMcpSecret(ctx context.Context, row mcp.Server, version int32) {
 	var err error
 	if row.Kind() == mcp.AuthOAuth && row.OAuth != nil {
-		err = s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, version, *row.OAuth, row.Token)
+		var o mcp.OAuth
+		if o, err = s.vaultMcpOAuth(ctx, row.Owner, row.Name, *row.OAuth); err == nil {
+			err = s.store.RefreshMcpServerOAuth(ctx, row.Owner, row.Name, version, o)
+		}
 	} else {
-		err = s.store.SetMcpServerTokenMeta(ctx, row.Owner, row.Name, row.TokenHint, row.TokenSetBy, version, row.Token)
+		err = s.store.SetMcpServerTokenMeta(ctx, row.Owner, row.Name, row.TokenHint, row.TokenSetBy, version)
 	}
 	if err != nil {
 		s.logger.WarnContext(ctx, "a personal mcp token was moved but the row still names the old version",
@@ -788,7 +888,7 @@ func (s *AgentService) mcpServerToProto(
 		// Shown, never authorised on: the account came out of an id_token whose signature
 		// nothing here verifies, because nothing here decides anything with it.
 		out.Account = o.Account
-		out.Refreshable = o.RefreshToken != ""
+		out.Refreshable = row.Refreshable()
 		out.OauthSupported = true
 		if !o.ExpiresAt.IsZero() {
 			out.ExpiresAt = timestamppb.New(o.ExpiresAt)

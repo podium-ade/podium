@@ -671,7 +671,8 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
 				"repositories that turn's playbook listed", field, ref.Name))
 		}
-		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) {
+		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) ||
+			spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			errs = append(errs, fmt.Errorf("%s may not name %s: an MCP server's token "+
 				"comes from mcp_servers, which is what decides whether this playbook has "+
 				"that server at all", field, ref.Name))

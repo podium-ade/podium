@@ -210,8 +210,7 @@ type AgentServiceClient interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -1113,8 +1112,7 @@ type AgentServiceHandler interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
