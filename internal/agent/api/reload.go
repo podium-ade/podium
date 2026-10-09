@@ -11,12 +11,19 @@ import (
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
-// overridesSettingKey is the settings row the profile overrides live in. One row, because
-// the four fields are one decision an operator makes on one screen.
+// overridesSettingKey is the legacy overlay. It still applies when no assistant catalog
+// has been saved, so a conductor that has not opened the new screen keeps answering.
 const overridesSettingKey = "profile.overrides"
 
-// ReloadProfile rebuilds the profile a turn runs from — the profile directory with the
-// stored overrides on top — and swaps it into live.
+// assistantsSettingKey is the catalog of assistant definitions. The conductor runs the
+// active one. A later create adds a definition to this same row.
+const assistantsSettingKey = "profile.assistants"
+
+// ReloadProfile rebuilds the profile a turn runs from and swaps it into live.
+//
+// A saved assistant definition replaces the assistant fields of the install file. Until
+// one has been saved, the legacy override row is applied instead. Playbooks come from
+// the profile directory either way.
 //
 // This is the whole of "a change reaches a running conductor without a restart": every
 // reader takes live.Current() per use, so the swap is the only thing that has to happen.
@@ -27,7 +34,7 @@ func ReloadProfile(ctx context.Context, st *store.Store, live *profiles.Live) (*
 	if files == nil {
 		return nil, errors.New("this conductor has no profile directory loaded")
 	}
-	applied, err := applyOverrides(ctx, st, files)
+	applied, err := applyStored(ctx, st, files)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +61,7 @@ func ReloadProfileDir(
 	if err != nil {
 		return nil, err
 	}
-	applied, err := applyOverrides(ctx, st, files)
+	applied, err := applyStored(ctx, st, files)
 	if err != nil {
 		return nil, err
 	}
@@ -63,11 +70,22 @@ func ReloadProfileDir(
 	return applied, nil
 }
 
-func applyOverrides(
+func applyStored(
 	ctx context.Context, st *store.Store, files *profiles.Profile,
 ) (*profiles.Profile, error) {
 	if st == nil {
 		return files, nil
+	}
+	cat, found, err := readCatalog(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		def, ok := cat.Active()
+		if !ok {
+			return nil, errors.New("the saved assistants have no active definition")
+		}
+		return profiles.ApplyDefinition(files, def)
 	}
 	ov, err := readOverrides(ctx, st)
 	if err != nil {
@@ -92,8 +110,9 @@ func (s *AgentService) reloadProfile(ctx context.Context) error {
 	return err
 }
 
-// Reconcile is the timer's rebuild: the stored overrides, re-read on an interval so a row
-// changed by another conductor or by psql lands here too.
+// Reconcile is the timer's rebuild: the saved assistant, re-read on an interval so a row
+// changed by another conductor or by psql lands here too. A conductor that has not saved
+// one still re-reads the legacy override row.
 //
 // It takes the write lock, and that is the whole reason it exists as a method of its own. A
 // rebuild is a read of the file half, a read of the database and then a swap; a timer doing
@@ -152,6 +171,18 @@ func (s *AgentService) staleReason() string {
 		return *r
 	}
 	return ""
+}
+
+func readCatalog(ctx context.Context, st *store.Store) (profiles.AssistantCatalog, bool, error) {
+	var cat profiles.AssistantCatalog
+	err := st.GetSetting(ctx, assistantsSettingKey, &cat)
+	if errors.Is(err, store.ErrNotFound) {
+		return profiles.AssistantCatalog{}, false, nil
+	}
+	if err != nil {
+		return profiles.AssistantCatalog{}, false, err
+	}
+	return cat, true, nil
 }
 
 func readOverrides(ctx context.Context, st *store.Store) (profiles.Overrides, error) {

@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -27,7 +25,7 @@ func (s *AgentService) GetProfile(
 	if err != nil {
 		return nil, err
 	}
-	ov, err := readOverrides(ctx, s.store)
+	saved, err := s.profileSave(ctx)
 	if err != nil {
 		return nil, storeError(err)
 	}
@@ -38,15 +36,15 @@ func (s *AgentService) GetProfile(
 	}
 
 	return connect.NewResponse(&agentv1.GetProfileResponse{
-		Profile:     profileToProto(cur, files, ov),
+		Profile:     profileToProto(cur, files, saved),
 		Playbooks:   out,
 		StaleReason: s.staleReason(),
 	}), nil
 }
 
-// UpdateProfile stores the overrides and swaps the rebuilt profile in. Every field is an
-// override of profile.yaml and an empty one clears it, so "use the file's value" needs no
-// second RPC.
+// UpdateProfile stores the active assistant definition and swaps the rebuilt profile in.
+// The request is the whole definition. Playbooks stay files. A legacy override row is
+// removed on the first save so the two cannot both apply.
 func (s *AgentService) UpdateProfile(
 	ctx context.Context, req *connect.Request[agentv1.UpdateProfileRequest],
 ) (*connect.Response[agentv1.UpdateProfileResponse], error) {
@@ -55,45 +53,57 @@ func (s *AgentService) UpdateProfile(
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("this conductor has no profile loaded"))
 	}
-	ov := profiles.Overrides{
-		DisplayName:     req.Msg.GetDisplayName(),
-		Model:           req.Msg.GetModel(),
-		Agent:           req.Msg.GetAgent(),
-		Effort:          req.Msg.GetEffort(),
-		DefaultPlaybook: req.Msg.GetDefaultPlaybook(),
-		UpdatedBy:       Login(ctx),
-		UpdatedAt:       time.Now().UTC(),
-	}.Trim()
+	def, err := definitionFromRequest(req.Msg, Login(ctx), time.Now().UTC())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	applied, err := profiles.Apply(files, ov)
+	cat, found, err := readCatalog(ctx, s.store)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if found && def.ID != "" && def.ID != cat.ActiveID {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("only the active assistant can be saved here"))
+	}
+	var next profiles.AssistantCatalog
+	if found {
+		next, err = cat.Upsert(def)
+	} else {
+		next, err = cat.Add(def)
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if ov.DefaultPlaybook != "" {
-		if _, ok := applied.Playbooks[ov.DefaultPlaybook]; !ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
-				"default_playbook %q names no playbook in playbooks/ (have %s)",
-				ov.DefaultPlaybook, strings.Join(applied.PlaybookNames(), ", ")))
-		}
+	active, ok := next.Active()
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("the assistant catalog has no active definition"))
 	}
-	if err := s.store.PutSetting(ctx, overridesSettingKey, ov); err != nil {
+	if _, err := profiles.ApplyDefinition(files, active); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.store.PutSetting(ctx, assistantsSettingKey, next); err != nil {
+		return nil, storeError(err)
+	}
+	if err := s.store.DeleteSetting(ctx, overridesSettingKey); err != nil {
 		return nil, storeError(err)
 	}
 	if err := s.reloadProfile(ctx); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	s.logger.InfoContext(ctx, "the agent profile was changed", "login", ov.UpdatedBy,
-		"overridden", ov.Fields())
+	s.logger.InfoContext(ctx, "the assistant was saved", "login", active.UpdatedBy, "id", active.ID, "name", active.Name)
 
 	cur, _, err := s.profilePair()
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&agentv1.UpdateProfileResponse{
-		Profile: profileToProto(cur, files, ov),
+		Profile: profileToProto(cur, files, profileSave{
+			ID: active.ID, UpdatedBy: active.UpdatedBy, UpdatedAt: active.UpdatedAt,
+		}),
 	}), nil
 }
 
@@ -111,10 +121,40 @@ func (s *AgentService) profilePair() (cur, files *profiles.Profile, err error) {
 	return cur, files, nil
 }
 
-func profileToProto(cur, files *profiles.Profile, ov profiles.Overrides) *agentv1.AgentProfile {
+// profileSave is who last wrote the assistant the screen is showing. ID is empty until
+// a definition has been saved. Overridden is the legacy overlay's fields, and only while
+// that overlay is still what a turn runs from.
+type profileSave struct {
+	ID         string
+	UpdatedBy  string
+	UpdatedAt  time.Time
+	Overridden []string
+}
+
+func (s *AgentService) profileSave(ctx context.Context) (profileSave, error) {
+	cat, found, err := readCatalog(ctx, s.store)
+	if err != nil {
+		return profileSave{}, err
+	}
+	if found {
+		def, ok := cat.Active()
+		if !ok {
+			return profileSave{}, nil
+		}
+		return profileSave{ID: def.ID, UpdatedBy: def.UpdatedBy, UpdatedAt: def.UpdatedAt}, nil
+	}
+	ov, err := readOverrides(ctx, s.store)
+	if err != nil {
+		return profileSave{}, err
+	}
+	return profileSave{UpdatedBy: ov.UpdatedBy, UpdatedAt: ov.UpdatedAt, Overridden: ov.Fields()}, nil
+}
+
+func profileToProto(cur, files *profiles.Profile, saved profileSave) *agentv1.AgentProfile {
 	assistant := cur.Assistant()
 	out := &agentv1.AgentProfile{
-		Name:                files.Name,
+		Id:                  saved.ID,
+		Name:                cur.Name,
 		DisplayName:         cur.DisplayName,
 		Model:               cur.Model,
 		Agent:               cur.AgentFor(profiles.Playbook{}),
@@ -126,17 +166,53 @@ func profileToProto(cur, files *profiles.Profile, ov profiles.Overrides) *agentv
 		FileAgent:           files.Agent,
 		FileEffort:          files.Effort,
 		FileDefaultPlaybook: files.DefaultPlaybook,
-		Overridden:          ov.Fields(),
-		UpdatedBy:           ov.UpdatedBy,
-		// The assistant's own two fields. There is no file_* pair for them and no override:
-		// they come from profile.yaml and only from there.
-		Skills:   assistant.Skills,
-		MaxTurns: int32(assistant.MaxTurns),
+		Overridden:          saved.Overridden,
+		UpdatedBy:           saved.UpdatedBy,
+		Skills:              assistant.Skills,
+		MaxTurns:            int32(assistant.MaxTurns),
+		SystemPrompt:        cur.SystemPrompt,
+		FileSystemPrompt:    files.SystemPrompt,
+		McpServers:          assistant.MCPServers,
+		FileMcpServers:      files.MCPServers,
+		FileSkills:          files.Skills,
+		FileMaxTurns:        int32(files.MaxTurns),
+		Timeout:             assistant.Timeout.String(),
+		GitName:             cur.Git.Name,
+		GitEmail:            cur.Git.Email,
+		FileGitName:         files.Git.Name,
+		FileGitEmail:        files.Git.Email,
 	}
-	if !ov.UpdatedAt.IsZero() {
-		out.UpdatedAt = timestamppb.New(ov.UpdatedAt)
+	if files.Timeout > 0 {
+		out.FileTimeout = files.Timeout.String()
+	}
+	if !saved.UpdatedAt.IsZero() {
+		out.UpdatedAt = timestamppb.New(saved.UpdatedAt)
 	}
 	return out
+}
+
+// definitionFromRequest is the assistant a save asked to store. Every field is the
+// value, including an empty skill list and a cap of zero.
+func definitionFromRequest(msg *agentv1.UpdateProfileRequest, login string, now time.Time) (profiles.AssistantDefinition, error) {
+	if msg == nil {
+		msg = &agentv1.UpdateProfileRequest{}
+	}
+	return profiles.AssistantDefinition{
+		ID:           msg.GetId(),
+		Name:         msg.GetName(),
+		DisplayName:  msg.GetDisplayName(),
+		SystemPrompt: msg.GetSystemPrompt(),
+		Model:        msg.GetModel(),
+		Agent:        msg.GetAgent(),
+		Effort:       msg.GetEffort(),
+		Git:          profiles.GitPersona{Name: msg.GetGitName(), Email: msg.GetGitEmail()},
+		Skills:       append([]string(nil), msg.GetSkills()...),
+		MCPServers:   append([]string(nil), msg.GetMcpServers()...),
+		MaxTurns:     int(msg.GetMaxTurns()),
+		Timeout:      msg.GetTimeout(),
+		UpdatedBy:    login,
+		UpdatedAt:    now,
+	}.Prepare()
 }
 
 func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {

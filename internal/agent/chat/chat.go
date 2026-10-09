@@ -31,6 +31,13 @@ import (
 // disables the composer; this is the guarantee behind it.
 var ErrTurnRunning = errors.New("a turn is already running for this chat")
 
+// ErrPersonalityGone is what Send returns when the assistant this chat was bound to
+// has been deleted, or no longer belongs to the chat's owner. The message is not stored.
+// The sentence is the product copy, and the chat client matches it exactly.
+//
+//nolint:revive,staticcheck // user-facing copy, including the capital and the period
+var ErrPersonalityGone = errors.New("That assistant was deleted.")
+
 // eventBuffer is how many inbound messages may be waiting for the turn loop. One human
 // typing cannot outrun this, and a full channel makes Send block rather than lose a
 // message.
@@ -55,6 +62,9 @@ type Store interface {
 	AttachChatPullRequest(ctx context.Context, pr store.ChatPullRequest) (store.ChatPullRequest, error)
 	DetachChatPullRequest(ctx context.Context, chatID, url string) error
 	ListChatPullRequests(ctx context.Context, chatID string) ([]store.ChatPullRequest, error)
+	// GetPersonality reads the voice a chat is bound to. The caller treats a missing
+	// row, and a row owned by somebody else, as a deleted assistant.
+	GetPersonality(ctx context.Context, id string) (store.Personality, error)
 }
 
 // Options is what a Source needs.
@@ -77,7 +87,9 @@ type SendRequest struct {
 	Login string
 	Text  string
 	// Override is the composer's model picker: what ANSWERS this message. Empty everywhere
-	// means the assistant's own model, which is the profile's.
+	// means this chat has not picked. A personal assistant's stored model fills that gap;
+	// a Podium chat, and a voice that names no model, leave it empty so the turn follows
+	// the profile.
 	//
 	// It does not reach a task the turn delegates: that runs on its playbook's model. "Answer
 	// me on Grok" is about the conversation, not about how a container does its job.
@@ -186,6 +198,16 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		// login's chat is itself something this caller has no business learning.
 		return store.ChatMessage{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, req.ChatID)
 	}
+	personalityName, personalityPrompt, personalityModel, err := s.personalityFor(ctx, chat)
+	if err != nil {
+		return store.ChatMessage{}, err
+	}
+	// An empty composer choice means this voice's default. A Podium chat, and a voice
+	// that names no model of its own, leave it empty so the turn follows Podium.
+	override := req.Override
+	if override.Empty() {
+		override = personalityModel
+	}
 	reply := s.awaiting(req.ChatID)
 	if !reply {
 		if err := s.claim(ctx, req.ChatID); err != nil {
@@ -211,15 +233,17 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 	// No playbook travels with a chat message. The assistant answers it, and the playbooks
 	// are what that turn delegates to — one per piece of work, decided by the turn.
 	ev := conductor.InboundEvent{
-		SourceKind: conductor.SourceChat,
-		SourceKey:  store.ChatSourceKey(req.ChatID),
-		Ref:        req.ChatID,
-		Author:     req.Login,
-		Text:       req.Text,
-		TS:         msg.TS,
-		URL:        s.URL(req.ChatID),
-		Override:   req.Override,
-		BriefKind:  conductor.SourceChat,
+		SourceKind:        conductor.SourceChat,
+		SourceKey:         store.ChatSourceKey(req.ChatID),
+		Ref:               req.ChatID,
+		Author:            req.Login,
+		Text:              req.Text,
+		TS:                msg.TS,
+		URL:               s.URL(req.ChatID),
+		Override:          override,
+		BriefKind:         conductor.SourceChat,
+		PersonalityName:   personalityName,
+		PersonalityPrompt: personalityPrompt,
 	}
 	select {
 	case s.events <- ev:
@@ -232,6 +256,23 @@ func (s *Source) Send(ctx context.Context, req SendRequest) (store.ChatMessage, 
 		return store.ChatMessage{}, fmt.Errorf("send to chat %s: %w", req.ChatID, ctx.Err())
 	}
 	return msg, nil
+}
+
+// personalityFor loads the voice a chat is bound to. A Podium chat has none, and the
+// returned strings are empty. A missing voice, or one owned by somebody else, refuses
+// the send before a message is stored.
+func (s *Source) personalityFor(ctx context.Context, chat store.Chat) (string, string, profiles.Override, error) {
+	if chat.PersonalityID == "" {
+		return "", "", profiles.Override{}, nil
+	}
+	p, err := s.store.GetPersonality(ctx, chat.PersonalityID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && p.Login != chat.Login) {
+		return "", "", profiles.Override{}, ErrPersonalityGone
+	}
+	if err != nil {
+		return "", "", profiles.Override{}, err
+	}
+	return p.Name, p.Instructions, profiles.Override{Agent: p.Agent, Model: p.Model, Effort: p.Effort}, nil
 }
 
 // remember records what this message was answered on and names the chat from its first

@@ -18,6 +18,7 @@ import { ToastHost } from "../Toast";
 import { ChatPanel } from "./ChatPanel";
 
 const listChats = vi.fn();
+const listPersonalities = vi.fn();
 const listPlaybooks = vi.fn();
 const createChat = vi.fn();
 const renameChat = vi.fn();
@@ -31,6 +32,7 @@ vi.mock("../../lib/client", async () => {
     ...actual,
     agent: {
       listChats: (...a: unknown[]) => listChats(...a),
+      listPersonalities: (...a: unknown[]) => listPersonalities(...a),
       listPlaybooks: (...a: unknown[]) => listPlaybooks(...a),
       createChat: (...a: unknown[]) => createChat(...a),
       renameChat: (...a: unknown[]) => renameChat(...a),
@@ -185,6 +187,7 @@ async function onArrival() {
 describe("ChatPanel", () => {
   beforeEach(() => {
     listChats.mockReset();
+    listPersonalities.mockReset();
     listPlaybooks.mockReset();
     createChat.mockReset();
     renameChat.mockReset();
@@ -192,6 +195,7 @@ describe("ChatPanel", () => {
     sendChatMessage.mockReset();
     streamChat.mockReset();
     listChats.mockResolvedValue({ chats: [], nextCursor: "" });
+    listPersonalities.mockResolvedValue({ personalities: [] });
     listPlaybooks.mockResolvedValue({ playbooks, assistant });
     streamChat.mockImplementation(() => live());
   });
@@ -204,6 +208,17 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-composer")).toBeEnabled();
     expect(screen.getByTestId("chat-new")).toBeEnabled();
     expect(streamChat).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(listChats).toHaveBeenCalledWith({ filterPersonality: true, personalityId: "" }),
+    );
+    const assistants = screen.getByRole("navigation", { name: "Assistants" });
+    expect(within(assistants).getByRole("link", { name: "New assistant" })).toHaveAttribute(
+      "href",
+      "/agent/assistants/new",
+    );
+    expect(screen.getByRole("heading", { name: "Assistants" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Assistant" })).toBeInTheDocument();
   });
 
   it("lists the caller's chats with a preview", async () => {
@@ -237,6 +252,80 @@ describe("ChatPanel", () => {
     );
   });
 
+  it("lists and opens a chat for the assistant in the address", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [
+        { id: "pers_01", name: "night-owl", displayName: "Night Owl", instructions: "Be brief." },
+      ],
+    });
+    createChat.mockResolvedValue({ chat: { ...chat, id: "chat_02" } });
+    sendChatMessage.mockResolvedValue({ message: {} });
+    mount("/agent/chat/a/pers_01");
+    expect(await screen.findByText(/Ask Night Owl something/)).toBeInTheDocument();
+    expect(listChats).toHaveBeenCalledWith({ filterPersonality: true, personalityId: "pers_01" });
+    const nav = screen.getByRole("navigation", { name: "Assistants" });
+    expect(within(nav).getByRole("link", { name: "Night Owl" })).toHaveAttribute("aria-current", "page");
+
+    await userEvent.type(screen.getByTestId("chat-composer"), "hello{Enter}");
+    await waitFor(() =>
+      expect(createChat).toHaveBeenCalledWith({ title: "", personalityId: "pers_01" }),
+    );
+  });
+
+  it("shows a personal assistant's model as the chat default", async () => {
+    listPersonalities.mockResolvedValue({
+      personalities: [
+        {
+          id: "pers_01",
+          name: "night-owl",
+          displayName: "Night Owl",
+          instructions: "Be brief.",
+          agent: "grok",
+          model: "grok-4.6",
+          effort: "",
+        },
+      ],
+    });
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, agent: "", model: "", effort: "" }],
+      nextCursor: "",
+    });
+    const arrival = mount("/agent/chat/a/pers_01");
+    const trigger = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(trigger).toHaveTextContent("grok-4.6"));
+    expect(screen.getByText(/Ask Night Owl something/)).toBeInTheDocument();
+    arrival.unmount();
+
+    mount("/agent/chat/a/pers_01/chat_01abc");
+    const open = await screen.findByTestId("chat-run-config");
+    await waitFor(() => expect(open).toHaveTextContent("grok-4.6"));
+  });
+
+  it("keeps a deleted assistant's threads and refuses a new chat", async () => {
+    listPersonalities.mockResolvedValue({ personalities: [] });
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, personalityDisplay: "Night Owl" }],
+      nextCursor: "",
+    });
+    mount("/agent/chat/a/pers_gone");
+    expect(await screen.findByText("That assistant was deleted.")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-new")).toBeDisabled();
+    const nav = screen.getByRole("navigation", { name: "Assistants" });
+    expect(within(nav).getByText("Night Owl")).toHaveAttribute("aria-current", "page");
+  });
+
+  it("says when a message is refused because the assistant was deleted", async () => {
+    listPersonalities.mockResolvedValue({ personalities: [] });
+    listChats.mockResolvedValue({
+      chats: [{ ...chat, personalityDisplay: "Night Owl" }],
+      nextCursor: "",
+    });
+    sendChatMessage.mockRejectedValue(new ConnectError("That assistant was deleted.", Code.FailedPrecondition));
+    mount("/agent/chat/a/pers_gone/chat_01abc");
+    await userEvent.type(await screen.findByTestId("chat-composer"), "hello{Enter}");
+    expect(await screen.findByText("That assistant was deleted.")).toBeInTheDocument();
+  });
+
   it("replays the conversation and follows it live", async () => {
     listChats.mockResolvedValue({ chats: [chat], nextCursor: "" });
     const stream = live();
@@ -255,8 +344,8 @@ describe("ChatPanel", () => {
     expect(bubbles[1]).toHaveAttribute("data-role", "assistant");
     // The answer goes through the markdown subset, so the bold is an element.
     expect(bubbles[1].querySelector("strong")?.textContent).toBe("4,812");
-    // The bot's name labels its run of bubbles.
-    expect(screen.getByText("Podium")).toBeInTheDocument();
+    // The bot's name labels its run of bubbles. The rail also says Podium.
+    expect(bubbles[1].parentElement).toHaveTextContent("Podium");
   });
 
   it("shows the pull requests a turn produced without opening anything", async () => {

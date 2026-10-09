@@ -470,9 +470,7 @@ function EffortMenu({
         </PopoverTrigger>
       </Tooltip>
       <PopoverContent align="start" side="top" className="w-64 p-1">
-        <p className="px-2.5 pt-1.5 pb-1 text-2xs font-medium tracking-wide text-faint uppercase">
-          Effort
-        </p>
+        <p className="px-2.5 pt-1.5 pb-1 text-2xs font-medium text-faint">Effort</p>
         <div role="radiogroup" aria-label="Effort levels">
           {options.map((level) => {
             const selected = value === level;

@@ -169,6 +169,18 @@ const (
 	// AgentServiceSetSlackChannelDescriptionProcedure is the fully-qualified name of the AgentService's
 	// SetSlackChannelDescription RPC.
 	AgentServiceSetSlackChannelDescriptionProcedure = "/podium.agent.v1.AgentService/SetSlackChannelDescription"
+	// AgentServiceListPersonalitiesProcedure is the fully-qualified name of the AgentService's
+	// ListPersonalities RPC.
+	AgentServiceListPersonalitiesProcedure = "/podium.agent.v1.AgentService/ListPersonalities"
+	// AgentServiceCreatePersonalityProcedure is the fully-qualified name of the AgentService's
+	// CreatePersonality RPC.
+	AgentServiceCreatePersonalityProcedure = "/podium.agent.v1.AgentService/CreatePersonality"
+	// AgentServiceUpdatePersonalityProcedure is the fully-qualified name of the AgentService's
+	// UpdatePersonality RPC.
+	AgentServiceUpdatePersonalityProcedure = "/podium.agent.v1.AgentService/UpdatePersonality"
+	// AgentServiceDeletePersonalityProcedure is the fully-qualified name of the AgentService's
+	// DeletePersonality RPC.
+	AgentServiceDeletePersonalityProcedure = "/podium.agent.v1.AgentService/DeletePersonality"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -235,12 +247,13 @@ type AgentServiceClient interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the assistant a turn actually runs from, and every playbook in full.
+	// Until an assistant is saved, that is the install file. After a save, it is the active
+	// assistant definition.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
-	// empty field clears the override and returns that field to the file's value.
+	// UpdateProfile replaces the active assistant definition. The request is the whole
+	// definition. An empty id updates the active one, or creates the first one when none
+	// is stored. Creating a second definition is not this RPC.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
 	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
@@ -345,6 +358,19 @@ type AgentServiceClient interface {
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
 	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
+	// ListPersonalities returns the caller's own voices, by name. Another login's voices
+	// are never returned. Podium itself is not a row here: it is the assistant.
+	ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error)
+	// CreatePersonality stores a voice for the caller. The name "podium" is reserved.
+	// A name this caller already has is already_exists.
+	CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error)
+	// UpdatePersonality replaces one of the caller's voices. A row that is missing or
+	// owned by somebody else is not_found. A rename onto a name this caller already has
+	// is already_exists.
+	UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error)
+	// DeletePersonality removes one of the caller's voices. Chats that used it stay
+	// readable under the name they had. A new message in one of those chats is refused.
+	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -652,6 +678,30 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
 			connect.WithClientOptions(opts...),
 		),
+		listPersonalities: connect.NewClient[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse](
+			httpClient,
+			baseURL+AgentServiceListPersonalitiesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListPersonalities")),
+			connect.WithClientOptions(opts...),
+		),
+		createPersonality: connect.NewClient[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceCreatePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreatePersonality")),
+			connect.WithClientOptions(opts...),
+		),
+		updatePersonality: connect.NewClient[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceUpdatePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdatePersonality")),
+			connect.WithClientOptions(opts...),
+		),
+		deletePersonality: connect.NewClient[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceDeletePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -706,6 +756,10 @@ type agentServiceClient struct {
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
 	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
+	listPersonalities          *connect.Client[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse]
+	createPersonality          *connect.Client[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse]
+	updatePersonality          *connect.Client[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse]
+	deletePersonality          *connect.Client[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -953,6 +1007,26 @@ func (c *agentServiceClient) SetSlackChannelDescription(ctx context.Context, req
 	return c.setSlackChannelDescription.CallUnary(ctx, req)
 }
 
+// ListPersonalities calls podium.agent.v1.AgentService.ListPersonalities.
+func (c *agentServiceClient) ListPersonalities(ctx context.Context, req *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error) {
+	return c.listPersonalities.CallUnary(ctx, req)
+}
+
+// CreatePersonality calls podium.agent.v1.AgentService.CreatePersonality.
+func (c *agentServiceClient) CreatePersonality(ctx context.Context, req *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error) {
+	return c.createPersonality.CallUnary(ctx, req)
+}
+
+// UpdatePersonality calls podium.agent.v1.AgentService.UpdatePersonality.
+func (c *agentServiceClient) UpdatePersonality(ctx context.Context, req *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error) {
+	return c.updatePersonality.CallUnary(ctx, req)
+}
+
+// DeletePersonality calls podium.agent.v1.AgentService.DeletePersonality.
+func (c *agentServiceClient) DeletePersonality(ctx context.Context, req *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
+	return c.deletePersonality.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -1017,12 +1091,13 @@ type AgentServiceHandler interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the assistant a turn actually runs from, and every playbook in full.
+	// Until an assistant is saved, that is the install file. After a save, it is the active
+	// assistant definition.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
-	// empty field clears the override and returns that field to the file's value.
+	// UpdateProfile replaces the active assistant definition. The request is the whole
+	// definition. An empty id updates the active one, or creates the first one when none
+	// is stored. Creating a second definition is not this RPC.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
 	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
@@ -1127,6 +1202,19 @@ type AgentServiceHandler interface {
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
 	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
+	// ListPersonalities returns the caller's own voices, by name. Another login's voices
+	// are never returned. Podium itself is not a row here: it is the assistant.
+	ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error)
+	// CreatePersonality stores a voice for the caller. The name "podium" is reserved.
+	// A name this caller already has is already_exists.
+	CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error)
+	// UpdatePersonality replaces one of the caller's voices. A row that is missing or
+	// owned by somebody else is not_found. A rename onto a name this caller already has
+	// is already_exists.
+	UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error)
+	// DeletePersonality removes one of the caller's voices. Chats that used it stay
+	// readable under the name they had. A new message in one of those chats is refused.
+	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1430,6 +1518,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListPersonalitiesHandler := connect.NewUnaryHandler(
+		AgentServiceListPersonalitiesProcedure,
+		svc.ListPersonalities,
+		connect.WithSchema(agentServiceMethods.ByName("ListPersonalities")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreatePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceCreatePersonalityProcedure,
+		svc.CreatePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("CreatePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdatePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceUpdatePersonalityProcedure,
+		svc.UpdatePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("UpdatePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeletePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceDeletePersonalityProcedure,
+		svc.DeletePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -1530,6 +1642,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
 		case AgentServiceSetSlackChannelDescriptionProcedure:
 			agentServiceSetSlackChannelDescriptionHandler.ServeHTTP(w, r)
+		case AgentServiceListPersonalitiesProcedure:
+			agentServiceListPersonalitiesHandler.ServeHTTP(w, r)
+		case AgentServiceCreatePersonalityProcedure:
+			agentServiceCreatePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceUpdatePersonalityProcedure:
+			agentServiceUpdatePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceDeletePersonalityProcedure:
+			agentServiceDeletePersonalityHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1733,4 +1853,20 @@ func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSlackChannelDescription is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListPersonalities is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreatePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdatePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePersonality is not implemented"))
 }

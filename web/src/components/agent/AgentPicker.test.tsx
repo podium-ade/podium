@@ -88,6 +88,11 @@ describe("AgentPicker", () => {
     expect(onChange).toHaveBeenCalledWith({ agent: "grok", model: "grok-4.6", effort: "high" });
   });
 
+  it("labels effort in sentence case", () => {
+    mount({ agent: "grok", model: "grok-4.6", effort: "" });
+    expect(screen.getByText("Effort")).not.toHaveClass("uppercase");
+  });
+
   it("offers only the levels the chosen model accepts", () => {
     mount({ agent: "grok", model: "grok-4.5", effort: "" });
     const strip = screen.getByTestId("effort-strip");

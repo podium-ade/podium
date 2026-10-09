@@ -98,6 +98,14 @@ type InboundEvent struct {
 	// source's dry-run knobs and is empty for every real source; the conductor refuses to
 	// honour it for any source but "dev".
 	Env map[string]string
+	// PersonalityName is the personal assistant this chat is bound to. Empty means
+	// Podium. It labels a new session. The brief's profile name stays Podium's, and
+	// Slack, GitHub, and every other source leave this empty.
+	PersonalityName string
+	// PersonalityPrompt is that assistant's instructions. The conductor appends them
+	// to a copy of Podium's system prompt for this brief only. The stored prompt is
+	// not changed.
+	PersonalityPrompt string
 }
 
 // Attachment is one file the conductor wants put into the conversation. Size is part of
