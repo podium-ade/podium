@@ -219,6 +219,15 @@ func holds(cfg *container.Config) bool {
 	return false
 }
 
+// Holds reports whether a task's container was started to stay up after its command.
+func (e *Executor) Holds(ctx context.Context, taskID string) bool {
+	insp, err := e.cli.ContainerInspect(ctx, containerName(taskID))
+	if err != nil {
+		return false
+	}
+	return holds(insp.Config)
+}
+
 // holdExitPoll is how often an adopted held task's exit file is looked for.
 const holdExitPoll = 2 * time.Second
 

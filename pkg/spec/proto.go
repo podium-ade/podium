@@ -116,9 +116,12 @@ func exposeFromProto(p *podiumv1.Expose) *Expose {
 	if p == nil {
 		return nil
 	}
-	x := &Expose{Via: p.GetVia(), Ports: make(map[string]ExposedPort, len(p.GetPorts()))}
+	x := &Expose{Via: p.GetVia()}
 	if t := p.GetTtl(); t != nil {
 		x.TTL = Duration(t.AsDuration())
+	}
+	if len(p.GetPorts()) > 0 {
+		x.Ports = make(map[string]ExposedPort, len(p.GetPorts()))
 	}
 	for name, port := range p.GetPorts() {
 		x.Ports[name] = ExposedPort{Port: int(port.GetPort()), From: port.GetFrom()}

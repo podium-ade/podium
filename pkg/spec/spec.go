@@ -85,12 +85,19 @@ const (
 // Expose is a task that stays up as a preview once its command has exited. Every port is
 // published on one address per task under its own number, so an app built to call
 // localhost:5011 from localhost:3000 works unchanged once it is told the address.
+//
+// With no ports it only holds: the containers stay up for the ttl and nothing is published.
+// That is for a task that publishes itself, through a tunnel it opens, say, which needs its
+// processes to outlive the command and no address from the node.
 type Expose struct {
 	TTL Duration `yaml:"ttl,omitempty" json:"ttl,omitempty"`
 	// Via is ExposeViaTailnet or ExposeViaLAN; empty lets the node choose.
 	Via   string                 `yaml:"via,omitempty" json:"via,omitempty"`
-	Ports map[string]ExposedPort `yaml:"ports" json:"ports"`
+	Ports map[string]ExposedPort `yaml:"ports,omitempty" json:"ports,omitempty"`
 }
+
+// Publishes reports whether the node has to publish anything: false for a hold-only expose.
+func (x *Expose) Publishes() bool { return x != nil && len(x.Ports) > 0 }
 
 // ExposedPort is one published port. From names the sidecar listening on it; empty is the
 // task container.
@@ -288,8 +295,8 @@ func (s *TaskSpec) validateExpose() []error {
 	default:
 		errs = append(errs, fmt.Errorf("expose.via %q is not %s or %s", x.Via, ExposeViaTailnet, ExposeViaLAN))
 	}
-	if len(x.Ports) == 0 {
-		errs = append(errs, errors.New("expose.ports must name at least one port"))
+	if len(x.Ports) == 0 && x.Via != "" {
+		errs = append(errs, fmt.Errorf("expose.via %q needs expose.ports: a hold-only expose publishes nothing", x.Via))
 	}
 	byPort := map[int]string{}
 	for _, name := range sortedKeys(x.Ports) {

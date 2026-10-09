@@ -33,9 +33,15 @@ type slotDevice interface {
 // previewLease is one task's hold on a preview address, from assignment until release.
 type previewLease struct {
 	plan docker.Preview
-	slot int // -1 for a LAN address
+	slot int // a tailnet slot, lanSlot for a LAN address, holdSlot for no address at all
 	held bool
 }
+
+// The slot of a lease that holds no tailnet device.
+const (
+	lanSlot  = -1
+	holdSlot = -2
+)
 
 // previewManager decides where a task's exposed ports are published and keeps what it lent
 // until the control plane releases the task. It owns two pools: LAN addresses the operator
@@ -77,6 +83,10 @@ func previewHostname(nodeHostname string, slot int) string {
 	return "pv-" + short + "-" + strconv.Itoa(slot)
 }
 
+// holdOnly is reserve's via for an expose with no ports: the task is kept up after its
+// command and nothing is published, so it takes no address and never runs short of one.
+const holdOnly = "hold"
+
 // errNoPreview is why an exposed task is turned away from this node. The assignment is
 // refused as retryable: another node may have room, or this one once a preview is released.
 var errNoPreview = errors.New("no preview address free")
@@ -88,6 +98,10 @@ func (m *previewManager) reserve(taskID, via string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.leases[taskID]; ok {
+		return nil
+	}
+	if via == holdOnly {
+		m.leases[taskID] = &previewLease{slot: holdSlot}
 		return nil
 	}
 	if via != "" {
@@ -154,6 +168,9 @@ func (m *previewManager) ready(ctx context.Context, taskID string) (*docker.Prev
 	m.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("%w: task %s has no reservation", errNoPreview, taskID)
+	}
+	if l.slot == holdSlot {
+		return nil, nil
 	}
 	if l.slot < 0 {
 		p := l.plan
@@ -236,9 +253,17 @@ func (m *previewManager) release(taskID string) {
 	}
 }
 
+// restoreHold rebuilds the lease of a hold-only task a previous incarnation left running:
+// no gateway to read it from, and no address to take back.
+func (m *previewManager) restoreHold(taskID string, held bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.leases[taskID] = &previewLease{slot: holdSlot, held: held}
+}
+
 // restore rebuilds a lease from a gateway a previous incarnation left running.
 func (m *previewManager) restore(hp docker.HeldPreview, held bool) {
-	slot := -1
+	slot := lanSlot
 	if hp.Slot != "" {
 		if n, err := strconv.Atoi(hp.Slot); err == nil {
 			slot = n
@@ -286,9 +311,10 @@ func (m *previewManager) free() (tailnet, lan int32) {
 	defer m.mu.Unlock()
 	usedSlots, usedLAN := 0, 0
 	for _, l := range m.leases {
-		if l.slot >= 0 {
+		switch {
+		case l.slot >= 0:
 			usedSlots++
-		} else {
+		case l.slot == lanSlot:
 			usedLAN++
 		}
 	}

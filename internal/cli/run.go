@@ -199,6 +199,10 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 				e.noteMessage(ev.GetMessage())
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW:
 				p := ev.GetPreview()
+				if p.GetAddress() == "" {
+					e.note("held after the command exits; publishing nothing")
+					break
+				}
 				e.note("preview over %s on %s", p.GetVia(), p.GetAddress())
 				for _, name := range sortedKeys(p.GetUrls()) {
 					e.note("  %s  %s", name, p.GetUrls()[name])

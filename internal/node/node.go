@@ -252,19 +252,20 @@ func (n *Node) discoverOwned(ctx context.Context) {
 		if c.TaskID == "" || c.Role != docker.RoleTask {
 			continue
 		}
+		// A task whose command already exited is a preview, not a run: there is nothing to
+		// adopt, only an address to take back. The control plane says whether it still
+		// wants it in the HelloAck. A hold-only task has no gateway to find it by, so it is
+		// known by the runner's exit file, or by being started to hold.
+		_, held := n.exec.HeldExit(c.TaskID)
 		if hp, ok := gateways[c.TaskID]; ok {
-			// A task whose command already exited is a preview, not a run: there is nothing
-			// to adopt, only an address to take back. The control plane says whether it
-			// still wants it in the HelloAck.
-			_, held := n.exec.HeldExit(c.TaskID)
 			n.previews.restore(hp, held)
-			if held {
-				n.logger.InfoContext(ctx, "found a preview left up by a previous run", "task_id", c.TaskID,
-					"via", hp.Via, "address", hp.Address)
-				go n.attachPreview(c.TaskID)
-				continue
-			}
 			go n.attachPreview(c.TaskID)
+		} else if held || n.exec.Holds(ctx, c.TaskID) {
+			n.previews.restoreHold(c.TaskID, held)
+		}
+		if held {
+			n.logger.InfoContext(ctx, "found a preview left up by a previous run", "task_id", c.TaskID)
+			continue
 		}
 		dir := n.exec.TaskDir(c.TaskID)
 		leaseID := c.LeaseID

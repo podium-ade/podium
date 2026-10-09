@@ -104,6 +104,56 @@ func TestHeldRunServesItsPortsAfterTheCommandExits(t *testing.T) {
 	assert.Empty(t, left, "teardown left containers behind")
 }
 
+// TestHoldOnlyRunKeepsTheTaskUpWithoutAGateway is a task that publishes itself, through a
+// tunnel it opens: it needs its processes to outlive the command and nothing from the node.
+func TestHoldOnlyRunKeepsTheTaskUpWithoutAGateway(t *testing.T) {
+	e := newTestExecutor(t)
+	taskID := ids.NewTask()
+	t.Cleanup(func() { _ = e.Teardown(context.Background(), taskID, false) })
+
+	s := specWithSidecars(t, spec.TaskSpec{
+		Image:   testImage,
+		Command: []string{"sh", "-c", `(` + serveHTTP("3000", "self-published") + ` &) ; exit 0`},
+		Expose:  &spec.Expose{},
+		Timeout: spec.Duration(time.Minute),
+	})
+	c := newCollector()
+	res, err := e.Run(context.Background(), Request{TaskID: taskID, LeaseID: ids.NewLease(), Spec: s}, c.ch)
+	events := c.finish()
+	require.NoError(t, err, "a hold-only run needs no Preview from the node")
+	assert.True(t, res.Held)
+	assert.Equal(t, 0, res.ExitCode)
+
+	var preview *PreviewPayload
+	for _, ev := range events {
+		if p, ok := ev.Payload.(PreviewPayload); ok {
+			preview = &p
+		}
+	}
+	require.NotNil(t, preview, "the control plane still needs a preview to keep the ttl on")
+	assert.Empty(t, preview.Address)
+
+	_, err = e.GatewayPorts(context.Background(), taskID)
+	assert.Error(t, err, "no gateway is started")
+	insp, err := e.cli.ContainerInspect(context.Background(), containerName(taskID))
+	require.NoError(t, err)
+	assert.True(t, insp.State.Running, "the task container is still up")
+	assert.True(t, e.Holds(context.Background(), taskID))
+	_, held := e.HeldExit(taskID)
+	assert.True(t, held, "and a restarted node can tell it is held")
+
+	// What the command left running still answers, from inside the task's own network.
+	out, err := e.cli.ContainerExecCreate(context.Background(), insp.ID, container.ExecOptions{
+		Cmd: []string{"sh", "-c", "printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc 127.0.0.1 3000"}, AttachStdout: true,
+	})
+	require.NoError(t, err)
+	hj, err := e.cli.ContainerExecAttach(context.Background(), out.ID, container.ExecAttachOptions{})
+	require.NoError(t, err)
+	defer hj.Close()
+	body, _ := io.ReadAll(hj.Reader)
+	assert.Contains(t, string(body), "self-published")
+}
+
 // TestAdoptNoticesAHeldExit is a node that restarted while a held task's command still ran:
 // the event socket is gone and the container will not exit, so the exit file is the only
 // thing that can say the command is done.

@@ -54,7 +54,7 @@ func (n *Node) startTask(a *podiumv1.Assign) {
 	taskSpec := spec.FromProto(a.GetSpec())
 	go n.execute(buf, red, func(events chan<- docker.Event) (bool, error) {
 		var preview *docker.Preview
-		if taskSpec.Expose != nil {
+		if taskSpec.Expose.Publishes() {
 			p, err := n.previews.ready(n.runCtx, taskID)
 			if err != nil {
 				// Retryable: the address was reserved, so this is the tailnet refusing a
@@ -337,7 +337,7 @@ func (n *Node) consume(buf *buffer, ev docker.Event, pend *pendingLog, flush, cl
 		return
 	}
 	closeRun()
-	if ev.Kind == docker.KindPreview {
+	if p, ok := ev.Payload.(docker.PreviewPayload); ok && p.Address != "" {
 		go n.attachPreview(buf.taskID)
 	}
 	n.push(buf, toWire(ev))
