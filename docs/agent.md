@@ -1857,16 +1857,27 @@ user_secrets:
 
 A turn of that playbook then:
 
-- Gets that person's token as `GITHUB_TOKEN` and `GH_TOKEN`. The conductor does not mint an App
-  token for it.
+- **Never holds the person's token.** It gets a capability, as an App turn does, and its
+  credential helper redeems it at the conductor. The conductor exchanges the person's token for
+  one GitHub scopes to the playbook's `repos:`, with contents and pull requests write only.
+- **Holds each scoped token for one hour at most.** GitHub gives a scoped token no expiry, so
+  the conductor revokes each one an hour after issuing it, and every one when the turn ends. It
+  records them in the secret store, so a turn still running across a conductor restart has its
+  tokens revoked too.
 - Commits as that person: their GitHub name and their `<id>+<login>@users.noreply.github.com`
   address, which GitHub links to their account. This replaces any `git:` persona.
-- Can reach only the repositories that the App is installed on and that the person can also
-  reach. The pull request shows the person as its author, marked as made through the App.
+- Can reach only the playbook's repositories, and of those only the ones the App is installed
+  on that the person can also reach. The pull request shows the person as its author, marked as
+  made through the App.
+
+The `user_secrets:` line is what opts a playbook in. The conductor does not attach
+`github.token` to the task, so `GITHUB_TOKEN` is not set: git and `gh` get the scoped token from
+the credential helper and `GH_TOKEN`.
 
 The turn fails, and says why, when:
 
-- The person has not connected GitHub.
+- The person has not connected GitHub, or GitHub no longer accepts their connection.
+- The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.
 
