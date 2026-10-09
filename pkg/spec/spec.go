@@ -339,6 +339,24 @@ func PersonalMCPSecretName(server string) string { return "mcp." + server + "_to
 // as. The conductor may write it for that person.
 const GitHubAccountSecret = "github.token"
 
+// ConnectionSecretPrefix is where the conductor keeps the credentials of its saved
+// connections: the GitHub App's key and secrets, and the Slack tokens.
+const ConnectionSecretPrefix = "podium.agent.connection."
+
+// UserGitTokenSecretPrefix is where the conductor keeps the scoped GitHub tokens it issued
+// a turn, so it can revoke them when the turn ends, even after a restart.
+const UserGitTokenSecretPrefix = "podium.agent.git_user_token."
+
+// ConductorMayRead reports whether the conductor may read a value back. Only its own
+// credentials qualify, and a person's connected GitHub account, which it exchanges for a
+// token scoped to one turn. No person may read any value.
+func ConductorMayRead(name, owner string) bool {
+	if owner != "" {
+		return name == GitHubAccountSecret
+	}
+	return strings.HasPrefix(name, ConnectionSecretPrefix) || strings.HasPrefix(name, UserGitTokenSecretPrefix)
+}
+
 // IsPersonalMCPSecret reports whether name is a personal MCP credential. The conductor
 // may write one of these for a person. A playbook may not name one.
 func IsPersonalMCPSecret(name string) bool { return personalMCPSecretRE.MatchString(name) }

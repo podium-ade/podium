@@ -123,13 +123,13 @@ func TestAGitHubFlowBelongsToThePersonWhoStartedIt(t *testing.T) {
 		FlowId: start.GetFlowId(), State: start.GetState(), Code: "good-code",
 	}))
 	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
-	assert.Empty(t, f.secrets.set)
+	assert.NotContains(t, f.secrets.set, "github.token")
 
 	_, err = f.svc.CompleteGitHubOAuth(loginCtx("ada@acme.com"), connect.NewRequest(&agentv1.CompleteGitHubOAuthRequest{
 		FlowId: start.GetFlowId(), State: "wrong", Code: "good-code",
 	}))
 	assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
-	assert.Empty(t, f.secrets.set)
+	assert.NotContains(t, f.secrets.set, "github.token")
 }
 
 func TestConnectingGitHubRefusesExpiringTokens(t *testing.T) {
@@ -140,7 +140,7 @@ func TestConnectingGitHubRefusesExpiringTokens(t *testing.T) {
 	}))
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	assert.ErrorContains(t, err, "token expiration")
-	assert.Empty(t, f.secrets.set)
+	assert.NotContains(t, f.secrets.set, "github.token")
 }
 
 func TestConnectingGitHubNeedsAPersonAndAClient(t *testing.T) {

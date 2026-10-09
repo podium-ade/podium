@@ -95,6 +95,31 @@ func TestSecretScopesOnTheRealAPI(t *testing.T) {
 		Owner: "bob@acme.com",
 	}))
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	// Only the conductor reads a value back, and only the names it keeps for itself.
+	read, err := agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "github.token", Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "bob-gh", string(read.Msg.GetValue()))
+	_, err = bob.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "github.token", Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = owner.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{Name: "COMPANY"}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{Name: "COMPANY"}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "a company secret is not the conductor's")
+	setGlobal(t, agent, "podium.agent.connection.github.private_key")
+	read, err = agent.ReadSecret(ctx, connect.NewRequest(&podiumv1.ReadSecretRequest{
+		Name: "podium.agent.connection.github.private_key",
+	}))
+	require.NoError(t, err)
+	require.NotEmpty(t, read.Msg.GetValue())
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "podium.agent.connection.github.private_key",
+	}))
+	require.NoError(t, err)
+
 	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
 		Name: "github.token", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
 	}))

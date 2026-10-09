@@ -480,6 +480,104 @@ func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
 	return file_podium_v1_secret_proto_rawDescGZIP(), []int{6}
 }
 
+type ReadSecretRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// owner is the login of a personal secret, and empty for a global one.
+	Owner         string `protobuf:"bytes,2,opt,name=owner,proto3" json:"owner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadSecretRequest) Reset() {
+	*x = ReadSecretRequest{}
+	mi := &file_podium_v1_secret_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadSecretRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadSecretRequest) ProtoMessage() {}
+
+func (x *ReadSecretRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_secret_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadSecretRequest.ProtoReflect.Descriptor instead.
+func (*ReadSecretRequest) Descriptor() ([]byte, []int) {
+	return file_podium_v1_secret_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ReadSecretRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ReadSecretRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+type ReadSecretResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SENSITIVE: never log.
+	Value         []byte `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadSecretResponse) Reset() {
+	*x = ReadSecretResponse{}
+	mi := &file_podium_v1_secret_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadSecretResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadSecretResponse) ProtoMessage() {}
+
+func (x *ReadSecretResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_secret_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadSecretResponse.ProtoReflect.Descriptor instead.
+func (*ReadSecretResponse) Descriptor() ([]byte, []int) {
+	return file_podium_v1_secret_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ReadSecretResponse) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
 var File_podium_v1_secret_proto protoreflect.FileDescriptor
 
 const file_podium_v1_secret_proto_rawDesc = "" +
@@ -510,15 +608,22 @@ const file_podium_v1_secret_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12,\n" +
 	"\x05scope\x18\x02 \x01(\x0e2\x16.podium.v1.SecretScopeR\x05scope\x12\x14\n" +
 	"\x05owner\x18\x03 \x01(\tR\x05owner\"\x16\n" +
-	"\x14DeleteSecretResponse*_\n" +
+	"\x14DeleteSecretResponse\"=\n" +
+	"\x11ReadSecretRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05owner\x18\x02 \x01(\tR\x05owner\"*\n" +
+	"\x12ReadSecretResponse\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value*_\n" +
 	"\vSecretScope\x12\x1c\n" +
 	"\x18SECRET_SCOPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13SECRET_SCOPE_GLOBAL\x10\x01\x12\x19\n" +
-	"\x15SECRET_SCOPE_PERSONAL\x10\x022\xf6\x01\n" +
+	"\x15SECRET_SCOPE_PERSONAL\x10\x022\xc1\x02\n" +
 	"\rSecretService\x12F\n" +
 	"\tSetSecret\x12\x1b.podium.v1.SetSecretRequest\x1a\x1c.podium.v1.SetSecretResponse\x12L\n" +
 	"\vListSecrets\x12\x1d.podium.v1.ListSecretsRequest\x1a\x1e.podium.v1.ListSecretsResponse\x12O\n" +
-	"\fDeleteSecret\x12\x1e.podium.v1.DeleteSecretRequest\x1a\x1f.podium.v1.DeleteSecretResponseB\xa1\x01\n" +
+	"\fDeleteSecret\x12\x1e.podium.v1.DeleteSecretRequest\x1a\x1f.podium.v1.DeleteSecretResponse\x12I\n" +
+	"\n" +
+	"ReadSecret\x12\x1c.podium.v1.ReadSecretRequest\x1a\x1d.podium.v1.ReadSecretResponseB\xa1\x01\n" +
 	"\rcom.podium.v1B\vSecretProtoP\x01Z>github.com/podium-ade/podium/internal/proto/podium/v1;podiumv1\xa2\x02\x03PXX\xaa\x02\tPodium.V1\xca\x02\tPodium\\V1\xe2\x02\x15Podium\\V1\\GPBMetadata\xea\x02\n" +
 	"Podium::V1b\x06proto3"
 
@@ -535,7 +640,7 @@ func file_podium_v1_secret_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_secret_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_podium_v1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_podium_v1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_podium_v1_secret_proto_goTypes = []any{
 	(SecretScope)(0),              // 0: podium.v1.SecretScope
 	(*Secret)(nil),                // 1: podium.v1.Secret
@@ -545,26 +650,30 @@ var file_podium_v1_secret_proto_goTypes = []any{
 	(*ListSecretsResponse)(nil),   // 5: podium.v1.ListSecretsResponse
 	(*DeleteSecretRequest)(nil),   // 6: podium.v1.DeleteSecretRequest
 	(*DeleteSecretResponse)(nil),  // 7: podium.v1.DeleteSecretResponse
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*ReadSecretRequest)(nil),     // 8: podium.v1.ReadSecretRequest
+	(*ReadSecretResponse)(nil),    // 9: podium.v1.ReadSecretResponse
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
 }
 var file_podium_v1_secret_proto_depIdxs = []int32{
-	8, // 0: podium.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 1: podium.v1.Secret.scope:type_name -> podium.v1.SecretScope
-	0, // 2: podium.v1.SetSecretRequest.scope:type_name -> podium.v1.SecretScope
-	1, // 3: podium.v1.SetSecretResponse.secret:type_name -> podium.v1.Secret
-	1, // 4: podium.v1.ListSecretsResponse.secrets:type_name -> podium.v1.Secret
-	0, // 5: podium.v1.DeleteSecretRequest.scope:type_name -> podium.v1.SecretScope
-	2, // 6: podium.v1.SecretService.SetSecret:input_type -> podium.v1.SetSecretRequest
-	4, // 7: podium.v1.SecretService.ListSecrets:input_type -> podium.v1.ListSecretsRequest
-	6, // 8: podium.v1.SecretService.DeleteSecret:input_type -> podium.v1.DeleteSecretRequest
-	3, // 9: podium.v1.SecretService.SetSecret:output_type -> podium.v1.SetSecretResponse
-	5, // 10: podium.v1.SecretService.ListSecrets:output_type -> podium.v1.ListSecretsResponse
-	7, // 11: podium.v1.SecretService.DeleteSecret:output_type -> podium.v1.DeleteSecretResponse
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	10, // 0: podium.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 1: podium.v1.Secret.scope:type_name -> podium.v1.SecretScope
+	0,  // 2: podium.v1.SetSecretRequest.scope:type_name -> podium.v1.SecretScope
+	1,  // 3: podium.v1.SetSecretResponse.secret:type_name -> podium.v1.Secret
+	1,  // 4: podium.v1.ListSecretsResponse.secrets:type_name -> podium.v1.Secret
+	0,  // 5: podium.v1.DeleteSecretRequest.scope:type_name -> podium.v1.SecretScope
+	2,  // 6: podium.v1.SecretService.SetSecret:input_type -> podium.v1.SetSecretRequest
+	4,  // 7: podium.v1.SecretService.ListSecrets:input_type -> podium.v1.ListSecretsRequest
+	6,  // 8: podium.v1.SecretService.DeleteSecret:input_type -> podium.v1.DeleteSecretRequest
+	8,  // 9: podium.v1.SecretService.ReadSecret:input_type -> podium.v1.ReadSecretRequest
+	3,  // 10: podium.v1.SecretService.SetSecret:output_type -> podium.v1.SetSecretResponse
+	5,  // 11: podium.v1.SecretService.ListSecrets:output_type -> podium.v1.ListSecretsResponse
+	7,  // 12: podium.v1.SecretService.DeleteSecret:output_type -> podium.v1.DeleteSecretResponse
+	9,  // 13: podium.v1.SecretService.ReadSecret:output_type -> podium.v1.ReadSecretResponse
+	10, // [10:14] is the sub-list for method output_type
+	6,  // [6:10] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_secret_proto_init() }
@@ -578,7 +687,7 @@ func file_podium_v1_secret_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_secret_proto_rawDesc), len(file_podium_v1_secret_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

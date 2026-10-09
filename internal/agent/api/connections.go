@@ -40,7 +40,7 @@ func (s *AgentService) SetSlackConnection(
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	existing, _, err := connections.Load(ctx, s.store)
+	existing, err := connections.LoadSlack(ctx, s.store, s.secrets)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -56,7 +56,7 @@ func (s *AgentService) SetSlackConnection(
 	row.SetAt = time.Now().UTC()
 	s.logger.InfoContext(ctx, "saving a slack connection", "login", row.SetBy,
 		"request", redactedSlackRequest{})
-	if err := s.store.PutSetting(ctx, connections.SlackKey, row); err != nil {
+	if err := connections.SaveSlack(ctx, s.store, s.secrets, row, existing); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&agentv1.SetSlackConnectionResponse{
@@ -73,7 +73,7 @@ func (s *AgentService) ClearSlackConnection(
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.store.DeleteSetting(ctx, connections.SlackKey); err != nil {
+	if err := connections.ClearSlack(ctx, s.store, s.secrets); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "cleared the saved slack connection", "login", Login(ctx))
@@ -92,7 +92,7 @@ func (s *AgentService) SetGitHubConnection(
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	_, existing, err := connections.Load(ctx, s.store)
+	existing, err := connections.LoadGitHub(ctx, s.store, s.secrets)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -113,7 +113,7 @@ func (s *AgentService) SetGitHubConnection(
 	s.logger.InfoContext(ctx, "saving a github connection", "login", row.SetBy,
 		"app_id", row.AppID, "reviews", row.WebhookListen != "", "user_auth", row.UserAuth(),
 		"request", redactedGitHubRequest{appID: row.AppID, listen: row.WebhookListen})
-	if err := s.store.PutSetting(ctx, connections.GitHubKey, row); err != nil {
+	if err := connections.SaveGitHub(ctx, s.store, s.secrets, row, existing); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&agentv1.SetGitHubConnectionResponse{
@@ -130,7 +130,7 @@ func (s *AgentService) ClearGitHubConnection(
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := s.store.DeleteSetting(ctx, connections.GitHubKey); err != nil {
+	if err := connections.ClearGitHub(ctx, s.store, s.secrets); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "cleared the saved github connection", "login", Login(ctx))
@@ -140,9 +140,9 @@ func (s *AgentService) ClearGitHubConnection(
 }
 
 func (s *AgentService) requireConnectionStore() error {
-	if s.store == nil {
+	if s.store == nil || s.secrets == nil {
 		return connect.NewError(connect.CodeFailedPrecondition,
-			errors.New("this conductor has no database, so it cannot store a connection"))
+			errors.New("this conductor has no database or secret store, so it cannot store a connection"))
 	}
 	return nil
 }
@@ -151,7 +151,7 @@ func (s *AgentService) loadConnections(ctx context.Context) (*connections.Slack,
 	if err := s.requireConnectionStore(); err != nil {
 		return nil, nil, err
 	}
-	slack, gh, err := connections.Load(ctx, s.store)
+	slack, gh, err := connections.Load(ctx, s.store, s.secrets)
 	if err != nil {
 		return nil, nil, connect.NewError(connect.CodeInternal, err)
 	}
