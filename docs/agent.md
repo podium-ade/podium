@@ -1043,10 +1043,10 @@ still has Podium. Podium is pinned first, and a new web chat uses it until that 
 another. The choice is per conversation.
 
 **Assistants** lists Podium, then the assistants that person made, then New. A personal
-assistant's editor is the display name, the model, and the instructions. Deleting one
-leaves its chats readable under the display name they were given. A new message in one of
-those chats is refused, and a new chat cannot select it. Chat shows the same list above
-the threads and lists only the open assistant's conversations.
+assistant's editor is the display name, the instructions, and the model, in the same
+order as Podium. Deleting one leaves its chats readable under the display name they were
+given. A new message in one of those chats is refused, and a new chat cannot select it.
+Chat shows the same list above the threads and lists only the open assistant's conversations.
 
 **How a change reaches a running conductor.** A save validates, stores the catalog, rebuilds
 the profile and swaps it in atomically. The next turn uses it. A turn already in flight is

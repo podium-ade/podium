@@ -131,6 +131,12 @@ const viewer: Viewer = {
   pictureUrl: "",
 };
 
+function sectionLabels(): string[] {
+  return within(screen.getByRole("navigation", { name: "Assistant" }))
+    .getAllByRole("link")
+    .map((link) => (link.textContent ?? "").replace(/, unsaved$/, ""));
+}
+
 function mount(path = "/agent/settings/models", who: Viewer | undefined = viewer) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -265,6 +271,7 @@ describe("AgentPage", () => {
     expect(await screen.findByTestId("profile-card")).toBeInTheDocument();
     expect(screen.getByLabelText("Display name")).toHaveValue("Podium");
     expect(screen.getByRole("link", { name: "Identity" })).toHaveAttribute("aria-current", "page");
+    expect(sectionLabels()).toEqual(["Identity", "Instructions", "Model", "Reach", "Limits"]);
     const assistants = screen.getByRole("navigation", { name: "Assistants" });
     expect(within(assistants).getByRole("link", { name: /Podium/ })).toHaveAttribute("aria-current", "page");
     expect(within(assistants).getByText("Built-in")).toBeInTheDocument();
@@ -351,6 +358,7 @@ describe("AgentPage", () => {
     const user = userEvent.setup();
     mount("/agent/assistants/new");
     expect(await screen.findByText(/voice on top of Podium/)).toBeInTheDocument();
+    expect(sectionLabels()).toEqual(["Identity", "Instructions", "Model"]);
     expect(screen.queryByLabelText("Name", { selector: "#personality-name" })).toBeNull();
     expect(screen.queryByLabelText("Name", { selector: "#assistant-git-name" })).toBeNull();
     expect(screen.getByRole("link", { name: "Model" })).toHaveAttribute("href", "/agent/assistants/new/model");
