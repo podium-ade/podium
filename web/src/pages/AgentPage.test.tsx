@@ -66,6 +66,7 @@ vi.mock("../lib/client", async () => {
       getProfileFile: (...a: unknown[]) => getProfileFile(...a),
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
       getConnections: (...a: unknown[]) => getConnections(...a),
+      getGitHubAccount: () => Promise.resolve({ account: { available: true, connected: false } }),
       setSlackConnection: () => Promise.resolve({}),
       clearSlackConnection: () => Promise.resolve({}),
       setGitHubConnection: () => Promise.resolve({}),
@@ -470,6 +471,8 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     expect(getConnections).not.toHaveBeenCalled();
+    // A member connects their own account here, which is not the App's configuration.
+    expect(await screen.findByRole("button", { name: /connect github/i })).toBeInTheDocument();
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });

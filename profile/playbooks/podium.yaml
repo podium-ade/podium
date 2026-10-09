@@ -56,8 +56,11 @@ resources: { cpu: 4, memory_mb: 8192 }
 # pull request, out of ../../skills. Naming it here is the whole grant: without this line the
 # turn's harness denies every skill by pattern and has no `skill` tool at all.
 skills: [validate-pr]
-secrets:
-  - { name: podium.agent.github_token, target: env, key: GITHUB_TOKEN }
+# Pushes and opens pull requests as the person who asked, with the GitHub account they
+# connected under Settings → Account. A Slack or Linear turn has no Podium person, so it fails
+# and says why. See ../../docs/agent.md#the-askers-own-github-account.
+user_secrets:
+  - { name: github.token, target: env, key: GITHUB_TOKEN }
 repos:
   - { name: podium, url: https://github.com/podium-ade/podium, default_branch: main }
 env:

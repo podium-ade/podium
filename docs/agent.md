@@ -1779,8 +1779,8 @@ before anything happens.
 
 ### The GitHub credential
 
-There are two ways a turn gets one, and the second is better in every respect that matters. Both
-work; a playbook needs no change to move between them.
+There are three ways a turn gets one: a GitHub App, the asker's own GitHub account, and a
+personal access token. A playbook needs no change to move between the App and a token.
 
 #### A GitHub App — short-lived, scoped, nobody's personal access
 
@@ -1833,6 +1833,45 @@ Two things to know before you turn it on:
 
 A task also becomes able to reach the conductor, at `PODIUM_AGENT_TASK_URL`, for that one method
 and no other. See [`security.md`](security.md#the-minting-endpoint).
+
+#### The asker's own GitHub account
+
+A playbook can push and open pull requests as the person who asked, instead of as the App. Each
+person connects their account once, and nobody creates a personal access token.
+
+1. On the App's settings page on GitHub:
+   - Add `https://<your Podium address>/agent/github/callback` as a **Callback URL**.
+   - Under **Optional features**, opt out of **User-to-server token expiration**. Podium does not
+     refresh the token, so it refuses one that expires.
+   - Generate a **client secret**.
+2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
+   with the App. They apply at once. No restart is needed.
+3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token as
+   that person's personal secret `github.token`.
+4. The playbook names it:
+
+```yaml
+user_secrets:
+  - { name: github.token, target: env, key: GITHUB_TOKEN }
+```
+
+A turn of that playbook then:
+
+- Gets that person's token as `GITHUB_TOKEN` and `GH_TOKEN`. The conductor does not mint an App
+  token for it.
+- Commits as that person: their GitHub name and their `<id>+<login>@users.noreply.github.com`
+  address, which GitHub links to their account. This replaces any `git:` persona.
+- Can reach only the repositories that the App is installed on and that the person can also
+  reach. The pull request shows the person as its author, marked as made through the App.
+
+The turn fails, and says why, when:
+
+- The person has not connected GitHub.
+- The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
+  the web chat.
+
+Disconnect under Settings → Account deletes the token. To revoke the grant on GitHub too, use
+**Settings → Applications → Authorized GitHub Apps** on GitHub.
 
 #### A personal access token — the older path, still supported
 

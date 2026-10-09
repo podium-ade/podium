@@ -119,6 +119,10 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceClearMcpServerTokenProcedure:        store.RoleMember,
 	agentv1connect.AgentServiceStartMcpOAuthProcedure:              store.RoleMember,
 	agentv1connect.AgentServiceCompleteMcpOAuthProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceGetGitHubAccountProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceStartGitHubOAuthProcedure:           store.RoleMember,
+	agentv1connect.AgentServiceCompleteGitHubOAuthProcedure:        store.RoleMember,
+	agentv1connect.AgentServiceDisconnectGitHubAccountProcedure:    store.RoleMember,
 	agentv1connect.AgentServiceSetSlackChannelDescriptionProcedure: store.RoleAdmin,
 
 	// GitHub and Slack live under Settings → Connections. Hints are still credentials.

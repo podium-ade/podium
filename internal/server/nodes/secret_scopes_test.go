@@ -74,6 +74,32 @@ func TestSecretScopesOnTheRealAPI(t *testing.T) {
 	}))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 
+	// The conductor stores a person's connected account under that person.
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("bob-gh"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+	_, err = ada.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = dev.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "github.token", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	_, err = agent.SetSecret(ctx, connect.NewRequest(&podiumv1.SetSecretRequest{
+		Name: "NOPE", Value: []byte("nope"), Scope: podiumv1.SecretScope_SECRET_SCOPE_GLOBAL,
+		Owner: "bob@acme.com",
+	}))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	_, err = agent.DeleteSecret(ctx, connect.NewRequest(&podiumv1.DeleteSecretRequest{
+		Name: "github.token", Scope: podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, Owner: "bob@acme.com",
+	}))
+	require.NoError(t, err)
+
 	adaNote := setPersonal(t, ada, "ADA_NOTE", "ada-value")
 	require.Equal(t, podiumv1.SecretScope_SECRET_SCOPE_PERSONAL, adaNote.GetScope())
 	require.Equal(t, "ada@acme.com", adaNote.GetOwner())

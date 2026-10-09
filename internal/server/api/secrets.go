@@ -107,8 +107,8 @@ func (s *SecretService) DeleteSecret(
 
 // authorizeWrite decides the scope and owner a caller may write. A person's own personal
 // secret is always theirs: the request cannot name somebody else. The conductor may write
-// one personal name for somebody else, and only an MCP credential, because that is the
-// token a person saved on their own MCP server.
+// one personal name for somebody else: an MCP credential, which is the token a person saved
+// on their own MCP server, or github.token, which is the account a person connected.
 func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.SecretScope, name, requestedOwner string) (scope, owner string, err error) {
 	id, ok := transport.From(ctx)
 	if !ok {
@@ -146,7 +146,7 @@ func (s *SecretService) authorizeWrite(ctx context.Context, requested podiumv1.S
 			}
 			return store.SecretScopePersonal, id.Login, nil
 		case transport.KindAgent:
-			if requestedOwner == "" || !spec.IsPersonalMCPSecret(name) {
+			if requestedOwner == "" || (!spec.IsPersonalMCPSecret(name) && name != spec.GitHubAccountSecret) {
 				return "", "", fmt.Errorf("%w: only the owning person can set a personal secret", secrets.ErrForbidden)
 			}
 			return store.SecretScopePersonal, requestedOwner, nil

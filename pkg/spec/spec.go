@@ -335,6 +335,10 @@ var personalMCPSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}_token$`
 // the values.
 func PersonalMCPSecretName(server string) string { return "mcp." + server + "_token" }
 
+// GitHubAccountSecret is the personal secret a person's connected GitHub account is stored
+// as. The conductor may write it for that person.
+const GitHubAccountSecret = "github.token"
+
 // IsPersonalMCPSecret reports whether name is a personal MCP credential. The conductor
 // may write one of these for a person. A playbook may not name one.
 func IsPersonalMCPSecret(name string) bool { return personalMCPSecretRE.MatchString(name) }

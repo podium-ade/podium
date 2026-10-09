@@ -67,6 +67,14 @@ type Delegation struct {
 	Provider    *string
 }
 
+type GithubAccount struct {
+	Login       string
+	GithubID    int64
+	GithubLogin string
+	Name        string
+	ConnectedAt time.Time
+}
+
 type LinearCursor struct {
 	Key       string
 	UpdatedAt time.Time

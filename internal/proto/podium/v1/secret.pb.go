@@ -179,7 +179,8 @@ type SetSecretRequest struct {
 	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	// scope defaults to global when unspecified. A person's own write ignores owner:
 	// the owner is the caller. The conductor may set owner, and only for a personal
-	// MCP credential (mcp.<server>_token), which is that person's secret.
+	// MCP credential (mcp.<server>_token) or a connected GitHub account (github.token),
+	// which are that person's secrets.
 	Scope SecretScope `protobuf:"varint,3,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
 	// owner is the login of a personal secret. Only the conductor may set it.
 	Owner         string `protobuf:"bytes,4,opt,name=owner,proto3" json:"owner,omitempty"`
@@ -386,7 +387,7 @@ type DeleteSecretRequest struct {
 	// scope defaults to global when unspecified.
 	Scope SecretScope `protobuf:"varint,2,opt,name=scope,proto3,enum=podium.v1.SecretScope" json:"scope,omitempty"`
 	// owner is the login of a personal secret. Only the conductor may set it, and
-	// only for a personal MCP credential. A person's own delete ignores it.
+	// only for a personal MCP credential or github.token. A person's own delete ignores it.
 	Owner         string `protobuf:"bytes,3,opt,name=owner,proto3" json:"owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

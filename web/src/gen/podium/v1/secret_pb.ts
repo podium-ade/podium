@@ -89,7 +89,8 @@ export type SetSecretRequest = Message<"podium.v1.SetSecretRequest"> & {
   /**
    * scope defaults to global when unspecified. A person's own write ignores owner:
    * the owner is the caller. The conductor may set owner, and only for a personal
-   * MCP credential (mcp.<server>_token), which is that person's secret.
+   * MCP credential (mcp.<server>_token) or a connected GitHub account (github.token),
+   * which are that person's secrets.
    *
    * @generated from field: podium.v1.SecretScope scope = 3;
    */
@@ -183,7 +184,7 @@ export type DeleteSecretRequest = Message<"podium.v1.DeleteSecretRequest"> & {
 
   /**
    * owner is the login of a personal secret. Only the conductor may set it, and
-   * only for a personal MCP credential. A person's own delete ignores it.
+   * only for a personal MCP credential or github.token. A person's own delete ignores it.
    *
    * @generated from field: string owner = 3;
    */

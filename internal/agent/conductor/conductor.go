@@ -722,7 +722,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	if _, err := userSecretRefs(login, j.playbook.UserSecrets); err != nil {
+	persona, err := c.githubPersona(ctx, login, j.playbook)
+	if err == nil {
+		_, err = userSecretRefs(login, j.playbook.UserSecrets)
+	}
+	if err != nil {
 		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
 			"turn_id", turn.ID, "job", j.name, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: err.Error()})
@@ -731,6 +735,9 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	if persona != nil {
+		brief.Git = persona
+	}
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
@@ -949,7 +956,7 @@ func (c *Conductor) brief(
 	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
 	// carry that either. Set only when there is something to mint for, which
 	// provisionGitCapability decides from the same playbook.
-	if c.github != nil {
+	if c.github != nil && !j.playbook.UsesGitHubAccount() {
 		if scope, err := gitScopeOf(j.playbook); err == nil && len(scope.Repos) > 0 {
 			b.GitCredentials = &BriefGitCredentials{URL: c.gitTaskURL, TokenEnv: GitTokenEnv}
 		}

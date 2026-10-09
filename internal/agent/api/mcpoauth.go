@@ -452,6 +452,11 @@ func (s *AgentService) getJSON(ctx context.Context, endpoint string, out any) er
 // and while the code alone is not redeemable without the verifier this process kept, there
 // is no reason to allow it.
 func validateRedirectURI(raw string) (string, error) {
+	return validateCallbackURI(raw, mcpCallbackPath)
+}
+
+// validateCallbackURI is validateRedirectURI for any one pinned web UI callback path.
+func validateCallbackURI(raw, path string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return "", fmt.Errorf("redirect_uri %q does not parse: %w", raw, err)
@@ -465,9 +470,9 @@ func validateRedirectURI(raw string) (string, error) {
 		return "", fmt.Errorf("redirect_uri %q may not carry credentials", raw)
 	case u.RawQuery != "" || u.Fragment != "":
 		return "", fmt.Errorf("redirect_uri %q may not carry a query or a fragment", raw)
-	case strings.TrimSuffix(u.Path, "/") != mcpCallbackPath:
+	case strings.TrimSuffix(u.Path, "/") != path:
 		return "", fmt.Errorf("redirect_uri %q must end in %s, which is where the web UI "+
-			"receives a callback", raw, mcpCallbackPath)
+			"receives a callback", raw, path)
 	}
 	return u.String(), nil
 }
