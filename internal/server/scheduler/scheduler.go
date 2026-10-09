@@ -33,6 +33,7 @@ const (
 	ReasonAllDraining    = "every node that could run this task is draining"
 	ReasonNoRoom         = "no online node has enough free CPU or memory for this task"
 	ReasonFull           = "every node that could run this task is full"
+	ReasonNoPreview      = "no online node has a free preview address for this task"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
 	ReasonNoLease        = "the task is on no node and holds no lease"
@@ -52,6 +53,8 @@ type Dispatcher interface {
 	// Release gives back the slot a node was holding for a task that never reached a
 	// terminal status, which is the only path the event side does not already cover.
 	Release(taskID string)
+	// ReleasePreview tells a node to tear down a finished task it is keeping up.
+	ReleasePreview(ctx context.Context, nodeID, taskID, reason string) error
 }
 
 // Resolver turns a task's secret references into the plaintext an Assign carries. It is
@@ -122,6 +125,7 @@ func (s *Service) Run(ctx context.Context) error {
 			s.dispatch(ctx)
 		case <-watchdog.C:
 			s.sweep(ctx)
+			s.sweepPreviews(ctx)
 		}
 	}
 }
@@ -399,7 +403,19 @@ func eligible(c nodes.Snapshot, ts spec.TaskSpec, cost nodes.TaskCost) bool {
 		c.FreeSlots > 0 &&
 		hasAll(c.Labels, ts.Labels) &&
 		fitsCPU(c, cost) &&
-		fitsMemory(c, cost)
+		fitsMemory(c, cost) &&
+		fitsPreview(c, cost)
+}
+
+// fitsPreview is the one constraint here where zero means none: a node that reports no
+// preview capacity cannot publish one, and an older node that does not report it cannot
+// either.
+func fitsPreview(c nodes.Snapshot, cost nodes.TaskCost) bool {
+	if !cost.Preview {
+		return true
+	}
+	_, ok := cost.TakePreview(c.FreeTailnetPreviews, c.FreeLANPreviews)
+	return ok
 }
 
 func fitsCPU(c nodes.Snapshot, cost nodes.TaskCost) bool {
@@ -419,6 +435,13 @@ func charge(c *nodes.Snapshot, cost nodes.TaskCost) {
 	c.FreeCPU -= cost.CPU
 	c.FreeMemoryMB -= cost.MemoryMB
 	c.LastAssignedAt = time.Now().UTC()
+	if cost.Preview {
+		if tailnet, ok := cost.TakePreview(c.FreeTailnetPreviews, c.FreeLANPreviews); ok && tailnet {
+			c.FreeTailnetPreviews--
+		} else if ok {
+			c.FreeLANPreviews--
+		}
+	}
 }
 
 // placementReason says, in one sentence an operator can act on, why nothing took the task.
@@ -439,6 +462,12 @@ func placementReason(candidates []nodes.Snapshot, ts spec.TaskSpec, cost nodes.T
 	roomy := filter(awake, func(c nodes.Snapshot) bool { return fitsCPU(c, cost) && fitsMemory(c, cost) })
 	if len(roomy) == 0 {
 		return fmt.Sprintf("%s (wants %g CPU, %d MB)", ReasonNoRoom, cost.CPU, cost.MemoryMB)
+	}
+	if len(filter(roomy, func(c nodes.Snapshot) bool { return fitsPreview(c, cost) })) == 0 {
+		if cost.Via != "" {
+			return ReasonNoPreview + " (via " + cost.Via + ")"
+		}
+		return ReasonNoPreview
 	}
 	return ReasonFull
 }

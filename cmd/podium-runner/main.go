@@ -31,13 +31,19 @@ func main() {
 	if len(args) >= 1 && args[0] == "message" {
 		os.Exit(runner.AddMessage(runner.ConfigFromEnv(), args[1:], os.Stdin))
 	}
+	// `podium-runner gateway PORT=HOST:PORT …` is not in a task container at all: it is the
+	// forwarder a node runs beside a task that exposes ports.
+	if len(args) >= 1 && args[0] == "gateway" {
+		os.Exit(runner.Gateway(args[1:]))
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: podium-runner -- COMMAND [ARG...]\n"+
 			"       podium-runner artifact add PATH [--name NAME] [--type CONTENT_TYPE]\n"+
-			"       podium-runner message [--type TYPE] [--attach NAME]... TEXT")
+			"       podium-runner message [--type TYPE] [--attach NAME]... TEXT\n"+
+			"       podium-runner gateway PORT=HOST:PORT...")
 		os.Exit(2)
 	}
 	os.Exit(runner.Run(context.Background(), runner.ConfigFromEnv(), args))

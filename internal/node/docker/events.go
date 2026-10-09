@@ -23,6 +23,7 @@ const (
 	KindFinished     = "finished"
 	KindError        = "error"
 	KindMessage      = "message"
+	KindPreview      = "preview"
 )
 
 // Log stream names carried by [LogPayload].
@@ -96,6 +97,8 @@ type ExitedPayload struct {
 type FinishedPayload struct {
 	ExitCode int
 	Usage    Usage
+	// Held is a run whose containers stay up as a preview.
+	Held bool
 }
 
 // ErrorPayload reports something that went wrong. Retryable is true for transient pull and

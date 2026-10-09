@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -723,7 +724,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	var menu []DelegablePlaybook
 	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID))
+		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
@@ -1084,6 +1085,11 @@ func (c *Conductor) taskSpec(
 	}
 	if playbook.Browser {
 		s.Sidecars[browserSidecarName] = browserSidecar()
+	}
+	if playbook.Expose != nil {
+		x := *playbook.Expose
+		x.Ports = maps.Clone(x.Ports)
+		s.Expose = &x
 	}
 	s.ApplyDefaults()
 	return s

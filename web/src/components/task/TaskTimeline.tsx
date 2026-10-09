@@ -3,6 +3,7 @@ import {
   Circle,
   CircleCheck,
   ContainerIcon,
+  Globe,
   LogOut,
   MessageSquare,
   OctagonAlert,
@@ -36,6 +37,7 @@ const EVENT_STYLE: Record<TaskEventKind, { icon: LucideIcon; tone: string }> = {
   [TaskEventKind.FINISHED]: { icon: CircleCheck, tone: OK },
   [TaskEventKind.ERROR]: { icon: OctagonAlert, tone: ERR },
   [TaskEventKind.MESSAGE]: { icon: MessageSquare, tone: ACCENT },
+  [TaskEventKind.PREVIEW]: { icon: Globe, tone: ACCENT },
 };
 
 /** An exit that is not 0 is the moment the task went wrong, so it is not coloured like a success. */

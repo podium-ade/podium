@@ -29,6 +29,15 @@ type Injector interface {
 	Inject(ctx context.Context, nodeID, taskID, text string) error
 }
 
+// PreviewReleaser is the node registry's path for ending a finished task's preview.
+type PreviewReleaser interface {
+	ReleasePreview(ctx context.Context, nodeID, taskID, reason string) error
+}
+
+// DefaultMaxPreviewTTL caps how long a preview may ask to stay up, PODIUM_PREVIEW_MAX_TTL.
+// A held preview keeps its node slot, so an unbounded one is a slot lost for good.
+const DefaultMaxPreviewTTL = 24 * time.Hour
+
 // Events is the logs service, as much of it as the API needs.
 type Events interface {
 	Subscribe(ctx context.Context, taskID string, fromSeq uint64) (<-chan *podiumv1.TaskEvent, error)
@@ -47,8 +56,11 @@ type TaskService struct {
 	events  Events
 	nodes   Canceller
 	inject  Injector
+	release PreviewReleaser
 	secrets SecretChecker
 	logger  *slog.Logger
+	// maxPreviewTTL is the longest expose.ttl admission accepts.
+	maxPreviewTTL time.Duration
 }
 
 // NewTaskService returns the task API. injector may be the same object as canceller
@@ -57,11 +69,24 @@ func NewTaskService(st *store.Store, events Events, canceller Canceller, checker
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &TaskService{store: st, events: events, nodes: canceller, secrets: checker, logger: logger}
+	s := &TaskService{
+		store: st, events: events, nodes: canceller, secrets: checker, logger: logger,
+		maxPreviewTTL: DefaultMaxPreviewTTL,
+	}
 	if inj, ok := canceller.(Injector); ok {
 		s.inject = inj
 	}
+	if rel, ok := canceller.(PreviewReleaser); ok {
+		s.release = rel
+	}
 	return s
+}
+
+// SetMaxPreviewTTL overrides DefaultMaxPreviewTTL. Zero or less keeps the default.
+func (s *TaskService) SetMaxPreviewTTL(d time.Duration) {
+	if d > 0 {
+		s.maxPreviewTTL = d
+	}
 }
 
 // CreateTask validates the spec and queues the task. Scheduling is the scheduler's problem.
@@ -82,6 +107,11 @@ func (s *TaskService) CreateTask(
 	// task is for that owner. A refusal is not a failed task: nothing was admitted.
 	if err := authorizeSecretAttach(ctx, ts.Secrets); err != nil {
 		return nil, connect.NewError(connect.CodePermissionDenied, err)
+	}
+	if x := ts.Expose; x != nil && x.TTL.Std() > s.maxPreviewTTL {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
+			"invalid task spec: expose.ttl %s is longer than this server allows (%s, PODIUM_PREVIEW_MAX_TTL)",
+			x.TTL, s.maxPreviewTTL))
 	}
 	// Admission checks that the named secrets exist. The scheduler still resolves their
 	// values at assignment — the value should be in server memory for as short a time as it
@@ -161,7 +191,60 @@ func (s *TaskService) GetTask(
 	if err != nil {
 		return nil, storeError(err)
 	}
-	return connect.NewResponse(&podiumv1.GetTaskResponse{Task: taskToProto(task)}), nil
+	return connect.NewResponse(&podiumv1.GetTaskResponse{Task: s.withPreviews(ctx, taskToProto(task))[0]}), nil
+}
+
+// withPreviews fills in the preview of every task that has one. A store that cannot answer
+// costs the previews and nothing else: the tasks themselves are still worth returning.
+func (s *TaskService) withPreviews(ctx context.Context, tasks ...*podiumv1.Task) []*podiumv1.Task {
+	ids := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		if t.GetSpec().GetExpose() != nil {
+			ids = append(ids, t.GetId())
+		}
+	}
+	if len(ids) == 0 {
+		return tasks
+	}
+	previews, err := s.store.ListPreviews(ctx, ids)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading previews failed", "error", err)
+		return tasks
+	}
+	for _, t := range tasks {
+		if p, ok := previews[t.GetId()]; ok {
+			t.Preview = previewToProto(p)
+		}
+	}
+	return tasks
+}
+
+// ReleasePreview ends a finished task's preview before its ttl does. The row is released
+// first and the node told second, so a node that is away tears it down when it reconnects.
+func (s *TaskService) ReleasePreview(
+	ctx context.Context,
+	req *connect.Request[podiumv1.ReleasePreviewRequest],
+) (*connect.Response[podiumv1.ReleasePreviewResponse], error) {
+	taskID := req.Msg.GetTaskId()
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	reason := "released by " + login(ctx)
+	p, released, err := s.store.ReleasePreview(ctx, taskID, reason)
+	if err != nil {
+		return nil, storeError(err)
+	}
+	if released {
+		s.logger.InfoContext(ctx, "preview released", "task_id", taskID, "node_id", p.NodeID, "reason", reason)
+		if p.NodeID != "" && s.release != nil {
+			if err := s.release.ReleasePreview(ctx, p.NodeID, taskID, reason); err != nil {
+				s.logger.WarnContext(ctx, "the node will hear about the release when it reconnects",
+					"task_id", taskID, "node_id", p.NodeID, "error", err)
+			}
+		}
+	}
+	return connect.NewResponse(&podiumv1.ReleasePreviewResponse{Task: s.withPreviews(ctx, taskToProto(task))[0]}), nil
 }
 
 // ListTasks pages newest-first. next_cursor is empty on the last page; feed it back verbatim.
@@ -192,7 +275,7 @@ func (s *TaskService) ListTasks(
 	for _, t := range tasks {
 		out = append(out, taskToProto(t))
 	}
-	return connect.NewResponse(&podiumv1.ListTasksResponse{Tasks: out, NextCursor: next}), nil
+	return connect.NewResponse(&podiumv1.ListTasksResponse{Tasks: s.withPreviews(ctx, out...), NextCursor: next}), nil
 }
 
 // CancelTask cancels a queued task outright and asks the node to stop anything further along.

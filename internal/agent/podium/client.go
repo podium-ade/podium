@@ -124,6 +124,15 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*podiumv1.Task, er
 	return res.Msg.GetTask(), nil
 }
 
+// ReleasePreview takes down a finished task's preview and returns the task as it now stands.
+func (c *Client) ReleasePreview(ctx context.Context, taskID string) (*podiumv1.Task, error) {
+	res, err := c.Tasks.ReleasePreview(ctx, connect.NewRequest(&podiumv1.ReleasePreviewRequest{TaskId: taskID}))
+	if err != nil {
+		return nil, fmt.Errorf("release preview of task %s: %w", taskID, err)
+	}
+	return res.Msg.GetTask(), nil
+}
+
 // ListArtifacts returns everything a task stored. Attachment names on a message are
 // artifact names, and this is what resolves them.
 func (c *Client) ListArtifacts(ctx context.Context, taskID string) ([]*podiumv1.Artifact, error) {

@@ -149,6 +149,9 @@ function delegationBlock(brief: TurnBrief): string {
     if (p.browser) {
       has.push("a browser");
     }
+    if (p.preview) {
+      has.push("a preview that stays up after it finishes");
+    }
     const carries = has.length > 0 ? ` — has ${has.join(", ")}` : "";
     const summary = p.summary && p.summary !== "" ? `: ${p.summary}` : "";
     return `- \`${p.name}\`${carries}${summary}`;
@@ -173,13 +176,35 @@ ${running
 If this message adds to or corrects one of those, \`podium_inject_delegation\` into it rather
 than delegating again. Delegate only for a genuinely new piece of work.
 `;
+  const previews = brief.delegation?.previews ?? [];
+  const live =
+    previews.length === 0
+      ? ""
+      : `
+Finished in this conversation and still up as a preview:
+
+${previews
+  .map((p) => {
+    const urls = Object.entries(p.urls ?? {})
+      .map(([name, url]) => `${name} ${url}`)
+      .join(", ");
+    return `- \`${p.delegation_id}\` (\`${p.playbook}\`, task \`${p.task_id}\`${
+      p.expires_at ? `, up until ${p.expires_at}` : ""
+    })${urls ? `: ${urls}` : ""}`;
+  })
+  .join("\n")}
+
+When the person says they are done with one — "I'm done", "you can take it down" — call
+\`podium_release_preview\` with its id and say it is down. If it is unclear which one they
+mean, ask.
+`;
   return `# Delegating work
 
 Work that needs a machine goes to a Podium task, through \`podium_delegate\`. The playbooks
 you may ask for, and nothing else:
 
 ${menu.join("\n")}
-${inFlight}
+${inFlight}${live}
 How to do it well:
 
 - The instruction you pass is the ONLY thing the task is told beyond this conversation. Write

@@ -27,7 +27,7 @@ func drainLines(t *testing.T, lines ...runnerEvent) ([]Event, string) {
 		events: make(chan runnerEvent, len(lines)),
 	}
 	out := make(chan Event, len(lines)+1)
-	done := l.drain("task_test", newEmitter(context.Background(), out), nil)
+	done := l.drain("task_test", newEmitter(context.Background(), out), nil, nil)
 	for _, ev := range lines {
 		l.events <- ev
 	}

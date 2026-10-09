@@ -33,6 +33,7 @@ var catalog = map[string]string{
 	podiumv1connect.TaskServiceListTasksProcedure:        store.RoleMember,
 	podiumv1connect.TaskServiceCancelTaskProcedure:       store.RoleMember,
 	podiumv1connect.TaskServiceInjectTaskProcedure:       store.RoleMember,
+	podiumv1connect.TaskServiceReleasePreviewProcedure:   store.RoleMember,
 	podiumv1connect.TaskServiceStreamTaskEventsProcedure: store.RoleMember,
 
 	podiumv1connect.ArtifactServiceListArtifactsProcedure:  store.RoleMember,

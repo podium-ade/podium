@@ -28,10 +28,13 @@ type Session struct {
 	done   chan struct{}
 	once   sync.Once
 
-	mu            sync.Mutex
-	labels        []string
-	capacity      store.NodeCapacity
-	freeSlots     int32
+	mu        sync.Mutex
+	labels    []string
+	capacity  store.NodeCapacity
+	freeSlots int32
+	// freeTailnet and freeLAN are the previews the node last said it could still publish.
+	freeTailnet   int32
+	freeLAN       int32
 	lastHeartbeat time.Time
 	// running maps every task this session is accounted for to what it costs. The cost is
 	// what makes "does this task fit?" answerable: max_tasks alone cannot tell a node with
@@ -54,6 +57,10 @@ type Session struct {
 type TaskCost struct {
 	CPU      float64
 	MemoryMB int64
+	// Preview is set for a task that exposes ports; Via is the kind it asked for, empty for
+	// either.
+	Preview bool
+	Via     string
 }
 
 func newSession(
@@ -129,6 +136,8 @@ func (s *Session) observeHeartbeat(hb *podiumv1.Heartbeat) {
 	defer s.mu.Unlock()
 	s.lastHeartbeat = time.Now().UTC()
 	s.freeSlots = hb.GetFreeSlots()
+	s.freeTailnet = hb.GetFreeTailnetPreviews()
+	s.freeLAN = hb.GetFreeLanPreviews()
 	if s.override > 0 {
 		// A heartbeat already in flight when the cap was lowered was computed against the
 		// old number, and taking it at face value would let the scheduler assign above the
@@ -158,6 +167,13 @@ func (s *Session) reserve(taskID string, cost TaskCost) {
 	s.lastAssignedAt = time.Now().UTC()
 	if s.freeSlots > 0 {
 		s.freeSlots--
+	}
+	if cost.Preview {
+		if tailnet, ok := cost.TakePreview(s.freeTailnet, s.freeLAN); ok && tailnet {
+			s.freeTailnet--
+		} else if ok {
+			s.freeLAN--
+		}
 	}
 }
 
@@ -253,6 +269,9 @@ type Snapshot struct {
 	FreeCPU        float64
 	FreeMemoryMB   int64
 	LastAssignedAt time.Time
+	// FreeTailnetPreviews and FreeLANPreviews are what the node can still publish.
+	FreeTailnetPreviews int32
+	FreeLANPreviews     int32
 }
 
 func (s *Session) snapshot() Snapshot {
@@ -274,6 +293,9 @@ func (s *Session) snapshot() Snapshot {
 		Draining:       s.draining,
 		Capacity:       s.capacity,
 		LastAssignedAt: s.lastAssignedAt,
+
+		FreeTailnetPreviews: s.freeTailnet,
+		FreeLANPreviews:     s.freeLAN,
 	}
 	// MaxTasks on a snapshot is the budget, not the advertisement: everything that reads one
 	// is asking how much work this node takes.

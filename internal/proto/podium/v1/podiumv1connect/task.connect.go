@@ -46,6 +46,9 @@ const (
 	// TaskServiceStreamTaskEventsProcedure is the fully-qualified name of the TaskService's
 	// StreamTaskEvents RPC.
 	TaskServiceStreamTaskEventsProcedure = "/podium.v1.TaskService/StreamTaskEvents"
+	// TaskServiceReleasePreviewProcedure is the fully-qualified name of the TaskService's
+	// ReleasePreview RPC.
+	TaskServiceReleasePreviewProcedure = "/podium.v1.TaskService/ReleasePreview"
 )
 
 // TaskServiceClient is a client for the podium.v1.TaskService service.
@@ -61,6 +64,9 @@ type TaskServiceClient interface {
 	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.
 	StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest]) (*connect.ServerStreamForClient[v1.TaskEvent], error)
+	// ReleasePreview tears down a finished task's preview before its ttl runs out.
+	// Idempotent: releasing one that is already gone succeeds.
+	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
 }
 
 // NewTaskServiceClient constructs a client for the podium.v1.TaskService service. By default, it
@@ -110,6 +116,12 @@ func NewTaskServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(taskServiceMethods.ByName("StreamTaskEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		releasePreview: connect.NewClient[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse](
+			httpClient,
+			baseURL+TaskServiceReleasePreviewProcedure,
+			connect.WithSchema(taskServiceMethods.ByName("ReleasePreview")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -121,6 +133,7 @@ type taskServiceClient struct {
 	cancelTask       *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
 	injectTask       *connect.Client[v1.InjectTaskRequest, v1.InjectTaskResponse]
 	streamTaskEvents *connect.Client[v1.StreamTaskEventsRequest, v1.TaskEvent]
+	releasePreview   *connect.Client[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse]
 }
 
 // CreateTask calls podium.v1.TaskService.CreateTask.
@@ -153,6 +166,11 @@ func (c *taskServiceClient) StreamTaskEvents(ctx context.Context, req *connect.R
 	return c.streamTaskEvents.CallServerStream(ctx, req)
 }
 
+// ReleasePreview calls podium.v1.TaskService.ReleasePreview.
+func (c *taskServiceClient) ReleasePreview(ctx context.Context, req *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error) {
+	return c.releasePreview.CallUnary(ctx, req)
+}
+
 // TaskServiceHandler is an implementation of the podium.v1.TaskService service.
 type TaskServiceHandler interface {
 	CreateTask(context.Context, *connect.Request[v1.CreateTaskRequest]) (*connect.Response[v1.CreateTaskResponse], error)
@@ -166,6 +184,9 @@ type TaskServiceHandler interface {
 	InjectTask(context.Context, *connect.Request[v1.InjectTaskRequest]) (*connect.Response[v1.InjectTaskResponse], error)
 	// StreamTaskEvents replays stored events from from_seq and then follows live ones.
 	StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest], *connect.ServerStream[v1.TaskEvent]) error
+	// ReleasePreview tears down a finished task's preview before its ttl runs out.
+	// Idempotent: releasing one that is already gone succeeds.
+	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
 }
 
 // NewTaskServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -211,6 +232,12 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(taskServiceMethods.ByName("StreamTaskEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	taskServiceReleasePreviewHandler := connect.NewUnaryHandler(
+		TaskServiceReleasePreviewProcedure,
+		svc.ReleasePreview,
+		connect.WithSchema(taskServiceMethods.ByName("ReleasePreview")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.v1.TaskService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TaskServiceCreateTaskProcedure:
@@ -225,6 +252,8 @@ func NewTaskServiceHandler(svc TaskServiceHandler, opts ...connect.HandlerOption
 			taskServiceInjectTaskHandler.ServeHTTP(w, r)
 		case TaskServiceStreamTaskEventsProcedure:
 			taskServiceStreamTaskEventsHandler.ServeHTTP(w, r)
+		case TaskServiceReleasePreviewProcedure:
+			taskServiceReleasePreviewHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -256,4 +285,8 @@ func (UnimplementedTaskServiceHandler) InjectTask(context.Context, *connect.Requ
 
 func (UnimplementedTaskServiceHandler) StreamTaskEvents(context.Context, *connect.Request[v1.StreamTaskEventsRequest], *connect.ServerStream[v1.TaskEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.StreamTaskEvents is not implemented"))
+}
+
+func (UnimplementedTaskServiceHandler) ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.v1.TaskService.ReleasePreview is not implemented"))
 }

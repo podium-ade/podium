@@ -83,7 +83,10 @@ func (s *Service) Stream(
 	// order always learns the verdict before it is told to act on one.
 	checkpoints, orphans := s.reconcile(ctx, sess, node, hello.GetRunningTaskIds())
 	ack := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_HelloAck{
-		HelloAck: &podiumv1.HelloAck{Tasks: checkpoints},
+		HelloAck: &podiumv1.HelloAck{
+			Tasks:          checkpoints,
+			ReleaseTaskIds: s.previewsLetGo(ctx, node.ID, hello.GetHeldTaskIds()),
+		},
 	}}
 	if err := sess.Send(ctx, ack); err != nil {
 		s.logger.WarnContext(ctx, "sending HelloAck failed", "node_id", node.ID, "error", err)

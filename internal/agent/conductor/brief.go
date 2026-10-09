@@ -265,6 +265,18 @@ type BriefDelegation struct {
 	// and a wrong guess starts a second task for the same job instead of injecting into
 	// the first. An empty list is the common case and is omitted.
 	Running []BriefRunningDelegation `json:"running,omitempty"`
+	// Previews is this conversation's finished tasks whose environment is still up, so a
+	// person saying they are done with one can be taken at their word.
+	Previews []BriefPreview `json:"previews,omitempty"`
+}
+
+// BriefPreview is one finished delegated task of this conversation that is still up.
+type BriefPreview struct {
+	DelegationID string            `json:"delegation_id"`
+	Playbook     string            `json:"playbook"`
+	TaskID       string            `json:"task_id"`
+	URLs         map[string]string `json:"urls,omitempty"`
+	ExpiresAt    string            `json:"expires_at,omitempty"`
 }
 
 // BriefRunningDelegation is one unfinished task this conversation started: enough to
