@@ -397,7 +397,7 @@ func (c *Conductor) startDelegatedTask(
 	}
 	// Keyed by the delegation id, which is what this task's brief carries as its turn id
 	// and therefore what Mint checks the status of.
-	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook)
+	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +406,7 @@ func (c *Conductor) startDelegatedTask(
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
 		if capabilitySecret != "" {
-			c.dropGitCapability(ctx, dlg.ID)
+			c.dropGitCapability(ctx, dlg.ID, playbook)
 		}
 		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}
@@ -725,7 +725,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
 	// As turnRun.finish does, and for the same reason.
-	r.c.dropGitCapability(ctx, r.dlg.ID)
+	r.c.dropGitCapability(ctx, r.dlg.ID, r.playbook)
 	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)

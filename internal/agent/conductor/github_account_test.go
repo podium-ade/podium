@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/podium-ade/podium/internal/agent/github"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/pkg/spec"
@@ -21,27 +20,39 @@ func accountPlaybook() profiles.Playbook {
 	}
 }
 
-// A playbook that pushes as the asker gets their token and no App capability, which the
-// runtime would otherwise prefer.
-func TestAPlaybookUsingTheAskersAccountGetsNoAppCapability(t *testing.T) {
+// A playbook that pushes as the asker is briefed to redeem a capability, like an App turn,
+// and its task carries no copy of the person's token.
+func TestAPlaybookUsingTheAskersAccountRedeemsACapability(t *testing.T) {
 	c := skillsConductor(t, "", accountPlaybook())
-	c.github = &github.Client{}
+	c.mintSecret, c.gitTaskURL = "conductor-bearer", "http://conductor.test:8090"
 	playbook := c.profiles.Current().Playbooks["coder"]
 	require.True(t, playbook.UsesGitHubAccount())
-
-	name, err := c.provisionGitCapability(t.Context(), "turn_1", playbook)
-	require.NoError(t, err)
-	assert.Empty(t, name)
 
 	choice := c.profiles.Current().Resolve(playbook, profiles.Override{})
 	b := c.brief(t.Context(), store.Session{ID: "sess_1"}, playbookJob(playbook), "turn_1",
 		InboundEvent{SourceKind: SourceChat, Ref: "chat_1", Text: "go"}, nil, nil, nil, choice)
-	assert.Nil(t, b.GitCredentials)
+	require.NotNil(t, b.GitCredentials, "there is no App, and the turn still mints")
 
-	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice, "", "ada@acme.com")
-	assert.Contains(t, sp.Secrets, spec.SecretRef{
-		Name: profiles.GitHubTokenSecret, Target: spec.SecretTargetEnv, Key: "GITHUB_TOKEN", Owner: "ada@acme.com",
-	})
+	sp := c.taskSpec(chatSource{}, playbook, "encoded-brief", InboundEvent{}, nil, nil, choice,
+		GitCapabilitySecret("turn_1"), "ada@acme.com")
+	for _, ref := range sp.Secrets {
+		assert.NotEqual(t, profiles.GitHubTokenSecret, ref.Name, "the person's token never reaches the task")
+	}
+
+	capability, err := c.mintCapability("turn_1", GitScope{Owner: "podium-ade", Repos: []string{"podium"}, Login: "ada@acme.com"})
+	require.NoError(t, err)
+	_, scope, err := c.parseCapability(capability)
+	require.NoError(t, err)
+	assert.Equal(t, "ada@acme.com", scope.Login, "the person is inside the signature")
+}
+
+func TestAPlaybookUsingTheAskersAccountMustListItsRepos(t *testing.T) {
+	playbook := accountPlaybook()
+	playbook.Repos = nil
+	c := skillsConductor(t, "", playbook)
+	c.mintSecret, c.gitTaskURL = "conductor-bearer", "http://conductor.test:8090"
+	_, err := c.provisionGitCapability(t.Context(), "turn_1", c.profiles.Current().Playbooks["coder"], "ada@acme.com")
+	require.ErrorContains(t, err, "must list its repos")
 }
 
 func TestGitHubPersonaNeedsAPerson(t *testing.T) {
