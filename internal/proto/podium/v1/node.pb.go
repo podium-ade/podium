@@ -39,6 +39,8 @@ const (
 	TaskEventKind_TASK_EVENT_KIND_FINISHED     TaskEventKind = 8
 	TaskEventKind_TASK_EVENT_KIND_ERROR        TaskEventKind = 9
 	TaskEventKind_TASK_EVENT_KIND_MESSAGE      TaskEventKind = 10
+	// Sent once, before started, by a task whose spec exposes ports: where they are.
+	TaskEventKind_TASK_EVENT_KIND_PREVIEW TaskEventKind = 11
 )
 
 // Enum value maps for TaskEventKind.
@@ -55,6 +57,7 @@ var (
 		8:  "TASK_EVENT_KIND_FINISHED",
 		9:  "TASK_EVENT_KIND_ERROR",
 		10: "TASK_EVENT_KIND_MESSAGE",
+		11: "TASK_EVENT_KIND_PREVIEW",
 	}
 	TaskEventKind_value = map[string]int32{
 		"TASK_EVENT_KIND_UNSPECIFIED":  0,
@@ -68,6 +71,7 @@ var (
 		"TASK_EVENT_KIND_FINISHED":     8,
 		"TASK_EVENT_KIND_ERROR":        9,
 		"TASK_EVENT_KIND_MESSAGE":      10,
+		"TASK_EVENT_KIND_PREVIEW":      11,
 	}
 )
 
@@ -1136,6 +1140,7 @@ type ServerMessage struct {
 	//	*ServerMessage_HelloAck
 	//	*ServerMessage_Slots
 	//	*ServerMessage_Inject
+	//	*ServerMessage_Release
 	Msg           isServerMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1241,6 +1246,15 @@ func (x *ServerMessage) GetInject() *Inject {
 	return nil
 }
 
+func (x *ServerMessage) GetRelease() *Release {
+	if x != nil {
+		if x, ok := x.Msg.(*ServerMessage_Release); ok {
+			return x.Release
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Msg interface {
 	isServerMessage_Msg()
 }
@@ -1273,6 +1287,10 @@ type ServerMessage_Inject struct {
 	Inject *Inject `protobuf:"bytes,7,opt,name=inject,proto3,oneof"`
 }
 
+type ServerMessage_Release struct {
+	Release *Release `protobuf:"bytes,8,opt,name=release,proto3,oneof"`
+}
+
 func (*ServerMessage_Assign) isServerMessage_Msg() {}
 
 func (*ServerMessage_Ack) isServerMessage_Msg() {}
@@ -1287,6 +1305,8 @@ func (*ServerMessage_Slots) isServerMessage_Msg() {}
 
 func (*ServerMessage_Inject) isServerMessage_Msg() {}
 
+func (*ServerMessage_Release) isServerMessage_Msg() {}
+
 // Hello opens the stream and carries the reconciliation input: which tasks the node still
 // has containers for.
 type Hello struct {
@@ -1298,8 +1318,10 @@ type Hello struct {
 	Capacity       *NodeCapacity `protobuf:"bytes,4,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	RunningTaskIds []string      `protobuf:"bytes,5,rep,name=running_task_ids,json=runningTaskIds,proto3" json:"running_task_ids,omitempty"`
 	Version        string        `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Finished tasks whose environment this node is still keeping up as a preview.
+	HeldTaskIds   []string `protobuf:"bytes,7,rep,name=held_task_ids,json=heldTaskIds,proto3" json:"held_task_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -1374,6 +1396,13 @@ func (x *Hello) GetVersion() string {
 	return ""
 }
 
+func (x *Hello) GetHeldTaskIds() []string {
+	if x != nil {
+		return x.HeldTaskIds
+	}
+	return nil
+}
+
 // HelloAck answers a Hello. It is always the first message the server sends on a stream
 // and it carries reconciliation: for every task the node said it still holds, what the
 // control plane actually has.
@@ -1386,9 +1415,12 @@ func (x *Hello) GetVersion() string {
 type HelloAck struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// One entry per task_id the Hello reported, in the order the node reported them.
-	Tasks         []*TaskCheckpoint `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Tasks []*TaskCheckpoint `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	// The held tasks from the Hello that the control plane has let go of — released,
+	// expired, or never recorded. The node tears them down; the rest it keeps.
+	ReleaseTaskIds []string `protobuf:"bytes,2,rep,name=release_task_ids,json=releaseTaskIds,proto3" json:"release_task_ids,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HelloAck) Reset() {
@@ -1424,6 +1456,13 @@ func (*HelloAck) Descriptor() ([]byte, []int) {
 func (x *HelloAck) GetTasks() []*TaskCheckpoint {
 	if x != nil {
 		return x.Tasks
+	}
+	return nil
+}
+
+func (x *HelloAck) GetReleaseTaskIds() []string {
+	if x != nil {
+		return x.ReleaseTaskIds
 	}
 	return nil
 }
@@ -1580,8 +1619,13 @@ type Heartbeat struct {
 	FreeSlots     int32                  `protobuf:"varint,2,opt,name=free_slots,json=freeSlots,proto3" json:"free_slots,omitempty"`
 	DiskFreeBytes int64                  `protobuf:"varint,3,opt,name=disk_free_bytes,json=diskFreeBytes,proto3" json:"disk_free_bytes,omitempty"`
 	Ts            *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=ts,proto3" json:"ts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// How many more previews this node can publish, by kind. A task that exposes ports is
+	// only placed where one of the kind it asks for is free, so it waits in the queue rather
+	// than being refused by a node with no address to give it.
+	FreeTailnetPreviews int32 `protobuf:"varint,5,opt,name=free_tailnet_previews,json=freeTailnetPreviews,proto3" json:"free_tailnet_previews,omitempty"`
+	FreeLanPreviews     int32 `protobuf:"varint,6,opt,name=free_lan_previews,json=freeLanPreviews,proto3" json:"free_lan_previews,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -1640,6 +1684,20 @@ func (x *Heartbeat) GetTs() *timestamppb.Timestamp {
 		return x.Ts
 	}
 	return nil
+}
+
+func (x *Heartbeat) GetFreeTailnetPreviews() int32 {
+	if x != nil {
+		return x.FreeTailnetPreviews
+	}
+	return 0
+}
+
+func (x *Heartbeat) GetFreeLanPreviews() int32 {
+	if x != nil {
+		return x.FreeLanPreviews
+	}
+	return 0
 }
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
@@ -2465,9 +2523,11 @@ func (x *Exited) GetOomKilled() bool {
 }
 
 type Finished struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExitCode      int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	Usage         *Usage                 `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ExitCode int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	Usage    *Usage                 `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
+	// held says the task's containers stay up as a preview: its ttl starts now.
+	Held          bool `protobuf:"varint,3,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2514,6 +2574,13 @@ func (x *Finished) GetUsage() *Usage {
 		return x.Usage
 	}
 	return nil
+}
+
+func (x *Finished) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
 }
 
 type Error struct {
@@ -2603,6 +2670,7 @@ type TaskEvent struct {
 	//	*TaskEvent_Error
 	//	*TaskEvent_Artifact
 	//	*TaskEvent_Message
+	//	*TaskEvent_Preview
 	Payload       isTaskEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2743,6 +2811,15 @@ func (x *TaskEvent) GetMessage() *Message {
 	return nil
 }
 
+func (x *TaskEvent) GetPreview() *Preview {
+	if x != nil {
+		if x, ok := x.Payload.(*TaskEvent_Preview); ok {
+			return x.Preview
+		}
+	}
+	return nil
+}
+
 type isTaskEvent_Payload interface {
 	isTaskEvent_Payload()
 }
@@ -2775,6 +2852,10 @@ type TaskEvent_Message struct {
 	Message *Message `protobuf:"bytes,12,opt,name=message,proto3,oneof"`
 }
 
+type TaskEvent_Preview struct {
+	Preview *Preview `protobuf:"bytes,13,opt,name=preview,proto3,oneof"`
+}
+
 func (*TaskEvent_Log) isTaskEvent_Payload() {}
 
 func (*TaskEvent_Step) isTaskEvent_Payload() {}
@@ -2788,6 +2869,125 @@ func (*TaskEvent_Error) isTaskEvent_Payload() {}
 func (*TaskEvent_Artifact) isTaskEvent_Payload() {}
 
 func (*TaskEvent_Message) isTaskEvent_Payload() {}
+
+func (*TaskEvent_Preview) isTaskEvent_Payload() {}
+
+// Preview is where a task's exposed ports can be reached from outside its node.
+type Preview struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// tailnet or lan.
+	Via string `protobuf:"bytes,1,opt,name=via,proto3" json:"via,omitempty"`
+	// The address every port is published on, under its own number.
+	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	// Keyed by the spec's port name: http://address:port.
+	Urls          map[string]string `protobuf:"bytes,3,rep,name=urls,proto3" json:"urls,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Preview) Reset() {
+	*x = Preview{}
+	mi := &file_podium_v1_node_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Preview) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Preview) ProtoMessage() {}
+
+func (x *Preview) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_node_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Preview.ProtoReflect.Descriptor instead.
+func (*Preview) Descriptor() ([]byte, []int) {
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *Preview) GetVia() string {
+	if x != nil {
+		return x.Via
+	}
+	return ""
+}
+
+func (x *Preview) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *Preview) GetUrls() map[string]string {
+	if x != nil {
+		return x.Urls
+	}
+	return nil
+}
+
+// Release tells a node to tear down a finished task it is keeping up as a preview.
+type Release struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Release) Reset() {
+	*x = Release{}
+	mi := &file_podium_v1_node_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Release) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Release) ProtoMessage() {}
+
+func (x *Release) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_node_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Release.ProtoReflect.Descriptor instead.
+func (*Release) Descriptor() ([]byte, []int) {
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *Release) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *Release) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
 
 var File_podium_v1_node_proto protoreflect.FileDescriptor
 
@@ -2870,7 +3070,7 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\theartbeat\x18\x02 \x01(\v2\x14.podium.v1.HeartbeatH\x00R\theartbeat\x125\n" +
 	"\n" +
 	"task_event\x18\x03 \x01(\v2\x14.podium.v1.TaskEventH\x00R\ttaskEventB\x05\n" +
-	"\x03msg\"\xc9\x02\n" +
+	"\x03msg\"\xf9\x02\n" +
 	"\rServerMessage\x12+\n" +
 	"\x06assign\x18\x01 \x01(\v2\x11.podium.v1.AssignH\x00R\x06assign\x12\"\n" +
 	"\x03ack\x18\x02 \x01(\v2\x0e.podium.v1.AckH\x00R\x03ack\x12+\n" +
@@ -2878,17 +3078,20 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x05drain\x18\x04 \x01(\v2\x10.podium.v1.DrainH\x00R\x05drain\x122\n" +
 	"\thello_ack\x18\x05 \x01(\v2\x13.podium.v1.HelloAckH\x00R\bhelloAck\x12(\n" +
 	"\x05slots\x18\x06 \x01(\v2\x10.podium.v1.SlotsH\x00R\x05slots\x12+\n" +
-	"\x06inject\x18\a \x01(\v2\x11.podium.v1.InjectH\x00R\x06injectB\x05\n" +
-	"\x03msg\"\xcc\x01\n" +
+	"\x06inject\x18\a \x01(\v2\x11.podium.v1.InjectH\x00R\x06inject\x12.\n" +
+	"\arelease\x18\b \x01(\v2\x12.podium.v1.ReleaseH\x00R\areleaseB\x05\n" +
+	"\x03msg\"\xf0\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x19\n" +
 	"\bnode_key\x18\x02 \x01(\tR\anodeKey\x12\x16\n" +
 	"\x06labels\x18\x03 \x03(\tR\x06labels\x123\n" +
 	"\bcapacity\x18\x04 \x01(\v2\x17.podium.v1.NodeCapacityR\bcapacity\x12(\n" +
 	"\x10running_task_ids\x18\x05 \x03(\tR\x0erunningTaskIds\x12\x18\n" +
-	"\aversion\x18\x06 \x01(\tR\aversion\";\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\x12\"\n" +
+	"\rheld_task_ids\x18\a \x03(\tR\vheldTaskIds\"e\n" +
 	"\bHelloAck\x12/\n" +
-	"\x05tasks\x18\x01 \x03(\v2\x19.podium.v1.TaskCheckpointR\x05tasks\"\xa4\x01\n" +
+	"\x05tasks\x18\x01 \x03(\v2\x19.podium.v1.TaskCheckpointR\x05tasks\x12(\n" +
+	"\x10release_task_ids\x18\x02 \x03(\tR\x0ereleaseTaskIds\"\xa4\x01\n" +
 	"\x0eTaskCheckpoint\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x14\n" +
 	"\x05adopt\x18\x02 \x01(\bR\x05adopt\x12\x19\n" +
@@ -2898,13 +3101,15 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\bNodeLoad\x12#\n" +
 	"\rrunning_tasks\x18\x01 \x01(\x05R\frunningTasks\x12\x17\n" +
 	"\acpu_pct\x18\x02 \x01(\x01R\x06cpuPct\x12\x17\n" +
-	"\amem_pct\x18\x03 \x01(\x01R\x06memPct\"\xa7\x01\n" +
+	"\amem_pct\x18\x03 \x01(\x01R\x06memPct\"\x87\x02\n" +
 	"\tHeartbeat\x12'\n" +
 	"\x04load\x18\x01 \x01(\v2\x13.podium.v1.NodeLoadR\x04load\x12\x1d\n" +
 	"\n" +
 	"free_slots\x18\x02 \x01(\x05R\tfreeSlots\x12&\n" +
 	"\x0fdisk_free_bytes\x18\x03 \x01(\x03R\rdiskFreeBytes\x12*\n" +
-	"\x02ts\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\"\xb5\x02\n" +
+	"\x02ts\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x122\n" +
+	"\x15free_tailnet_previews\x18\x05 \x01(\x05R\x13freeTailnetPreviews\x12*\n" +
+	"\x11free_lan_previews\x18\x06 \x01(\x05R\x0ffreeLanPreviews\"\xb5\x02\n" +
 	"\x06Assign\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12'\n" +
@@ -2964,15 +3169,16 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x06Exited\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x1d\n" +
 	"\n" +
-	"oom_killed\x18\x02 \x01(\bR\toomKilled\"O\n" +
+	"oom_killed\x18\x02 \x01(\bR\toomKilled\"c\n" +
 	"\bFinished\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12&\n" +
-	"\x05usage\x18\x02 \x01(\v2\x10.podium.v1.UsageR\x05usage\"^\n" +
+	"\x05usage\x18\x02 \x01(\v2\x10.podium.v1.UsageR\x05usage\x12\x12\n" +
+	"\x04held\x18\x03 \x01(\bR\x04held\"^\n" +
 	"\x05Error\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1c\n" +
 	"\tretryable\x18\x02 \x01(\bR\tretryable\x12\x1d\n" +
 	"\n" +
-	"aborts_run\x18\x03 \x01(\bR\tabortsRun\"\xf6\x03\n" +
+	"aborts_run\x18\x03 \x01(\bR\tabortsRun\"\xa6\x04\n" +
 	"\tTaskEvent\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12\x10\n" +
@@ -2986,8 +3192,19 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x05error\x18\n" +
 	" \x01(\v2\x10.podium.v1.ErrorH\x00R\x05error\x124\n" +
 	"\bartifact\x18\v \x01(\v2\x16.podium.v1.ArtifactRefH\x00R\bartifact\x12.\n" +
-	"\amessage\x18\f \x01(\v2\x12.podium.v1.MessageH\x00R\amessageB\t\n" +
-	"\apayload*\xcf\x02\n" +
+	"\amessage\x18\f \x01(\v2\x12.podium.v1.MessageH\x00R\amessage\x12.\n" +
+	"\apreview\x18\r \x01(\v2\x12.podium.v1.PreviewH\x00R\apreviewB\t\n" +
+	"\apayload\"\xa0\x01\n" +
+	"\aPreview\x12\x10\n" +
+	"\x03via\x18\x01 \x01(\tR\x03via\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x120\n" +
+	"\x04urls\x18\x03 \x03(\v2\x1c.podium.v1.Preview.UrlsEntryR\x04urls\x1a7\n" +
+	"\tUrlsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\":\n" +
+	"\aRelease\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason*\xec\x02\n" +
 	"\rTaskEventKind\x12\x1f\n" +
 	"\x1bTASK_EVENT_KIND_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cTASK_EVENT_KIND_PROVISIONING\x10\x01\x12\x1b\n" +
@@ -3000,7 +3217,8 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x18TASK_EVENT_KIND_FINISHED\x10\b\x12\x19\n" +
 	"\x15TASK_EVENT_KIND_ERROR\x10\t\x12\x1b\n" +
 	"\x17TASK_EVENT_KIND_MESSAGE\x10\n" +
-	"2\xd3\x03\n" +
+	"\x12\x1b\n" +
+	"\x17TASK_EVENT_KIND_PREVIEW\x10\v2\xd3\x03\n" +
 	"\vNodeService\x12=\n" +
 	"\x06Enroll\x12\x18.podium.v1.EnrollRequest\x1a\x19.podium.v1.EnrollResponse\x12>\n" +
 	"\x06Stream\x12\x16.podium.v1.NodeMessage\x1a\x18.podium.v1.ServerMessage(\x010\x01\x12W\n" +
@@ -3023,7 +3241,7 @@ func file_podium_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_podium_v1_node_proto_goTypes = []any{
 	(TaskEventKind)(0),                        // 0: podium.v1.TaskEventKind
 	(LogChunk_Stream)(0),                      // 1: podium.v1.LogChunk.Stream
@@ -3061,10 +3279,13 @@ var file_podium_v1_node_proto_goTypes = []any{
 	(*Finished)(nil),                          // 33: podium.v1.Finished
 	(*Error)(nil),                             // 34: podium.v1.Error
 	(*TaskEvent)(nil),                         // 35: podium.v1.TaskEvent
-	(*NodeCapacity)(nil),                      // 36: podium.v1.NodeCapacity
-	(*timestamppb.Timestamp)(nil),             // 37: google.protobuf.Timestamp
-	(*TaskSpec)(nil),                          // 38: podium.v1.TaskSpec
-	(*Usage)(nil),                             // 39: podium.v1.Usage
+	(*Preview)(nil),                           // 36: podium.v1.Preview
+	(*Release)(nil),                           // 37: podium.v1.Release
+	nil,                                       // 38: podium.v1.Preview.UrlsEntry
+	(*NodeCapacity)(nil),                      // 39: podium.v1.NodeCapacity
+	(*timestamppb.Timestamp)(nil),             // 40: google.protobuf.Timestamp
+	(*TaskSpec)(nil),                          // 41: podium.v1.TaskSpec
+	(*Usage)(nil),                             // 42: podium.v1.Usage
 }
 var file_podium_v1_node_proto_depIdxs = []int32{
 	5,  // 0: podium.v1.UploadArtifactRequest.metadata:type_name -> podium.v1.ArtifactMetadata
@@ -3080,40 +3301,43 @@ var file_podium_v1_node_proto_depIdxs = []int32{
 	16, // 10: podium.v1.ServerMessage.hello_ack:type_name -> podium.v1.HelloAck
 	26, // 11: podium.v1.ServerMessage.slots:type_name -> podium.v1.Slots
 	25, // 12: podium.v1.ServerMessage.inject:type_name -> podium.v1.Inject
-	36, // 13: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
-	17, // 14: podium.v1.HelloAck.tasks:type_name -> podium.v1.TaskCheckpoint
-	18, // 15: podium.v1.Heartbeat.load:type_name -> podium.v1.NodeLoad
-	37, // 16: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
-	38, // 17: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
-	37, // 18: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
-	22, // 19: podium.v1.Assign.resolved_secrets:type_name -> podium.v1.ResolvedSecret
-	21, // 20: podium.v1.Assign.registry_credentials:type_name -> podium.v1.RegistryCredential
-	1,  // 21: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
-	39, // 22: podium.v1.Finished.usage:type_name -> podium.v1.Usage
-	37, // 23: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
-	0,  // 24: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
-	28, // 25: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
-	31, // 26: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
-	32, // 27: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
-	33, // 28: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
-	34, // 29: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
-	29, // 30: podium.v1.TaskEvent.artifact:type_name -> podium.v1.ArtifactRef
-	30, // 31: podium.v1.TaskEvent.message:type_name -> podium.v1.Message
-	2,  // 32: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
-	13, // 33: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
-	4,  // 34: podium.v1.NodeService.UploadArtifact:input_type -> podium.v1.UploadArtifactRequest
-	7,  // 35: podium.v1.NodeService.UploadWorkspaceSnapshot:input_type -> podium.v1.UploadWorkspaceSnapshotRequest
-	10, // 36: podium.v1.NodeService.DownloadWorkspaceSnapshot:input_type -> podium.v1.DownloadWorkspaceSnapshotRequest
-	3,  // 37: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
-	14, // 38: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
-	6,  // 39: podium.v1.NodeService.UploadArtifact:output_type -> podium.v1.UploadArtifactResponse
-	9,  // 40: podium.v1.NodeService.UploadWorkspaceSnapshot:output_type -> podium.v1.UploadWorkspaceSnapshotResponse
-	11, // 41: podium.v1.NodeService.DownloadWorkspaceSnapshot:output_type -> podium.v1.DownloadWorkspaceSnapshotResponse
-	37, // [37:42] is the sub-list for method output_type
-	32, // [32:37] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	37, // 13: podium.v1.ServerMessage.release:type_name -> podium.v1.Release
+	39, // 14: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
+	17, // 15: podium.v1.HelloAck.tasks:type_name -> podium.v1.TaskCheckpoint
+	18, // 16: podium.v1.Heartbeat.load:type_name -> podium.v1.NodeLoad
+	40, // 17: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
+	41, // 18: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
+	40, // 19: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
+	22, // 20: podium.v1.Assign.resolved_secrets:type_name -> podium.v1.ResolvedSecret
+	21, // 21: podium.v1.Assign.registry_credentials:type_name -> podium.v1.RegistryCredential
+	1,  // 22: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
+	42, // 23: podium.v1.Finished.usage:type_name -> podium.v1.Usage
+	40, // 24: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
+	0,  // 25: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
+	28, // 26: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
+	31, // 27: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
+	32, // 28: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
+	33, // 29: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
+	34, // 30: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
+	29, // 31: podium.v1.TaskEvent.artifact:type_name -> podium.v1.ArtifactRef
+	30, // 32: podium.v1.TaskEvent.message:type_name -> podium.v1.Message
+	36, // 33: podium.v1.TaskEvent.preview:type_name -> podium.v1.Preview
+	38, // 34: podium.v1.Preview.urls:type_name -> podium.v1.Preview.UrlsEntry
+	2,  // 35: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
+	13, // 36: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
+	4,  // 37: podium.v1.NodeService.UploadArtifact:input_type -> podium.v1.UploadArtifactRequest
+	7,  // 38: podium.v1.NodeService.UploadWorkspaceSnapshot:input_type -> podium.v1.UploadWorkspaceSnapshotRequest
+	10, // 39: podium.v1.NodeService.DownloadWorkspaceSnapshot:input_type -> podium.v1.DownloadWorkspaceSnapshotRequest
+	3,  // 40: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
+	14, // 41: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
+	6,  // 42: podium.v1.NodeService.UploadArtifact:output_type -> podium.v1.UploadArtifactResponse
+	9,  // 43: podium.v1.NodeService.UploadWorkspaceSnapshot:output_type -> podium.v1.UploadWorkspaceSnapshotResponse
+	11, // 44: podium.v1.NodeService.DownloadWorkspaceSnapshot:output_type -> podium.v1.DownloadWorkspaceSnapshotResponse
+	40, // [40:45] is the sub-list for method output_type
+	35, // [35:40] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_node_proto_init() }
@@ -3147,6 +3371,7 @@ func file_podium_v1_node_proto_init() {
 		(*ServerMessage_HelloAck)(nil),
 		(*ServerMessage_Slots)(nil),
 		(*ServerMessage_Inject)(nil),
+		(*ServerMessage_Release)(nil),
 	}
 	file_podium_v1_node_proto_msgTypes[33].OneofWrappers = []any{
 		(*TaskEvent_Log)(nil),
@@ -3156,6 +3381,7 @@ func file_podium_v1_node_proto_init() {
 		(*TaskEvent_Error)(nil),
 		(*TaskEvent_Artifact)(nil),
 		(*TaskEvent_Message)(nil),
+		(*TaskEvent_Preview)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -3163,7 +3389,7 @@ func file_podium_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_node_proto_rawDesc), len(file_podium_v1_node_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   34,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

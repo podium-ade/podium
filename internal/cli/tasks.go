@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -72,7 +73,7 @@ func newTaskCommand(e *env) *cobra.Command {
 		Short: "Inspect and control a single task",
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(newTaskGetCommand(e), newTaskCancelCommand(e))
+	cmd.AddCommand(newTaskGetCommand(e), newTaskCancelCommand(e), newTaskReleaseCommand(e))
 	return cmd
 }
 
@@ -141,7 +142,61 @@ func printTaskDetail(e *env, t *podiumv1.Task) error {
 		line("usage", fmt.Sprintf("cpu %.2fs, peak %d MB, wall %s",
 			u.GetCpuSeconds(), u.GetPeakMemoryMb(), time.Duration(u.GetWallMs())*time.Millisecond))
 	}
+	if p := t.GetPreview(); p != nil {
+		line("preview", previewState(p))
+		for _, name := range sortedKeys(p.GetUrls()) {
+			line("  "+name, p.GetUrls()[name])
+		}
+	}
 	return w.Flush()
+}
+
+// previewState is one line on where a preview is in its life.
+func previewState(p *podiumv1.TaskPreview) string {
+	switch {
+	case p.GetReleasedAt() != nil:
+		return fmt.Sprintf("released %s (%s)", stamp(p.GetReleasedAt().AsTime(), true), orDash(p.GetReleaseReason()))
+	case p.GetAddress() == "" && p.GetExpiresAt() != nil:
+		return fmt.Sprintf("held, publishing nothing, until %s", stamp(p.GetExpiresAt().AsTime(), true))
+	case p.GetAddress() == "":
+		return "held once the command exits, publishing nothing"
+	case p.GetExpiresAt() != nil:
+		return fmt.Sprintf("up over %s on %s until %s", p.GetVia(), p.GetAddress(), stamp(p.GetExpiresAt().AsTime(), true))
+	default:
+		return fmt.Sprintf("published over %s on %s; held once the command exits", p.GetVia(), p.GetAddress())
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func newTaskReleaseCommand(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "release TASK_ID",
+		Short: "Tear down a finished task's preview before its ttl runs out",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := e.client.tasks.ReleasePreview(cmd.Context(), connect.NewRequest(&podiumv1.ReleasePreviewRequest{
+				TaskId: args[0],
+			}))
+			if err != nil {
+				return &ExitError{Code: ExitInfra, Err: fmt.Errorf("release task %s: %w", args[0], err)}
+			}
+			p := res.Msg.GetTask().GetPreview()
+			if p == nil {
+				fmt.Fprintf(e.stdout, "%s has no preview\n", args[0])
+				return nil
+			}
+			fmt.Fprintf(e.stdout, "%s preview %s\n", args[0], previewState(p))
+			return nil
+		},
+	}
 }
 
 func orDash(v string) string {

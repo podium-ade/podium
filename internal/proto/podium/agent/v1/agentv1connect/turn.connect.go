@@ -49,6 +49,9 @@ const (
 	// TurnServiceInjectDelegationProcedure is the fully-qualified name of the TurnService's
 	// InjectDelegation RPC.
 	TurnServiceInjectDelegationProcedure = "/podium.agent.v1.TurnService/InjectDelegation"
+	// TurnServiceReleasePreviewProcedure is the fully-qualified name of the TurnService's
+	// ReleasePreview RPC.
+	TurnServiceReleasePreviewProcedure = "/podium.agent.v1.TurnService/ReleasePreview"
 	// GitCredentialServiceMintTokenProcedure is the fully-qualified name of the GitCredentialService's
 	// MintToken RPC.
 	GitCredentialServiceMintTokenProcedure = "/podium.agent.v1.GitCredentialService/MintToken"
@@ -73,6 +76,9 @@ type TurnServiceClient interface {
 	// message in the same workspace. Use it to correct or add to in-flight work rather
 	// than starting a second task.
 	InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error)
+	// ReleasePreview takes down the preview a finished delegated task of this conversation
+	// left up, before its ttl does.
+	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
 }
 
 // NewTurnServiceClient constructs a client for the podium.agent.v1.TurnService service. By default,
@@ -116,6 +122,12 @@ func NewTurnServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(turnServiceMethods.ByName("InjectDelegation")),
 			connect.WithClientOptions(opts...),
 		),
+		releasePreview: connect.NewClient[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse](
+			httpClient,
+			baseURL+TurnServiceReleasePreviewProcedure,
+			connect.WithSchema(turnServiceMethods.ByName("ReleasePreview")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -126,6 +138,7 @@ type turnServiceClient struct {
 	listDelegations  *connect.Client[v1.ListDelegationsRequest, v1.ListDelegationsResponse]
 	cancelDelegation *connect.Client[v1.CancelDelegationRequest, v1.CancelDelegationResponse]
 	injectDelegation *connect.Client[v1.InjectDelegationRequest, v1.InjectDelegationResponse]
+	releasePreview   *connect.Client[v1.ReleasePreviewRequest, v1.ReleasePreviewResponse]
 }
 
 // Delegate calls podium.agent.v1.TurnService.Delegate.
@@ -153,6 +166,11 @@ func (c *turnServiceClient) InjectDelegation(ctx context.Context, req *connect.R
 	return c.injectDelegation.CallUnary(ctx, req)
 }
 
+// ReleasePreview calls podium.agent.v1.TurnService.ReleasePreview.
+func (c *turnServiceClient) ReleasePreview(ctx context.Context, req *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error) {
+	return c.releasePreview.CallUnary(ctx, req)
+}
+
 // TurnServiceHandler is an implementation of the podium.agent.v1.TurnService service.
 type TurnServiceHandler interface {
 	// Delegate starts a Podium task for this turn's conversation and returns immediately. A
@@ -172,6 +190,9 @@ type TurnServiceHandler interface {
 	// message in the same workspace. Use it to correct or add to in-flight work rather
 	// than starting a second task.
 	InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error)
+	// ReleasePreview takes down the preview a finished delegated task of this conversation
+	// left up, before its ttl does.
+	ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error)
 }
 
 // NewTurnServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -211,6 +232,12 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(turnServiceMethods.ByName("InjectDelegation")),
 		connect.WithHandlerOptions(opts...),
 	)
+	turnServiceReleasePreviewHandler := connect.NewUnaryHandler(
+		TurnServiceReleasePreviewProcedure,
+		svc.ReleasePreview,
+		connect.WithSchema(turnServiceMethods.ByName("ReleasePreview")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.TurnService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TurnServiceDelegateProcedure:
@@ -223,6 +250,8 @@ func NewTurnServiceHandler(svc TurnServiceHandler, opts ...connect.HandlerOption
 			turnServiceCancelDelegationHandler.ServeHTTP(w, r)
 		case TurnServiceInjectDelegationProcedure:
 			turnServiceInjectDelegationHandler.ServeHTTP(w, r)
+		case TurnServiceReleasePreviewProcedure:
+			turnServiceReleasePreviewHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -250,6 +279,10 @@ func (UnimplementedTurnServiceHandler) CancelDelegation(context.Context, *connec
 
 func (UnimplementedTurnServiceHandler) InjectDelegation(context.Context, *connect.Request[v1.InjectDelegationRequest]) (*connect.Response[v1.InjectDelegationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.InjectDelegation is not implemented"))
+}
+
+func (UnimplementedTurnServiceHandler) ReleasePreview(context.Context, *connect.Request[v1.ReleasePreviewRequest]) (*connect.Response[v1.ReleasePreviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.TurnService.ReleasePreview is not implemented"))
 }
 
 // GitCredentialServiceClient is a client for the podium.agent.v1.GitCredentialService service.

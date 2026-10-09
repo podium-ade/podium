@@ -139,6 +139,18 @@ export const tools: ToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "release_preview",
+    description:
+      "Take down the preview a finished delegated task left up — its containers and its " +
+      "URLs. Use it when the person says they are done with it.",
+    inputSchema: {
+      type: "object",
+      properties: { delegation_id: { type: "string" } },
+      required: ["delegation_id"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Handler answers one request. It is separated from the transport so the tools can be
@@ -226,6 +238,11 @@ async function callTool(client: Client, params: Record<string, unknown>): Promis
         const reason = typeof args.reason === "string" ? args.reason : "";
         const { delegation } = await client.cancel(id, reason);
         return ok(`Asked the node to stop ${delegation.id} (task ${delegation.task_id ?? "?"}).`);
+      }
+      case "release_preview": {
+        const id = requireString(args, "delegation_id");
+        const { delegation } = await client.releasePreview(id);
+        return ok(`Released the preview of ${delegation.id} (task ${delegation.task_id ?? "?"}). Its URLs no longer answer.`);
       }
       default:
         throw new RPCError(InvalidParams, `unknown tool ${name}`);

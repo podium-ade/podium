@@ -13,6 +13,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +31,18 @@ const (
 	EnvEventsSock = "PODIUM_EVENTS_SOCK"
 	EnvWorkDir    = "PODIUM_WORKDIR"
 	EnvKillAfter  = "PODIUM_KILL_AFTER"
+	// EnvHold is set on a task that exposes ports: when its command exits, the runner
+	// reports the exit and stays up, so whatever the command left running keeps serving.
+	EnvHold = "PODIUM_HOLD"
 )
+
+// HoldDir is a tmpfs the node mounts on a held task. The runner writes the command's exit
+// there, because a node that restarted while the command ran has lost the event socket and
+// can only learn the exit by reading this file.
+const HoldDir = "/podium/hold"
+
+// HoldExitFile is the file under HoldDir that holds the exit, as the exited event's JSON.
+const HoldExitFile = HoldDir + "/exit"
 
 // Defaults for the values above and for the timers this package owns.
 const (
@@ -69,6 +81,10 @@ type Config struct {
 	KillAfter time.Duration
 	// DialTimeout bounds the retry window for the event socket.
 	DialTimeout time.Duration
+	// Hold keeps the runner up after the command exits, until it is asked to stop.
+	Hold bool
+	// HoldExitFile is where a held exit is also written; empty means HoldExitFile.
+	HoldExitFile string
 	// Stdout and Stderr are the files the child inherits as fd 1 and fd 2, and Stderr is
 	// also where the runner writes its own diagnostics. Both default to the process's.
 	// Stdin is always inherited.
@@ -83,6 +99,7 @@ func ConfigFromEnv() Config {
 		LeaseID:    os.Getenv(EnvLeaseID),
 		EventsSock: os.Getenv(EnvEventsSock),
 		WorkDir:    os.Getenv(EnvWorkDir),
+		Hold:       os.Getenv(EnvHold) == "1",
 	}
 	if d, err := time.ParseDuration(os.Getenv(EnvKillAfter)); err == nil && d > 0 {
 		cfg.KillAfter = d
@@ -108,6 +125,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Stderr == nil {
 		c.Stderr = os.Stderr
+	}
+	if c.HoldExitFile == "" {
+		c.HoldExitFile = HoldExitFile
 	}
 }
 
@@ -177,6 +197,9 @@ func Run(ctx context.Context, cfg Config, argv []string) int {
 	exits := reap(pid)
 	var deadline <-chan time.Time
 	aborted := ctx.Done()
+	// stopping is set once the runner has been asked to end the task. A command that
+	// exits because of that is not held: the task was cancelled, not finished.
+	stopping := false
 	for {
 		select {
 		case s := <-sigs:
@@ -185,6 +208,9 @@ func Run(ctx context.Context, cfg Config, argv []string) int {
 				continue
 			}
 			kill(sig)
+			if terminating(sig) {
+				stopping = true
+			}
 			if sig == syscall.SIGTERM && deadline == nil {
 				deadline = time.After(cfg.KillAfter)
 			}
@@ -194,6 +220,7 @@ func Run(ctx context.Context, cfg Config, argv []string) int {
 			kill(syscall.SIGKILL)
 		case <-aborted:
 			aborted = nil // a nil channel blocks, so this fires exactly once
+			stopping = true
 			kill(syscall.SIGKILL)
 		case ws, ok := <-exits:
 			if !ok {
@@ -201,10 +228,54 @@ func Run(ctx context.Context, cfg Config, argv []string) int {
 				return exitInternal
 			}
 			code, signame := exitStatus(ws)
-			events.exited(code, signame)
+			holding := cfg.Hold && !stopping
+			if holding {
+				writeHoldExit(cfg.HoldExitFile, code, signame)
+			}
+			events.exited(code, signame, holding)
+			if !holding {
+				return code
+			}
+			warn("command exited %d; holding the environment up until it is released", code)
+			return hold(ctx, sigs, kill, code)
+		}
+	}
+}
+
+// terminating reports whether a forwarded signal asks the task to end.
+func terminating(sig syscall.Signal) bool {
+	return sig == syscall.SIGTERM || sig == syscall.SIGINT || sig == syscall.SIGHUP || sig == syscall.SIGQUIT
+}
+
+// hold keeps PID 1 alive after the command exited, so the processes it started in the
+// background keep serving, until a terminating signal says the preview is over. The
+// process group outlives its leader, so the signal still reaches what the command left.
+func hold(ctx context.Context, sigs <-chan os.Signal, kill func(syscall.Signal), code int) int {
+	reapCtx, stopReaping := context.WithCancel(ctx)
+	defer stopReaping()
+	go reapOrphans(reapCtx)
+	for {
+		select {
+		case s := <-sigs:
+			if sig, ok := s.(syscall.Signal); ok && terminating(sig) {
+				kill(sig)
+				return code
+			}
+		case <-ctx.Done():
+			kill(syscall.SIGKILL)
 			return code
 		}
 	}
+}
+
+// writeHoldExit records a held exit for a node that has lost the event socket. Best
+// effort: the file is a fallback, and the directory only exists on a held task.
+func writeHoldExit(path string, code int, signame string) {
+	line, err := json.Marshal(exitedEvent{envelope: head(kindExited), ExitCode: code, Signal: signame, Holding: true})
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, line, 0o644) //nolint:gosec // an exit code, read by the node
 }
 
 // childEnv is the runner's environment minus the socket path, which is the runner's
@@ -244,6 +315,24 @@ func reap(child int) <-chan syscall.WaitStatus {
 		}
 	}()
 	return out
+}
+
+// reapOrphans is reap for a held task: there is no child left to wait for, but whatever
+// the command left behind still exits and still needs collecting.
+func reapOrphans(ctx context.Context) {
+	for ctx.Err() == nil {
+		var ws syscall.WaitStatus
+		for {
+			pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, nil)
+			if pid <= 0 || err != nil {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // exitStatus turns a wait status into the code the runner exits with and the name of the

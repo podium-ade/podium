@@ -16,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
@@ -52,6 +53,10 @@ type fakePodium struct {
 	cancels []*podiumv1.CancelTaskRequest
 	// injects is every InjectTask the conductor asked for, in order.
 	injects []*podiumv1.InjectTaskRequest
+	// previews is what a task's GetTask reports as its preview, and releases every task id
+	// ReleasePreview was asked about.
+	previews map[string]*podiumv1.TaskPreview
+	releases []string
 
 	srv *httptest.Server
 }
@@ -193,6 +198,9 @@ func (f *fakePodium) GetTask(
 		Id: ft.task.GetId(), Spec: ft.task.GetSpec(), Status: ft.task.GetStatus(),
 		CreatedAt: ft.task.GetCreatedAt(),
 	}
+	if p := f.previews[ft.task.GetId()]; p != nil {
+		out.Preview = proto.Clone(p).(*podiumv1.TaskPreview)
+	}
 	select {
 	case <-ft.done:
 		out.Status = terminal
@@ -276,6 +284,42 @@ func (f *fakePodium) InjectTask(
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
 	}
 	return connect.NewResponse(&podiumv1.InjectTaskResponse{}), nil
+}
+
+func (f *fakePodium) ReleasePreview(
+	_ context.Context, req *connect.Request[podiumv1.ReleasePreviewRequest],
+) (*connect.Response[podiumv1.ReleasePreviewResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.tasks[req.Msg.GetTaskId()]
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
+	}
+	f.releases = append(f.releases, req.Msg.GetTaskId())
+	out := proto.Clone(t.task).(*podiumv1.Task)
+	if p := f.previews[req.Msg.GetTaskId()]; p != nil {
+		if p.ReleasedAt == nil {
+			p.ReleasedAt = timestamppb.Now()
+		}
+		out.Preview = proto.Clone(p).(*podiumv1.TaskPreview)
+	}
+	return connect.NewResponse(&podiumv1.ReleasePreviewResponse{Task: out}), nil
+}
+
+// SetPreview gives a task a preview, as a node publishing one would.
+func (f *fakePodium) SetPreview(taskID string, p *podiumv1.TaskPreview) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.previews == nil {
+		f.previews = map[string]*podiumv1.TaskPreview{}
+	}
+	f.previews[taskID] = p
+}
+
+func (f *fakePodium) Releases() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.releases...)
 }
 
 func (f *fakePodium) Injects() []*podiumv1.InjectTaskRequest {

@@ -68,6 +68,15 @@ func (f *fakeDelegator) InjectDelegation(_ context.Context, token, id, _ string)
 	return f.dlg, nil
 }
 
+func (f *fakeDelegator) ReleaseDelegationPreview(_ context.Context, token, id string) (store.Delegation, error) {
+	f.tokens = append(f.tokens, token)
+	if f.err != nil {
+		return store.Delegation{}, f.err
+	}
+	f.dlg.ID = id
+	return f.dlg, nil
+}
+
 // withToken is a request carrying a turn's token, as the MCP server sends it.
 func withToken[T any](msg *T, token string) *connect.Request[T] {
 	req := connect.NewRequest(msg)
@@ -109,6 +118,8 @@ func TestEveryTurnRPCNeedsAToken(t *testing.T) {
 	_, err = svc.ListDelegations(ctx, withToken(&agentv1.ListDelegationsRequest{}, ""))
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	_, err = svc.CancelDelegation(ctx, withToken(&agentv1.CancelDelegationRequest{Id: "dlg_01"}, ""))
+	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	_, err = svc.ReleasePreview(ctx, withToken(&agentv1.ReleasePreviewRequest{Id: "dlg_01"}, ""))
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
 
@@ -199,6 +210,18 @@ func TestInjectDelegationHandsTheTextToTheConductor(t *testing.T) {
 	assert.Equal(t, "dlg_01", res.Msg.GetDelegation().GetId())
 }
 
+func TestReleasePreviewNamesTheDelegation(t *testing.T) {
+	f := &fakeDelegator{dlg: running()}
+	svc := NewTurnService(f, quietLogger())
+	_, err := svc.ReleasePreview(context.Background(), withToken(&agentv1.ReleasePreviewRequest{Id: " "}, "tok"))
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	res, err := svc.ReleasePreview(context.Background(), withToken(&agentv1.ReleasePreviewRequest{Id: "dlg_01"}, "tok"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tok"}, f.tokens)
+	assert.Equal(t, "dlg_01", res.Msg.GetDelegation().GetId())
+}
+
 func TestListDelegationsReturnsEveryOneOfThisTurns(t *testing.T) {
 	second := running()
 	second.ID = "dlg_02"
@@ -239,6 +262,11 @@ func TestTheConductorsRefusalsBecomeConnectCodes(t *testing.T) {
 		err:  conductor.ErrDelegationOver,
 		want: connect.CodeFailedPrecondition,
 		says: "already finished",
+	}, {
+		name: "no preview to release",
+		err:  conductor.ErrNoPreview,
+		want: connect.CodeFailedPrecondition,
+		says: "no preview",
 	}, {
 		name: "anything else",
 		err:  errors.New("the database is on fire"),

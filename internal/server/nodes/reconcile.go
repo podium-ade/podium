@@ -186,9 +186,51 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 // core with a Postgres asking for two costs three.
 func CostOf(ts spec.TaskSpec) TaskCost {
 	cost := TaskCost{CPU: ts.Resources.CPU, MemoryMB: int64(ts.Resources.MemoryMB)}
+	// A hold-only expose takes no address, so it does not wait for one.
+	if ts.Expose.Publishes() {
+		cost.Preview, cost.Via = true, ts.Expose.Via
+	}
 	for _, sc := range ts.Sidecars {
 		cost.CPU += sc.Resources.CPU
 		cost.MemoryMB += int64(sc.Resources.MemoryMB)
 	}
 	return cost
+}
+
+// TakePreview says which pool a task's preview comes out of, given what is free, the same
+// way the node picks: the kind asked for, or a tailnet slot first when it is up to the node.
+// ok is false when nothing fits.
+func (c TaskCost) TakePreview(freeTailnet, freeLAN int32) (tailnet, ok bool) {
+	switch c.Via {
+	case spec.ExposeViaTailnet:
+		return true, freeTailnet > 0
+	case spec.ExposeViaLAN:
+		return false, freeLAN > 0
+	}
+	if freeTailnet > 0 {
+		return true, true
+	}
+	return false, freeLAN > 0
+}
+
+// previewsLetGo is the held tasks a reconnecting node reported that the control plane no
+// longer wants kept up: released or expired while the node was away, or never recorded.
+// A store that cannot answer keeps everything — tearing a preview down is the one outcome
+// that cannot be taken back, and the expiry sweep will ask again.
+func (s *Service) previewsLetGo(ctx context.Context, nodeID string, held []string) []string {
+	if len(held) == 0 {
+		return nil
+	}
+	live, err := s.store.ListPreviews(ctx, held)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reconciling held previews failed; keeping them", "node_id", nodeID, "error", err)
+		return nil
+	}
+	var out []string
+	for _, id := range held {
+		if p, ok := live[id]; !ok || !p.Live() || p.NodeID != nodeID {
+			out = append(out, id)
+		}
+	}
+	return out
 }

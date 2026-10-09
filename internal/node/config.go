@@ -6,6 +6,7 @@ package node
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -102,6 +103,21 @@ type Config struct {
 	// does not apply to sidecars, and it does not snapshot the workspace. Docker Desktop
 	// does not ship runsc. Off means the field stays empty.
 	Runtime string `yaml:"runtime"`
+
+	// PreviewLANAddresses are the addresses this node may publish previews on,
+	// PODIUM_NODE_PREVIEW_LAN_ADDRESSES (comma-separated). Each held task takes one and
+	// publishes its ports on it under their own numbers, so give the machine secondary IPs
+	// kept out of DHCP. Empty turns LAN previews off. Anything that can reach one of these
+	// addresses can use the preview on it: there is no login on this path.
+	PreviewLANAddresses []string `yaml:"preview_lan_addresses"`
+	// PreviewTailnetSlots is how many tailnet preview devices this node may run at once,
+	// PODIUM_NODE_PREVIEW_TAILNET_SLOTS. Each is a device of its own with a stable 100.x
+	// address, lent to one held task at a time. Zero turns tailnet previews off.
+	PreviewTailnetSlots int `yaml:"preview_tailnet_slots"`
+	// PreviewTSAuthKey registers the slot devices the first time each is used,
+	// PODIUM_NODE_PREVIEW_TS_AUTHKEY: pre-approved, reusable, tagged tag:podium-preview.
+	// SENSITIVE: never log it.
+	PreviewTSAuthKey string `yaml:"preview_ts_auth_key"`
 }
 
 // DefaultConfig is the configuration a node with no file and no environment runs with.
@@ -157,6 +173,15 @@ func applyEnv(cfg *Config) {
 	envString("PODIUM_NODE_TS_AUTHKEY", &cfg.TSAuthKey)
 	envString("PODIUM_NODE_METRICS_LISTEN", &cfg.MetricsListen)
 	envString("PODIUM_NODE_DOCKER_HOST", &cfg.DockerHost)
+	envString("PODIUM_NODE_PREVIEW_TS_AUTHKEY", &cfg.PreviewTSAuthKey)
+	if v := os.Getenv("PODIUM_NODE_PREVIEW_LAN_ADDRESSES"); v != "" {
+		cfg.PreviewLANAddresses = splitLabels(v)
+	}
+	if v := os.Getenv("PODIUM_NODE_PREVIEW_TAILNET_SLOTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.PreviewTailnetSlots = n
+		}
+	}
 
 	if v := os.Getenv("PODIUM_NODE_LABELS"); v != "" {
 		cfg.Labels = splitLabels(v)
@@ -240,6 +265,14 @@ func (c *Config) Validate() error {
 	}
 	if err := checkWritableDir(c.DataDir); err != nil {
 		return err
+	}
+	for _, a := range c.PreviewLANAddresses {
+		if net.ParseIP(a) == nil {
+			return fmt.Errorf("preview_lan_addresses: %q is not an IP address", a)
+		}
+	}
+	if c.PreviewTailnetSlots < 0 {
+		return fmt.Errorf("preview_tailnet_slots is %d; it is a count and cannot be negative", c.PreviewTailnetSlots)
 	}
 	if c.ImageCachePrune && (c.ImageCacheHighWatermark <= 0 || c.ImageCacheHighWatermark >= 1) {
 		return fmt.Errorf("image_cache_high_watermark is %v: it is a fraction of the disk and must be between 0 and 1",

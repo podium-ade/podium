@@ -154,6 +154,7 @@ message ServerMessage {
     HelloAck hello_ack = 5;
     Slots slots = 6;
     Inject inject = 7;
+    Release release = 8;
   }
 }
 
@@ -167,6 +168,8 @@ message Hello {
   NodeCapacity capacity = 4;
   repeated string running_task_ids = 5;
   string version = 6;
+  // Finished tasks whose environment this node is still keeping up as a preview.
+  repeated string held_task_ids = 7;
 }
 
 // HelloAck answers a Hello. It is always the first message the server sends on a stream
@@ -181,6 +184,9 @@ message Hello {
 message HelloAck {
   // One entry per task_id the Hello reported, in the order the node reported them.
   repeated TaskCheckpoint tasks = 1;
+  // The held tasks from the Hello that the control plane has let go of — released,
+  // expired, or never recorded. The node tears them down; the rest it keeps.
+  repeated string release_task_ids = 2;
 }
 
 // TaskCheckpoint is the server's view of one task the node still has a container for.
@@ -212,6 +218,11 @@ message Heartbeat {
   int32 free_slots = 2;
   int64 disk_free_bytes = 3;
   google.protobuf.Timestamp ts = 4;
+  // How many more previews this node can publish, by kind. A task that exposes ports is
+  // only placed where one of the kind it asks for is free, so it waits in the queue rather
+  // than being refused by a node with no address to give it.
+  int32 free_tailnet_previews = 5;
+  int32 free_lan_previews = 6;
 }
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
@@ -309,6 +320,8 @@ enum TaskEventKind {
   TASK_EVENT_KIND_FINISHED = 8;
   TASK_EVENT_KIND_ERROR = 9;
   TASK_EVENT_KIND_MESSAGE = 10;
+  // Sent once, before started, by a task whose spec exposes ports: where they are.
+  TASK_EVENT_KIND_PREVIEW = 11;
 }
 
 message LogChunk {
@@ -367,6 +380,8 @@ message Exited {
 message Finished {
   int32 exit_code = 1;
   Usage usage = 2;
+  // held says the task's containers stay up as a preview: its ttl starts now.
+  bool held = 3;
 }
 
 message Error {
@@ -400,5 +415,22 @@ message TaskEvent {
     Error error = 10;
     ArtifactRef artifact = 11;
     Message message = 12;
+    Preview preview = 13;
   }
+}
+
+// Preview is where a task's exposed ports can be reached from outside its node.
+message Preview {
+  // tailnet or lan.
+  string via = 1;
+  // The address every port is published on, under its own number.
+  string address = 2;
+  // Keyed by the spec's port name: http://address:port.
+  map<string, string> urls = 3;
+}
+
+// Release tells a node to tear down a finished task it is keeping up as a preview.
+message Release {
+  string task_id = 1;
+  string reason = 2;
 }

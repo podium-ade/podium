@@ -22,6 +22,9 @@ function stubClient(overrides: Partial<Record<keyof Client, unknown>> = {}): Cli
     cancel: vi.fn(async (id: string) => ({
       delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "running" },
     })),
+    releasePreview: vi.fn(async (id: string) => ({
+      delegation: { id, playbook: "podium", instruction: "do it", task_id: "task_01", status: "succeeded" },
+    })),
   };
   return { ...base, ...overrides } as unknown as Client;
 }
@@ -74,6 +77,7 @@ describe("tools/list", () => {
       "list_delegations",
       "inject_delegation",
       "cancel_delegation",
+      "release_preview",
     ]);
     for (const tool of res.tools) {
       expect(tool.description.length).toBeGreaterThan(40);
@@ -190,6 +194,16 @@ describe("tools/call inject_delegation", () => {
   });
 });
 
+describe("tools/call release_preview", () => {
+  it("passes the id through and says the preview is gone", async () => {
+    const client = stubClient();
+    const res = await h_call(client, { name: "release_preview", arguments: { delegation_id: "dlg_01" } });
+    expect(client.releasePreview).toHaveBeenCalledWith("dlg_01");
+    expect(text(res)).toContain("Released the preview of dlg_01");
+    expect(isError(res)).toBe(false);
+  });
+});
+
 describe("tools/call cancel_delegation", () => {
   it("passes the reason on", async () => {
     const client = stubClient();
@@ -233,7 +247,7 @@ describe("the stdio transport", () => {
     await done;
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
-    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(5);
+    expect(JSON.parse(lines[1]!).result.tools).toHaveLength(6);
   });
 
   it("says NOTHING to a notification, because answering one breaks the client", async () => {

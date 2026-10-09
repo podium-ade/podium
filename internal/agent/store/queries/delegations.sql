@@ -41,3 +41,12 @@ order by created_at;
 select * from delegations
 where trigger_ref = @trigger_ref and status = 'running'
 order by created_at;
+
+-- ListFinishedDelegationsForSession is one conversation's tasks that ended after @since,
+-- newest first: the ones whose environment may still be up as a preview.
+-- name: ListFinishedDelegationsForSession :many
+select * from delegations
+where session_id = @session_id and status <> 'running' and task_id is not null
+  and finished_at > @since
+order by finished_at desc
+limit @max_rows;

@@ -197,6 +197,16 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 				}
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:
 				e.noteMessage(ev.GetMessage())
+			case podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW:
+				p := ev.GetPreview()
+				if p.GetAddress() == "" {
+					e.note("held after the command exits; publishing nothing")
+					break
+				}
+				e.note("preview over %s on %s", p.GetVia(), p.GetAddress())
+				for _, name := range sortedKeys(p.GetUrls()) {
+					e.note("  %s  %s", name, p.GetUrls()[name])
+				}
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 				e.note("running")
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:
@@ -242,6 +252,10 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 		}
 		code := int(task.GetExitCode())
 		e.note("finished exit %d in %s", code, elapsed.Round(100*time.Millisecond))
+		if p := task.GetPreview(); p != nil && p.GetReleasedAt() == nil && p.GetExpiresAt() != nil {
+			e.note("preview stays up until %s; end it sooner with `podium task release %s`",
+				p.GetExpiresAt().AsTime().Local().Format(time.Kitchen), taskID)
+		}
 		if code == 0 {
 			return nil
 		}
