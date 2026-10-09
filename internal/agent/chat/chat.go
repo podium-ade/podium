@@ -33,6 +33,9 @@ var ErrTurnRunning = errors.New("a turn is already running for this chat")
 
 // ErrPersonalityGone is what Send returns when the assistant this chat was bound to
 // has been deleted, or no longer belongs to the chat's owner. The message is not stored.
+// The sentence is the product copy, and the chat client matches it exactly.
+//
+//nolint:revive,staticcheck // user-facing copy, including the capital and the period
 var ErrPersonalityGone = errors.New("That assistant was deleted.")
 
 // eventBuffer is how many inbound messages may be waiting for the turn loop. One human
