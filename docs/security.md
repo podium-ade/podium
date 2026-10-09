@@ -222,8 +222,10 @@ SAML is not implemented.
 - **A playbook with `repos:` and a GitHub token has write access to your repositories, and a
   prompt injection can steer it.** Podium ships no such playbook — see
   [`agent.md`](agent.md#playbooks-that-clone-repositories) — but it is the obvious one to write,
-  and the turns of a playbook whose file names `podium.agent.github_token` are the turns that can
-  push a branch and open a pull request. Everything a turn reads is untrusted: a
+  and the turns of a playbook whose file names `podium.agent.github_token`, or `github.token` in
+  `user_secrets:`, are the turns that can push a branch and open a pull request. With
+  `github.token` the turn acts as the person who asked, with what that person can reach through
+  the App. Everything a turn reads is untrusted: a
   ticket's description, a comment on it, a Slack message, and **a README, a `CONTRIBUTING.md` or
   a comment in the repository it just cloned**. Any of them can carry instructions, and the agent
   has no way to tell them from the request. The mitigations reduce this and do not remove it:

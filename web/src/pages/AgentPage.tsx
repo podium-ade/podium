@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
 import { ChatPanel } from "../components/agent/ChatPanel";
+import { GitHubAccountCard } from "../components/agent/GitHubAccountCard";
+import { GitHubCallback } from "../components/agent/GitHubCallback";
 import { McpCallback } from "../components/agent/McpCallback";
 import { McpPanel } from "../components/agent/McpPanel";
 import { ConductorDown } from "../components/agent/ConductorDown";
@@ -60,6 +62,7 @@ const sidebarScreens: { path: string; element: ReactNode }[] = [
   // rather than an endpoint on podium-server: an OAuth redirect carries no bearer token, so
   // a server route would have to sit outside the identity middleware. See lib/mcp.ts.
   { path: "mcp/callback", element: <McpCallback /> },
+  { path: "github/callback", element: <GitHubCallback /> },
   { path: "models", element: <Navigate to="/agent/settings/models" replace /> },
   { path: "settings/*", element: <SettingsTab /> },
 ];
@@ -178,6 +181,7 @@ function SettingsTab() {
               the CLI and workers.
             </p>
             <IdentityCard />
+            {viewer?.agentEnabled ? <GitHubAccountCard /> : null}
           </section>
         ) : null}
         {current === "users" ? (

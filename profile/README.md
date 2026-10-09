@@ -83,17 +83,19 @@ podium-node --allow-privileged-sidecars --label privileged   # …and the rest o
 label on a node without the flag — and the turn fails at provisioning naming the flag, which is
 the failure you want. That node also needs **8 GB free for the task** and room for the image.
 
-### 3. Give it the token it opens pull requests with
+### 3. Connect your GitHub account
 
-```sh
-printf %s "$GITHUB_TOKEN" | ./bin/podium secret set podium.agent.github_token
-```
+The playbook opens pull requests as the person who asked. An admin adds the GitHub App's client
+id and secret under Settings → Connections once. Then each person clicks **Connect GitHub** under
+Settings → Account. See
+[`../docs/agent.md`](../docs/agent.md#the-askers-own-github-account).
 
-`secrets:` in the playbook is what delivers it, as `GITHUB_TOKEN` in the task container. No
-model credential goes there — the conductor attaches that to every turn itself. Scope this token
-to Podium and nothing else: it is the one place a playbook hands a model's output write access
-to your code, and [`../docs/security.md`](../docs/security.md) is the argument for treating that
-as a decision rather than a setting.
+`user_secrets:` in the playbook is what delivers that person's token, as `GITHUB_TOKEN` in the
+task container. No model credential goes there — the conductor attaches that to every turn
+itself. A turn from Slack or Linear has no Podium person, so this playbook fails there. Ask from
+the web chat. This is the one place a playbook hands a model's output write access to your code,
+and [`../docs/security.md`](../docs/security.md) is the argument for treating that as a decision
+rather than a setting.
 
 ### 4. Choose which `-dev` image it runs
 

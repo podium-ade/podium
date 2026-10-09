@@ -1054,3 +1054,18 @@ func (p *Profile) EffortFor(s Playbook) string {
 	}
 	return p.Effort
 }
+
+// GitHubTokenSecret is the personal secret a connected GitHub account is stored as. A
+// playbook that names it in user_secrets opens pull requests as the person who asked.
+const GitHubTokenSecret = spec.GitHubAccountSecret
+
+// UsesGitHubAccount reports whether this playbook's turns push as the asker's own GitHub
+// account rather than the App.
+func (s Playbook) UsesGitHubAccount() bool {
+	for _, ref := range s.UserSecrets {
+		if ref.Name == GitHubTokenSecret {
+			return true
+		}
+	}
+	return false
+}

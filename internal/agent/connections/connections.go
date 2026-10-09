@@ -41,14 +41,23 @@ type Slack struct {
 	SetAt    time.Time `json:"set_at"`
 }
 
-// GitHub is the saved App. PrivateKey and WebhookSecret are credentials.
+// GitHub is the saved App. PrivateKey, WebhookSecret and ClientSecret are credentials.
+// ClientID and ClientSecret are the App's OAuth client, which lets people connect their own
+// GitHub accounts. They are read when someone connects, so they need no restart.
 type GitHub struct {
 	AppID         string    `json:"app_id"`
 	PrivateKey    string    `json:"private_key"`
 	WebhookSecret string    `json:"webhook_secret"`
 	WebhookListen string    `json:"webhook_listen"`
+	ClientID      string    `json:"client_id,omitempty"`
+	ClientSecret  string    `json:"client_secret,omitempty"`
 	SetBy         string    `json:"set_by"`
 	SetAt         time.Time `json:"set_at"`
+}
+
+// UserAuth reports whether people can connect their own GitHub accounts through this App.
+func (g *GitHub) UserAuth() bool {
+	return g != nil && g.ClientID != "" && g.ClientSecret != ""
 }
 
 // Load reads the saved connections. A nil pointer means that connection has no row.
@@ -137,9 +146,12 @@ func MergeSlack(existing *Slack, appToken, botToken string) (Slack, error) {
 	return Slack{AppToken: appToken, BotToken: botToken}, nil
 }
 
-// MergeGitHub combines a paste with the saved App. A blank private key or webhook
-// secret keeps the saved one. Clearing the listen address turns reviews off.
-func MergeGitHub(existing *GitHub, appID, privateKey, webhookSecret, webhookListen string) (GitHub, error) {
+// MergeGitHub combines a paste with the saved App. A blank private key, webhook secret or
+// client secret keeps the saved one. Clearing the listen address turns reviews off, and
+// clearing the client id turns account connection off.
+func MergeGitHub(
+	existing *GitHub, appID, privateKey, webhookSecret, webhookListen, clientID, clientSecret string,
+) (GitHub, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" && existing != nil {
 		appID = existing.AppID
@@ -174,11 +186,24 @@ func MergeGitHub(existing *GitHub, appID, privateKey, webhookSecret, webhookList
 			return GitHub{}, errors.New("the webhook secret is required when a listen address is set")
 		}
 	}
+
+	clientID = strings.TrimSpace(clientID)
+	clientSecret = strings.TrimSpace(clientSecret)
+	if clientID == "" {
+		clientSecret = ""
+	} else if clientSecret == "" && existing != nil && existing.ClientID != "" {
+		clientSecret = existing.ClientSecret
+	}
+	if clientID != "" && clientSecret == "" {
+		return GitHub{}, errors.New("the client secret is required when a client id is set")
+	}
 	return GitHub{
 		AppID:         appID,
 		PrivateKey:    privateKey,
 		WebhookSecret: webhookSecret,
 		WebhookListen: webhookListen,
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
 	}, nil
 }
 

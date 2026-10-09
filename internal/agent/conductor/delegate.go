@@ -372,6 +372,10 @@ func (c *Conductor) startDelegatedTask(
 	// servers are chosen separately: a Slack speaker's email, stored on the turn grant,
 	// uses that person's rows.
 	login := c.asker(ctx, g.src, sess)
+	persona, err := c.githubPersona(ctx, login, playbook)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
@@ -384,6 +388,9 @@ func (c *Conductor) startDelegatedTask(
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
 	brief := c.brief(ctx, sess, j, dlg.ID, ev, entries, bundles, servers, choice)
+	if persona != nil {
+		brief.Git = persona
+	}
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)

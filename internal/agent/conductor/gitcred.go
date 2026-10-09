@@ -220,7 +220,9 @@ func GitCapabilitySecret(turnID string) string {
 func (c *Conductor) provisionGitCapability(
 	ctx context.Context, turnID string, playbook profiles.Playbook,
 ) (string, error) {
-	if c.github == nil {
+	// A playbook that pushes as the asker's own account carries their token, and a minted
+	// App token would replace it in the runtime.
+	if c.github == nil || playbook.UsesGitHubAccount() {
 		return "", nil
 	}
 	scope, err := gitScopeOf(playbook)
@@ -239,6 +241,43 @@ func (c *Conductor) provisionGitCapability(
 		return "", fmt.Errorf("conductor: registering this turn's git capability: %w", err)
 	}
 	return name, nil
+}
+
+// githubPersona is who a turn commits as when its playbook pushes as the asker's own GitHub
+// account: the noreply address GitHub links to that account. Nil means the playbook does
+// not. The error is written for the person who asked.
+func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
+	if !playbook.UsesGitHubAccount() {
+		return nil, nil
+	}
+	if turnOwner(login) == "" {
+		return nil, errors.New("this playbook opens pull requests as the person who asked, and " +
+			"this conversation has no Podium user. Ask from the Podium web chat instead")
+	}
+	if c.store == nil {
+		return nil, errors.New("this conductor has no database, so it cannot find your GitHub account")
+	}
+	acct, err := c.store.GitHubAccount(ctx, login)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errors.New("this playbook opens pull requests as you, and you have not " +
+			"connected GitHub. Connect it under Settings → Account, then ask again")
+	}
+	if err != nil {
+		c.logger.ErrorContext(ctx, "reading a github account failed", "login", login, "error", err)
+		return nil, errors.New("your GitHub connection could not be read. An operator should check the logs")
+	}
+	return githubPersonaOf(acct), nil
+}
+
+func githubPersonaOf(acct store.GitHubAccount) *BriefGit {
+	name := acct.Name
+	if name == "" {
+		name = acct.GitHubLogin
+	}
+	return &BriefGit{
+		Name:  name,
+		Email: fmt.Sprintf("%d+%s@users.noreply.github.com", acct.GitHubID, acct.GitHubLogin),
+	}
 }
 
 // dropGitCapability deletes a turn's capability secret. It is called when the turn ends and

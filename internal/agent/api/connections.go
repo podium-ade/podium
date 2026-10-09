@@ -97,7 +97,8 @@ func (s *AgentService) SetGitHubConnection(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	row, err := connections.MergeGitHub(existing, req.Msg.GetAppId(), req.Msg.GetPrivateKey(),
-		req.Msg.GetWebhookSecret(), req.Msg.GetWebhookListen())
+		req.Msg.GetWebhookSecret(), req.Msg.GetWebhookListen(),
+		req.Msg.GetClientId(), req.Msg.GetClientSecret())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -110,7 +111,7 @@ func (s *AgentService) SetGitHubConnection(
 	row.SetBy = Login(ctx)
 	row.SetAt = time.Now().UTC()
 	s.logger.InfoContext(ctx, "saving a github connection", "login", row.SetBy,
-		"app_id", row.AppID, "reviews", row.WebhookListen != "",
+		"app_id", row.AppID, "reviews", row.WebhookListen != "", "user_auth", row.UserAuth(),
 		"request", redactedGitHubRequest{appID: row.AppID, listen: row.WebhookListen})
 	if err := s.store.PutSetting(ctx, connections.GitHubKey, row); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -200,6 +201,10 @@ func githubView(running config.Config, saved *connections.GitHub) *agentv1.GitHu
 	out.WebhookSecretSet = secret != ""
 	out.WebhookSecretHint = connections.Hint(secret)
 	out.Reviews = secret != "" && listen != ""
+	if saved != nil {
+		out.ClientId = saved.ClientID
+		out.ClientSecretSet = saved.ClientSecret != ""
+	}
 	out.RestartRequired = connections.GitHubDiffers(config.Config{}, running, saved)
 	return out
 }
@@ -228,5 +233,6 @@ func (r redactedGitHubRequest) LogValue() slog.Value {
 		slog.String("private_key", "[redacted]"),
 		slog.String("webhook_secret", "[redacted]"),
 		slog.String("webhook_listen", r.listen),
+		slog.String("client_secret", "[redacted]"),
 	)
 }
