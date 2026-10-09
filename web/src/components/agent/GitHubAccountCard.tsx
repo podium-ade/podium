@@ -52,8 +52,7 @@ export function GitHubAccountCard() {
         {query.isError ? <Alert variant="destructive">{errorMessage(query.error)}</Alert> : null}
         {account && !account.available && !account.connected ? (
           <p className="text-sm text-muted">
-            Not available yet. An admin needs to add the GitHub App's client ID and secret under
-            Settings → Connections.
+            GitHub is not enabled for your organization yet. Contact an admin.
           </p>
         ) : null}
         {account?.connected ? (
