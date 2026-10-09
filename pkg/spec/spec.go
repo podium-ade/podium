@@ -241,6 +241,21 @@ func (s *TaskSpec) Validate() error {
 // redaction marker in stored logs.
 var SecretNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
+// personalMCPSecretRE is the personal secret a person's MCP server token is stored as.
+// The server name matches the MCP registry's NameRE. The name is not under podium.agent,
+// which a personal secret is not allowed to be, and it is not the bot's global name, so
+// the two do not collide.
+var personalMCPSecretRE = regexp.MustCompile(`^mcp\.[a-z][a-z0-9-]{0,31}_token$`)
+
+// PersonalMCPSecretName is the secret one person's MCP server token is stored as.
+// Two people who both register the same server share this name; scope and owner separate
+// the values.
+func PersonalMCPSecretName(server string) string { return "mcp." + server + "_token" }
+
+// IsPersonalMCPSecret reports whether name is a personal MCP credential. The conductor
+// may write one of these for a person. A playbook may not name one.
+func IsPersonalMCPSecret(name string) bool { return personalMCPSecretRE.MatchString(name) }
+
 func (s *TaskSpec) validateSecrets() []error {
 	var errs []error
 	for i, ref := range s.Secrets {
