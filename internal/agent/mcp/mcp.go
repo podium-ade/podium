@@ -130,8 +130,12 @@ type OAuth struct {
 
 // Server is one registered MCP server. It is the row, and the API message is built from it.
 type Server struct {
-	// Owner is the login this server belongs to. Empty is the Slack bot list.
-	Owner       string
+	// Owner is the login this server belongs to. Empty is the global list.
+	Owner string
+	// Fallback is read only when Owner is empty. A person's turn that has no server of
+	// this name uses the global one when it is true. A turn with no person uses the
+	// global list either way.
+	Fallback    bool
 	Name        string
 	URL         string
 	Description string

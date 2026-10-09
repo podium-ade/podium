@@ -7217,9 +7217,15 @@ type McpServer struct {
 	// It is stored and carried in clear, so it may not set Authorization — that is the token's
 	// job.
 	Config string `protobuf:"bytes,20,opt,name=config,proto3" json:"config,omitempty"`
-	// owner is the login this server belongs to. Empty is the bot list, which Slack uses.
-	// A signed-in person's server is never listed to anyone else.
-	Owner         string `protobuf:"bytes,21,opt,name=owner,proto3" json:"owner,omitempty"`
+	// owner is the login this server belongs to. Empty is the global list: the company
+	// identity, used by a turn that has no person. A signed-in person's server is never
+	// listed to anyone else.
+	Owner string `protobuf:"bytes,21,opt,name=owner,proto3" json:"owner,omitempty"`
+	// fallback is set only on a global server. A person's turn that has no server of this
+	// name uses the global one when this is true. A turn with no person uses the global
+	// list either way. False until an admin allows it, so a company token is not spent
+	// on someone's behalf by default.
+	Fallback      bool `protobuf:"varint,22,opt,name=fallback,proto3" json:"fallback,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7401,6 +7407,13 @@ func (x *McpServer) GetOwner() string {
 	return ""
 }
 
+func (x *McpServer) GetFallback() bool {
+	if x != nil {
+		return x.Fallback
+	}
+	return false
+}
+
 type ListMcpServersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -7504,8 +7517,8 @@ type CreateMcpServerRequest struct {
 	// token is the credential to store with the registration, or empty for a server that
 	// needs none. SENSITIVE: never log this field.
 	Token string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
-	// for_bot writes the Slack bot list. Only an admin or the dev token may set it.
-	// A signed-in person who leaves it unset registers a server of their own.
+	// for_bot writes the global list. The name is historical. Only an admin or the dev
+	// token may set it. A signed-in person who leaves it unset registers a server of their own.
 	ForBot        bool `protobuf:"varint,3,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7611,7 +7624,7 @@ type UpdateMcpServerRequest struct {
 	// server.name names the registration to replace. The stored token is left alone —
 	// SetMcpServerToken and ClearMcpServerToken are the only things that touch it.
 	Server *McpServer `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
-	// for_bot edits the Slack bot list. A member who sets it is refused.
+	// for_bot edits the global list. A member who sets it is refused.
 	ForBot        bool `protobuf:"varint,2,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7708,7 +7721,7 @@ func (x *UpdateMcpServerResponse) GetServer() *McpServer {
 type DeleteMcpServerRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// for_bot deletes from the Slack bot list. A member who sets it is refused.
+	// for_bot deletes from the global list. A member who sets it is refused.
 	ForBot        bool `protobuf:"varint,2,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7800,7 +7813,7 @@ type SetMcpServerTokenRequest struct {
 	// SENSITIVE: never log this field. The handler wraps the request in a redacting
 	// slog.LogValuer so no log site has to remember.
 	Token string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
-	// for_bot stores the token on the Slack bot's server. A member who sets it is refused.
+	// for_bot stores the token on the global server. A member who sets it is refused.
 	ForBot        bool `protobuf:"varint,3,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7904,7 +7917,7 @@ func (x *SetMcpServerTokenResponse) GetServer() *McpServer {
 type ClearMcpServerTokenRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// for_bot clears the Slack bot's token. A member who sets it is refused.
+	// for_bot clears the global server's token. A member who sets it is refused.
 	ForBot        bool `protobuf:"varint,2,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -8014,7 +8027,7 @@ type StartMcpOAuthRequest struct {
 	// right default and not always the narrowest one — a server offering a write scope is a
 	// server whose tools can write.
 	Scope string `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
-	// for_bot starts sign-in for the Slack bot's server. A member who sets it is refused.
+	// for_bot starts sign-in for the global server. A member who sets it is refused.
 	ForBot        bool `protobuf:"varint,4,opt,name=for_bot,json=forBot,proto3" json:"for_bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -9075,7 +9088,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05skill\x18\x01 \x01(\v2\x1b.podium.agent.v1.AgentSkillR\x05skill\"(\n" +
 	"\x12DeleteSkillRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteSkillResponse\"\xcb\x05\n" +
+	"\x13DeleteSkillResponse\"\xe7\x05\n" +
 	"\tMcpServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12 \n" +
@@ -9105,7 +9118,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\vrefreshable\x18\x12 \x01(\bR\vrefreshable\x12'\n" +
 	"\x0foauth_supported\x18\x13 \x01(\bR\x0eoauthSupported\x12\x16\n" +
 	"\x06config\x18\x14 \x01(\tR\x06config\x12\x14\n" +
-	"\x05owner\x18\x15 \x01(\tR\x05owner\"\x17\n" +
+	"\x05owner\x18\x15 \x01(\tR\x05owner\x12\x1a\n" +
+	"\bfallback\x18\x16 \x01(\bR\bfallback\"\x17\n" +
 	"\x15ListMcpServersRequest\"x\n" +
 	"\x16ListMcpServersResponse\x124\n" +
 	"\aservers\x18\x01 \x03(\v2\x1a.podium.agent.v1.McpServerR\aservers\x12(\n" +

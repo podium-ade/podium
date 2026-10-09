@@ -99,6 +99,9 @@ type Source struct {
 
 	mu    sync.Mutex
 	users map[string]string
+	// emails is the workspace email of a Slack user, lowercased, when Slack shared one.
+	// It is how a turn finds that person's MCP servers. Empty means Slack did not.
+	emails map[string]string
 	// ids is users inverted, name to ID, so a reply that says @name can tag them. A name two
 	// people share maps to "" and is left as text.
 	ids      map[string]string
@@ -270,6 +273,7 @@ func (s *Source) emit(ctx context.Context, channel, ts, threadTS, user, text str
 		Channel:     channel,
 		ChannelName: s.channelName(ctx, channel),
 		Author:      author,
+		Login:       s.loginOf(user),
 		Text:        stripped,
 		TS:          parseTS(ts),
 		URL:         s.permalink(channel, ts),
@@ -723,11 +727,38 @@ func (s *Source) displayName(ctx context.Context, user string) string {
 		return user
 	}
 	name = firstNonEmpty(info.Profile.DisplayName, info.RealName, info.Name, user)
+	email := podiumLogin(info.Profile.Email)
 	s.mu.Lock()
 	s.users[user] = name
+	if email != "" {
+		if s.emails == nil {
+			s.emails = map[string]string{}
+		}
+		s.emails[user] = email
+	}
 	s.rememberLocked(name, user)
 	s.mu.Unlock()
 	return name
+}
+
+// loginOf is the Podium login displayName stored for this Slack user, or empty.
+// emit calls displayName first, which is what fills the cache.
+func (s *Source) loginOf(user string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.emails[user]
+}
+
+// podiumLogin is a workspace email Podium can match to a Google sign-in. Anything else
+// — a Slack user id, a blank profile, a token without users:read.email — is no login,
+// and the turn stays on the global MCP list.
+func podiumLogin(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	at := strings.IndexByte(email, '@')
+	if at <= 0 || at != strings.LastIndexByte(email, '@') || at == len(email)-1 {
+		return ""
+	}
+	return email
 }
 
 // rememberLocked records that name is user, for linkMentions. s.mu must be held.
