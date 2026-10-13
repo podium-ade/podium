@@ -152,7 +152,7 @@ export function SecretsPage() {
             <TabsList className="px-4" aria-label="Secret scope">
               <TabsTrigger
                 value="yours"
-                className="gap-2"
+                className="gap-2 py-2.5 text-base leading-[1.55]"
                 aria-label={`Yours, ${yours.length} ${yours.length === 1 ? "secret" : "secrets"}`}
               >
                 Yours
@@ -160,7 +160,7 @@ export function SecretsPage() {
               </TabsTrigger>
               <TabsTrigger
                 value="global"
-                className="gap-2"
+                className="gap-2 py-2.5 text-base leading-[1.55]"
                 aria-label={`Global, ${globalRows.length} ${globalRows.length === 1 ? "secret" : "secrets"}`}
               >
                 Global
