@@ -138,6 +138,37 @@ describe("RegistriesPage", () => {
     await waitFor(() => expect(deleteRegistry).toHaveBeenCalledWith({ host: "us-docker.pkg.dev" }));
   });
 
+  it("reads a JSON key file as the password without showing the file", async () => {
+    setRegistry.mockResolvedValue({ registry: { host: "europe-docker.pkg.dev" } });
+    mount();
+    await screen.findByText("us-docker.pkg.dev");
+    await userEvent.click(screen.getByRole("button", { name: "New registry" }));
+    await userEvent.type(screen.getByLabelText("Host"), "europe-docker.pkg.dev");
+    await userEvent.click(screen.getByRole("button", { name: "Choose a file" }));
+
+    const input = document.getElementById("registry-file") as HTMLInputElement;
+    const file = new File([KEY], "acme-key.json", { type: "application/json" });
+    await userEvent.upload(input, file);
+
+    expect(await screen.findByText(/acme-key\.json/)).toBeInTheDocument();
+    expect(screen.getByText(/Its contents are not shown/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("service_account");
+    await userEvent.click(screen.getByRole("button", { name: "Save registry" }));
+
+    await waitFor(() => expect(setRegistry).toHaveBeenCalledTimes(1));
+    const sent = setRegistry.mock.calls[0][0] as { host: string; username: string; password: Uint8Array };
+    expect(sent.host).toBe("europe-docker.pkg.dev");
+    expect(sent.username).toBe("_json_key");
+    expect(new TextDecoder().decode(sent.password)).toBe(KEY);
+  });
+
+  it("puts the host note in the frame and keeps one New registry action", async () => {
+    mount();
+    expect(await screen.findByRole("heading", { level: 2, name: "Registries" })).toBeInTheDocument();
+    expect(screen.getByText(/One login per host/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "New registry" })).toHaveLength(1);
+  });
+
   it("says the server has no master key when it answers FailedPrecondition", async () => {
     listRegistries.mockRejectedValue(new ConnectError("no master key", Code.FailedPrecondition));
     mount();
