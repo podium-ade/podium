@@ -40,6 +40,9 @@ const (
 	// exitSIGKILL is the exit status of a process the kernel killed with SIGKILL, which
 	// is how an OOM kill looks from the outside.
 	exitSIGKILL = 137
+	// heldLogGrace is how long a held run keeps its log stream open after the command's
+	// exit, for output still in flight.
+	heldLogGrace = time.Second
 )
 
 // Request is one assignment to execute.
@@ -60,6 +63,9 @@ type Request struct {
 	// Workspace restores a snapshot into the volume and uploads a new one after a clean
 	// exit. Nil leaves the volume ephemeral, which is what a one-shot run is.
 	Workspace *Workspace
+	// Preview is where a spec that exposes ports has them published. The node chooses it;
+	// a spec with expose and no Preview is refused.
+	Preview *Preview
 }
 
 // Usage is a best-effort resource accounting for a finished task.
@@ -74,6 +80,9 @@ type Result struct {
 	ExitCode  int
 	OOMKilled bool
 	Usage     Usage
+	// Held is a run whose command exited while its containers stay up as a preview. The
+	// caller keeps them until the control plane releases the task.
+	Held bool
 }
 
 // Run executes req to completion, emitting ordered events on events. It returns
@@ -103,7 +112,8 @@ func (e *Executor) Run(ctx context.Context, req Request, events chan<- Event) (R
 		retryable := !errors.Is(err, errSpec) &&
 			!errors.Is(err, errSidecarNotReady) &&
 			!errors.Is(err, errImageUnavailable) &&
-			!errors.Is(err, errPrivilegedNotAllowed)
+			!errors.Is(err, errPrivilegedNotAllowed) &&
+			!errors.Is(err, errPreviewNotSupported)
 		em.emit(KindError, ErrorPayload{Message: err.Error(), Retryable: retryable, AbortsRun: true})
 		// Never leak: drop anything this call created, on a context that
 		// survives the caller cancelling.
@@ -228,6 +238,27 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 		return Result{}, serr
 	}
 
+	// The gateway comes up after the sidecars it forwards to and before the task, whose
+	// command is told the URLs it serves under.
+	//
+	// A hold-only expose has no gateway and no address. It still reports a preview, an
+	// empty one, because that is what the control plane keeps the ttl and the release on.
+	expose := req.Spec.Expose
+	switch {
+	case expose.Publishes():
+		if req.Preview == nil {
+			return Result{}, fmt.Errorf("%w: the task exposes ports and this node publishes no previews", errPreviewNotSupported)
+		}
+		if err := e.startGateway(ctx, req, netResp.ID); err != nil {
+			return Result{}, err
+		}
+		em.emit(KindPreview, PreviewPayload{
+			Via: req.Preview.Via, Address: req.Preview.Address, URLs: req.Preview.URLs(expose),
+		})
+	case expose != nil:
+		em.emit(KindPreview, PreviewPayload{})
+	}
+
 	workdir := req.Spec.WorkingDir
 	if workdir == "" {
 		workdir = spec.DefaultWorkingDir
@@ -267,12 +298,19 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}()
 
 	initFalse := false
+	env := containerEnv(req, workdir)
+	if expose != nil {
+		env = append(env, holdEnvVar+"=1")
+	}
+	if expose.Publishes() {
+		env = append(env, req.Preview.Env(expose)...)
+	}
 	cfg := &container.Config{
 		Image:      req.Spec.Image,
 		Entrypoint: strslice.StrSlice{},
 		Cmd:        append([]string{runnerTarget, "--"}, command...),
 		WorkingDir: workdir,
-		Env:        append(containerEnv(req, workdir), secretsStaged.env...),
+		Env:        append(env, secretsStaged.env...),
 		Labels:     labels,
 	}
 	hostCfg := &container.HostConfig{
@@ -331,6 +369,13 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	if e.runtime != "" {
 		hostCfg.Runtime = e.runtime
 	}
+	if expose != nil {
+		dir, err := e.mkHoldDir(req.TaskID)
+		if err != nil {
+			return Result{}, err
+		}
+		hostCfg.Binds = append(hostCfg.Binds, dir+":"+holdDir)
+	}
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 		networkName(req.TaskID): {NetworkID: netResp.ID, Aliases: []string{networkAlias}},
 	}}
@@ -373,17 +418,30 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	em.emit(KindStarted, nil)
 
 	artifacts := e.newArtifactCollector(req, em, cid)
+	// A held command's exit arrives only from the runner: its container keeps running.
+	heldCh := make(chan int, 1)
 	runnerDone := link.drain(req.TaskID, em, func(name, path, contentType string) {
 		artifacts.submit(ctx, name, path, contentType)
+	}, func(code int) {
+		select {
+		case heldCh <- code:
+		default:
+		}
 	})
-	logsDone := e.streamLogs(ctx, cid, em)
+	logsCtx, stopLogs := context.WithCancel(ctx)
+	defer stopLogs()
+	logsDone := e.streamLogs(logsCtx, cid, em)
 
 	statsCtx, stopStats := context.WithCancel(ctx)
 	defer stopStats()
 	usageCh := e.sampleUsage(statsCtx, cid)
 
 	var exitCode int
+	held := false
 	select {
+	case code := <-heldCh:
+		exitCode, held = code, true
+		stopStats()
 	case werr := <-waitErrCh:
 		stopStats()
 		if werr == nil {
@@ -402,7 +460,18 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	// The container is gone, so nothing inside it can open the event socket again. Stop
 	// accepting and let the connections that are still open finish, which is what closes
 	// the runner's event channel and ends the drain below.
+	//
+	// A held container is not gone: its runner keeps its connection, and its output keeps
+	// coming. Both are cut here, because nothing may follow finished; what a preview
+	// logs after its command is for `docker logs` on the node, not the task's record.
 	link.stopAccepting()
+	if held {
+		// The runner reports the exit the moment it happens, and the log stream may still
+		// be carrying what the command printed just before it. Give it a moment.
+		time.Sleep(heldLogGrace)
+		link.hangUp()
+		stopLogs()
+	}
 
 	// Let both streams drain so every log and step event precedes exited.
 	select {
@@ -432,7 +501,10 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	rs.mu.Lock()
 	killedByPodium := rs.cancelled
 	rs.mu.Unlock()
-	oom := exitedOOM(e.inspectAfterExit(ctx, cid), exitCode, killedByPodium)
+	oom := false
+	if !held {
+		oom = exitedOOM(e.inspectAfterExit(ctx, cid), exitCode, killedByPodium)
+	}
 
 	// The volume still exists. A snapshot has to land before exited, because the caller
 	// tears the volume down once the run returns and the next session task will ask for
@@ -448,9 +520,9 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	}
 
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})
-	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage})
+	em.emit(KindFinished, FinishedPayload{ExitCode: exitCode, Usage: usage, Held: held})
 
-	return Result{ExitCode: exitCode, OOMKilled: oom, Usage: usage}, nil
+	return Result{ExitCode: exitCode, OOMKilled: oom, Usage: usage, Held: held}, nil
 }
 
 // exitedOOM reports whether a container was killed for exceeding its memory limit.

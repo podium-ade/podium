@@ -36,7 +36,8 @@ const (
 )
 
 // NameRE constrains a profile name and a playbook name. A playbook name also has to survive being
-// typed after a slash in Slack.
+// typed after a slash in Slack, so it stays lowercase. A personal assistant's stored name is
+// generated to match this too. People edit the display name.
 var NameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // PlaybookPrefixRE matches a leading /playbook on a mention. It is anchored at the very start and
@@ -381,6 +382,13 @@ type Playbook struct {
 	// holds a node slot (and a dind sidecar, if the playbook asked for one).
 	Interactive bool `yaml:"interactive" json:"interactive,omitempty"`
 
+	// Expose keeps a turn's containers up after it answers, with the named ports published
+	// for people to use — the app the turn built, running. It is a task spec's expose,
+	// passed through; `from` names the turn's own sidecars, `dind` for what a `docker: true`
+	// turn runs under compose. The turn's secrets stay in its environment for as long as
+	// the preview is up, so keep the ttl short. See docs/task-spec.md#expose.
+	Expose *spec.Expose `yaml:"expose" json:"expose,omitempty"`
+
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
 }
@@ -663,7 +671,8 @@ func refuseReservedSecrets(field string, refs []spec.SecretRef) []error {
 				"a GitHub token is written by the conductor, for one turn, and is scoped to the "+
 				"repositories that turn's playbook listed", field, ref.Name))
 		}
-		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) {
+		if strings.HasPrefix(ref.Name, mcp.SecretPrefix) || spec.IsPersonalMCPSecret(ref.Name) ||
+			spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			errs = append(errs, fmt.Errorf("%s may not name %s: an MCP server's token "+
 				"comes from mcp_servers, which is what decides whether this playbook has "+
 				"that server at all", field, ref.Name))
@@ -1045,4 +1054,19 @@ func (p *Profile) EffortFor(s Playbook) string {
 		return s.Effort
 	}
 	return p.Effort
+}
+
+// GitHubTokenSecret is the personal secret a connected GitHub account is stored as. A
+// playbook that names it in user_secrets opens pull requests as the person who asked.
+const GitHubTokenSecret = spec.GitHubAccountSecret
+
+// UsesGitHubAccount reports whether this playbook's turns push as the asker's own GitHub
+// account rather than the App.
+func (s Playbook) UsesGitHubAccount() bool {
+	for _, ref := range s.UserSecrets {
+		if ref.Name == GitHubTokenSecret {
+			return true
+		}
+	}
+	return false
 }

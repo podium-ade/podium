@@ -11,13 +11,13 @@
 # There is no CLAUDE_* or ANTHROPIC_* variable anywhere below, and no
 # --dangerously-skip-permissions: the key arrives as a Podium secret with target: env, and
 # the only permission decision is permissionMode in src/main.ts.
-ARG NODE_IMAGE=node:22-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 # --------------------------------------------------------------------------------- build
 FROM ${NODE_IMAGE} AS build
 
 WORKDIR /src
-RUN npm install --global pnpm@11.25.0
+RUN npm install --global pnpm@12.10.1
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -77,8 +77,12 @@ COPY package.json /opt/podium-agent/package.json
 # The harness. It is provider-agnostic — a turn picks its model with `provider/model` — and
 # it is installed globally rather than as a dependency of the runtime because it is a
 # program this code spawns, not a library it imports.
+#
+# It refuses a model its own catalog does not list, before any request: 1.18.29 did not know
+# claude-opus-5-5 or claude-sonnet-5-5, so every turn on the default model failed with
+# "Unexpected server error". Move this pin with internal/agent/profiles/agents.go.
 RUN set -eux; \
-    npm install --global opencode-ai@1.18.29; \
+    npm install --global opencode-ai@1.18.35; \
     opencode --version
 
 # Build-time assertion: if optional dependencies were skipped, or the wrong platform's

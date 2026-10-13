@@ -168,7 +168,7 @@ function FileChip({ attachment }: { attachment: ChatAttachment }) {
           }
         })();
       }}
-      className="flex max-w-full items-center gap-2.5 rounded-lg border border-border bg-panel py-1.5 pr-2.5 pl-2 text-left shadow-xs transition-colors duration-150 outline-none hover:border-muted/45 hover:bg-raised/60 disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="flex max-w-full items-center gap-2.5 rounded-lg border border-border bg-panel py-1.5 pr-2.5 pl-2 text-left shadow-xs transition-colors duration-150 outline-none hover:border-line-strong hover:bg-raised disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       <span className="grid size-7 shrink-0 place-items-center rounded-md border border-hairline bg-raised text-muted">
         {busy ? (

@@ -4,12 +4,12 @@ import { cn } from "@/lib/utils";
 export type Tone = "ok" | "err" | "warn" | "run" | "idle" | "lost";
 
 const TONE: Record<Tone, string> = {
-  ok: "text-ok border-ok/35 bg-ok/12",
-  err: "text-err border-err/35 bg-err/12",
-  warn: "text-warn border-warn/35 bg-warn/12",
-  run: "text-run border-run/35 bg-run/12",
-  idle: "text-idle border-idle/35 bg-idle/12",
-  lost: "text-lost border-lost/35 bg-lost/12",
+  ok: "bg-ok-bg text-ok",
+  err: "bg-err-bg text-err",
+  warn: "bg-warn-bg text-warn",
+  run: "bg-run-bg text-run",
+  idle: "bg-idle-bg text-soft",
+  lost: "bg-lost-bg text-lost",
 };
 
 const FILL: Record<Tone, string> = {
@@ -36,7 +36,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex w-fit items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-2xs font-medium whitespace-nowrap",
+        "inline-flex w-fit items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-bold whitespace-nowrap",
         TONE[tone],
         className,
       )}
@@ -45,9 +45,9 @@ export function Badge({
         <span aria-hidden className="relative flex size-1.5 shrink-0">
           {/* Running is the one state that is still changing; only it pulses. */}
           {tone === "run" ? (
-            <span className={cn("absolute inset-0 animate-ping rounded-full opacity-60", FILL[tone])} />
+            <span className={cn("absolute inset-0 animate-ping rounded-[1px] opacity-60", FILL[tone])} />
           ) : null}
-          <span className={cn("relative size-1.5 rounded-full", FILL[tone])} />
+          <span className={cn("relative size-1.5 rounded-[1px]", FILL[tone])} />
         </span>
       ) : null}
       {children}
@@ -69,7 +69,7 @@ export function Chip({ children, className }: { children: ReactNode; className?:
   return (
     <span
       className={cn(
-        "inline-flex w-fit items-center gap-1 rounded-md border border-border bg-raised/70 px-1.5 py-0.5 text-2xs text-muted whitespace-nowrap",
+        "inline-flex w-fit items-center gap-1 rounded-sm bg-raised px-2.5 py-1 text-xs font-bold text-soft whitespace-nowrap",
         className,
       )}
     >

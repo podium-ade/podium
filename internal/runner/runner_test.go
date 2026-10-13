@@ -317,10 +317,10 @@ func TestEventsSurviveANodeThatDisappears(t *testing.T) {
 	go func() {
 		defer close(done)
 		for range 5 {
-			c.exited(0, "")
+			c.exited(0, "", false)
 		}
 		c.close()
-		c.exited(0, "") // a closed client is still a working no-op
+		c.exited(0, "", false) // a closed client is still a working no-op
 	}()
 	select {
 	case <-done:

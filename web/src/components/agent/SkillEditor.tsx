@@ -201,7 +201,7 @@ export function SkillEditor({
 
       <div
         data-testid="skill-actions"
-        className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel/95 px-4 py-3 shadow-md backdrop-blur"
+        className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel px-4 py-3 shadow-md backdrop-blur"
       >
         {folderLocked ? null : (
           <Button type="submit" size="sm" disabled={saving || deleting || markdown.trim() === ""}>

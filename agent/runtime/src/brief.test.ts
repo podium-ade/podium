@@ -248,6 +248,31 @@ describe("decodeBrief", () => {
     expect(brief.delegation?.playbooks[1]?.summary).toBeUndefined();
   });
 
+  it("accepts a playbook that previews and the conversation's live previews", () => {
+    const brief = decodeBrief(
+      encode({
+        ...minimal,
+        runs_on: "host",
+        delegation: {
+          url: "http://h",
+          token_env: "T",
+          playbooks: [{ name: "dashboard-dev", preview: true }],
+          previews: [
+            {
+              delegation_id: "dlg_01",
+              playbook: "dashboard-dev",
+              task_id: "task_01",
+              urls: { web: "http://192.168.1.201:3000" },
+              expires_at: "2026-10-09T12:00:00Z",
+            },
+          ],
+        },
+      }),
+    );
+    expect(brief.delegation?.playbooks[0]?.preview).toBe(true);
+    expect(brief.delegation?.previews?.[0]?.urls?.web).toBe("http://192.168.1.201:3000");
+  });
+
   it("has neither on a task's brief, which is what stops a delegated task delegating again", () => {
     const brief = decodeBrief(encode(minimal));
     expect(brief.delegation).toBeUndefined();

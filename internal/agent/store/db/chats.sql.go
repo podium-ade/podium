@@ -148,20 +148,28 @@ func (q *Queries) ChatTurnRunning(ctx context.Context, sourceKey string) (bool, 
 
 const createChat = `-- name: CreateChat :one
 
-insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
+insert into chats (
+  id, title, login, created_at, auto_title, source_key, started_by, origin,
+  personality_id, personality_display
+)
+values (
+  $1, $2, $3, $4, $5, $6, $7, $8,
+  $9, $10
+)
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
 `
 
 type CreateChatParams struct {
-	ID        string
-	Title     string
-	Login     *string
-	CreatedAt time.Time
-	AutoTitle bool
-	SourceKey *string
-	StartedBy string
-	Origin    string
+	ID                 string
+	Title              string
+	Login              *string
+	CreatedAt          time.Time
+	AutoTitle          bool
+	SourceKey          *string
+	StartedBy          string
+	Origin             string
+	PersonalityID      *string
+	PersonalityDisplay string
 }
 
 // The web chat. Unlike Slack and Linear there is no external system holding the
@@ -172,6 +180,9 @@ type CreateChatParams struct {
 // boundary and it is free, so every read is filtered by it.
 // CreateChat takes login as a nullable text: a web chat is owned by the login that made
 // it, and a mirrored Slack thread is owned by nobody. Only the dev token lists those.
+// personality_id is null for Podium and for a mirrored thread. A personal chat stores
+// the id and a snapshot of the display name, so the thread stays labeled after the
+// personality is deleted. An empty id is written as null, not as an empty string.
 func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, error) {
 	row := q.db.QueryRow(ctx, createChat,
 		arg.ID,
@@ -182,6 +193,8 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		arg.SourceKey,
 		arg.StartedBy,
 		arg.Origin,
+		arg.PersonalityID,
+		arg.PersonalityDisplay,
 	)
 	var i Chat
 	err := row.Scan(
@@ -197,6 +210,8 @@ func (q *Queries) CreateChat(ctx context.Context, arg CreateChatParams) (Chat, e
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }
@@ -248,7 +263,7 @@ func (q *Queries) DetachChatPullRequest(ctx context.Context, arg DetachChatPullR
 }
 
 const getChat = `-- name: GetChat :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel from chats where id = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where id = $1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -267,12 +282,14 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }
 
 const getChatBySourceKey = `-- name: GetChatBySourceKey :one
-select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel from chats where source_key = $1
+select id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display from chats where source_key = $1
 `
 
 // GetChatBySourceKey is how the mirror finds the chat for a conversation it has already
@@ -294,6 +311,8 @@ func (q *Queries) GetChatBySourceKey(ctx context.Context, sourceKey *string) (Ch
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }
@@ -435,7 +454,7 @@ func (q *Queries) ListChatPullRequests(ctx context.Context, chatID string) ([]Ch
 }
 
 const listChats = `-- name: ListChats :many
-select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel,
+select c.id, c.title, c.login, c.created_at, c.auto_title, c.agent, c.model, c.effort, c.source_key, c.started_by, c.origin, c.channel, c.personality_id, c.personality_display,
   (m.ts is not null)::bool      as has_message,
   coalesce(m.ts, c.created_at)  as last_message_at,
   coalesce(m.text, '')          as last_text,
@@ -466,35 +485,49 @@ where (
     or c.login = $2
   )
   and ($3::text = '' or c.id < $3::text)
+  -- filter_personality is opt-in. Left false, the list is every chat the caller could
+  -- already see, which is what every existing caller asks for. Set, an empty
+  -- personality_id is Podium (the column is null) and a set id is that voice only.
+  and (
+    not $4::bool
+    or (
+      ($5::text = '' and c.personality_id is null)
+      or ($5::text <> '' and c.personality_id = $5)
+    )
+  )
 order by c.id desc
-limit $4::int
+limit $6::int
 `
 
 type ListChatsParams struct {
-	IncludeAll bool
-	Login      *string
-	AfterID    string
-	PageLimit  int32
+	IncludeAll        bool
+	Login             *string
+	AfterID           string
+	FilterPersonality bool
+	PersonalityID     string
+	PageLimit         int32
 }
 
 type ListChatsRow struct {
-	ID            string
-	Title         string
-	Login         *string
-	CreatedAt     time.Time
-	AutoTitle     bool
-	Agent         string
-	Model         string
-	Effort        string
-	SourceKey     *string
-	StartedBy     string
-	Origin        string
-	Channel       string
-	HasMessage    bool
-	LastMessageAt time.Time
-	LastText      string
-	TurnRunning   bool
-	TaskRunning   bool
+	ID                 string
+	Title              string
+	Login              *string
+	CreatedAt          time.Time
+	AutoTitle          bool
+	Agent              string
+	Model              string
+	Effort             string
+	SourceKey          *string
+	StartedBy          string
+	Origin             string
+	Channel            string
+	PersonalityID      *string
+	PersonalityDisplay string
+	HasMessage         bool
+	LastMessageAt      time.Time
+	LastText           string
+	TurnRunning        bool
+	TaskRunning        bool
 }
 
 // ListChats pages a login's own chats, newest first, with the two things the list needs
@@ -515,6 +548,8 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 		arg.IncludeAll,
 		arg.Login,
 		arg.AfterID,
+		arg.FilterPersonality,
+		arg.PersonalityID,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -537,6 +572,8 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.StartedBy,
 			&i.Origin,
 			&i.Channel,
+			&i.PersonalityID,
+			&i.PersonalityDisplay,
 			&i.HasMessage,
 			&i.LastMessageAt,
 			&i.LastText,
@@ -559,7 +596,7 @@ update chats set title = $1, auto_title = false
    login = $3
    or ($4::bool and login is null)
  )
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
 `
 
 type RenameChatParams struct {
@@ -599,6 +636,8 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }
@@ -606,7 +645,7 @@ func (q *Queries) RenameChat(ctx context.Context, arg RenameChatParams) (Chat, e
 const setChatChoice = `-- name: SetChatChoice :one
 update chats set agent = $1, model = $2, effort = $3
 where id = $4
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
 `
 
 type SetChatChoiceParams struct {
@@ -642,6 +681,8 @@ func (q *Queries) SetChatChoice(ctx context.Context, arg SetChatChoiceParams) (C
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }
@@ -677,7 +718,7 @@ func (q *Queries) SetChatMessageAttachments(ctx context.Context, arg SetChatMess
 const setChatTitle = `-- name: SetChatTitle :one
 update chats set title = $1
 where id = $2 and auto_title
-returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel
+returning id, title, login, created_at, auto_title, agent, model, effort, source_key, started_by, origin, channel, personality_id, personality_display
 `
 
 type SetChatTitleParams struct {
@@ -701,6 +742,8 @@ func (q *Queries) SetChatTitle(ctx context.Context, arg SetChatTitleParams) (Cha
 		&i.StartedBy,
 		&i.Origin,
 		&i.Channel,
+		&i.PersonalityID,
+		&i.PersonalityDisplay,
 	)
 	return i, err
 }

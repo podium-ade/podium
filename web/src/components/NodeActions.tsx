@@ -218,7 +218,7 @@ export function NodeActions({ node }: { node: Node }) {
             ) : null}
 
             {confirming === "delete" && !isDraining ? (
-              <div className="rounded-lg border border-border bg-raised/40 p-3">
+              <div className="rounded-lg border border-border bg-raised p-3">
                 <div className="flex items-start gap-2.5">
                   <Checkbox
                     id="node-delete-force"

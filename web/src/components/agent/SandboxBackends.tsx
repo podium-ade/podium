@@ -21,7 +21,7 @@ export function SandboxBackends() {
             data-testid={`sandbox-backend-${backend.id}`}
             className={cn(
               "flex items-start gap-3 rounded-xl border p-4 shadow-xs",
-              selected ? "border-accent/50 bg-card" : "border-dashed border-border bg-card/40",
+              selected ? "border-line-strong bg-card" : "border-dashed border-border bg-panel",
               backend.available ? "cursor-pointer" : "cursor-not-allowed",
             )}
           >

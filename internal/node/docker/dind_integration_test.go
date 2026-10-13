@@ -21,7 +21,7 @@ import (
 // dindImage carries both halves of what these tests need: the daemon and the CLI that
 // talks to it, so one image is the sidecar AND the task. It must already be on this
 // engine, like every other image the suite uses.
-const dindImage = "docker:28-dind"
+const dindImage = "docker:29-dind"
 
 // dindGraphPath is the VOLUME docker:dind declares. Every dind container therefore gets an
 // anonymous volume, and it is where the nested daemon writes every layer it pulls —

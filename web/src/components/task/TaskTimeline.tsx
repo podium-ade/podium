@@ -3,6 +3,7 @@ import {
   Circle,
   CircleCheck,
   ContainerIcon,
+  Globe,
   LogOut,
   MessageSquare,
   OctagonAlert,
@@ -19,10 +20,10 @@ import { cn } from "../../lib/utils";
 import { TaskMessage } from "../TaskMessage";
 
 const IDLE = "border-border bg-raised text-faint";
-const RUN = "border-run/40 bg-run/12 text-run";
-const OK = "border-ok/40 bg-ok/12 text-ok";
-const ERR = "border-err/40 bg-err/12 text-err";
-const ACCENT = "border-accent/40 bg-accent/12 text-accent";
+const RUN = "border-run bg-run-bg text-run";
+const OK = "border-ok bg-ok-bg text-ok";
+const ERR = "border-err bg-err-bg text-err";
+const ACCENT = "border-run bg-run-bg text-run";
 
 const EVENT_STYLE: Record<TaskEventKind, { icon: LucideIcon; tone: string }> = {
   [TaskEventKind.UNSPECIFIED]: { icon: Circle, tone: IDLE },
@@ -36,6 +37,7 @@ const EVENT_STYLE: Record<TaskEventKind, { icon: LucideIcon; tone: string }> = {
   [TaskEventKind.FINISHED]: { icon: CircleCheck, tone: OK },
   [TaskEventKind.ERROR]: { icon: OctagonAlert, tone: ERR },
   [TaskEventKind.MESSAGE]: { icon: MessageSquare, tone: ACCENT },
+  [TaskEventKind.PREVIEW]: { icon: Globe, tone: ACCENT },
 };
 
 /** An exit that is not 0 is the moment the task went wrong, so it is not coloured like a success. */

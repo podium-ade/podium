@@ -26,6 +26,8 @@ var expectedTables = []string{
 	"instance", "sessions",
 	// workspace snapshots and bases arrive with 0010_workspace_snapshots.sql.
 	"workspace_snapshots", "workspace_bases",
+	// previews arrives with 0013_previews.sql.
+	"previews",
 }
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
@@ -36,6 +38,7 @@ var migrationFiles = []string{
 	"0010_workspace_snapshots.sql",
 	"0011_user_last_seen.sql",
 	"0012_secret_scope.sql",
+	"0013_previews.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

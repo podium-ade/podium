@@ -67,6 +67,23 @@ Object.defineProperty(window, "location", {
   configurable: true,
 });
 
+function localToken(): Viewer {
+  return {
+    login: "local",
+    displayName: "",
+    kind: IdentityKind.LOCAL_TOKEN,
+    agentEnabled: true,
+    serverVersion: "test",
+    roles: [],
+    claimed: false,
+    hostedDomain: "",
+    canClaim: false,
+    googleAuthEnabled: false,
+    claimDomain: "",
+    pictureUrl: "",
+  };
+}
+
 function person(role: string): Viewer {
   return {
     login: "ada@acme.com",
@@ -119,7 +136,7 @@ describe("McpPanel", () => {
 
   it("offers a way in before anything is registered, without a warning banner", async () => {
     mount();
-    expect(await screen.findByText("No MCP servers")).toBeInTheDocument();
+    expect(await screen.findByText("No global MCP servers")).toBeInTheDocument();
     expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
     expect(
       screen.queryByText(/token is spent by every turn of every playbook that names it/),
@@ -136,7 +153,7 @@ describe("McpPanel", () => {
     expect(within(row).getByText("/coder")).toBeInTheDocument();
   });
 
-  it("keeps a long description to one ellipsized line on the card, and the full text in edit", async () => {
+  it("shows a server's description on the row and again in edit", async () => {
     const description =
       "Issues, projects and cycles, plus a great deal more that would wrap the card if it were allowed to.";
     listMcpServers.mockResolvedValue({
@@ -145,11 +162,10 @@ describe("McpPanel", () => {
     });
     mount();
     const row = await screen.findByTestId("mcp-row");
-    const clipped = within(row).getByText(description);
-    expect(clipped).toHaveClass("truncate");
-    expect(clipped).toHaveAttribute("title", description);
+    expect(within(row).getByText(description)).toBeInTheDocument();
 
-    await userEvent.click(within(row).getByTestId("mcp-edit"));
+    await userEvent.click(within(row).getByRole("button", { name: "View details" }));
+    await userEvent.click(screen.getByTestId("mcp-edit"));
     expect(screen.queryByLabelText("Description")).toBeNull();
     expect(screen.getByRole("dialog")).toHaveTextContent(description);
   });
@@ -159,7 +175,7 @@ describe("McpPanel", () => {
   it("says so when no playbook names a server", async () => {
     listMcpServers.mockResolvedValue({ servers: [server({ playbooks: [] })], maxPerPlaybook: 8 });
     mount();
-    expect(await screen.findByText("no playbook names it")).toBeInTheDocument();
+    expect(await screen.findByText(/No playbook names this server yet\./)).toBeInTheDocument();
   });
 
   it("registers a server from a preset, with the token in the same request", async () => {
@@ -271,7 +287,7 @@ describe("McpPanel", () => {
     await userEvent.click(screen.getByTestId("mcp-preset-custom"));
     await userEvent.type(screen.getByLabelText("Name"), "grafana");
     await userEvent.type(screen.getByLabelText("URL"), "https://mcp.grafana.com/mcp");
-    await userEvent.click(screen.getByRole("button", { name: "Advanced (JSON)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Advanced options" }));
   }
 
   it("fills the advanced JSON with the whole entry and keeps its url in step with the form", async () => {
@@ -320,7 +336,8 @@ describe("McpPanel", () => {
     listMcpServers.mockResolvedValue({ servers: [server({ tokenSet: false, tokenHint: "" })], maxPerPlaybook: 8 });
     setMcpServerToken.mockResolvedValue({ server: server() });
     mount();
-    await userEvent.click(await screen.findByTestId("mcp-token"));
+    await userEvent.click(await screen.findByRole("button", { name: "View details" }));
+    await userEvent.click(screen.getByTestId("mcp-token"));
     expect(screen.getByText("podium.agent.mcp.linear_token")).toBeInTheDocument();
     expect(screen.getByText("PODIUM_MCP_LINEAR_TOKEN")).toBeInTheDocument();
 
@@ -351,7 +368,8 @@ describe("McpPanel", () => {
       scope: "read write",
     });
     mount();
-    await userEvent.click(await screen.findByTestId("mcp-signin"));
+    await userEvent.click(await screen.findByRole("button", { name: "View details" }));
+    await userEvent.click(screen.getByTestId("mcp-signin"));
 
     await waitFor(() =>
       expect(startMcpOAuth).toHaveBeenCalledWith({
@@ -379,7 +397,8 @@ describe("McpPanel", () => {
       new ConnectError("this MCP server does not advertise an OAuth authorization server", Code.Unimplemented),
     );
     mount();
-    await userEvent.click(await screen.findByTestId("mcp-signin"));
+    await userEvent.click(await screen.findByRole("button", { name: "View details" }));
+    await userEvent.click(screen.getByTestId("mcp-signin"));
 
     expect(
       await screen.findByText(/does not advertise an OAuth authorization server/),
@@ -397,9 +416,10 @@ describe("McpPanel", () => {
     });
     mount();
     const row = await screen.findByTestId("mcp-row");
-    expect(within(row).getByText(/signed in · alice@example.test/)).toBeInTheDocument();
-    expect(within(row).getByText("signed in by alice")).toBeInTheDocument();
-    expect(within(row).getByRole("button", { name: /Sign in again/ })).toBeInTheDocument();
+    expect(within(row).getByText(/Signed in · alice@example.test/)).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "View details" }));
+    expect(screen.getByText("signed in by alice")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sign in again/ })).toBeInTheDocument();
   });
 
   // Without a refresh token the sign-in dies at expiry and a human has to do it again. Worth
@@ -419,8 +439,9 @@ describe("McpPanel", () => {
     listMcpServers.mockResolvedValue({ servers: [server()], maxPerPlaybook: 8 });
     deleteMcpServer.mockResolvedValue({});
     mount();
-    await userEvent.click(await screen.findByTestId("mcp-delete"));
-    const dialog = screen.getByRole("dialog");
+    await userEvent.click(await screen.findByRole("button", { name: "View details" }));
+    await userEvent.click(screen.getByTestId("mcp-delete"));
+    const dialog = screen.getByRole("dialog", { name: "Remove MCP server?" });
     expect(within(dialog).getByText(/\/coder/)).toBeInTheDocument();
     expect(within(dialog).getByText(/will fail until the name is taken out of it/)).toBeInTheDocument();
     expect(deleteMcpServer).not.toHaveBeenCalled();
@@ -431,7 +452,7 @@ describe("McpPanel", () => {
     );
   });
 
-  it("shows Yours and the Slack bot, and a member cannot edit the bot list", async () => {
+  it("hides Global from a member, including when they have no server of their own", async () => {
     listMcpServers.mockResolvedValue({
       servers: [
         server(),
@@ -439,29 +460,91 @@ describe("McpPanel", () => {
       ],
       maxPerPlaybook: 8,
     });
-    mount(person("member"));
+    const view = mount(person("member"));
     expect(await screen.findByTestId("mcp-yours")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-bot")).toBeInTheDocument();
-    expect(screen.queryByText(/not a Linear agent installation/)).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByTestId("mcp-global")).toBeNull();
+    expect(screen.queryByText("linear")).toBeNull();
+    expect(screen.getByText("notion")).toBeInTheDocument();
     expect(screen.queryByTestId("mcp-new")).toBeNull();
     expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
-    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-edit")).toBeNull();
-    expect(within(screen.getByTestId("mcp-bot")).queryByTestId("mcp-token")).toBeNull();
-    expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-yours")).getByRole("button", { name: "View details" })).toBeInTheDocument();
+    view.unmount();
+
+    listMcpServers.mockResolvedValue({ servers: [server()], maxPerPlaybook: 8 });
+    mount(person("member"));
+    expect(await screen.findByText("No personal MCP servers")).toBeInTheDocument();
+    expect(screen.queryByText("linear")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
-  it("lets an admin write the bot list and their own servers", async () => {
+  it("lets the local admin switch between personal and global", async () => {
+    listMcpServers.mockResolvedValue({ servers: [server()], maxPerPlaybook: 8 });
+    mount(localToken());
+    expect(await screen.findByRole("tab", { name: /^Global/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^Yours/ })).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-global")).toBeInTheDocument();
+    expect(screen.getByText("linear")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Yours/ }));
+    expect(screen.getByText("No personal MCP servers")).toBeInTheDocument();
+    expect(screen.getByText("Personal servers belong to a signed-in account.")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-new")).toBeNull();
+    expect(screen.queryByTestId("mcp-new-yours")).toBeNull();
+    expect(screen.queryByRole("button", { name: /New personal server/i })).toBeNull();
+  });
+
+  it("lets an admin open Global, and New server follows the open tab", async () => {
     listMcpServers.mockResolvedValue({
       servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
       maxPerPlaybook: 8,
     });
     mount(person("admin"));
-    expect(await screen.findByTestId("mcp-bot")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-yours")).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+    expect(await screen.findByTestId("mcp-yours")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Yours/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("mcp-global")).toBeNull();
     expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
-    expect(within(screen.getByTestId("mcp-bot")).getByTestId("mcp-edit")).toBeInTheDocument();
-    expect(within(screen.getByTestId("mcp-yours")).getByTestId("mcp-edit")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-new")).toBeNull();
+    expect(within(screen.getByTestId("mcp-yours")).getByRole("button", { name: "View details" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("mcp-yours")).queryByTestId("mcp-fallback")).toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Global/ }));
+    const company = screen.getByTestId("mcp-global");
+    expect(within(company).getByRole("button", { name: "View details" })).toBeInTheDocument();
+    expect(within(company).getByText("linear")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-new")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-new-yours")).toBeNull();
     expect(screen.queryByRole("button", { name: /another person/i })).toBeNull();
+  });
+
+  it("keeps both tabs when an admin has no servers yet", async () => {
+    mount(person("admin"));
+    expect(await screen.findByRole("tab", { name: /^Yours/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Global/ })).toBeInTheDocument();
+    expect(screen.getByText("No personal MCP servers")).toBeInTheDocument();
+    expect(screen.queryByText("None yet.")).toBeNull();
+    expect(screen.getByTestId("mcp-new-yours")).toBeInTheDocument();
+  });
+
+  it("lets an admin share a global server when someone has none", async () => {
+    listMcpServers.mockResolvedValue({
+      servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
+      maxPerPlaybook: 8,
+    });
+    updateMcpServer.mockResolvedValue({ server: server({ fallback: true }) });
+    mount(person("admin"));
+    await userEvent.click(await screen.findByRole("tab", { name: /^Global/ }));
+    const company = screen.getByTestId("mcp-global");
+    expect(within(company).getByTestId("mcp-fallback")).toBeInTheDocument();
+    await userEvent.click(within(company).getByTestId("mcp-fallback"));
+    await waitFor(() =>
+      expect(updateMcpServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forBot: true,
+          server: expect.objectContaining({ name: "linear", enabled: true, fallback: true }),
+        }),
+      ),
+    );
   });
 });

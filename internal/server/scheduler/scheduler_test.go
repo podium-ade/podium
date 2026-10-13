@@ -196,3 +196,24 @@ func TestEveryStatusHandBackIsGivenCanReachBothQueuedAndFailed(t *testing.T) {
 			"%s must be able to fail, or a task with no attempts left has nowhere to go", from)
 	}
 }
+
+func TestPickPlacesAPreviewOnlyWhereOneIsFree(t *testing.T) {
+	busy := node("node_a", 4)
+	lan := node("node_b", 1)
+	lan.FreeLANPreviews = 1
+	cands := []nodes.Snapshot{busy, lan}
+
+	cost := nodes.TaskCost{Preview: true}
+	i := pick(cands, spec.TaskSpec{}, cost)
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, "node_b", cands[i].NodeID, "the idler node has no address to publish on")
+
+	charge(&cands[i], cost)
+	assert.Equal(t, -1, pick(cands, spec.TaskSpec{}, cost), "the only address is taken")
+	assert.Contains(t, placementReason(cands, spec.TaskSpec{}, cost), ReasonNoPreview)
+
+	tailnetOnly := nodes.TaskCost{Preview: true, Via: spec.ExposeViaTailnet}
+	lan.FreeLANPreviews = 1
+	assert.Equal(t, -1, pick([]nodes.Snapshot{lan}, spec.TaskSpec{}, tailnetOnly), "a LAN address is not a tailnet slot")
+	assert.Equal(t, 0, pick([]nodes.Snapshot{busy}, spec.TaskSpec{}, nodes.TaskCost{}), "a task that exposes nothing ignores previews")
+}

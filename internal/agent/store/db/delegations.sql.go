@@ -176,6 +176,60 @@ func (q *Queries) ListDelegationsForTurn(ctx context.Context, turnID string) ([]
 	return items, nil
 }
 
+const listFinishedDelegationsForSession = `-- name: ListFinishedDelegationsForSession :many
+select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations
+where session_id = $1 and status <> 'running' and task_id is not null
+  and finished_at > $2
+order by finished_at desc
+limit $3
+`
+
+type ListFinishedDelegationsForSessionParams struct {
+	SessionID string
+	Since     *time.Time
+	MaxRows   int32
+}
+
+// ListFinishedDelegationsForSession is one conversation's tasks that ended after @since,
+// newest first: the ones whose environment may still be up as a preview.
+func (q *Queries) ListFinishedDelegationsForSession(ctx context.Context, arg ListFinishedDelegationsForSessionParams) ([]Delegation, error) {
+	rows, err := q.db.Query(ctx, listFinishedDelegationsForSession, arg.SessionID, arg.Since, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Delegation{}
+	for rows.Next() {
+		var i Delegation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.TurnID,
+			&i.TriggerRef,
+			&i.Playbook,
+			&i.Instruction,
+			&i.TaskID,
+			&i.Status,
+			&i.FinalText,
+			&i.CreatedAt,
+			&i.FinishedAt,
+			&i.NumTurns,
+			&i.CostUsd,
+			&i.Agent,
+			&i.Model,
+			&i.Effort,
+			&i.Provider,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningDelegations = `-- name: ListRunningDelegations :many
 select id, session_id, turn_id, trigger_ref, playbook, instruction, task_id, status, final_text, created_at, finished_at, num_turns, cost_usd, agent, model, effort, provider from delegations where status = 'running' order by created_at
 `

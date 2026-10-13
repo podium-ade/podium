@@ -237,7 +237,7 @@ func TestApplySidecarHardeningKeepsNoNewPrivilegesWhenPrivileged(t *testing.T) {
 
 	assert.True(t, hc.Privileged)
 	assert.Equal(t, []string{noNewPrivileges}, hc.SecurityOpt,
-		"a privileged sidecar still gets the bit; docker:28-dind runs under it")
+		"a privileged sidecar still gets the bit; docker:29-dind runs under it")
 }
 
 func TestCanDialTaskNetworks(t *testing.T) {

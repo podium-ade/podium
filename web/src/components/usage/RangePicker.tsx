@@ -88,7 +88,7 @@ function CustomRange({
           variant={custom ? "secondary" : "outline"}
           size="sm"
           aria-pressed={custom}
-          className={cn("h-8", custom && "border-accent/40")}
+          className={cn("h-8", custom && "border-line-strong")}
         >
           <CalendarRange />
           {custom ? range.label : "Custom"}

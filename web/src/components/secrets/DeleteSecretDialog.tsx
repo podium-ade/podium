@@ -50,10 +50,12 @@ export function DeleteSecretDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-[640px]">
         <DialogHeader>
-          <DialogTitle>Delete {secret.name}?</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl leading-tight font-bold tracking-normal">
+            Delete {secret.name}?
+          </DialogTitle>
+          <DialogDescription className="text-base text-soft">
             Version {secret.version} and every earlier one go with it. There is no read API, so
             no copy of this value exists anywhere in Podium to restore from.
           </DialogDescription>
@@ -74,7 +76,7 @@ export function DeleteSecretDialog({
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor="delete-confirm">
+            <Label htmlFor="delete-confirm" className="text-sm font-bold text-fg">
               Type <span className="font-mono text-fg">{secret.name}</span> to confirm
             </Label>
             <Input
@@ -90,14 +92,13 @@ export function DeleteSecretDialog({
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline" size="sm">
+              <Button type="button" variant="outline">
                 Cancel
               </Button>
             </DialogClose>
             <Button
               type="submit"
               variant="destructive"
-              size="sm"
               disabled={!confirmed || remove.isPending}
             >
               {remove.isPending ? "Deleting…" : "Delete secret"}

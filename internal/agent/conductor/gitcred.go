@@ -71,6 +71,9 @@ var (
 type GitScope struct {
 	Owner string   `json:"owner"`
 	Repos []string `json:"repos"`
+	// Login is the person whose connected GitHub account this turn pushes as. Empty is the
+	// App.
+	Login string `json:"login,omitempty"`
 }
 
 // GitCredential is one minted token and the identity commits made with it should carry.
@@ -168,12 +171,12 @@ func (c *Conductor) mintMAC(body string) []byte {
 // arguments beyond the capability: the scope is what the conductor signed, so a turn cannot
 // ask for a repository its playbook never named.
 func (c *Conductor) MintGitToken(ctx context.Context, capability string) (GitCredential, error) {
-	if c.github == nil {
-		return GitCredential{}, ErrNoGitApp
-	}
 	turnID, scope, err := c.parseCapability(capability)
 	if err != nil {
 		return GitCredential{}, err
+	}
+	if scope.Login == "" && c.github == nil {
+		return GitCredential{}, ErrNoGitApp
 	}
 	// The unit of work's own status is the revocation list: one that has finished —
 	// succeeded, failed, cancelled, timed out — can no longer mint, without anything
@@ -184,6 +187,9 @@ func (c *Conductor) MintGitToken(ctx context.Context, capability string) (GitCre
 		return GitCredential{}, err
 	case !running:
 		return GitCredential{}, ErrBadCapability
+	}
+	if scope.Login != "" {
+		return c.mintUserToken(ctx, turnID, scope)
 	}
 	token, err := c.github.Token(ctx, scope.Owner, scope.Repos)
 	if err != nil {
@@ -218,14 +224,28 @@ func GitCapabilitySecret(turnID string) string {
 // playbook with no github.com repositories — which is not an error: that is simply a
 // playbook still on the older path.
 func (c *Conductor) provisionGitCapability(
-	ctx context.Context, turnID string, playbook profiles.Playbook,
+	ctx context.Context, turnID string, playbook profiles.Playbook, login string,
 ) (string, error) {
-	if c.github == nil {
+	user := playbook.UsesGitHubAccount()
+	if c.github == nil && !user {
 		return "", nil
 	}
 	scope, err := gitScopeOf(playbook)
 	if err != nil {
 		return "", err
+	}
+	if user {
+		// The person's own token never reaches the container. The turn redeems this
+		// capability for one scoped to these repositories, which is why there must be some.
+		if len(scope.Repos) == 0 {
+			return "", errors.New("conductor: a playbook that pushes as the person who asked " +
+				"must list its repos:, because the token a turn gets reaches those and no others")
+		}
+		if c.mintSecret == "" || c.gitTaskURL == "" {
+			return "", errors.New("conductor: a turn that pushes as a person needs a mint secret " +
+				"and a task URL to redeem its capability at")
+		}
+		scope.Login = login
 	}
 	if len(scope.Repos) == 0 {
 		return "", nil
@@ -241,15 +261,59 @@ func (c *Conductor) provisionGitCapability(
 	return name, nil
 }
 
+// githubPersona is who a turn commits as when its playbook pushes as the asker's own GitHub
+// account: the noreply address GitHub links to that account. Nil means the playbook does
+// not. The error is written for the person who asked.
+func (c *Conductor) githubPersona(ctx context.Context, login string, playbook profiles.Playbook) (*BriefGit, error) {
+	if !playbook.UsesGitHubAccount() {
+		return nil, nil
+	}
+	if turnOwner(login) == "" {
+		return nil, errors.New("this playbook opens pull requests as the person who asked, and " +
+			"this conversation has no Podium user. Ask from the Podium web chat instead")
+	}
+	if c.store == nil {
+		return nil, errors.New("this conductor has no database, so it cannot find your GitHub account")
+	}
+	acct, err := c.store.GitHubAccount(ctx, login)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errors.New("this playbook opens pull requests as you, and you have not " +
+			"connected GitHub. Connect it under Settings → Account, then ask again")
+	}
+	if err != nil {
+		c.logger.ErrorContext(ctx, "reading a github account failed", "login", login, "error", err)
+		return nil, errors.New("your GitHub connection could not be read. An operator should check the logs")
+	}
+	if acct.NeedsReconnect {
+		return nil, errReconnect
+	}
+	return githubPersonaOf(acct), nil
+}
+
+func githubPersonaOf(acct store.GitHubAccount) *BriefGit {
+	name := acct.Name
+	if name == "" {
+		name = acct.GitHubLogin
+	}
+	return &BriefGit{
+		Name:  name,
+		Email: fmt.Sprintf("%d+%s@users.noreply.github.com", acct.GitHubID, acct.GitHubLogin),
+	}
+}
+
 // dropGitCapability deletes a turn's capability secret. It is called when the turn ends and
 // when the task it was written for never started.
 //
 // A failure is logged and nothing more: the capability is already useless, because Mint
 // refuses one whose turn is no longer running. What is left behind is a row, not an
 // authority.
-func (c *Conductor) dropGitCapability(ctx context.Context, turnID string) {
-	if c.github == nil {
+func (c *Conductor) dropGitCapability(ctx context.Context, turnID string, playbook profiles.Playbook) {
+	user := playbook.UsesGitHubAccount()
+	if c.github == nil && !user {
 		return
+	}
+	if user {
+		c.revokeUserTokens(ctx, turnID)
 	}
 	name := GitCapabilitySecret(turnID)
 	if err := c.podium.DeleteSecret(ctx, name); err != nil {

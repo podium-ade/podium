@@ -47,6 +47,8 @@ var (
 	// ErrDelegationOver means the delegation is already terminal, so there is nothing to
 	// cancel.
 	ErrDelegationOver = errors.New("conductor: that delegation has already finished")
+	// ErrNoPreview means the delegation's task left no preview up to release.
+	ErrNoPreview = errors.New("conductor: that delegation has no preview to release")
 	// ErrNoDelegation means this conductor cannot delegate at all, because it has no host
 	// runtime and therefore no host turns to delegate from.
 	ErrNoDelegation = errors.New("conductor: this conductor runs no host turns, so nothing can delegate")
@@ -68,6 +70,10 @@ type turnGrant struct {
 	ref       string
 	src       Source
 	playbooks []string
+	// login is the Slack speaker's email, when Slack could read one. It chooses MCP
+	// servers for a delegated task. Personal secrets still follow asker, which is empty
+	// for Slack.
+	login string
 }
 
 // mintTurnToken issues a token for one host turn. It lives until revokeTurnToken, which
@@ -119,6 +125,7 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 			Docker:  p.Docker,
 			Browser: p.Browser,
 			Repos:   repoNames(p),
+			Preview: p.Expose != nil,
 		})
 	}
 	return out
@@ -133,6 +140,8 @@ type DelegablePlaybook struct {
 	Docker  bool     `json:"docker,omitempty"`
 	Browser bool     `json:"browser,omitempty"`
 	Repos   []string `json:"repos,omitempty"`
+	// Preview says the task stays up afterwards with its ports published for people.
+	Preview bool `json:"preview,omitempty"`
 }
 
 // playbookSummary is the one line a menu entry carries. A playbook has no description field,
@@ -358,28 +367,37 @@ func (c *Conductor) startDelegatedTask(
 	// The DELEGATION's id as the brief's turn id: a delegated task is its own unit of work,
 	// and this is what makes a task's own logs and its turn.json traceable back to the row
 	// that owns it rather than to the turn that happened to ask.
-	// The person this conversation belongs to. A Slack thread has none, so a playbook
-	// that names personal secrets fails here, before a task exists.
+	// The person this conversation's personal secrets belong to. A Slack thread has none,
+	// so a playbook that names personal secrets fails here, before a task exists. MCP
+	// servers are chosen separately: a Slack speaker's email, stored on the turn grant,
+	// uses that person's rows.
 	login := c.asker(ctx, g.src, sess)
+	persona, err := c.githubPersona(ctx, login, playbook)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := userSecretRefs(login, playbook.UserSecrets); err != nil {
 		return nil, err
 	}
-	// The delegated playbook's own MCP servers, resolved the same way a turn's are. The
-	// host turn that asked for this has none of its own — it delegates to a playbook that
-	// has what it needs, which is exactly what this line is. A person's servers are that
-	// person's rows; a Slack turn keeps the unowned bot list.
-	servers, err := c.mcpServers(ctx, j, login)
+	mcpOwner := login
+	if mcpOwner == "" {
+		mcpOwner = g.login
+	}
+	servers, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's mcp servers: %w", err)
 	}
 	brief := c.brief(ctx, sess, j, dlg.ID, ev, entries, bundles, servers, choice)
+	if persona != nil {
+		brief.Git = persona
+	}
 	encoded, err := brief.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("conductor: the delegated task's brief does not fit: %w", err)
 	}
 	// Keyed by the delegation id, which is what this task's brief carries as its turn id
 	// and therefore what Mint checks the status of.
-	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook)
+	capabilitySecret, err := c.provisionGitCapability(ctx, dlg.ID, playbook, login)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +406,7 @@ func (c *Conductor) startDelegatedTask(
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
 		if capabilitySecret != "" {
-			c.dropGitCapability(ctx, dlg.ID)
+			c.dropGitCapability(ctx, dlg.ID, playbook)
 		}
 		return nil, fmt.Errorf("conductor: creating the delegated task failed: %w", err)
 	}
@@ -619,6 +637,9 @@ func (r *delegationRun) run(ctx context.Context) {
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
 		c.post(ctx, r.src, r.ref, Outbound{Type: OutFailure, TaskID: r.dlg.TaskID, Text: result.Post})
 	}
+	if note := previewNote(task, true); note != "" {
+		c.post(ctx, r.src, r.ref, Outbound{Type: OutFinal, TaskID: r.dlg.TaskID, Text: note})
+	}
 	r.finish(ctx, result.Status)
 }
 
@@ -704,7 +725,7 @@ func (r *delegationRun) finish(ctx context.Context, status string) {
 		r.c.metrics.TurnsWithoutAccounting.Inc()
 	}
 	// As turnRun.finish does, and for the same reason.
-	r.c.dropGitCapability(ctx, r.dlg.ID)
+	r.c.dropGitCapability(ctx, r.dlg.ID, r.playbook)
 	if err := r.c.store.FinishDelegation(ctx, r.dlg.ID, status, answer, numTurns, cost); err != nil {
 		r.c.logger.ErrorContext(ctx, "recording how a delegated task ended failed",
 			"delegation_id", r.dlg.ID, "status", status, "error", err)

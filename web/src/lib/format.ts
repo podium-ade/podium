@@ -150,6 +150,7 @@ const EVENT_KIND_LABEL: Record<TaskEventKind, string> = {
   [TaskEventKind.FINISHED]: "finished",
   [TaskEventKind.ERROR]: "error",
   [TaskEventKind.MESSAGE]: "message",
+  [TaskEventKind.PREVIEW]: "preview",
 };
 
 export function eventKindLabel(k: TaskEventKind): string {

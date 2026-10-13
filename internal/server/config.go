@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/podium-ade/podium/internal/server/artifacts"
 	"github.com/podium-ade/podium/internal/server/logs"
@@ -102,6 +103,10 @@ type Config struct {
 	// PublicURL is PODIUM_PUBLIC_URL: the origin browsers use to reach this control plane,
 	// used as the OAuth redirect URI. Empty means the start request's own origin.
 	PublicURL string
+
+	// PreviewMaxTTL is PODIUM_PREVIEW_MAX_TTL: the longest a task may ask its preview to
+	// stay up after its command exits. Zero means api.DefaultMaxPreviewTTL.
+	PreviewMaxTTL time.Duration
 }
 
 // ConfigFromEnv reads the canonical environment variables and applies the defaults.
@@ -127,7 +132,17 @@ func ConfigFromEnv() Config {
 		GoogleClientID:         os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_ID"),
 		GoogleClientSecret:     os.Getenv("PODIUM_GOOGLE_OAUTH_CLIENT_SECRET"),
 		PublicURL:              os.Getenv("PODIUM_PUBLIC_URL"),
+		PreviewMaxTTL:          envDuration("PODIUM_PREVIEW_MAX_TTL"),
 	}
+}
+
+// envDuration is a Go duration, or zero when the variable is unset or unparseable.
+func envDuration(key string) time.Duration {
+	d, err := time.ParseDuration(os.Getenv(key))
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // Validate reports the first thing that would stop the server from starting.

@@ -1,0 +1,33 @@
+# A task that leaves what it built running.
+#
+#   podium run --spec examples/preview.yaml
+#   podium task get TASK_ID          # where the preview is, and until when
+#   podium task release TASK_ID      # end it before the ttl does
+#
+# The command "builds" a web page that links to the API beside it, starts serving it in the
+# background, and exits 0. The task ends there, succeeded — and because the spec exposes
+# ports, its containers stay up and both ports are published on one address, under their own
+# numbers. The node needs somewhere to publish them: PODIUM_NODE_PREVIEW_LAN_ADDRESSES or
+# PODIUM_NODE_PREVIEW_TAILNET_SLOTS. See docs/task-spec.md#expose.
+#
+# PODIUM_URL_API is what the web page is built against, not localhost: a browser on another
+# machine follows the link from the page, so the link has to be the preview's address.
+image: alpine:3
+command:
+  - sh
+  - -c
+  - |
+    echo "building the web app against $PODIUM_URL_API"
+    (nc -lk -p 3000 -e sh -c 'read l; printf "HTTP/1.0 200 OK\r\n\r\n<a href=%s>the api</a>\n" "$PODIUM_URL_API"' &)
+    echo "tests passed"
+sidecars:
+  api:
+    image: alpine:3
+    command: ["sh", "-c", "nc -lk -p 5011 -e sh -c 'read l; printf \"HTTP/1.0 200 OK\\r\\n\\r\\nhello from the api\\n\"'"]
+    readiness: { tcp_port: 5011 }
+expose:
+  ttl: 30m
+  ports:
+    web: { port: 3000 }
+    api: { port: 5011, from: api }
+timeout: 5m

@@ -7,9 +7,18 @@
 
 -- CreateChat takes login as a nullable text: a web chat is owned by the login that made
 -- it, and a mirrored Slack thread is owned by nobody. Only the dev token lists those.
+-- personality_id is null for Podium and for a mirrored thread. A personal chat stores
+-- the id and a snapshot of the display name, so the thread stays labeled after the
+-- personality is deleted. An empty id is written as null, not as an empty string.
 -- name: CreateChat :one
-insert into chats (id, title, login, created_at, auto_title, source_key, started_by, origin)
-values (@id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin)
+insert into chats (
+  id, title, login, created_at, auto_title, source_key, started_by, origin,
+  personality_id, personality_display
+)
+values (
+  @id, @title, sqlc.narg('login'), @created_at, @auto_title, @source_key, @started_by, @origin,
+  sqlc.narg('personality_id'), @personality_display
+)
 returning *;
 
 -- name: GetChat :one
@@ -77,6 +86,16 @@ where (
     or c.login = @login
   )
   and (@after_id::text = '' or c.id < @after_id::text)
+  -- filter_personality is opt-in. Left false, the list is every chat the caller could
+  -- already see, which is what every existing caller asks for. Set, an empty
+  -- personality_id is Podium (the column is null) and a set id is that voice only.
+  and (
+    not @filter_personality::bool
+    or (
+      (@personality_id::text = '' and c.personality_id is null)
+      or (@personality_id::text <> '' and c.personality_id = @personality_id)
+    )
+  )
 order by c.id desc
 limit @page_limit::int;
 

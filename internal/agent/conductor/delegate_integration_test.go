@@ -29,13 +29,16 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/podium-ade/podium/internal/agent/api"
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/conductor/fakesource"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // The fake runtime's delegation knobs. Not PODIUM_*, for the reason host_integration_test.go
@@ -50,6 +53,9 @@ const (
 	// delegations and injects the text into the first one instead of delegating, which is
 	// what the prompt tells an assistant to do with "actually, also…".
 	hostFakeFollowUpEnv = "CONDUCTOR_TEST_FOLLOW_UP"
+	// hostFakeReleaseEnv makes the fake release the first preview its brief lists, which is
+	// what the prompt tells an assistant to do with "I'm done".
+	hostFakeReleaseEnv = "CONDUCTOR_TEST_RELEASE_PREVIEW"
 )
 
 // delegateReport is what the fake runtime says as its answer, so a test can assert on what
@@ -75,6 +81,8 @@ type delegateReport struct {
 	// Listed is what ListDelegations answered.
 	Running []string `json:"running"`
 	Listed  []string `json:"listed"`
+	// Previews is the delegation ids the brief listed as still up.
+	Previews []string `json:"previews"`
 }
 
 // hostFakeDelegate is the fake runtime's delegation half, called from hostFakeRuntime when
@@ -101,6 +109,26 @@ func hostFakeDelegate(brief map[string]any) delegateReport {
 		entry, _ := r.(map[string]any)
 		id, _ := entry["id"].(string)
 		report.Running = append(report.Running, id)
+	}
+
+	previews, _ := block["previews"].([]any)
+	for _, p := range previews {
+		entry, _ := p.(map[string]any)
+		id, _ := entry["delegation_id"].(string)
+		report.Previews = append(report.Previews, id)
+	}
+	if os.Getenv(hostFakeReleaseEnv) != "" {
+		if len(report.Previews) == 0 {
+			report.Message = "no preview to release"
+			return report
+		}
+		report.ID = report.Previews[0]
+		status, body := turnCall(report.URL, token, "ReleasePreview", map[string]string{"id": report.ID})
+		report.Status = status
+		if status != http.StatusOK {
+			report.Code, report.Message = connectError(body)
+		}
+		return report
 	}
 
 	if text := os.Getenv(hostFakeFollowUpEnv); text != "" {
@@ -392,6 +420,62 @@ func TestAFollowUpInTheSameThreadReachesTheRunningTask(t *testing.T) {
 	require.Len(t, fake.Injects(), 1)
 	assert.Equal(t, running[0].TaskID, fake.Injects()[0].GetTaskId())
 	assert.Equal(t, "also they are still getting the email", fake.Injects()[0].GetText())
+}
+
+func TestSayingDoneReleasesTheConversationsPreview(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	profile := testProfile(t)
+	dogfood := profile.Playbooks["dogfood"]
+	dogfood.Expose = &spec.Expose{TTL: spec.Duration(time.Hour)}
+	profile.Playbooks["dogfood"] = dogfood
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) {
+		o.Host = host
+		o.Profiles = profiles.NewLive(profile)
+	})
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	message := func(ts string, env map[string]string) conductor.InboundEvent {
+		ev := inbound("C1/40.1/"+ts, "build the dashboard")
+		ev.SourceKey = conductor.KindDev + ":C1:40.1"
+		ev.Env = hostEnv(env)
+		return ev
+	}
+	first := message("40.1", map[string]string{hostFakeDelegateEnv: "dogfood|build the dashboard and serve it"})
+	require.NoError(t, src.Send(context.Background(), first))
+	var dlg store.Delegation
+	waitFor(t, 60*time.Second, "the delegated task to finish", func() bool {
+		if turnStatus(st, first.SourceKey) != store.TurnSucceeded {
+			return false
+		}
+		dlgs := delegationsOf(t, st, first.SourceKey)
+		if len(dlgs) != 1 || dlgs[0].Status == store.TurnRunning {
+			return false
+		}
+		dlg = dlgs[0]
+		return true
+	})
+	fake.SetPreview(dlg.TaskID, &podiumv1.TaskPreview{
+		Via: "lan", Address: "192.168.1.201",
+		Urls:      map[string]string{"web": "http://192.168.1.201:3000"},
+		ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
+	})
+
+	said := len(posts(src.Records(), conductor.OutFinal))
+	done := message("40.2", map[string]string{hostFakeReleaseEnv: "1"})
+	require.NoError(t, src.Send(context.Background(), done))
+	waitFor(t, 60*time.Second, "the turn to answer", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) > said
+	})
+
+	report := delegated(t, src.Records())
+	assert.Equal(t, []string{dlg.ID}, report.Previews, "the brief lists the preview this conversation left up")
+	assert.Equal(t, http.StatusOK, report.Status, "releasing it is allowed: %s %s", report.Code, report.Message)
+	assert.Equal(t, []string{dlg.TaskID}, fake.Releases())
 }
 
 // TestTheAnnouncementFollowsTheAssistantsOwnWords.

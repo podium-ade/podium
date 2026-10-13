@@ -506,7 +506,7 @@ export function SpecForm({
                       </Field>
                     </div>
 
-                    <div className="flex items-start gap-3 rounded-lg border border-hairline bg-raised/40 px-3 py-2.5">
+                    <div className="flex items-start gap-3 rounded-lg border border-hairline bg-raised px-3 py-2.5">
                       <Switch
                         id="spec-retry-node-loss"
                         aria-labelledby="spec-retry-node-loss-label"
@@ -566,7 +566,7 @@ export function SpecForm({
                 >
                   <div className="space-y-4">
                     <FieldProblems problems={at("hardening")} />
-                    <div className="flex items-start gap-3 rounded-lg border border-hairline bg-raised/40 px-3 py-2.5">
+                    <div className="flex items-start gap-3 rounded-lg border border-hairline bg-raised px-3 py-2.5">
                       <Switch
                         id="spec-read-only-rootfs"
                         aria-labelledby="spec-read-only-rootfs-label"
@@ -604,7 +604,7 @@ export function SpecForm({
                           <ToggleGroupItem
                             key={c}
                             value={c}
-                            className="font-mono data-[state=on]:bg-accent/15 data-[state=on]:text-accent"
+                            className="font-mono data-[state=on]:bg-raised data-[state=on]:text-accent"
                           >
                             {c}
                           </ToggleGroupItem>

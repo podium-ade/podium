@@ -206,6 +206,7 @@ func (n *Node) hello() *podiumv1.NodeMessage {
 			MemoryMb: n.facts.MemoryMB,
 		},
 		RunningTaskIds: n.runningTaskIDs(),
+		HeldTaskIds:    n.previews.heldIDs(),
 		Version:        version.String(),
 	}}}
 }
@@ -216,8 +217,11 @@ func (n *Node) sendHeartbeat(
 ) error {
 	load := sampleLoad(ctx, n.cfg.DataDir, n.logger)
 	n.maybePrune(ctx, load)
+	freeTailnet, freeLAN := n.previews.free()
 	err := stream.Send(&podiumv1.NodeMessage{Msg: &podiumv1.NodeMessage_Heartbeat{
 		Heartbeat: &podiumv1.Heartbeat{
+			FreeTailnetPreviews: freeTailnet,
+			FreeLanPreviews:     freeLAN,
 			Load: &podiumv1.NodeLoad{
 				RunningTasks: n.runningCount(),
 				CpuPct:       load.CPUPct,
@@ -267,6 +271,12 @@ func (n *Node) handle(
 		n.handleAck(msg.GetAck())
 	case msg.GetHelloAck() != nil:
 		n.applyCheckpoints(ctx, msg.GetHelloAck().GetTasks())
+		for _, id := range msg.GetHelloAck().GetReleaseTaskIds() {
+			go n.releasePreview(id, "the control plane no longer holds it")
+		}
+	case msg.GetRelease() != nil:
+		r := msg.GetRelease()
+		go n.releasePreview(r.GetTaskId(), r.GetReason())
 	case msg.GetCancel() != nil:
 		c := msg.GetCancel()
 		n.logger.InfoContext(ctx, "cancel requested", "task_id", c.GetTaskId(), "reason", c.GetReason())
@@ -308,6 +318,15 @@ func (n *Node) handleAssign(
 		return n.rejectAssign(ctx, stream, a, "node draining")
 	case n.freeSlots() == 0:
 		return n.rejectAssign(ctx, stream, a, "node full")
+	}
+	if x := a.GetSpec().GetExpose(); x != nil {
+		via := x.GetVia()
+		if len(x.GetPorts()) == 0 {
+			via = holdOnly
+		}
+		if err := n.previews.reserve(a.GetTaskId(), via); err != nil {
+			return n.rejectAssign(ctx, stream, a, err.Error())
+		}
 	}
 	n.startTask(a)
 	return nil

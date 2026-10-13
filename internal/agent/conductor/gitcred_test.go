@@ -127,7 +127,9 @@ func TestCapability(t *testing.T) {
 // caller would then try to push with.
 func TestMintGitTokenWithoutAnApp(t *testing.T) {
 	c := &Conductor{mintSecret: "conductor-bearer"}
-	_, err := c.MintGitToken(t.Context(), "anything")
+	capability, err := c.mintCapability("turn_01abc", GitScope{Owner: "podium-ade", Repos: []string{"podium"}})
+	require.NoError(t, err)
+	_, err = c.MintGitToken(t.Context(), capability)
 	require.ErrorIs(t, err, ErrNoGitApp)
 }
 

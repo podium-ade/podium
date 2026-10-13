@@ -97,6 +97,11 @@ var Backends = []Backend{{
 			ContextTokens: 1_000_000, Efforts: fullEfforts,
 		},
 		{
+			ID: "claude-haiku-5-5", DisplayName: "Claude Haiku 5.5",
+			Note:          "Fastest and cheapest of the 5.5 models.",
+			ContextTokens: 1_000_000, Efforts: fullEfforts,
+		},
+		{
 			ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5",
 			Note:          "Fastest and cheapest. Takes no effort setting.",
 			ContextTokens: 200_000,

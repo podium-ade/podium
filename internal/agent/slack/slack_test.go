@@ -877,6 +877,24 @@ func TestFetchTranscriptReportsARefusal(t *testing.T) {
 	require.ErrorContains(t, err, "channel_not_found")
 }
 
+func TestASlackEmailBecomesTheSpeakersLogin(t *testing.T) {
+	f := newFakeSlack(t)
+	f.reply("users.info", `{"ok":true,"user":{"id":"U1","name":"alice","profile":{"display_name":"Alice","email":"Alice@Acme.com"}}}`)
+	s := testSource(t, f)
+
+	assert.Equal(t, "Alice", s.displayName(t.Context(), "U1"))
+	assert.Equal(t, "alice@acme.com", s.loginOf("U1"))
+}
+
+func TestPodiumLoginRejectsAnythingButAnEmail(t *testing.T) {
+	assert.Equal(t, "ada@acme.com", podiumLogin(" Ada@Acme.com "))
+	assert.Empty(t, podiumLogin("U123"))
+	assert.Empty(t, podiumLogin(""))
+	assert.Empty(t, podiumLogin("ada@"))
+	assert.Empty(t, podiumLogin("@acme.com"))
+	assert.Empty(t, podiumLogin("ada@@acme.com"))
+}
+
 // The modern upload is three steps: ask for a URL, put the bytes there, then share it into
 // the thread. The share is the step that has to name the channel and the thread.
 func TestAttachUploadsAndSharesIntoTheThread(t *testing.T) {

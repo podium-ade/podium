@@ -290,6 +290,44 @@ unset or empty variable leaves the file's value alone, so a file and a partial e
 | `PODIUM_NODE_EXIT_ON_DRAIN` | `exit_on_drain` | `false` | Exit 0 once drained and the last task has finished. `--exit-on-drain` is the flag form |
 | `PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS` | `allow_privileged_sidecars` | `false` | Honour a spec's `privileged: true` on a sidecar, which is **root on this machine's kernel**. `--allow-privileged-sidecars` is the flag form. Pair it with a label and dedicate the node — see [security.md](security.md) |
 
+| `PODIUM_NODE_PREVIEW_LAN_ADDRESSES` | `preview_lan_addresses` | — | Addresses LAN previews are published on, one per preview. See [Previews](#previews) |
+| `PODIUM_NODE_PREVIEW_TAILNET_SLOTS` | `preview_tailnet_slots` | `0` | How many tailnet preview devices this node may run at once |
+| `PODIUM_NODE_PREVIEW_TS_AUTHKEY` | `preview_ts_auth_key` | — | Registers those devices on first use: pre-approved, reusable, tagged `tag:podium-preview` |
+
+### Previews
+
+A task that sets [`expose`](task-spec.md#expose) stays up after its command and publishes its
+ports on one address. A node with neither setting below publishes nothing, and the scheduler
+places no such task on it.
+
+**LAN.** Give the machine addresses it answers on and that nothing else uses — secondary IPs
+kept out of DHCP — and list them. Each preview takes one and publishes every port under its own
+number, so two previews never compete for `:3000`.
+
+```sh
+sudo ip addr add 192.168.1.201/24 dev eth0      # and .202, …; persist it in your network config
+PODIUM_NODE_PREVIEW_LAN_ADDRESSES=192.168.1.201,192.168.1.202
+```
+
+This opens ports on the node's host, which nothing else in Podium does, and there is no login on
+this path: whoever can reach the address can use the preview.
+
+**Tailnet.** Each slot is a Tailscale device of its own, `pv-<host>-<n>`, registered the first
+time it is needed and kept, with its state under `<data_dir>/ts-preview/<n>`. It has a stable
+`100.x` address, is lent to one preview at a time, and forwards over loopback to the task. It
+works on a node of any transport, and opens nothing on the host but loopback.
+
+```sh
+PODIUM_NODE_PREVIEW_TAILNET_SLOTS=4
+PODIUM_NODE_PREVIEW_TS_AUTHKEY=tskey-auth-…     # pre-approved, reusable, tag:podium-preview
+```
+
+Every connection is checked with WhoIs: a person is let in, a tagged device is refused. Who may
+connect at all is the ACL's — see [networking.md](networking.md#previews).
+
+An address is reused from one preview to the next, so a browser that kept a previous preview's
+cookies for it may send them to the next one.
+
 ### Private registries
 
 A node has no registry credentials of its own. A login for a private registry — Google Artifact

@@ -41,7 +41,8 @@ func TestASignedInTurnAttachesThatPersonsSecretsAndMCPCredential(t *testing.T) {
 		Name: "company_webhook", Target: spec.SecretTargetEnv, Key: "HOOK",
 	})
 	assert.Contains(t, sp.Secrets, spec.SecretRef{
-		Name: mcp.PersonalTokenSecret("alice@acme.com", "linear"), Target: spec.SecretTargetEnv, Key: mcp.TokenEnv("linear"),
+		Name: mcp.PersonalTokenSecret("linear"), Target: spec.SecretTargetEnv, Key: mcp.TokenEnv("linear"),
+		Owner: "alice@acme.com",
 	})
 	for _, ref := range sp.Secrets {
 		assert.NotEqual(t, mcp.TokenSecret("linear"), ref.Name)
@@ -114,32 +115,43 @@ func TestPersonalSecretNamesReservedForTheConductorAreRefused(t *testing.T) {
 	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: profiles.MemoryKeySecret}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), profiles.MemoryKeySecret)
+
+	_, err = userSecretRefs("alice@acme.com", []spec.SecretRef{{Name: mcp.PersonalTokenSecret("linear")}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), mcp.PersonalTokenSecret("linear"))
 }
 
-// Two registrations of the same server name stay on different secrets, and neither is the
-// bot's secret. The owner is hashed because a login is an email.
+// Two people who register the same server share a secret name. The owner on the secret
+// separates the values, and neither name is the bot's global secret. The old global name
+// hashed the login because a global name has to be unique.
 func TestTwoPeopleDoNotShareAnMCPTokenSecret(t *testing.T) {
-	alice := mcp.PersonalTokenSecret("alice@acme.com", "linear")
-	bob := mcp.PersonalTokenSecret("bob@acme.com", "linear")
-	assert.NotEqual(t, alice, bob)
-	assert.NotEqual(t, alice, mcp.TokenSecret("linear"))
-	assert.NotEqual(t, bob, mcp.TokenSecret("linear"))
-	assert.NotContains(t, alice, "@")
-	assert.Equal(t, alice, mcp.CredentialSecret(mcp.Server{Owner: "alice@acme.com", Name: "linear"}))
+	name := mcp.PersonalTokenSecret("linear")
+	assert.Equal(t, "mcp.linear_token", name)
+	assert.NotEqual(t, name, mcp.TokenSecret("linear"))
+	assert.NotContains(t, name, "podium.agent")
+	assert.Equal(t, name, mcp.CredentialSecret(mcp.Server{Owner: "alice@acme.com", Name: "linear"}))
+	assert.Equal(t, name, mcp.CredentialSecret(mcp.Server{Owner: "bob@acme.com", Name: "linear"}))
 	assert.Equal(t, mcp.TokenSecret("linear"), mcp.CredentialSecret(mcp.Server{Name: "linear"}))
+
+	alice := mcp.LegacyPersonalTokenSecret("alice@acme.com", "linear")
+	bob := mcp.LegacyPersonalTokenSecret("bob@acme.com", "linear")
+	assert.NotEqual(t, alice, bob)
+	assert.NotContains(t, alice, "@")
+	assert.NotEqual(t, alice, name)
 }
 
-// The registry filter is what a turn uses. Alice's row is not the bot's row, and a person
-// with no row fails by name rather than falling through to the bot.
+// The registry filter is what a turn uses. Alice's row is not the global row. A person
+// with no row of that name uses the global server only when its fallback switch is on,
+// and a row they turned off is not replaced by it.
 func TestMCPResolutionFollowsTheTurnsPerson(t *testing.T) {
-	bot := registered("linear", true, 1)
-	bot.URL = "https://bot.example/mcp"
+	global := registered("linear", true, 1)
+	global.URL = "https://global.example/mcp"
 	alice := registered("linear", true, 2)
 	alice.Owner = "alice@acme.com"
 	alice.URL = "https://alice.example/mcp"
 	bob := registered("linear", true, 3)
 	bob.Owner = "bob@acme.com"
-	rows := []mcp.Server{bot, alice, bob}
+	rows := []mcp.Server{global, alice, bob}
 
 	got, err := resolveMCPServers("alice@acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
@@ -147,11 +159,47 @@ func TestMCPResolutionFollowsTheTurnsPerson(t *testing.T) {
 	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
 	assert.Equal(t, "alice@acme.com", got[0].Owner)
 
-	slack, err := resolveMCPServers("", []string{"linear"}, rows)
+	// A Slack email that differs only in case still finds her row, and the stored owner
+	// is what the secret name was derived from.
+	folded, err := resolveMCPServers("Alice@Acme.com", []string{"linear"}, rows)
 	require.NoError(t, err)
-	require.Len(t, slack, 1)
-	assert.Equal(t, "https://bot.example/mcp", slack[0].URL)
-	assert.Empty(t, slack[0].Owner)
+	require.Len(t, folded, 1)
+	assert.Equal(t, "alice@acme.com", folded[0].Owner)
+
+	noPerson, err := resolveMCPServers("", []string{"linear"}, rows)
+	require.NoError(t, err)
+	require.Len(t, noPerson, 1)
+	assert.Equal(t, "https://global.example/mcp", noPerson[0].URL)
+	assert.Empty(t, noPerson[0].Owner)
+
+	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, rows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"linear"`)
+
+	shared := rows
+	shared[0].Fallback = true
+	got, err = resolveMCPServers("carol@acme.com", []string{"linear"}, shared)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "https://global.example/mcp", got[0].URL)
+
+	// Alice still wins while she has her own server, even with fallback on.
+	got, err = resolveMCPServers("alice@acme.com", []string{"linear"}, shared)
+	require.NoError(t, err)
+	assert.Equal(t, "https://alice.example/mcp", got[0].URL)
+
+	off := append([]mcp.Server{}, shared...)
+	off[1].Enabled = false
+	_, err = resolveMCPServers("alice@acme.com", []string{"linear"}, off)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "turned off")
+
+	sharedOff := append([]mcp.Server{}, rows...)
+	sharedOff[0].Enabled = false
+	sharedOff[0].Fallback = true
+	_, err = resolveMCPServers("carol@acme.com", []string{"linear"}, sharedOff)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "turned off")
 
 	_, err = resolveMCPServers("carol@acme.com", []string{"notion"}, rows)
 	require.Error(t, err)

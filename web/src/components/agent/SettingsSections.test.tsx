@@ -26,4 +26,24 @@ describe("SettingsSectionNav", () => {
     expect(screen.getByRole("link", { name: "Backend" })).not.toHaveAttribute("aria-current");
     expect(screen.queryByRole("tab")).toBeNull();
   });
+
+  it("can point somewhere else and mark a section unsaved", () => {
+    render(
+      <MemoryRouter>
+        <SettingsSectionNav
+          label="Assistant"
+          sections={sections.map((section) =>
+            section.id === "models" ? { ...section, unsaved: true } : section,
+          )}
+          current="models"
+          href={(id) => (id === "account" ? "/agent/profile" : `/agent/profile/${id}`)}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("navigation", { name: "Assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models, unsaved" })).toHaveAttribute(
+      "href",
+      "/agent/profile/models",
+    );
+  });
 });

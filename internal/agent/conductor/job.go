@@ -71,8 +71,9 @@ func playbookJob(p profiles.Playbook) job {
 
 // assistantJob is the turn that answers a conversation, run here.
 //
-// Its step cap is profile.yaml's verbatim, zero included: unset means no cap, because the
-// assistant is a relay and the thing worth bounding is the container it starts.
+// Its step cap is the profile's, zero included: unset means no cap, because the
+// assistant is a relay and the thing worth bounding is the container it starts. An override
+// from Assistant is already on the profile by the time this runs.
 //
 // It carries NO system prompt of its own, and that absence is the point: the assistant is
 // the profile, so its prompt is already the brief's profile.system_prompt. A second copy in

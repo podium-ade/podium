@@ -86,3 +86,77 @@ func githubTestKey(t *testing.T) string {
 	require.NoError(t, err)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
 }
+
+// The settings row holds what is not a credential. The key and secrets are in the secret
+// store, and saving one field does not rewrite the others.
+func TestASavedConnectionKeepsItsCredentialsInTheSecretStore(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	ctx := loginCtx("ada")
+
+	key := githubTestKey(t)
+	_, err := f.svc.SetGitHubConnection(ctx, connect.NewRequest(&agentv1.SetGitHubConnectionRequest{
+		AppId: "123456", PrivateKey: key, ClientId: "Iv23abc", ClientSecret: "csec-not-real",
+	}))
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, f.svc.store.GetSetting(t.Context(), connections.GitHubKey, &raw))
+	assert.Equal(t, true, raw["vaulted"])
+	assert.NotContains(t, raw, "private_key")
+	assert.NotContains(t, raw, "client_secret")
+	assert.Equal(t, strings.TrimSpace(key), string(f.secrets.set[connections.GitHubPrivateKeySecret]))
+	assert.Equal(t, "csec-not-real", string(f.secrets.set[connections.GitHubClientSecretSecret]))
+
+	keyVersion := f.secrets.versions[connections.GitHubPrivateKeySecret]
+	got, err := f.svc.SetGitHubConnection(ctx, connect.NewRequest(&agentv1.SetGitHubConnectionRequest{
+		AppId: "123456", ClientId: "Iv23abc",
+	}))
+	require.NoError(t, err)
+	assert.True(t, got.Msg.GetGithub().GetPrivateKeySet())
+	assert.True(t, got.Msg.GetGithub().GetClientSecretSet())
+	assert.Equal(t, keyVersion, f.secrets.versions[connections.GitHubPrivateKeySecret],
+		"a save that kept the key must not rewrite it")
+
+	_, err = f.svc.ClearGitHubConnection(ctx, connect.NewRequest(&agentv1.ClearGitHubConnectionRequest{}))
+	require.NoError(t, err)
+	assert.NotContains(t, f.secrets.set, connections.GitHubPrivateKeySecret)
+	assert.NotContains(t, f.secrets.set, connections.GitHubClientSecretSecret)
+}
+
+// A row saved before the secret store held these is moved on its first load, and is
+// identical to the conductor afterwards.
+func TestAConnectionSavedInClearIsMovedIntoTheSecretStore(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	ctx := t.Context()
+	require.NoError(t, f.svc.store.PutSetting(ctx, connections.GitHubKey, map[string]any{
+		"app_id": "1", "private_key": "pem", "webhook_secret": "whsec", "webhook_listen": "0.0.0.0:8091",
+		"client_id": "Iv23abc", "client_secret": "csec",
+	}))
+	require.NoError(t, f.svc.store.PutSetting(ctx, connections.SlackKey, map[string]any{
+		"app_token": "xapp-old", "bot_token": "xoxb-old",
+	}))
+
+	slack, gh, err := connections.Load(ctx, f.svc.store, f.secrets)
+	require.NoError(t, err)
+	assert.Equal(t, "pem", gh.PrivateKey)
+	assert.Equal(t, "csec", gh.ClientSecret)
+	assert.Equal(t, "xoxb-old", slack.BotToken)
+
+	for _, k := range []string{connections.GitHubKey, connections.SlackKey} {
+		var raw map[string]any
+		require.NoError(t, f.svc.store.GetSetting(ctx, k, &raw))
+		assert.Equal(t, true, raw["vaulted"], k)
+		for _, field := range []string{"private_key", "webhook_secret", "client_secret", "app_token", "bot_token"} {
+			assert.NotContains(t, raw, field, k)
+		}
+	}
+	assert.Equal(t, "whsec", string(f.secrets.set[connections.GitHubWebhookSecretSecret]))
+	assert.Equal(t, "xapp-old", string(f.secrets.set[connections.SlackAppTokenSecret]))
+
+	slack, gh, err = connections.Load(ctx, f.svc.store, f.secrets)
+	require.NoError(t, err)
+	assert.Equal(t, "pem", gh.PrivateKey)
+	assert.Equal(t, "whsec", gh.WebhookSecret)
+	assert.Equal(t, "xapp-old", slack.AppToken)
+}

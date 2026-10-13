@@ -48,10 +48,10 @@ func TestProtoNil(t *testing.T) {
 // cannot act on.
 func TestProtoRoundTripSidecar(t *testing.T) {
 	want := &TaskSpec{
-		Image: "docker:28-dind",
+		Image: "docker:29-dind",
 		Sidecars: map[string]Sidecar{
 			"dind": {
-				Image:          "docker:28-dind",
+				Image:          "docker:29-dind",
 				Env:            map[string]string{"DOCKER_TLS_CERTDIR": ""},
 				Readiness:      Readiness{TCPPort: 2375, Timeout: Duration(2 * time.Minute)},
 				Privileged:     true,

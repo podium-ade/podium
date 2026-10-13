@@ -14,7 +14,7 @@ import { agent } from "../lib/client";
  * the picker falls back to whatever the playbook or profile already holds, so an operator can
  * still read what is set even when nothing can be chosen.
  */
-export function useAgents(): { agents: AgentBackend[]; loading: boolean } {
+export function useAgents(): { agents: AgentBackend[]; loading: boolean; defaultAgent: string } {
   const q = useQuery({
     queryKey: ["agent", "agents"],
     queryFn: () => agent.listAgents({}),
@@ -22,5 +22,9 @@ export function useAgents(): { agents: AgentBackend[]; loading: boolean } {
     // is short enough to notice that and long enough not to refetch on every render.
     staleTime: 60_000,
   });
-  return { agents: q.data?.agents ?? [], loading: q.isPending };
+  return {
+    agents: q.data?.agents ?? [],
+    loading: q.isPending,
+    defaultAgent: q.data?.defaultAgent || "claude",
+  };
 }

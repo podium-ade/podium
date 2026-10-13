@@ -63,6 +63,19 @@ type Node struct {
 	MaxTasksOverride *int32
 }
 
+type Preview struct {
+	TaskID        string
+	NodeID        string
+	Via           string
+	Address       string
+	Urls          []byte
+	TtlMs         int64
+	ExpiresAt     *time.Time
+	ReleasedAt    *time.Time
+	ReleaseReason string
+	CreatedAt     time.Time
+}
+
 type Registry struct {
 	Host       string
 	Username   string

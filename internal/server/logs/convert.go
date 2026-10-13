@@ -25,6 +25,7 @@ const (
 	KindFinished     = "finished"
 	KindError        = "error"
 	KindMessage      = "message"
+	KindPreview      = "preview"
 )
 
 var kindNames = map[podiumv1.TaskEventKind]string{
@@ -38,6 +39,7 @@ var kindNames = map[podiumv1.TaskEventKind]string{
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:     KindFinished,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:        KindError,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:      KindMessage,
+	podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW:      KindPreview,
 }
 
 var kindValues = func() map[string]podiumv1.TaskEventKind {
@@ -96,6 +98,8 @@ func payloadJSON(e *podiumv1.TaskEvent) (json.RawMessage, error) {
 		m = e.GetError()
 	case e.GetArtifact() != nil:
 		m = e.GetArtifact()
+	case e.GetPreview() != nil:
+		m = e.GetPreview()
 	default:
 		return json.RawMessage("{}"), nil
 	}
@@ -173,6 +177,12 @@ func eventToProto(taskID string, row store.Event) (*podiumv1.TaskEvent, error) {
 			return nil, err
 		}
 		out.Payload = &podiumv1.TaskEvent_Message{Message: p}
+	case KindPreview:
+		p := &podiumv1.Preview{}
+		if err := unmarshal(p); err != nil {
+			return nil, err
+		}
+		out.Payload = &podiumv1.TaskEvent_Preview{Preview: p}
 	}
 	return out, nil
 }

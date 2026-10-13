@@ -49,10 +49,12 @@ export function DeleteRegistryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-[640px]">
         <DialogHeader>
-          <DialogTitle>Remove the login for {registry.host}?</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl leading-tight font-bold tracking-normal">
+            Remove the login for {registry.host}?
+          </DialogTitle>
+          <DialogDescription className="text-base text-soft">
             There is no read API, so no copy of this password exists anywhere in Podium to
             restore from.
           </DialogDescription>
@@ -72,7 +74,7 @@ export function DeleteRegistryDialog({
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor="delete-registry-confirm">
+            <Label htmlFor="delete-registry-confirm" className="text-sm font-bold text-fg">
               Type <span className="font-mono text-fg">{registry.host}</span> to confirm
             </Label>
             <Input
@@ -88,14 +90,13 @@ export function DeleteRegistryDialog({
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline" size="sm">
+              <Button type="button" variant="outline">
                 Cancel
               </Button>
             </DialogClose>
             <Button
               type="submit"
               variant="destructive"
-              size="sm"
               disabled={!confirmed || remove.isPending}
             >
               {remove.isPending ? "Removing…" : "Remove registry"}

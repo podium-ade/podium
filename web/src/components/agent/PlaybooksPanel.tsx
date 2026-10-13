@@ -145,8 +145,8 @@ export function PlaybooksPanel() {
       ) : null}
 
       {profile.data?.staleReason ? (
-        <Alert variant="warn" title="The conductor is running an older profile than the stored overrides would produce">
-          The overrides would not apply: {profile.data.staleReason}
+        <Alert variant="warn" title="The conductor is running an older profile than the saved assistant would produce">
+          The saved assistant would not apply: {profile.data.staleReason}
         </Alert>
       ) : null}
 
@@ -203,8 +203,8 @@ export function PlaybooksPanel() {
                     className={cn(
                       "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
                       selected?.name === s.name
-                        ? "border-accent/50 bg-accent/10"
-                        : "border-border bg-card hover:bg-raised/60",
+                        ? "border-line-strong bg-raised"
+                        : "border-border bg-card hover:bg-raised",
                     )}
                   >
                     <div className="flex items-center gap-2">

@@ -406,6 +406,27 @@ the tailnet address instead. And on a native Linux engine a service bound to `12
 of reach through the bridge gateway even from the task; Docker Desktop proxies it, which makes
 this the kind of difference that works on a Mac and fails on a worker.
 
+## Previews
+
+A task that [exposes](task-spec.md#expose) ports stays up after its command, and people reach
+it at a `100.x` address of its own. That address belongs to a **preview device**: a Tailscale
+device a node runs beside its own, `pv-<host>-<n>`, tagged `tag:podium-preview`
+([node-setup.md](node-setup.md#previews)). The node's own device still listens for nothing.
+
+| | |
+|---|---|
+| Who may connect | the ACL: `autogroup:member → tag:podium-preview:*` in the example policy |
+| Who is let in | WhoIs, on every connection: a person is, a tagged device is not |
+| What a preview device may reach | nothing — no grant names it as a source |
+| Where it forwards | the task's gateway, over the node's loopback |
+
+A slot is lent to one preview at a time and kept afterwards, so its address and its name are
+stable. That is deliberate: a device per preview would be registered and removed every time,
+and the address a person bookmarked would point at nothing.
+
+Previews are plain HTTP over WireGuard for now. A slot also has a MagicDNS name and could carry a
+certificate for it; that is the path to HTTPS, and it is not built yet.
+
 ## Why there is no public ingress
 
 Nothing in Podium needs a public address:

@@ -40,7 +40,7 @@ const itemClass = [
   "focus:bg-raised data-[highlighted]:bg-raised",
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
   "[&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted",
-  "data-[variant=danger]:text-err data-[variant=danger]:[&_svg]:text-err data-[variant=danger]:focus:bg-err/12",
+  "data-[variant=danger]:text-err data-[variant=danger]:[&_svg]:text-err data-[variant=danger]:focus:bg-err-bg",
 ].join(" ");
 
 function DropdownMenuItem({

@@ -39,6 +39,10 @@ service TurnService {
   // message in the same workspace. Use it to correct or add to in-flight work rather
   // than starting a second task.
   rpc InjectDelegation(InjectDelegationRequest) returns (InjectDelegationResponse);
+
+  // ReleasePreview takes down the preview a finished delegated task of this conversation
+  // left up, before its ttl does.
+  rpc ReleasePreview(ReleasePreviewRequest) returns (ReleasePreviewResponse);
 }
 
 // Delegation is one task a turn asked for.
@@ -112,6 +116,15 @@ message InjectDelegationRequest {
 }
 
 message InjectDelegationResponse {
+  Delegation delegation = 1;
+}
+
+message ReleasePreviewRequest {
+  // id is the delegation whose task's preview to release.
+  string id = 1;
+}
+
+message ReleasePreviewResponse {
   Delegation delegation = 1;
 }
 

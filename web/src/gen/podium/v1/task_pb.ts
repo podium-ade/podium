@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/task.proto.
  */
 export const file_podium_v1_task: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb2RpdW0vdjEvdGFzay5wcm90bxIJcG9kaXVtLnYxIuwDCgRUYXNrEgoKAmlkGAEgASgJEiEKBHNwZWMYAiABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSJQoGc3RhdHVzGAMgASgOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgEIAEoCRIQCghhdHRlbXB0cxgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJZXhpdF9jb2RlGAkgASgFSACIAQESHwoFdXNhZ2UYCiABKAsyEC5wb2RpdW0udjEuVXNhZ2USFAoMcmVxdWVzdGVkX2J5GAsgASgJEhYKDmZhaWx1cmVfcmVhc29uGAwgASgJEhUKDXF1ZXVlZF9yZWFzb24YDSABKAkSPAoYbGFzdF9zY2hlZHVsZV9hdHRlbXB0X2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghwcmlvcml0eRgPIAEoBUIMCgpfZXhpdF9jb2RlIkgKEUNyZWF0ZVRhc2tSZXF1ZXN0EiEKBHNwZWMYASABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSEAoIcHJpb3JpdHkYAiABKAUiMwoSQ3JlYXRlVGFza1Jlc3BvbnNlEh0KBHRhc2sYASABKAsyDy5wb2RpdW0udjEuVGFzayIhCg5HZXRUYXNrUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJIjAKD0dldFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2si0QEKClRhc2tGaWx0ZXISJQoGc3RhdHVzGAEgAygOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgCIAEoCRIUCgxyZXF1ZXN0ZWRfYnkYAyABKAkSDgoGc2VhcmNoGAQgASgJEjEKDWNyZWF0ZWRfYWZ0ZXIYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKDmNyZWF0ZWRfYmVmb3JlGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIlCgRQYWdlEg0KBWxpbWl0GAEgASgFEg4KBmN1cnNvchgCIAEoCSJYChBMaXN0VGFza3NSZXF1ZXN0EiUKBmZpbHRlchgBIAEoCzIVLnBvZGl1bS52MS5UYXNrRmlsdGVyEh0KBHBhZ2UYAiABKAsyDy5wb2RpdW0udjEuUGFnZSJIChFMaXN0VGFza3NSZXNwb25zZRIeCgV0YXNrcxgBIAMoCzIPLnBvZGl1bS52MS5UYXNrEhMKC25leHRfY3Vyc29yGAIgASgJIjQKEUNhbmNlbFRhc2tSZXF1ZXN0Eg8KB3Rhc2tfaWQYASABKAkSDgoGcmVhc29uGAIgASgJIjMKEkNhbmNlbFRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2siMgoRSW5qZWN0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhQKEkluamVjdFRhc2tSZXNwb25zZSI8ChdTdHJlYW1UYXNrRXZlbnRzUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEMsgDCgtUYXNrU2VydmljZRJJCgpDcmVhdGVUYXNrEhwucG9kaXVtLnYxLkNyZWF0ZVRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkNyZWF0ZVRhc2tSZXNwb25zZRJACgdHZXRUYXNrEhkucG9kaXVtLnYxLkdldFRhc2tSZXF1ZXN0GhoucG9kaXVtLnYxLkdldFRhc2tSZXNwb25zZRJGCglMaXN0VGFza3MSGy5wb2RpdW0udjEuTGlzdFRhc2tzUmVxdWVzdBocLnBvZGl1bS52MS5MaXN0VGFza3NSZXNwb25zZRJJCgpDYW5jZWxUYXNrEhwucG9kaXVtLnYxLkNhbmNlbFRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkNhbmNlbFRhc2tSZXNwb25zZRJJCgpJbmplY3RUYXNrEhwucG9kaXVtLnYxLkluamVjdFRhc2tSZXF1ZXN0Gh0ucG9kaXVtLnYxLkluamVjdFRhc2tSZXNwb25zZRJOChBTdHJlYW1UYXNrRXZlbnRzEiIucG9kaXVtLnYxLlN0cmVhbVRhc2tFdmVudHNSZXF1ZXN0GhQucG9kaXVtLnYxLlRhc2tFdmVudDABQp8BCg1jb20ucG9kaXVtLnYxQglUYXNrUHJvdG9QAVo+Z2l0aHViLmNvbS9wb2RpdW0tYWRlL3BvZGl1bS9pbnRlcm5hbC9wcm90by9wb2RpdW0vdjE7cG9kaXVtdjGiAgNQWFiqAglQb2RpdW0uVjHKAglQb2RpdW1cVjHiAhVQb2RpdW1cVjFcR1BCTWV0YWRhdGHqAgpQb2RpdW06OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_podium_v1_common, file_podium_v1_node]);
+  fileDesc("ChRwb2RpdW0vdjEvdGFzay5wcm90bxIJcG9kaXVtLnYxIpUECgRUYXNrEgoKAmlkGAEgASgJEiEKBHNwZWMYAiABKAsyEy5wb2RpdW0udjEuVGFza1NwZWMSJQoGc3RhdHVzGAMgASgOMhUucG9kaXVtLnYxLlRhc2tTdGF0dXMSDwoHbm9kZV9pZBgEIAEoCRIQCghhdHRlbXB0cxgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtmaW5pc2hlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFgoJZXhpdF9jb2RlGAkgASgFSACIAQESHwoFdXNhZ2UYCiABKAsyEC5wb2RpdW0udjEuVXNhZ2USFAoMcmVxdWVzdGVkX2J5GAsgASgJEhYKDmZhaWx1cmVfcmVhc29uGAwgASgJEhUKDXF1ZXVlZF9yZWFzb24YDSABKAkSPAoYbGFzdF9zY2hlZHVsZV9hdHRlbXB0X2F0GA4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghwcmlvcml0eRgPIAEoBRInCgdwcmV2aWV3GBAgASgLMhYucG9kaXVtLnYxLlRhc2tQcmV2aWV3QgwKCl9leGl0X2NvZGUigQIKC1Rhc2tQcmV2aWV3EgsKA3ZpYRgBIAEoCRIPCgdhZGRyZXNzGAIgASgJEi4KBHVybHMYAyADKAsyIC5wb2RpdW0udjEuVGFza1ByZXZpZXcuVXJsc0VudHJ5Ei4KCmV4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC3JlbGVhc2VkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5yZWxlYXNlX3JlYXNvbhgGIAEoCRorCglVcmxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJIChFDcmVhdGVUYXNrUmVxdWVzdBIhCgRzcGVjGAEgASgLMhMucG9kaXVtLnYxLlRhc2tTcGVjEhAKCHByaW9yaXR5GAIgASgFIjMKEkNyZWF0ZVRhc2tSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2siIQoOR2V0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCSIwCg9HZXRUYXNrUmVzcG9uc2USHQoEdGFzaxgBIAEoCzIPLnBvZGl1bS52MS5UYXNrItEBCgpUYXNrRmlsdGVyEiUKBnN0YXR1cxgBIAMoDjIVLnBvZGl1bS52MS5UYXNrU3RhdHVzEg8KB25vZGVfaWQYAiABKAkSFAoMcmVxdWVzdGVkX2J5GAMgASgJEg4KBnNlYXJjaBgEIAEoCRIxCg1jcmVhdGVkX2FmdGVyGAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIyCg5jcmVhdGVkX2JlZm9yZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiJQoEUGFnZRINCgVsaW1pdBgBIAEoBRIOCgZjdXJzb3IYAiABKAkiWAoQTGlzdFRhc2tzUmVxdWVzdBIlCgZmaWx0ZXIYASABKAsyFS5wb2RpdW0udjEuVGFza0ZpbHRlchIdCgRwYWdlGAIgASgLMg8ucG9kaXVtLnYxLlBhZ2UiSAoRTGlzdFRhc2tzUmVzcG9uc2USHgoFdGFza3MYASADKAsyDy5wb2RpdW0udjEuVGFzaxITCgtuZXh0X2N1cnNvchgCIAEoCSI0ChFDYW5jZWxUYXNrUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSIzChJDYW5jZWxUYXNrUmVzcG9uc2USHQoEdGFzaxgBIAEoCzIPLnBvZGl1bS52MS5UYXNrIjIKEUluamVjdFRhc2tSZXF1ZXN0Eg8KB3Rhc2tfaWQYASABKAkSDAoEdGV4dBgCIAEoCSIUChJJbmplY3RUYXNrUmVzcG9uc2UiKAoVUmVsZWFzZVByZXZpZXdSZXF1ZXN0Eg8KB3Rhc2tfaWQYASABKAkiNwoWUmVsZWFzZVByZXZpZXdSZXNwb25zZRIdCgR0YXNrGAEgASgLMg8ucG9kaXVtLnYxLlRhc2siPAoXU3RyZWFtVGFza0V2ZW50c1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoBDKfBAoLVGFza1NlcnZpY2USSQoKQ3JlYXRlVGFzaxIcLnBvZGl1bS52MS5DcmVhdGVUYXNrUmVxdWVzdBodLnBvZGl1bS52MS5DcmVhdGVUYXNrUmVzcG9uc2USQAoHR2V0VGFzaxIZLnBvZGl1bS52MS5HZXRUYXNrUmVxdWVzdBoaLnBvZGl1bS52MS5HZXRUYXNrUmVzcG9uc2USRgoJTGlzdFRhc2tzEhsucG9kaXVtLnYxLkxpc3RUYXNrc1JlcXVlc3QaHC5wb2RpdW0udjEuTGlzdFRhc2tzUmVzcG9uc2USSQoKQ2FuY2VsVGFzaxIcLnBvZGl1bS52MS5DYW5jZWxUYXNrUmVxdWVzdBodLnBvZGl1bS52MS5DYW5jZWxUYXNrUmVzcG9uc2USSQoKSW5qZWN0VGFzaxIcLnBvZGl1bS52MS5JbmplY3RUYXNrUmVxdWVzdBodLnBvZGl1bS52MS5JbmplY3RUYXNrUmVzcG9uc2USTgoQU3RyZWFtVGFza0V2ZW50cxIiLnBvZGl1bS52MS5TdHJlYW1UYXNrRXZlbnRzUmVxdWVzdBoULnBvZGl1bS52MS5UYXNrRXZlbnQwARJVCg5SZWxlYXNlUHJldmlldxIgLnBvZGl1bS52MS5SZWxlYXNlUHJldmlld1JlcXVlc3QaIS5wb2RpdW0udjEuUmVsZWFzZVByZXZpZXdSZXNwb25zZUKfAQoNY29tLnBvZGl1bS52MUIJVGFza1Byb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_podium_v1_common, file_podium_v1_node]);
 
 /**
  * @generated from message podium.v1.Task
@@ -112,6 +112,13 @@ export type Task = Message<"podium.v1.Task"> & {
    * @generated from field: int32 priority = 15;
    */
   priority: number;
+
+  /**
+   * Set once the node has published the task's exposed ports.
+   *
+   * @generated from field: podium.v1.TaskPreview preview = 16;
+   */
+  preview?: TaskPreview | undefined;
 };
 
 /**
@@ -120,6 +127,58 @@ export type Task = Message<"podium.v1.Task"> & {
  */
 export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
   messageDesc(file_podium_v1_task, 0);
+
+/**
+ * TaskPreview is a task's environment kept up after its command exited.
+ *
+ * @generated from message podium.v1.TaskPreview
+ */
+export type TaskPreview = Message<"podium.v1.TaskPreview"> & {
+  /**
+   * @generated from field: string via = 1;
+   */
+  via: string;
+
+  /**
+   * @generated from field: string address = 2;
+   */
+  address: string;
+
+  /**
+   * Keyed by the spec's port name.
+   *
+   * @generated from field: map<string, string> urls = 3;
+   */
+  urls: { [key: string]: string };
+
+  /**
+   * Unset until the command exits: the ttl counts from then.
+   *
+   * @generated from field: google.protobuf.Timestamp expires_at = 4;
+   */
+  expiresAt?: Timestamp | undefined;
+
+  /**
+   * Set once it is gone.
+   *
+   * @generated from field: google.protobuf.Timestamp released_at = 5;
+   */
+  releasedAt?: Timestamp | undefined;
+
+  /**
+   * released by <login>, expired, task ended, node lost...
+   *
+   * @generated from field: string release_reason = 6;
+   */
+  releaseReason: string;
+};
+
+/**
+ * Describes the message podium.v1.TaskPreview.
+ * Use `create(TaskPreviewSchema)` to create a new message.
+ */
+export const TaskPreviewSchema: GenMessage<TaskPreview> = /*@__PURE__*/
+  messageDesc(file_podium_v1_task, 1);
 
 /**
  * @generated from message podium.v1.CreateTaskRequest
@@ -141,7 +200,7 @@ export type CreateTaskRequest = Message<"podium.v1.CreateTaskRequest"> & {
  * Use `create(CreateTaskRequestSchema)` to create a new message.
  */
 export const CreateTaskRequestSchema: GenMessage<CreateTaskRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 1);
+  messageDesc(file_podium_v1_task, 2);
 
 /**
  * @generated from message podium.v1.CreateTaskResponse
@@ -158,7 +217,7 @@ export type CreateTaskResponse = Message<"podium.v1.CreateTaskResponse"> & {
  * Use `create(CreateTaskResponseSchema)` to create a new message.
  */
 export const CreateTaskResponseSchema: GenMessage<CreateTaskResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 2);
+  messageDesc(file_podium_v1_task, 3);
 
 /**
  * @generated from message podium.v1.GetTaskRequest
@@ -175,7 +234,7 @@ export type GetTaskRequest = Message<"podium.v1.GetTaskRequest"> & {
  * Use `create(GetTaskRequestSchema)` to create a new message.
  */
 export const GetTaskRequestSchema: GenMessage<GetTaskRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 3);
+  messageDesc(file_podium_v1_task, 4);
 
 /**
  * @generated from message podium.v1.GetTaskResponse
@@ -192,7 +251,7 @@ export type GetTaskResponse = Message<"podium.v1.GetTaskResponse"> & {
  * Use `create(GetTaskResponseSchema)` to create a new message.
  */
 export const GetTaskResponseSchema: GenMessage<GetTaskResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 4);
+  messageDesc(file_podium_v1_task, 5);
 
 /**
  * @generated from message podium.v1.TaskFilter
@@ -242,7 +301,7 @@ export type TaskFilter = Message<"podium.v1.TaskFilter"> & {
  * Use `create(TaskFilterSchema)` to create a new message.
  */
 export const TaskFilterSchema: GenMessage<TaskFilter> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 5);
+  messageDesc(file_podium_v1_task, 6);
 
 /**
  * @generated from message podium.v1.Page
@@ -264,7 +323,7 @@ export type Page = Message<"podium.v1.Page"> & {
  * Use `create(PageSchema)` to create a new message.
  */
 export const PageSchema: GenMessage<Page> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 6);
+  messageDesc(file_podium_v1_task, 7);
 
 /**
  * @generated from message podium.v1.ListTasksRequest
@@ -286,7 +345,7 @@ export type ListTasksRequest = Message<"podium.v1.ListTasksRequest"> & {
  * Use `create(ListTasksRequestSchema)` to create a new message.
  */
 export const ListTasksRequestSchema: GenMessage<ListTasksRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 7);
+  messageDesc(file_podium_v1_task, 8);
 
 /**
  * @generated from message podium.v1.ListTasksResponse
@@ -310,7 +369,7 @@ export type ListTasksResponse = Message<"podium.v1.ListTasksResponse"> & {
  * Use `create(ListTasksResponseSchema)` to create a new message.
  */
 export const ListTasksResponseSchema: GenMessage<ListTasksResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 8);
+  messageDesc(file_podium_v1_task, 9);
 
 /**
  * @generated from message podium.v1.CancelTaskRequest
@@ -332,7 +391,7 @@ export type CancelTaskRequest = Message<"podium.v1.CancelTaskRequest"> & {
  * Use `create(CancelTaskRequestSchema)` to create a new message.
  */
 export const CancelTaskRequestSchema: GenMessage<CancelTaskRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 9);
+  messageDesc(file_podium_v1_task, 10);
 
 /**
  * @generated from message podium.v1.CancelTaskResponse
@@ -349,7 +408,7 @@ export type CancelTaskResponse = Message<"podium.v1.CancelTaskResponse"> & {
  * Use `create(CancelTaskResponseSchema)` to create a new message.
  */
 export const CancelTaskResponseSchema: GenMessage<CancelTaskResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 10);
+  messageDesc(file_podium_v1_task, 11);
 
 /**
  * @generated from message podium.v1.InjectTaskRequest
@@ -371,7 +430,7 @@ export type InjectTaskRequest = Message<"podium.v1.InjectTaskRequest"> & {
  * Use `create(InjectTaskRequestSchema)` to create a new message.
  */
 export const InjectTaskRequestSchema: GenMessage<InjectTaskRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 11);
+  messageDesc(file_podium_v1_task, 12);
 
 /**
  * @generated from message podium.v1.InjectTaskResponse
@@ -384,7 +443,41 @@ export type InjectTaskResponse = Message<"podium.v1.InjectTaskResponse"> & {
  * Use `create(InjectTaskResponseSchema)` to create a new message.
  */
 export const InjectTaskResponseSchema: GenMessage<InjectTaskResponse> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 12);
+  messageDesc(file_podium_v1_task, 13);
+
+/**
+ * @generated from message podium.v1.ReleasePreviewRequest
+ */
+export type ReleasePreviewRequest = Message<"podium.v1.ReleasePreviewRequest"> & {
+  /**
+   * @generated from field: string task_id = 1;
+   */
+  taskId: string;
+};
+
+/**
+ * Describes the message podium.v1.ReleasePreviewRequest.
+ * Use `create(ReleasePreviewRequestSchema)` to create a new message.
+ */
+export const ReleasePreviewRequestSchema: GenMessage<ReleasePreviewRequest> = /*@__PURE__*/
+  messageDesc(file_podium_v1_task, 14);
+
+/**
+ * @generated from message podium.v1.ReleasePreviewResponse
+ */
+export type ReleasePreviewResponse = Message<"podium.v1.ReleasePreviewResponse"> & {
+  /**
+   * @generated from field: podium.v1.Task task = 1;
+   */
+  task?: Task | undefined;
+};
+
+/**
+ * Describes the message podium.v1.ReleasePreviewResponse.
+ * Use `create(ReleasePreviewResponseSchema)` to create a new message.
+ */
+export const ReleasePreviewResponseSchema: GenMessage<ReleasePreviewResponse> = /*@__PURE__*/
+  messageDesc(file_podium_v1_task, 15);
 
 /**
  * @generated from message podium.v1.StreamTaskEventsRequest
@@ -408,7 +501,7 @@ export type StreamTaskEventsRequest = Message<"podium.v1.StreamTaskEventsRequest
  * Use `create(StreamTaskEventsRequestSchema)` to create a new message.
  */
 export const StreamTaskEventsRequestSchema: GenMessage<StreamTaskEventsRequest> = /*@__PURE__*/
-  messageDesc(file_podium_v1_task, 13);
+  messageDesc(file_podium_v1_task, 16);
 
 /**
  * TaskService is the operator-facing API used by the CLI and the web UI.
@@ -470,6 +563,17 @@ export const TaskService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamTaskEventsRequestSchema;
     output: typeof TaskEventSchema;
+  },
+  /**
+   * ReleasePreview tears down a finished task's preview before its ttl runs out.
+   * Idempotent: releasing one that is already gone succeeds.
+   *
+   * @generated from rpc podium.v1.TaskService.ReleasePreview
+   */
+  releasePreview: {
+    methodKind: "unary";
+    input: typeof ReleasePreviewRequestSchema;
+    output: typeof ReleasePreviewResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_podium_v1_task, 0);

@@ -202,6 +202,12 @@ rather than leaving the task `running` forever.
 A task that outruns its spec's `timeout` is cancelled the same way, and ends `failed` with
 `failure_reason: timeout` — a stop the operator did not ask for is not a cancellation.
 
+### `podium task release TASK_ID`
+
+Ends a finished task's [preview](task-spec.md#expose) before its ttl does: the node tears its
+containers down and the address goes back to the pool. Releasing one that is already gone
+succeeds. A node that is offline tears it down when it reconnects.
+
 ### `podium logs [-f] [--from-seq N] TASK_ID`
 
 Prints a task's output, stdout and stderr on the matching local streams, and each sidecar's

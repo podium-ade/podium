@@ -503,7 +503,7 @@ function Counter({
       className={cn(
         "rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150",
         "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        active ? "border-accent/45 bg-accent/8" : "border-border bg-card hover:bg-raised/50",
+        active ? "border-line-strong bg-raised" : "border-border bg-card hover:bg-raised",
       )}
     >
       <span className="block text-2xs tracking-wide text-faint uppercase">{label}</span>
