@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Lock } from "lucide-react";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -15,6 +14,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Textarea } from "../ui/textarea";
 import { SecretScope, type Secret } from "../../gen/podium/v1/secret_pb";
 import { errorMessage, secrets } from "../../lib/client";
 import { humanBytes, relative } from "../../lib/format";
@@ -35,6 +35,24 @@ const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
  */
 const MAX_FILE_BYTES = 1024 * 1024;
 
+const fieldLabel = "text-sm font-bold text-fg";
+
+type FolderFile = { file: File; name: string };
+
+function fileProblem(file: File): string | undefined {
+  if (file.size === 0) return `${file.name} is empty, and a secret with no value is refused.`;
+  if (file.size > MAX_FILE_BYTES) {
+    return `${file.name} is ${humanBytes(file.size)}. A secret is a credential, not a payload. Choose the key file itself.`;
+  }
+  return undefined;
+}
+
+function folderPath(file: File): { folder: string; name: string } {
+  const bits = (file.webkitRelativePath || file.name).split(/[/\\]/);
+  if (bits.length > 1) return { folder: bits[0], name: bits.slice(1).join("/") };
+  return { folder: "folder", name: file.name };
+}
+
 /**
  * SetSecret behind a dialog, in one of two moods.
  *
@@ -46,11 +64,10 @@ const MAX_FILE_BYTES = 1024 * 1024;
  * The reveal toggle unmasks the draft in this field and nothing else. There is no stored value
  * to unmask: SetSecret is the only way a value ever moves, and it only moves inwards.
  *
- * A value can also come from a **file**, which is the only sane way to put a PEM, an SSH key or
- * a JSON credential in here — pasting one into a single-line field mangles it. The file is read
- * in the browser and sent byte for byte, exactly as `podium secret set --from-file` does, so a
- * key written by ssh-keygen arrives as the bytes ssh-keygen wrote. It wins over anything typed:
- * two sources for one value would only ever be a way to store the wrong one.
+ * A value can also come from a file in a chosen folder, which is the way to put a PEM, an SSH
+ * key, or a JSON credential in here. The file is read in the browser and sent byte for byte.
+ * Its contents are not shown. Paste and folder are separate: two sources for one value would
+ * only ever be a way to store the wrong one.
  */
 export function SecretDialog({
   open,
@@ -72,25 +89,36 @@ export function SecretDialog({
   const [name, setName] = useState(lockedName ?? "");
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
-  const [file, setFile] = useState<File>();
-  const [fileError, setFileError] = useState<string>();
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [source, setSource] = useState<"paste" | "folder">("paste");
+  const [folderName, setFolderName] = useState("");
+  const [folderFiles, setFolderFiles] = useState<FolderFile[]>([]);
+  const [folderIndex, setFolderIndex] = useState(0);
+  const [fileError, setFileError] = useState("");
+  const folderRef = useRef<HTMLInputElement>(null);
 
   const locked = lockedName !== undefined;
   const trimmed = name.trim();
-  const match = existing.find((s) => s.name === trimmed);
+  const match = existing.find((s) => s.name === trimmed && (s.scope === scope || s.scope === undefined));
   const malformed = trimmed !== "" && !NAME_RE.test(trimmed);
   const flat = trimmed !== "" && !malformed && !trimmed.includes(".");
+  const usingFolder = source === "folder";
+  const chosen = usingFolder ? folderFiles[folderIndex] : undefined;
+  const other = existing.find((s) => s.name === trimmed && s.scope !== scope && s.scope !== undefined);
 
-  // A file is read here rather than when it is picked: holding a credential in component state
-  // for as long as the dialog is open buys nothing, and the File itself is a handle, not bytes.
+  useEffect(() => {
+    const input = folderRef.current;
+    if (!input) return;
+    input.setAttribute("webkitdirectory", "");
+    input.setAttribute("directory", "");
+  }, []);
+
   const set = useMutation({
     mutationFn: async () =>
       secrets.setSecret({
         name: trimmed,
         scope,
-        value: file
-          ? new Uint8Array(await file.arrayBuffer())
+        value: chosen
+          ? new Uint8Array(await chosen.file.arrayBuffer())
           : new TextEncoder().encode(value),
       }),
     onSuccess: (res) => {
@@ -107,160 +135,239 @@ export function SecretDialog({
     onError: (err) => toast(`SetSecret: ${errorMessage(err)}`),
   });
 
-  const ready = trimmed !== "" && (value !== "" || file !== undefined) && !malformed;
-
-  /**
-   * Both refusals name the file, and both clear the picker: an input still showing a filename
-   * the dialog has rejected is an input that says a file is selected when none is.
-   */
-  function pick(chosen: File | undefined) {
-    setFileError(undefined);
-    setFile(undefined);
-    if (!chosen) return;
-    if (chosen.size === 0) {
-      setFileError(`${chosen.name} is empty, and a secret with no value is refused.`);
-    } else if (chosen.size > MAX_FILE_BYTES) {
-      setFileError(
-        `${chosen.name} is ${humanBytes(chosen.size)}. A secret is a credential, not a payload. ` +
-          `pick the key file itself.`,
-      );
-    } else {
-      setFile(chosen);
-      return;
-    }
-    if (fileInput.current) fileInput.current.value = "";
-  }
+  const ready =
+    trimmed !== "" &&
+    !malformed &&
+    !fileError &&
+    (usingFolder ? chosen !== undefined : value !== "");
   const label = set.isPending
     ? "Saving…"
     : match
       ? `Rotate to version ${match.version + 1}`
-      : "Save secret";
+      : "Set secret";
+
+  function clearFolder() {
+    setFolderName("");
+    setFolderFiles([]);
+    setFolderIndex(0);
+    setFileError("");
+    if (folderRef.current) folderRef.current.value = "";
+  }
+
+  function takeFolder(list: FileList | null) {
+    const files = list ? [...list] : [];
+    setFileError("");
+    setFolderFiles([]);
+    setFolderIndex(0);
+    setValue("");
+    if (!files.length) return;
+    const mapped = files
+      .map((file) => ({ file, name: folderPath(file).name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    setFolderName(folderPath(files[0]).folder);
+    setFolderFiles(mapped);
+    setFileError(fileProblem(mapped[0].file) ?? "");
+  }
+
+  function chooseFolderIndex(index: number) {
+    setFolderIndex(index);
+    const next = folderFiles[index];
+    setFileError(next ? (fileProblem(next.file) ?? "") : "");
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[640px] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{locked ? `Rotate ${lockedName}` : "New secret"}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl leading-tight font-bold tracking-normal">
+            {locked ? "Set a new secret" : "New secret"}
+          </DialogTitle>
+          <DialogDescription className="text-base text-soft">
             {locked
-              ? "Only the value changes. Tasks scheduled after this get the new version; tasks already running keep the value they were assigned, and the one being replaced cannot be recovered."
-              : "The value is written once and can never be read back. Keep your own copy of it somewhere you trust before you save it here."}
+              ? `Set a new secret for ${lockedName}. The current value cannot be read.`
+              : "Set the value by pasting it or by choosing a folder. Once it is saved, the value cannot be read back."}
           </DialogDescription>
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="grid gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             if (ready) set.mutate();
           }}
         >
-          <div className="space-y-1.5">
-            <Label htmlFor="secret-name">Name</Label>
-            <div className="relative">
-              <Input
-                id="secret-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                readOnly={locked}
-                autoFocus={!locked}
-                aria-invalid={malformed}
-                spellCheck={false}
-                autoComplete="off"
-                placeholder="github.deploy_token"
-                className={cn(
-                  "font-mono text-xs",
-                  locked && "bg-raised pr-9 text-muted hover:border-input",
-                )}
-              />
-              {locked ? (
-                <Lock aria-hidden className="absolute top-2.5 right-3 size-4 text-faint" />
-              ) : null}
-            </div>
-            {locked ? (
-              <p className="text-2xs text-faint">
-                Locked: a rotation that lands on a typo quietly creates a second secret and
-                leaves this one stale.
-                {match ? (
-                  <>
-                    {" "}
-                    Version {match.version}, <span className="font-mono">{match.keyId}</span>,
-                    last set {relative(match.updatedAt)}.
-                  </>
-                ) : null}
-              </p>
-            ) : malformed ? (
-              <p className="text-2xs text-err">
+          <div className="grid gap-1.5">
+            <Label htmlFor="secret-name" className={fieldLabel}>
+              Name
+            </Label>
+            <Input
+              id="secret-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              readOnly={locked}
+              autoFocus={!locked}
+              aria-invalid={malformed}
+              spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="off"
+              placeholder="github.deploy_token"
+              className={cn("font-mono text-xs", locked && "bg-raised text-fg hover:border-input")}
+            />
+            {malformed ? (
+              <p className="text-sm font-semibold text-err">
                 Letters, digits, dot, dash and underscore only, starting with a letter or an
                 underscore. A name can become an environment variable on the node.
               </p>
             ) : (
-              <p className="text-2xs text-faint">
-                {flat
-                  ? "Names are usually a dotted namespace, like github.deploy_token."
-                  : "Task specs and the agent config reference this exact string."}
+              <p className="text-sm text-muted">
+                {locked
+                  ? "This name stays fixed. The current value cannot be read."
+                  : other
+                    ? `A ${other.scope === SecretScope.PERSONAL ? "personal" : "global"} secret already uses this name. This save writes the ${scope === SecretScope.PERSONAL ? "personal" : "global"} one.`
+                    : flat
+                      ? "Names are usually a dotted namespace, like github.deploy_token."
+                      : "Task specs and the agent config reference this exact string."}
+                {locked && match ? (
+                  <>
+                    {" "}
+                    Version {match.version}, <span className="font-mono">{match.keyId}</span>, last
+                    set {relative(match.updatedAt)}.
+                  </>
+                ) : null}
               </p>
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="secret-value">Value</Label>
-            <div className="relative">
-              <Input
+          <div className="grid gap-2">
+            <span id="secret-source-label" className="text-sm font-bold text-fg">
+              How to set it
+            </span>
+            <div className="grid grid-cols-2 gap-2" role="group" aria-labelledby="secret-source-label">
+              <button
+                type="button"
+                aria-pressed={source === "paste"}
+                className={cn(
+                  "min-h-11 rounded-md border border-line-strong bg-panel px-3 text-sm font-bold text-fg",
+                  "hover:border-fg hover:bg-raised",
+                  source === "paste" && "border-fg bg-raised",
+                )}
+                onClick={() => {
+                  if (source !== "paste") {
+                    setSource("paste");
+                    clearFolder();
+                  }
+                  document.getElementById("secret-value")?.focus();
+                }}
+              >
+                Paste a secret
+              </button>
+              <button
+                type="button"
+                id="secret-source-folder"
+                aria-pressed={source === "folder"}
+                className={cn(
+                  "min-h-11 rounded-md border border-line-strong bg-panel px-3 text-sm font-bold text-fg",
+                  "hover:border-fg hover:bg-raised",
+                  source === "folder" && "border-fg bg-raised",
+                )}
+                onClick={() => {
+                  setSource("folder");
+                  folderRef.current?.click();
+                }}
+              >
+                Choose a folder
+              </button>
+            </div>
+            <input
+              ref={folderRef}
+              id="secret-folder"
+              type="file"
+              multiple
+              tabIndex={-1}
+              aria-hidden
+              className="hidden"
+              onChange={(e) => {
+                setSource("folder");
+                takeFolder(e.target.files);
+              }}
+            />
+          </div>
+
+          {usingFolder ? (
+            <div className="grid gap-2">
+              {folderFiles.length > 1 ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="secret-folder-file" className={fieldLabel}>
+                    File in this folder
+                  </Label>
+                  <select
+                    id="secret-folder-file"
+                    className="min-h-11 rounded-md border border-input bg-panel px-3 font-mono text-xs text-fg"
+                    value={String(folderIndex)}
+                    onChange={(e) => chooseFolderIndex(Number(e.target.value))}
+                  >
+                    {folderFiles.map((item, index) => (
+                      <option key={item.name} value={index}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {fileError ? (
+                <p className="text-sm font-semibold text-err">{fileError}</p>
+              ) : (
+                <p className="text-sm text-muted">
+                  {chosen ? (
+                    `${folderName} / ${chosen.name}, ${humanBytes(chosen.file.size)}. The file is the new secret. Its contents are not shown.`
+                  ) : (
+                    <>
+                      Choose a folder above. An SSH key, a PEM, or a JSON credential in that
+                      folder is the new secret. Its contents are not shown. Same bytes as{" "}
+                      <code className="font-mono">podium secret set --from-file</code>.
+                    </>
+                  )}
+                </p>
+              )}
+              {folderFiles.length > 0 || fileError ? (
+                <Button type="button" variant="ghost" className="justify-self-start" onClick={clearFolder}>
+                  Clear folder
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="secret-value" className={fieldLabel}>
+                  Secret
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={reveal}
+                  onClick={() => setReveal((r) => !r)}
+                >
+                  {reveal ? "Hide paste" : "Show paste"}
+                </Button>
+              </div>
+              <Textarea
                 id="secret-value"
-                type={reveal ? "text" : "password"}
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 autoFocus={locked}
-                disabled={file !== undefined}
                 spellCheck={false}
                 autoComplete="off"
-                className="pr-10 font-mono text-xs"
+                rows={4}
+                aria-describedby="secret-value-help"
+                className={cn("min-h-24 font-mono text-sm", !reveal && "[-webkit-text-security:disc]")}
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={reveal ? "Hide value" : "Show value"}
-                disabled={file !== undefined}
-                onClick={() => setReveal((r) => !r)}
-                className="absolute top-0.5 right-0.5"
-              >
-                {reveal ? <EyeOff /> : <Eye />}
-              </Button>
+              <p id="secret-value-help" className="text-sm text-muted">
+                This shows only what you paste. The stored value cannot be read. A trailing newline
+                is part of the secret.
+              </p>
             </div>
-            <p className="text-2xs text-faint">
-              {file
-                ? "The file below is the value. Clear it to type one instead."
-                : "Sent verbatim as bytes. A trailing newline is part of the secret. The CLI strips one from stdin; the API strips nothing."}
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="secret-file">Or from a file</Label>
-            <Input
-              id="secret-file"
-              ref={fileInput}
-              type="file"
-              disabled={set.isPending}
-              onChange={(e) => pick(e.target.files?.[0])}
-            />
-            {fileError ? (
-              <p className="text-2xs text-err">{fileError}</p>
-            ) : file ? (
-              <p className="text-2xs leading-relaxed text-faint">
-                <span className="font-mono text-muted">{file.name}</span>,{" "}
-                <span className="tabular">{humanBytes(file.size)}</span>, sent byte for byte. A
-                trailing newline in the file is part of the secret. Nothing here strips one.
-              </p>
-            ) : (
-              <p className="text-2xs leading-relaxed text-faint">
-                An SSH key, a PEM or a JSON credential: the shape that does not survive being
-                pasted into the field above. Read in this browser and sent byte for byte, the same
-                as <code className="font-mono">podium secret set --from-file</code>.
-              </p>
-            )}
-          </div>
+          )}
 
           {match && !locked ? (
             <Alert variant="warn" title={`${match.name} already exists`}>
@@ -272,11 +379,11 @@ export function SecretDialog({
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline" size="sm">
+              <Button type="button" variant="outline">
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" size="sm" disabled={!ready || set.isPending}>
+            <Button type="submit" disabled={!ready || set.isPending}>
               {label}
             </Button>
           </DialogFooter>
