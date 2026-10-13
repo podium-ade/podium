@@ -229,13 +229,13 @@ function SkillRow({
   return (
     <li
       data-testid="skill-row"
-      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs transition-colors hover:border-accent/40 hover:bg-raised/40"
+      className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs transition-colors hover:border-line-strong hover:bg-raised"
     >
       <div className="flex items-start gap-2">
         <button
           type="button"
           data-testid="skill-open"
-          className="min-w-0 flex-1 cursor-pointer space-y-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-raised"
+          className="min-w-0 flex-1 cursor-pointer space-y-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised focus-visible:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-raised"
           onClick={onOpen}
           disabled={!onOpen}
         >
@@ -277,7 +277,7 @@ function SkillRow({
                 aria-label={`Delete ${skill.name}`}
                 disabled={deleting}
                 onClick={onDelete}
-                className="hover:bg-err/12 hover:text-err"
+                className="hover:bg-err-bg hover:text-err"
               >
                 <Trash2 />
               </Button>
