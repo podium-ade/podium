@@ -186,7 +186,7 @@ export function AgentPicker({
               aria-expanded={open}
               aria-label={`${label}: agent and model`}
               data-testid="agent-picker-trigger"
-              className="flex w-full items-center gap-2.5 rounded-md border border-border bg-bg px-2.5 py-2 text-left text-xs shadow-xs transition-[border-color,box-shadow] duration-150 outline-none hover:border-muted/45 focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center gap-2.5 rounded-md border border-border bg-bg px-2.5 py-2 text-left text-xs shadow-xs transition-[border-color,box-shadow] duration-150 outline-none hover:border-line-strong focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <BackendMark id={summary.markID} />
               <span className="min-w-0 flex-1">
@@ -506,7 +506,7 @@ function CustomModel({
 }) {
   const id = useId();
   return (
-    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-raised/50 p-2">
+    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-raised p-2">
       <div className="flex flex-col gap-1">
         <Label htmlFor={`${id}-backend`}>Backend</Label>
         <select
@@ -514,7 +514,7 @@ function CustomModel({
           aria-label={`${label}: backend`}
           value={value.agent || agents[0]?.id || ""}
           onChange={(e) => onChange({ ...value, agent: e.target.value })}
-          className="h-8 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+          className="h-8 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35"
         >
           {agents.map((a) => (
             <option key={a.id} value={a.id}>

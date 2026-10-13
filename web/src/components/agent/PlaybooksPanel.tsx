@@ -203,8 +203,8 @@ export function PlaybooksPanel() {
                     className={cn(
                       "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
                       selected?.name === s.name
-                        ? "border-accent/50 bg-accent/10"
-                        : "border-border bg-card hover:bg-raised/60",
+                        ? "border-line-strong bg-raised"
+                        : "border-border bg-card hover:bg-raised",
                     )}
                   >
                     <div className="flex items-center gap-2">

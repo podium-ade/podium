@@ -259,7 +259,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(function
       <div
         className={cn(
           "overflow-hidden rounded-lg border bg-bg shadow-xs",
-          invalid ? "border-err/70" : "border-input",
+          invalid ? "border-err" : "border-input",
         )}
       >
         <textarea
@@ -286,7 +286,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(function
         />
         {fallback ? null : <div ref={hostRef} style={{ minHeight }} className="yaml-cm min-w-0" />}
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline bg-raised/30 px-3 py-1.5 text-2xs text-faint">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline bg-raised px-3 py-1.5 text-2xs text-faint">
           <span className="tabular">
             Ln {caret.line}, Col {caret.col}
           </span>

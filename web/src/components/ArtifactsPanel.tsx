@@ -104,7 +104,7 @@ export function ArtifactsPanel({ taskId, refetch }: { taskId: string; refetch: b
             <ArtifactRow key={a.id} artifact={a} />
           ))}
           {logs.length > 0 ? (
-            <p className="border-t border-hairline bg-panel/60 px-5 py-2 text-2xs text-faint">
+            <p className="border-t border-hairline bg-panel px-5 py-2 text-2xs text-faint">
               Archived logs: the same output as above, compressed into the object store once the
               task finished.
             </p>
@@ -146,9 +146,9 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
     <div
       data-testid="artifact-row"
       data-kind={kind}
-      className="flex items-center gap-3 border-t border-hairline px-5 py-2.5 transition-colors hover:bg-raised/30"
+      className="flex items-center gap-3 border-t border-hairline px-5 py-2.5 transition-colors hover:bg-raised"
     >
-      <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-raised/50 text-faint">
+      <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-raised text-faint">
         <Icon className="size-3.5" />
       </span>
       <div className="min-w-0 flex-1">

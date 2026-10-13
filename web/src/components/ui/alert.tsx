@@ -8,12 +8,12 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-border bg-raised/60 text-fg [&>svg]:text-muted",
-        warn: "border-warn/35 bg-warn/10 text-warn",
-        destructive: "border-err/40 bg-err/10 text-err",
-        lost: "border-lost/40 bg-lost/10 text-lost",
-        info: "border-accent/30 bg-accent/8 text-fg [&>svg]:text-accent",
-        success: "border-ok/35 bg-ok/10 text-ok",
+        default: "border-border bg-panel text-fg [&>svg]:text-muted",
+        warn: "border-warn bg-warn-bg text-fg [&>svg]:text-warn",
+        destructive: "border-err bg-err-bg text-fg [&>svg]:text-err",
+        lost: "border-lost bg-lost-bg text-fg [&>svg]:text-lost",
+        info: "border-run bg-run-bg text-fg [&>svg]:text-run",
+        success: "border-ok bg-ok-bg text-fg [&>svg]:text-ok",
       },
     },
     defaultVariants: { variant: "default" },

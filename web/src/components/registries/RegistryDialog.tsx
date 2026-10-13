@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Lock } from "lucide-react";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -16,7 +15,6 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import type { Registry } from "../../gen/podium/v1/registry_pb";
 import { errorMessage, registries } from "../../lib/client";
 import { relative } from "../../lib/format";
@@ -53,8 +51,13 @@ const KINDS: Record<
   },
 };
 
+/** A service-account key is a credential, not a payload. */
+const MAX_FILE_BYTES = 1024 * 1024;
+
 /** The server's own rule, from pkg/spec.RegistryHostRE, after its normalisation. */
 const HOST_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$/;
+
+const fieldLabel = "text-sm font-bold text-fg";
 
 function normalizeHost(raw: string): string {
   let host = raw.trim().toLowerCase();
@@ -69,6 +72,22 @@ function kindOf(host: string): Kind {
   if (host.endsWith("pkg.dev") || host === "gcr.io" || host.endsWith(".gcr.io")) return "gar";
   if (host === "ghcr.io") return "ghcr";
   return "other";
+}
+
+function humanBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 102.4) / 10} KB`;
+  return `${Math.round(size / (1024 * 102.4)) / 10} MB`;
+}
+
+/** Read a key file as text. FileReader, not Blob.text: the test DOM's File has no text(). */
+function readText(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(typeof reader.result === "string" ? reader.result : ""));
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("Could not read the file.")));
+    reader.readAsText(file);
+  });
 }
 
 /**
@@ -95,6 +114,13 @@ export function RegistryDialog({
   const [username, setUsername] = useState(lockedRow?.username ?? KINDS[kind].username ?? "");
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
+  const [source, setSource] = useState<"paste" | "file">("paste");
+  const [fileSecret, setFileSecret] = useState("");
+  const [fileMeta, setFileMeta] = useState<{ name: string; size: number } | null>(null);
+  const [fileError, setFileError] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const readGen = useRef(0);
+  const pendingFocus = useRef<"paste" | "clear" | null>(null);
 
   const locked = lockedHost !== undefined;
   const normalized = normalizeHost(host);
@@ -102,13 +128,15 @@ export function RegistryDialog({
   const match = existing.find((r) => r.host === normalized);
   const preset = KINDS[kind];
   const multiline = kind === "gar";
+  const usingFile = multiline && source === "file";
+  const secret = usingFile ? fileSecret : password;
 
   const set = useMutation({
     mutationFn: () =>
       registries.setRegistry({
         host: normalized,
         username: username.trim(),
-        password: new TextEncoder().encode(password),
+        password: new TextEncoder().encode(secret),
       }),
     onSuccess: (res) => {
       toast(`${res.registry?.host} saved.`, "ok");
@@ -118,8 +146,19 @@ export function RegistryDialog({
     onError: (err) => toast(`SetRegistry: ${errorMessage(err)}`),
   });
 
-  const ready = normalized !== "" && !malformed && username.trim() !== "" && password !== "";
+  const ready =
+    normalized !== "" && !malformed && username.trim() !== "" && secret !== "" && !(usingFile && fileError);
   const label = set.isPending ? "Saving…" : match ? "Replace login" : "Save registry";
+
+  useEffect(() => {
+    if (pendingFocus.current === "paste" && !usingFile) {
+      pendingFocus.current = null;
+      document.getElementById("registry-password")?.focus();
+    } else if (pendingFocus.current === "clear") {
+      pendingFocus.current = null;
+      document.getElementById("registry-source-file")?.focus();
+    }
+  }, [usingFile, fileMeta, fileError]);
 
   function chooseKind(next: Kind) {
     setKind(next);
@@ -128,79 +167,131 @@ export function RegistryDialog({
     else if (username === KINDS[kind].username) setUsername("");
   }
 
+  function clearFile() {
+    readGen.current += 1;
+    setFileMeta(null);
+    setFileError("");
+    setFileSecret("");
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function onFile(chosen: File | undefined) {
+    const gen = ++readGen.current;
+    if (chosen) setSource("file");
+    setFileMeta(null);
+    setFileError("");
+    setFileSecret("");
+    if (!chosen) return;
+    if (chosen.size === 0) {
+      setFileError(`${chosen.name} is empty, and a registry password with no value is refused.`);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    if (chosen.size > MAX_FILE_BYTES) {
+      setFileError(
+        `${chosen.name} is ${humanBytes(chosen.size)}. A service account key is a credential, not a payload. Choose the JSON key itself.`,
+      );
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    void readText(chosen).then(
+      (text) => {
+        if (gen !== readGen.current) return;
+        setFileSecret(text);
+        setFileMeta({ name: chosen.name, size: chosen.size });
+        setPassword("");
+      },
+      () => {
+        if (gen !== readGen.current) return;
+        setFileError(`${chosen.name} could not be read.`);
+        if (fileRef.current) fileRef.current.value = "";
+      },
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[640px] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{locked ? `Replace the login for ${lockedHost}` : "New registry"}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-2xl leading-tight font-bold tracking-normal">
+            {locked ? `Replace the login for ${lockedHost}` : "New registry"}
+          </DialogTitle>
+          <DialogDescription className="text-base text-soft">
             {locked
-              ? "Tasks assigned after this pull with the new login; tasks already running keep the one they were assigned. The password being replaced cannot be recovered."
+              ? "Tasks assigned after this pull with the new login. Tasks already running keep the one they were assigned. The password being replaced cannot be recovered."
               : "The password is written once and can never be read back. It leaves the server only inside an assignment, to a node about to pull an image from this registry."}
           </DialogDescription>
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="grid gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             if (ready) set.mutate();
           }}
         >
-          <div className="space-y-1.5">
-            <Label>Kind</Label>
-            <ToggleGroup
-              type="single"
-              value={kind}
-              onValueChange={(v) => v && chooseKind(v as Kind)}
-              aria-label="Registry kind"
-            >
+          <fieldset className="m-0 min-w-0 border-0 p-0">
+            <legend className="mb-2 text-sm font-bold text-fg">Kind</legend>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Registry kind">
               {(Object.keys(KINDS) as Kind[]).map((k) => (
-                <ToggleGroupItem key={k} value={k} aria-label={KINDS[k].label}>
-                  {KINDS[k].label}
-                </ToggleGroupItem>
+                <label
+                  key={k}
+                  className={cn(
+                    "relative inline-flex min-h-11 cursor-pointer items-center rounded-md border border-line-strong bg-panel px-3 py-2 font-semibold text-fg",
+                    "hover:border-muted hover:bg-raised",
+                    kind === k && "border-fg bg-raised",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="registry-kind"
+                    value={k}
+                    checked={kind === k}
+                    onChange={() => chooseKind(k)}
+                    className="absolute inset-0 m-0 cursor-pointer opacity-0"
+                  />
+                  <span>{KINDS[k].label}</span>
+                </label>
               ))}
-            </ToggleGroup>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="registry-host">Host</Label>
-            <div className="relative">
-              <Input
-                id="registry-host"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                readOnly={locked}
-                autoFocus={!locked}
-                aria-invalid={malformed}
-                spellCheck={false}
-                autoComplete="off"
-                placeholder={preset.hostPlaceholder}
-                className={cn(
-                  "font-mono text-xs",
-                  locked && "bg-raised pr-9 text-muted hover:border-input",
-                )}
-              />
-              {locked ? (
-                <Lock aria-hidden className="absolute top-2.5 right-3 size-4 text-faint" />
-              ) : null}
             </div>
+          </fieldset>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="registry-host" className={fieldLabel}>
+              Host
+            </Label>
+            <Input
+              id="registry-host"
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              readOnly={locked}
+              autoFocus={!locked}
+              aria-invalid={malformed}
+              aria-describedby={malformed ? "registry-host-error" : "registry-host-help"}
+              spellCheck={false}
+              autoComplete="off"
+              autoCapitalize="off"
+              placeholder={preset.hostPlaceholder}
+              className={cn("font-mono text-xs", locked && "bg-raised text-fg hover:border-input")}
+            />
             {malformed ? (
-              <p className="text-2xs text-err">
+              <p id="registry-host-error" className="text-sm font-semibold text-err">
                 The part of an image reference before its first slash, like{" "}
-                <span className="font-mono">us-docker.pkg.dev</span>: no scheme, no path.
+                <span className="font-mono">us-docker.pkg.dev</span>. No scheme and no path.
               </p>
             ) : (
-              <p className="text-2xs text-faint">
+              <p id="registry-host-help" className="text-sm text-muted">
                 {normalized !== "" && normalized !== host.trim()
                   ? `Saved as ${normalized}.`
-                  : "Every image pulled from this host, in any task or playbook, uses this login."}
+                  : "Every image pulled from this host, in any task or playbook, uses this login. One login per host."}
               </p>
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="registry-username">Username</Label>
+          <div className="grid gap-1.5">
+            <Label htmlFor="registry-username" className={fieldLabel}>
+              Username
+            </Label>
             <Input
               id="registry-username"
               value={username}
@@ -208,29 +299,137 @@ export function RegistryDialog({
               readOnly={preset.username !== undefined}
               spellCheck={false}
               autoComplete="off"
+              autoCapitalize="off"
+              aria-describedby="registry-username-help"
               className={cn(
                 "font-mono text-xs",
-                preset.username !== undefined && "bg-raised text-muted hover:border-input",
+                preset.username !== undefined && "bg-raised text-fg hover:border-input",
               )}
             />
+            <p id="registry-username-help" className="text-sm text-muted">
+              {preset.username !== undefined
+                ? "Google Artifact Registry uses the username _json_key."
+                : "Whatever docker login would use for this registry."}
+            </p>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="registry-password">{preset.passwordLabel}</Label>
-            {multiline ? (
-              <Textarea
-                id="registry-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus={locked}
-                spellCheck={false}
-                autoComplete="off"
-                rows={6}
-                placeholder='{ "type": "service_account", … }'
-                className={cn("font-mono text-xs", !reveal && "[-webkit-text-security:disc]")}
+          {multiline ? (
+            <div className="grid gap-2">
+              <span id="registry-source-label" className="text-sm font-bold text-fg">
+                How to set it
+              </span>
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="group"
+                aria-labelledby="registry-source-label"
+              >
+                <button
+                  type="button"
+                  aria-pressed={source === "paste"}
+                  className={cn(
+                    "min-h-11 rounded-md border border-line-strong bg-panel px-3 text-sm font-bold text-fg",
+                    "hover:border-fg hover:bg-raised",
+                    source === "paste" && "border-fg bg-raised",
+                  )}
+                  onClick={() => {
+                    if (source !== "paste") {
+                      pendingFocus.current = "paste";
+                      setSource("paste");
+                      clearFile();
+                    } else {
+                      document.getElementById("registry-password")?.focus();
+                    }
+                  }}
+                >
+                  Paste JSON
+                </button>
+                <button
+                  type="button"
+                  id="registry-source-file"
+                  aria-pressed={source === "file"}
+                  className={cn(
+                    "min-h-11 rounded-md border border-line-strong bg-panel px-3 text-sm font-bold text-fg",
+                    "hover:border-fg hover:bg-raised",
+                    source === "file" && "border-fg bg-raised",
+                  )}
+                  onClick={() => {
+                    setSource("file");
+                    fileRef.current?.click();
+                  }}
+                >
+                  Choose a file
+                </button>
+              </div>
+              <input
+                ref={fileRef}
+                id="registry-file"
+                type="file"
+                accept=".json,application/json"
+                tabIndex={-1}
+                aria-hidden
+                className="hidden"
+                onChange={(e) => onFile(e.target.files?.[0])}
               />
-            ) : (
-              <div className="relative">
+            </div>
+          ) : null}
+
+          {usingFile ? (
+            <div className="grid gap-2">
+              {fileError ? (
+                <p className="text-sm font-semibold text-err">{fileError}</p>
+              ) : (
+                <p className="text-sm text-muted">
+                  {fileMeta
+                    ? `${fileMeta.name}, ${humanBytes(fileMeta.size)}. The file is the password. Its contents are not shown.`
+                    : "Choose the JSON key of a service account with Artifact Registry Reader. The file is the password, and its contents are not shown."}
+                </p>
+              )}
+              {fileMeta || fileError ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="justify-self-start"
+                  onClick={() => {
+                    pendingFocus.current = "clear";
+                    clearFile();
+                  }}
+                >
+                  Clear file
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="registry-password" className={fieldLabel}>
+                  {preset.passwordLabel}
+                </Label>
+                {multiline ? null : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={reveal}
+                    onClick={() => setReveal((r) => !r)}
+                  >
+                    {reveal ? "Hide password" : "Show password"}
+                  </Button>
+                )}
+              </div>
+              {multiline ? (
+                <Textarea
+                  id="registry-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoFocus={locked}
+                  spellCheck={false}
+                  autoComplete="off"
+                  rows={6}
+                  placeholder='{ "type": "service_account", … }'
+                  aria-describedby="registry-password-help"
+                  className="min-h-24 font-mono text-sm [-webkit-text-security:disc]"
+                />
+              ) : (
                 <Input
                   id="registry-password"
                   type={reveal ? "text" : "password"}
@@ -238,23 +437,16 @@ export function RegistryDialog({
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus={locked}
                   spellCheck={false}
-                  autoComplete="off"
-                  className="pr-10 font-mono text-xs"
+                  autoComplete="new-password"
+                  aria-describedby="registry-password-help"
+                  className="font-mono text-xs"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={reveal ? "Hide password" : "Show password"}
-                  onClick={() => setReveal((r) => !r)}
-                  className="absolute top-0.5 right-0.5"
-                >
-                  {reveal ? <EyeOff /> : <Eye />}
-                </Button>
-              </div>
-            )}
-            <p className="text-2xs text-faint">{preset.hint}</p>
-          </div>
+              )}
+              <p id="registry-password-help" className="text-sm text-muted">
+                {preset.hint}
+              </p>
+            </div>
+          )}
 
           {match && !locked ? (
             <Alert variant="warn" title={`${match.host} already has a login`}>
@@ -266,11 +458,11 @@ export function RegistryDialog({
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline" size="sm">
+              <Button type="button" variant="outline">
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" size="sm" disabled={!ready || set.isPending}>
+            <Button type="submit" disabled={!ready || set.isPending}>
               {label}
             </Button>
           </DialogFooter>

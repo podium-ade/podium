@@ -134,7 +134,7 @@ function UserMessage() {
         data-role="user"
         data-author={custom?.author}
         title={absolute(ts(createdAt))}
-        className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-accent/14 px-4 py-2.5"
+        className="min-w-0 max-w-[min(36rem,85%)] rounded-2xl rounded-br-md bg-run-bg px-4 py-2.5"
       >
         <MessagePrimitive.Parts components={{ Text: () => <MarkdownText /> }} />
         <ChatAttachments attachments={custom?.attachments ?? []} />
@@ -311,7 +311,7 @@ function ToolCall({ toolName, argsText, result, isError, artifact }: ToolCallMes
 function Pre({ label, error, children }: { label: string; error?: boolean; children: string }) {
   return (
     <figure className="overflow-hidden rounded-lg border border-border bg-bg">
-      <figcaption className="border-b border-hairline bg-panel/80 px-2.5 py-0.5 text-2xs text-faint">{label}</figcaption>
+      <figcaption className="border-b border-hairline bg-panel px-2.5 py-0.5 text-2xs text-faint">{label}</figcaption>
       <pre className={cn("max-h-64 overflow-auto px-2.5 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words", error && "text-err")}>
         {children}
       </pre>
@@ -345,7 +345,7 @@ function TaskBlock({ args, status, messages }: ToolCallMessagePartProps) {
       open={open}
       onOpenChange={setOpen}
       data-testid="chat-task"
-      className="rounded-xl border border-border bg-panel/50"
+      className="rounded-xl border border-border bg-panel"
     >
       <div className="flex items-center gap-2 px-3 py-2">
         <CollapsibleTrigger className="group/trigger flex min-w-0 flex-1 items-center gap-2 text-left text-sm">

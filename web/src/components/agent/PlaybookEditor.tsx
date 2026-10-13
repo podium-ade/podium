@@ -603,7 +603,7 @@ export function PlaybookEditor({
                       aria-label={`Secret target ${i + 1}`}
                       value={r.b || "env"}
                       onChange={(e) => setSecretRows(patch(secretRows, r.id, { b: e.target.value }))}
-                      className="h-8 w-24 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50"
+                      className="h-8 w-24 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50"
                     >
                       <option value="env">env</option>
                       <option value="file">file</option>
@@ -657,7 +657,7 @@ export function PlaybookEditor({
                   aria-label={`Personal secret target ${i + 1}`}
                   value={r.b || "env"}
                   onChange={(e) => setUserSecretRows(patch(userSecretRows, r.id, { b: e.target.value }))}
-                  className="h-8 w-24 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent/60 focus-visible:ring-2 focus-visible:ring-ring/35"
+                  className="h-8 w-24 rounded-md border border-input bg-bg px-2 font-mono text-xs text-fg outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ring/35"
                 >
                   <option value="env">env</option>
                   <option value="file">file</option>
@@ -1091,7 +1091,7 @@ export function PlaybookEditor({
         </Alert>
       ) : null}
 
-      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel/95 px-4 py-3 shadow-md backdrop-blur">
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-panel px-4 py-3 shadow-md backdrop-blur">
         {locked ? null : (
           <Button type="submit" size="sm" disabled={saving || deleting}>
             {saving ? "Saving…" : creating ? "Create playbook" : "Save playbook"}
@@ -1244,7 +1244,7 @@ function Disclosure({
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-raised/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
         >
           <ChevronRight
             aria-hidden
@@ -1278,7 +1278,7 @@ function RemoveRow({ label, onClick }: { label: string; onClick: () => void }) {
       size="icon-sm"
       aria-label={label}
       onClick={onClick}
-      className="hover:bg-err/12 hover:text-err"
+      className="hover:bg-err-bg hover:text-err"
     >
       <Trash2 />
     </Button>

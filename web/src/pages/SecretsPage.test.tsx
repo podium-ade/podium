@@ -70,6 +70,14 @@ function pickable(text: string, name: string): File {
   return file;
 }
 
+/** The folder input stays mounted and hidden; choosing a folder is what selects it. */
+async function chooseFolder(file: File | File[]) {
+  await userEvent.click(screen.getByRole("button", { name: "Choose a folder" }));
+  const input = document.getElementById("secret-folder");
+  if (!(input instanceof HTMLInputElement)) throw new Error("missing #secret-folder");
+  await userEvent.upload(input, file);
+}
+
 const row = {
   name: "DB_PASSWORD",
   version: 3,
@@ -112,7 +120,7 @@ describe("SecretsPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Rotate DB_PASSWORD" }));
     // The rotate dialog masks its own draft, but there is nothing stored for it to start from.
     expect(screen.getByLabelText("Name")).toHaveValue("DB_PASSWORD");
-    expect(screen.getByLabelText("Value")).toHaveValue("");
+    expect(screen.getByLabelText("Secret")).toHaveValue("");
   });
 
   it("sends the value as bytes and does not leave it in the DOM", async () => {
@@ -122,15 +130,15 @@ describe("SecretsPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     await userEvent.type(screen.getByLabelText("Name"), "TOKEN");
-    await userEvent.type(screen.getByLabelText("Value"), "hunter2");
-    await userEvent.click(screen.getByRole("button", { name: "Save secret" }));
+    await userEvent.type(screen.getByLabelText("Secret"), "hunter2");
+    await userEvent.click(screen.getByRole("button", { name: "Set secret" }));
 
     await waitFor(() => expect(setSecret).toHaveBeenCalledTimes(1));
     const sent = setSecret.mock.calls[0][0] as { name: string; value: Uint8Array };
     expect(sent.name).toBe("TOKEN");
     expect(new TextDecoder().decode(sent.value)).toBe("hunter2");
     // The dialog closes on success, which takes the field and its plaintext with it.
-    await waitFor(() => expect(screen.queryByLabelText("Value")).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText("Secret")).toBeNull());
     expect(document.body.textContent).not.toContain("hunter2");
   });
 
@@ -144,31 +152,31 @@ describe("SecretsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     await userEvent.type(screen.getByLabelText("Name"), "DEPLOY_KEY");
     const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNza\n-----END OPENSSH PRIVATE KEY-----\n";
-    await userEvent.upload(screen.getByLabelText("Or from a file"), pickable(pem, "id_ed25519"));
-    expect(screen.getByText("id_ed25519")).toBeInTheDocument();
+    await chooseFolder(pickable(pem, "id_ed25519"));
+    expect(screen.getByText(/id_ed25519/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("b3BlbnNza");
 
-    await userEvent.click(screen.getByRole("button", { name: "Save secret" }));
+    await userEvent.click(screen.getByRole("button", { name: "Set secret" }));
     await waitFor(() => expect(setSecret).toHaveBeenCalledTimes(1));
     const sent = setSecret.mock.calls[0][0] as { name: string; value: Uint8Array };
     expect(sent.name).toBe("DEPLOY_KEY");
     expect(new TextDecoder().decode(sent.value)).toBe(pem);
   });
 
-  // Two sources for one value is only ever a way to store the wrong one.
-  it("lets a file stand in for the value, and locks the field once one is picked", async () => {
+  // Paste and a folder are separate. Two sources for one value would only store the wrong one.
+  it("lets a folder file stand in for the paste, and does not show its contents", async () => {
     mount();
     await screen.findByText("DB_PASSWORD");
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     await userEvent.type(screen.getByLabelText("Name"), "DEPLOY_KEY");
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeDisabled();
 
-    await userEvent.upload(
-      screen.getByLabelText("Or from a file"),
-      new File(["hunter2"], "token.txt"),
-    );
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeEnabled();
-    expect(screen.getByLabelText("Value")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Show value" })).toBeDisabled();
+    await chooseFolder(new File(["hunter2"], "token.txt"));
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeEnabled();
+    expect(screen.queryByLabelText("Secret")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show paste" })).toBeNull();
+    expect(screen.getByText(/token\.txt/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("hunter2");
   });
 
   it("refuses an empty file rather than letting the server do it", async () => {
@@ -177,11 +185,13 @@ describe("SecretsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     await userEvent.type(screen.getByLabelText("Name"), "DEPLOY_KEY");
 
-    await userEvent.upload(screen.getByLabelText("Or from a file"), new File([], "empty.pem"));
+    await chooseFolder(new File([], "empty.pem"));
     expect(screen.getByText(/empty.pem is empty/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
-    // The value field is usable again: nothing is selected, whatever the picker looks like.
-    expect(screen.getByLabelText("Value")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeDisabled();
+    // The bad file stays in the folder pane. Paste is still there when that file is refused.
+    await userEvent.click(screen.getByRole("button", { name: "Paste a secret" }));
+    expect(screen.getByLabelText("Secret")).toBeEnabled();
+    expect(screen.getByLabelText("Secret")).toHaveValue("");
   });
 
   it("refuses a file far too big to be a credential", async () => {
@@ -191,18 +201,19 @@ describe("SecretsPage", () => {
     await userEvent.type(screen.getByLabelText("Name"), "DEPLOY_KEY");
 
     const huge = new File([new Uint8Array(1024 * 1024 + 1)], "backup.img");
-    await userEvent.upload(screen.getByLabelText("Or from a file"), huge);
+    await chooseFolder(huge);
     expect(screen.getByText(/not a payload/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
+    expect(screen.getByText(/Choose the key file itself/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeDisabled();
   });
 
   it("will not save without both a name and a value", async () => {
     mount();
     await screen.findByText("DB_PASSWORD");
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Name"), "TOKEN");
-    expect(screen.getByRole("button", { name: "Save secret" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set secret" })).toBeDisabled();
   });
 
   it("warns that setting an existing name rotates it rather than editing it", async () => {
@@ -259,14 +270,14 @@ describe("SecretsPage", () => {
       ],
     });
     mount(person("member"));
-    expect(await screen.findByRole("tab", { name: "Global" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Yours" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /^Global/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Yours/ })).toBeInTheDocument();
     expect(screen.getByTestId("secrets-global")).toHaveTextContent("DB_PASSWORD");
     expect(screen.queryByRole("button", { name: "Rotate DB_PASSWORD" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete DB_PASSWORD" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New secret" })).toBeNull();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Yours" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Yours/ }));
     expect(screen.getByTestId("secrets-yours")).toHaveTextContent("linear_key");
     expect(screen.getByRole("button", { name: "Rotate linear_key" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "New secret" })).toHaveLength(1);
@@ -274,8 +285,8 @@ describe("SecretsPage", () => {
     setSecret.mockResolvedValue({ secret: { name: "notes", version: 1 } });
     await userEvent.click(screen.getByRole("button", { name: "New secret" }));
     await userEvent.type(screen.getByLabelText("Name"), "notes");
-    await userEvent.type(screen.getByLabelText("Value"), "mine");
-    await userEvent.click(screen.getByRole("button", { name: "Save secret" }));
+    await userEvent.type(screen.getByLabelText("Secret"), "mine");
+    await userEvent.click(screen.getByRole("button", { name: "Set secret" }));
     await waitFor(() => expect(setSecret).toHaveBeenCalled());
     expect(setSecret.mock.calls[0][0]).toMatchObject({ name: "notes", scope: SecretScope.PERSONAL });
   });
@@ -294,7 +305,7 @@ describe("SecretsPage", () => {
 
     setSecret.mockResolvedValue({ secret: { name: "DB_PASSWORD", version: 4 } });
     await userEvent.click(screen.getByRole("button", { name: "Rotate DB_PASSWORD" }));
-    await userEvent.type(screen.getByLabelText("Value"), "next");
+    await userEvent.type(screen.getByLabelText("Secret"), "next");
     await userEvent.click(screen.getByRole("button", { name: /Rotate to version/ }));
     await waitFor(() => expect(setSecret).toHaveBeenCalled());
     expect(setSecret.mock.calls[0][0]).toMatchObject({
@@ -302,9 +313,27 @@ describe("SecretsPage", () => {
       scope: SecretScope.GLOBAL,
     });
 
-    await userEvent.click(screen.getByRole("tab", { name: "Yours" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Yours/ }));
     expect(screen.getByRole("button", { name: "Rotate linear_key" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Rotate DB_PASSWORD" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "New secret" })).toHaveLength(1);
+  });
+
+  it("hides the table when there are no secrets", async () => {
+    listSecrets.mockResolvedValue({ secrets: [] });
+    mount();
+    expect(await screen.findByRole("heading", { level: 3, name: "No secrets yet" })).toBeInTheDocument();
+    expect(screen.getByText(/refused at admission/i)).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Name" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New secret" })).toBeInTheDocument();
+  });
+
+  it("names an empty Yours tab for a signed-in person", async () => {
+    listSecrets.mockResolvedValue({ secrets: [] });
+    mount(person("member"));
+    expect(await screen.findByRole("heading", { level: 3, name: "No global secrets" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /^Yours/ }));
+    expect(screen.getByRole("heading", { level: 3, name: "No secrets of yours yet" })).toBeInTheDocument();
+    expect(screen.getByText(/Secrets only you can see/)).toBeInTheDocument();
   });
 });

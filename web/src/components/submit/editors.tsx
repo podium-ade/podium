@@ -53,7 +53,7 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
       variant="ghost"
       size="sm"
       onClick={onClick}
-      className="w-full justify-start border border-dashed border-border text-muted hover:border-accent/50 hover:text-fg"
+      className="w-full justify-start border border-dashed border-border text-muted hover:border-line-strong hover:text-fg"
     >
       <Plus />
       {label}

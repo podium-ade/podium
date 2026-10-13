@@ -300,7 +300,7 @@ function TaskDetail({ id }: { id: string }) {
 
       <Collapsible open={specOpen} onOpenChange={setSpecOpen}>
         <Card className="overflow-hidden">
-          <CollapsibleTrigger className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left transition-colors outline-none hover:bg-raised/40 focus-visible:ring-2 focus-visible:ring-ring/50">
+          <CollapsibleTrigger className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left transition-colors outline-none hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50">
             <FileCode className="size-4 shrink-0 text-faint" />
             <span className="text-sm font-semibold tracking-tight text-fg">Spec</span>
             <span className="hidden text-xs text-muted sm:inline">
