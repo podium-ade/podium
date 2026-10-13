@@ -19,10 +19,11 @@ import (
 // fakeStore is the two chat tables in memory. It keeps the one behaviour the SQL is relied
 // on for — a per-chat monotonic seq — and nothing else.
 type fakeStore struct {
-	mu       sync.Mutex
-	chats    map[string]store.Chat
-	messages map[string][]store.ChatMessage
-	running  map[string]bool
+	mu            sync.Mutex
+	chats         map[string]store.Chat
+	messages      map[string][]store.ChatMessage
+	personalities map[string]store.Personality
+	running       map[string]bool
 	// pulls is chat_pull_requests, keyed the way its primary key is, with pullOrder
 	// keeping the insertion order the query reads them back in.
 	pulls     map[string]*fakePull
@@ -62,6 +63,16 @@ func (f *fakeStore) GetChat(_ context.Context, id string) (store.Chat, error) {
 		return store.Chat{}, fmt.Errorf("%w: chat %s", store.ErrNotFound, id)
 	}
 	return c, nil
+}
+
+func (f *fakeStore) GetPersonality(_ context.Context, id string) (store.Personality, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.personalities[id]
+	if !ok {
+		return store.Personality{}, fmt.Errorf("%w: personality %s", store.ErrNotFound, id)
+	}
+	return p, nil
 }
 
 func (f *fakeStore) AppendChatMessage(_ context.Context, msg store.ChatMessage) (store.ChatMessage, error) {
@@ -255,6 +266,73 @@ func TestSendStoresTheMessageAndStartsATurn(t *testing.T) {
 	assert.Equal(t, "https://podium.example/agent/chat/chat_1", ev.URL,
 		"the deep link becomes a memory's provenance chip")
 	assert.Empty(t, ev.Env, "only the dev source asks for task environment")
+	assert.Empty(t, ev.PersonalityName, "a Podium chat names no personal assistant")
+	assert.Empty(t, ev.PersonalityPrompt, "a Podium chat appends nothing to the prompt")
+	assert.True(t, ev.Override.Empty(), "a Podium chat with no composer choice follows the profile")
+}
+
+func TestSendAppendsAPersonalityAndRefusesADeletedOne(t *testing.T) {
+	st := newFakeStore()
+	st.personalities = map[string]store.Personality{
+		"pers_owl": {
+			ID: "pers_owl", Login: "alice", Name: "night-owl", Instructions: "Speak briefly.",
+			Agent: "grok", Model: "grok-4.6", Effort: "low",
+		},
+		"pers_plain": {ID: "pers_plain", Login: "alice", Name: "plain", Instructions: "Be plain."},
+	}
+	chat := st.add("chat_owl", "alice")
+	chat.PersonalityID = "pers_owl"
+	st.chats["chat_owl"] = chat
+	src := newSource(t, st)
+	ctx := context.Background()
+
+	// An empty composer choice uses the voice's model, and the chat does not store it,
+	// so a later edit of the voice still applies to this thread.
+	_, err := src.Send(ctx, SendRequest{ChatID: "chat_owl", Login: "alice", Text: "hello"})
+	require.NoError(t, err)
+	ev := drainEvent(t, src)
+	assert.Equal(t, "night-owl", ev.PersonalityName)
+	assert.Equal(t, "Speak briefly.", ev.PersonalityPrompt)
+	assert.Equal(t, profiles.Override{Agent: "grok", Model: "grok-4.6", Effort: "low"}, ev.Override)
+	stored, err := st.GetChat(ctx, "chat_owl")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{}, stored.ChatChoice)
+
+	require.NoError(t, src.React(ctx, "chat_owl", conductor.ReactionDone))
+	_, err = src.Send(ctx, SendRequest{
+		ChatID: "chat_owl", Login: "alice", Text: "use this one",
+		Override: profiles.Override{Agent: "claude", Model: "claude-opus-5", Effort: "high"},
+	})
+	require.NoError(t, err)
+	ev = drainEvent(t, src)
+	assert.Equal(t, profiles.Override{Agent: "claude", Model: "claude-opus-5", Effort: "high"}, ev.Override)
+	stored, err = st.GetChat(ctx, "chat_owl")
+	require.NoError(t, err)
+	assert.Equal(t, store.ChatChoice{Agent: "claude", Model: "claude-opus-5", Effort: "high"}, stored.ChatChoice)
+
+	plain := st.add("chat_plain", "alice")
+	plain.PersonalityID = "pers_plain"
+	st.chats["chat_plain"] = plain
+	_, err = src.Send(ctx, SendRequest{ChatID: "chat_plain", Login: "alice", Text: "hello"})
+	require.NoError(t, err)
+	ev = drainEvent(t, src)
+	assert.True(t, ev.Override.Empty(), "a voice with no model of its own follows Podium")
+
+	gone := st.add("chat_gone", "alice")
+	gone.PersonalityID = "pers_missing"
+	st.chats["chat_gone"] = gone
+	_, err = src.Send(context.Background(), SendRequest{ChatID: "chat_gone", Login: "alice", Text: "hello"})
+	require.ErrorIs(t, err, ErrPersonalityGone)
+	msgs, err := st.ListChatMessages(context.Background(), "chat_gone", 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "a deleted assistant stores no message")
+
+	st.personalities["pers_bob"] = store.Personality{ID: "pers_bob", Login: "bob", Name: "bob", Instructions: "nope"}
+	stolen := st.add("chat_stolen", "alice")
+	stolen.PersonalityID = "pers_bob"
+	st.chats["chat_stolen"] = stolen
+	_, err = src.Send(context.Background(), SendRequest{ChatID: "chat_stolen", Login: "alice", Text: "hello"})
+	require.ErrorIs(t, err, ErrPersonalityGone)
 }
 
 func TestSeqIsMonotonicPerChat(t *testing.T) {

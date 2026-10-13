@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/agent/profiles"
+	"github.com/podium-ade/podium/internal/agent/store"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
 
@@ -52,24 +53,50 @@ func newProfileFixture(t *testing.T) profileFixture {
 	return profileFixture{svc: svc, live: live}
 }
 
-func TestGetProfileReportsTheFileValuesBesideTheOverrides(t *testing.T) {
-	f := newProfileFixture(t)
+func definitionRequest(p *profiles.Profile) *agentv1.UpdateProfileRequest {
+	timeout := "15m"
+	if p.Timeout > 0 {
+		timeout = p.Timeout.String()
+	}
+	return &agentv1.UpdateProfileRequest{
+		Name:         p.Name,
+		DisplayName:  p.DisplayName,
+		SystemPrompt: p.SystemPrompt,
+		Model:        p.Model,
+		Agent:        p.Agent,
+		Effort:       p.Effort,
+		Skills:       append([]string(nil), p.Skills...),
+		McpServers:   append([]string(nil), p.MCPServers...),
+		MaxTurns:     int32(p.MaxTurns),
+		Timeout:      timeout,
+		GitName:      p.Git.Name,
+		GitEmail:     p.Git.Email,
+	}
+}
 
-	_, err := f.svc.UpdateProfile(loginCtx("alice"), connect.NewRequest(&agentv1.UpdateProfileRequest{
-		DisplayName: "Reporter Bot",
-	}))
+func TestGetProfileReportsTheSavedAssistant(t *testing.T) {
+	f := newProfileFixture(t)
+	req := definitionRequest(f.live.Current())
+	req.DisplayName = "Reporter Bot"
+
+	_, err := f.svc.UpdateProfile(loginCtx("alice"), connect.NewRequest(req))
 	require.NoError(t, err)
 
 	res, err := f.svc.GetProfile(loginCtx("bob"), connect.NewRequest(&agentv1.GetProfileRequest{}))
 	require.NoError(t, err)
 	p := res.Msg.GetProfile()
+	assert.NotEmpty(t, p.GetId())
 	assert.Equal(t, "podium", p.GetName())
 	assert.Equal(t, "Reporter Bot", p.GetDisplayName())
-	assert.Equal(t, "Podium", p.GetFileDisplayName(), "the file's value is reported beside the override")
+	assert.Equal(t, "Podium", p.GetFileDisplayName(), "the install file is still reported, and the screen does not show it")
 	assert.Equal(t, "general", p.GetFileDefaultPlaybook())
-	assert.Equal(t, []string{"display_name"}, p.GetOverridden())
+	assert.Empty(t, p.GetOverridden())
 	assert.Equal(t, "alice", p.GetUpdatedBy())
 	assert.Empty(t, res.Msg.GetStaleReason())
+
+	var legacy profiles.Overrides
+	err = f.svc.store.GetSetting(loginCtx("bob"), overridesSettingKey, &legacy)
+	assert.ErrorIs(t, err, store.ErrNotFound)
 
 	require.Len(t, res.Msg.GetPlaybooks(), 1)
 	assert.Equal(t, "general", res.Msg.GetPlaybooks()[0].GetName())
@@ -83,8 +110,9 @@ func TestChangingTheModelIsWhatGetSettingsReports(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", before.Msg.GetProvider().GetModel())
 
-	_, err = f.svc.UpdateProfile(loginCtx("alice"),
-		connect.NewRequest(&agentv1.UpdateProfileRequest{Model: "claude-haiku-5"}))
+	req := definitionRequest(f.live.Current())
+	req.Model = "claude-haiku-5"
+	_, err = f.svc.UpdateProfile(loginCtx("alice"), connect.NewRequest(req))
 	require.NoError(t, err)
 
 	after, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
@@ -92,29 +120,54 @@ func TestChangingTheModelIsWhatGetSettingsReports(t *testing.T) {
 	assert.Equal(t, "claude-haiku-5", after.Msg.GetProvider().GetModel())
 }
 
-func TestAProfileOverrideNamingAMissingPlaybookIsRefused(t *testing.T) {
+func TestDefaultPlaybookOnTheRequestIsIgnored(t *testing.T) {
 	f := newProfileFixture(t)
-	_, err := f.svc.UpdateProfile(loginCtx("alice"),
-		connect.NewRequest(&agentv1.UpdateProfileRequest{DefaultPlaybook: "nope"}))
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	req := definitionRequest(f.live.Current())
+	req.DefaultPlaybook = "nope"
+	_, err := f.svc.UpdateProfile(loginCtx("alice"), connect.NewRequest(req))
+	require.NoError(t, err)
 	assert.Equal(t, "general", f.live.Current().DefaultPlaybook)
 }
 
-// Clearing an override is sending an empty field: there is no second RPC for "use the
-// file's value".
-func TestAnEmptyFieldClearsTheOverride(t *testing.T) {
+func TestASaveReplacesTheActiveDefinitionAndKeepsItsID(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := loginCtx("alice")
-	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{DisplayName: "Bot"}))
+	req := definitionRequest(f.live.Current())
+	req.DisplayName = "Bot"
+	res, err := f.svc.UpdateProfile(ctx, connect.NewRequest(req))
 	require.NoError(t, err)
 	assert.Equal(t, "Bot", f.live.Current().DisplayName)
+	id := res.Msg.GetProfile().GetId()
+	require.NotEmpty(t, id)
 
-	res, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{}))
+	_, err = f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Equal(t, "Bot", f.live.Current().DisplayName)
+
+	back := definitionRequest(f.live.Current())
+	back.Id = id
+	back.DisplayName = "Podium"
+	res, err = f.svc.UpdateProfile(ctx, connect.NewRequest(back))
 	require.NoError(t, err)
-	assert.Equal(t, "Podium", res.Msg.GetProfile().GetDisplayName())
-	assert.Empty(t, res.Msg.GetProfile().GetOverridden())
+	assert.Equal(t, id, res.Msg.GetProfile().GetId())
 	assert.Equal(t, "Podium", f.live.Current().DisplayName)
+}
+
+func TestASecondAssistantIsNotCreatedByASave(t *testing.T) {
+	f := newProfileFixture(t)
+	ctx := loginCtx("alice")
+	req := definitionRequest(f.live.Current())
+	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+
+	other := definitionRequest(f.live.Current())
+	other.Id = "ast_missing"
+	other.Name = "night"
+	_, err = f.svc.UpdateProfile(ctx, connect.NewRequest(other))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Equal(t, "podium", f.live.Current().Name)
 }
 
 func TestTheProfileRpcsWithNoProfileSaySo(t *testing.T) {
@@ -204,21 +257,28 @@ func TestAProfileDirectoryThatDoesNotLoadIsRefusedAndChangesNothing(t *testing.T
 	assert.Equal(t, []string{"general"}, f.live.Current().PlaybookNames())
 }
 
-// Re-reading the directory must not throw away an override somebody made on the Assistant
-// screen.
-func TestReloadingTheDirectoryKeepsTheOverrides(t *testing.T) {
+// Re-reading the directory picks up playbooks and leaves a saved assistant in place,
+// including when the file's prompt was edited after the save.
+func TestReloadingTheDirectoryKeepsTheSavedAssistant(t *testing.T) {
 	f, dir := onDiskProfile(t)
 	ctx := loginCtx("alice")
-	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(&agentv1.UpdateProfileRequest{DisplayName: "Bot"}))
+	req := definitionRequest(f.live.Current())
+	req.DisplayName = "Bot"
+	req.SystemPrompt = "saved prompt"
+	_, err := f.svc.UpdateProfile(ctx, connect.NewRequest(req))
 	require.NoError(t, err)
 
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "prompts", "profile.md"),
+		[]byte("edited on disk"), 0o600))
 	writePlaybookFile(t, dir, "triage", "Triage the ticket.")
 	require.NoError(t, f.reload(t))
 
 	cur := f.live.Current()
 	assert.Equal(t, []string{"general", "triage"}, cur.PlaybookNames())
 	assert.Equal(t, "Bot", cur.DisplayName)
+	assert.Equal(t, "saved prompt", cur.SystemPrompt)
 	assert.Equal(t, "Podium", f.live.Files().DisplayName)
+	assert.Equal(t, "edited on disk", f.live.Files().SystemPrompt)
 }
 
 // A conductor started with no directory has nothing to go back to, and says so rather than

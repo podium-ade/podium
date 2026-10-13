@@ -3,20 +3,27 @@ package conductor
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/podium-ade/podium/internal/agent/mcp"
+	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	"github.com/podium-ade/podium/internal/agent/store"
+	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
+	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
 	"github.com/podium-ade/podium/pkg/spec"
 )
 
@@ -128,7 +135,7 @@ func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 		Memory:   &BriefMemory{MCPURL: "http://host.docker.internal:8888/mcp/podium/", APIKeyEnv: "K"},
 	}
 	menu := []DelegablePlaybook{{Name: "podium", Summary: "develops Podium itself", Docker: true}}
-	c.hostBrief(b, menu, nil)
+	c.hostBrief(b, menu, nil, nil)
 
 	assert.Equal(t, RunsOnHost, b.RunsOn)
 	require.NotNil(t, b.Memory)
@@ -147,19 +154,19 @@ func TestHostBriefPointsTheTurnAtThisHost(t *testing.T) {
 func TestHostBriefOffersNoDelegationWhenThereIsNowhereToSendIt(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
-	c.hostBrief(b, []DelegablePlaybook{{Name: "podium"}}, nil)
+	c.hostBrief(b, []DelegablePlaybook{{Name: "podium"}}, nil, nil)
 	assert.Nil(t, b.Delegation, "no address to reach the conductor at is no delegation")
 
 	c = &Conductor{host: &HostRuntime{TurnURL: "http://127.0.0.1:8090"}}
 	b = &Brief{Playbook: BriefPlaybook{AllowedTools: hostTools}}
-	c.hostBrief(b, nil, nil)
+	c.hostBrief(b, nil, nil, nil)
 	assert.Nil(t, b.Delegation, "an empty menu is not a menu")
 }
 
 func TestHostBriefDropsMemoryThisHostCannotReach(t *testing.T) {
 	c := &Conductor{host: &HostRuntime{}}
 	b := &Brief{Memory: &BriefMemory{MCPURL: "http://host.docker.internal:8888/", APIKeyEnv: "K"}}
-	c.hostBrief(b, nil, nil)
+	c.hostBrief(b, nil, nil, nil)
 	assert.Nil(t, b.Memory, "the runtime fails a turn whose memory server it cannot reach")
 }
 
@@ -332,31 +339,58 @@ func say(t *testing.T, sock, line string) {
 	}
 }
 
+// tokenVault is the control plane's secret store, answering ReadSecret from a map.
+type tokenVault struct {
+	podiumv1connect.UnimplementedSecretServiceHandler
+	values map[string]string
+}
+
+func (v tokenVault) ReadSecret(
+	_ context.Context, req *connect.Request[podiumv1.ReadSecretRequest],
+) (*connect.Response[podiumv1.ReadSecretResponse], error) {
+	value, ok := v.values[req.Msg.GetOwner()+"/"+req.Msg.GetName()]
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such secret"))
+	}
+	return connect.NewResponse(&podiumv1.ReadSecretResponse{Value: []byte(value)}), nil
+}
+
 // TestAHostTurnGetsItsMCPServersTokensDirectly. There is no node to resolve a secret for a
-// host turn, so the conductor's readable copy is what the brief's token_env has to hold, and
-// a server stored before there was a copy is refused by name rather than connected without.
+// host turn, so the conductor reads the token back from the secret store, and a server
+// whose token is no longer there is refused by name rather than connected without.
 func TestAHostTurnGetsItsMCPServersTokensDirectly(t *testing.T) {
-	c := &Conductor{host: &HostRuntime{
+	vault := tokenVault{values: map[string]string{
+		"/" + mcp.TokenSecret("linear"):                     "lin_abc",
+		"ada@acme.com/" + mcp.PersonalTokenSecret("notion"): "ntn_ada",
+	}}
+	mux := http.NewServeMux()
+	mux.Handle(podiumv1connect.NewSecretServiceHandler(vault))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := &Conductor{podium: podium.New(srv.URL, "agent-token"), host: &HostRuntime{
 		Credential: func(context.Context, string) (string, error) { return "sk-model", nil },
 	}}
 	h := &hostRun{
 		r:        &turnRun{sink: &sink{c: c}},
 		provider: &BriefProvider{ID: "anthropic", APIKeyEnv: "ANTHROPIC_API_KEY"},
 		servers: []mcp.Server{
-			{Name: "linear", TokenSecretVersion: 3, Token: "lin_abc"},
+			{Name: "linear", TokenSecretVersion: 3},
+			{Name: "notion", Owner: "ada@acme.com", TokenSecretVersion: 1},
 			{Name: "open"},
 		},
 	}
 	env, err := h.env(context.Background(), hostPaths{})
 	require.NoError(t, err)
 	assert.Contains(t, env, mcp.TokenEnv("linear")+"=lin_abc")
+	assert.Contains(t, env, mcp.TokenEnv("notion")+"=ntn_ada")
 	for _, kv := range env {
 		assert.NotContains(t, kv, mcp.TokenEnv("open"), "a server with no secret has no variable")
 	}
 
-	h.servers = []mcp.Server{{Name: "linear", TokenSecretVersion: 3}}
+	h.servers = []mcp.Server{{Name: "gone", TokenSecretVersion: 3}}
 	_, err = h.env(context.Background(), hostPaths{})
 	var stale mcpTokenStaleError
 	require.ErrorAs(t, err, &stale)
-	assert.Equal(t, "linear", stale.server)
+	assert.Equal(t, "gone", stale.server)
 }

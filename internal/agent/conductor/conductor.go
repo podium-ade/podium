@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -129,6 +131,10 @@ type Options struct {
 	// the conductor's own bearer rather than generated, so a capability outlives a restart
 	// exactly as the turn holding it does. Empty with GitHub set is refused by New.
 	MintSecret string
+	// GitHubAPIURL is where a person's connected-account token is scoped and revoked, and
+	// GitHubURL where it is refreshed. Empty means github.com. They exist for tests.
+	GitHubAPIURL string
+	GitHubURL    string
 }
 
 // Conductor owns the turn loop. One instance drains every source.
@@ -169,6 +175,13 @@ type Conductor struct {
 	github     *github.Client
 	gitTaskURL string
 	mintSecret string
+	// githubAPIURL is where a person's token is scoped and revoked, and userTokens the
+	// scoped tokens each running turn holds. See usertoken.go.
+	githubAPIURL string
+	githubURL    string
+	userTokensMu sync.Mutex
+	userTokens   map[string]*userTokenSet
+	loginLocks   map[string]*sync.Mutex
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -268,6 +281,8 @@ func New(opts Options) (*Conductor, error) {
 		github:             opts.GitHub,
 		gitTaskURL:         opts.GitTaskURL,
 		mintSecret:         opts.MintSecret,
+		githubAPIURL:       opts.GitHubAPIURL,
+		githubURL:          opts.GitHubURL,
 		sessions:           map[string]*sessionState{},
 		hostRuns:           map[string]func(){},
 		turnTokens:         map[string]turnGrant{},
@@ -520,7 +535,7 @@ func (c *Conductor) acceptConversation(
 	sess, err := c.store.UpsertSession(ctx, store.Session{
 		SourceKind: src.Kind(),
 		SourceKey:  ev.SourceKey,
-		Profile:    profile.Name,
+		Profile:    sessionProfileName(profile.Name, ev.PersonalityName),
 	})
 	if err != nil {
 		c.logger.ErrorContext(ctx, "recording the session failed", "source_key", ev.SourceKey, "error", err)
@@ -696,8 +711,20 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	// skills are: a server an operator has just disabled must not be handed to the next
 	// turn, and a name that no longer resolves fails the job that names it rather than the
 	// whole conductor.
+	//
+	// login is who personal secrets attach to. A Slack turn still has none of those: the
+	// speaker's email picks MCP servers only. A playbook that names user_secrets keeps
+	// failing a Slack turn, the same as before.
 	login := c.asker(ctx, src, sess)
-	servers, err := c.mcpServers(ctx, j, login)
+	speaker := ""
+	if src != nil && src.Kind() == SourceSlack {
+		speaker = strings.TrimSpace(ev.Login)
+	}
+	mcpOwner := login
+	if mcpOwner == "" {
+		mcpOwner = speaker
+	}
+	servers, err := c.mcpServers(ctx, j, mcpOwner)
 	if err != nil {
 		// The name is the operator's own and is safe to say, and saying it is the point: a
 		// playbook naming a server nobody registered is a five-second fix for whoever can
@@ -709,7 +736,11 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		c.failTurn(ctx, src, sess, j, turn, ev.Ref, started, store.TurnFailed)
 		return
 	}
-	if _, err := userSecretRefs(login, j.playbook.UserSecrets); err != nil {
+	persona, err := c.githubPersona(ctx, login, j.playbook)
+	if err == nil {
+		_, err = userSecretRefs(login, j.playbook.UserSecrets)
+	}
+	if err != nil {
 		c.logger.ErrorContext(ctx, "the turn's personal secrets cannot be attached",
 			"turn_id", turn.ID, "job", j.name, "error", err)
 		c.post(ctx, src, ev.Ref, Outbound{Type: OutFailure, Text: err.Error()})
@@ -718,12 +749,15 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	}
 
 	brief := c.brief(ctx, sess, j, turn.ID, ev, entries, bundles, servers, choice)
+	if persona != nil {
+		brief.Git = persona
+	}
 	// The menu is computed once and used twice: the brief shows it to the model and the
 	// turn's token accepts exactly it, so the two cannot disagree.
 	var menu []DelegablePlaybook
 	if j.onHost {
 		menu = c.DelegablePlaybooks()
-		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID))
+		c.hostBrief(brief, menu, c.runningDelegations(ctx, sess.ID), c.livePreviews(ctx, sess.ID))
 	}
 	encoded, err := brief.Encode()
 	if err != nil {
@@ -772,6 +806,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 				ref:       ev.Ref,
 				src:       src,
 				playbooks: playbookNames(menu),
+				login:     speaker,
 			})
 			if err != nil {
 				// A turn that cannot delegate is still a turn that can answer, and this is
@@ -794,7 +829,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 
 	// The capability, before the task: admission refuses a spec naming a secret the control
 	// plane does not have, so the secret has to exist by the time CreateTask is called.
-	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook)
+	capabilitySecret, err := c.provisionGitCapability(ctx, turn.ID, j.playbook, login)
 	if err != nil {
 		c.logger.WarnContext(ctx, "preparing the turn's github credential failed",
 			"turn_id", turn.ID, "playbook", j.name, "error", err)
@@ -809,7 +844,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 	if err != nil {
 		// The turn never started, so nothing will reach finish to clean this up.
 		if capabilitySecret != "" {
-			c.dropGitCapability(ctx, turn.ID)
+			c.dropGitCapability(ctx, turn.ID, j.playbook)
 		}
 		// Validation, a missing secret, a control plane that is down: all of them are
 		// "I could not start", and none of the reason is a human's business.
@@ -915,7 +950,7 @@ func (c *Conductor) brief(
 		Profile: BriefProfile{
 			Name:         profile.Name,
 			DisplayName:  profile.DisplayName,
-			SystemPrompt: profile.SystemPrompt,
+			SystemPrompt: systemPromptWithPersonality(profile.SystemPrompt, ev.PersonalityPrompt),
 			Model:        choice.Model,
 			Effort:       choice.Effort,
 		},
@@ -935,7 +970,7 @@ func (c *Conductor) brief(
 	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
 	// carry that either. Set only when there is something to mint for, which
 	// provisionGitCapability decides from the same playbook.
-	if c.github != nil {
+	if c.github != nil || j.playbook.UsesGitHubAccount() {
 		if scope, err := gitScopeOf(j.playbook); err == nil && len(scope.Repos) > 0 {
 			b.GitCredentials = &BriefGitCredentials{URL: c.gitTaskURL, TokenEnv: GitTokenEnv}
 		}
@@ -1085,6 +1120,11 @@ func (c *Conductor) taskSpec(
 	if playbook.Browser {
 		s.Sidecars[browserSidecarName] = browserSidecar()
 	}
+	if playbook.Expose != nil {
+		x := *playbook.Expose
+		x.Ports = maps.Clone(x.Ports)
+		s.Expose = &x
+	}
 	s.ApplyDefaults()
 	return s
 }
@@ -1137,8 +1177,9 @@ func turnOwner(login string) string {
 	}
 }
 
-// asker is the signed-in login a turn is for. Slack, Linear, and GitHub have none: a
-// mentioner's name is not a Podium login, and a mirrored chat's login is empty.
+// asker is the signed-in login a turn's personal secrets attach to. Slack, Linear, and
+// GitHub have none: a mentioner's name is not a Podium login, and a mirrored chat's login
+// is empty. A Slack speaker's email is a separate hint, used for MCP servers only.
 func (c *Conductor) asker(ctx context.Context, src Source, sess store.Session) string {
 	kind := sess.SourceKind
 	if src != nil && src.Kind() != "" {
@@ -1185,7 +1226,8 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	}
 	out := make([]spec.SecretRef, len(refs))
 	for i, ref := range refs {
-		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" {
+		if strings.HasPrefix(ref.Name, "podium.agent.") || ref.Name == "podium.agent" ||
+			spec.IsPersonalMCPSecret(ref.Name) || spec.IsPersonalMCPOAuthSecret(ref.Name) {
 			return nil, fmt.Errorf("personal secret %q is reserved for the conductor", ref.Name)
 		}
 		out[i] = ref
@@ -1194,33 +1236,46 @@ func userSecretRefs(login string, refs []spec.SecretRef) ([]spec.SecretRef, erro
 	return out, nil
 }
 
+// userSecretRefsOrEmpty is what a task spec attaches. A connected GitHub account is not
+// among them: the turn redeems a capability for a token scoped to it instead.
 func userSecretRefsOrEmpty(login string, refs []spec.SecretRef) []spec.SecretRef {
 	out, err := userSecretRefs(login, refs)
 	if err != nil {
 		return nil
 	}
-	return out
+	return slices.DeleteFunc(out, func(ref spec.SecretRef) bool {
+		return ref.Name == profiles.GitHubTokenSecret
+	})
 }
 
-// resolveMCPServers picks the named servers out of one owner's registry, in the order they
-// were named. An empty owner is the bot list. Separated from the read so it can be asserted
-// without a database.
+// resolveMCPServers picks the named servers in the order the playbook named them.
+//
+// An empty owner is the global list, which a turn with no person uses in full. A person
+// uses their own row of that name. When they have none, a global row is used only if it
+// is enabled and its fallback switch is on. A row they turned off is not replaced by the
+// global one. Separated from the read so it can be asserted without a database.
 func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.Server, error) {
-	byName := make(map[string]mcp.Server, len(rows))
+	personal := map[string]mcp.Server{}
+	global := map[string]mcp.Server{}
 	for _, r := range rows {
-		if r.Owner != owner {
-			continue
+		switch {
+		case r.Owner == "":
+			global[r.Name] = r
+		case owner != "" && strings.EqualFold(r.Owner, owner):
+			if prev, ok := personal[r.Name]; ok && prev.Owner == owner {
+				continue
+			}
+			personal[r.Name] = r
 		}
-		byName[r.Name] = r
 	}
 	out := make([]mcp.Server, 0, len(names))
 	for _, name := range names {
-		srv, ok := byName[name]
-		switch {
-		case !ok:
+		srv, ok, err := pickMCPServer(owner, name, personal, global)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			return nil, fmt.Errorf("no MCP server named %q is registered", name)
-		case !srv.Enabled:
-			return nil, fmt.Errorf("the MCP server %q is turned off", name)
 		}
 		if _, err := mcp.ParseConfig(srv.Config); err != nil {
 			return nil, fmt.Errorf("the MCP server %q: %w", name, err)
@@ -1228,6 +1283,36 @@ func resolveMCPServers(owner string, names []string, rows []mcp.Server) ([]mcp.S
 		out = append(out, srv)
 	}
 	return out, nil
+}
+
+// pickMCPServer chooses one name. The bool is false when nothing qualifies, which the
+// caller reports as unregistered. A disabled row is an error of its own: the playbook
+// named a server that exists and was turned off.
+func pickMCPServer(owner, name string, personal, global map[string]mcp.Server) (mcp.Server, bool, error) {
+	if owner == "" {
+		srv, ok := global[name]
+		if !ok {
+			return mcp.Server{}, false, nil
+		}
+		if !srv.Enabled {
+			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		return srv, true, nil
+	}
+	if srv, ok := personal[name]; ok {
+		if !srv.Enabled {
+			return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+		}
+		return srv, true, nil
+	}
+	srv, ok := global[name]
+	if !ok || !srv.Fallback {
+		return mcp.Server{}, false, nil
+	}
+	if !srv.Enabled {
+		return mcp.Server{}, false, fmt.Errorf("the MCP server %q is turned off", name)
+	}
+	return srv, true, nil
 }
 
 // skills is the library one turn resolves its names against: the directories under
@@ -1249,11 +1334,11 @@ const (
 	// container that is already entitled to drive it.
 	dockerSidecarHost = "tcp://" + dockerSidecarName + ":2375"
 
-	// Pinned by digest like every other base image Podium runs, and to the same 28.x the
+	// Pinned by digest like every other base image Podium runs, and to the same 29.x the
 	// -dev runtime image's CLI is built against. The digest is the multi-arch index, so it
 	// resolves on amd64 and arm64 alike.
-	dockerSidecarImage = "docker:28-dind@sha256:" +
-		"2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac"
+	dockerSidecarImage = "docker:29-dind@sha256:" +
+		"1e08cdb63405ca788aea94ef35b792d1e299607c667d33d7bcbcae1fd2611ced"
 
 	// dockerSidecarReady is generous because dockerd is slow to listen: ~17s on an
 	// unloaded arm64 laptop, and a loaded node is slower than that by more than the
@@ -1277,8 +1362,8 @@ const (
 	// Pinned by digest, and the digest is the multi-arch index so it resolves on amd64 and
 	// arm64 alike. headless-shell rather than a full Chrome image: no window server, no
 	// extensions, no updater — the browser a turn actually needs is the rendering half.
-	browserSidecarImage = "chromedp/headless-shell:151.0.7922.109@sha256:" +
-		"2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04"
+	browserSidecarImage = "chromedp/headless-shell:156.0.8078.12@sha256:" +
+		"f70908c8020555a3bf89a070140913b443a03ead28c1a66563c3912a3b32b08d"
 
 	// browserSidecarReady is short because headless-shell listens in about a second. A
 	// browser that has not opened its port in thirty is not slow, it is broken.
@@ -1370,11 +1455,17 @@ func (c *Conductor) reservedSecrets(
 		if srv.TokenSecretVersion == 0 {
 			continue
 		}
-		refs = append(refs, spec.SecretRef{
+		ref := spec.SecretRef{
 			Name:   mcp.CredentialSecret(srv),
 			Target: spec.SecretTargetEnv,
 			Key:    mcp.TokenEnv(srv.Name),
-		})
+		}
+		// A person's server is their secret. The owner is what makes CreateTask resolve
+		// it from their list rather than the company list.
+		if srv.Owner != "" {
+			ref.Owner = srv.Owner
+		}
+		refs = append(refs, ref)
 	}
 	// This turn's authority to mint a GitHub token, when it has one. The playbook cannot
 	// name this secret itself — profiles refuses the prefix — so being handed it here is

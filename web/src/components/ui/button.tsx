@@ -6,10 +6,9 @@ import { cn } from "@/lib/utils";
 // eslint-disable-next-line react-refresh/only-export-components -- screens compose links with the same variants
 export const buttonVariants = cva(
   [
-    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md",
-    "text-sm font-medium select-none",
-    "transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out",
-    "outline-none focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+    "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md",
+    "font-bold select-none",
+    "transition-[background-color,border-color,filter] duration-150 ease-out",
     "disabled:pointer-events-none disabled:opacity-45",
     "aria-disabled:pointer-events-none aria-disabled:opacity-45",
     "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
@@ -17,27 +16,23 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/88 active:bg-primary/80",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/88 active:bg-destructive/80",
-        outline:
-          "border border-border bg-panel text-fg shadow-xs hover:border-border hover:bg-raised active:bg-raised/80",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/75 active:bg-secondary/60",
-        ghost: "text-muted hover:bg-raised hover:text-fg active:bg-raised/70",
-        link: "text-primary underline-offset-4 hover:underline",
-        subtle: "bg-accent/12 text-accent hover:bg-accent/20 active:bg-accent/25",
-        danger:
-          "border border-err/35 bg-err/10 text-err hover:border-err/50 hover:bg-err/18 active:bg-err/24",
+        default: "border border-accent bg-accent text-primary-foreground hover:border-accent-hover hover:bg-accent-hover",
+        destructive: "border border-[#a92d35] bg-[#a92d35] text-white hover:border-[#8f202a] hover:bg-[#8f202a]",
+        outline: "border border-line-strong bg-panel text-fg hover:bg-raised",
+        secondary: "border border-line-strong bg-panel text-fg hover:bg-raised",
+        ghost: "border border-transparent bg-transparent text-fg hover:bg-raised",
+        link: "text-fg underline-offset-4 hover:underline",
+        subtle: "border border-transparent bg-raised text-fg hover:bg-border",
+        danger: "border border-[#a92d35] bg-[#a92d35] text-white hover:border-[#8f202a] hover:bg-[#8f202a]",
       },
       size: {
-        default: "h-9 px-3.5",
-        sm: "h-8 rounded-md px-2.5 text-xs [&_svg]:size-3.5",
-        xs: "h-7 gap-1 rounded-md px-2 text-2xs [&_svg]:size-3.5",
-        lg: "h-10 rounded-lg px-5",
-        icon: "size-9",
-        "icon-sm": "size-8 [&_svg]:size-3.5",
-        "icon-xs": "size-7 [&_svg]:size-3.5",
+        default: "min-h-11 px-4 text-base",
+        sm: "min-h-9 px-3 text-sm [&_svg]:size-3.5",
+        xs: "min-h-8 gap-1 px-2 text-xs [&_svg]:size-3.5",
+        lg: "min-h-11 px-5 text-base",
+        icon: "size-11",
+        "icon-sm": "size-9 [&_svg]:size-4",
+        "icon-xs": "size-8 [&_svg]:size-3.5",
       },
     },
     defaultVariants: {

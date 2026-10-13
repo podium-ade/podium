@@ -63,6 +63,11 @@ type InboundEvent struct {
 	ChannelName string
 	// Author is the display name of the human who spoke.
 	Author string
+	// Login is a Podium login the source could infer for this speaker. Slack sets it
+	// from the workspace email when the bot can read one. Empty means the turn has no
+	// person for MCP purposes and uses the global list. It is not a secret and it is
+	// not written onto a mirrored chat: those stay unowned so the workspace can see them.
+	Login string
 	// Text is what they said, with the bot mention already stripped.
 	Text string
 	// TS is when they said it.
@@ -93,6 +98,14 @@ type InboundEvent struct {
 	// source's dry-run knobs and is empty for every real source; the conductor refuses to
 	// honour it for any source but "dev".
 	Env map[string]string
+	// PersonalityName is the personal assistant this chat is bound to. Empty means
+	// Podium. It labels a new session. The brief's profile name stays Podium's, and
+	// Slack, GitHub, and every other source leave this empty.
+	PersonalityName string
+	// PersonalityPrompt is that assistant's instructions. The conductor appends them
+	// to a copy of Podium's system prompt for this brief only. The stored prompt is
+	// not changed.
+	PersonalityPrompt string
 }
 
 // Attachment is one file the conductor wants put into the conversation. Size is part of

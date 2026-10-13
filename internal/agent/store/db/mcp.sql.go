@@ -18,7 +18,6 @@ set token_hint = '',
     token_secret_version = 0,
     auth_kind = '',
     oauth = null,
-    token = '',
     updated_by = $1,
     updated_at = $2
 where owner = $3 and name = $4
@@ -65,8 +64,8 @@ func (q *Queries) DeleteMcpServer(ctx context.Context, arg DeleteMcpServerParams
 
 const getMcpServer = `-- name: GetMcpServer :one
 select name, url, description, enabled, config, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
-       owner
+       token_set_at, token_secret_version, auth_kind, oauth, created_by, updated_by, updated_at,
+       owner, fallback
 from mcp_servers
 where owner = $1 and name = $2
 `
@@ -88,11 +87,11 @@ type GetMcpServerRow struct {
 	TokenSecretVersion int32
 	AuthKind           string
 	Oauth              []byte
-	Token              string
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
 	Owner              string
+	Fallback           bool
 }
 
 func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (GetMcpServerRow, error) {
@@ -110,19 +109,19 @@ func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (Get
 		&i.TokenSecretVersion,
 		&i.AuthKind,
 		&i.Oauth,
-		&i.Token,
 		&i.CreatedBy,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
 		&i.Owner,
+		&i.Fallback,
 	)
 	return i, err
 }
 
 const insertMcpServer = `-- name: InsertMcpServer :execrows
 
-insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at, owner)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+insert into mcp_servers (name, url, description, enabled, config, created_by, updated_by, updated_at, owner, fallback)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 on conflict (owner, name) do nothing
 `
 
@@ -136,6 +135,7 @@ type InsertMcpServerParams struct {
 	UpdatedBy   string
 	UpdatedAt   time.Time
 	Owner       string
+	Fallback    bool
 }
 
 // Insert and update are separate statements rather than one upsert, exactly as the playbook
@@ -152,6 +152,7 @@ func (q *Queries) InsertMcpServer(ctx context.Context, arg InsertMcpServerParams
 		arg.UpdatedBy,
 		arg.UpdatedAt,
 		arg.Owner,
+		arg.Fallback,
 	)
 	if err != nil {
 		return 0, err
@@ -161,8 +162,8 @@ func (q *Queries) InsertMcpServer(ctx context.Context, arg InsertMcpServerParams
 
 const listMcpServers = `-- name: ListMcpServers :many
 select name, url, description, enabled, config, token_hint, token_set_by,
-       token_set_at, token_secret_version, auth_kind, oauth, token, created_by, updated_by, updated_at,
-       owner
+       token_set_at, token_secret_version, auth_kind, oauth, created_by, updated_by, updated_at,
+       owner, fallback
 from mcp_servers
 order by owner, name
 `
@@ -179,11 +180,11 @@ type ListMcpServersRow struct {
 	TokenSecretVersion int32
 	AuthKind           string
 	Oauth              []byte
-	Token              string
 	CreatedBy          string
 	UpdatedBy          string
 	UpdatedAt          time.Time
 	Owner              string
+	Fallback           bool
 }
 
 func (q *Queries) ListMcpServers(ctx context.Context) ([]ListMcpServersRow, error) {
@@ -207,11 +208,11 @@ func (q *Queries) ListMcpServers(ctx context.Context) ([]ListMcpServersRow, erro
 			&i.TokenSecretVersion,
 			&i.AuthKind,
 			&i.Oauth,
-			&i.Token,
 			&i.CreatedBy,
 			&i.UpdatedBy,
 			&i.UpdatedAt,
 			&i.Owner,
+			&i.Fallback,
 		); err != nil {
 			return nil, err
 		}
@@ -226,15 +227,13 @@ func (q *Queries) ListMcpServers(ctx context.Context) ([]ListMcpServersRow, erro
 const refreshMcpServerOAuth = `-- name: RefreshMcpServerOAuth :execrows
 update mcp_servers
 set token_secret_version = $1,
-    oauth = $2,
-    token = $3
-where owner = $4 and name = $5
+    oauth = $2
+where owner = $3 and name = $4
 `
 
 type RefreshMcpServerOAuthParams struct {
 	TokenSecretVersion int32
 	Oauth              []byte
-	Token              string
 	Owner              string
 	Name               string
 }
@@ -245,7 +244,6 @@ func (q *Queries) RefreshMcpServerOAuth(ctx context.Context, arg RefreshMcpServe
 	result, err := q.db.Exec(ctx, refreshMcpServerOAuth,
 		arg.TokenSecretVersion,
 		arg.Oauth,
-		arg.Token,
 		arg.Owner,
 		arg.Name,
 	)
@@ -263,10 +261,9 @@ set token_hint = '',
     token_secret_version = $3,
     auth_kind = $4,
     oauth = $5,
-    token = $6,
     updated_by = $1,
     updated_at = $2
-where owner = $7 and name = $8
+where owner = $6 and name = $7
 `
 
 type SetMcpServerOAuthParams struct {
@@ -275,7 +272,6 @@ type SetMcpServerOAuthParams struct {
 	TokenSecretVersion int32
 	AuthKind           string
 	Oauth              []byte
-	Token              string
 	Owner              string
 	Name               string
 }
@@ -289,7 +285,6 @@ func (q *Queries) SetMcpServerOAuth(ctx context.Context, arg SetMcpServerOAuthPa
 		arg.TokenSecretVersion,
 		arg.AuthKind,
 		arg.Oauth,
-		arg.Token,
 		arg.Owner,
 		arg.Name,
 	)
@@ -307,10 +302,9 @@ set token_hint = $1,
     token_secret_version = $4,
     auth_kind = $5,
     oauth = null,
-    token = $6,
     updated_by = $2,
     updated_at = $3
-where owner = $7 and name = $8
+where owner = $6 and name = $7
 `
 
 type SetMcpServerTokenMetaParams struct {
@@ -319,7 +313,6 @@ type SetMcpServerTokenMetaParams struct {
 	TokenSetAt         *time.Time
 	TokenSecretVersion int32
 	AuthKind           string
-	Token              string
 	Owner              string
 	Name               string
 }
@@ -333,7 +326,6 @@ func (q *Queries) SetMcpServerTokenMeta(ctx context.Context, arg SetMcpServerTok
 		arg.TokenSetAt,
 		arg.TokenSecretVersion,
 		arg.AuthKind,
-		arg.Token,
 		arg.Owner,
 		arg.Name,
 	)
@@ -349,9 +341,10 @@ set url = $1,
     description = $2,
     enabled = $3,
     config = $4,
-    updated_by = $5,
-    updated_at = $6
-where owner = $7 and name = $8
+    fallback = $5,
+    updated_by = $6,
+    updated_at = $7
+where owner = $8 and name = $9
 `
 
 type UpdateMcpServerParams struct {
@@ -359,6 +352,7 @@ type UpdateMcpServerParams struct {
 	Description string
 	Enabled     bool
 	Config      string
+	Fallback    bool
 	UpdatedBy   string
 	UpdatedAt   time.Time
 	Owner       string
@@ -373,6 +367,7 @@ func (q *Queries) UpdateMcpServer(ctx context.Context, arg UpdateMcpServerParams
 		arg.Description,
 		arg.Enabled,
 		arg.Config,
+		arg.Fallback,
 		arg.UpdatedBy,
 		arg.UpdatedAt,
 		arg.Owner,

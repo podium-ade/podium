@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 import { Header } from "./components/Header";
+import { ShellStateProvider } from "./components/shell";
 import { ToastHost } from "./components/Toast";
 import { NotificationsProvider } from "./hooks/useNotifications";
 import { TokenGate } from "./components/TokenGate";
@@ -31,9 +32,10 @@ function Home() {
 
 function Shell() {
   return (
-    <div className="flex h-full flex-col bg-background md:flex-row">
-      <Header />
-      <main
+    <ShellStateProvider>
+      <div className="flex h-full min-h-0 flex-col bg-background md:flex-row">
+        <Header />
+        <main
         className={cn(
           // relative because a scrolling pane has to be a containing block. Radix renders a
           // hidden absolutely-positioned input beside every Switch and Checkbox inside a form;
@@ -43,9 +45,10 @@ function Shell() {
           "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
         )}
       >
-        <Outlet />
-      </main>
-    </div>
+          <Outlet />
+        </main>
+      </div>
+    </ShellStateProvider>
   );
 }
 

@@ -22,8 +22,7 @@ service AgentService {
   // on task_id — that is why a task with no turn behind it simply has no cost, rather than
   // a cost of zero.
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
-  // GetSettings reports what the conductor is configured with. It reads no secret value:
-  // there is no read endpoint on the secret store, by design.
+  // GetSettings reports what the conductor is configured with. It returns no secret value.
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
   // SetProviderKey validates a provider key with the provider itself and, only if that
   // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -49,6 +48,17 @@ service AgentService {
   // ClearGitHubConnection removes the saved App. Calling it twice is not an error.
   // The App is off on the next start.
   rpc ClearGitHubConnection(ClearGitHubConnectionRequest) returns (ClearGitHubConnectionResponse);
+  // GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+  // connect one at all.
+  rpc GetGitHubAccount(GetGitHubAccountRequest) returns (GetGitHubAccountResponse);
+  // StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+  // user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+  rpc StartGitHubOAuth(StartGitHubOAuthRequest) returns (StartGitHubOAuthResponse);
+  // CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+  // personal secret github.token, which a playbook's user_secrets can name.
+  rpc CompleteGitHubOAuth(CompleteGitHubOAuthRequest) returns (CompleteGitHubOAuthResponse);
+  // DisconnectGitHubAccount deletes the caller's github.token and the account record.
+  rpc DisconnectGitHubAccount(DisconnectGitHubAccountRequest) returns (DisconnectGitHubAccountResponse);
   // StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
   // subscription instead of an API key. It stores nothing: it returns the code and the URL
   // a human has to visit, and PollProviderOAuth is what finishes.
@@ -71,12 +81,13 @@ service AgentService {
   // ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
   // a name, an image and which one the chat starts with.
   rpc ListPlaybooks(ListPlaybooksRequest) returns (ListPlaybooksResponse);
-  // GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-  // merged with what the conductor's database holds — and every playbook in full, so a
-  // browser can manage them.
+  // GetProfile reports the assistant a turn actually runs from, and every playbook in full.
+  // Until an assistant is saved, that is the install file. After a save, it is the active
+  // assistant definition.
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
-  // UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
-  // empty field clears the override and returns that field to the file's value.
+  // UpdateProfile replaces the active assistant definition. The request is the whole
+  // definition. An empty id updates the active one, or creates the first one when none
+  // is stored. Creating a second definition is not this RPC.
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
   // ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
   // playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
@@ -181,6 +192,19 @@ service AgentService {
   // description is valid: the channel still has a name, and the next turn simply gets no
   // extra paragraph. An unknown id is invalid_argument.
   rpc SetSlackChannelDescription(SetSlackChannelDescriptionRequest) returns (SetSlackChannelDescriptionResponse);
+  // ListPersonalities returns the caller's own voices, by name. Another login's voices
+  // are never returned. Podium itself is not a row here: it is the assistant.
+  rpc ListPersonalities(ListPersonalitiesRequest) returns (ListPersonalitiesResponse);
+  // CreatePersonality stores a voice for the caller. The name "podium" is reserved.
+  // A name this caller already has is already_exists.
+  rpc CreatePersonality(CreatePersonalityRequest) returns (CreatePersonalityResponse);
+  // UpdatePersonality replaces one of the caller's voices. A row that is missing or
+  // owned by somebody else is not_found. A rename onto a name this caller already has
+  // is already_exists.
+  rpc UpdatePersonality(UpdatePersonalityRequest) returns (UpdatePersonalityResponse);
+  // DeletePersonality removes one of the caller's voices. Chats that used it stay
+  // readable under the name they had. A new message in one of those chats is refused.
+  rpc DeletePersonality(DeletePersonalityRequest) returns (DeletePersonalityResponse);
 }
 
 // Session is one conversation: a Slack thread, a Linear issue, a web chat. Its identity is
@@ -432,6 +456,10 @@ message GitHubConnection {
   string set_by = 9;
   google.protobuf.Timestamp set_at = 10;
   bool restart_required = 11;
+  // client_id is the App's OAuth client id. With client_secret_set it lets people connect
+  // their own GitHub accounts. It applies without a restart.
+  string client_id = 12;
+  bool client_secret_set = 13;
 }
 
 // LinearConnection is a placeholder. available stays false until Linear can be saved
@@ -472,6 +500,10 @@ message SetGitHubConnectionRequest {
   // listen address turns reviews off and drops the secret.
   string webhook_secret = 3;
   string webhook_listen = 4;
+  // client_id is the App's OAuth client id. Blank turns account connection off.
+  string client_id = 5;
+  // SENSITIVE. Blank keeps the saved client secret while a client id is set.
+  string client_secret = 6;
 }
 
 message SetGitHubConnectionResponse {
@@ -482,6 +514,57 @@ message ClearGitHubConnectionRequest {}
 
 message ClearGitHubConnectionResponse {
   GitHubConnection github = 1;
+}
+
+// GitHubAccount is one person's connected GitHub account. The token is never returned.
+message GitHubAccount {
+  // available is true when the App has a client id and secret, so an account can be
+  // connected at all.
+  bool available = 1;
+  bool connected = 2;
+  string github_login = 3;
+  int64 github_id = 4;
+  string name = 5;
+  google.protobuf.Timestamp connected_at = 6;
+  // needs_reconnect is an account GitHub no longer accepts: its refresh token expired after
+  // six months unused, or the person revoked the App. Connecting again clears it.
+  bool needs_reconnect = 7;
+}
+
+message GetGitHubAccountRequest {}
+
+message GetGitHubAccountResponse {
+  GitHubAccount account = 1;
+}
+
+message StartGitHubOAuthRequest {
+  // redirect_uri is the web UI's own callback, supplied by the browser. Its path must be
+  // /agent/github/callback, and the App must list it as a callback URL.
+  string redirect_uri = 1;
+}
+
+message StartGitHubOAuthResponse {
+  string flow_id = 1;
+  string authorize_url = 2;
+  string state = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message CompleteGitHubOAuthRequest {
+  string flow_id = 1;
+  // SENSITIVE: never log this field.
+  string code = 2;
+  string state = 3;
+}
+
+message CompleteGitHubOAuthResponse {
+  GitHubAccount account = 1;
+}
+
+message DisconnectGitHubAccountRequest {}
+
+message DisconnectGitHubAccountResponse {
+  GitHubAccount account = 1;
 }
 
 message SetProviderKeyRequest {
@@ -771,6 +854,12 @@ message Chat {
   // belongs to the workspace. The dev token sees every login; a signed-in user is shown
   // only rows whose login is their own.
   string login = 16;
+  // personality_id is the personal assistant this chat talks to. Empty means Podium.
+  // It is not a foreign key: a deleted assistant leaves the chat readable.
+  string personality_id = 17;
+  // personality_display is that assistant's display name at the moment the chat was
+  // opened, so a deleted assistant's threads stay labeled.
+  string personality_display = 18;
 }
 
 // ChatAttachment is a file a turn produced, resolved to the artifact it actually is. The id
@@ -877,6 +966,9 @@ message ChatFrame {
 message CreateChatRequest {
   // title is optional; an empty one becomes "New chat".
   string title = 1;
+  // personality_id binds the chat to one of the caller's voices. Empty means Podium.
+  // An id the caller does not own is not_found.
+  string personality_id = 2;
 }
 
 message CreateChatResponse {
@@ -894,6 +986,10 @@ message RenameChatResponse {
 
 message ListChatsRequest {
   Page page = 1;
+  // filter_personality is opt-in. Left false, the list is every chat the caller can
+  // already see. Set, an empty personality_id is Podium and a set id is that voice only.
+  bool filter_personality = 2;
+  string personality_id = 3;
 }
 
 message ListChatsResponse {
@@ -965,12 +1061,11 @@ message DetachChatPullRequestResponse {
   repeated ChatPullRequest pull_requests = 1;
 }
 
-// AgentProfile is the bot's identity as the management screen sees it: what is in force
-// now, and what profile.yaml said, so the UI can show which fields a browser has overridden
-// and offer the file's value back.
+// AgentProfile is the assistant in force. id is the active definition once one has been
+// saved, and empty until then. The file_* fields are the install seed, for a deployment
+// that has not saved yet. The screen does not show them.
 message AgentProfile {
-  // name is profile.yaml's and is never overridable: it labels every session row already
-  // written.
+  // name labels new sessions. Sessions already recorded keep the name they were given.
   string name = 1;
   string display_name = 2;
   string model = 3;
@@ -986,7 +1081,8 @@ message AgentProfile {
   string file_default_playbook = 9;
   reserved 10;
   // overridden names the fields a stored override is currently supplying, by their
-  // profile.yaml key: display_name, model, default_playbook, agent, effort.
+  // profile.yaml key: display_name, model, agent, effort, system_prompt, skills,
+  // mcp_servers, max_turns, timeout, git, default_playbook.
   repeated string overridden = 11;
   // updated_by and updated_at describe the stored override, not the file.
   string updated_by = 12;
@@ -999,14 +1095,39 @@ message AgentProfile {
   string file_agent = 16;
   string file_effort = 17;
   // skills and max_turns describe the ASSISTANT — the turn that answers a conversation, in
-  // the conductor's own process. They come from profile.yaml and cannot be overridden from
-  // a browser: what an assistant may execute is a decision that belongs in the repository,
-  // beside a review, and not behind a form.
+  // the conductor's own process. They are the values in force: profile.yaml, or a stored
+  // override when an owner or admin has set one. What this process may execute is still
+  // recorded, on the override row, and a member cannot open the screen that writes it.
   repeated string skills = 18;
-  // max_turns is ZERO when profile.yaml sets none, and zero means no cap. The assistant
-  // answers a conversation and delegates, so what is worth bounding is the container it
-  // starts; an operator who wants a ceiling here sets one.
+  // max_turns is ZERO when the value in force sets none, and zero means no cap. The
+  // assistant answers a conversation and delegates, so what is worth bounding is the
+  // container it starts; an operator who wants a ceiling here sets one.
   int32 max_turns = 19;
+  // system_prompt is the text a conversation is told, already resolved: a file: reference
+  // has been read. An override replaces that text for the next turn and leaves the file.
+  string system_prompt = 20;
+  // file_system_prompt is the file's resolved text, so the screen can offer it back.
+  string file_system_prompt = 21;
+  // mcp_servers is what the assistant may call without starting a task. Empty is none,
+  // and none means it delegates.
+  repeated string mcp_servers = 22;
+  repeated string file_mcp_servers = 23;
+  repeated string file_skills = 24;
+  // file_max_turns is profile.yaml's cap. 0 means the file sets no cap.
+  int32 file_max_turns = 25;
+  // timeout is the wall clock in force, a Go duration string, always set. Fifteen minutes
+  // when the file names none.
+  string timeout = 26;
+  // file_timeout is the file's duration. Empty means the file leaves the default.
+  string file_timeout = 27;
+  // git_name and git_email are who a turn commits as when its playbook names nobody.
+  string git_name = 28;
+  string git_email = 29;
+  string file_git_name = 30;
+  string file_git_email = 31;
+  // id is the active assistant definition. Empty until an owner or admin saves one.
+  // It stays put when the name changes, so a later list of definitions can tell them apart.
+  string id = 32;
 }
 
 // PlaybookResources caps a turn's container. It is spec.Resources, which is where it ends up.
@@ -1137,8 +1258,10 @@ message GetProfileResponse {
 }
 
 message UpdateProfileRequest {
-  // Every field is an override of profile.yaml. An empty one clears the override, which
-  // returns that field to the file's value.
+  // The request is the whole active assistant. Empty strings are empty values, not a
+  // request to fall back to the install file. The *_set flags are ignored: skills,
+  // mcp_servers, max_turns and git are whatever this request says, including an empty
+  // list, a cap of zero, and a git persona of nothing.
   string display_name = 1;
   string model = 2;
   string default_playbook = 3;
@@ -1146,6 +1269,28 @@ message UpdateProfileRequest {
   reserved 4;
   string agent = 5;
   string effort = 6;
+  // system_prompt is the prompt text, not a file: reference. Empty clears the override.
+  string system_prompt = 7;
+  bool skills_set = 8;
+  repeated string skills = 9;
+  bool mcp_servers_set = 10;
+  repeated string mcp_servers = 11;
+  // max_turns_set with max_turns 0 stores a cap of none.
+  bool max_turns_set = 12;
+  int32 max_turns = 13;
+  // timeout is a Go duration ("15m"). Empty clears the override. A non-positive duration
+  // is refused: the wall clock has no off switch.
+  string timeout = 14;
+  // git_set with an empty name and email clears the persona. A name without an email is
+  // refused, because git writes the two into one commit header.
+  bool git_set = 15;
+  string git_name = 16;
+  string git_email = 17;
+  // id is the definition to replace. Empty updates the active one, or creates the first
+  // definition when the catalog is empty. An id that is not in the catalog is refused.
+  string id = 18;
+  // name is the label new sessions store.
+  string name = 19;
 }
 
 message UpdateProfileResponse {
@@ -1373,9 +1518,15 @@ message McpServer {
   // It is stored and carried in clear, so it may not set Authorization — that is the token's
   // job.
   string config = 20;
-  // owner is the login this server belongs to. Empty is the bot list, which Slack uses.
-  // A signed-in person's server is never listed to anyone else.
+  // owner is the login this server belongs to. Empty is the global list: the company
+  // identity, used by a turn that has no person. A signed-in person's server is never
+  // listed to anyone else.
   string owner = 21;
+  // fallback is set only on a global server. A person's turn that has no server of this
+  // name uses the global one when this is true. A turn with no person uses the global
+  // list either way. False until an admin allows it, so a company token is not spent
+  // on someone's behalf by default.
+  bool fallback = 22;
 }
 
 message ListMcpServersRequest {}
@@ -1399,8 +1550,8 @@ message CreateMcpServerRequest {
   // token is the credential to store with the registration, or empty for a server that
   // needs none. SENSITIVE: never log this field.
   string token = 2;
-  // for_bot writes the Slack bot list. Only an admin or the dev token may set it.
-  // A signed-in person who leaves it unset registers a server of their own.
+  // for_bot writes the global list. The name is historical. Only an admin or the dev
+  // token may set it. A signed-in person who leaves it unset registers a server of their own.
   bool for_bot = 3;
 }
 
@@ -1412,7 +1563,7 @@ message UpdateMcpServerRequest {
   // server.name names the registration to replace. The stored token is left alone —
   // SetMcpServerToken and ClearMcpServerToken are the only things that touch it.
   McpServer server = 1;
-  // for_bot edits the Slack bot list. A member who sets it is refused.
+  // for_bot edits the global list. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1422,7 +1573,7 @@ message UpdateMcpServerResponse {
 
 message DeleteMcpServerRequest {
   string name = 1;
-  // for_bot deletes from the Slack bot list. A member who sets it is refused.
+  // for_bot deletes from the global list. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1433,7 +1584,7 @@ message SetMcpServerTokenRequest {
   // SENSITIVE: never log this field. The handler wraps the request in a redacting
   // slog.LogValuer so no log site has to remember.
   string token = 2;
-  // for_bot stores the token on the Slack bot's server. A member who sets it is refused.
+  // for_bot stores the token on the global server. A member who sets it is refused.
   bool for_bot = 3;
 }
 
@@ -1443,7 +1594,7 @@ message SetMcpServerTokenResponse {
 
 message ClearMcpServerTokenRequest {
   string name = 1;
-  // for_bot clears the Slack bot's token. A member who sets it is refused.
+  // for_bot clears the global server's token. A member who sets it is refused.
   bool for_bot = 2;
 }
 
@@ -1466,7 +1617,7 @@ message StartMcpOAuthRequest {
   // right default and not always the narrowest one — a server offering a write scope is a
   // server whose tools can write.
   string scope = 3;
-  // for_bot starts sign-in for the Slack bot's server. A member who sets it is refused.
+  // for_bot starts sign-in for the global server. A member who sets it is refused.
   bool for_bot = 4;
 }
 
@@ -1530,3 +1681,60 @@ message SetSlackChannelDescriptionRequest {
 message SetSlackChannelDescriptionResponse {
   SlackChannel channel = 1;
 }
+
+// Personality is a voice one person added on top of Podium. It is not an assistant
+// definition: a turn still uses Podium's skills and tools, and these instructions are
+// appended after Podium's prompt for that turn only. agent, model, and effort are the
+// voice's own default. Empty means the turn follows Podium. A choice on one message
+// still overrides this.
+message Personality {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string instructions = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  string agent = 6;
+  string model = 7;
+  string effort = 8;
+}
+
+message ListPersonalitiesRequest {}
+
+message ListPersonalitiesResponse {
+  repeated Personality personalities = 1;
+}
+
+message CreatePersonalityRequest {
+  string name = 1;
+  string display_name = 2;
+  string instructions = 3;
+  // agent, model, and effort are this voice's default. Empty follows Podium.
+  string agent = 4;
+  string model = 5;
+  string effort = 6;
+}
+
+message CreatePersonalityResponse {
+  Personality personality = 1;
+}
+
+message UpdatePersonalityRequest {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string instructions = 4;
+  // agent, model, and effort replace the stored default. Empty follows Podium.
+  string agent = 5;
+  string model = 6;
+  string effort = 7;
+}
+
+message UpdatePersonalityResponse {
+  Personality personality = 1;
+}
+
+message DeletePersonalityRequest {
+  string id = 1;
+}
+
+message DeletePersonalityResponse {}

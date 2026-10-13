@@ -445,12 +445,12 @@ func TestProtoRoundTripWithSecrets(t *testing.T) {
 // parser that refused it here would make the field unreachable everywhere.
 func TestParseSidecarPrivilegedAndSharedWorkspace(t *testing.T) {
 	const doc = `
-image: docker:28-dind
+image: docker:29-dind
 command: ["docker", "-H", "tcp://dind:2375", "info"]
 labels: [privileged]
 sidecars:
   dind:
-    image: docker:28-dind
+    image: docker:29-dind
     privileged: true
     share_workspace: true
     env:

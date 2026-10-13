@@ -49,6 +49,7 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 			p.Sidecars[name] = sc.toProto()
 		}
 	}
+	p.Expose = s.Expose.toProto()
 	return p
 }
 
@@ -93,7 +94,39 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 			s.Sidecars[name] = sidecarFromProto(sc)
 		}
 	}
+	s.Expose = exposeFromProto(p.GetExpose())
 	return s
+}
+
+func (x *Expose) toProto() *podiumv1.Expose {
+	if x == nil {
+		return nil
+	}
+	p := &podiumv1.Expose{Via: x.Via, Ports: make(map[string]*podiumv1.ExposedPort, len(x.Ports))}
+	if x.TTL != 0 {
+		p.Ttl = durationpb.New(x.TTL.Std())
+	}
+	for name, port := range x.Ports {
+		p.Ports[name] = &podiumv1.ExposedPort{Port: int32(port.Port), From: port.From}
+	}
+	return p
+}
+
+func exposeFromProto(p *podiumv1.Expose) *Expose {
+	if p == nil {
+		return nil
+	}
+	x := &Expose{Via: p.GetVia()}
+	if t := p.GetTtl(); t != nil {
+		x.TTL = Duration(t.AsDuration())
+	}
+	if len(p.GetPorts()) > 0 {
+		x.Ports = make(map[string]ExposedPort, len(p.GetPorts()))
+	}
+	for name, port := range p.GetPorts() {
+		x.Ports[name] = ExposedPort{Port: int(port.GetPort()), From: port.GetFrom()}
+	}
+	return x
 }
 
 func (r Resources) toProto() *podiumv1.Resources {

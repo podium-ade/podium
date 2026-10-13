@@ -10,7 +10,7 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 
 | | What it is | Where it runs |
 |---|---|---|
-| **Assistant** | Who you talk to. One per conductor. A name, a personality, a model, memory, and a short fixed tool list. `profile.yaml` *is* the assistant. | In this process, on your host. No container, no workspace. |
+| **Assistant** | Who you talk to. One active definition per conductor: a name, a personality, a model, memory, and a short fixed tool list. The saved definition is the assistant. `profile.yaml` is only the install seed, until the first save. | In this process, on your host. No container, no workspace. |
 | **Playbook** | A machine job it can start: an image, tools, repositories, a Docker daemon, a browser, limits, and its own model. `playbooks/<name>.yaml`. | A container on a node. |
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
@@ -44,7 +44,7 @@ human picks. A conversation — the web chat — is answered here. A thread runs
 ```
 somebody says something in a CONVERSATION
   ↓  source (chat)                           normalises it into an InboundEvent
-  ↓  Assistant                               profile.yaml: the prompt, the model, the skills, the cap
+  ↓  Assistant                               the saved definition: the prompt, the model, the skills, the cap
   ↓  UpsertSession                            by source key; sessions.playbook is empty — there is none
   ↓  post "👀 working…"                       before any work starts
   ↓  FetchTranscript                          the conversation so far
@@ -433,22 +433,25 @@ agent: claude                # optional; claude | grok. Unset means claude
 effort: ""                   # optional; low | medium | high | xhigh | max.
                              # Unset means the model's own default
 skills: []                   # optional; the Agent Skills the ASSISTANT may use, by name.
-                             # Unset means none. FILE ONLY — no browser override
+                             # Unset means none. An owner or admin can set this on Assistant.
 mcp_servers: []              # optional; MCP servers the ASSISTANT may use directly, by name,
                              # out of the registry — so editing a ticket needs no task.
-                             # Unset means none, and it delegates instead. FILE ONLY
+                             # Unset means none, and it delegates instead.
 max_turns: 0                 # optional; the assistant's step cap. UNSET MEANS NO CAP, which
-                             # is the opposite of a playbook's. FILE ONLY
+                             # is the opposite of a playbook's.
 timeout: 15m                 # optional; the wall clock on one assistant turn. Unset is 15m
-                             # and there is no "off". FILE ONLY
+                             # and there is no "off".
 # default_playbook is unused. A Slack mention or Linear ticket with no /playbook and no
 # channel claim is refused. Register playbooks for the assistant to delegate to.
 ```
 
-`skills`, `mcp_servers` and `max_turns` are file-only on purpose. What the process running beside
-your master key may execute, reach, and for how long, is a decision that belongs in a repository next to a review
-— not behind a form in a browser. Everything above them can be overridden from the Assistant
-screen, which stores the override in the conductor's database and leaves the file alone.
+An owner or an admin sets every one of these on Assistant. The screen stores the whole
+assistant as a definition in the conductor's database (`settings` key `profile.assistants`):
+a list of definitions and which one is active. Today the screen edits the active one. A later
+release can add another definition to that same list. `profile.yaml` is the install seed. It
+applies until somebody saves, and after that the saved definition is the assistant. A member
+does not see the page. The name labels new sessions. Sessions already recorded keep the name
+they were given.
 
 **`max_turns` unset means no cap, and that is not the playbook rule.** A playbook always has
 one (50 by default) because a task runs unattended on a node. The assistant answers a
@@ -514,6 +517,7 @@ linear: false                                                # this is the playb
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
+expose: null                                                 # keep the turn up afterwards as a preview
 skills: []                                                   # Agent Skills this playbook may use
 mcp_servers: []                                              # MCP servers this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
@@ -540,8 +544,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   `OPENAI_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is
   the brief, the next three come from the secrets, and the last two are where a skill's
   bundle and an MCP server's token travel.
-- **No MCP server token may appear in `secrets:`.** Anything starting `podium.agent.mcp.` is
-  refused. `mcp_servers` is what grants a server to a playbook, and naming its secret directly
+- **No MCP server token may appear in `secrets:` or `user_secrets:`.** Anything starting
+  `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
+  `mcp_servers` is what grants a server to a playbook, and naming its secret directly
   would be a turn holding the credential of a server it was never granted.
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
@@ -649,6 +654,33 @@ work of this conversation and **inject** the person's words into the running con
 (`podium_inject_delegation`) instead of starting a second task. The runtime interrupts the
 harness and continues the same session, workspace kept. A playbook does not have to be
 `interactive` for that: inject is steering, `human_ask` is parking.
+
+#### `expose:` — leave what the turn built running
+
+A task spec's [`expose`](task-spec.md#expose), passed through. When the turn answers, its
+containers stay up and the named ports are published for people, and the thread gets the links
+and the expiry:
+
+```yaml
+docker: true
+expose:
+  ttl: 2h
+  ports:
+    web:          { port: 3000, from: dind }   # published by `docker compose` in the turn's daemon
+    accounts:     { port: 5011, from: dind }
+    applications: { port: 5012, from: dind }
+```
+
+`from` names the turn's own sidecars: `dind` for a `docker: true` turn, `chrome` for the browser,
+nothing for the turn's container. The turn is told the addresses before it starts, as
+`PODIUM_URL_<NAME>`, and should build the app against them rather than `localhost` — say so in
+the playbook's prompt. The assistant's delegation menu marks such a playbook `preview`.
+
+Mind what stays up with it: **the turn's secrets are still in its environment** for as long as
+the preview is, and it keeps its node slot. Keep the ttl short, and end it sooner with
+`podium task release TASK_ID` — or by telling the assistant you are done with it. Its brief
+lists the conversation's previews that are still up, and `podium_release_preview` takes one
+down.
 
 #### `skills:` — third-party Agent Skills
 
@@ -802,8 +834,9 @@ A turn of that playbook gets the server's tools as `mcp__linear__*`, and the tok
 it. A playbook that names none gets none — the harness is written a config with only the
 servers the brief carried.
 
-**The token never travels in the brief.** It is a Podium secret,
-`podium.agent.mcp.<name>_token`, which the conductor attaches to the task as
+**The token never travels in the brief.** A bot server's token is the global secret
+`podium.agent.mcp.<name>_token`. A person's server is their own secret `mcp.<name>_token`,
+which shows on their secrets. The conductor attaches either to the task as
 `PODIUM_MCP_<NAME>_TOKEN`; the brief names the variable and the harness config resolves it at
 run time, so no config file on disk and no task spec ever holds the value. It is the same
 split the model credentials and memory's key follow, for the same reason: a brief is an
@@ -973,42 +1006,60 @@ at all — `sessions.playbook` is empty, and the Sessions and Usage screens read
 A `/word` typed in a **chat** is just text: nothing strips it, because there is no playbook to
 select and eating the first word of somebody's question would only lose it.
 
-Changing a playbook **file** needs the conductor to re-read the profile directory: **Re-read the
-files**, on the Playbooks screen or on Agent → Assistant. There is no SIGHUP reload and no
-restart.
+Changing a playbook **file** needs the conductor to re-read the profile directory: **Reload**,
+on the Playbooks screen. There is no SIGHUP reload and no restart. Re-reading does not replace
+an assistant that has already been saved.
 
 ### Playbooks in the web UI
 
-**Playbooks** in the sidebar lists every `playbooks/<name>.yaml` the conductor has loaded, in
-full, read-only. **Agent → Assistant** sets the display name, the model and the default playbook
-as overrides of `profile.yaml`. Neither screen writes a playbook file: compose bind-mounts
-`PODIUM_AGENT_PROFILE_HOST` (or the named volume `agent-profile`) there, and the conductor
-never writes it.
+**Playbooks** in the sidebar lists every `playbooks/<name>.yaml` the conductor has loaded.
+**Assistants** is where Podium is maintained and where a person adds a voice of their own.
+Podium is the main agent: display name, prompt, model, skills, MCP servers, the step cap,
+the wall clock, and the git persona a playbook inherits. An owner or an admin can change it.
+A member can read it. The link is in the sidebar for anyone signed in while the conductor is on.
 
-Profile *settings* are the one thing a browser does write, because they are not definitions
-with a name but single values with one writer: `profile.yaml` supplies the default and a field
-set in the UI overrides it. The screen shows the file's value beside each field, marks which
-are overridden, and clearing a field returns it to the file. Those overrides live in
-`settings` under `profile.overrides`.
+The screen edits that definition directly. It does not show `profile.yaml`, and it has no
+source editor. `default_playbook` is not a control: a conversation does not run a default
+playbook. A `file:` prompt in the install seed is read once, as text, the first time the
+definition is saved. Editing that file afterwards does not change an assistant that has
+already been saved.
 
-**`profile.yaml` itself is editable on Agent → Assistant**, as text, comments and all — for
-what the override fields do not cover, such as the assistant's `skills` or `mcp_servers`. A
-save writes the file and re-reads the profile directory; a file that does not load is refused
-and the previous one is put back, so a bad save leaves the running bot as it was. The profile
-directory has to be writable by the conductor for this, as it already does for playbook edits.
+A conductor that has never saved still applies the older `profile.overrides` row, when one
+exists, on top of the install file. The first save writes `profile.assistants` and deletes
+that row, so the two cannot both apply.
 
-**How a change reaches a running conductor.** An override write validates, stores, rebuilds the
-profile and swaps it in atomically — the next turn uses it, a turn already in flight is
+### Personal assistants
+
+A personal assistant is a voice one person adds on top of Podium. The person sets a display
+name, instructions, and an optional model. The stored name is generated from that display
+name, once, and a later edit of the display name does not change it. It does not have its
+own skills, MCP servers, timeout, or computer. An empty model follows Podium. A choice in
+one chat still wins there. A web chat that names one still runs Podium, and those
+instructions are appended after Podium's prompt for that turn only. The stored prompt is not
+changed. Slack, GitHub, and Linear keep Podium. They do not address a personal assistant.
+
+Only the person who created it can see it, change it, or open a chat with it. Everyone else
+still has Podium. Podium is pinned first, and a new web chat uses it until that person picks
+another. The choice is per conversation.
+
+**Assistants** lists Podium, then the assistants that person made, then New. A personal
+assistant's editor is the display name, the instructions, and the model, in the same
+order as Podium. Deleting one leaves its chats readable under the display name they were
+given. A new message in one of those chats is refused, and a new chat cannot select it.
+Chat shows the same list above the threads and lists only the open assistant's conversations.
+
+**How a change reaches a running conductor.** A save validates, stores the catalog, rebuilds
+the profile and swaps it in atomically. The next turn uses it. A turn already in flight is
 untouched. The profile directory is read at start and **only** re-read when somebody asks —
-**Re-read the files**, on the Playbooks screen or on Agent → Assistant, which is
-`ReloadProfileDir`. Re-reading a file somebody is half way through saving on a timer would be
-a way to break a working bot by touching a keyboard; a human pressing a button is the one
-signal that says the editing has finished. Every conductor also re-reads the stored overrides
-every 15 seconds, which is what makes a second conductor on the same database, or a row
-changed with `psql`, land as well.
+**Reload**, on the Playbooks screen, which is `ReloadProfileDir`. Re-reading picks up
+playbooks and a prompt file. It does not replace a saved assistant. Re-reading a file
+somebody is half way through saving on a timer would be a way to break a working bot by
+touching a keyboard; a human pressing a button is the one signal that says the editing has
+finished. Every conductor also re-reads the saved assistant every 15 seconds, which is what
+makes a second conductor on the same database, or a row changed with `psql`, land as well.
 
 The re-read is all-or-nothing. `profile.yaml`, every `playbooks/<name>.yaml` and every prompt a
-`file:` names are loaded, the stored overrides are applied, and the result is validated by
+`file:` names are loaded, the saved assistant is applied, and the result is validated by
 exactly the code that runs at start-up — and only then swapped in. A directory that does not load
 is refused with the error naming the file, and the conductor keeps running the profile it already
 had. Nothing an operator can leave half-written on disk can stop a bot that is answering.
@@ -1306,15 +1357,14 @@ notice is informational, and a system error is a failure of Podium itself. Only 
 are raised today. The Models card says **Sign-in expired** for the same fact, and
 **Sign in again** opens the subscription flow.
 
-**Where the refresh token lives, and why it is the exception.** It is in the conductor's own
-Postgres, in the `provider.xai` settings row — *not* in Podium's encrypted secret store. The
-secret store has no read endpoint, by design, so a value put there cannot be read back to
-refresh with. It never leaves the host: no turn is handed it, it is in no brief and no log, and
-it is never copied into an API response. **Treat `podium_agent`'s database as holding a
-credential, because it does** — see [`security.md`](security.md#secrets).
+**Where the refresh token lives.** It is a Podium secret,
+`podium.agent.oauth.<provider>.refresh_token`, which the conductor alone reads back to refresh
+with. No turn is handed it, it is in no brief and no log, and it is never copied into an API
+response. See [`security.md`](security.md#the-conductors-credentials-are-in-the-secret-store).
 
-**Sign out** deletes the secret *and* the row, which is what actually signs you out: leaving the
-row would let the background pass mint a new access token for a provider you just disconnected.
+**Sign out** deletes the access token *and* the refresh token, which is what actually signs you
+out: leaving the refresh token would let the background pass mint a new access token for a
+provider you just disconnected.
 Pasting an API key over a sign-in does the same to the refresh token, for the same reason.
 
 ---
@@ -1728,8 +1778,8 @@ before anything happens.
 
 ### The GitHub credential
 
-There are two ways a turn gets one, and the second is better in every respect that matters. Both
-work; a playbook needs no change to move between them.
+There are three ways a turn gets one: a GitHub App, the asker's own GitHub account, and a
+personal access token. A playbook needs no change to move between the App and a token.
 
 #### A GitHub App — short-lived, scoped, nobody's personal access
 
@@ -1782,6 +1832,62 @@ Two things to know before you turn it on:
 
 A task also becomes able to reach the conductor, at `PODIUM_AGENT_TASK_URL`, for that one method
 and no other. See [`security.md`](security.md#the-minting-endpoint).
+
+#### The asker's own GitHub account
+
+A playbook can push and open pull requests as the person who asked, instead of as the App. Each
+person connects their account once, and nobody creates a personal access token.
+
+1. On the App's settings page on GitHub:
+   - Add `https://<your Podium address>/agent/github/callback` as a **Callback URL**.
+   - Under **Optional features**, keep **User-to-server token expiration** on. It is GitHub's
+     default, and Podium refuses a token that never expires.
+   - Generate a **client secret**.
+2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
+   with the App. They apply at once. No restart is needed.
+3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token and
+   its refresh token as that person's personal secret `github.token`.
+4. The playbook names it:
+
+```yaml
+user_secrets:
+  - { name: github.token, target: env, key: GITHUB_TOKEN }
+```
+
+A turn of that playbook then:
+
+- **Never holds the person's token.** It gets a capability, as an App turn does, and its
+  credential helper redeems it at the conductor. The conductor exchanges the person's token for
+  one GitHub scopes to the playbook's `repos:`, with contents and pull requests write only.
+- **Holds each scoped token for one hour at most.** GitHub gives a scoped token no expiry, so
+  the conductor revokes each one an hour after issuing it, and every one when the turn ends. It
+  records them in the secret store, so a turn still running across a conductor restart has its
+  tokens revoked too.
+- **Refreshes the person's token when it needs to.** GitHub's user token lives eight hours and
+  its refresh token six months. Before scoping, the conductor refreshes a token with less than
+  75 minutes left and stores both new tokens; a refresh token works once. One person's
+  refreshes run one at a time.
+- Commits as that person: their GitHub name and their `<id>+<login>@users.noreply.github.com`
+  address, which GitHub links to their account. This replaces any `git:` persona.
+- Can reach only the playbook's repositories, and of those only the ones the App is installed
+  on that the person can also reach. The pull request shows the person as its author, marked as
+  made through the App.
+
+The `user_secrets:` line is what opts a playbook in. The conductor does not attach
+`github.token` to the task, so `GITHUB_TOKEN` is not set: git and `gh` get the scoped token from
+the credential helper and `GH_TOKEN`.
+
+The turn fails, and says why, when:
+
+- The person has not connected GitHub, or GitHub no longer accepts their connection: the
+  refresh token went six months unused, or they revoked the App. Settings → Account then says
+  the connection expired and offers **Reconnect GitHub**.
+- The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
+- The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
+  the web chat.
+
+Disconnect under Settings → Account deletes the token. To revoke the grant on GitHub too, use
+**Settings → Applications → Authorized GitHub Apps** on GitHub.
 
 #### A personal access token — the older path, still supported
 

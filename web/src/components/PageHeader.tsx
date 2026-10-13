@@ -1,13 +1,50 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Menu, Moon, Sun, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer } from "../lib/identity";
+import { readTheme, syncTheme, toggleTheme, watchSystemTheme, type Theme } from "../lib/theme";
 import { NotificationBell } from "./NotificationBell";
+import { useShell } from "./shell";
 
 const PageActionsContext = createContext<HTMLDivElement | null>(null);
+
+function pageCategory(pathname: string): string {
+  if (!pathname) return "";
+  if (pathname.startsWith("/notifications")) return "Activity";
+  if (
+    pathname === "/agent" ||
+    pathname.startsWith("/agent/chat") ||
+    pathname.startsWith("/agent/sessions") ||
+    pathname.startsWith("/agent/memory") ||
+    pathname.startsWith("/agent/assistants") ||
+    pathname.startsWith("/agent/profile")
+  ) {
+    return "Assistant";
+  }
+  if (
+    pathname.startsWith("/tasks") ||
+    pathname.startsWith("/nodes") ||
+    pathname.startsWith("/submit")
+  ) {
+    return "Run";
+  }
+  if (
+    pathname.startsWith("/agent/") ||
+    pathname.startsWith("/secrets") ||
+    pathname.startsWith("/registries") ||
+    pathname.startsWith("/usage") ||
+    pathname.startsWith("/users")
+  ) {
+    return "Administer";
+  }
+  return "";
+}
+
+const iconButton =
+  "grid size-11 shrink-0 place-items-center rounded-md border border-border bg-panel text-fg hover:bg-raised";
 
 /**
  * PageActions renders into the top bar's action slot. A panel that owns the button's state
@@ -19,11 +56,32 @@ export function PageActions({ children }: { children: ReactNode }) {
   return createPortal(children, slot);
 }
 
+function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    typeof document === "undefined" ? "light" : readTheme(),
+  );
+  useEffect(() => {
+    syncTheme();
+    return watchSystemTheme(setTheme);
+  }, []);
+  const dark = theme === "dark";
+  return (
+    <button
+      type="button"
+      aria-pressed={dark}
+      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      onClick={() => setTheme(toggleTheme())}
+      className={iconButton}
+    >
+      {dark ? <Sun className="size-[18px] stroke-[1.8]" /> : <Moon className="size-[18px] stroke-[1.8]" />}
+    </button>
+  );
+}
+
 /**
- * PageFrame is a fixed toolbar, the same height as the sidebar wordmark: the page title,
- * its current state, and its actions, on one row. The side rail is the map. The body
- * scrolls underneath, except a bleed page (the chat), which keeps the height that remains.
- * The notifications bell is the last control on that row, on every page.
+ * PageFrame is the product top bar: the page title, its group, its actions, the theme
+ * switch, and the notifications bell, on one 64px row. The body scrolls underneath,
+ * except a bleed page (the chat), which keeps the height that remains.
  */
 export function PageFrame({
   title,
@@ -46,24 +104,44 @@ export function PageFrame({
 }) {
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const who = useViewer();
+  const { navOpen, setNavOpen } = useShell();
+  const category = pageCategory(
+    typeof window.location?.pathname === "string" ? window.location.pathname : "",
+  );
   return (
     <PageActionsContext.Provider value={slot}>
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-panel px-4 sm:px-5">
+          <button
+            type="button"
+            className={cn(iconButton, "md:hidden")}
+            aria-expanded={navOpen}
+            aria-controls="app-nav"
+            aria-label={navOpen ? "Close application navigation" : "Open application navigation"}
+            onClick={() => setNavOpen(!navOpen)}
+          >
+            {navOpen ? <X className="size-[18px] stroke-[1.8]" /> : <Menu className="size-[18px] stroke-[1.8]" />}
+          </button>
           {back ? (
             <Link
               to={back.to}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md text-xs text-muted transition-colors hover:text-fg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md text-sm font-semibold text-soft hover:text-fg"
             >
-              <ChevronLeft className="size-3.5" />
+              <ChevronLeft className="size-4" />
               {back.label}
             </Link>
           ) : null}
-          <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight text-fg">{title}</h1>
+          <h1 className="min-w-0 truncate text-lg font-bold tracking-tight text-fg">{title}</h1>
+          {category ? (
+            <span className="hidden shrink-0 border-l border-border pl-3 text-sm text-muted sm:inline">
+              {category}
+            </span>
+          ) : null}
           {meta ? <div className="flex shrink-0 items-center gap-2">{meta}</div> : null}
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {actions}
             <div ref={setSlot} className="flex items-center gap-2 empty:hidden" />
+            <ThemeToggle />
             {who?.agentEnabled ? <NotificationBell /> : null}
           </div>
         </header>
@@ -76,14 +154,7 @@ export function PageFrame({
           {bleed ? (
             children
           ) : (
-            <div
-              className={cn(
-                "mx-auto w-full max-w-7xl px-6 py-6 lg:px-8",
-                bodyClassName ?? "space-y-5",
-              )}
-            >
-              {children}
-            </div>
+            <div className={cn("w-full px-4 py-6 sm:px-6", bodyClassName ?? "space-y-5")}>{children}</div>
           )}
         </div>
       </div>

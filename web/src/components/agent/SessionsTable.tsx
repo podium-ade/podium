@@ -275,7 +275,7 @@ function TurnsDrawer({ session, onClose }: { session: Session; onClose: () => vo
       >
         <header className="shrink-0 space-y-3 border-b border-border px-5 py-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-raised/60">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-raised">
               <kind.icon aria-hidden className="size-4 text-muted" />
             </span>
             <div className="min-w-0 flex-1">

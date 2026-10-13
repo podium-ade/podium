@@ -40,6 +40,7 @@ type Delegator interface {
 	Delegations(ctx context.Context, token string) ([]store.Delegation, error)
 	CancelDelegation(ctx context.Context, token, id, reason string) (store.Delegation, error)
 	InjectDelegation(ctx context.Context, token, id, text string) (store.Delegation, error)
+	ReleaseDelegationPreview(ctx context.Context, token, id string) (store.Delegation, error)
 }
 
 // TurnService implements podium.agent.v1.TurnService.
@@ -172,6 +173,28 @@ func (s *TurnService) InjectDelegation(
 	return connect.NewResponse(&agentv1.InjectDelegationResponse{Delegation: delegationProto(dlg)}), nil
 }
 
+// ReleasePreview takes down the preview a finished delegated task left up.
+func (s *TurnService) ReleasePreview(
+	ctx context.Context,
+	req *connect.Request[agentv1.ReleasePreviewRequest],
+) (*connect.Response[agentv1.ReleasePreviewResponse], error) {
+	token, err := s.token(req.Header())
+	if err != nil {
+		return nil, err
+	}
+	id := strings.TrimSpace(req.Msg.GetId())
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("id is required"))
+	}
+	dlg, err := s.delegator.ReleaseDelegationPreview(ctx, token, id)
+	if err != nil {
+		return nil, delegationError(err)
+	}
+	s.logger.InfoContext(ctx, "a turn released a delegated task's preview",
+		"delegation_id", dlg.ID, "turn_id", dlg.TurnID, "task_id", dlg.TaskID)
+	return connect.NewResponse(&agentv1.ReleasePreviewResponse{Delegation: delegationProto(dlg)}), nil
+}
+
 // token is the caller's turn token, or the reason there is nothing to do.
 func (s *TurnService) token(h interface{ Get(string) string }) (string, error) {
 	if s.delegator == nil {
@@ -198,6 +221,8 @@ func delegationError(err error) error {
 	case errors.Is(err, conductor.ErrDelegationNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, conductor.ErrDelegationOver):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, conductor.ErrNoPreview):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrNoDelegation):
 		return connect.NewError(connect.CodeFailedPrecondition, err)

@@ -1,6 +1,6 @@
 // The delegation tools, as the conductor's TurnService sees them.
 //
-// This is the client half: four calls over Connect's JSON protocol, made with plain fetch.
+// This is the client half: a handful of calls over Connect's JSON protocol, made with plain fetch.
 // Connect's unary JSON mapping is deliberately boring — POST to
 // `/<fully.qualified.Service>/<Method>`, a JSON body, a JSON body back, and a JSON error
 // document with a `code` on failure — so a generated client would buy nothing here and cost
@@ -80,6 +80,10 @@ export class Client {
 
   inject(id: string, text: string): Promise<{ delegation: Delegation }> {
     return this.call("InjectDelegation", { id, text });
+  }
+
+  releasePreview(id: string): Promise<{ delegation: Delegation }> {
+    return this.call("ReleasePreview", { id });
   }
 
   private async call<T>(method: string, body: unknown): Promise<T> {

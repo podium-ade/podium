@@ -19,6 +19,9 @@ service TaskService {
   rpc InjectTask(InjectTaskRequest) returns (InjectTaskResponse);
   // StreamTaskEvents replays stored events from from_seq and then follows live ones.
   rpc StreamTaskEvents(StreamTaskEventsRequest) returns (stream TaskEvent);
+  // ReleasePreview tears down a finished task's preview before its ttl runs out.
+  // Idempotent: releasing one that is already gone succeeds.
+  rpc ReleasePreview(ReleasePreviewRequest) returns (ReleasePreviewResponse);
 }
 
 message Task {
@@ -48,6 +51,22 @@ message Task {
   // was created first. Zero is the default, and negative is allowed — it is a sort key and
   // not a budget, so it changes what runs next and nothing about what a task is given.
   int32 priority = 15;
+  // Set once the node has published the task's exposed ports.
+  TaskPreview preview = 16;
+}
+
+// TaskPreview is a task's environment kept up after its command exited.
+message TaskPreview {
+  string via = 1;
+  string address = 2;
+  // Keyed by the spec's port name.
+  map<string, string> urls = 3;
+  // Unset until the command exits: the ttl counts from then.
+  google.protobuf.Timestamp expires_at = 4;
+  // Set once it is gone.
+  google.protobuf.Timestamp released_at = 5;
+  // released by <login>, expired, task ended, node lost...
+  string release_reason = 6;
 }
 
 message CreateTaskRequest {
@@ -113,6 +132,14 @@ message InjectTaskRequest {
 }
 
 message InjectTaskResponse {}
+
+message ReleasePreviewRequest {
+  string task_id = 1;
+}
+
+message ReleasePreviewResponse {
+  Task task = 1;
+}
 
 message StreamTaskEventsRequest {
   string task_id = 1;

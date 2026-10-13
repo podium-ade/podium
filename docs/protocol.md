@@ -58,10 +58,10 @@ operator      podium node                       podium server
    |               |                                  |
    |               |======== Stream (bidi) ==========>|   reopened with backoff
    |               |  Hello{node_id, node_key, labels,|
-   |               |        capacity, running_task_ids, version}
-   |               | <-- HelloAck{tasks: [TaskCheckpoint]}  always the first reply
+   |               |        capacity, running_task_ids, version, held_task_ids}
+   |               | <-- HelloAck{tasks: [TaskCheckpoint], release_task_ids}  always the first reply
    |               |                                  |   -> reconcile, mark online
-   |               |  Heartbeat{load, free_slots, ...}|   every 10s
+   |               |  Heartbeat{load, free_slots, free_*_previews, ...}|   every 10s
    |               | <-- Assign{task_id, lease_id, spec, deadline,
    |               |            resolved_secrets,      |   SENSITIVE: plaintext values
    |               |            registry_credentials} |
@@ -69,6 +69,7 @@ operator      podium node                       podium server
    |               | <-- Ack{task_id, seq}            |   high-water mark
    |               | <-- Cancel{task_id, reason}      |   idempotent
    |               | <-- Inject{task_id, text}        |   human reply into a running task
+   |               | <-- Release{task_id, reason}     |   tear down a finished task's preview
    |               | <-- Drain{}                      |   stop accepting new work
    |               | <-- Slots{max_tasks}             |   one on every stream; 0 = the node's own
 ```
@@ -137,6 +138,12 @@ redaction rewrites the bytes on their way out, so `sum(length(bytes))` is a diff
 Each `LogChunk` therefore carries `source_offset`, the position in the container's stream that
 that chunk ends at, and the server hands back the maximum it holds.
 
+A node also reports `held_task_ids`: finished tasks whose environment it is keeping up as a
+[preview](task-spec.md#expose). They are not runs, so they get no checkpoint. The server answers
+with `release_task_ids`, the ones it no longer wants kept — released or expired while the node
+was away — and the node tears those down and keeps the rest. A store that cannot answer keeps
+everything, because a teardown cannot be taken back and the expiry sweep will ask again.
+
 Tasks the store still has on a node that the node did *not* report have lost their containers:
 they are requeued (`retry_on_node_loss`) or marked `lost`. Tasks in `scheduled` are the one
 exception — an `Assign` may still be in flight — and are left to the 15s provisioning deadline.
@@ -164,7 +171,7 @@ Events for different tasks are independent; there is no global ordering.
 
 ## `TaskEvent.kind`
 
-`TaskEventKind` carries all ten canonical values. `kind` and the `payload` oneof are
+`TaskEventKind` carries all eleven canonical values. `kind` and the `payload` oneof are
 correlated but not redundant: `provisioning`, `pulling` and `started` have no payload.
 
 | kind | payload | emitted in MVP-0 |
@@ -179,6 +186,10 @@ correlated but not redundant: `provisioning`, `pulling` and `started` have no pa
 | `TASK_EVENT_KIND_FINISHED` | `Finished{exit_code, usage}` | yes |
 | `TASK_EVENT_KIND_ERROR` | `Error{message, retryable, aborts_run}` | yes |
 | `TASK_EVENT_KIND_MESSAGE` | `Message{type, text, attachments}` | yes — `podium-runner message`, see below |
+| `TASK_EVENT_KIND_PREVIEW` | `Preview{via, address, urls}` | yes — once, before `started`, for a spec that exposes ports |
+
+`Finished.held` says the task's containers stay up as a preview; the server starts the
+preview's ttl from that event's timestamp.
 
 An **`artifact` event is only ever emitted after `UploadArtifact` has returned**, so it
 always names bytes that are already durable — never an upload in flight. Artifact events

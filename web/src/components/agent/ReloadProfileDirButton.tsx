@@ -8,11 +8,11 @@ import { canManageInfra } from "../../lib/rbac";
 
 /**
  * ReloadProfileDirButton re-reads the conductor's profile directory into the running process:
- * `profile.yaml`, every `playbooks/<name>.yaml` and the prompt files they name.
+ * the install seed, every `playbooks/<name>.yaml`, and the prompt files they name.
  *
- * That half of the profile is read once, at start. Everything a browser can change already
- * reaches the next turn on its own, so an operator editing YAML over SSH was the only one
- * left restarting a process to see their change — this is the button they press instead.
+ * A saved assistant is not replaced by that re-read. Playbook files are. The directory is
+ * read once, at start, so an operator editing a playbook over SSH presses this instead of
+ * restarting.
  *
  * It is a button and not a timer on purpose: a directory halfway through being saved does
  * not load, and only the person editing it knows when they have finished. A directory that

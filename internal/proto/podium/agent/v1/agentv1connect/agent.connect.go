@@ -66,6 +66,18 @@ const (
 	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// ClearGitHubConnection RPC.
 	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
+	// AgentServiceGetGitHubAccountProcedure is the fully-qualified name of the AgentService's
+	// GetGitHubAccount RPC.
+	AgentServiceGetGitHubAccountProcedure = "/podium.agent.v1.AgentService/GetGitHubAccount"
+	// AgentServiceStartGitHubOAuthProcedure is the fully-qualified name of the AgentService's
+	// StartGitHubOAuth RPC.
+	AgentServiceStartGitHubOAuthProcedure = "/podium.agent.v1.AgentService/StartGitHubOAuth"
+	// AgentServiceCompleteGitHubOAuthProcedure is the fully-qualified name of the AgentService's
+	// CompleteGitHubOAuth RPC.
+	AgentServiceCompleteGitHubOAuthProcedure = "/podium.agent.v1.AgentService/CompleteGitHubOAuth"
+	// AgentServiceDisconnectGitHubAccountProcedure is the fully-qualified name of the AgentService's
+	// DisconnectGitHubAccount RPC.
+	AgentServiceDisconnectGitHubAccountProcedure = "/podium.agent.v1.AgentService/DisconnectGitHubAccount"
 	// AgentServiceStartProviderOAuthProcedure is the fully-qualified name of the AgentService's
 	// StartProviderOAuth RPC.
 	AgentServiceStartProviderOAuthProcedure = "/podium.agent.v1.AgentService/StartProviderOAuth"
@@ -169,6 +181,18 @@ const (
 	// AgentServiceSetSlackChannelDescriptionProcedure is the fully-qualified name of the AgentService's
 	// SetSlackChannelDescription RPC.
 	AgentServiceSetSlackChannelDescriptionProcedure = "/podium.agent.v1.AgentService/SetSlackChannelDescription"
+	// AgentServiceListPersonalitiesProcedure is the fully-qualified name of the AgentService's
+	// ListPersonalities RPC.
+	AgentServiceListPersonalitiesProcedure = "/podium.agent.v1.AgentService/ListPersonalities"
+	// AgentServiceCreatePersonalityProcedure is the fully-qualified name of the AgentService's
+	// CreatePersonality RPC.
+	AgentServiceCreatePersonalityProcedure = "/podium.agent.v1.AgentService/CreatePersonality"
+	// AgentServiceUpdatePersonalityProcedure is the fully-qualified name of the AgentService's
+	// UpdatePersonality RPC.
+	AgentServiceUpdatePersonalityProcedure = "/podium.agent.v1.AgentService/UpdatePersonality"
+	// AgentServiceDeletePersonalityProcedure is the fully-qualified name of the AgentService's
+	// DeletePersonality RPC.
+	AgentServiceDeletePersonalityProcedure = "/podium.agent.v1.AgentService/DeletePersonality"
 )
 
 // AgentServiceClient is a client for the podium.agent.v1.AgentService service.
@@ -186,8 +210,7 @@ type AgentServiceClient interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -213,6 +236,17 @@ type AgentServiceClient interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+	// connect one at all.
+	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
+	// StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+	// user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+	StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error)
+	// CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+	// personal secret github.token, which a playbook's user_secrets can name.
+	CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error)
+	// DisconnectGitHubAccount deletes the caller's github.token and the account record.
+	DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -235,12 +269,13 @@ type AgentServiceClient interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the assistant a turn actually runs from, and every playbook in full.
+	// Until an assistant is saved, that is the install file. After a save, it is the active
+	// assistant definition.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
-	// empty field clears the override and returns that field to the file's value.
+	// UpdateProfile replaces the active assistant definition. The request is the whole
+	// definition. An empty id updates the active one, or creates the first one when none
+	// is stored. Creating a second definition is not this RPC.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
 	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
@@ -345,6 +380,19 @@ type AgentServiceClient interface {
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
 	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
+	// ListPersonalities returns the caller's own voices, by name. Another login's voices
+	// are never returned. Podium itself is not a row here: it is the assistant.
+	ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error)
+	// CreatePersonality stores a voice for the caller. The name "podium" is reserved.
+	// A name this caller already has is already_exists.
+	CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error)
+	// UpdatePersonality replaces one of the caller's voices. A row that is missing or
+	// owned by somebody else is not_found. A rename onto a name this caller already has
+	// is already_exists.
+	UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error)
+	// DeletePersonality removes one of the caller's voices. Chats that used it stay
+	// readable under the name they had. A new message in one of those chats is refused.
+	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 }
 
 // NewAgentServiceClient constructs a client for the podium.agent.v1.AgentService service. By
@@ -428,6 +476,30 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceClearGitHubConnectionProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		getGitHubAccount: connect.NewClient[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse](
+			httpClient,
+			baseURL+AgentServiceGetGitHubAccountProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetGitHubAccount")),
+			connect.WithClientOptions(opts...),
+		),
+		startGitHubOAuth: connect.NewClient[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceStartGitHubOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StartGitHubOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		completeGitHubOAuth: connect.NewClient[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse](
+			httpClient,
+			baseURL+AgentServiceCompleteGitHubOAuthProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CompleteGitHubOAuth")),
+			connect.WithClientOptions(opts...),
+		),
+		disconnectGitHubAccount: connect.NewClient[v1.DisconnectGitHubAccountRequest, v1.DisconnectGitHubAccountResponse](
+			httpClient,
+			baseURL+AgentServiceDisconnectGitHubAccountProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DisconnectGitHubAccount")),
 			connect.WithClientOptions(opts...),
 		),
 		startProviderOAuth: connect.NewClient[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse](
@@ -652,6 +724,30 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
 			connect.WithClientOptions(opts...),
 		),
+		listPersonalities: connect.NewClient[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse](
+			httpClient,
+			baseURL+AgentServiceListPersonalitiesProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ListPersonalities")),
+			connect.WithClientOptions(opts...),
+		),
+		createPersonality: connect.NewClient[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceCreatePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("CreatePersonality")),
+			connect.WithClientOptions(opts...),
+		),
+		updatePersonality: connect.NewClient[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceUpdatePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdatePersonality")),
+			connect.WithClientOptions(opts...),
+		),
+		deletePersonality: connect.NewClient[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse](
+			httpClient,
+			baseURL+AgentServiceDeletePersonalityProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -669,6 +765,10 @@ type agentServiceClient struct {
 	clearSlackConnection       *connect.Client[v1.ClearSlackConnectionRequest, v1.ClearSlackConnectionResponse]
 	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
 	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
+	getGitHubAccount           *connect.Client[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse]
+	startGitHubOAuth           *connect.Client[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse]
+	completeGitHubOAuth        *connect.Client[v1.CompleteGitHubOAuthRequest, v1.CompleteGitHubOAuthResponse]
+	disconnectGitHubAccount    *connect.Client[v1.DisconnectGitHubAccountRequest, v1.DisconnectGitHubAccountResponse]
 	startProviderOAuth         *connect.Client[v1.StartProviderOAuthRequest, v1.StartProviderOAuthResponse]
 	pollProviderOAuth          *connect.Client[v1.PollProviderOAuthRequest, v1.PollProviderOAuthResponse]
 	listAgents                 *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
@@ -706,6 +806,10 @@ type agentServiceClient struct {
 	detachChatPullRequest      *connect.Client[v1.DetachChatPullRequestRequest, v1.DetachChatPullRequestResponse]
 	listSlackChannels          *connect.Client[v1.ListSlackChannelsRequest, v1.ListSlackChannelsResponse]
 	setSlackChannelDescription *connect.Client[v1.SetSlackChannelDescriptionRequest, v1.SetSlackChannelDescriptionResponse]
+	listPersonalities          *connect.Client[v1.ListPersonalitiesRequest, v1.ListPersonalitiesResponse]
+	createPersonality          *connect.Client[v1.CreatePersonalityRequest, v1.CreatePersonalityResponse]
+	updatePersonality          *connect.Client[v1.UpdatePersonalityRequest, v1.UpdatePersonalityResponse]
+	deletePersonality          *connect.Client[v1.DeletePersonalityRequest, v1.DeletePersonalityResponse]
 }
 
 // ListSessions calls podium.agent.v1.AgentService.ListSessions.
@@ -766,6 +870,26 @@ func (c *agentServiceClient) SetGitHubConnection(ctx context.Context, req *conne
 // ClearGitHubConnection calls podium.agent.v1.AgentService.ClearGitHubConnection.
 func (c *agentServiceClient) ClearGitHubConnection(ctx context.Context, req *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return c.clearGitHubConnection.CallUnary(ctx, req)
+}
+
+// GetGitHubAccount calls podium.agent.v1.AgentService.GetGitHubAccount.
+func (c *agentServiceClient) GetGitHubAccount(ctx context.Context, req *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
+	return c.getGitHubAccount.CallUnary(ctx, req)
+}
+
+// StartGitHubOAuth calls podium.agent.v1.AgentService.StartGitHubOAuth.
+func (c *agentServiceClient) StartGitHubOAuth(ctx context.Context, req *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error) {
+	return c.startGitHubOAuth.CallUnary(ctx, req)
+}
+
+// CompleteGitHubOAuth calls podium.agent.v1.AgentService.CompleteGitHubOAuth.
+func (c *agentServiceClient) CompleteGitHubOAuth(ctx context.Context, req *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error) {
+	return c.completeGitHubOAuth.CallUnary(ctx, req)
+}
+
+// DisconnectGitHubAccount calls podium.agent.v1.AgentService.DisconnectGitHubAccount.
+func (c *agentServiceClient) DisconnectGitHubAccount(ctx context.Context, req *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error) {
+	return c.disconnectGitHubAccount.CallUnary(ctx, req)
 }
 
 // StartProviderOAuth calls podium.agent.v1.AgentService.StartProviderOAuth.
@@ -953,6 +1077,26 @@ func (c *agentServiceClient) SetSlackChannelDescription(ctx context.Context, req
 	return c.setSlackChannelDescription.CallUnary(ctx, req)
 }
 
+// ListPersonalities calls podium.agent.v1.AgentService.ListPersonalities.
+func (c *agentServiceClient) ListPersonalities(ctx context.Context, req *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error) {
+	return c.listPersonalities.CallUnary(ctx, req)
+}
+
+// CreatePersonality calls podium.agent.v1.AgentService.CreatePersonality.
+func (c *agentServiceClient) CreatePersonality(ctx context.Context, req *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error) {
+	return c.createPersonality.CallUnary(ctx, req)
+}
+
+// UpdatePersonality calls podium.agent.v1.AgentService.UpdatePersonality.
+func (c *agentServiceClient) UpdatePersonality(ctx context.Context, req *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error) {
+	return c.updatePersonality.CallUnary(ctx, req)
+}
+
+// DeletePersonality calls podium.agent.v1.AgentService.DeletePersonality.
+func (c *agentServiceClient) DeletePersonality(ctx context.Context, req *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
+	return c.deletePersonality.CallUnary(ctx, req)
+}
+
 // AgentServiceHandler is an implementation of the podium.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	// ListSessions returns conversations the bot has taken part in, newest first.
@@ -968,8 +1112,7 @@ type AgentServiceHandler interface {
 	// on task_id — that is why a task with no turn behind it simply has no cost, rather than
 	// a cost of zero.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
-	// GetSettings reports what the conductor is configured with. It reads no secret value:
-	// there is no read endpoint on the secret store, by design.
+	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
@@ -995,6 +1138,17 @@ type AgentServiceHandler interface {
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
+	// GetGitHubAccount is the caller's own connected GitHub account, and whether the App can
+	// connect one at all.
+	GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error)
+	// StartGitHubOAuth begins connecting the caller's GitHub account through the GitHub App's
+	// user authorization. Like StartMcpOAuth, the PKCE verifier stays on the conductor.
+	StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error)
+	// CompleteGitHubOAuth trades the code for a user token and stores it as the caller's
+	// personal secret github.token, which a playbook's user_secrets can name.
+	CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error)
+	// DisconnectGitHubAccount deletes the caller's github.token and the account record.
+	DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error)
 	// StartProviderOAuth begins a device-authorisation sign-in for a provider that takes a
 	// subscription instead of an API key. It stores nothing: it returns the code and the URL
 	// a human has to visit, and PollProviderOAuth is what finishes.
@@ -1017,12 +1171,13 @@ type AgentServiceHandler interface {
 	// ListPlaybooks reports the profile's playbooks so the chat can offer them. Nothing secret:
 	// a name, an image and which one the chat starts with.
 	ListPlaybooks(context.Context, *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error)
-	// GetProfile reports the profile a turn actually runs from — profile.yaml and playbooks/
-	// merged with what the conductor's database holds — and every playbook in full, so a
-	// browser can manage them.
+	// GetProfile reports the assistant a turn actually runs from, and every playbook in full.
+	// Until an assistant is saved, that is the install file. After a save, it is the active
+	// assistant definition.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
-	// UpdateProfile overrides profile.yaml's display name, model and default playbooks. An
-	// empty field clears the override and returns that field to the file's value.
+	// UpdateProfile replaces the active assistant definition. The request is the whole
+	// definition. An empty id updates the active one, or creates the first one when none
+	// is stored. Creating a second definition is not this RPC.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// ReloadProfileDir re-reads the conductor's profile directory — profile.yaml, every
 	// playbooks/*.yaml and every prompt file they name — and swaps what it finds into the
@@ -1127,6 +1282,19 @@ type AgentServiceHandler interface {
 	// description is valid: the channel still has a name, and the next turn simply gets no
 	// extra paragraph. An unknown id is invalid_argument.
 	SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error)
+	// ListPersonalities returns the caller's own voices, by name. Another login's voices
+	// are never returned. Podium itself is not a row here: it is the assistant.
+	ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error)
+	// CreatePersonality stores a voice for the caller. The name "podium" is reserved.
+	// A name this caller already has is already_exists.
+	CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error)
+	// UpdatePersonality replaces one of the caller's voices. A row that is missing or
+	// owned by somebody else is not_found. A rename onto a name this caller already has
+	// is already_exists.
+	UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error)
+	// DeletePersonality removes one of the caller's voices. Chats that used it stay
+	// readable under the name they had. A new message in one of those chats is refused.
+	DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error)
 }
 
 // NewAgentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1206,6 +1374,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceClearGitHubConnectionProcedure,
 		svc.ClearGitHubConnection,
 		connect.WithSchema(agentServiceMethods.ByName("ClearGitHubConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetGitHubAccountHandler := connect.NewUnaryHandler(
+		AgentServiceGetGitHubAccountProcedure,
+		svc.GetGitHubAccount,
+		connect.WithSchema(agentServiceMethods.ByName("GetGitHubAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStartGitHubOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceStartGitHubOAuthProcedure,
+		svc.StartGitHubOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("StartGitHubOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCompleteGitHubOAuthHandler := connect.NewUnaryHandler(
+		AgentServiceCompleteGitHubOAuthProcedure,
+		svc.CompleteGitHubOAuth,
+		connect.WithSchema(agentServiceMethods.ByName("CompleteGitHubOAuth")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDisconnectGitHubAccountHandler := connect.NewUnaryHandler(
+		AgentServiceDisconnectGitHubAccountProcedure,
+		svc.DisconnectGitHubAccount,
+		connect.WithSchema(agentServiceMethods.ByName("DisconnectGitHubAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceStartProviderOAuthHandler := connect.NewUnaryHandler(
@@ -1430,6 +1622,30 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(agentServiceMethods.ByName("SetSlackChannelDescription")),
 		connect.WithHandlerOptions(opts...),
 	)
+	agentServiceListPersonalitiesHandler := connect.NewUnaryHandler(
+		AgentServiceListPersonalitiesProcedure,
+		svc.ListPersonalities,
+		connect.WithSchema(agentServiceMethods.ByName("ListPersonalities")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceCreatePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceCreatePersonalityProcedure,
+		svc.CreatePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("CreatePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdatePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceUpdatePersonalityProcedure,
+		svc.UpdatePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("UpdatePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceDeletePersonalityHandler := connect.NewUnaryHandler(
+		AgentServiceDeletePersonalityProcedure,
+		svc.DeletePersonality,
+		connect.WithSchema(agentServiceMethods.ByName("DeletePersonality")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/podium.agent.v1.AgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentServiceListSessionsProcedure:
@@ -1456,6 +1672,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceSetGitHubConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceClearGitHubConnectionProcedure:
 			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceGetGitHubAccountProcedure:
+			agentServiceGetGitHubAccountHandler.ServeHTTP(w, r)
+		case AgentServiceStartGitHubOAuthProcedure:
+			agentServiceStartGitHubOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceCompleteGitHubOAuthProcedure:
+			agentServiceCompleteGitHubOAuthHandler.ServeHTTP(w, r)
+		case AgentServiceDisconnectGitHubAccountProcedure:
+			agentServiceDisconnectGitHubAccountHandler.ServeHTTP(w, r)
 		case AgentServiceStartProviderOAuthProcedure:
 			agentServiceStartProviderOAuthHandler.ServeHTTP(w, r)
 		case AgentServicePollProviderOAuthProcedure:
@@ -1530,6 +1754,14 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListSlackChannelsHandler.ServeHTTP(w, r)
 		case AgentServiceSetSlackChannelDescriptionProcedure:
 			agentServiceSetSlackChannelDescriptionHandler.ServeHTTP(w, r)
+		case AgentServiceListPersonalitiesProcedure:
+			agentServiceListPersonalitiesHandler.ServeHTTP(w, r)
+		case AgentServiceCreatePersonalityProcedure:
+			agentServiceCreatePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceUpdatePersonalityProcedure:
+			agentServiceUpdatePersonalityHandler.ServeHTTP(w, r)
+		case AgentServiceDeletePersonalityProcedure:
+			agentServiceDeletePersonalityHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1585,6 +1817,22 @@ func (UnimplementedAgentServiceHandler) SetGitHubConnection(context.Context, *co
 
 func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ClearGitHubConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetGitHubAccount(context.Context, *connect.Request[v1.GetGitHubAccountRequest]) (*connect.Response[v1.GetGitHubAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetGitHubAccount is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StartGitHubOAuth(context.Context, *connect.Request[v1.StartGitHubOAuthRequest]) (*connect.Response[v1.StartGitHubOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.StartGitHubOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CompleteGitHubOAuth(context.Context, *connect.Request[v1.CompleteGitHubOAuthRequest]) (*connect.Response[v1.CompleteGitHubOAuthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CompleteGitHubOAuth is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DisconnectGitHubAccount(context.Context, *connect.Request[v1.DisconnectGitHubAccountRequest]) (*connect.Response[v1.DisconnectGitHubAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DisconnectGitHubAccount is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) StartProviderOAuth(context.Context, *connect.Request[v1.StartProviderOAuthRequest]) (*connect.Response[v1.StartProviderOAuthResponse], error) {
@@ -1733,4 +1981,20 @@ func (UnimplementedAgentServiceHandler) ListSlackChannels(context.Context, *conn
 
 func (UnimplementedAgentServiceHandler) SetSlackChannelDescription(context.Context, *connect.Request[v1.SetSlackChannelDescriptionRequest]) (*connect.Response[v1.SetSlackChannelDescriptionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetSlackChannelDescription is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ListPersonalities(context.Context, *connect.Request[v1.ListPersonalitiesRequest]) (*connect.Response[v1.ListPersonalitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.ListPersonalities is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) CreatePersonality(context.Context, *connect.Request[v1.CreatePersonalityRequest]) (*connect.Response[v1.CreatePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.CreatePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdatePersonality(context.Context, *connect.Request[v1.UpdatePersonalityRequest]) (*connect.Response[v1.UpdatePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.UpdatePersonality is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) DeletePersonality(context.Context, *connect.Request[v1.DeletePersonalityRequest]) (*connect.Response[v1.DeletePersonalityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.DeletePersonality is not implemented"))
 }

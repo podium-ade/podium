@@ -215,7 +215,7 @@ function NodeRow({ node }: { node: Node }) {
       data-draining={draining ? "true" : "false"}
       // A node the server cannot reach is the one thing an operator came here to find, so the
       // whole row carries it rather than one cell.
-      className={cn(!connected && "bg-warn/[0.06]")}
+      className={cn(!connected && "bg-warn-bg")}
     >
       <TableCell>
         <Link

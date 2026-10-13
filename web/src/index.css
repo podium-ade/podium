@@ -2,73 +2,106 @@
 @import "tw-animate-css";
 
 /*
-  Dark is the default; a light preference flips the same tokens. Podium's original utilities
-  (bg-bg, text-muted, bg-accent, …) stay so existing screens do not have to be rewritten, and
-  the shadcn names (background, primary, card, sidebar, …) alias the same values so new
-  components can speak that vocabulary.
+  Podium design system, dark shell. Canvas is #060708, surface is #101214,
+  and the chat rail is #181b1f. Names the screens already use
+  (bg, panel, muted, accent, …) stay, and the shadcn names alias them.
 */
 
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("./assets/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("./assets/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("./assets/fonts/IBMPlexSans-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
 @theme {
-  --color-bg: oklch(0.163 0.011 264);
-  --color-panel: oklch(0.203 0.012 264);
-  --color-raised: oklch(0.253 0.014 264);
-  --color-border: oklch(0.302 0.016 264);
-  --color-hairline: oklch(0.253 0.014 264);
-  --color-fg: oklch(0.967 0.004 264);
-  --color-muted: oklch(0.706 0.018 264);
-  --color-faint: oklch(0.576 0.018 264);
-  --color-accent: oklch(0.724 0.146 248);
-  --color-ok: oklch(0.784 0.157 155);
-  --color-warn: oklch(0.822 0.144 82);
-  --color-err: oklch(0.702 0.176 22);
-  --color-run: oklch(0.784 0.126 220);
-  --color-idle: oklch(0.667 0.024 258);
-  /* lost is not a failure: it gets its own colour so it cannot be read as one. */
-  --color-lost: oklch(0.735 0.157 305);
+  /* Dark shell: canvas #060708, surface #101214, surface-alt #181b1f. */
+  --color-bg: #060708;
+  --color-panel: #101214;
+  --color-rail: #181b1f;
+  --color-raised: #181b1f;
+  --color-popover: #1e2227;
+  --color-fg: #f2f4f6;
+  --color-soft: #c5ccd3;
+  --color-muted: #939ba3;
+  --color-faint: #939ba3;
+  --color-border: #32373c;
+  --color-hairline: #32373c;
+  --color-line-strong: #5c636b;
+  --color-accent: #254f78;
+  --color-accent-hover: #183d62;
+  --color-accent-ink: #ffffff;
+  --color-ring: #2365a7;
+  --color-ok: #8fceb0;
+  --color-ok-bg: #102018;
+  --color-warn: #e4c48a;
+  --color-warn-bg: #241c10;
+  --color-err: #f0b0b4;
+  --color-err-bg: #2a1517;
+  --color-run: #9eb4c9;
+  --color-run-bg: #12171d;
+  --color-idle: #939ba3;
+  --color-idle-bg: #181b1f;
+  /* lost is not a failure: it stays its own colour so it cannot be read as one. */
+  --color-lost: #e4c6f2;
+  --color-lost-bg: #3a2c44;
 
   --color-background: var(--color-bg);
   --color-foreground: var(--color-fg);
   --color-card: var(--color-panel);
   --color-card-foreground: var(--color-fg);
-  --color-popover: var(--color-raised);
   --color-popover-foreground: var(--color-fg);
   --color-primary: var(--color-accent);
-  --color-primary-foreground: oklch(0.163 0.011 264);
+  --color-primary-foreground: var(--color-accent-ink);
   --color-secondary: var(--color-raised);
   --color-secondary-foreground: var(--color-fg);
   --color-muted-foreground: var(--color-muted);
-  --color-accent-foreground: var(--color-fg);
-  --color-destructive: var(--color-err);
-  --color-destructive-foreground: oklch(0.163 0.011 264);
-  --color-input: var(--color-border);
-  --color-ring: var(--color-accent);
-  --color-sidebar: oklch(0.183 0.012 264);
+  --color-accent-foreground: var(--color-accent-ink);
+  --color-destructive: #a92d35;
+  --color-destructive-foreground: #ffffff;
+  --color-input: var(--color-line-strong);
+  --color-sidebar: var(--color-panel);
   --color-sidebar-foreground: var(--color-fg);
   --color-sidebar-primary: var(--color-accent);
-  --color-sidebar-primary-foreground: oklch(0.163 0.011 264);
+  --color-sidebar-primary-foreground: var(--color-accent-ink);
   --color-sidebar-accent: var(--color-raised);
   --color-sidebar-accent-foreground: var(--color-fg);
   --color-sidebar-border: var(--color-border);
-  --color-sidebar-ring: var(--color-accent);
+  --color-sidebar-ring: var(--color-ring);
 
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.875rem;
-  --radius-2xl: 1.125rem;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  --radius-2xl: 4px;
 
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 
-  --text-2xs: 0.6875rem;
+  --text-2xs: 0.75rem;
   --text-2xs--line-height: 1rem;
 
-  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.32);
-  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.36), 0 1px 3px oklch(0 0 0 / 0.2);
-  --shadow-md: 0 2px 4px oklch(0 0 0 / 0.28), 0 4px 12px oklch(0 0 0 / 0.28);
-  --shadow-lg: 0 8px 24px oklch(0 0 0 / 0.4), 0 2px 6px oklch(0 0 0 / 0.3);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: 0 12px 32px #0002;
 
-  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quint: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
   --animate-pulse-ring: pulse-ring 2s var(--ease-out-quint) infinite;
@@ -99,38 +132,48 @@
   }
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --color-bg: oklch(0.977 0.003 264);
-    --color-panel: oklch(1 0 0);
-    --color-raised: oklch(0.949 0.005 264);
-    --color-border: oklch(0.895 0.007 264);
-    --color-hairline: oklch(0.933 0.006 264);
-    --color-fg: oklch(0.229 0.017 264);
-    --color-muted: oklch(0.502 0.019 264);
-    --color-faint: oklch(0.612 0.018 264);
-    --color-accent: oklch(0.545 0.204 264);
-    --color-ok: oklch(0.545 0.145 155);
-    --color-warn: oklch(0.578 0.126 66);
-    --color-err: oklch(0.545 0.196 26);
-    --color-run: oklch(0.529 0.128 235);
-    --color-idle: oklch(0.553 0.028 258);
-    --color-lost: oklch(0.507 0.216 305);
-    --color-primary-foreground: oklch(1 0 0);
-    --color-destructive-foreground: oklch(1 0 0);
-    --color-popover: oklch(1 0 0);
-    --color-sidebar: oklch(0.992 0.002 264);
-    --color-sidebar-primary-foreground: oklch(1 0 0);
-    --shadow-xs: 0 1px 2px oklch(0.229 0.017 264 / 0.05);
-    --shadow-sm: 0 1px 2px oklch(0.229 0.017 264 / 0.06), 0 1px 3px oklch(0.229 0.017 264 / 0.04);
-    --shadow-md: 0 2px 4px oklch(0.229 0.017 264 / 0.05), 0 6px 16px oklch(0.229 0.017 264 / 0.08);
-    --shadow-lg:
-      0 12px 32px oklch(0.229 0.017 264 / 0.12), 0 2px 6px oklch(0.229 0.017 264 / 0.06);
-  }
+html[data-theme="dark"] {
+  --color-bg: #060708;
+  --color-panel: #101214;
+  --color-rail: #181b1f;
+  --color-raised: #181b1f;
+  --color-popover: #1e2227;
+  --color-fg: #f2f4f6;
+  --color-soft: #c5ccd3;
+  --color-muted: #939ba3;
+  --color-faint: #939ba3;
+  --color-border: #32373c;
+  --color-hairline: #32373c;
+  --color-line-strong: #5c636b;
+  --color-accent: #254f78;
+  --color-accent-hover: #183d62;
+  --color-accent-ink: #ffffff;
+  --color-ring: #2365a7;
+  --color-ok: #8fceb0;
+  --color-ok-bg: #102018;
+  --color-warn: #e4c48a;
+  --color-warn-bg: #241c10;
+  --color-err: #f0b0b4;
+  --color-err-bg: #2a1517;
+  --color-run: #9eb4c9;
+  --color-run-bg: #12171d;
+  --color-idle: #939ba3;
+  --color-idle-bg: #181b1f;
+  --color-lost: #e4c6f2;
+  --color-lost-bg: #3a2c44;
+  --color-primary-foreground: #ffffff;
+  --color-destructive-foreground: #ffffff;
+  --shadow-lg: 0 12px 32px #0002;
 }
 
 html {
-  font-size: 17px;
+  color-scheme: dark;
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 html,
@@ -140,39 +183,48 @@ body,
 }
 
 body {
+  margin: 0;
   background-color: var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-}
-
-::selection {
-  background: color-mix(in oklab, var(--color-accent) 30%, transparent);
 }
 
 #root {
   isolation: isolate;
 }
 
-/* Highlighted code carries both Shiki themes; the dark one is inline, the light one a variable. */
-@media (prefers-color-scheme: light) {
-  .chat-code span {
-    color: var(--shiki-light) !important;
-  }
+:focus-visible {
+  outline: 3px solid var(--color-ring);
+  outline-offset: 3px;
 }
 
-/* Numbers that sit in columns — durations, exit codes, counts — must not dance as they tick. */
+/* The caret sits in the textarea. The visible chat box is the rounded shell around it,
+   so the focus outline is drawn on that shell and follows its corners. */
+.chat-composer textarea:focus-visible {
+  outline: none;
+}
+.chat-composer:has(textarea:focus-visible) {
+  outline: 3px solid var(--color-ring);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+/* Highlighted code carries both Shiki themes. The shell canvas is dark, so the dark colors stay. */
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }
 
-/*
-  A thin, unobtrusive scrollbar. The console is dense and full of scrollable panes; the
-  platform default draws a light gutter that reads as a border in dark mode.
-*/
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
@@ -203,6 +255,7 @@ body {
   *,
   *::before,
   *::after {
+    scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/profiles"
 	agentv1 "github.com/podium-ade/podium/internal/proto/podium/agent/v1"
 )
@@ -263,7 +262,8 @@ func TestRefreshReplacesAnExpiringToken(t *testing.T) {
 	next, ok, err := f.svc.providerRow(ctx, spec)
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, "refresh-2", next.RefreshToken,
+	assert.Empty(t, next.RefreshToken, "the row holds no credential")
+	assert.Equal(t, "refresh-2", string(f.secrets.set[refreshSecret(spec)]),
 		"a provider that rotates refresh tokens invalidates the old one, so it has to be replaced")
 	assert.True(t, next.ExpiresAt.After(time.Now().Add(30*time.Minute)))
 	assert.NotContains(t, f.log.String(), "refresh-1")
@@ -294,7 +294,8 @@ func TestSigningOutRemovesTheRefreshTokenToo(t *testing.T) {
 
 	_, ok, err := f.svc.providerRow(ctx, providerSpecs[1])
 	require.NoError(t, err)
-	assert.False(t, ok, "the row carries the refresh token, so signing out has to delete it")
+	assert.False(t, ok)
+	assert.NotContains(t, f.secrets.set, refreshSecret(providerSpecs[1]), "signing out deletes the refresh token")
 
 	before := idp.refreshes.Load()
 	f.svc.refreshOnce(ctx)
@@ -328,7 +329,8 @@ func TestAPastedKeyReplacesASignInCompletely(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, AuthAPIKey, row.authKind())
-	assert.Empty(t, row.RefreshToken)
+	assert.False(t, row.refreshable())
+	assert.NotContains(t, f.secrets.set, refreshSecret(providerSpecs[1]))
 
 	before := idp.refreshes.Load()
 	f.svc.refreshOnce(ctx)
@@ -380,34 +382,40 @@ func TestATokenTheAPIRefusesIsNotStored(t *testing.T) {
 	assert.Contains(t, detail.GetProviderMessage(), fakeXAIRefusal)
 }
 
-// A credential stored before host turns existed lives only in the secret store, which has no
-// read endpoint — so a host turn cannot spend it. That is a different answer from having no
-// credential at all, and the two get different advice: save it again, versus set one.
-func TestHostCredentialTellsAStaleCredentialFromAMissingOne(t *testing.T) {
+// A host turn reads the provider's credential back from the secret store, so one stored
+// before host turns existed is spendable without saving it again.
+func TestHostCredentialIsReadFromTheSecretStore(t *testing.T) {
 	f := newXAIFixture(t, nil)
 	ctx := loginCtx("alice")
 
-	// Nothing stored at all.
 	_, err := f.svc.HostCredential(ctx, ProviderXAI)
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, conductor.ErrCredentialStale)
-	assert.Contains(t, err.Error(), "no credential is stored")
+	require.ErrorContains(t, err, "no credential is stored")
 
-	// A row from before the readable copy existed: the shape every upgrade starts in.
-	require.NoError(t, f.svc.store.PutSetting(ctx, providerSettingKey(ProviderXAI), providerRow{
-		KeyHint: "abcd", AuthKind: AuthAPIKey, SecretVersion: 1,
-	}))
-	_, err = f.svc.HostCredential(ctx, ProviderXAI)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, conductor.ErrCredentialStale,
-		"an operator who has set a credential must not be told to set one")
-
-	// Saving it again is what writes the copy a host turn spends.
-	_, err = f.svc.SetProviderKey(ctx, connect.NewRequest(&agentv1.SetProviderKeyRequest{
-		Provider: ProviderXAI, Key: fakeXAIKey,
-	}))
+	_, err = f.secrets.SetSecret(ctx, profiles.XAIKeySecret, []byte(fakeXAIKey))
 	require.NoError(t, err)
 	got, err := f.svc.HostCredential(ctx, ProviderXAI)
 	require.NoError(t, err)
 	assert.Equal(t, fakeXAIKey, got)
+}
+
+// A row that still carries its credentials in clear is moved into the secret store the
+// first time it is read.
+func TestAProviderRowInClearIsMovedIntoTheSecretStore(t *testing.T) {
+	f := newXAIFixture(t, nil)
+	ctx := loginCtx("alice")
+	require.NoError(t, f.svc.store.PutSetting(ctx, providerSettingKey(ProviderXAI), map[string]any{
+		"auth_kind": AuthOAuth, "secret_version": 1, "refresh_token": "refresh-old", "credential": "access-old",
+	}))
+
+	row, ok, err := f.svc.providerRow(ctx, providerSpecs[1])
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.True(t, row.refreshable())
+	assert.Equal(t, "refresh-old", string(f.secrets.set[refreshSecret(providerSpecs[1])]))
+
+	var raw map[string]any
+	require.NoError(t, f.svc.store.GetSetting(ctx, providerSettingKey(ProviderXAI), &raw))
+	assert.NotContains(t, raw, "refresh_token")
+	assert.NotContains(t, raw, "credential")
+	assert.Equal(t, true, raw["refreshable"])
 }
