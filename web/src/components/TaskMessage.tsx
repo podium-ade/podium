@@ -14,7 +14,7 @@ import { Badge, Chip } from "./Badge";
  */
 export function TaskMessage({ message }: { message: Message }) {
   return (
-    <div className="min-w-0 flex-1 space-y-1.5 rounded-md border border-hairline bg-raised/40 px-2.5 py-2">
+    <div className="min-w-0 flex-1 space-y-1.5 rounded-md border border-hairline bg-raised px-2.5 py-2">
       <Badge tone={messageTone(message.type)}>{message.type || "message"}</Badge>
       <pre className="min-w-0 font-mono text-xs break-words whitespace-pre-wrap text-fg">
         {message.text}

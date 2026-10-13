@@ -34,7 +34,7 @@ function Table({
       ref={scroller}
       data-slot="table-container"
       className={cn(
-        "group/table relative w-full overflow-x-auto rounded-xl border border-border bg-card shadow-xs",
+        "group/table relative w-full overflow-x-auto rounded-lg border border-border bg-card",
         containerClassName,
       )}
     >
@@ -52,8 +52,8 @@ function TableHeader({ className, ...props }: ComponentProps<"tbody">) {
     <thead
       data-slot="table-header"
       className={cn(
-        "text-2xs tracking-wide text-faint uppercase",
-        "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-panel [&_th]:border-b [&_th]:border-border",
+        "text-xs font-bold tracking-[0.08em] text-muted uppercase",
+        "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-raised [&_th]:border-b [&_th]:border-border",
         className,
       )}
       {...props}
@@ -76,8 +76,8 @@ function TableRow({ className, ...props }: ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "group/row transition-colors duration-100 hover:bg-raised/45",
-        "data-[state=selected]:bg-accent/8",
+        "group/row transition-colors duration-100 hover:bg-raised",
+        "data-[state=selected]:bg-raised",
         className,
       )}
       {...props}

@@ -318,7 +318,7 @@ function MemoryCard({
             data-testid="memory-delete"
             aria-label="Forget this memory"
             onClick={() => setConfirming(true)}
-            className="hover:bg-err/12 hover:text-err"
+            className="hover:bg-err-bg hover:text-err"
           >
             <Trash2 />
           </Button>
@@ -334,7 +334,7 @@ function MemoryCard({
               href={meta.source_url}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex w-fit items-center rounded-md border border-accent/35 bg-accent/12 px-1.5 py-0.5 text-2xs text-accent hover:underline"
+              className="inline-flex w-fit items-center rounded-md border border-line-strong bg-run-bg px-1.5 py-0.5 text-2xs text-accent hover:underline"
             >
               {source}
             </a>
@@ -384,7 +384,7 @@ function MemoryCard({
               Forget this? Every future agent turn stops seeing it.
             </DialogDescription>
           </DialogHeader>
-          <p className="rounded-lg border border-border bg-raised/60 px-3 py-2 text-xs leading-relaxed break-words text-fg">
+          <p className="rounded-lg border border-border bg-raised px-3 py-2 text-xs leading-relaxed break-words text-fg">
             {memory.text}
           </p>
           <DialogFooter>

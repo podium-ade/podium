@@ -156,7 +156,7 @@ export function RegistriesPage() {
                         size="icon-xs"
                         aria-label={`Remove ${r.host}`}
                         onClick={() => setDeleting(r)}
-                        className="hover:bg-err/10 hover:text-err"
+                        className="hover:bg-err-bg hover:text-err"
                       >
                         <Trash2 />
                       </Button>

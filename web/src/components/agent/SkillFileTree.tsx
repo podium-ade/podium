@@ -95,7 +95,7 @@ function TreeNode({
         onClick={() => onSelect(node.path)}
         className={cn(
           "flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left font-mono text-xs transition-colors",
-          active ? "bg-accent/15 text-fg" : "text-muted hover:bg-raised hover:text-fg",
+          active ? "bg-raised text-fg" : "text-muted hover:bg-raised hover:text-fg",
         )}
         style={pad}
       >

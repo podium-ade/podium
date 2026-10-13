@@ -43,7 +43,7 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   }, [copied]);
   const lines = code ? code.replace(/\n$/, "").split("\n").length : 0;
   return (
-    <div className="mt-3 flex items-center justify-between gap-2 rounded-t-xl border border-b-0 border-border bg-panel/80 py-1 pr-1 pl-3">
+    <div className="mt-3 flex items-center justify-between gap-2 rounded-t-xl border border-b-0 border-border bg-panel py-1 pr-1 pl-3">
       <span className="flex min-w-0 items-center gap-2">
         {language && language !== "unknown" ? (
           <span className="font-mono text-2xs font-medium text-muted lowercase">{language}</span>

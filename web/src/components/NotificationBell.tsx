@@ -26,13 +26,12 @@ export function NotificationBell() {
       <DropdownMenuTrigger
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         className={cn(
-          "relative grid size-8 shrink-0 place-items-center rounded-md text-muted transition-colors",
-          "outline-none hover:bg-raised/70 hover:text-fg",
-          "focus-visible:ring-2 focus-visible:ring-ring/50",
-          "data-[state=open]:bg-raised data-[state=open]:text-fg",
+          "relative grid size-11 shrink-0 place-items-center rounded-md border border-border bg-panel text-fg",
+          "hover:bg-raised",
+          "data-[state=open]:bg-raised",
         )}
       >
-        <Bell className="size-4" />
+        <Bell className="size-[18px] stroke-[1.8]" />
         {unread > 0 ? (
           <span className="absolute top-1 right-1 size-1.5 rounded-full bg-warn" />
         ) : null}

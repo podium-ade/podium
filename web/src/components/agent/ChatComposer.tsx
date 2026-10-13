@@ -152,14 +152,12 @@ export function ChatComposer({
             void takeFiles([...e.dataTransfer.files]);
           }}
           className={cn(
-            "relative rounded-3xl border bg-panel shadow-lg transition-[border-color,box-shadow] duration-150",
-            dragging
-              ? "border-accent ring-2 ring-accent/30"
-              : "border-border focus-within:border-accent/55 focus-within:ring-2 focus-within:ring-ring/25",
+            "chat-composer relative rounded-3xl border bg-panel shadow-lg transition-[border-color,box-shadow] duration-150",
+            dragging ? "border-accent ring-2 ring-accent" : "border-border",
           )}
         >
           {dragging ? (
-            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-3xl bg-accent/8 text-sm font-medium text-accent">
+            <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-3xl bg-raised text-sm font-medium text-accent">
               Drop files to attach
             </div>
           ) : null}

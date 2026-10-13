@@ -349,7 +349,7 @@ function LinearCard({ configured }: { configured: boolean }) {
   return (
     <section
       aria-labelledby="connection-linear"
-      className="space-y-2 rounded-xl border border-dashed border-border bg-card/40 p-4"
+      className="space-y-2 rounded-xl border border-dashed border-border bg-panel p-4"
       data-testid="connection-linear"
     >
       <header className="flex flex-wrap items-center gap-2">
