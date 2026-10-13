@@ -30,7 +30,7 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <Card className={cn(problems > 0 && "border-err/40")}>
+    <Card className={cn(problems > 0 && "border-err")}>
       <Collapsible open={open} onOpenChange={onOpenChange}>
         <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-xl px-5 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/45">
           <ChevronRight

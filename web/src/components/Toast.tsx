@@ -25,9 +25,8 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     <div
       role="status"
       className={cn(
-        "pointer-events-auto flex items-start gap-2.5 rounded-lg border bg-panel py-2.5 pr-2 pl-3 shadow-lg",
+        "pointer-events-auto flex items-start gap-2.5 rounded-md border border-line-strong bg-popover py-2.5 pr-2 pl-3",
         "animate-in slide-in-from-right-3 fade-in-0 duration-200",
-        ok ? "border-ok/40" : "border-err/40",
       )}
     >
       <Icon className={cn("mt-px size-4 shrink-0", ok ? "text-ok" : "text-err")} />

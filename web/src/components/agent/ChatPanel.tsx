@@ -50,12 +50,12 @@ import { ConductorDown } from "./ConductorDown";
 import { toThread } from "../../lib/chatThread";
 
 const railRow =
-  "flex h-8 min-w-0 items-center rounded-md px-2.5 text-sm transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "flex min-h-11 min-w-0 items-center rounded-md border border-transparent px-3 text-sm font-semibold transition-colors duration-150 hover:border-border hover:bg-panel";
 
 function RailHeading({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 border-b border-border px-2 py-2.5">
-      <h2 className="min-w-0 flex-1 truncate px-2.5 text-base font-semibold text-fg">{title}</h2>
+    <div className="flex min-w-0 items-center justify-between gap-2 px-4 pt-4 pb-3">
+      <h2 className="min-w-0 truncate text-xs font-bold tracking-[0.08em] text-muted uppercase">{title}</h2>
       {action}
     </div>
   );
@@ -486,7 +486,7 @@ function ChatRail({
   const split = origins.length > 1;
 
   return (
-    <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-sidebar sm:w-80 sm:self-stretch sm:border-r sm:border-b-0">
+    <div className="flex w-full min-h-0 min-w-0 shrink-0 flex-col border-b border-border bg-rail sm:w-[264px] sm:self-stretch sm:border-r sm:border-b-0">
       <div className="shrink-0 border-b border-border">
       <nav aria-label="Assistants">
         <RailHeading
@@ -507,7 +507,7 @@ function ChatRail({
               {voice.gone ? (
                 <span
                   aria-current="page"
-                  className={cn(railRow, "truncate bg-raised text-fg shadow-xs")}
+                  className={cn(railRow, "truncate border-line-strong bg-panel text-fg")}
                 >
                   {voice.label}
                 </span>
@@ -521,8 +521,8 @@ function ChatRail({
                   className={cn(
                     railRow,
                     voice.id === voiceId
-                      ? "bg-raised text-fg shadow-xs"
-                      : "text-muted hover:bg-panel hover:text-fg",
+                      ? "border-line-strong bg-panel text-fg"
+                      : "text-soft hover:border-border hover:bg-panel hover:text-fg",
                   )}
                 >
                   <span className="min-w-0 truncate">{voice.label}</span>
@@ -576,7 +576,7 @@ function ChatRail({
               value={query}
               placeholder="Search chats"
               onChange={(e) => setQuery(e.target.value)}
-              className="h-9 w-full rounded-lg border border-transparent bg-transparent pr-2.5 pl-9 text-sm text-fg placeholder:text-faint transition-colors outline-none hover:bg-raised/70 focus:border-border focus:bg-bg"
+              className="min-h-11 w-full rounded-md border border-line-strong bg-panel pr-3 pl-9 text-base text-fg placeholder:text-muted transition-colors hover:border-muted"
             />
           </label>
         ) : null}
@@ -616,7 +616,7 @@ function ChatRail({
               aria-label={`Delete ${activeChat.title}`}
               disabled={deletingId === activeChat.id}
               onClick={() => onDelete(activeChat)}
-              className="hover:bg-err/12 hover:text-err"
+              className="hover:bg-err-bg hover:text-err"
             >
               <Trash2 />
             </Button>
@@ -798,8 +798,8 @@ function ChatRow({
   return (
     <li
       className={cn(
-        "group relative flex min-h-9 items-center rounded-lg transition-colors",
-        active ? "bg-raised" : "hover:bg-raised/60",
+        "group relative flex min-h-[52px] items-center rounded-md border transition-colors",
+        active ? "border-line-strong bg-panel" : "border-transparent hover:border-border hover:bg-panel",
       )}
     >
       <Tooltip label={hint} side="right">
@@ -811,7 +811,7 @@ function ChatRow({
             start();
           }}
           aria-current={active ? "true" : undefined}
-          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left outline-none group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8 focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left group-focus-within:pr-8 group-hover:pr-8 has-[~[data-state=open]]:pr-8"
         >
           {running ? (
             <span className="relative flex size-2 shrink-0" aria-hidden>
@@ -820,7 +820,7 @@ function ChatRow({
             </span>
           ) : null}
           <span className="min-w-0 flex-1">
-            <span className={cn("block truncate text-sm", active ? "text-fg" : "text-fg/85")}>
+            <span className={cn("block truncate text-sm", active ? "font-bold text-fg" : "font-semibold text-fg")}>
               {chat.title}
             </span>
             {where ? <span className="block truncate text-2xs text-muted">{where}</span> : null}
@@ -838,7 +838,7 @@ function ChatRow({
             type="button"
             data-testid="chat-actions"
             aria-label={`Actions for ${chat.title}`}
-            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-border/60 hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-border/60 data-[state=open]:opacity-100"
+            className="absolute right-1 grid size-7 place-items-center rounded-md text-muted opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-raised hover:text-fg focus-visible:opacity-100 data-[state=open]:bg-raised data-[state=open]:opacity-100"
           >
             <Ellipsis className="size-4" />
           </button>
@@ -916,7 +916,7 @@ function ConversationTitle({
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-4 sm:px-5">
+    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-panel px-4 sm:px-5">
       {channel ? (
         <span
           data-testid="chat-channel"
@@ -1176,7 +1176,7 @@ function Conversation({
       {mirrored ? (
         <div
           data-testid="chat-mirrored-note"
-          className="border-t border-border bg-panel/40 px-5 py-3 text-xs leading-relaxed text-muted"
+          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
         >
           This conversation lives in {origin}. Reply to it there. Podium keeps a copy so it
           can be read here.
@@ -1185,7 +1185,7 @@ function Conversation({
       ) : foreign ? (
         <div
           data-testid="chat-foreign-note"
-          className="border-t border-border bg-panel/40 px-5 py-3 text-xs leading-relaxed text-muted"
+          className="border-t border-border bg-panel px-5 py-3 text-xs leading-relaxed text-muted"
         >
           This chat belongs to {owner}.
         </div>
@@ -1283,7 +1283,7 @@ function ArrivalWell({
             type="button"
             disabled={suggesting}
             onClick={() => onSuggest(prompt)}
-            className="rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-fg shadow-xs outline-none transition-colors hover:border-accent/40 hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-fg shadow-xs outline-none transition-colors hover:border-line-strong hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           >
             {prompt}
           </button>

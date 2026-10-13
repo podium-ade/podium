@@ -19,15 +19,15 @@ export function Empty({
   return (
     <div
       className={cn(
-        "flex flex-col items-center rounded-xl border border-dashed border-border bg-panel/35 px-8 py-14 text-center",
+        "flex flex-col items-center px-5 py-12 text-center",
         className,
       )}
     >
-      <span className="mb-4 grid size-11 place-items-center rounded-xl border border-border bg-raised/60 text-muted">
+      <span className="mb-3 grid size-12 place-items-center rounded-md border border-line-strong bg-raised text-soft">
         <Icon className="size-5" />
       </span>
-      <p className="text-sm font-medium text-fg">{title}</p>
-      {hint ? <p className="mt-1.5 max-w-md text-xs leading-relaxed text-muted">{hint}</p> : null}
+      <p className="text-lg font-bold text-fg">{title}</p>
+      {hint ? <p className="mt-2 max-w-[58ch] text-base leading-relaxed text-soft">{hint}</p> : null}
       {action ? <div className="mt-5 flex flex-wrap justify-center gap-2">{action}</div> : null}
     </div>
   );

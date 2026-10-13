@@ -255,7 +255,7 @@ export function ProviderCard({
         <span
           className={cn(
             "mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg",
-            stored ? "bg-fg text-bg" : "border border-border bg-raised/50 text-fg",
+            stored ? "bg-fg text-bg" : "border border-border bg-raised text-fg",
           )}
         >
           <BackendMark id={provider.backendID} className="size-4 text-inherit" />
@@ -483,10 +483,10 @@ export function ProviderCard({
               className={cn(
                 "rounded-lg border px-3 py-2 text-xs",
                 result.tone === "ok"
-                  ? "border-ok/30 bg-ok/8 text-ok"
+                  ? "border-ok bg-ok-bg text-ok"
                   : result.tone === "err"
-                    ? "border-err/30 bg-err/8 text-err"
-                    : "border-warn/30 bg-warn/8 text-warn",
+                    ? "border-err bg-err-bg text-err"
+                    : "border-warn bg-warn-bg text-warn",
               )}
             >
               <p>{result.text}</p>
@@ -592,7 +592,7 @@ function SubscriptionPanel({
   return (
     <div
       data-testid={tid("provider-oauth-panel")}
-      className="space-y-4 rounded-xl border border-accent/35 bg-accent/6 p-4 animate-in fade-in-0 duration-200"
+      className="space-y-4 rounded-xl border border-line-strong bg-raised p-4 animate-in fade-in-0 duration-200"
     >
       <ol className="space-y-3.5 text-xs">
         <li className="flex flex-wrap items-center gap-2">

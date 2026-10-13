@@ -50,7 +50,7 @@ export function UsageTrend({ days, range }: { days: UsageDay[]; range: Range }) 
                     <div
                       className={cn(
                         "w-full rounded-t-[2px] transition-colors",
-                        cost > 0 ? "bg-accent/70 group-hover:bg-accent" : "bg-raised",
+                        cost > 0 ? "bg-accent group-hover:bg-accent" : "bg-raised",
                       )}
                       style={{ height: cost > 0 ? `${pct}%` : "2px" }}
                     />

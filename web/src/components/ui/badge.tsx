@@ -5,19 +5,19 @@ import { cn } from "@/lib/utils";
 
 // eslint-disable-next-line react-refresh/only-export-components -- links and spans share the variants
 export const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs font-medium whitespace-nowrap [&_svg]:size-3 [&_svg]:shrink-0",
+  "inline-flex w-fit shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-bold whitespace-nowrap before:size-1.5 before:shrink-0 before:rounded-[1px] before:bg-current [&_svg]:size-3.5 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "border-border bg-raised text-fg",
-        outline: "border-border bg-transparent text-muted",
-        accent: "border-accent/35 bg-accent/12 text-accent",
-        ok: "border-ok/35 bg-ok/12 text-ok",
-        err: "border-err/35 bg-err/12 text-err",
-        warn: "border-warn/35 bg-warn/12 text-warn",
-        run: "border-run/35 bg-run/12 text-run",
-        idle: "border-idle/35 bg-idle/12 text-idle",
-        lost: "border-lost/35 bg-lost/12 text-lost",
+        default: "bg-raised text-soft",
+        outline: "bg-raised text-soft",
+        accent: "bg-run-bg text-run",
+        ok: "bg-ok-bg text-ok",
+        err: "bg-err-bg text-err",
+        warn: "bg-warn-bg text-warn",
+        run: "bg-run-bg text-run",
+        idle: "bg-idle-bg text-idle",
+        lost: "bg-lost-bg text-lost",
       },
     },
     defaultVariants: { variant: "default" },
