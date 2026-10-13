@@ -85,17 +85,15 @@ export function RegistriesPage() {
             Registries
           </h2>
           <p className="mt-2 max-w-[66ch] text-soft">
-            A login is matched by host. An image reference such as{" "}
-            <code className="font-mono text-xs">us-docker.pkg.dev/…</code> or{" "}
-            <code className="font-mono text-xs">ghcr.io/…</code> uses the login stored for that
-            host, on whichever node the task lands. A host with no login is pulled anonymously.
-            Passwords are write-only.
+            These are the places your images come from, such as{" "}
+            <code className="font-mono text-xs">us-docker.pkg.dev</code> or{" "}
+            <code className="font-mono text-xs">ghcr.io</code>.
           </p>
         </div>
 
         <div className="grid grid-cols-1 items-center gap-4 border-b border-border bg-raised px-6 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
           <p className="m-0 text-soft">
-            One login per host. A password is written once and cannot be read back.
+            Add a login for each registry. After you save it, the password stays hidden.
           </p>
           {manage ? (
             <Button
@@ -112,7 +110,8 @@ export function RegistriesPage() {
 
         <div aria-live="polite">
           {query.isPending ? <TableSkeleton cols={5} /> : null}
-          {showTable ? (
+          {showTable && sorted.length === 0 ? <RegistriesEmpty /> : null}
+          {showTable && sorted.length > 0 ? (
             <Table
               containerClassName="rounded-none border-0 bg-transparent max-[600px]:overflow-visible"
               className="min-w-[640px] max-[600px]:block max-[600px]:min-w-0"
@@ -120,28 +119,17 @@ export function RegistriesPage() {
               <caption className="sr-only">Registries</caption>
               <TableHeader className="max-[600px]:hidden">
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="px-4 py-3">Host</TableHead>
-                  <TableHead className="px-4 py-3">Username</TableHead>
-                  <TableHead className="px-4 py-3">Last set</TableHead>
-                  <TableHead className="px-4 py-3">Set by</TableHead>
-                  <TableHead className="px-4 py-3">
+                  <TableHead className={headCell}>Host</TableHead>
+                  <TableHead className={headCell}>Username</TableHead>
+                  <TableHead className={headCell}>Last set</TableHead>
+                  <TableHead className={headCell}>Set by</TableHead>
+                  <TableHead className={headCell}>
                     <span className="sr-only">Actions</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="max-[600px]:block [&_tr:last-child_td]:pb-2">
-                {sorted.length === 0 ? (
-                  <TableRow className="hover:bg-transparent max-[600px]:block">
-                    <TableCell colSpan={5} className="border-0 px-6 py-12 text-center">
-                      <h3 className="text-lg font-bold">No registries yet</h3>
-                      <p className="mx-auto mt-2 max-w-[48ch] text-muted">
-                        Every pull is anonymous until a registry is added here. A private image
-                        fails on the node with pull access denied.
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sorted.map((r) => (
+                {sorted.map((r) => (
                     <TableRow
                       key={r.host}
                       className="max-[600px]:grid max-[600px]:grid-cols-2 max-[600px]:border-t max-[600px]:border-border max-[600px]:px-4 max-[600px]:py-3"
@@ -190,8 +178,7 @@ export function RegistriesPage() {
                         ) : null}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
+                  ))}
               </TableBody>
             </Table>
           ) : null}
@@ -214,6 +201,25 @@ export function RegistriesPage() {
         />
       ) : null}
     </PageFrame>
+  );
+}
+
+/** Design table head: 12px, weight 750, muted, uppercase, 0.08em tracking, 12×16 padding. */
+const headCell =
+  "px-4 py-3 text-xs font-[750] leading-[normal] tracking-[0.08em] text-muted uppercase";
+
+function RegistriesEmpty() {
+  return (
+    <div className="grid min-h-80 content-center justify-items-center gap-3 px-6 py-12 text-center">
+      <span
+        aria-hidden
+        className="grid size-12 place-items-center rounded-md border border-line-strong bg-raised font-mono text-lg font-bold text-soft"
+      >
+        R
+      </span>
+      <h3 className="text-lg font-bold">No registries yet</h3>
+      <p className="m-0 max-w-[58ch] text-soft">Add an image registry so playbooks can use it.</p>
+    </div>
   );
 }
 

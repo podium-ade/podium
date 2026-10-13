@@ -54,8 +54,8 @@ describe("RegistriesPage", () => {
 
   it("lists hosts and usernames and never a password", async () => {
     mount();
-    expect(await screen.findByText("us-docker.pkg.dev")).toBeInTheDocument();
-    expect(screen.getByText("_json_key")).toBeInTheDocument();
+    expect(await screen.findByText("_json_key")).toBeInTheDocument();
+    expect(screen.getByText("us-docker.pkg.dev", { selector: "td span" })).toBeInTheDocument();
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("service_account");
   });
@@ -129,9 +129,7 @@ describe("RegistriesPage", () => {
   it("confirms a removal by host before sending it", async () => {
     deleteRegistry.mockResolvedValue({});
     mount();
-    await screen.findByText("us-docker.pkg.dev");
-
-    await userEvent.click(screen.getByRole("button", { name: "Remove us-docker.pkg.dev" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Remove us-docker.pkg.dev" }));
     expect(screen.getByRole("button", { name: "Remove registry" })).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/to confirm/i), "us-docker.pkg.dev");
     await userEvent.click(screen.getByRole("button", { name: "Remove registry" }));
@@ -162,10 +160,19 @@ describe("RegistriesPage", () => {
     expect(new TextDecoder().decode(sent.password)).toBe(KEY);
   });
 
+  it("hides the table and shows the registry empty state", async () => {
+    listRegistries.mockResolvedValue({ registries: [] });
+    mount();
+    expect(await screen.findByRole("heading", { level: 3, name: "No registries yet" })).toBeInTheDocument();
+    expect(screen.getByText("Add an image registry so playbooks can use it.")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Host" })).toBeNull();
+  });
+
   it("puts the host note in the frame and keeps one New registry action", async () => {
     mount();
     expect(await screen.findByRole("heading", { level: 2, name: "Registries" })).toBeInTheDocument();
-    expect(screen.getByText(/One login per host/)).toBeInTheDocument();
+    expect(screen.getByText(/places your images come from/)).toBeInTheDocument();
+    expect(screen.getByText(/After you save it, the password stays hidden/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "New registry" })).toHaveLength(1);
   });
 
