@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Container, Plus, RotateCw, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 
-import { Empty } from "../components/Empty";
 import { PageFrame } from "../components/PageHeader";
 import { DeleteRegistryDialog } from "../components/registries/DeleteRegistryDialog";
 import { RegistryDialog } from "../components/registries/RegistryDialog";
@@ -18,7 +17,6 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
-import { Tooltip } from "../components/ui/tooltip";
 import type { Registry } from "../gen/podium/v1/registry_pb";
 import { Code, connectCode, errorMessage, registries } from "../lib/client";
 import { absolute, relative } from "../lib/format";
@@ -52,28 +50,10 @@ export function RegistriesPage() {
 
   const noMasterKey = connectCode(query.error) === Code.FailedPrecondition;
   const listFailed = query.error !== null && !noMasterKey;
+  const showTable = !query.isPending && query.error === null;
 
   return (
-    <PageFrame
-        title="Registries"
-        actions={
-          manage ? (
-            <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-              <Plus />
-              New registry
-            </Button>
-          ) : null
-        }
-      >
-
-      <Alert variant="info" title="A login is matched by host">
-        An image reference names its registry (for example{" "}
-        <span className="font-mono">us-docker.pkg.dev/…</span>,{" "}
-        <span className="font-mono">ghcr.io/…</span>), and a node pulling it sends the login stored
-        for that host, on whatever node the task lands. Registries not listed here are pulled
-        anonymously. Passwords are write-only: they leave the server only inside an assignment.
-      </Alert>
-
+    <PageFrame title="Registries" bodyClassName="space-y-5 p-6">
       {noMasterKey ? (
         <Alert variant="warn" title="This server has no master key configured">
           There is nothing to encrypt a password with, so it cannot store registry logins. Set{" "}
@@ -96,79 +76,127 @@ export function RegistriesPage() {
         </Alert>
       ) : null}
 
-      {query.isPending ? (
-        <TableSkeleton cols={5} />
-      ) : rows.length === 0 ? (
-        query.error ? null : (
-          <Empty
-            icon={Container}
-            title="No registries yet"
-            hint="Every pull is anonymous until a registry is added here. A private image fails on the node with pull access denied."
-            action={
-              manage ? (
-                <Button size="sm" onClick={() => setSetting({})} disabled={noMasterKey}>
-                  <Plus />
-                  New registry
-                </Button>
-              ) : undefined
-            }
-          />
-        )
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Host</TableHead>
-              <TableHead>Username</TableHead>
-              <TableHead>Last set</TableHead>
-              <TableHead>Set by</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((r) => (
-              <TableRow key={r.host}>
-                <TableCell>
-                  <span className="font-mono text-xs text-fg" title={r.host}>
-                    {r.host}
-                  </span>
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted">{r.username}</TableCell>
-                <TableCell className="text-xs whitespace-nowrap text-muted" title={absolute(r.updatedAt)}>
-                  {relative(r.updatedAt)}
-                </TableCell>
-                <TableCell className="text-xs text-muted">{r.createdBy || "-"}</TableCell>
-                <TableCell>
-                  {manage ? (
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      aria-label={`Replace login for ${r.host}`}
-                      onClick={() => setSetting({ lockedHost: r.host })}
+      <section
+        className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
+        aria-labelledby="registries-heading"
+      >
+        <div className="border-b border-border p-6">
+          <h2 id="registries-heading" className="text-2xl leading-tight font-bold">
+            Registries
+          </h2>
+          <p className="mt-2 max-w-[66ch] text-soft">
+            A login is matched by host. An image reference such as{" "}
+            <code className="font-mono text-xs">us-docker.pkg.dev/…</code> or{" "}
+            <code className="font-mono text-xs">ghcr.io/…</code> uses the login stored for that
+            host, on whichever node the task lands. A host with no login is pulled anonymously.
+            Passwords are write-only.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 items-center gap-4 border-b border-border bg-raised px-6 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <p className="m-0 text-soft">
+            One login per host. A password is written once and cannot be read back.
+          </p>
+          {manage ? (
+            <Button
+              type="button"
+              className="shrink-0 justify-self-start sm:justify-self-end"
+              onClick={() => setSetting({})}
+              disabled={noMasterKey}
+            >
+              <Plus />
+              New registry
+            </Button>
+          ) : null}
+        </div>
+
+        <div aria-live="polite">
+          {query.isPending ? <TableSkeleton cols={5} /> : null}
+          {showTable ? (
+            <Table
+              containerClassName="rounded-none border-0 bg-transparent max-[600px]:overflow-visible"
+              className="min-w-[640px] max-[600px]:block max-[600px]:min-w-0"
+            >
+              <caption className="sr-only">Registries</caption>
+              <TableHeader className="max-[600px]:hidden">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="px-4 py-3">Host</TableHead>
+                  <TableHead className="px-4 py-3">Username</TableHead>
+                  <TableHead className="px-4 py-3">Last set</TableHead>
+                  <TableHead className="px-4 py-3">Set by</TableHead>
+                  <TableHead className="px-4 py-3">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="max-[600px]:block [&_tr:last-child_td]:pb-2">
+                {sorted.length === 0 ? (
+                  <TableRow className="hover:bg-transparent max-[600px]:block">
+                    <TableCell colSpan={5} className="border-0 px-6 py-12 text-center">
+                      <h3 className="text-lg font-bold">No registries yet</h3>
+                      <p className="mx-auto mt-2 max-w-[48ch] text-muted">
+                        Every pull is anonymous until a registry is added here. A private image
+                        fails on the node with pull access denied.
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sorted.map((r) => (
+                    <TableRow
+                      key={r.host}
+                      className="max-[600px]:grid max-[600px]:grid-cols-2 max-[600px]:border-t max-[600px]:border-border max-[600px]:px-4 max-[600px]:py-3"
                     >
-                      <RotateCw />
-                      Replace
-                    </Button>
-                    <Tooltip label={`Remove ${r.host}`}>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`Remove ${r.host}`}
-                        onClick={() => setDeleting(r)}
-                        className="hover:bg-err-bg hover:text-err"
+                      <TableCell className="px-4 py-4 max-[600px]:col-span-2 max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
+                        <MobileLabel>Host</MobileLabel>
+                        <span className="font-mono text-xs text-fg" title={r.host}>
+                          {r.host}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 font-mono text-xs text-muted max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
+                        <MobileLabel>Username</MobileLabel>
+                        {r.username}
+                      </TableCell>
+                      <TableCell
+                        className="px-4 py-4 text-sm whitespace-nowrap text-muted max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2"
+                        title={absolute(r.updatedAt)}
                       >
-                        <Trash2 />
-                      </Button>
-                    </Tooltip>
-                  </div>
-                  ) : null}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+                        <MobileLabel>Last set</MobileLabel>
+                        {relative(r.updatedAt)}
+                      </TableCell>
+                      <TableCell className="px-4 py-4 text-sm text-muted max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
+                        <MobileLabel>Set by</MobileLabel>
+                        {r.createdBy || "-"}
+                      </TableCell>
+                      <TableCell className="px-4 py-4 max-[600px]:col-span-2 max-[600px]:block max-[600px]:border-0 max-[600px]:px-2 max-[600px]:py-2">
+                        <MobileLabel>Actions</MobileLabel>
+                        {manage ? (
+                          <div className="flex items-center justify-end gap-2 max-[600px]:justify-start">
+                            <Button
+                              variant="outline"
+                              aria-label={`Replace login for ${r.host}`}
+                              onClick={() => setSetting({ lockedHost: r.host })}
+                            >
+                              Replace
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              aria-label={`Remove ${r.host}`}
+                              onClick={() => setDeleting(r)}
+                              className="text-err hover:bg-err-bg hover:text-err"
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          ) : null}
+        </div>
+      </section>
 
       {setting ? (
         <RegistryDialog
@@ -186,5 +214,13 @@ export function RegistriesPage() {
         />
       ) : null}
     </PageFrame>
+  );
+}
+
+function MobileLabel({ children }: { children: string }) {
+  return (
+    <span className="mb-1 hidden text-xs font-bold tracking-[0.08em] text-muted uppercase max-[600px]:block">
+      {children}
+    </span>
   );
 }
