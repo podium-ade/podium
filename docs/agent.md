@@ -250,6 +250,13 @@ The rules that matter:
   guarantee — a container that answered in under a second would still be introduced before
   the turn's final — but a container takes seconds to pull an image and a turn that delegates
   and stops ends in about one.
+
+- **A task that fails before it starts is the turn's to report.** The control plane fails a
+  task at placement — a secret that is not set — milliseconds after accepting it. So
+  `Delegate` waits up to 3 s for the task to leave the queue, and one that fails in that time
+  comes back as the tool's error with the reason. Nothing is announced or posted for it; the
+  assistant says what went wrong. A delegation that fails later, before its task has said
+  anything, drops its held announcement too.
 - **The conversation owns the task, not the turn.** A turn is one exchange and a delegated task
   can run for hours. The `delegations` row survives the conductor dying, the recovery pass
   resumes every delegation still running, and the answer is posted into the chat whether or not
