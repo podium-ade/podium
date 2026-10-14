@@ -106,7 +106,7 @@ export type TaskSpec = Message<"podium.v1.TaskSpec"> & {
   /**
    * Conversation this task's /workspace belongs to. When set, the node restores that
    * session's latest snapshot (or the repository base) before the task starts and uploads
-   * a new one after a clean exit. Empty keeps the volume ephemeral.
+   * a new one when the task exits, including a cancel or an OOM. Empty keeps the volume ephemeral.
    *
    * @generated from field: string workspace_session = 13;
    */
