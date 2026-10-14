@@ -229,6 +229,7 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		Priority:      int32(s.Priority),
 		SlackChannels: s.SlackChannels,
 		Linear:        s.Linear,
+		Github:        s.GitHub,
 		Skills:        s.Skills,
 		McpServers:    s.MCPServers,
 		Env:           s.Env,

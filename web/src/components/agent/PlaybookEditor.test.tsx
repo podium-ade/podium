@@ -59,6 +59,7 @@ describe("PlaybookEditor", () => {
       maxTurns: 50,
       timeout: "30m",
       linear: false,
+      github: false,
       interactive: false,
       secrets: [
         { name: "podium.agent.warehouse_url", target: "env", key: "WAREHOUSE_URL" },

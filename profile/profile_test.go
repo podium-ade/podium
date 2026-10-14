@@ -46,6 +46,7 @@ func TestTheBotsOwnProfileLoads(t *testing.T) {
 	// No playbook takes Linear tickets, so this profile cannot be used with a Linear key as
 	// it stands — the conductor refuses to start when a key is set and nothing claims it.
 	require.Empty(t, p.LinearPlaybook())
+	require.Empty(t, p.GitHubPlaybook(), "a review playbook is chosen per deployment")
 }
 
 // The cheap half. It holds no credential and clones nothing, which is what makes it safe to
@@ -109,6 +110,7 @@ func TestThePodiumPlaybookCanRunTheStackAndLookAtIt(t *testing.T) {
 	require.NotContains(t, dogfood.Env, "DOCKER_HOST", "the conductor writes it, not the file")
 
 	require.False(t, dogfood.Linear, "this profile takes no tickets")
+	require.False(t, dogfood.GitHub, "this profile does not review pull requests")
 }
 
 // TestEverySkillAPlaybookNamesResolves is the link that has to fail CI rather than a turn.

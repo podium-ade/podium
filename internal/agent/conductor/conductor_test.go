@@ -19,8 +19,8 @@ import (
 func TestAConversationIsAnsweredHereForChatAndSlack(t *testing.T) {
 	assert.True(t, aConversation(SourceChat))
 	assert.True(t, aConversation(SourceSlack))
-	assert.True(t, aConversation(SourceGitHub), "a pull-request review is a conversation, asked on GitHub or in Slack")
-	assert.True(t, aConversation(KindDev), "the dev source is how both are tested")
+	assert.False(t, aConversation(SourceGitHub), "a pull-request review runs the github playbook, not the assistant")
+	assert.True(t, aConversation(KindDev), "the dev source is how a conversation is tested")
 	assert.False(t, aConversation("linear"), "a ticket is one piece of work, not a conversation")
 }
 
