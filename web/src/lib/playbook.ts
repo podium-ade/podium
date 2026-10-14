@@ -23,6 +23,7 @@ export type PlaybookDraft = {
   git?: { name: string; email: string }
   slackChannels: string[]
   linear: boolean
+  github: boolean
   interactive: boolean
   skills: string[]
   mcpServers: string[]
@@ -62,6 +63,7 @@ export type PlaybookDoc = {
   docker?: boolean
   browser?: boolean
   linear?: boolean
+  github?: boolean
   interactive?: boolean
 }
 
@@ -94,6 +96,7 @@ const PLAYBOOK_KEYS = [
   "docker",
   "browser",
   "linear",
+  "github",
   "interactive",
 ]
 
@@ -244,6 +247,8 @@ export function parsePlaybookValue(
   if (browser !== undefined) out.browser = browser
   const linear = r.bool("linear", root.linear)
   if (linear !== undefined) out.linear = linear
+  const github = r.bool("github", root.github)
+  if (github !== undefined) out.github = github
   const interactive = r.bool("interactive", root.interactive)
   if (interactive !== undefined) out.interactive = interactive
 
@@ -325,6 +330,7 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   const mcp = playbook.mcpServers ?? []
   if (mcp.length > 0) doc.mcp_servers = [...mcp]
   if (playbook.linear) doc.linear = true
+  if (playbook.github) doc.github = true
   if (playbook.interactive) doc.interactive = true
   if (playbook.docker) doc.docker = true
   if (playbook.browser) doc.browser = true
@@ -372,6 +378,7 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
   if (draft.skills.length > 0) doc.skills = [...draft.skills]
   if (draft.mcpServers.length > 0) doc.mcp_servers = [...draft.mcpServers]
   if (draft.linear) doc.linear = true
+  if (draft.github) doc.github = true
   if (draft.interactive) doc.interactive = true
   if (draft.docker) doc.docker = true
   if (draft.browser) doc.browser = true
@@ -422,6 +429,7 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
         : undefined,
     slackChannels: doc.slack_channels ?? [],
     linear: doc.linear ?? false,
+    github: doc.github ?? false,
     interactive: doc.interactive ?? false,
     skills: doc.skills ?? [],
     mcpServers: doc.mcp_servers ?? [],
