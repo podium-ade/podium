@@ -32,6 +32,7 @@ type stub struct {
 	listedReviews  []Review
 	rejectComments bool
 	dropReview     bool
+	failPull       bool
 	installID      int64
 	install404     bool
 	nextComment    int64
@@ -125,7 +126,22 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		defer s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(s.listedReviews)
 	case r.Method == http.MethodGet && isPullPath(path):
-		_ = json.NewEncoder(w).Encode(map[string]any{"head": map[string]any{"sha": "0123456789abcdef"}})
+		s.mu.Lock()
+		fail := s.failPull
+		s.mu.Unlock()
+		if fail {
+			http.Error(w, `{"message":"unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"title":         "Fix the review",
+			"commits":       2,
+			"additions":     40,
+			"deletions":     5,
+			"changed_files": 3,
+			"head":          map[string]any{"ref": "agent/review", "sha": "0123456789abcdef"},
+			"base":          map[string]any{"ref": "dev"},
+		})
 	default:
 		http.NotFound(w, r)
 	}
@@ -210,6 +226,16 @@ func (s *stub) postedIssueBodies() []string {
 	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.issuePosts))
 	for _, p := range s.issuePosts {
+		out = append(out, asString(p["body"]))
+	}
+	return out
+}
+
+func (s *stub) postedIssueEdits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.edits))
+	for _, p := range s.edits {
 		out = append(out, asString(p["body"]))
 	}
 	return out
