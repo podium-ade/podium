@@ -468,7 +468,8 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	// The first answer is one submitted review. A later answer updates it. A reply in an
 	// inline thread stays in that thread, and a failure stays on the working comment,
 	// so neither replaces the review.
-	if out.Type == conductor.OutFinal && !(p.Kind == KindReviewComment && p.CommentID > 0) {
+	inline := p.Kind == KindReviewComment && p.CommentID > 0
+	if out.Type == conductor.OutFinal && !inline {
 		id, gerr := s.postReview(ctx, p, body)
 		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
 			s.logger.WarnContext(ctx, "github: posting the review failed",
