@@ -543,10 +543,20 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 	summary, notes := splitInline(body)
 	event := reviewEvent(body)
 	opener := s.openReviewID(key)
-	// Updating a review replaces its summary and cannot change its event or add
-	// inline comments. A follow-up that approves, or that has notes for the diff,
-	// is a new review. A comment with nothing to pin on a line stays an edit.
-	if id > 0 && len(notes) == 0 && !s.mustSubmit(ctx, install, p, id, event) {
+	state := ""
+	if id > 0 {
+		state = s.reviewState(ctx, install, p, id)
+	}
+	// Updating a review replaces its summary. It cannot change the event or add
+	// inline comments, and a comment left on top of an approval keeps the pull
+	// request approved. This App cannot dismiss a review, so a follow-up that no
+	// longer approves has to request changes. That is the event that replaces it.
+	if state == "APPROVED" && event != eventApprove {
+		event = eventRequestChanges
+	}
+	approvesAgain := event == eventApprove && state == "APPROVED"
+	commentsAgain := event == eventComment && state != "APPROVED"
+	if id > 0 && len(notes) == 0 && (approvesAgain || commentsAgain) {
 		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, summary); err != nil {
 			return "", err
 		}
@@ -658,22 +668,22 @@ func (s *Source) failOpenReview(ctx context.Context, p Parsed) {
 	}
 }
 
-// mustSubmit reports that this follow-up has to be a new review because the
-// one already stored is not an approval and this answer is.
-func (s *Source) mustSubmit(ctx context.Context, install int64, p Parsed, id int64, event string) bool {
-	if event != eventApprove {
-		return false
-	}
+// reviewState is the GitHub state of the review this session already submitted.
+// Empty means the list failed or the id was not in it. A later approval is then
+// submitted again rather than written into a review that might not be one.
+func (s *Source) reviewState(ctx context.Context, install int64, p Parsed, id int64) string {
 	reviews, err := s.client.ListReviews(ctx, install, p.Owner, p.Repo, p.Number)
 	if err != nil {
-		return true
+		s.logger.WarnContext(ctx, "github: reading the stored review failed",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "review", id, "error", err)
+		return ""
 	}
 	for _, rev := range reviews {
 		if rev.ID == id {
-			return rev.State != "APPROVED"
+			return rev.State
 		}
 	}
-	return true
+	return ""
 }
 
 // submitReview posts one review. Inline notes ride on it. GitHub rejects the
@@ -694,7 +704,12 @@ func (s *Source) submitReview(ctx context.Context, install int64, p Parsed, even
 		}
 	}
 	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summary, commit, comments)
-	if err != nil && len(comments) > 0 {
+	// GitHub refuses the whole review when one note is not on the diff. That
+	// refusal is an API error. A truncated body or a dropped connection is not,
+	// and submitting again would post a second review for a failure that was
+	// not about the notes.
+	var refused *APIError
+	if err != nil && len(comments) > 0 && errors.As(err, &refused) {
 		s.logger.WarnContext(ctx, "github: inline comments rejected; submitting the review without them",
 			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
 		created, err = s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summaryWithNotes(summary, notes), "", nil)

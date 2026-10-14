@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	eventComment = "COMMENT"
-	eventApprove = "APPROVE"
+	eventComment        = "COMMENT"
+	eventApprove        = "APPROVE"
+	eventRequestChanges = "REQUEST_CHANGES"
 )
 
 // pullComment is one inline note on a submitted review. Side is the new file:
