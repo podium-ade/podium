@@ -94,12 +94,14 @@ func (s *Source) handleDelivery(ctx context.Context, event string, body []byte) 
 
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	if !c.mentioned && (!c.inReply || !known) {
+	if !c.mentioned && !c.requested && (!c.inReply || !known) {
 		return
 	}
 
 	text := strings.TrimSpace(s.stripMention(c.body))
 	switch {
+	case c.requested:
+		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
 	case !known:
 		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
 	case c.inReply:
@@ -137,6 +139,9 @@ type classified struct {
 	diffHunk    string
 	inReply     bool
 	mentioned   bool
+	// requested is a review_requested delivery whose requested reviewer is this App.
+	// It starts or continues the review with no @mention.
+	requested bool
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -263,6 +268,33 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.ts = p.Review.SubmittedAt
 		base.mentioned = s.mentioned(p.Review.Body)
 		return base, base.number > 0 && base.commentID > 0 && strings.TrimSpace(p.Review.Body) != ""
+
+	case "pull_request":
+		if env.Action != "review_requested" {
+			return classified{}, false
+		}
+		var p struct {
+			RequestedReviewer struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"requested_reviewer"`
+			PullRequest struct {
+				Number    int       `json:"number"`
+				UpdatedAt time.Time `json:"updated_at"`
+			} `json:"pull_request"`
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return classified{}, false
+		}
+		if !s.isAppUser(p.RequestedReviewer.Login, p.RequestedReviewer.Type) {
+			return classified{}, false
+		}
+		base.number = p.PullRequest.Number
+		base.kind = KindPullRequest
+		base.author = env.Sender.Login
+		base.ts = p.PullRequest.UpdatedAt
+		base.requested = true
+		return base, base.number > 0
 	default:
 		return classified{}, false
 	}

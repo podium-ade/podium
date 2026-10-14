@@ -24,10 +24,11 @@ hook_attributes:
 callback_urls:
   - PODIUM_URL/agent/github/callback
 description: >-
-  Podium reviews a pull request when you tag it, as one conversation whether you asked
-  on GitHub or in Slack. One turn of the assistant, which may start a playbook. There is
-  no resident model session. Whoever can tag the bot can make it run code with the
-  playbook's credentials — there is no role model. See docs/security.md.
+  Podium reviews a pull request when you tag it or request it as a reviewer, as one
+  conversation whether you asked on GitHub or in Slack. One turn of the assistant, which
+  may start a playbook. There is no resident model session. Whoever can tag the bot, or
+  request it as a reviewer, can make it run code with the playbook's credentials. There
+  is no role model. See docs/security.md.
 public: false
 default_permissions:
   # Conversation-tab comments, including the working comment and the answer.
@@ -39,5 +40,6 @@ default_permissions:
   contents: write
 default_events:
   - issue_comment
+  - pull_request
   - pull_request_review
   - pull_request_review_comment
