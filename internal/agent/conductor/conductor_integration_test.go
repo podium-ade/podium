@@ -844,6 +844,118 @@ func TestAFollowUpWhileTheWorkspaceIsWarmIsInjected(t *testing.T) {
 	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
 }
 
+// reviewProfile is a conductor whose coder playbook is the only pull-request review.
+func reviewProfile(t *testing.T) *profiles.Profile {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(dir+"/profile.yaml", []byte(`name: podium
+display_name: Podium
+system_prompt: be Podium
+model: claude-opus-5
+default_playbook: general
+`), 0o600))
+	require.NoError(t, os.MkdirAll(dir+"/playbooks", 0o750))
+	require.NoError(t, os.WriteFile(dir+"/playbooks/general.yaml", []byte(`image: podium-agent-runtime:dev
+system_prompt: answer the question
+allowed_tools: [read, grep]
+`), 0o600))
+	require.NoError(t, os.WriteFile(dir+"/playbooks/coder.yaml", []byte(`image: podium-agent-runtime:dev
+system_prompt: review the pull request
+allowed_tools: [read, grep]
+github: true
+`), 0o600))
+	p, err := profiles.Load(dir)
+	require.NoError(t, err)
+	return p
+}
+
+func githubInbound(text string) conductor.InboundEvent {
+	return conductor.InboundEvent{
+		SourceKind: conductor.SourceGitHub,
+		SourceKey:  "github:acme/repo#12",
+		Ref:        "acme/repo/12/42/pull_request/0",
+		Author:     "alice",
+		Text:       text,
+		TS:         time.Now().UTC(),
+		BriefKind:  conductor.SourceGitHub,
+	}
+}
+
+func withReviewHost(p *profiles.Profile) func(*conductor.Options) {
+	return func(o *conductor.Options) {
+		o.Profiles = profiles.NewLive(p)
+		o.Host = &conductor.HostRuntime{
+			Entry: "node", Runner: "podium-runner",
+			Credential: func(context.Context, string) (string, error) {
+				return "k", nil
+			},
+		}
+	}
+}
+
+// TestAGitHubReviewRunsItsPlaybookAndReusesTheTask is the review guardrail and the resume.
+// A host runtime is configured, which is what would answer a conversation. The review still
+// runs the playbook marked github: true. A follow-up while that task is warm is injected,
+// and one after it exits is a new task on the same workspace.
+func TestAGitHubReviewRunsItsPlaybookAndReusesTheTask(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	release := fake.HoldTasks()
+	fake.events = func(taskID string) []*podiumv1.TaskEvent {
+		return []*podiumv1.TaskEvent{messageEvent(taskID, 1, conductor.OutFinal, "review of "+taskID)}
+	}
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	ctx := context.Background()
+	startWith(t, st, fake, src, withReviewHost(reviewProfile(t)))
+	require.NoError(t, src.Send(ctx, githubInbound("please review")))
+	waitFor(t, 30*time.Second, "the review", func() bool {
+		return len(posts(src.Records(), conductor.OutFinal)) >= 1
+	})
+	require.Len(t, fake.Specs(), 1)
+	sess, err := st.GetSessionByKey(ctx, "github:acme/repo#12")
+	require.NoError(t, err)
+	assert.Equal(t, "coder", sess.Playbook)
+	assert.Equal(t, sess.ID, fake.Specs()[0].GetWorkspaceSession())
+
+	require.NoError(t, src.Send(ctx, githubInbound("this comment is wrong")))
+	waitFor(t, 30*time.Second, "the correction to be injected", func() bool {
+		return len(fake.Injects()) == 1
+	})
+	assert.Equal(t, "this comment is wrong", fake.Injects()[0].GetText())
+	assert.Len(t, fake.Specs(), 1, "a warm correction must not start a second review")
+
+	release()
+	waitFor(t, 60*time.Second, "the review to finish", func() bool {
+		return turnStatus(st, "github:acme/repo#12") == store.TurnSucceeded
+	})
+
+	require.NoError(t, src.Send(ctx, githubInbound("and once more")))
+	waitFor(t, 60*time.Second, "the restored review", func() bool { return len(fake.Specs()) == 2 })
+	assert.Equal(t, fake.Specs()[0].GetWorkspaceSession(), fake.Specs()[1].GetWorkspaceSession())
+	sess, err = st.GetSessionByKey(ctx, "github:acme/repo#12")
+	require.NoError(t, err)
+	assert.Equal(t, "coder", sess.Playbook)
+}
+
+// TestAGitHubReviewWithoutAPlaybookIsRefused refuses the turn rather than letting the
+// assistant pick a job. A host runtime is configured so that path is available.
+func TestAGitHubReviewWithoutAPlaybookIsRefused(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	src := fakesource.New(conductor.SourceGitHub)
+	t.Cleanup(src.Close)
+
+	startWith(t, st, fake, src, withReviewHost(testProfile(t)))
+	require.NoError(t, src.Send(context.Background(), githubInbound("deploy production")))
+	waitFor(t, 30*time.Second, "the refusal", func() bool {
+		return len(posts(src.Records(), conductor.OutFailure)) >= 1
+	})
+	assert.Contains(t, posts(src.Records(), conductor.OutFailure)[0].Text, "github: true")
+	assert.Empty(t, fake.Specs())
+}
+
 // TestARestartResumesTheTurnAndPostsTheFinalOnce kills the conductor mid-turn and brings it
 // back. The task is still running, the answer was already relayed, and the relayed ledger is
 // what stops it being said twice — the fake deliberately replays every event.

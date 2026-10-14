@@ -55,8 +55,10 @@ func TestAgentProfileLoads(t *testing.T) {
 	// conductor refuses to start when a key is set and no playbook claims it. Whoever wants
 	// tickets adds a playbook with `linear: true`; docs/agent.md#linear says so.
 	require.Empty(t, p.LinearPlaybook())
+	require.Empty(t, p.GitHubPlaybook())
 	for _, name := range p.PlaybookNames() {
 		require.False(t, p.Playbooks[name].Linear, "%s must not claim Linear", name)
+		require.False(t, p.Playbooks[name].GitHub, "%s must not claim pull-request reviews", name)
 	}
 
 	// The assistant — what answers the web chat, in the conductor's own process — names no

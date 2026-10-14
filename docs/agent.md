@@ -15,7 +15,8 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
 A conversation runs **no playbook**. A Slack mention and a Linear ticket do, and run as tasks,
-because each of those really is one piece of work.
+because each of those really is one piece of work. A GitHub pull-request review does too: the
+one playbook marked `github: true`, one session per pull request.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -89,7 +90,8 @@ is gone, so a resumed turn posts progress as new messages instead of editing.
 
 **The answer.** A `final` message is posted as a new message, verbatim. The runtime splits an
 answer over 32 KiB into several consecutive `final` messages; they are posted in order. Text over
-Slack's own 4000-character limit is split again, at the last newline that fits.
+Slack's own 4000-character limit is split again, at the last newline that fits. A GitHub review
+is the exception: the first final submits one pull-request review and a later final updates it.
 
 **Attachments.** A `final`'s `attachments` are artifact *names*. They are resolved once the task
 is terminal, because an artifact named in a message may still have been uploading when the
@@ -514,6 +516,7 @@ secrets:                                                     # verbatim into the
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
+github: false                                                # this is the playbook pull-request reviews run
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
@@ -551,6 +554,8 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
+- **At most one playbook may set `github: true`.** That playbook is the whole of a pull-request
+  review. Two is a start-up error. Zero means a review is refused until one is marked.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
@@ -1618,10 +1623,10 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Tag the App on a pull request, or tag Podium in Slack with that PR's URL, and it starts **one**
-assistant conversation for that pull request. Later GitHub traffic that belongs to the review
-is another turn of the same conversation. The App posts on GitHub; bound Slack threads get the
-same answer.
+Tag the App on a pull request, request it as a reviewer, or tag Podium in Slack with that PR's
+URL, and it starts **one** review of that pull request. The review runs the playbook marked
+`github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
+The App posts on GitHub; bound Slack threads get the same answer.
 
 **Each deployment creates its own GitHub App.** Podium ships
 [`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
@@ -1651,8 +1656,14 @@ Then `@your-app review this` on a PR, or in Slack:
 @Podium review this PR https://github.com/acme/repo/pull/12
 ```
 
-Those are the same session (`github:acme/repo#12`). A leading `/coder` in the mention is left
-in the text; the assistant delegates to that playbook the way it does in Slack.
+Those are the same session (`github:acme/repo#12`). Mark the review playbook with `github: true`
+before any of this runs. With none marked, the turn is refused.
+
+A follow-up while that task is still up, including the warm window after it answers, is injected
+into the same container. After it exits, the next message is a new task on the same session
+workspace, restored from the snapshot, and it updates the review already on the pull request.
+A killed task's files are in that snapshot. A `/other` prefix in the comment does not change
+the playbook.
 
 ### What starts a turn, and what does not
 
@@ -1680,7 +1691,9 @@ the PR.
 The first answer is submitted as one pull-request review (`COMMENT`, not an approval).
 The review id is stored on the session. A later answer updates that review. A reply in an
 inline thread is answered in the thread and leaves the review in place. A progress comment
-is still the working comment for that turn.
+is still the working comment for that turn. The review is the summary the playbook writes.
+Line comments are the inline thread a person replies in, not something parsed out of that
+summary.
 
 ---
 
