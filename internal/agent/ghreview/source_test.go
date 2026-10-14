@@ -572,31 +572,52 @@ func TestStatusCommentOmitsTheSummaryWhenThePullCannotBeRead(t *testing.T) {
 	require.NoError(t, err)
 	comments := h.stub.postedIssueBodies()
 	require.Len(t, comments, 1)
-	assert.Equal(t, statusMarker+"\n**"+statusInProgress+"**", comments[0])
+	assert.Contains(t, comments[0], "> [!NOTE]")
+	assert.Contains(t, comments[0], "**"+statusInProgress+"**")
+	assert.NotContains(t, comments[0], "Files")
 }
 
 func TestStatusCommentUsesSingularCounts(t *testing.T) {
-	body := statusComment(statusInProgress, pullInfo{
-		OK: true, Title: "One file", Head: "fix", Base: "dev",
-		Files: 1, Additions: 3, Deletions: 0, Commits: 1,
+	body := statusComment(statusInProgress, "acme", "repo", pullInfo{
+		OK: true, Title: "One file", Head: "fix", Base: "dev", SHA: "abcdef0",
+		Files: 1, Additions: 1331, Deletions: 0, Commits: 1,
 	})
+	assert.Contains(t, body, "> [!NOTE]")
 	assert.Contains(t, body, "**"+statusInProgress+"**")
-	assert.Contains(t, body, "One file")
-	assert.Contains(t, body, "`fix` → `dev`")
-	assert.Contains(t, body, "1 file changed · +3 −0 · 1 commit")
+	assert.Contains(t, body, "Podium is reading this pull request.")
+	assert.Contains(t, body, "### One file")
+	assert.Contains(t, body, "[`fix`](https://github.com/acme/repo/tree/fix)")
+	assert.Contains(t, body, "[`dev`](https://github.com/acme/repo/tree/dev)")
+	assert.Contains(t, body, "[`abcdef0`](https://github.com/acme/repo/commit/abcdef0)")
+	assert.Contains(t, body, "| 1 | +1,331 | −0 | 1 |")
+	assert.Contains(t, body, "[View the diff](https://github.com/acme/repo/compare/dev...fix)")
 	assert.NotContains(t, body, "1 files")
-	assert.NotContains(t, body, "1 commits")
 
-	none := statusComment(statusReviewed, pullInfo{})
-	assert.Equal(t, statusMarker+"\n**"+statusReviewed+"**", none)
+	approved := statusComment(statusApproved, "acme", "repo", pullInfo{OK: true, Title: "One file", Head: "fix", Base: "dev"})
+	assert.Contains(t, approved, "> [!TIP]")
+	assert.Contains(t, approved, "Approved. The full review is below.")
+
+	changes := statusComment(statusChanges, "", "", pullInfo{OK: true, Head: "fix/name", Base: "dev"})
+	assert.Contains(t, changes, "> [!WARNING]")
+	assert.Contains(t, changes, "`fix/name` → `dev`")
+	assert.NotContains(t, changes, "](")
+
+	none := statusComment(statusDidNotFinish, "acme", "repo", pullInfo{})
+	assert.Contains(t, none, "> [!CAUTION]")
+	assert.Contains(t, none, "**"+statusDidNotFinish+"**")
+	assert.Contains(t, none, "This review stopped before it was posted.")
+	assert.NotContains(t, none, "| Files |")
 }
 
 func assertStatusSummary(t *testing.T, body string) {
 	t.Helper()
 	assert.Contains(t, body, statusMarker)
-	assert.Contains(t, body, "Fix the review")
-	assert.Contains(t, body, "`agent/review` → `dev`")
-	assert.Contains(t, body, "3 files changed · +40 −5 · 2 commits")
+	assert.Contains(t, body, "### Fix the review")
+	assert.Contains(t, body, "[`agent/review`](https://github.com/acme/repo/tree/agent/review)")
+	assert.Contains(t, body, "[`dev`](https://github.com/acme/repo/tree/dev)")
+	assert.Contains(t, body, "[`0123456`](https://github.com/acme/repo/commit/0123456789abcdef)")
+	assert.Contains(t, body, "| 3 | +40 | −5 | 2 |")
+	assert.Contains(t, body, "[View the diff](https://github.com/acme/repo/compare/dev...agent/review)")
 }
 
 func TestFetchTranscriptDropsTheInProgressReview(t *testing.T) {

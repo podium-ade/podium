@@ -1698,9 +1698,10 @@ container clones. A playbook must not `gh pr comment`. That would be a second id
 the PR.
 
 A pull request gets two GitHub posts. When the turn starts, the App posts one
-conversation comment titled **Review in progress**. Under that title it names the
-pull request, the head and base branches, and how many files, lines, and commits
-changed. Later progress leaves that comment alone. When the answer arrives, the
+conversation comment: a status callout titled **Review in progress**, then the
+pull request title, linked head and base branches, the head commit, and a table
+of files, additions, deletions, and commits. Later progress leaves that comment
+alone. When the answer arrives, the
 same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
 and the summary under it stays. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -639,7 +640,7 @@ func (s *Source) showStatus(ctx context.Context, p Parsed, title string, create 
 		}
 	}
 	info := s.pullInfo(ctx, p)
-	body := statusComment(title, info)
+	body := statusComment(title, p.Owner, p.Repo, info)
 	if id == 0 {
 		install, err := s.installation(ctx, p)
 		if err != nil {
@@ -739,44 +740,147 @@ func (s *Source) cachedPull(key string) pullInfo {
 	return s.pulls[key]
 }
 
-// statusComment is the one conversation comment. The title changes when the
-// review finishes. The summary under it does not.
-func statusComment(title string, info pullInfo) string {
+// statusComment is the one conversation comment. The title and the lead change
+// when the review finishes. The pull-request summary under them is rewritten
+// from the same fields, so the card stays one comment.
+func statusComment(title, owner, repo string, info pullInfo) string {
+	alert, lead := statusLead(title)
 	var b strings.Builder
 	b.WriteString(statusMarker)
-	b.WriteString("\n**")
+	b.WriteString("\n\n> [!")
+	b.WriteString(alert)
+	b.WriteString("]\n> **")
 	b.WriteString(title)
-	b.WriteString("**")
+	b.WriteString("**\n>\n> ")
+	b.WriteString(lead)
 	if !info.OK {
 		return b.String()
 	}
 	if info.Title != "" {
-		b.WriteString("\n\n")
-		b.WriteString(info.Title)
+		b.WriteString("\n\n### ")
+		b.WriteString(oneLine(info.Title))
 	}
-	if info.Head != "" || info.Base != "" {
-		b.WriteString("\n\n`")
-		b.WriteString(info.Head)
-		b.WriteString("` → `")
-		b.WriteString(info.Base)
-		b.WriteString("`")
+	if line := branchLine(owner, repo, info); line != "" {
+		b.WriteString("\n\n")
+		b.WriteString(line)
 	}
 	b.WriteString("\n\n")
-	b.WriteString(countNoun(info.Files, "file", "files"))
-	b.WriteString(" changed · +")
-	b.WriteString(strconv.Itoa(info.Additions))
-	b.WriteString(" −")
-	b.WriteString(strconv.Itoa(info.Deletions))
-	b.WriteString(" · ")
-	b.WriteString(countNoun(info.Commits, "commit", "commits"))
+	b.WriteString(statTable(info))
+	if href := compareURL(owner, repo, info.Base, info.Head); href != "" {
+		b.WriteString("\n\n[View the diff](")
+		b.WriteString(href)
+		b.WriteString(")")
+	}
 	return b.String()
 }
 
-func countNoun(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
+// statusLead is the GitHub alert and the one sentence under the title.
+// NOTE is blue, TIP is green, WARNING is amber, CAUTION is red.
+func statusLead(title string) (alert, lead string) {
+	switch title {
+	case statusInProgress:
+		return "NOTE", "Podium is reading this pull request. The review will be posted below."
+	case statusApproved:
+		return "TIP", "Approved. The full review is below."
+	case statusChanges:
+		return "WARNING", "Changes requested. The full review is below."
+	case statusDidNotFinish:
+		return "CAUTION", "This review stopped before it was posted."
+	default:
+		return "NOTE", "Reviewed. The full review is below."
 	}
-	return strconv.Itoa(n) + " " + many
+}
+
+func branchLine(owner, repo string, info pullInfo) string {
+	var parts []string
+	if info.Head != "" || info.Base != "" {
+		head := linkedCode(info.Head, treeURL(owner, repo, info.Head))
+		base := linkedCode(info.Base, treeURL(owner, repo, info.Base))
+		parts = append(parts, head+" → "+base)
+	}
+	if info.SHA != "" {
+		short := info.SHA
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		parts = append(parts, linkedCode(short, commitURL(owner, repo, info.SHA)))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func statTable(info pullInfo) string {
+	return "| Files | Additions | Deletions | Commits |\n" +
+		"| ---: | ---: | ---: | ---: |\n" +
+		"| " + groupedInt(info.Files) +
+		" | +" + groupedInt(info.Additions) +
+		" | −" + groupedInt(info.Deletions) +
+		" | " + groupedInt(info.Commits) + " |"
+}
+
+func treeURL(owner, repo, ref string) string {
+	if owner == "" || repo == "" || ref == "" {
+		return ""
+	}
+	return "https://github.com/" + owner + "/" + repo + "/tree/" + escapeRef(ref)
+}
+
+func commitURL(owner, repo, sha string) string {
+	if owner == "" || repo == "" || sha == "" {
+		return ""
+	}
+	return "https://github.com/" + owner + "/" + repo + "/commit/" + url.PathEscape(sha)
+}
+
+func compareURL(owner, repo, base, head string) string {
+	if owner == "" || repo == "" || base == "" || head == "" {
+		return ""
+	}
+	return "https://github.com/" + owner + "/" + repo + "/compare/" + escapeRef(base) + "..." + escapeRef(head)
+}
+
+func escapeRef(ref string) string {
+	parts := strings.Split(ref, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func linkedCode(label, href string) string {
+	span := codeSpan(label)
+	if href == "" {
+		return span
+	}
+	return "[" + span + "](" + href + ")"
+}
+
+func codeSpan(s string) string {
+	fence := "`"
+	if strings.Contains(s, "`") {
+		fence = "``"
+	}
+	return fence + s + fence
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func groupedInt(n int) string {
+	sign := ""
+	if n < 0 {
+		sign = "−"
+		n = -n
+	}
+	s := strconv.Itoa(n)
+	var b strings.Builder
+	for i := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(s[i])
+	}
+	return sign + b.String()
 }
 
 // reviewState is the GitHub state of the review this session already submitted.
