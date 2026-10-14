@@ -178,7 +178,7 @@ type TaskSpec struct {
 	RetryOnNodeLoss bool `protobuf:"varint,12,opt,name=retry_on_node_loss,json=retryOnNodeLoss,proto3" json:"retry_on_node_loss,omitempty"`
 	// Conversation this task's /workspace belongs to. When set, the node restores that
 	// session's latest snapshot (or the repository base) before the task starts and uploads
-	// a new one after a clean exit. Empty keeps the volume ephemeral.
+	// a new one when the task exits, including a cancel or an OOM. Empty keeps the volume ephemeral.
 	WorkspaceSession string `protobuf:"bytes,13,opt,name=workspace_session,json=workspaceSession,proto3" json:"workspace_session,omitempty"`
 	// Repository a base snapshot is stored under. Sent with the download so a session that
 	// has never snapshotted can start from the base.

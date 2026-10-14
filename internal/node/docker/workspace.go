@@ -23,9 +23,10 @@ type Workspace struct {
 	// found means the volume stays empty, which is a session that has never snapshotted
 	// and has no base. A non-nil error fails the run.
 	Restore func(ctx context.Context) (r io.ReadCloser, found bool, err error)
-	// Save is called after a clean exit, with a tar of the volume, before the caller
-	// tears the volume down. An error is logged and does not fail the run: the previous
-	// snapshot stays the one on record when the upload itself fails.
+	// Save is called after the task exits, including a cancel or an OOM, with a tar of
+	// the volume, before the caller tears the volume down. An error is logged and does
+	// not fail the run: the previous snapshot stays the one on record when the upload
+	// itself fails.
 	Save func(ctx context.Context, tarPath string, size int64) error
 }
 

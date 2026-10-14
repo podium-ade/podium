@@ -89,6 +89,15 @@ type SourceOptions struct {
 	Logger        *slog.Logger
 	HTTPClient    *http.Client
 	Clock         func() time.Time
+	// Reviews remembers the pull-request review this session submitted. Nil keeps it in
+	// memory for the life of the process, which is what the tests do.
+	Reviews ReviewMemory
+}
+
+// ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
+type ReviewMemory struct {
+	Get func(ctx context.Context, sourceKey string) (int64, error)
+	Set func(ctx context.Context, sourceKey string, reviewID int64) error
 }
 
 // Source is the GitHub App integration.
@@ -99,6 +108,7 @@ type Source struct {
 	listen        string
 	webhookSecret string
 	session       SessionLookup
+	reviews       ReviewMemory
 	surfaces      Surfaces
 	slack         SlackBridge
 	taskURL       func(string) string
@@ -111,6 +121,10 @@ type Source struct {
 	seen map[string]time.Time
 	// turns is per-ref bookkeeping for the working comment, keyed by the triggering ref.
 	turns map[string]*turnState
+	// reviewIDs is the submitted review for a pull request, keyed by source key. It is the
+	// process cache of Reviews, so a second final in this process updates the review even
+	// when the save has not landed yet.
+	reviewIDs map[string]int64
 }
 
 type turnState struct {
@@ -166,12 +180,14 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		listen:        opts.Listen,
 		webhookSecret: opts.WebhookSecret,
 		session:       opts.Session,
+		reviews:       opts.Reviews,
 		surfaces:      opts.Surfaces,
 		slack:         opts.Slack,
 		taskURL:       taskURL,
 		now:           now,
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
+		reviewIDs:     map[string]int64{},
 	}, nil
 }
 
@@ -449,6 +465,28 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		body = withFooter(body, out.TaskID)
 	}
 
+	// The first answer is one submitted review. A later answer updates it. A reply in an
+	// inline thread stays in that thread, and a failure stays on the working comment,
+	// so neither replaces the review.
+	inline := p.Kind == KindReviewComment && p.CommentID > 0
+	if out.Type == conductor.OutFinal && !inline {
+		id, gerr := s.postReview(ctx, p, body)
+		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
+			s.logger.WarnContext(ctx, "github: posting the review failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", gerr)
+		}
+		if s.fanoutSlack(out) {
+			s.postSlack(ctx, p, out)
+		}
+		if id != "" {
+			return id, nil
+		}
+		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
+			return "", gerr
+		}
+		return "", nil
+	}
+
 	id, gerr := s.postGitHub(ctx, p, body)
 	if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
 		s.logger.WarnContext(ctx, "github: posting a comment failed",
@@ -476,6 +514,62 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 		return "", gerr
 	}
 	return "", nil
+}
+
+func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string, error) {
+	install, err := s.installation(ctx, p)
+	if err != nil {
+		return "", err
+	}
+	key := SourceKey(p.Owner, p.Repo, p.Number)
+	id, err := s.reviewID(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	if id > 0 {
+		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, body); err != nil {
+			return "", err
+		}
+		return strconv.FormatInt(id, 10), nil
+	}
+	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, body)
+	if err != nil {
+		return "", err
+	}
+	if created.ID <= 0 {
+		return "", errors.New("github: the review was submitted without an id")
+	}
+	s.rememberReview(key, created.ID)
+	if s.reviews.Set != nil {
+		if err := s.reviews.Set(ctx, key, created.ID); err != nil {
+			s.logger.WarnContext(ctx, "github: recording the review id failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "review", created.ID, "error", err)
+		}
+	}
+	return strconv.FormatInt(created.ID, 10), nil
+}
+
+func (s *Source) reviewID(ctx context.Context, key string) (int64, error) {
+	s.mu.Lock()
+	id := s.reviewIDs[key]
+	s.mu.Unlock()
+	if id > 0 || s.reviews.Get == nil {
+		return id, nil
+	}
+	id, err := s.reviews.Get(ctx, key)
+	if err != nil || id <= 0 {
+		return 0, err
+	}
+	s.rememberReview(key, id)
+	return id, nil
+}
+
+func (s *Source) rememberReview(key string, id int64) {
+	s.mu.Lock()
+	if s.reviewIDs[key] == 0 {
+		s.reviewIDs[key] = id
+	}
+	s.mu.Unlock()
 }
 
 func (s *Source) postGitHub(ctx context.Context, p Parsed, body string) (string, error) {

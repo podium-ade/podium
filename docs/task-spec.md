@@ -106,9 +106,11 @@ disappeared — and the two need different answers.
 
 `workspace_session` names the conversation this task's `/workspace` belongs to. When it is
 set, the node restores that session's latest snapshot before the task starts, or the
-repository base named by `workspace_repo` when the session has none. After a clean exit it
+repository base named by `workspace_repo` when the session has none. When the task exits it
 uploads a new tar and the control plane keeps that as the one snapshot for the session.
-The volume is still deleted at teardown. A cancel or an OOM does not replace the snapshot.
+The volume is still deleted at teardown. A cancel or an OOM uploads too, so the next
+task of the session restores the files that were there when the task died. A failed
+upload leaves the previous snapshot in place.
 
 Leave `workspace_session` empty for a one-shot task. Nothing is restored and nothing is
 uploaded, and `keepWorkspace` stays false, so the volume is removed with the task.

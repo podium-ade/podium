@@ -27,6 +27,7 @@ const draft: PlaybookDraft = {
   repos: [],
   slackChannels: [],
   linear: false,
+  github: false,
   interactive: true,
   skills: ["pr-review"],
   mcpServers: ["linear"],
@@ -71,6 +72,13 @@ env:
       "system_prompt: hi\nallowed_tools: [read, notepad]\n",
     );
     expect(problems.join("\n")).toContain("notepad");
+  });
+
+  it("round-trips github: true", () => {
+    const text = draftToYaml({ ...draft, github: true });
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).github).toBe(true);
   });
 
   it("round-trips a draft through YAML", () => {

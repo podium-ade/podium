@@ -191,6 +191,23 @@ func (c *restClient) EditIssueComment(ctx context.Context, installID int64, owne
 		map[string]string{"body": body}, nil)
 }
 
+// CreateReview submits one pull-request review as a comment. It does not approve.
+// A body-only review needs no commit id.
+func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, repo string, number int, body string) (Review, error) {
+	var out Review
+	err := c.do(ctx, installID, http.MethodPost,
+		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number),
+		map[string]string{"body": body, "event": "COMMENT"}, &out)
+	return out, err
+}
+
+// UpdateReview replaces the summary of a review this App already submitted.
+func (c *restClient) UpdateReview(ctx context.Context, installID int64, owner, repo string, number int, reviewID int64, body string) error {
+	return c.do(ctx, installID, http.MethodPut,
+		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews/%d", owner, repo, number, reviewID),
+		map[string]string{"body": body}, nil)
+}
+
 // CreateReviewReply posts in an inline review thread.
 func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, owner, repo string, number int, inReplyTo int64, body string) (Comment, error) {
 	var out Comment

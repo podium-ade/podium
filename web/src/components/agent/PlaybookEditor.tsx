@@ -150,6 +150,7 @@ export function PlaybookEditor({
   const [priority, setPriority] = useState(String(playbook?.priority ?? 0));
   const [channels, setChannels] = useState((playbook?.slackChannels ?? []).join(", "));
   const [linear, setLinear] = useState(playbook?.linear ?? false);
+  const [github, setGithub] = useState(playbook?.github ?? false);
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
   const [browser, setBrowser] = useState(playbook?.browser ?? false);
@@ -229,6 +230,7 @@ export function PlaybookEditor({
     git: persona,
     slackChannels: splitList(channels),
     linear,
+    github,
     interactive,
     docker,
     browser,
@@ -990,6 +992,25 @@ export function PlaybookEditor({
               <p className="text-2xs leading-relaxed text-faint">
                 At most one playbook may set it: a ticket has no channel and no slash prefix to
                 choose with.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-hairline px-3 py-2.5">
+            <Switch
+              id={`${uid}-github`}
+              aria-label="Reviews pull requests"
+              checked={github}
+              onCheckedChange={setGithub}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={`${uid}-github`} className="text-fg">
+                This is the playbook pull-request reviews run
+              </Label>
+              <p className="text-2xs leading-relaxed text-faint">
+                At most one playbook may set it. A review of a pull request runs this playbook
+                and nothing else, including when someone replies or @mentions the bot.
               </p>
             </div>
           </div>
