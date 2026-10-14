@@ -222,6 +222,8 @@ func delegationError(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, conductor.ErrDelegationOver):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, conductor.ErrDelegationFailed):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrNoPreview):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, conductor.ErrNoDelegation):
