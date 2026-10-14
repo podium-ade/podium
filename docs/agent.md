@@ -1632,7 +1632,9 @@ must appear as *your* bot.
 
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
    `pull_requests: write`, `contents: write` (clone and push use the same App). Events:
-   `issue_comment`, `pull_request_review`, `pull_request_review_comment`.
+   `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.
+   An App that already exists does not pick this up from the manifest: add `pull_request`
+   on its webhook settings.
 2. Generate a private key. Paste the PEM under Settings → Connections, with the App id.
    That is the same key clone tokens mint from. The old key-file variable is ignored.
 3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at the listen
@@ -1659,6 +1661,7 @@ in the text; the assistant delegates to that playbook the way it does in Slack.
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
+| `pull_request` / `review_requested` whose `requested_reviewer` is this App | start, or continue if a session exists. A request for a person is dropped. A ruleset that marks the App as a required reviewer sends this same event |
 | a reply in an inline review thread on a PR that already has a session | continue |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |

@@ -200,6 +200,55 @@ func TestAMentionOnAPRWithNoSessionStartsAReview(t *testing.T) {
 	assert.NotContains(t, evs[0].Text, "@podium")
 }
 
+func reviewRequested(login, typ string) map[string]any {
+	return map[string]any{
+		"action":       "review_requested",
+		"installation": map[string]any{"id": 42},
+		"repository": map[string]any{
+			"name": "repo", "owner": map[string]any{"login": "acme"},
+		},
+		"sender":             map[string]any{"login": "alice", "type": "User"},
+		"requested_reviewer": map[string]any{"login": login, "type": typ},
+		"pull_request": map[string]any{
+			"number": 12, "updated_at": "2026-09-14T12:00:00Z",
+		},
+	}
+}
+
+func TestRequestingTheAppStartsAReview(t *testing.T) {
+	h := newHarness(t)
+	rec := postWebhook(t, h, "pull_request", "d-req", reviewRequested("podium[bot]", "Bot"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
+	assert.Equal(t, "alice", evs[0].Author)
+	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
+	assert.Contains(t, evs[0].Text, "asked for a review")
+	p, err := ParseRef(evs[0].Ref)
+	require.NoError(t, err)
+	assert.Equal(t, KindPullRequest, p.Kind)
+	assert.Equal(t, int64(0), p.CommentID)
+}
+
+func TestRequestingSomeoneElseIsDropped(t *testing.T) {
+	h := newHarness(t)
+	rec := postWebhook(t, h, "pull_request", "d-other", reviewRequested("alice", "User"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, h.drain())
+}
+
+func TestReRequestingTheAppContinuesTheSession(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	rec := postWebhook(t, h, "pull_request", "d-rereq", reviewRequested("podium[bot]", "Bot"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
+	assert.Contains(t, evs[0].Text, "asked for a review")
+}
+
 func TestACommentOnANonPRIssueIsDropped(t *testing.T) {
 	h := newHarness(t)
 	payload := prComment("@podium hi")
