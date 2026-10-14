@@ -573,6 +573,53 @@ func TestAnApprovalFollowUpEditsTheSameReview(t *testing.T) {
 	assert.Contains(t, edits[0], "Still just the name.")
 }
 
+func TestChangesNeededAfterAnApprovalRequestsChanges(t *testing.T) {
+	h := newHarness(t)
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	text := "**Changes needed**\n\nThe check is gone.\n\n```inline\ninternal/a.go:4\nThis returns nil on failure.\n```\n"
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	require.NoError(t, err)
+	assert.NotEqual(t, "77", id)
+	assert.Empty(t, h.stub.postedReviewEdits())
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "REQUEST_CHANGES", created[0]["event"])
+	notes, ok := created[0]["comments"].([]any)
+	require.True(t, ok)
+	require.Len(t, notes, 1)
+}
+
+func TestARefusedInlineNoteIsRetriedWithoutIt(t *testing.T) {
+	h := newHarness(t)
+	h.stub.rejectComments = true
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	text := "**Changes needed**\n\nThe line is gone.\n\n```inline\ninternal/a.go:4\nNot on the diff.\n```\n"
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 2)
+	_, pinned := created[0]["comments"]
+	assert.True(t, pinned)
+	_, pinned = created[1]["comments"]
+	assert.False(t, pinned)
+	assert.Contains(t, asString(created[1]["body"]), "internal/a.go:4")
+	assert.Equal(t, "COMMENT", created[1]["event"])
+}
+
+func TestADroppedReviewIsNotSubmittedAgain(t *testing.T) {
+	h := newHarness(t)
+	h.stub.dropReview = true
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	text := "**Changes needed**\n\n```inline\ninternal/a.go:4\nNot on the diff.\n```\n"
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	require.Error(t, err)
+	assert.Empty(t, h.stub.postedReviews())
+}
+
 func TestAStoredReviewIsUpdatedRatherThanSubmittedAgain(t *testing.T) {
 	h := newHarness(t)
 	h.src.reviews = ReviewMemory{

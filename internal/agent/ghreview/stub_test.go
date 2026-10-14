@@ -30,6 +30,8 @@ type stub struct {
 	issueComments  []Comment
 	reviewComments []Comment
 	listedReviews  []Review
+	rejectComments bool
+	dropReview     bool
 	installID      int64
 	install404     bool
 	nextComment    int64
@@ -149,6 +151,27 @@ func (s *stub) writeReview(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	var body map[string]any
 	_ = json.Unmarshal(raw, &body)
+	s.mu.Lock()
+	drop := s.dropReview
+	reject := s.rejectComments
+	s.dropReview = false
+	s.mu.Unlock()
+	if drop {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+		return
+	}
+	if reject {
+		if comments, ok := body["comments"].([]any); ok && len(comments) > 0 {
+			s.mu.Lock()
+			s.reviews = append(s.reviews, body)
+			s.mu.Unlock()
+			http.Error(w, `{"message":"line must be part of the diff"}`, http.StatusUnprocessableEntity)
+			return
+		}
+	}
 	id := atomic.AddInt64(&s.nextComment, 1)
 	s.mu.Lock()
 	s.reviews = append(s.reviews, body)

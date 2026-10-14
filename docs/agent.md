@@ -1704,8 +1704,11 @@ submits an approval, which is a new review because a submitted review cannot cha
 its event. Anything else stays a comment on the review opened at the start. Fenced
 `inline` notes on that answer are comments on the finished review, pinned to the
 diff, not separate conversation comments. The review id is stored on the session. A
-later answer updates that review, and a follow-up that approves for the first time
-submits a new approval. A reply in an inline thread is answered in the thread and
+later answer that still agrees with that review updates it. A follow-up that approves
+for the first time submits a new approval. A follow-up that withdraws an approval
+submits a new review requesting changes: rewriting the approval would leave the pull
+request approved, and this App cannot dismiss a review. A reply in an inline thread
+is answered in the thread and
 leaves the review in place. A progress comment is still the working comment for
 that turn. The review is the summary the playbook writes.
 
