@@ -113,12 +113,18 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 
 	text := strings.TrimSpace(s.stripMention(c.body))
 	switch {
+	case c.ready && known:
+		commit, head := s.reviewBaseline(ctx, c)
+		text = followUpInstruction(readyInstruction(c.author, PRURL(c.owner, c.repo, c.number)), commit, head)
 	case c.ready:
 		text = readyInstruction(c.author, PRURL(c.owner, c.repo, c.number))
 	case !known:
 		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
 	case c.inReply:
 		text = reviewReplyInstruction(c.path, c.line, c.diffHunk, text)
+	default:
+		commit, head := s.reviewBaseline(ctx, c)
+		text = followUpInstruction(text, commit, head)
 	}
 
 	s.emit(ctx, conductor.InboundEvent{
@@ -398,6 +404,71 @@ func compileMention(slug string) *regexp.Regexp {
 
 func readyInstruction(author, prURL string) string {
 	return firstNonEmpty(author, "someone") + " marked " + prURL + " ready for review"
+}
+
+// followUpInstruction tells a later turn to review the delta since the last
+// review. commit is the head that review was submitted against. head is the
+// pull request head now. The workspace snapshot is already restored by the
+// time the turn starts.
+func followUpInstruction(note, commit, head string) string {
+	var b strings.Builder
+	unchanged := commit != "" && commit == head
+	if unchanged {
+		b.WriteString("This pull request was already reviewed, and its head is still ")
+		b.WriteString(commit)
+		b.WriteString(". There is no new diff. Repeat the previous verdict in one line and stop. Do not add inline comments.")
+	} else {
+		b.WriteString("This pull request was already reviewed. Review only the commits and files changed since that review. Do not review the rest of the pull request again. If that delta fixes the earlier findings and adds nothing that should block a merge, the verdict is **Approve**.")
+		if commit != "" {
+			b.WriteString("\nThe last review was on commit ")
+			b.WriteString(commit)
+			b.WriteString(".")
+			if head != "" {
+				b.WriteString(" The head is now ")
+				b.WriteString(head)
+				b.WriteString(".")
+			}
+		}
+	}
+	b.WriteString("\nThe workspace snapshot from the last turn is restored. Use it, including .podium/review.json when it is there.")
+	note = strings.TrimSpace(note)
+	if note != "" {
+		b.WriteString("\n\n")
+		b.WriteString(note)
+	}
+	return b.String()
+}
+
+// reviewBaseline is the commit the stored review covered and the pull request
+// head now. Either is empty when GitHub did not return it. Both empty means
+// this session has no review yet.
+func (s *Source) reviewBaseline(ctx context.Context, c classified) (commit, head string) {
+	id, err := s.reviewID(ctx, SourceKey(c.owner, c.repo, c.number))
+	if err != nil || id == 0 || c.installID == 0 {
+		return "", ""
+	}
+	reviews, err := s.client.ListReviews(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the last reviewed commit failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return "", ""
+	}
+	for _, rev := range reviews {
+		if rev.ID == id {
+			commit = rev.CommitID
+			break
+		}
+	}
+	if commit == "" {
+		return "", ""
+	}
+	info, err := s.client.Pull(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the pull request head failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return commit, ""
+	}
+	return commit, info.SHA
 }
 
 func reviewInstruction(author, prURL, body string) string {
