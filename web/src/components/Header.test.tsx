@@ -6,6 +6,7 @@ import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
 import { RoleAdmin, RoleMember, RoleOwner } from "../lib/rbac";
 import { Header } from "./Header";
+import { NAV_ICON_PATHS, type NavIconName } from "./NavIcon";
 
 const base: Viewer = {
   login: "local",
@@ -228,6 +229,34 @@ describe("Header", () => {
 
   // Cost is recorded per agent turn, so on a control plane with no conductor the Usage
   // screen has nothing to report and is hidden on the same signal.
+  it("draws the design side-menu icons", () => {
+    mount({ ...base, agentEnabled: true });
+    const pages: [string, NavIconName][] = [
+      ["Chat", "chat"],
+      ["Sessions", "sessions"],
+      ["Memory", "memory"],
+      ["Assistants", "assistants"],
+      ["Tasks", "tasks"],
+      ["Nodes", "nodes"],
+      ["Playbooks", "playbooks"],
+      ["Skills", "skills"],
+      ["MCP", "mcp"],
+      ["Channels", "channels"],
+      ["Secrets", "secrets"],
+      ["Registries", "registries"],
+      ["Usage", "usage"],
+      ["Settings", "settings"],
+    ];
+    for (const [label, name] of pages) {
+      const icon = screen.getByRole("link", { name: label }).querySelector("svg");
+      expect(icon).toHaveAttribute("stroke-width", "1.8");
+      expect(icon?.querySelector("path")).toHaveAttribute("d", NAV_ICON_PATHS[name]);
+    }
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" }).querySelector("svg");
+    expect(collapse?.querySelector("rect")).toHaveAttribute("width", "18");
+    expect(collapse?.querySelector("path")).toHaveAttribute("d", "M9 4v16m7-11-3 3 3 3");
+  });
+
   it("gates Usage on the conductor, like Agent", () => {
     const { unmount } = mount(base);
     expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
