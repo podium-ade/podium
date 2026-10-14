@@ -47,6 +47,9 @@ var (
 	// ErrDelegationOver means the delegation is already terminal, so there is nothing to
 	// cancel.
 	ErrDelegationOver = errors.New("conductor: that delegation has already finished")
+	// ErrDelegationFailed means the task ended before a node took it — a secret that is not
+	// set, say. The message carries the reason in words a person can be told.
+	ErrDelegationFailed = errors.New("conductor: the delegated task failed before it started")
 	// ErrNoPreview means the delegation's task left no preview up to release.
 	ErrNoPreview = errors.New("conductor: that delegation has no preview to release")
 	// ErrNoDelegation means this conductor cannot delegate at all, because it has no host
@@ -166,9 +169,10 @@ func repoNames(p profiles.Playbook) []string {
 	return out
 }
 
-// Delegate starts a task for the conversation the token belongs to and returns as soon as the
-// control plane has accepted it. Nothing here waits for the task: it is followed in the
-// background, and a turn asks GetDelegation for where it got to.
+// Delegate starts a task for the conversation the token belongs to and returns once the task
+// has left the queue, or after delegateSettle. A task that fails before leaving it is the
+// turn's error. Nothing else waits for the task: it is followed in the background, and a
+// turn asks GetDelegation for where it got to.
 func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instruction string) (store.Delegation, error) {
 	g, ok := c.grantFor(token)
 	if !ok {
@@ -240,6 +244,22 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 	c.logger.InfoContext(ctx, "delegated a task", "delegation_id", dlg.ID, "turn_id", g.turnID,
 		"session_id", g.sessionID, "playbook", playbookName, "task_id", dlg.TaskID)
 
+	// The control plane fails a task at placement for what it can check there within
+	// milliseconds of accepting it. Answering "running" to that sent the assistant on to
+	// promise results while the failure was already in the conversation above its words.
+	if failed := c.failedAtPlacement(ctx, dlg.TaskID); failed != nil {
+		result := classify(failed, playbook.Timeout.Std())
+		c.logger.WarnContext(ctx, "a delegated task failed before it started", "delegation_id", dlg.ID,
+			"task_id", dlg.TaskID, "status", failed.GetStatus().String(), "failure_reason", failed.GetFailureReason())
+		c.dropGitCapability(ctx, dlg.ID, playbook)
+		if err := c.store.FinishDelegation(ctx, dlg.ID, result.Status, "", nil, nil); err != nil {
+			c.logger.ErrorContext(ctx, "recording a delegation that failed at once failed",
+				"delegation_id", dlg.ID, "error", err)
+		}
+		c.metrics.Delegations.WithLabelValues(playbookName, result.Status).Inc()
+		return store.Delegation{}, fmt.Errorf("%w: %s", ErrDelegationFailed, result.Post)
+	}
+
 	// HELD, not said. See holdAnnouncement.
 	c.holdAnnouncement(announcement{
 		dlgID:  dlg.ID,
@@ -253,6 +273,37 @@ func (c *Conductor) Delegate(ctx context.Context, token, playbookName, instructi
 
 	c.followDelegation(ctx, g.src, dlg, playbook, 0)
 	return dlg, nil
+}
+
+// delegateSettle bounds how long Delegate waits for a new task to leave the queue.
+const delegateSettle = 3 * time.Second
+
+// failedAtPlacement is the task when it ended before leaving the queue, and nil once it has
+// left it, after delegateSettle, or when it cannot be read: the follower reports those.
+func (c *Conductor) failedAtPlacement(ctx context.Context, taskID string) *podiumv1.Task {
+	deadline := time.Now().Add(delegateSettle)
+	for {
+		task, err := c.podium.GetTask(ctx, taskID)
+		if err != nil {
+			return nil
+		}
+		switch task.GetStatus() {
+		case podiumv1.TaskStatus_TASK_STATUS_QUEUED, podiumv1.TaskStatus_TASK_STATUS_UNSPECIFIED:
+		case podiumv1.TaskStatus_TASK_STATUS_FAILED, podiumv1.TaskStatus_TASK_STATUS_CANCELLED,
+			podiumv1.TaskStatus_TASK_STATUS_LOST:
+			return task
+		default:
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // maxAnnouncedRunes bounds the echo of an instruction in the announcement. The instruction
@@ -317,6 +368,18 @@ func (c *Conductor) sayAnnouncementsFor(ctx context.Context, turnID string) {
 // post reaches a source, and holding the conductor's mutex across that would serialise every
 // session behind one slow conversation.
 func (c *Conductor) sayHeld(ctx context.Context, match func(announcement) bool) {
+	for _, a := range c.takeHeld(match) {
+		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Text: a.text})
+	}
+}
+
+// dropAnnouncement forgets the held line for a delegation that failed before saying
+// anything: "Working on this" under its failure would read as work going on.
+func (c *Conductor) dropAnnouncement(dlgID string) {
+	c.takeHeld(func(a announcement) bool { return a.dlgID == dlgID })
+}
+
+func (c *Conductor) takeHeld(match func(announcement) bool) []announcement {
 	c.mu.Lock()
 	kept := c.pending[:0:0]
 	var say []announcement
@@ -329,10 +392,7 @@ func (c *Conductor) sayHeld(ctx context.Context, match func(announcement) bool) 
 	}
 	c.pending = kept
 	c.mu.Unlock()
-
-	for _, a := range say {
-		c.post(ctx, a.src, a.ref, Outbound{Type: OutProgress, TaskID: a.taskID, Text: a.text})
-	}
+	return say
 }
 
 // startDelegatedTask builds the brief and creates the task. The brief is the ordinary one —
@@ -632,6 +692,7 @@ func (r *delegationRun) run(ctx context.Context) {
 	r.settle(ctx, task)
 	result := classify(task, r.playbook.Timeout.Std())
 	if result.Post != "" {
+		c.dropAnnouncement(r.dlg.ID)
 		c.logger.WarnContext(ctx, "a delegated task did not succeed", "delegation_id", r.dlg.ID,
 			"task_id", task.GetId(), "status", task.GetStatus().String(),
 			"exit_code", task.GetExitCode(), "failure_reason", task.GetFailureReason())
