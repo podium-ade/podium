@@ -1,29 +1,11 @@
 import { useState } from "react";
-import type { LucideIcon } from "lucide-react";
-import {
-  Brain,
-  ChevronDown,
-  Coins,
-  Container,
-  Hash,
-  History,
-  KeyRound,
-  ListTodo,
-  LogOut,
-  MessageSquare,
-  PanelLeftClose,
-  Plug,
-  Puzzle,
-  Server,
-  Settings2,
-  Sparkles,
-  UserRound,
-} from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel, type Viewer } from "../lib/identity";
 import { Avatar } from "./Avatar";
+import { CollapseIcon, NavIcon, type NavIconName } from "./NavIcon";
 import { useShell } from "./shell";
 import {
   DropdownMenu,
@@ -41,7 +23,7 @@ function pathActive(pathname: string, to: string, end?: boolean) {
 function Item({
   to,
   end,
-  icon: Icon,
+  icon,
   children,
   match,
   onNavigate,
@@ -49,7 +31,7 @@ function Item({
 }: {
   to: string;
   end?: boolean;
-  icon: LucideIcon;
+  icon: NavIconName;
   children: string;
   match?: (pathname: string) => boolean;
   onNavigate?: () => void;
@@ -71,7 +53,7 @@ function Item({
         isActive && "border-line-strong bg-raised font-[720] text-fg hover:border-line-strong hover:bg-raised hover:text-fg",
       )}
     >
-      <Icon className="size-[18px] shrink-0 stroke-[1.8]" />
+      <NavIcon name={icon} />
       <span className={cn("truncate", collapsed && "md:hidden")}>{children}</span>
     </Link>
   );
@@ -152,59 +134,59 @@ export function Header() {
           {agent ? (
             <>
               <SectionLabel collapsed={collapsed}>Assistant</SectionLabel>
-              <Item to="/agent/chat" icon={MessageSquare} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/chat" icon="chat" onNavigate={close} collapsed={collapsed}>
                 Chat
               </Item>
-              <Item to="/agent/sessions" icon={History} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/sessions" icon="sessions" onNavigate={close} collapsed={collapsed}>
                 Sessions
               </Item>
-              <Item to="/agent/memory" icon={Brain} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/memory" icon="memory" onNavigate={close} collapsed={collapsed}>
                 Memory
               </Item>
-              <Item to="/agent/assistants" icon={UserRound} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/assistants" icon="assistants" onNavigate={close} collapsed={collapsed}>
                 Assistants
               </Item>
             </>
           ) : null}
 
           <SectionLabel collapsed={collapsed}>Run</SectionLabel>
-          <Item to="/tasks" end icon={ListTodo} onNavigate={close} collapsed={collapsed}>
+          <Item to="/tasks" end icon="tasks" onNavigate={close} collapsed={collapsed}>
             Tasks
           </Item>
-          <Item to="/nodes" icon={Server} onNavigate={close} collapsed={collapsed}>
+          <Item to="/nodes" icon="nodes" onNavigate={close} collapsed={collapsed}>
             Nodes
           </Item>
 
           <SectionLabel collapsed={collapsed}>Administer</SectionLabel>
           {agent ? (
             <>
-              <Item to="/agent/playbooks" icon={Sparkles} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/playbooks" icon="playbooks" onNavigate={close} collapsed={collapsed}>
                 Playbooks
               </Item>
-              <Item to="/agent/skills" icon={Puzzle} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/skills" icon="skills" onNavigate={close} collapsed={collapsed}>
                 Skills
               </Item>
-              <Item to="/agent/mcp" icon={Plug} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/mcp" icon="mcp" onNavigate={close} collapsed={collapsed}>
                 MCP
               </Item>
-              <Item to="/agent/channels" icon={Hash} onNavigate={close} collapsed={collapsed}>
+              <Item to="/agent/channels" icon="channels" onNavigate={close} collapsed={collapsed}>
                 Channels
               </Item>
             </>
           ) : null}
-          <Item to="/secrets" icon={KeyRound} onNavigate={close} collapsed={collapsed}>
+          <Item to="/secrets" icon="secrets" onNavigate={close} collapsed={collapsed}>
             Secrets
           </Item>
-          <Item to="/registries" icon={Container} onNavigate={close} collapsed={collapsed}>
+          <Item to="/registries" icon="registries" onNavigate={close} collapsed={collapsed}>
             Registries
           </Item>
           {agent ? (
-            <Item to="/usage" icon={Coins} onNavigate={close} collapsed={collapsed}>
+            <Item to="/usage" icon="usage" onNavigate={close} collapsed={collapsed}>
               Usage
             </Item>
           ) : null}
           {showSettings ? (
-            <Item to="/agent/settings" icon={Settings2} onNavigate={close} collapsed={collapsed}>
+            <Item to="/agent/settings" icon="settings" onNavigate={close} collapsed={collapsed}>
               Settings
             </Item>
           ) : null}
@@ -224,7 +206,7 @@ export function Header() {
               collapsed && "justify-center px-0",
             )}
           >
-            <PanelLeftClose className={cn("size-[18px] shrink-0 stroke-[1.8]", collapsed && "rotate-180")} />
+            <CollapseIcon className={cn(collapsed && "rotate-180")} />
             <span className={cn(collapsed && "hidden")}>{collapseLabel}</span>
           </button>
         </div>
