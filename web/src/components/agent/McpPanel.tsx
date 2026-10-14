@@ -39,7 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Textarea } from "../ui/textarea";
 import { Tooltip } from "../ui/tooltip";
 import { ConductorDown } from "./ConductorDown";
-import { McpMark } from "./McpMark";
+import { BrandTile } from "./BrandIcon";
 import { useViewer } from "../../lib/identity";
 import { canManageInfra } from "../../lib/rbac";
 
@@ -77,6 +77,28 @@ function serverKey(server: McpServer) {
   return `${server.owner}\n${server.name}`;
 }
 
+const mcpServersKey = ["agent", "mcp"] as const;
+
+/** Same registration: the name is unique within a scope, and an empty owner is the company list. */
+function sameServer(a: McpServer, b: McpServer) {
+  return a.name === b.name && (a.owner ?? "") === (b.owner ?? "");
+}
+
+function patchMcpList<T extends { servers: McpServer[] }>(
+  current: T | undefined,
+  v: { server: McpServer; enabled: boolean; fallback?: boolean },
+): T | undefined {
+  if (!current) return current;
+  return {
+    ...current,
+    servers: current.servers.map((s) =>
+      sameServer(s, v.server)
+        ? { ...s, enabled: v.enabled, fallback: v.fallback ?? s.fallback }
+        : s,
+    ),
+  };
+}
+
 function definitionOf(server: McpServer, patch: { enabled?: boolean; fallback?: boolean } = {}) {
   return {
     name: server.name,
@@ -100,8 +122,8 @@ export function McpPanel() {
   const [tab, setTab] = useState<"yours" | "global">(personal ? "yours" : "global");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const list = useQuery({ queryKey: ["agent", "mcp"], queryFn: () => agent.listMcpServers({}) });
-  const reload = () => qc.invalidateQueries({ queryKey: ["agent", "mcp"] });
+  const list = useQuery({ queryKey: mcpServersKey, queryFn: () => agent.listMcpServers({}) });
+  const reload = () => qc.invalidateQueries({ queryKey: mcpServersKey });
 
   const setEnabled = useMutation({
     // Enabling is an update of the whole registration, which is the only write there is: the
@@ -111,15 +133,25 @@ export function McpPanel() {
         server: definitionOf(v.server, { enabled: v.enabled, fallback: v.fallback }),
         forBot: !v.server.owner,
       }),
-    onSuccess: async (_res, v) => {
+    onMutate: async (v) => {
+      // Drop a list refresh that started before the click, then put the click back. The
+      // handler already painted it, so this only guards the response that arrives late.
+      await qc.cancelQueries({ queryKey: mcpServersKey });
+      qc.setQueryData(mcpServersKey, (current: { servers: McpServer[] } | undefined) =>
+        patchMcpList(current, v),
+      );
+    },
+    onSuccess: (_res, v) => {
       const what =
         v.fallback === undefined
           ? `${v.server.name} is ${v.enabled ? "enabled" : "disabled"}.`
           : `${v.server.name} ${v.fallback ? "is shared when someone has no server of this name" : "is no longer shared"}.`;
       toast(`${what} It applies to the next turn.`, "ok");
-      await reload();
     },
     onError: (err) => toast(errorMessage(err)),
+    onSettled: () => {
+      void reload();
+    },
   });
 
   const remove = useMutation({
@@ -147,6 +179,19 @@ export function McpPanel() {
 
   const startCreate = (personalScope: boolean) => setEditing(personalScope ? "new" : "new-bot");
 
+  // Paint the switch on the click, before the request and the list reload. Waiting for
+  // those left the row on the old value, faded, until the list came back.
+  const stageToggle = (server: McpServer, enabled: boolean, fallback?: boolean) => {
+    const v = { server, enabled, fallback };
+    const previous = qc.getQueryData(mcpServersKey);
+    qc.setQueryData(mcpServersKey, (current: { servers: McpServer[] } | undefined) =>
+      patchMcpList(current, v),
+    );
+    setEnabled.mutate(v, {
+      onError: () => qc.setQueryData(mcpServersKey, previous),
+    });
+  };
+
   const renderList = (testId: string, rows: McpServer[], readOnly: boolean, personalScope: boolean) => {
     const open = rows.find((s) => serverKey(s) === selectedKey);
     return (
@@ -159,16 +204,11 @@ export function McpPanel() {
               <ServerRow
                 key={serverKey(s)}
                 server={s}
-                busy={
-                  (setEnabled.isPending && setEnabled.variables?.server.name === s.name) ||
-                  (remove.isPending && remove.variables?.name === s.name)
-                }
+                busy={remove.isPending && remove.variables?.name === s.name}
                 readOnly={readOnly}
                 onOpen={() => setSelectedKey(serverKey(s))}
-                onToggle={(enabled) => setEnabled.mutate({ server: s, enabled })}
-                onFallback={(fallback) =>
-                  setEnabled.mutate({ server: s, enabled: s.enabled, fallback })
-                }
+                onToggle={(enabled) => stageToggle(s, enabled)}
+                onFallback={(fallback) => stageToggle(s, s.enabled, fallback)}
               />
             ))}
           </ul>
@@ -176,16 +216,11 @@ export function McpPanel() {
         {open ? (
           <ServerDetail
             server={open}
-            busy={
-              (setEnabled.isPending && setEnabled.variables?.server.name === open.name) ||
-              (remove.isPending && remove.variables?.name === open.name)
-            }
+            busy={remove.isPending && remove.variables?.name === open.name}
             readOnly={readOnly}
             onBack={() => setSelectedKey(null)}
-            onToggle={(enabled) => setEnabled.mutate({ server: open, enabled })}
-            onFallback={(fallback) =>
-              setEnabled.mutate({ server: open, enabled: open.enabled, fallback })
-            }
+            onToggle={(enabled) => stageToggle(open, enabled)}
+            onFallback={(fallback) => stageToggle(open, open.enabled, fallback)}
             onEdit={() => {
               // The edit form is its own dialog. Closing this one keeps a single modal open.
               setSelectedKey(null);
@@ -372,17 +407,7 @@ function ServerIcon({
   large?: boolean;
 }) {
   const preset = presetFor(server);
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid shrink-0 place-items-center rounded-sm border border-line-strong bg-white",
-        large ? "size-14" : "size-10",
-      )}
-    >
-      <McpMark name={preset?.name ?? "unknown"} className={large ? "size-8 rounded-sm" : "size-6 rounded-sm"} />
-    </span>
-  );
+  return <BrandTile name={preset?.name ?? "unknown"} size={large ? "detail" : "row"} />;
 }
 
 /**
@@ -473,7 +498,7 @@ function ServerRow({
                       id={`${uid}-fallback`}
                       data-testid="mcp-fallback"
                       aria-label={`Use ${server.name} when someone has no server of this name`}
-                      checked={server.fallback}
+                      checked={server.fallback ?? false}
                       disabled={busy}
                       onCheckedChange={onFallback}
                     />
@@ -726,7 +751,7 @@ function ServerDetail({
               <Switch
                 id={`${uid}-fallback`}
                 aria-label={`Use ${server.name} when someone has no server of this name`}
-                checked={server.fallback}
+                checked={server.fallback ?? false}
                 disabled={busy}
                 onCheckedChange={onFallback}
                 className="shrink-0"

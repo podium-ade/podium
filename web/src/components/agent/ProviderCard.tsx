@@ -7,9 +7,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  AlertTriangle,
-  KeyRound,
-  RotateCw,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -39,7 +36,8 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { BackendMark } from "./BackendMark";
+import { TableCell, TableRow } from "../ui/table";
+import { BrandTile } from "./BrandIcon";
 
 /** How many model ids the confirmation card shows before it stops. */
 const MODEL_CHIPS = 6;
@@ -250,92 +248,80 @@ export function ProviderCard({
   };
 
   return (
-    <div data-testid={tid("provider-card")} className="py-3">
-      <div className="flex items-start gap-3">
-        <span
-          className={cn(
-            "mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg",
-            stored ? "bg-fg text-bg" : "border border-border bg-raised text-fg",
-          )}
-        >
-          <BackendMark id={provider.backendID} className="size-4 text-inherit" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold tracking-tight text-fg">{provider.models}</span>
-            {loading ? (
-              <Skeleton className="h-4 w-16" />
-            ) : (
-              <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
-                {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
-              </Badge>
-            )}
-          </div>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted">
-            {provider.name}
-            <span className="text-faint"> · {provider.how}</span>
-          </p>
-          {stored ? (
-            <p
-              data-testid={tid("provider-key-meta")}
-              className="mt-1 flex items-start gap-1.5 font-mono text-xs break-words text-muted"
-            >
-              {subscriptionStored ? (
-                expired ? (
-                  <AlertTriangle className="mt-px size-3.5 shrink-0 text-warn" />
-                ) : (
-                  <ShieldCheck className="mt-px size-3.5 shrink-0 text-ok" />
-                )
-              ) : (
-                <KeyRound className="mt-px size-3.5 shrink-0 text-muted" />
-              )}
-              <span>
-                <Connected settings={settings} />
+    <>
+      <TableRow data-testid={tid("provider-card")}>
+        <TableCell className="px-4 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandTile name={provider.backendID} />
+            <div className="min-w-0">
+              <strong className="block truncate text-sm">{provider.models}</strong>
+              <span className="block truncate text-xs text-muted">
+                {provider.name}
+                <span className="text-faint"> · {provider.how}</span>
               </span>
-            </p>
-          ) : null}
-        </div>
-        {loading || readOnly ? null : (
-          <div className="flex shrink-0 items-center gap-2">
-            {!stored && !showWork ? (
-              <Button type="button" size="sm" onClick={() => setOpen(true)}>
-                Connect
-              </Button>
-            ) : null}
-            {stored && !rotating && !expired ? (
-              <Button variant="outline" size="sm" onClick={signInAgain}>
-                <RotateCw />
-                {subscriptionStored ? "Sign in again" : "Rotate key"}
-              </Button>
-            ) : null}
-            {stored ? (
-              <Button
-                variant="danger"
-                size="sm"
-                data-testid={tid("provider-key-remove")}
-                onClick={() => setConfirming(true)}
-              >
-                {subscriptionStored ? "Sign out" : "Remove key"}
-              </Button>
-            ) : null}
+            </div>
           </div>
-        )}
-      </div>
+        </TableCell>
+        <TableCell className="px-4 py-4">
+          {loading ? (
+            <div aria-busy="true" aria-label="Loading">
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ) : (
+            <Badge tone={expired ? "warn" : keySet ? "ok" : "idle"}>
+              {expired ? "Sign-in expired" : keySet ? "Connected" : "Not set"}
+            </Badge>
+          )}
+        </TableCell>
+        <TableCell className="px-4 py-4">
+          {stored ? (
+            <span
+              data-testid={tid("provider-key-meta")}
+              className="font-mono text-sm break-words text-soft"
+            >
+              <Connected settings={settings} />
+            </span>
+          ) : (
+            <span className="text-muted">—</span>
+          )}
+        </TableCell>
+        <TableCell className="px-4 py-4 text-right whitespace-nowrap">
+          {loading || readOnly ? null : (
+            <div className="flex items-center justify-end gap-2">
+              {!stored && !showWork ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+                  Connect
+                </Button>
+              ) : null}
+              {stored && !rotating && !expired ? (
+                <Button variant="outline" size="sm" onClick={signInAgain}>
+                  {subscriptionStored ? "Sign in again" : "Rotate key"}
+                </Button>
+              ) : null}
+              {stored ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid={tid("provider-key-remove")}
+                  className="text-err hover:bg-err-bg"
+                  onClick={() => setConfirming(true)}
+                >
+                  {subscriptionStored ? "Sign out" : "Remove key"}
+                </Button>
+              ) : null}
+            </div>
+          )}
+        </TableCell>
+      </TableRow>
 
-      {loading ? (
-        <div className="mt-3 space-y-2 pl-12" aria-busy="true" aria-label="Loading">
-          <Skeleton className="h-4 w-1/2" />
-          <Skeleton className="h-8 w-28" />
-        </div>
-      ) : (
-        <div className="space-y-3 pl-12">
-          {expired && !rotating ? (
+      {expired && !rotating ? (
+        <TableRow>
+          <TableCell colSpan={4} className="px-6 py-3">
             <Alert
               variant="warn"
               role="alert"
               data-testid={tid("provider-sign-in-expired")}
               title={`Sign in to ${provider.models} again`}
-              className="mt-3"
             >
               <p>
                 The subscription token expired and could not be renewed. Chats that use this
@@ -353,10 +339,33 @@ export function ProviderCard({
                 </Button>
               )}
             </Alert>
-          ) : null}
+          </TableCell>
+        </TableRow>
+      ) : null}
 
+      <Dialog
+        open={showWork}
+        onOpenChange={(next) => {
+          if (next) return;
+          setOpen(false);
+          setRotating(false);
+          setSigning(undefined);
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[640px] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-2xl leading-tight font-bold tracking-normal">
+              <BrandTile name={provider.backendID} size="dialog" />
+              {provider.models}
+            </DialogTitle>
+            <DialogDescription className="text-base text-soft">
+              {stored
+                ? `Set a new credential for ${provider.name}. The current one cannot be read.`
+                : `Connect ${provider.name}. This shows only what you paste. The stored key cannot be read.`}
+            </DialogDescription>
+          </DialogHeader>
           {showWork ? (
-            <div className="mt-3 space-y-3 border-t border-hairline pt-3">
+            <div className="space-y-3">
               {oauth ? (
                 <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-panel p-0.5">
                   {(["key", "subscription"] as const).map((m) => (
@@ -450,7 +459,7 @@ export function ProviderCard({
                       disabled={value.trim() === "" || saving}
                     >
                       {saving ? <Spinner /> : null}
-                      {saving ? `Checking with ${provider.name}…` : "Validate & save"}
+                      {saving ? `Checking with ${provider.name}…` : "Save key"}
                     </Button>
                     {rotating ? (
                       <Button
@@ -474,57 +483,25 @@ export function ProviderCard({
               )}
             </div>
           ) : null}
+          {result ? <ProviderResult result={result} tid={tid} /> : null}
+        </DialogContent>
+      </Dialog>
 
-          {result ? (
-            <div
-              data-testid={tid("provider-key-status")}
-              role="status"
-              aria-live="polite"
-              className={cn(
-                "rounded-lg border px-3 py-2 text-xs",
-                result.tone === "ok"
-                  ? "border-ok bg-ok-bg text-ok"
-                  : result.tone === "err"
-                    ? "border-err bg-err-bg text-err"
-                    : "border-warn bg-warn-bg text-warn",
-              )}
-            >
-              <p>{result.text}</p>
-              {result.tone !== "ok" && result.detail ? (
-                <p
-                  data-testid={tid("provider-key-detail")}
-                  className="mt-1.5 max-w-2xl rounded-md border border-border bg-raised px-2 py-1.5 text-xs break-words text-muted"
-                >
-                  <span className="font-semibold">{result.detail.label}:</span> {result.detail.text}
-                </p>
-              ) : null}
-              {result.tone === "ok" && result.note ? (
-                <p className="mt-1 text-warn">{result.note}</p>
-              ) : null}
-              {result.tone === "ok" && result.models.length > 0 ? (
-                <p className="mt-2 flex flex-wrap gap-1">
-                  {result.models.slice(0, MODEL_CHIPS).map((m) => (
-                    <Chip key={m}>{m}</Chip>
-                  ))}
-                  {result.models.length > MODEL_CHIPS ? (
-                    <Chip>+{result.models.length - MODEL_CHIPS} more</Chip>
-                  ) : null}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      )}
+      {result && !showWork ? (
+        <TableRow>
+          <TableCell colSpan={4} className="px-6 py-3">
+            <ProviderResult result={result} tid={tid} />
+          </TableCell>
+        </TableRow>
+      ) : null}
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent className="max-w-md" showClose={false}>
+        <DialogContent className="max-w-[640px]" showClose={false}>
           <DialogHeader>
-            <DialogTitle>
-              {subscriptionStored
-                ? `Sign out of ${provider.name}?`
-                : `Remove the ${provider.name} key?`}
+            <DialogTitle className="text-2xl leading-tight font-bold tracking-normal">
+              {subscriptionStored ? "Sign out?" : "Remove key?"}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-base text-soft">
               {provider.models} turns will fail until a credential is set again. Podium deletes
               the secret; nothing already running is stopped, and every session that has already
               answered keeps its history.
@@ -545,6 +522,51 @@ export function ProviderCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+function ProviderResult({
+  result,
+  tid,
+}: {
+  result: Result;
+  tid: (name: string) => string;
+}) {
+  return (
+    <div
+      data-testid={tid("provider-key-status")}
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "rounded-lg border px-3 py-2 text-xs",
+        result.tone === "ok"
+          ? "border-ok bg-ok-bg text-ok"
+          : result.tone === "err"
+            ? "border-err bg-err-bg text-err"
+            : "border-warn bg-warn-bg text-warn",
+      )}
+    >
+      <p>{result.text}</p>
+      {result.tone !== "ok" && result.detail ? (
+        <p
+          data-testid={tid("provider-key-detail")}
+          className="mt-1.5 max-w-2xl rounded-md border border-border bg-raised px-2 py-1.5 text-xs break-words text-muted"
+        >
+          <span className="font-semibold">{result.detail.label}:</span> {result.detail.text}
+        </p>
+      ) : null}
+      {result.tone === "ok" && result.note ? <p className="mt-1 text-warn">{result.note}</p> : null}
+      {result.tone === "ok" && result.models.length > 0 ? (
+        <p className="mt-2 flex flex-wrap gap-1">
+          {result.models.slice(0, MODEL_CHIPS).map((m) => (
+            <Chip key={m}>{m}</Chip>
+          ))}
+          {result.models.length > MODEL_CHIPS ? (
+            <Chip>+{result.models.length - MODEL_CHIPS} more</Chip>
+          ) : null}
+        </p>
+      ) : null}
     </div>
   );
 }
