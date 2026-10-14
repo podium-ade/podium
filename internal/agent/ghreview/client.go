@@ -71,6 +71,7 @@ type Review struct {
 	ID          int64     `json:"id"`
 	Body        string    `json:"body"`
 	State       string    `json:"state"`
+	CommitID    string    `json:"commit_id"`
 	HTMLURL     string    `json:"html_url"`
 	SubmittedAt time.Time `json:"submitted_at"`
 	User        User      `json:"user"`

@@ -201,6 +201,7 @@ func TestAMentionOnAPRWithNoSessionStartsAReview(t *testing.T) {
 	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
 	assert.Contains(t, evs[0].Text, "review this")
 	assert.NotContains(t, evs[0].Text, "@podium")
+	assert.NotContains(t, evs[0].Text, "already reviewed")
 }
 
 func readyForReview() map[string]any {
@@ -255,6 +256,41 @@ func TestReadyForReviewAgainContinuesTheSession(t *testing.T) {
 	require.Len(t, evs, 1)
 	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
 	assert.Contains(t, evs[0].Text, "ready for review")
+	assert.Contains(t, evs[0].Text, "already reviewed")
+}
+
+func TestAFollowUpReviewsOnlyTheDelta(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	h.src.replaceReview("github:acme/repo#12", 77)
+	h.stub.listedReviews = []Review{{ID: 77, State: "CHANGES_REQUESTED", CommitID: "abc1234deadbeef"}}
+	rec := postWebhook(t, h, "issue_comment", "d-again", prComment("@podium review the fixes"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Contains(t, evs[0].Text, "already reviewed")
+	assert.Contains(t, evs[0].Text, "abc1234deadbeef")
+	assert.Contains(t, evs[0].Text, "**Approve**")
+	assert.Contains(t, evs[0].Text, "review the fixes")
+	assert.Contains(t, evs[0].Text, "0123456789abcdef")
+	assert.Contains(t, evs[0].Text, ".podium/review.json")
+	assert.NotContains(t, evs[0].Text, "@podium")
+	assert.NotContains(t, evs[0].Text, "no new diff")
+}
+
+func TestAnUnchangedHeadIsNotReviewedAgain(t *testing.T) {
+	h := newHarness(t)
+	h.session("github:acme/repo#12")
+	h.src.replaceReview("github:acme/repo#12", 77)
+	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED", CommitID: "0123456789abcdef"}}
+	rec := postWebhook(t, h, "issue_comment", "d-same", prComment("@podium again"))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Contains(t, evs[0].Text, "no new diff")
+	assert.Contains(t, evs[0].Text, "0123456789abcdef")
+	assert.Contains(t, evs[0].Text, "Do not add inline comments.")
+	assert.NotContains(t, evs[0].Text, "**Approve**")
 }
 
 func TestACommentOnANonPRIssueIsDropped(t *testing.T) {

@@ -1671,8 +1671,14 @@ before any of this runs. With none marked, the turn is refused.
 A follow-up while that task is still up, including the warm window after it answers, is injected
 into the same container. After it exits, the next message is a new task on the same session
 workspace, restored from the snapshot, and it updates the review already on the pull request.
-A killed task's files are in that snapshot. A `/other` prefix in the comment does not change
-the playbook.
+A killed task's files are in that snapshot. The restored checkout is kept when it is not on
+the default branch, so a review that left the pull-request head checked out starts there again.
+A follow-up reviews only the commits and files changed since the last review. The turn is told
+the commit that review was submitted against and the head now, and the snapshot keeps
+`.podium/review.json` with that commit and the verdict. When the head has not moved, the turn
+is told to repeat the previous verdict and add no comments. When that delta fixes the earlier
+findings and adds nothing that should block a merge, the verdict is an approval. A `/other`
+prefix in the comment does not change the playbook.
 
 ### What starts a turn, and what does not
 
