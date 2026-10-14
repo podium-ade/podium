@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Shield, Users } from "lucide-react";
-import { Chip } from "../components/Badge";
+import { Shield, Users } from "lucide-react";
 import { Empty } from "../components/Empty";
 import { TableSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
@@ -87,25 +86,27 @@ export function UsersPage() {
   });
 
   return (
-    <div className="space-y-5">
+    <div>
+      <PermissionsTable />
+
       {rows.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+          <span className="inline-flex min-h-7 items-center rounded-sm border border-border bg-raised px-2 text-xs font-bold">
             {rows.length} {rows.length === 1 ? "person" : "people"}
-          </Chip>
-          <Chip>
+          </span>
+          <span className="inline-flex min-h-7 items-center rounded-sm border border-border bg-raised px-2 text-xs font-bold">
             {owners} {owners === 1 ? "owner" : "owners"}
-          </Chip>
+          </span>
         </div>
       ) : null}
 
-      <PermissionsTable />
-
       {!manage ? (
-        <Alert variant="info" title="You can see who is here">
-          Changing a role takes the owner role. Ask an owner if you need to operate the
-          fleet or the agent.
-        </Alert>
+        <div className="border-t border-border px-6 py-4">
+          <Alert variant="info" title="You can see who is here">
+            Changing a role takes the owner role. Ask an owner if you need to operate the
+            fleet or the agent.
+          </Alert>
+        </div>
       ) : null}
 
       {query.isPending ? (
@@ -123,13 +124,14 @@ export function UsersPage() {
           />
         )
       ) : (
-        <Table>
+        <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+          <caption className="sr-only">People</caption>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Person</TableHead>
-              <TableHead>Login</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Last seen</TableHead>
+              <TableHead className={headCell}>Person</TableHead>
+              <TableHead className={headCell}>Login</TableHead>
+              <TableHead className={headCell}>Role</TableHead>
+              <TableHead className={headCell}>Last seen</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -150,15 +152,19 @@ export function UsersPage() {
   );
 }
 
+const headCell =
+  "px-4 py-3 text-xs font-[750] leading-[normal] tracking-[0.08em] text-muted uppercase";
+
 function PermissionsTable() {
   return (
-    <Table>
+    <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+      <caption className="sr-only">What each role can do</caption>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>Permission</TableHead>
+          <TableHead className={headCell}>Permission</TableHead>
           {ROLES.map((role) => (
-            <TableHead key={role} className="w-28 text-center">
-              <RoleBadge role={role} />
+            <TableHead key={role} className={cn(headCell, "w-28 text-center")}>
+              {roleLabel(role)}
             </TableHead>
           ))}
         </TableRow>
@@ -166,7 +172,7 @@ function PermissionsTable() {
       <TableBody>
         {CAPABILITIES.map((row) => (
           <TableRow key={row.label}>
-            <TableCell className="text-xs text-fg">{row.label}</TableCell>
+            <TableCell className="px-4 py-4 text-sm text-fg">{row.label}</TableCell>
             <AllowedCell allowed={row.member} label={`${roleLabel(RoleMember)}: ${row.label}`} />
             <AllowedCell allowed={row.admin} label={`${roleLabel(RoleAdmin)}: ${row.label}`} />
             <AllowedCell allowed={row.owner} label={`${roleLabel(RoleOwner)}: ${row.label}`} />
@@ -179,11 +185,13 @@ function PermissionsTable() {
 
 function AllowedCell({ allowed, label }: { allowed: boolean; label: string }) {
   return (
-    <TableCell className="text-center">
+    <TableCell className="px-4 py-4 text-center text-sm font-bold">
       {allowed ? (
-        <Check className="mx-auto size-3.5 text-ok" aria-label={label} />
+        <span className="text-ok" aria-label={label}>
+          Yes
+        </span>
       ) : (
-        <span className="text-faint" aria-label={`${label}: no`}>
+        <span className="font-normal text-muted" aria-label={`${label}: no`}>
           —
         </span>
       )}
@@ -208,15 +216,15 @@ function UserRow({
   const name = user.displayName || user.login;
   return (
     <TableRow>
-      <TableCell>
+      <TableCell className="px-4 py-4">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-fg">{name}</div>
+          <strong className="block truncate text-sm">{name}</strong>
           {user.hostedDomain ? (
-            <div className="truncate text-2xs text-faint">{user.hostedDomain}</div>
+            <span className="block truncate text-xs text-muted">{user.hostedDomain}</span>
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="font-mono text-xs text-muted">{user.login}</TableCell>
+      <TableCell className="px-4 py-4 font-mono text-sm text-soft">{user.login}</TableCell>
       <TableCell>
         {manage ? (
           <Tooltip
