@@ -377,6 +377,11 @@ type Playbook struct {
 	// so at start-up, where the key is known.
 	Linear bool `yaml:"linear" json:"linear,omitempty"`
 
+	// GitHub marks the one playbook a pull-request review runs. A review is one piece of
+	// work on one repository, so the session does not get the assistant's menu. At most
+	// one playbook may set it. Zero means a review is refused until one does.
+	GitHub bool `yaml:"github" json:"github,omitempty"`
+
 	// Interactive lets a turn ask a human a question and wait for the answer in the same
 	// container, instead of ending the turn. Off by default: a waiting container still
 	// holds a node slot (and a dind sidecar, if the playbook asked for one).
@@ -859,6 +864,17 @@ func (p *Profile) validate(path string) error {
 			"because a ticket has no channel and no /playbook prefix to choose with",
 			strings.Join(linear, ", ")))
 	}
+	var github []string
+	for _, name := range p.PlaybookNames() {
+		if p.Playbooks[name].GitHub {
+			github = append(github, name)
+		}
+	}
+	if len(github) > 1 {
+		errs = append(errs, fmt.Errorf("playbooks %s all set github: true; exactly one playbook may, "+
+			"because a pull-request review has no choice of playbook",
+			strings.Join(github, ", ")))
+	}
 	// Two playbooks claiming one channel is ambiguous routing, and ambiguous routing that
 	// resolves by map iteration order is worse than a refusal at start-up.
 	claimed := map[string]string{}
@@ -882,6 +898,17 @@ func (p *Profile) validate(path string) error {
 func (p *Profile) LinearPlaybook() string {
 	for _, name := range p.PlaybookNames() {
 		if p.Playbooks[name].Linear {
+			return name
+		}
+	}
+	return ""
+}
+
+// GitHubPlaybook is the name of the playbook a pull-request review runs, or "" when no
+// playbook claims reviews. validate has already refused more than one.
+func (p *Profile) GitHubPlaybook() string {
+	for _, name := range p.PlaybookNames() {
+		if p.Playbooks[name].GitHub {
 			return name
 		}
 	}

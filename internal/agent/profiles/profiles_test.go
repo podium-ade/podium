@@ -357,6 +357,20 @@ func TestExactlyOnePlaybookMayTakeLinearTickets(t *testing.T) {
 // deployment — most of them — so zero is not a load error. The Linear source is what
 // refuses to start when a key is set and no playbook claims tickets, because that is where the
 // key is known.
+func TestExactlyOnePlaybookMayReviewPullRequests(t *testing.T) {
+	files := base()
+	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "coder", p.GitHubPlaybook())
+	assert.True(t, p.Playbooks["coder"].GitHub)
+
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github: true\n"
+	_, err = Load(write(t, files))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github: true")
+}
+
 func TestNoPlaybookTakingLinearTicketsIsAllowed(t *testing.T) {
 	p, err := Load(write(t, base()))
 	require.NoError(t, err)

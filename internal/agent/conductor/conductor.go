@@ -343,6 +343,23 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
 
+	// A pull-request review runs one playbook, the one marked github: true. It does not
+	// get the assistant's menu, so a comment on the review cannot start some other job.
+	if src.Kind() == SourceGitHub {
+		name := profile.GitHubPlaybook()
+		if name == "" {
+			c.logger.ErrorContext(ctx, "no playbook reviews pull requests",
+				"source_key", ev.SourceKey)
+			c.post(ctx, src, ev.Ref, Outbound{
+				Type: OutFailure,
+				Text: "No playbook reviews pull requests. Mark one with github: true.",
+			})
+			c.finish(ctx, src, ev.Ref, ReactionFailed)
+			return
+		}
+		ev.Playbook = name
+	}
+
 	var j job
 	var sess store.Session
 	var ok bool
@@ -883,14 +900,14 @@ func playbookNames(menu []DelegablePlaybook) []string {
 }
 
 // aConversation is a source that is a chat window rather than a thread. A turn of one is
-// answered by the assistant, in this process, and delegates whatever needs a machine; a
-// Linear issue is the opposite — nobody is watching a cursor, and one session is one piece
-// of work, so it runs a playbook as a task. Slack and GitHub are conversations too: a
-// mention is answered here, and a GitHub pull-request review is one conversation whether
-// it was asked for on the PR or in Slack. The dev source is in here because it is how
-// both are tested.
+// answered by the assistant, in this process, and delegates whatever needs a machine. A
+// Linear issue runs one playbook as a task: nobody is watching a cursor, and one session
+// is one piece of work. A GitHub pull-request review is the same kind of work. It stays
+// one session for the pull request, and it runs the playbook marked github: true rather
+// than the assistant, so a comment on it cannot start some other job. The dev source is
+// in here because it is how a conversation is tested.
 func aConversation(kind string) bool {
-	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
+	return kind == SourceChat || kind == SourceSlack || kind == KindDev
 }
 
 // rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
