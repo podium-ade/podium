@@ -217,22 +217,63 @@ func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, r
 	return out, err
 }
 
-// PullHeadSHA is the commit a review's inline comments attach to.
-func (c *restClient) PullHeadSHA(ctx context.Context, installID int64, owner, repo string, number int) (string, error) {
+// pullInfo is the pull request as the status comment and the inline notes need it.
+type pullInfo struct {
+	OK        bool
+	Title     string
+	Head      string
+	Base      string
+	SHA       string
+	Commits   int
+	Files     int
+	Additions int
+	Deletions int
+}
+
+// Pull reads the pull request. The head commit is what inline comments pin to,
+// and the counts are what the status comment shows.
+func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo string, number int) (pullInfo, error) {
 	var out struct {
-		Head struct {
+		Title        string `json:"title"`
+		Commits      int    `json:"commits"`
+		Additions    int    `json:"additions"`
+		Deletions    int    `json:"deletions"`
+		ChangedFiles int    `json:"changed_files"`
+		Head         struct {
+			Ref string `json:"ref"`
 			SHA string `json:"sha"`
 		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
 	}
 	err := c.do(ctx, installID, http.MethodGet,
 		fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number), nil, &out)
 	if err != nil {
+		return pullInfo{}, err
+	}
+	return pullInfo{
+		Title:     out.Title,
+		Head:      out.Head.Ref,
+		Base:      out.Base.Ref,
+		SHA:       out.Head.SHA,
+		Commits:   out.Commits,
+		Files:     out.ChangedFiles,
+		Additions: out.Additions,
+		Deletions: out.Deletions,
+	}, nil
+}
+
+// PullHeadSHA is the commit a review's inline comments attach to.
+func (c *restClient) PullHeadSHA(ctx context.Context, installID int64, owner, repo string, number int) (string, error) {
+	info, err := c.Pull(ctx, installID, owner, repo, number)
+	if err != nil {
 		return "", err
 	}
-	if out.Head.SHA == "" {
+	if info.SHA == "" {
 		return "", errors.New("github: pull request has no head sha")
 	}
-	return out.Head.SHA, nil
+	return info.SHA, nil
 }
 
 // UpdateReview replaces the summary of a review this App already submitted.

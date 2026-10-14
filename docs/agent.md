@@ -1697,20 +1697,22 @@ bound Slack thread.
 container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
 
-When the turn starts, the App submits a short comment review so it shows in the
-pull request's reviewers list while the review runs. The first answer fills that
-review in. A verdict of `Approve` or `Nits` — the first line of that answer —
-submits an approval, which is a new review because a submitted review cannot change
-its event. Anything else stays a comment on the review opened at the start. Fenced
-`inline` notes on that answer are comments on the finished review, pinned to the
-diff, not separate conversation comments. The review id is stored on the session. A
-later answer that still agrees with that review updates it. A follow-up that approves
-for the first time submits a new approval. A follow-up that withdraws an approval
-submits a new review requesting changes: rewriting the approval would leave the pull
-request approved, and this App cannot dismiss a review. A reply in an inline thread
-is answered in the thread and
-leaves the review in place. A progress comment is still the working comment for
-that turn. The review is the summary the playbook writes.
+A pull request gets two GitHub posts. When the turn starts, the App posts one
+conversation comment titled **Review in progress**. Under that title it names the
+pull request, the head and base branches, and how many files, lines, and commits
+changed. Later progress leaves that comment alone. When the answer arrives, the
+same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
+and the summary under it stays. The answer is one submitted review under that
+comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
+an approval when the first line is `Approve` or `Nits`. Any other verdict is a
+comment review. The review id is stored on the session. A later answer that still
+agrees with that review updates it. A follow-up that approves for the first time
+submits a new approval. A follow-up that withdraws an approval submits a new
+review requesting changes, because rewriting the approval would leave the pull
+request approved and this App cannot dismiss a review. A reply in an inline thread
+is answered in that thread and leaves both posts in place. A turn that fails
+changes the status comment's title to **Review did not finish** when that comment
+already exists. The failure text and the task id are not written on the pull request.
 
 ---
 

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -377,69 +378,109 @@ func TestPostOnAnIssueCommentTriggerSubmitsOneReview(t *testing.T) {
 	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "looks good", TaskID: "task_1"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
-	assert.Empty(t, h.stub.postedIssueBodies())
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1, "the answer is one status comment and one review")
+	assertStatusSummary(t, comments[0])
+	assert.Contains(t, comments[0], "**"+statusReviewed+"**")
 	created := h.stub.postedReviews()
 	require.Len(t, created, 1)
 	assert.Equal(t, "COMMENT", created[0]["event"])
 	assert.Contains(t, asString(created[0]["body"]), "looks good")
-	assert.Contains(t, asString(created[0]["body"]), "task_1")
+	assert.NotContains(t, asString(created[0]["body"]), "task_1")
+	assert.NotContains(t, asString(created[0]["body"]), "Podium task")
 
 	follow := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
 	id2, err := h.src.Post(context.Background(), follow, conductor.Outbound{Type: conductor.OutFinal, Text: "still looks good", TaskID: "task_2"})
 	require.NoError(t, err)
 	assert.Equal(t, id, id2)
 	assert.Len(t, h.stub.postedReviews(), 1, "a follow-up updates the review")
+	assert.Len(t, h.stub.postedIssueBodies(), 1, "the status comment is the same one")
+	assert.Empty(t, h.stub.postedIssueEdits(), "the title is already Reviewed")
 	edits := h.stub.postedReviewEdits()
 	require.Len(t, edits, 1)
 	assert.Contains(t, edits[0], "still looks good")
-	assert.Contains(t, edits[0], "task_2")
+	assert.NotContains(t, edits[0], "task_2")
 }
 
-func TestATurnOpensAReviewBeforeTheAnswer(t *testing.T) {
+func TestProgressPostsOneStatusCommentAndTheAnswerRetitlesIt(t *testing.T) {
 	h := newHarness(t)
+	ctx := context.Background()
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
-	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
-	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
-	created := h.stub.postedReviews()
-	require.Len(t, created, 1, "a second ack does not open another review")
-	assert.Equal(t, "COMMENT", created[0]["event"])
-	assert.Equal(t, reviewingText, created[0]["body"])
+	require.NoError(t, h.src.React(ctx, ref, conductor.ReactionWorking))
+	require.NoError(t, h.src.React(ctx, ref, conductor.ReactionDone))
+	assert.Empty(t, h.stub.postedIssueBodies())
+	assert.Empty(t, h.stub.postedReviews())
 
-	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{
+	id, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	require.NoError(t, err)
+	assert.NotEmpty(t, id)
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.Contains(t, comments[0], "**"+statusInProgress+"**")
+	assertStatusSummary(t, comments[0])
+	assert.Empty(t, h.stub.postedReviews())
+
+	id2, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutProgress, Text: "still reading the diff"})
+	require.NoError(t, err)
+	assert.Equal(t, id, id2)
+	require.NoError(t, h.src.Edit(ctx, ref, id, conductor.Outbound{Type: conductor.OutProgress, Text: "still reading the diff"}))
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
+	assert.Empty(t, h.stub.postedIssueEdits(), "progress does not rewrite the comment")
+
+	reviewID, err := h.src.Post(ctx, ref, conductor.Outbound{
 		Type: conductor.OutFinal, Text: "**Changes needed**\n\nThe error is dropped.", TaskID: "task_1",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "101", id)
-	assert.Len(t, h.stub.postedReviews(), 1, "the answer fills the review opened at the start")
-	edits := h.stub.postedReviewEdits()
+	assert.NotEqual(t, id, reviewID)
+	require.Len(t, h.stub.postedReviews(), 1)
+	assert.Equal(t, "COMMENT", h.stub.postedReviews()[0]["event"])
+	assert.Contains(t, asString(h.stub.postedReviews()[0]["body"]), "The error is dropped.")
+	assert.NotContains(t, asString(h.stub.postedReviews()[0]["body"]), "task_1")
+	edits := h.stub.postedIssueEdits()
 	require.Len(t, edits, 1)
-	assert.Contains(t, edits[0], "The error is dropped.")
-	assert.Contains(t, edits[0], "task_1")
+	assert.Contains(t, edits[0], "**"+statusReviewed+"**")
+	assertStatusSummary(t, edits[0])
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
 }
 
 func TestAnInlineReplyDoesNotOpenAReview(t *testing.T) {
 	h := newHarness(t)
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindReviewComment, CommentID: 88})
 	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	require.NoError(t, err)
 	assert.Empty(t, h.stub.postedReviews())
+	assert.Empty(t, h.stub.postedIssueBodies())
 }
 
-func TestAFailedTurnKeepsTheReviewForTheNextAnswer(t *testing.T) {
+func TestAFailedTurnRetitlesTheStatusComment(t *testing.T) {
 	h := newHarness(t)
+	ctx := context.Background()
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
-	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
-	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionFailed))
-	edits := h.stub.postedReviewEdits()
-	require.Len(t, edits, 1)
-	assert.Equal(t, reviewFailedText, edits[0])
-
-	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "the check holds"})
+	_, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
 	require.NoError(t, err)
-	assert.Equal(t, "101", id)
+	require.NoError(t, h.src.React(ctx, ref, conductor.ReactionFailed))
+	_, err = h.src.Post(ctx, ref, conductor.Outbound{
+		Type: conductor.OutFailure, Text: "I hit the 1h0m0s limit for this playbook. Task `task_01`.", TaskID: "task_01",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, h.stub.postedReviews())
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
+	edits := h.stub.postedIssueEdits()
+	require.Len(t, edits, 1, "the failure retitles the comment and does not post itself")
+	assert.Contains(t, edits[0], "**"+statusDidNotFinish+"**")
+	assertStatusSummary(t, edits[0])
+	assert.NotContains(t, edits[0], "task_01")
+
+	id, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutFinal, Text: "the check holds"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, id)
 	assert.Len(t, h.stub.postedReviews(), 1)
-	edits = h.stub.postedReviewEdits()
+	assert.Contains(t, asString(h.stub.postedReviews()[0]["body"]), "the check holds")
+	edits = h.stub.postedIssueEdits()
 	require.Len(t, edits, 2)
-	assert.Contains(t, edits[1], "the check holds")
+	assert.Contains(t, edits[1], "**"+statusReviewed+"**")
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
 }
 
 func TestAFailureIsNotAPullRequestReply(t *testing.T) {
@@ -455,39 +496,107 @@ func TestAFailureIsNotAPullRequestReply(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Empty(t, h.stub.postedIssueBodies())
+	assert.Empty(t, h.stub.postedIssueEdits())
 	assert.Empty(t, h.stub.postedReviewInReplyTo())
 	assert.Empty(t, h.stub.postedReviews())
 }
 
-func TestNitsAfterTheOpenerApproveOnANewReview(t *testing.T) {
+func TestNitsApproveOnOneReview(t *testing.T) {
 	h := newHarness(t)
+	ctx := context.Background()
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
-	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
-	text := "**Nits**\n\nTwo names.\n\n```inline\ninternal/a.go:12\nRename this.\n```\n"
-	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	_, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
 	require.NoError(t, err)
-	assert.Equal(t, "102", id)
+	text := "**Nits**\n\nTwo names.\n\n```inline\ninternal/a.go:12\nRename this.\n```\n"
+	id, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutFinal, Text: text, TaskID: "task_1"})
+	require.NoError(t, err)
 	created := h.stub.postedReviews()
-	require.Len(t, created, 2)
-	assert.Equal(t, "COMMENT", created[0]["event"])
-	assert.Equal(t, reviewingText, created[0]["body"])
-	assert.Equal(t, "APPROVE", created[1]["event"])
-	assert.Equal(t, "0123456789abcdef", created[1]["commit_id"])
-	notes, ok := created[1]["comments"].([]any)
+	require.Len(t, created, 1)
+	assert.Equal(t, "APPROVE", created[0]["event"])
+	assert.Equal(t, "0123456789abcdef", created[0]["commit_id"])
+	assert.NotContains(t, asString(created[0]["body"]), "task_1")
+	notes, ok := created[0]["comments"].([]any)
 	require.True(t, ok)
 	require.Len(t, notes, 1)
-	edits := h.stub.postedReviewEdits()
+	edits := h.stub.postedIssueEdits()
 	require.Len(t, edits, 1)
-	assert.Equal(t, reviewedNote, edits[0])
+	assert.Contains(t, edits[0], "**"+statusApproved+"**")
+	assertStatusSummary(t, edits[0])
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
 
-	h.stub.listedReviews = []Review{{ID: 102, State: "APPROVED"}}
-	id2, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
+	n, err := strconv.ParseInt(id, 10, 64)
 	require.NoError(t, err)
-	assert.Equal(t, "102", id2)
-	assert.Len(t, h.stub.postedReviews(), 2, "a later nit edits the approval")
-	edits = h.stub.postedReviewEdits()
-	require.Len(t, edits, 2)
-	assert.Contains(t, edits[1], "Still just the name.")
+	h.stub.listedReviews = []Review{{ID: n, State: "APPROVED"}}
+	id2, err := h.src.Post(ctx, ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
+	require.NoError(t, err)
+	assert.Equal(t, id, id2)
+	assert.Len(t, h.stub.postedReviews(), 1, "a later nit edits the approval")
+	assert.Len(t, h.stub.postedIssueBodies(), 1)
+	assert.Len(t, h.stub.postedIssueEdits(), 1, "the title stays Approved")
+	reviewEdits := h.stub.postedReviewEdits()
+	require.Len(t, reviewEdits, 1)
+	assert.Contains(t, reviewEdits[0], "Still just the name.")
+}
+
+func TestALaterTurnReusesTheStatusComment(t *testing.T) {
+	h := newHarness(t)
+	h.stub.issueComments = []Comment{{
+		ID:   55,
+		Body: statusMarker + "\n**" + statusReviewed + "**\n\nFix the review",
+	}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	require.NoError(t, err)
+	assert.Equal(t, "55", id)
+	assert.Empty(t, h.stub.postedIssueBodies())
+	edits := h.stub.postedIssueEdits()
+	require.Len(t, edits, 1)
+	assert.Contains(t, edits[0], "**"+statusInProgress+"**")
+	assertStatusSummary(t, edits[0])
+}
+
+func TestAQuestionIsNotAPullRequestComment(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutQuestion, Text: "Which file?"})
+	require.NoError(t, err)
+	assert.Empty(t, h.stub.postedIssueBodies())
+	assert.Empty(t, h.stub.postedReviews())
+}
+
+func TestStatusCommentOmitsTheSummaryWhenThePullCannotBeRead(t *testing.T) {
+	h := newHarness(t)
+	h.stub.failPull = true
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutProgress, Text: conductor.Placeholder})
+	require.NoError(t, err)
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.Equal(t, statusMarker+"\n**"+statusInProgress+"**", comments[0])
+}
+
+func TestStatusCommentUsesSingularCounts(t *testing.T) {
+	body := statusComment(statusInProgress, pullInfo{
+		OK: true, Title: "One file", Head: "fix", Base: "dev",
+		Files: 1, Additions: 3, Deletions: 0, Commits: 1,
+	})
+	assert.Contains(t, body, "**"+statusInProgress+"**")
+	assert.Contains(t, body, "One file")
+	assert.Contains(t, body, "`fix` → `dev`")
+	assert.Contains(t, body, "1 file changed · +3 −0 · 1 commit")
+	assert.NotContains(t, body, "1 files")
+	assert.NotContains(t, body, "1 commits")
+
+	none := statusComment(statusReviewed, pullInfo{})
+	assert.Equal(t, statusMarker+"\n**"+statusReviewed+"**", none)
+}
+
+func assertStatusSummary(t *testing.T, body string) {
+	t.Helper()
+	assert.Contains(t, body, statusMarker)
+	assert.Contains(t, body, "Fix the review")
+	assert.Contains(t, body, "`agent/review` → `dev`")
+	assert.Contains(t, body, "3 files changed · +40 −5 · 2 commits")
 }
 
 func TestFetchTranscriptDropsTheInProgressReview(t *testing.T) {
@@ -518,6 +627,7 @@ func TestANitsReviewApprovesAndPinsTheNotes(t *testing.T) {
 	assert.Equal(t, "APPROVE", created[0]["event"])
 	assert.Equal(t, "0123456789abcdef", created[0]["commit_id"])
 	assert.NotContains(t, asString(created[0]["body"]), "```inline")
+	assert.NotContains(t, asString(created[0]["body"]), "task_1")
 	assert.Contains(t, asString(created[0]["body"]), "Two names.")
 	notes, ok := created[0]["comments"].([]any)
 	require.True(t, ok)
@@ -588,6 +698,9 @@ func TestChangesNeededAfterAnApprovalRequestsChanges(t *testing.T) {
 	created := h.stub.postedReviews()
 	require.Len(t, created, 1)
 	assert.Equal(t, "REQUEST_CHANGES", created[0]["event"])
+	comments := h.stub.postedIssueBodies()
+	require.Len(t, comments, 1)
+	assert.Contains(t, comments[0], "**"+statusChanges+"**")
 	notes, ok := created[0]["comments"].([]any)
 	require.True(t, ok)
 	require.Len(t, notes, 1)
@@ -648,7 +761,8 @@ func TestFetchTranscriptDropsScaffoldingAndKeepsFinals(t *testing.T) {
 	h.stub.mu.Lock()
 	h.stub.issueComments = []Comment{
 		{ID: 1, Body: conductor.Placeholder, CreatedAt: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
-		{ID: 2, Body: "the review", CreatedAt: time.Date(2026, 9, 14, 12, 1, 0, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
+		{ID: 2, Body: statusMarker + "\n**" + statusInProgress + "**", CreatedAt: time.Date(2026, 9, 14, 12, 0, 30, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
+		{ID: 4, Body: "the review", CreatedAt: time.Date(2026, 9, 14, 12, 1, 0, 0, time.UTC), User: User{Login: "podium[bot]", Type: "Bot"}},
 		{ID: 3, Body: "thanks", CreatedAt: time.Date(2026, 9, 14, 12, 2, 0, 0, time.UTC), User: User{Login: "alice", Type: "User"}},
 	}
 	h.stub.mu.Unlock()
