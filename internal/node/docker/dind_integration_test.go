@@ -82,8 +82,11 @@ func anonymousVolumeAt(t *testing.T, e *Executor, containerName, dest string) st
 // without `share_workspace` (the daemon resolves /workspace in its own filesystem and
 // finds nothing), so one assertion covers both fields.
 //
-// The nested `docker run` pulls alpine:3 from the internet, unlike everything else in this
-// suite: the daemon under test is brand new and its image store is empty by construction.
+// The nested daemon starts with an empty image store, so the task pulls alpine:3
+// itself. Pulling inside `docker run` can exit 0 and still drop the container's
+// stdout: the CLI's progress renderer takes the stream and does not always hand
+// back the one line the container printed. The nested container writes that line
+// into the shared workspace instead, and the task's own shell prints the file.
 func TestDindSidecarRunsNestedContainersAgainstTheSharedWorkspace(t *testing.T) {
 	e := newPrivilegedTestExecutor(t)
 	taskID := ids.NewTask()
@@ -97,7 +100,10 @@ func TestDindSidecarRunsNestedContainersAgainstTheSharedWorkspace(t *testing.T) 
 			Image: dindImage,
 			Command: []string{"sh", "-c",
 				"echo written-by-the-task > /workspace/ping.txt && " +
-					"docker -H tcp://dind:2375 run --rm -v /workspace:/ws " + testImage + " cat /ws/ping.txt"},
+					"docker -H tcp://dind:2375 pull " + testImage + " >/dev/null && " +
+					"docker -H tcp://dind:2375 run --pull never --rm -v /workspace:/ws " + testImage +
+					" sh -c 'cat /ws/ping.txt > /ws/pong.txt' && " +
+					"cat /workspace/pong.txt"},
 			Sidecars: map[string]spec.Sidecar{"dind": dindSidecar()},
 		}),
 	}, c.ch)
