@@ -125,13 +125,14 @@ type ReviewSurface struct {
 }
 
 type Session struct {
-	ID         string
-	SourceKind string
-	SourceKey  string
-	Profile    string
-	Playbook   string
-	CreatedAt  time.Time
-	LastTurnAt *time.Time
+	ID             string
+	SourceKind     string
+	SourceKey      string
+	Profile        string
+	Playbook       string
+	CreatedAt      time.Time
+	LastTurnAt     *time.Time
+	GithubReviewID int64
 }
 
 type Setting struct {
