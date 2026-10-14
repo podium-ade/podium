@@ -1,11 +1,10 @@
-import { LogOut } from "lucide-react";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel } from "../lib/identity";
 import { canonicalRole, rbacEnforced, roleLabel } from "../lib/rbac";
 import { Avatar } from "./Avatar";
+import { Badge } from "./Badge";
 import { GoogleSignIn } from "./SignInControls";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 
 /**
  * IdentityCard is the Account section of Settings: who this browser is, and Google
@@ -21,38 +20,41 @@ export function IdentityCard() {
   const label = viewerLabel(viewer);
 
   return (
-    <Card data-testid="identity-card">
-      <CardHeader>
-        <CardTitle>Google Workspace</CardTitle>
-        <CardDescription>
-          {claimed && viewer.hostedDomain
-            ? `This Podium instance belongs to the ${viewer.hostedDomain} Workspace.`
-            : "The first person to confirm claims this instance for their domain. Later sign-ins from that Workspace join as members."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Avatar src={viewer.pictureUrl ? "/auth/picture" : undefined} label={label.text} size="md" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-fg">{label.text}</div>
-            <div className="truncate text-xs text-muted">
-              {isUser ? viewer.login : "Not signed in with Google"}
-              {rbacEnforced(viewer) ? ` · ${roleLabel(canonicalRole(viewer.roles))}` : ""}
-            </div>
-          </div>
+    <article
+      data-testid="identity-card"
+      className="grid gap-3 rounded-md border border-border bg-panel p-4"
+    >
+      <header className="flex flex-wrap items-center gap-2">
+        <h2 className="text-base font-bold">Google Workspace</h2>
+        <Badge tone={isUser ? "ok" : "idle"} dot={false}>
+          {isUser ? "Signed in" : "Signed out"}
+        </Badge>
+      </header>
+      <p className="max-w-[68ch] text-sm text-soft">
+        {claimed && viewer.hostedDomain
+          ? `This Podium instance belongs to the ${viewer.hostedDomain} Workspace.`
+          : "The first person to confirm claims this instance for their domain. Later sign-ins from that Workspace join as members."}
+      </p>
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar src={viewer.pictureUrl ? "/auth/picture" : undefined} label={label.text} size="md" />
+        <div className="grid min-w-0">
+          <strong className="truncate text-sm">{isUser ? label.text : "Not signed in with Google"}</strong>
+          <span className="truncate text-xs text-muted">
+            {isUser
+              ? `${viewer.login}${rbacEnforced(viewer) ? ` · ${roleLabel(canonicalRole(viewer.roles))}` : ""}`
+              : "The local token is unchanged"}
+          </span>
         </div>
-
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         {isUser ? (
-          <Button asChild variant="outline" className="w-full">
-            <a href="/auth/logout">
-              <LogOut />
-              Sign out
-            </a>
+          <Button asChild variant="outline">
+            <a href="/auth/logout">Sign out</a>
           </Button>
         ) : (
           <GoogleSignIn claimed={claimed} bare />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }

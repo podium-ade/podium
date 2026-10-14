@@ -46,13 +46,17 @@ async function connect() {
 function mount(settings?: ProviderSettings, loading = false) {
   return render(
     <ToastHost>
-      <ProviderCard
-        provider={ANTHROPIC}
-        settings={settings}
-        loading={loading}
-        onSave={onSave}
-        onClear={onClear}
-      />
+      <table>
+        <tbody>
+          <ProviderCard
+            provider={ANTHROPIC}
+            settings={settings}
+            loading={loading}
+            onSave={onSave}
+            onClear={onClear}
+          />
+        </tbody>
+      </table>
     </ToastHost>,
   );
 }
