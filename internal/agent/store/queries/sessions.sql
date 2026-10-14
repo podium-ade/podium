@@ -41,3 +41,8 @@ limit @page_limit::int;
 
 -- name: TouchSession :exec
 update sessions set last_turn_at = @last_turn_at where id = @id;
+
+-- SetGitHubReviewID records the pull-request review this session submitted. A later turn
+-- updates that review. Zero rows means the session does not exist yet.
+-- name: SetGitHubReviewID :execrows
+update sessions set github_review_id = @review_id where source_key = @source_key;

@@ -1674,8 +1674,13 @@ The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub
 bound Slack thread.
 
 **The App posts; the playbook token reads.** `podium.agent.github_token` is still how a
-container clones. A playbook must not `gh pr comment` — that would be a second identity on
+container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
+
+The first answer is submitted as one pull-request review (`COMMENT`, not an approval).
+The review id is stored on the session. A later answer updates that review. A reply in an
+inline thread is answered in the thread and leaves the review in place. A progress comment
+is still the working comment for that turn.
 
 ---
 

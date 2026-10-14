@@ -23,10 +23,12 @@ type stub struct {
 	mu             sync.Mutex
 	issuePosts     []map[string]any
 	reviewPosts    []map[string]any
+	reviews        []map[string]any
+	reviewEdits    []map[string]any
 	edits          []map[string]any
 	issueComments  []Comment
 	reviewComments []Comment
-	reviews        []Review
+	listedReviews  []Review
 	installID      int64
 	install404     bool
 	nextComment    int64
@@ -105,10 +107,20 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(s.reviewComments)
+	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodPost:
+		s.writeReview(w, r)
+	case strings.Contains(path, "/pulls/") && strings.Contains(path, "/reviews/") && r.Method == http.MethodPut:
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		s.mu.Lock()
+		s.reviewEdits = append(s.reviewEdits, body)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
 	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodGet:
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(s.reviews)
+		_ = json.NewEncoder(w).Encode(s.listedReviews)
 	default:
 		http.NotFound(w, r)
 	}
@@ -130,6 +142,22 @@ func (s *stub) writeComment(w http.ResponseWriter, r *http.Request, into *[]map[
 	})
 }
 
+func (s *stub) writeReview(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var body map[string]any
+	_ = json.Unmarshal(raw, &body)
+	id := atomic.AddInt64(&s.nextComment, 1)
+	s.mu.Lock()
+	s.reviews = append(s.reviews, body)
+	s.mu.Unlock()
+	_ = json.NewEncoder(w).Encode(Review{
+		ID:          id,
+		Body:        asString(body["body"]),
+		SubmittedAt: time.Now().UTC(),
+		User:        User{Login: "podium[bot]", Type: "Bot"},
+	})
+}
+
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
@@ -147,6 +175,22 @@ func (s *stub) postedIssueBodies() []string {
 	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.issuePosts))
 	for _, p := range s.issuePosts {
+		out = append(out, asString(p["body"]))
+	}
+	return out
+}
+
+func (s *stub) postedReviews() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]map[string]any(nil), s.reviews...)
+}
+
+func (s *stub) postedReviewEdits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.reviewEdits))
+	for _, p := range s.reviewEdits {
 		out = append(out, asString(p["body"]))
 	}
 	return out
