@@ -63,11 +63,17 @@ describe("ConnectionsPanel", () => {
 
   it("shows GitHub and Slack forms and Linear as coming soon", async () => {
     mount();
-    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Slack" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
+    expect(await screen.findByText("GitHub")).toBeInTheDocument();
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove saved Slack" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit GitHub" }));
     expect(screen.getByLabelText("App ID")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit Slack" }));
     expect(screen.getByLabelText("App-level token")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove saved Slack" })).toBeNull();
   });
@@ -88,10 +94,12 @@ describe("ConnectionsPanel", () => {
       slack: { configured: true, source: "saved", restartRequired: true, appTokenHint: "1234", botTokenHint: "9999" },
     });
     mount();
-    expect(await screen.findByText(/Ending in 1234/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Slack" }));
+    expect(screen.getByText(/Ending in 1234/)).toBeInTheDocument();
     expect(screen.getByText(/Restart the conductor/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove saved Slack" })).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole("button", { name: "Replace bot token" }));
     await userEvent.type(screen.getByLabelText("Bot token"), "xoxb-new");
     await userEvent.click(screen.getByRole("button", { name: "Save Slack" }));
     expect(setSlackConnection).toHaveBeenCalledWith({ appToken: "", botToken: "xoxb-new" });

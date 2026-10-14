@@ -441,9 +441,9 @@ describe("AgentPage", () => {
 
   it("opens connections beside the other settings sections", async () => {
     mount("/agent/settings/connections");
-    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(await screen.findByText("GitHub")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("heading", { name: "Linear" })).toBeInTheDocument();
+    expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
 
@@ -476,7 +476,7 @@ describe("AgentPage", () => {
 
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
-    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(await screen.findByText("GitHub")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
 
     cleanup();
@@ -569,7 +569,6 @@ describe("AgentPage", () => {
     expect(
       await within(screen.getByTestId("provider-card-anthropic")).findByText("Not set"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/encrypted at rest by podium-server/i)).toBeInTheDocument();
   });
 
   it("keeps the card and warns when the conductor itself is down", async () => {

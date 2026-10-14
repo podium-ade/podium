@@ -12,7 +12,7 @@ import { cn } from "../../lib/utils";
  */
 export function SandboxBackends() {
   return (
-    <div role="radiogroup" aria-label="Backend" className="grid gap-3 md:grid-cols-3">
+    <div role="radiogroup" aria-label="Backend" className="grid gap-2">
       {SANDBOX_BACKENDS.map((backend) => {
         const selected = backend.id === SELF_HOSTED;
         return (
@@ -20,8 +20,8 @@ export function SandboxBackends() {
             key={backend.id}
             data-testid={`sandbox-backend-${backend.id}`}
             className={cn(
-              "flex items-start gap-3 rounded-xl border p-4 shadow-xs",
-              selected ? "border-line-strong bg-card" : "border-dashed border-border bg-panel",
+              "grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3 rounded-md border border-border bg-panel p-4",
+              selected && "border-fg bg-raised",
               backend.available ? "cursor-pointer" : "cursor-not-allowed",
             )}
           >
@@ -34,14 +34,16 @@ export function SandboxBackends() {
               onChange={() => {
                 // Modal and Daytona are disabled. Self-hosted is already selected.
               }}
-              className="mt-1 accent-accent disabled:cursor-not-allowed"
+              className="mt-0.5 size-[18px] accent-accent disabled:cursor-not-allowed"
             />
-            <span className="min-w-0 space-y-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold tracking-tight text-fg">{backend.name}</span>
-                <Badge tone={selected ? "ok" : "idle"}>{selected ? "In use" : "Coming soon"}</Badge>
-              </span>
-              <span className="block text-xs leading-relaxed text-muted">{backend.detail}</span>
+            <span className="grid min-w-0 gap-1">
+              <strong className="flex flex-wrap items-center gap-2 text-sm">
+                {backend.name}
+                <Badge tone={selected ? "ok" : "idle"} dot={false}>
+                  {selected ? "In use" : "Coming soon"}
+                </Badge>
+              </strong>
+              <span className="text-sm text-soft">{backend.detail}</span>
             </span>
           </label>
         );

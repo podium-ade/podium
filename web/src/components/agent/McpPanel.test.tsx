@@ -547,4 +547,38 @@ describe("McpPanel", () => {
       ),
     );
   });
+
+  // The row used to stay on the old value, faded, until the list reloaded. The switch has to
+  // move on the click, while this request is still unresolved.
+  it("paints the fallback switch on the click and keeps the row while the save is in flight", async () => {
+    listMcpServers.mockResolvedValue({
+      servers: [server(), server({ name: "notion", owner: "ada@acme.com" })],
+      maxPerPlaybook: 8,
+    });
+    let resolveUpdate: (value: unknown) => void = () => {};
+    updateMcpServer.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpdate = resolve;
+      }),
+    );
+    mount(person("admin"));
+    await userEvent.click(await screen.findByRole("tab", { name: /^Global/ }));
+    const company = screen.getByTestId("mcp-global");
+    expect(within(company).getByTestId("mcp-fallback")).toHaveAttribute("data-state", "unchecked");
+
+    await userEvent.click(within(company).getByTestId("mcp-fallback"));
+
+    const painted = within(company).getByTestId("mcp-fallback");
+    expect(painted).toHaveAttribute("data-state", "checked");
+    expect(painted).toBeEnabled();
+    expect(within(company).getByRole("switch", { name: "linear is enabled" })).toBeEnabled();
+    expect(within(company).getByText("linear")).toBeInTheDocument();
+    expect(within(company).getByText("https://mcp.linear.app/mcp")).toBeInTheDocument();
+    expect(screen.queryByText("No global MCP servers")).toBeNull();
+
+    resolveUpdate({ server: server({ fallback: true }) });
+    expect(
+      await screen.findByText(/is shared when someone has no server of this name/),
+    ).toBeInTheDocument();
+  });
 });
