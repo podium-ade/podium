@@ -210,6 +210,7 @@ export function PlaybooksPanel() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
                       {s.linear ? <Chip>Linear</Chip> : null}
+                      {s.github ? <Chip>GitHub</Chip> : null}
                     </div>
                     <p className="mt-1 truncate font-mono text-2xs text-muted" title={s.image} data-testid="playbook-image">
                       {s.image}
@@ -303,6 +304,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     git: draft.git,
     slackChannels: draft.slackChannels,
     linear: draft.linear,
+    github: draft.github,
     interactive: draft.interactive,
     docker: draft.docker,
     browser: draft.browser,

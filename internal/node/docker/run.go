@@ -508,15 +508,12 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 
 	// The volume still exists. A snapshot has to land before exited, because the caller
 	// tears the volume down once the run returns and the next session task will ask for
-	// it as soon as this one is terminal. A cancel or an OOM is not a finished turn:
-	// the previous snapshot stays.
-	if killedByPodium || oom {
-		if req.Workspace != nil && req.Workspace.Save != nil {
-			e.log.Info("workspace snapshot skipped", "task", req.TaskID,
-				"cancelled", killedByPodium, "oom", oom, "exit", exitCode)
-		}
-	} else if err := e.saveWorkspace(ctx, req); err != nil {
-		e.log.Error("saving the workspace snapshot failed", "task", req.TaskID, "error", err)
+	// it as soon as this one is terminal. A cancel or an OOM still has this session's
+	// files: the next task restores them instead of starting from the previous clean
+	// snapshot, or from an empty checkout when this session never finished cleanly.
+	if err := e.saveWorkspace(ctx, req); err != nil {
+		e.log.Error("saving the workspace snapshot failed", "task", req.TaskID,
+			"cancelled", killedByPodium, "oom", oom, "exit", exitCode, "error", err)
 	}
 
 	em.emit(KindExited, ExitedPayload{ExitCode: exitCode, OOMKilled: oom})

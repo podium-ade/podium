@@ -9,11 +9,13 @@ import (
 )
 
 // The kinds a Ref may name. issue_comment and review_comment are GitHub webhook types;
-// review is a submitted pull-request review body; slack is a mention forwarded from Slack.
+// review is a submitted pull-request review body; pull_request is a reviewer request,
+// which has no comment; slack is a mention forwarded from Slack.
 const (
 	KindIssueComment  = "issue_comment"
 	KindReviewComment = "review_comment"
 	KindReview        = "review"
+	KindPullRequest   = "pull_request"
 	KindSlack         = "slack"
 )
 
