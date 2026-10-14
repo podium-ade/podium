@@ -65,6 +65,7 @@ type Comment struct {
 type Review struct {
 	ID          int64     `json:"id"`
 	Body        string    `json:"body"`
+	State       string    `json:"state"`
 	HTMLURL     string    `json:"html_url"`
 	SubmittedAt time.Time `json:"submitted_at"`
 	User        User      `json:"user"`
@@ -191,14 +192,42 @@ func (c *restClient) EditIssueComment(ctx context.Context, installID int64, owne
 		map[string]string{"body": body}, nil)
 }
 
-// CreateReview submits one pull-request review as a comment. It does not approve.
-// A body-only review needs no commit id.
-func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, repo string, number int, body string) (Review, error) {
+// CreateReview submits one pull-request review. event is APPROVE or COMMENT.
+// comments are the inline notes on that same review; GitHub requires the head
+// commit when any are set, and rejects the whole review if one line is not in
+// the diff. A body-only review sends no commit id.
+func (c *restClient) CreateReview(ctx context.Context, installID int64, owner, repo string, number int, event, body, commit string, comments []pullComment) (Review, error) {
+	if event == "" {
+		event = eventComment
+	}
+	payload := map[string]any{"body": body, "event": event}
+	if len(comments) > 0 {
+		payload["commit_id"] = commit
+		payload["comments"] = comments
+	}
 	var out Review
 	err := c.do(ctx, installID, http.MethodPost,
 		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, number),
-		map[string]string{"body": body, "event": "COMMENT"}, &out)
+		payload, &out)
 	return out, err
+}
+
+// PullHeadSHA is the commit a review's inline comments attach to.
+func (c *restClient) PullHeadSHA(ctx context.Context, installID int64, owner, repo string, number int) (string, error) {
+	var out struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	err := c.do(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number), nil, &out)
+	if err != nil {
+		return "", err
+	}
+	if out.Head.SHA == "" {
+		return "", errors.New("github: pull request has no head sha")
+	}
+	return out.Head.SHA, nil
 }
 
 // UpdateReview replaces the summary of a review this App already submitted.

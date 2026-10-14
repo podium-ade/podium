@@ -1630,8 +1630,10 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Tag the App on a pull request, request it as a reviewer, or tag Podium in Slack with that PR's
-URL, and it starts **one** review of that pull request. The review runs the playbook marked
+Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
+mark a draft ready for review, or tag Podium in Slack with that PR's URL, and it starts
+**one** review of that pull request. GitHub does not let you request the App as a
+reviewer, so `review_requested` does not start one. The review runs the playbook marked
 `github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
 The App posts on GitHub; bound Slack threads get the same answer.
 
@@ -1679,7 +1681,7 @@ the playbook.
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
-| `pull_request` / `review_requested` whose `requested_reviewer` is this App | start, or continue if a session exists. A request for a person is dropped. A ruleset that marks the App as a required reviewer sends this same event |
+| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `opened`, `review_requested`, and other pull request actions are dropped |
 | a reply in an inline review thread on a PR that already has a session | continue |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
@@ -1695,12 +1697,17 @@ bound Slack thread.
 container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
 
-The first answer is submitted as one pull-request review (`COMMENT`, not an approval).
-The review id is stored on the session. A later answer updates that review. A reply in an
-inline thread is answered in the thread and leaves the review in place. A progress comment
-is still the working comment for that turn. The review is the summary the playbook writes.
-Line comments are the inline thread a person replies in, not something parsed out of that
-summary.
+When the turn starts, the App submits a short comment review so it shows in the
+pull request's reviewers list while the review runs. The first answer fills that
+review in. A verdict of `Approve` or `Nits` — the first line of that answer —
+submits an approval, which is a new review because a submitted review cannot change
+its event. Anything else stays a comment on the review opened at the start. Fenced
+`inline` notes on that answer are comments on the finished review, pinned to the
+diff, not separate conversation comments. The review id is stored on the session. A
+later answer updates that review, and a follow-up that approves for the first time
+submits a new approval. A reply in an inline thread is answered in the thread and
+leaves the review in place. A progress comment is still the working comment for
+that turn. The review is the summary the playbook writes.
 
 ---
 
