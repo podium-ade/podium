@@ -28,12 +28,15 @@ import (
 const Kind = "github"
 
 const (
-	eventBuffer  = 32
-	dedupeTTL    = 5 * time.Minute
-	shutdownWait = 5 * time.Second
-	doneText     = "✅ Done — see below"
-	failedText   = "❌ Failed"
-	editThrottle = 2 * time.Second
+	eventBuffer      = 32
+	dedupeTTL        = 5 * time.Minute
+	shutdownWait     = 5 * time.Second
+	doneText         = "✅ Done — see below"
+	failedText       = "❌ Failed"
+	editThrottle     = 2 * time.Second
+	reviewingText    = "Reviewing this pull request."
+	reviewedNote     = "Review posted."
+	reviewFailedText = "The review did not finish."
 )
 
 // ErrBoundToOther is a Slack thread that is already reviewing a different pull request.
@@ -125,6 +128,10 @@ type Source struct {
 	// process cache of Reviews, so a second final in this process updates the review even
 	// when the save has not landed yet.
 	reviewIDs map[string]int64
+	// openReviews is the review opened at the start of a turn so the App shows in the
+	// pull request's reviewers list while the turn runs. It is settled when the answer
+	// lands, and it is absent once that review is the finished one.
+	openReviews map[string]int64
 }
 
 type turnState struct {
@@ -188,6 +195,7 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
 		reviewIDs:     map[string]int64{},
+		openReviews:   map[string]int64{},
 	}, nil
 }
 
@@ -454,22 +462,28 @@ func mergeTranscripts(a, b []conductor.BriefEntry) []conductor.BriefEntry {
 }
 
 // Post says something new. Progress (including the placeholder) is a GitHub comment that
-// later edits replace. Finals, failures and questions also go to every bound Slack thread.
+// later edits replace. Finals and questions also go to every bound Slack thread.
+//
+// A failure is not a pull-request comment or an inline reply. The in-progress review
+// already says the turn did not finish, and a task id is an operator detail.
 func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (string, error) {
 	p, err := ParseRef(ref)
 	if err != nil {
 		return "", err
 	}
-	body := out.Text
-	if out.Type == conductor.OutFinal || out.Type == conductor.OutFailure {
-		body = withFooter(body, out.TaskID)
+	if out.Type == conductor.OutFailure {
+		if s.fanoutSlack(out) {
+			s.postSlack(ctx, p, out)
+		}
+		return "", nil
 	}
+	body := out.Text
 
 	// The first answer is one submitted review. A later answer updates it. A reply in an
-	// inline thread stays in that thread, and a failure stays on the working comment,
-	// so neither replaces the review.
+	// inline thread stays in that thread and does not carry the task footer.
 	inline := p.Kind == KindReviewComment && p.CommentID > 0
 	if out.Type == conductor.OutFinal && !inline {
+		body = withFooter(body, out.TaskID)
 		id, gerr := s.postReview(ctx, p, body)
 		if gerr != nil && !errors.Is(gerr, ErrNotInstalled) {
 			s.logger.WarnContext(ctx, "github: posting the review failed",
@@ -526,20 +540,37 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 	if err != nil {
 		return "", err
 	}
-	if id > 0 {
-		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, body); err != nil {
+	summary, notes := splitInline(body)
+	event := reviewEvent(body)
+	opener := s.openReviewID(key)
+	// Updating a review replaces its summary and cannot change its event or add
+	// inline comments. A follow-up that approves, or that has notes for the diff,
+	// is a new review. A comment with nothing to pin on a line stays an edit.
+	if id > 0 && len(notes) == 0 && !s.mustSubmit(ctx, install, p, id, event) {
+		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, summary); err != nil {
 			return "", err
 		}
+		s.clearOpenReview(key)
 		return strconv.FormatInt(id, 10), nil
 	}
-	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, body)
+	created, err := s.submitReview(ctx, install, p, event, summary, notes)
 	if err != nil {
 		return "", err
 	}
 	if created.ID <= 0 {
 		return "", errors.New("github: the review was submitted without an id")
 	}
-	s.rememberReview(key, created.ID)
+	// The review opened at the start of the turn already put the App in the
+	// reviewers list. It cannot gain line comments or become an approval, so the
+	// finished review is a new one and the opener stops saying it is still running.
+	if opener > 0 && opener != created.ID {
+		if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, opener, reviewedNote); err != nil {
+			s.logger.WarnContext(ctx, "github: settling the in-progress review failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "review", opener, "error", err)
+		}
+	}
+	s.clearOpenReview(key)
+	s.replaceReview(key, created.ID)
 	if s.reviews.Set != nil {
 		if err := s.reviews.Set(ctx, key, created.ID); err != nil {
 			s.logger.WarnContext(ctx, "github: recording the review id failed",
@@ -547,6 +578,128 @@ func (s *Source) postReview(ctx context.Context, p Parsed, body string) (string,
 		}
 	}
 	return strconv.FormatInt(created.ID, 10), nil
+}
+
+// openReview submits a comment review as soon as a turn starts. GitHub lists an
+// App in the pull request's reviewers sidebar only after it submits a review, so
+// waiting for the final answer leaves the App out of that list for the whole turn.
+// An inline thread reply does not open one: its answer stays in the thread.
+func (s *Source) openReview(ctx context.Context, p Parsed) {
+	if p.Kind == KindReviewComment && p.CommentID > 0 {
+		return
+	}
+	key := SourceKey(p.Owner, p.Repo, p.Number)
+	id, err := s.reviewID(ctx, key)
+	if err != nil || id > 0 {
+		if err != nil {
+			s.logger.WarnContext(ctx, "github: reading the review id failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+		}
+		return
+	}
+	install, err := s.installation(ctx, p)
+	if err != nil {
+		if !errors.Is(err, ErrNotInstalled) {
+			s.logger.WarnContext(ctx, "github: opening a review failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+		}
+		return
+	}
+	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, eventComment, reviewingText, "", nil)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: opening a review failed",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+		return
+	}
+	if created.ID <= 0 {
+		s.logger.WarnContext(ctx, "github: the in-progress review was submitted without an id",
+			"pr", PRURL(p.Owner, p.Repo, p.Number))
+		return
+	}
+	s.rememberReview(key, created.ID)
+	s.mu.Lock()
+	s.openReviews[key] = created.ID
+	s.mu.Unlock()
+	if s.reviews.Set != nil {
+		if err := s.reviews.Set(ctx, key, created.ID); err != nil {
+			s.logger.WarnContext(ctx, "github: recording the review id failed",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "review", created.ID, "error", err)
+		}
+	}
+}
+
+func (s *Source) openReviewID(key string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.openReviews[key]
+}
+
+func (s *Source) clearOpenReview(key string) {
+	s.mu.Lock()
+	delete(s.openReviews, key)
+	s.mu.Unlock()
+}
+
+// failOpenReview rewrites the in-progress review when the turn fails. The id stays,
+// so a later answer fills the same review in, and the reviewers list keeps the App.
+func (s *Source) failOpenReview(ctx context.Context, p Parsed) {
+	key := SourceKey(p.Owner, p.Repo, p.Number)
+	if s.openReviewID(key) == 0 {
+		return
+	}
+	install, err := s.installation(ctx, p)
+	if err != nil {
+		return
+	}
+	id := s.openReviewID(key)
+	if err := s.client.UpdateReview(ctx, install, p.Owner, p.Repo, p.Number, id, reviewFailedText); err != nil {
+		s.logger.WarnContext(ctx, "github: marking the in-progress review failed",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "review", id, "error", err)
+	}
+}
+
+// mustSubmit reports that this follow-up has to be a new review because the
+// one already stored is not an approval and this answer is.
+func (s *Source) mustSubmit(ctx context.Context, install int64, p Parsed, id int64, event string) bool {
+	if event != eventApprove {
+		return false
+	}
+	reviews, err := s.client.ListReviews(ctx, install, p.Owner, p.Repo, p.Number)
+	if err != nil {
+		return true
+	}
+	for _, rev := range reviews {
+		if rev.ID == id {
+			return rev.State != "APPROVED"
+		}
+	}
+	return true
+}
+
+// submitReview posts one review. Inline notes ride on it. GitHub rejects the
+// whole submission when a note is not on the diff, and the review is then
+// posted again with those notes in the summary so the approval still lands.
+func (s *Source) submitReview(ctx context.Context, install int64, p Parsed, event, summary string, notes []inlineNote) (Review, error) {
+	comments := commentsOf(notes)
+	commit := ""
+	if len(comments) > 0 {
+		sha, err := s.client.PullHeadSHA(ctx, install, p.Owner, p.Repo, p.Number)
+		if err != nil {
+			s.logger.WarnContext(ctx, "github: no head commit for inline comments; leaving them in the summary",
+				"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+			comments = nil
+			summary = summaryWithNotes(summary, notes)
+		} else {
+			commit = sha
+		}
+	}
+	created, err := s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summary, commit, comments)
+	if err != nil && len(comments) > 0 {
+		s.logger.WarnContext(ctx, "github: inline comments rejected; submitting the review without them",
+			"pr", PRURL(p.Owner, p.Repo, p.Number), "error", err)
+		created, err = s.client.CreateReview(ctx, install, p.Owner, p.Repo, p.Number, event, summaryWithNotes(summary, notes), "", nil)
+	}
+	return created, err
 }
 
 func (s *Source) reviewID(ctx context.Context, key string) (int64, error) {
@@ -569,6 +722,14 @@ func (s *Source) rememberReview(key string, id int64) {
 	if s.reviewIDs[key] == 0 {
 		s.reviewIDs[key] = id
 	}
+	s.mu.Unlock()
+}
+
+// replaceReview points the session at the review a follow-up should edit. A new
+// approval supersedes the comment review opened at the start of the turn.
+func (s *Source) replaceReview(key string, id int64) {
+	s.mu.Lock()
+	s.reviewIDs[key] = id
 	s.mu.Unlock()
 }
 
@@ -683,11 +844,14 @@ func (s *Source) React(ctx context.Context, ref string, kind conductor.Reaction)
 	}
 	switch kind {
 	case conductor.ReactionWorking:
-		// The placeholder comment is the GitHub ack; Slack gets ⏳ on the mention.
+		// The placeholder comment is the GitHub ack. The review is what puts the App
+		// in the reviewers sidebar; Slack gets ⏳ on the mention.
+		s.openReview(ctx, p)
 	case conductor.ReactionDone:
 		_ = s.outcome(ctx, ref, doneText)
 	case conductor.ReactionFailed:
 		_ = s.outcome(ctx, ref, failedText)
+		s.failOpenReview(ctx, p)
 	case conductor.ReactionAwaiting:
 		return nil
 	default:
@@ -777,6 +941,8 @@ func splitSlackSurface(ref string) (channel, thread string, ok bool) {
 func isScaffolding(text string) bool {
 	switch {
 	case text == conductor.Placeholder, text == doneText, text == failedText:
+		return true
+	case text == reviewingText, text == reviewedNote, text == reviewFailedText:
 		return true
 	case strings.HasPrefix(text, "⏳"), strings.HasPrefix(text, "👀"):
 		return true

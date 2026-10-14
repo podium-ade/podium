@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -43,29 +44,34 @@ func (s *Source) serveWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	event := r.Header.Get(headerEvent)
+	delivery := r.Header.Get(headerDelivery)
 	r.Body = http.MaxBytesReader(w, r.Body, MaxWebhookBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		s.logWebhook(r.Context(), slog.LevelWarn, event, delivery, classified{}, "rejected", "payload too large")
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if !validSignature(s.webhookSecret, body, r.Header.Get(headerSignature)) {
+		s.logWebhook(r.Context(), slog.LevelWarn, event, delivery, classified{}, "rejected", "invalid signature")
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
 
-	event := r.Header.Get(headerEvent)
-	delivery := r.Header.Get(headerDelivery)
 	if event == "ping" {
+		s.logWebhook(r.Context(), slog.LevelInfo, event, delivery, classified{}, "ok", "")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if delivery != "" && !s.firstSighting(delivery) {
+		c, _ := s.classify(event, body)
+		s.logWebhook(r.Context(), slog.LevelInfo, event, delivery, c, "duplicate", "")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	s.handleDelivery(r.Context(), event, body)
+	s.handleDelivery(r.Context(), event, delivery, body)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -83,25 +89,32 @@ func validSignature(secret string, body []byte, header string) bool {
 	return hmac.Equal(mac.Sum(nil), want)
 }
 
-func (s *Source) handleDelivery(ctx context.Context, event string, body []byte) {
+func (s *Source) handleDelivery(ctx context.Context, event, delivery string, body []byte) {
 	c, ok := s.classify(event, body)
 	if !ok {
+		reason := c.reason
+		if reason == "" {
+			reason = "unhandled"
+		}
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", reason)
 		return
 	}
 	if s.isAppUser(c.senderLogin, c.senderType) {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
 	}
 
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	if !c.mentioned && !c.requested && (!c.inReply || !known) {
+	if !c.mentioned && !c.ready && (!c.inReply || !known) {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
 		return
 	}
 
 	text := strings.TrimSpace(s.stripMention(c.body))
 	switch {
-	case c.requested:
-		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
+	case c.ready:
+		text = readyInstruction(c.author, PRURL(c.owner, c.repo, c.number))
 	case !known:
 		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
 	case c.inReply:
@@ -121,6 +134,32 @@ func (s *Source) handleDelivery(ctx context.Context, event string, body []byte) 
 		URL:       PRURL(c.owner, c.repo, c.number),
 		BriefKind: conductor.SourceGitHub,
 	})
+	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
+}
+
+// logWebhook records one delivery. The body stays out of the log: it is the
+// comment or the diff, and the signature header is a secret.
+func (s *Source) logWebhook(ctx context.Context, level slog.Level, event, delivery string, c classified, outcome, reason string) {
+	attrs := []any{"event", event, "outcome", outcome}
+	if delivery != "" {
+		attrs = append(attrs, "delivery", delivery)
+	}
+	if c.action != "" {
+		attrs = append(attrs, "action", c.action)
+	}
+	if c.owner != "" && c.repo != "" {
+		attrs = append(attrs, "repo", c.owner+"/"+c.repo)
+	}
+	if c.number > 0 {
+		attrs = append(attrs, "pr", c.number)
+	}
+	if c.senderLogin != "" {
+		attrs = append(attrs, "sender", c.senderLogin)
+	}
+	if reason != "" {
+		attrs = append(attrs, "reason", reason)
+	}
+	s.logger.Log(ctx, level, "github: webhook", attrs...)
 }
 
 type classified struct {
@@ -139,9 +178,12 @@ type classified struct {
 	diffHunk    string
 	inReply     bool
 	mentioned   bool
-	// requested is a review_requested delivery whose requested reviewer is this App.
-	// It starts or continues the review with no @mention.
-	requested bool
+	// ready is a draft pull request marked ready for review. GitHub cannot request
+	// this App as a reviewer, so that action starts the review instead.
+	ready  bool
+	action string
+	// reason is why classify rejected the delivery. Empty when it accepted it.
+	reason string
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -165,6 +207,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return classified{}, false
 	}
 	base := classified{
+		action:      env.Action,
 		owner:       env.Repository.Owner.Login,
 		repo:        env.Repository.Name,
 		installID:   env.Installation.ID,
@@ -172,13 +215,15 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		senderType:  env.Sender.Type,
 	}
 	if base.owner == "" || base.repo == "" {
-		return classified{}, false
+		base.reason = "unhandled"
+		return base, false
 	}
 
 	switch event {
 	case "issue_comment":
 		if env.Action != "created" {
-			return classified{}, false
+			base.reason = "unsupported action"
+			return base, false
 		}
 		var p struct {
 			Comment struct {
@@ -193,10 +238,11 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"issue"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
-			return classified{}, false
+			return base, false
 		}
 		if len(p.Issue.PullRequest) == 0 || string(p.Issue.PullRequest) == "null" {
-			return classified{}, false
+			base.reason = "not a pull request"
+			return base, false
 		}
 		base.number = p.Issue.Number
 		base.kind = KindIssueComment
@@ -205,11 +251,16 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.author = firstNonEmpty(p.Comment.User.Login, env.Sender.Login)
 		base.ts = p.Comment.CreatedAt
 		base.mentioned = s.mentioned(p.Comment.Body)
-		return base, base.number > 0 && base.commentID > 0
+		if base.number == 0 || base.commentID == 0 {
+			base.reason = "unhandled"
+			return base, false
+		}
+		return base, true
 
 	case "pull_request_review_comment":
 		if env.Action != "created" {
-			return classified{}, false
+			base.reason = "unsupported action"
+			return base, false
 		}
 		var p struct {
 			Comment struct {
@@ -227,7 +278,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
-			return classified{}, false
+			return base, false
 		}
 		base.number = p.PullRequest.Number
 		base.kind = KindReviewComment
@@ -240,11 +291,16 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.diffHunk = p.Comment.DiffHunk
 		base.inReply = p.Comment.InReplyTo != 0
 		base.mentioned = s.mentioned(p.Comment.Body)
-		return base, base.number > 0 && base.commentID > 0
+		if base.number == 0 || base.commentID == 0 {
+			base.reason = "unhandled"
+			return base, false
+		}
+		return base, true
 
 	case "pull_request_review":
 		if env.Action != "submitted" {
-			return classified{}, false
+			base.reason = "unsupported action"
+			return base, false
 		}
 		var p struct {
 			Review struct {
@@ -258,7 +314,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
-			return classified{}, false
+			return base, false
 		}
 		base.number = p.PullRequest.Number
 		base.kind = KindReview
@@ -267,36 +323,45 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.author = firstNonEmpty(p.Review.User.Login, env.Sender.Login)
 		base.ts = p.Review.SubmittedAt
 		base.mentioned = s.mentioned(p.Review.Body)
-		return base, base.number > 0 && base.commentID > 0 && strings.TrimSpace(p.Review.Body) != ""
+		if base.number == 0 || base.commentID == 0 {
+			base.reason = "unhandled"
+			return base, false
+		}
+		if strings.TrimSpace(base.body) == "" {
+			base.reason = "empty review"
+			return base, false
+		}
+		return base, true
 
 	case "pull_request":
-		if env.Action != "review_requested" {
-			return classified{}, false
+		// A draft becoming ready is the pull-request trigger. review_requested is
+		// not: GitHub does not let you assign this App as a reviewer.
+		if env.Action != "ready_for_review" {
+			base.reason = "unsupported action"
+			return base, false
 		}
 		var p struct {
-			RequestedReviewer struct {
-				Login string `json:"login"`
-				Type  string `json:"type"`
-			} `json:"requested_reviewer"`
 			PullRequest struct {
 				Number    int       `json:"number"`
 				UpdatedAt time.Time `json:"updated_at"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
-			return classified{}, false
-		}
-		if !s.isAppUser(p.RequestedReviewer.Login, p.RequestedReviewer.Type) {
-			return classified{}, false
+			return base, false
 		}
 		base.number = p.PullRequest.Number
 		base.kind = KindPullRequest
 		base.author = env.Sender.Login
 		base.ts = p.PullRequest.UpdatedAt
-		base.requested = true
-		return base, base.number > 0
+		base.ready = true
+		if base.number == 0 {
+			base.reason = "unhandled"
+			return base, false
+		}
+		return base, true
 	default:
-		return classified{}, false
+		base.reason = "unsupported event"
+		return base, false
 	}
 }
 
@@ -329,6 +394,10 @@ func compileMention(slug string) *regexp.Regexp {
 	// @slug or @slug[bot], not @slug-extra. The trailing group is kept so stripMention
 	// can leave the following whitespace/punctuation in place via $1.
 	return regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(slug) + `(?:\[bot\])?([^A-Za-z0-9_-]|$)`)
+}
+
+func readyInstruction(author, prURL string) string {
+	return firstNonEmpty(author, "someone") + " marked " + prURL + " ready for review"
 }
 
 func reviewInstruction(author, prURL, body string) string {

@@ -275,9 +275,13 @@ func (c *Client) Identity(ctx context.Context) (Identity, error) {
 	// The bot's own account, which is where the numeric id in the address comes from. The
 	// login is the slug with [bot] on the end, and it has to be escaped: [ and ] are not
 	// path characters.
+	//
+	// This call goes out with no credential. An App JWT is only a credential for the App's
+	// own endpoints, and GitHub answers GET /users with 401 Bad credentials when one is
+	// sent. The bot account is public, so the lookup does not need one.
 	login := slug + "[bot]"
 	var user userResponse
-	if err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(login), nil, &user); err != nil {
+	if err := c.doPublic(ctx, http.MethodGet, "/users/"+url.PathEscape(login), &user); err != nil {
 		return Identity{}, err
 	}
 	if user.ID == 0 {
@@ -331,13 +335,22 @@ func (c *Client) installation(ctx context.Context, owner string) (int64, error) 
 // installation endpoints; callers see ErrNotInstalled instead.
 var ErrNotFound = errors.New("github: not found")
 
-// do makes one authenticated call. Every call here is authenticated by the App JWT and not
-// by an installation token: this client's whole job is to obtain the latter.
+// do makes one call authenticated by the App JWT, not by an installation token: this
+// client's whole job is to obtain the latter.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, out any) error {
 	jwt, err := c.jwt()
 	if err != nil {
 		return err
 	}
+	return c.roundTrip(ctx, method, path, body, jwt, out)
+}
+
+// doPublic is do with no credential. It is for a public resource that rejects an App JWT.
+func (c *Client) doPublic(ctx context.Context, method, path string, out any) error {
+	return c.roundTrip(ctx, method, path, nil, "", out)
+}
+
+func (c *Client) roundTrip(ctx context.Context, method, path string, body []byte, credential string, out any) error {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -346,7 +359,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, out a
 	if err != nil {
 		return fmt.Errorf("github: %s %s: %w", method, path, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+jwt)
+	if credential != "" {
+		req.Header.Set("Authorization", "Bearer "+credential)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if body != nil {

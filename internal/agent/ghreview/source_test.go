@@ -1,12 +1,14 @@
 package ghreview
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -200,53 +202,58 @@ func TestAMentionOnAPRWithNoSessionStartsAReview(t *testing.T) {
 	assert.NotContains(t, evs[0].Text, "@podium")
 }
 
-func reviewRequested(login, typ string) map[string]any {
+func readyForReview() map[string]any {
 	return map[string]any{
-		"action":       "review_requested",
+		"action":       "ready_for_review",
 		"installation": map[string]any{"id": 42},
 		"repository": map[string]any{
 			"name": "repo", "owner": map[string]any{"login": "acme"},
 		},
-		"sender":             map[string]any{"login": "alice", "type": "User"},
-		"requested_reviewer": map[string]any{"login": login, "type": typ},
+		"sender": map[string]any{"login": "alice", "type": "User"},
 		"pull_request": map[string]any{
-			"number": 12, "updated_at": "2026-09-14T12:00:00Z",
+			"number": 12, "draft": false, "updated_at": "2026-09-14T12:00:00Z",
 		},
 	}
 }
 
-func TestRequestingTheAppStartsAReview(t *testing.T) {
+func TestReadyForReviewStartsAReview(t *testing.T) {
 	h := newHarness(t)
-	rec := postWebhook(t, h, "pull_request", "d-req", reviewRequested("podium[bot]", "Bot"))
+	rec := postWebhook(t, h, "pull_request", "d-ready", readyForReview())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	evs := h.drain()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
 	assert.Equal(t, "alice", evs[0].Author)
 	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
-	assert.Contains(t, evs[0].Text, "asked for a review")
+	assert.Contains(t, evs[0].Text, "marked")
+	assert.Contains(t, evs[0].Text, "ready for review")
 	p, err := ParseRef(evs[0].Ref)
 	require.NoError(t, err)
 	assert.Equal(t, KindPullRequest, p.Kind)
 	assert.Equal(t, int64(0), p.CommentID)
 }
 
-func TestRequestingSomeoneElseIsDropped(t *testing.T) {
+func TestOtherPullRequestActionsAreDropped(t *testing.T) {
 	h := newHarness(t)
-	rec := postWebhook(t, h, "pull_request", "d-other", reviewRequested("alice", "User"))
-	assert.Equal(t, http.StatusOK, rec.Code)
+	opened := readyForReview()
+	opened["action"] = "opened"
+	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-opened", opened).Code)
+	requested := readyForReview()
+	requested["action"] = "review_requested"
+	requested["requested_reviewer"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
+	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-req", requested).Code)
 	assert.Empty(t, h.drain())
 }
 
-func TestReRequestingTheAppContinuesTheSession(t *testing.T) {
+func TestReadyForReviewAgainContinuesTheSession(t *testing.T) {
 	h := newHarness(t)
 	h.session("github:acme/repo#12")
-	rec := postWebhook(t, h, "pull_request", "d-rereq", reviewRequested("podium[bot]", "Bot"))
+	rec := postWebhook(t, h, "pull_request", "d-ready2", readyForReview())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	evs := h.drain()
 	require.Len(t, evs, 1)
 	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Contains(t, evs[0].Text, "asked for a review")
+	assert.Contains(t, evs[0].Text, "ready for review")
 }
 
 func TestACommentOnANonPRIssueIsDropped(t *testing.T) {
@@ -319,6 +326,51 @@ func TestDuplicateDeliveryIsOneEvent(t *testing.T) {
 	assert.Len(t, h.drain(), 1)
 }
 
+func TestWebhookLogsTheDelivery(t *testing.T) {
+	h := newHarness(t)
+	var buf bytes.Buffer
+	h.src.logger = slog.New(slog.NewTextHandler(&buf, nil))
+
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "ping", "d-ping", map[string]any{"zen": "keep-body-out"}).Code)
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-start", prComment("@podium review this secret-phrase")).Code)
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-lgtm", prComment("lgtm secret-phrase")).Code)
+	opened := readyForReview()
+	opened["action"] = "review_requested"
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-other", opened).Code)
+	self := prComment("bot secret-phrase")
+	self["sender"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
+	self["comment"].(map[string]any)["user"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-self", self).Code)
+	require.Equal(t, http.StatusOK, postWebhook(t, h, "issue_comment", "d-start", prComment("@podium again secret-phrase")).Code)
+
+	raw := []byte(`{"zen":"sig-secret-phrase"}`)
+	req := httptest.NewRequest(http.MethodPost, WebhookPath, strings.NewReader(string(raw)))
+	req.Header.Set(headerEvent, "ping")
+	req.Header.Set(headerDelivery, "d-bad")
+	req.Header.Set(headerSignature, "sha256=deadbeef")
+	rec := httptest.NewRecorder()
+	h.src.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	log := buf.String()
+	assert.Contains(t, log, "event=ping")
+	assert.Contains(t, log, "delivery=d-ping")
+	assert.Contains(t, log, "outcome=ok")
+	assert.Contains(t, log, "outcome=started")
+	assert.Contains(t, log, "action=created")
+	assert.Contains(t, log, "repo=acme/repo")
+	assert.Contains(t, log, "pr=12")
+	assert.Contains(t, log, "sender=alice")
+	assert.Contains(t, log, "delivery=d-start")
+	assert.Contains(t, log, "reason=\"not mentioned\"")
+	assert.Contains(t, log, "reason=\"unsupported action\"")
+	assert.Contains(t, log, "reason=\"own delivery\"")
+	assert.Contains(t, log, "outcome=duplicate")
+	assert.Contains(t, log, "reason=\"invalid signature\"")
+	assert.NotContains(t, log, "secret-phrase")
+	assert.NotContains(t, log, "deadbeef")
+}
+
 func TestPostOnAnIssueCommentTriggerSubmitsOneReview(t *testing.T) {
 	h := newHarness(t)
 	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
@@ -341,6 +393,184 @@ func TestPostOnAnIssueCommentTriggerSubmitsOneReview(t *testing.T) {
 	require.Len(t, edits, 1)
 	assert.Contains(t, edits[0], "still looks good")
 	assert.Contains(t, edits[0], "task_2")
+}
+
+func TestATurnOpensAReviewBeforeTheAnswer(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1, "a second ack does not open another review")
+	assert.Equal(t, "COMMENT", created[0]["event"])
+	assert.Equal(t, reviewingText, created[0]["body"])
+
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{
+		Type: conductor.OutFinal, Text: "**Changes needed**\n\nThe error is dropped.", TaskID: "task_1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "101", id)
+	assert.Len(t, h.stub.postedReviews(), 1, "the answer fills the review opened at the start")
+	edits := h.stub.postedReviewEdits()
+	require.Len(t, edits, 1)
+	assert.Contains(t, edits[0], "The error is dropped.")
+	assert.Contains(t, edits[0], "task_1")
+}
+
+func TestAnInlineReplyDoesNotOpenAReview(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindReviewComment, CommentID: 88})
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	assert.Empty(t, h.stub.postedReviews())
+}
+
+func TestAFailedTurnKeepsTheReviewForTheNextAnswer(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionFailed))
+	edits := h.stub.postedReviewEdits()
+	require.Len(t, edits, 1)
+	assert.Equal(t, reviewFailedText, edits[0])
+
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "the check holds"})
+	require.NoError(t, err)
+	assert.Equal(t, "101", id)
+	assert.Len(t, h.stub.postedReviews(), 1)
+	edits = h.stub.postedReviewEdits()
+	require.Len(t, edits, 2)
+	assert.Contains(t, edits[1], "the check holds")
+}
+
+func TestAFailureIsNotAPullRequestReply(t *testing.T) {
+	h := newHarness(t)
+	text := "I hit the 1h0m0s limit for this playbook. Task `task_01`."
+	for _, ref := range []string{
+		Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7}),
+		Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindReviewComment, CommentID: 88}),
+	} {
+		_, err := h.src.Post(context.Background(), ref, conductor.Outbound{
+			Type: conductor.OutFailure, Text: text, TaskID: "task_01",
+		})
+		require.NoError(t, err)
+	}
+	assert.Empty(t, h.stub.postedIssueBodies())
+	assert.Empty(t, h.stub.postedReviewInReplyTo())
+	assert.Empty(t, h.stub.postedReviews())
+}
+
+func TestNitsAfterTheOpenerApproveOnANewReview(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	require.NoError(t, h.src.React(context.Background(), ref, conductor.ReactionWorking))
+	text := "**Nits**\n\nTwo names.\n\n```inline\ninternal/a.go:12\nRename this.\n```\n"
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	require.NoError(t, err)
+	assert.Equal(t, "102", id)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 2)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+	assert.Equal(t, reviewingText, created[0]["body"])
+	assert.Equal(t, "APPROVE", created[1]["event"])
+	assert.Equal(t, "0123456789abcdef", created[1]["commit_id"])
+	notes, ok := created[1]["comments"].([]any)
+	require.True(t, ok)
+	require.Len(t, notes, 1)
+	edits := h.stub.postedReviewEdits()
+	require.Len(t, edits, 1)
+	assert.Equal(t, reviewedNote, edits[0])
+
+	h.stub.listedReviews = []Review{{ID: 102, State: "APPROVED"}}
+	id2, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
+	require.NoError(t, err)
+	assert.Equal(t, "102", id2)
+	assert.Len(t, h.stub.postedReviews(), 2, "a later nit edits the approval")
+	edits = h.stub.postedReviewEdits()
+	require.Len(t, edits, 2)
+	assert.Contains(t, edits[1], "Still just the name.")
+}
+
+func TestFetchTranscriptDropsTheInProgressReview(t *testing.T) {
+	h := newHarness(t)
+	h.stub.listedReviews = []Review{{
+		ID: 9, Body: reviewingText, SubmittedAt: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC),
+		User: User{Login: "podium[bot]", Type: "Bot"},
+	}}
+	h.stub.issueComments = []Comment{{
+		ID: 3, Body: "thanks", CreatedAt: time.Date(2026, 9, 14, 12, 2, 0, 0, time.UTC),
+		User: User{Login: "alice", Type: "User"},
+	}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 3})
+	entries, err := h.src.FetchTranscript(context.Background(), ref)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "thanks", entries[0].Text)
+}
+
+func TestANitsReviewApprovesAndPinsTheNotes(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindIssueComment, CommentID: 7})
+	text := "**Nits**\n\nTwo names.\n\n```inline\ninternal/a.go:12\nRename this.\n```\n"
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text, TaskID: "task_1"})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "APPROVE", created[0]["event"])
+	assert.Equal(t, "0123456789abcdef", created[0]["commit_id"])
+	assert.NotContains(t, asString(created[0]["body"]), "```inline")
+	assert.Contains(t, asString(created[0]["body"]), "Two names.")
+	notes, ok := created[0]["comments"].([]any)
+	require.True(t, ok)
+	require.Len(t, notes, 1)
+	note := notes[0].(map[string]any)
+	assert.Equal(t, "internal/a.go", note["path"])
+	assert.EqualValues(t, 12, note["line"])
+	assert.Equal(t, "RIGHT", note["side"])
+	assert.Equal(t, "Rename this.", note["body"])
+}
+
+func TestChangesNeededStayACommentWithTheNotesOnTheReview(t *testing.T) {
+	h := newHarness(t)
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	text := "**Changes needed**\n\nThe error is dropped.\n\n```inline\ninternal/a.go:4\nThis returns nil on failure.\n```\n"
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: text})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "COMMENT", created[0]["event"])
+	notes := created[0]["comments"].([]any)
+	require.Len(t, notes, 1)
+}
+
+func TestAFollowUpApprovalIsANewReviewWhenTheOldOneWasAComment(t *testing.T) {
+	h := newHarness(t)
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "COMMENTED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Approve**\n\nThe fix holds."})
+	require.NoError(t, err)
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "APPROVE", created[0]["event"])
+	assert.Empty(t, h.stub.postedReviewEdits())
+}
+
+func TestAnApprovalFollowUpEditsTheSameReview(t *testing.T) {
+	h := newHarness(t)
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "APPROVED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindPullRequest})
+	id, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Nits**\n\nStill just the name."})
+	require.NoError(t, err)
+	assert.Equal(t, "77", id)
+	assert.Empty(t, h.stub.postedReviews())
+	edits := h.stub.postedReviewEdits()
+	require.Len(t, edits, 1)
+	assert.Contains(t, edits[0], "Still just the name.")
 }
 
 func TestAStoredReviewIsUpdatedRatherThanSubmittedAgain(t *testing.T) {

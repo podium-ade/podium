@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,6 +122,8 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(s.listedReviews)
+	case r.Method == http.MethodGet && isPullPath(path):
+		_ = json.NewEncoder(w).Encode(map[string]any{"head": map[string]any{"sha": "0123456789abcdef"}})
 	default:
 		http.NotFound(w, r)
 	}
@@ -156,6 +159,15 @@ func (s *stub) writeReview(w http.ResponseWriter, r *http.Request) {
 		SubmittedAt: time.Now().UTC(),
 		User:        User{Login: "podium[bot]", Type: "Bot"},
 	})
+}
+
+func isPullPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "repos" || parts[3] != "pulls" {
+		return false
+	}
+	_, err := strconv.Atoi(parts[4])
+	return err == nil
 }
 
 func asString(v any) string {
