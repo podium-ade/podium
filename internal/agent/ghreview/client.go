@@ -25,13 +25,18 @@ import (
 var ErrNotInstalled = errors.New("github app is not installed on this repository")
 
 const (
-	defaultAPIURL  = "https://api.github.com"
-	apiVersion     = "2022-11-28"
-	restErrorBody  = 4 << 10
-	tokenFreshness = 1 * time.Minute
-	httpTimeout    = 30 * time.Second
-	listPageSize   = 100
-	listPageCap    = 20
+	defaultAPIURL = "https://api.github.com"
+	apiVersion    = "2022-11-28"
+	restErrorBody = 4 << 10
+	// A successful pull or comment page is far larger than an error message. The
+	// pull carries the head repository before head.sha, and one comment page
+	// carries up to 100 bodies. Cutting either off makes Unmarshal fail, and the
+	// review then has no commit to pin its inline notes to.
+	restSuccessBody = 16 << 20
+	tokenFreshness  = 1 * time.Minute
+	httpTimeout     = 30 * time.Second
+	listPageSize    = 100
+	listPageCap     = 20
 )
 
 // User is a GitHub account as the API reports it on a comment or sender.
@@ -394,13 +399,24 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		return fmt.Errorf("github: %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, restErrorBody+1))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	failed := resp.StatusCode < 200 || resp.StatusCode >= 300
+	limit := int64(restSuccessBody)
+	if failed {
+		limit = restErrorBody
+	}
+	raw, tooBig, err := readBody(resp.Body, limit)
+	if err != nil {
+		return fmt.Errorf("github: read %s %s: %w", method, path, err)
+	}
+	if failed {
 		msg := string(raw)
-		if len(raw) > restErrorBody {
-			msg = msg[:restErrorBody] + "…"
+		if tooBig {
+			msg += "…"
 		}
 		return &APIError{Method: method, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(msg)}
+	}
+	if tooBig {
+		return fmt.Errorf("github: %s %s: response exceeds %d bytes", method, path, restSuccessBody)
 	}
 	if out == nil || len(raw) == 0 || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -409,4 +425,18 @@ func (c *restClient) do(ctx context.Context, installID int64, method, path strin
 		return fmt.Errorf("github: decode %s %s: %w", method, path, err)
 	}
 	return nil
+}
+
+// readBody reads at most limit bytes, and reports whether the body continued
+// past that. The extra byte is how a full buffer is told from a body that
+// ended on the limit.
+func readBody(r io.Reader, limit int64) ([]byte, bool, error) {
+	raw, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(raw)) > limit {
+		return raw[:limit], true, nil
+	}
+	return raw, false, nil
 }
