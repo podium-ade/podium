@@ -8,7 +8,7 @@ BINARIES := podium podium-server podium-node podium-agent
 
 # podium-runner is embedded into podium-node, not linked into it.
 RUNNERBIN   := internal/node/docker/runnerbin
-AGENTBIN    := internal/node/sandboxexec/agentbin/bin
+AGENTBIN    := internal/node/sandboxexec/agentbin/linux
 HOST_GOARCH := $(shell go env GOARCH)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -69,9 +69,9 @@ runner-embed:
 # after it; it is linux/amd64 only, the one architecture sandbox providers run.
 sandbox-agent-embed: runner-embed
 	@mkdir -p $(AGENTBIN)
-	@echo "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/podium-sandbox-agent -> $(AGENTBIN)/podium-sandbox-agent-linux-amd64"
+	@echo "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/podium-sandbox-agent -> $(AGENTBIN)/podium-sandbox-agent-amd64"
 	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $(AGENTBIN)/podium-sandbox-agent-linux-amd64 ./cmd/podium-sandbox-agent
+		go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $(AGENTBIN)/podium-sandbox-agent-amd64 ./cmd/podium-sandbox-agent
 
 # Cross-compiled worker binaries.
 #
