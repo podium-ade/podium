@@ -477,3 +477,31 @@ func TestParseSidecarDefaultsToUnprivileged(t *testing.T) {
 	_, err = ParseTaskSpec(strings.NewReader("image: alpine:3\nsidecars:\n  db:\n    image: redis:7-alpine\n    privilged: true\n"))
 	require.ErrorContains(t, err, "privilged")
 }
+
+func TestSandboxSpec(t *testing.T) {
+	got, err := ParseTaskSpec(strings.NewReader("sandbox: {snapshot: ci-base}\ncommand: [make]\n"))
+	require.NoError(t, err, "a snapshot task needs no image")
+	assert.Equal(t, []string{LabelSandbox}, got.Labels)
+
+	_, err = ParseTaskSpec(strings.NewReader("sandbox: {}\ncommand: [make]\n"))
+	require.ErrorContains(t, err, "image is required, or sandbox.snapshot")
+
+	got, err = ParseTaskSpec(strings.NewReader("image: alpine:3\nlabels: [backend=sandbox]\nexpose: {via: sandbox, ports: {web: {port: 80}}}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{LabelSandbox}, got.Labels, "the label is not added twice")
+
+	got, err = ParseTaskSpec(strings.NewReader("image: alpine:3\n"))
+	require.NoError(t, err)
+	assert.Empty(t, got.Labels, "a container task stays placeable anywhere")
+
+	rt := FromProto(mustSpec(t, "sandbox: {snapshot: ci-base}\ncommand: [make]\n").ToProto())
+	require.NotNil(t, rt.Sandbox)
+	assert.Equal(t, "ci-base", rt.Sandbox.Snapshot)
+}
+
+func mustSpec(t *testing.T, doc string) *TaskSpec {
+	t.Helper()
+	s, err := ParseTaskSpec(strings.NewReader(doc))
+	require.NoError(t, err)
+	return s
+}

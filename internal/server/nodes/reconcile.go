@@ -186,8 +186,9 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 // core with a Postgres asking for two costs three.
 func CostOf(ts spec.TaskSpec) TaskCost {
 	cost := TaskCost{CPU: ts.Resources.CPU, MemoryMB: int64(ts.Resources.MemoryMB)}
-	// A hold-only expose takes no address, so it does not wait for one.
-	if ts.Expose.Publishes() {
+	// A hold-only expose takes no address, so it does not wait for one. Nor does a
+	// sandbox preview: the provider gives every port a URL of its own.
+	if ts.Expose.Publishes() && ts.Expose.Via != spec.ExposeViaSandbox {
 		cost.Preview, cost.Via = true, ts.Expose.Via
 	}
 	for _, sc := range ts.Sidecars {

@@ -151,7 +151,7 @@ func (x LogChunk_Stream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LogChunk_Stream.Descriptor instead.
 func (LogChunk_Stream) EnumDescriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{26, 0}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{27, 0}
 }
 
 type EnrollRequest struct {
@@ -1141,6 +1141,7 @@ type ServerMessage struct {
 	//	*ServerMessage_Slots
 	//	*ServerMessage_Inject
 	//	*ServerMessage_Release
+	//	*ServerMessage_SandboxConfig
 	Msg           isServerMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1255,6 +1256,15 @@ func (x *ServerMessage) GetRelease() *Release {
 	return nil
 }
 
+func (x *ServerMessage) GetSandboxConfig() *SandboxConfig {
+	if x != nil {
+		if x, ok := x.Msg.(*ServerMessage_SandboxConfig); ok {
+			return x.SandboxConfig
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Msg interface {
 	isServerMessage_Msg()
 }
@@ -1291,6 +1301,10 @@ type ServerMessage_Release struct {
 	Release *Release `protobuf:"bytes,8,opt,name=release,proto3,oneof"`
 }
 
+type ServerMessage_SandboxConfig struct {
+	SandboxConfig *SandboxConfig `protobuf:"bytes,9,opt,name=sandbox_config,json=sandboxConfig,proto3,oneof"`
+}
+
 func (*ServerMessage_Assign) isServerMessage_Msg() {}
 
 func (*ServerMessage_Ack) isServerMessage_Msg() {}
@@ -1306,6 +1320,83 @@ func (*ServerMessage_Slots) isServerMessage_Msg() {}
 func (*ServerMessage_Inject) isServerMessage_Msg() {}
 
 func (*ServerMessage_Release) isServerMessage_Msg() {}
+
+func (*ServerMessage_SandboxConfig) isServerMessage_Msg() {}
+
+// SandboxConfig hands a sandbox node its provider's settings and credential, as an admin
+// configured them. It is sent before HelloAck — the node needs the provider to adopt the
+// sandboxes it already has — and again whenever an admin changes the provider. A node whose
+// own config file carries the provider's settings ignores it.
+type SandboxConfig struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	// configured is false when no admin has set the provider up, or it was deleted: the node
+	// takes no work until it is.
+	Configured bool              `protobuf:"varint,2,opt,name=configured,proto3" json:"configured,omitempty"`
+	Settings   map[string]string `protobuf:"bytes,3,rep,name=settings,proto3" json:"settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// SENSITIVE: never log.
+	Secret        []byte `protobuf:"bytes,4,opt,name=secret,proto3" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SandboxConfig) Reset() {
+	*x = SandboxConfig{}
+	mi := &file_podium_v1_node_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxConfig) ProtoMessage() {}
+
+func (x *SandboxConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_podium_v1_node_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxConfig.ProtoReflect.Descriptor instead.
+func (*SandboxConfig) Descriptor() ([]byte, []int) {
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SandboxConfig) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SandboxConfig) GetConfigured() bool {
+	if x != nil {
+		return x.Configured
+	}
+	return false
+}
+
+func (x *SandboxConfig) GetSettings() map[string]string {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+func (x *SandboxConfig) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
 
 // Hello opens the stream and carries the reconciliation input: which tasks the node still
 // has containers for.
@@ -1326,7 +1417,7 @@ type Hello struct {
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_podium_v1_node_proto_msgTypes[13]
+	mi := &file_podium_v1_node_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1429,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[13]
+	mi := &file_podium_v1_node_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1442,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{13}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Hello) GetNodeId() string {
@@ -1425,7 +1516,7 @@ type HelloAck struct {
 
 func (x *HelloAck) Reset() {
 	*x = HelloAck{}
-	mi := &file_podium_v1_node_proto_msgTypes[14]
+	mi := &file_podium_v1_node_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1437,7 +1528,7 @@ func (x *HelloAck) String() string {
 func (*HelloAck) ProtoMessage() {}
 
 func (x *HelloAck) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[14]
+	mi := &file_podium_v1_node_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1450,7 +1541,7 @@ func (x *HelloAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HelloAck.ProtoReflect.Descriptor instead.
 func (*HelloAck) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{14}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *HelloAck) GetTasks() []*TaskCheckpoint {
@@ -1489,7 +1580,7 @@ type TaskCheckpoint struct {
 
 func (x *TaskCheckpoint) Reset() {
 	*x = TaskCheckpoint{}
-	mi := &file_podium_v1_node_proto_msgTypes[15]
+	mi := &file_podium_v1_node_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1501,7 +1592,7 @@ func (x *TaskCheckpoint) String() string {
 func (*TaskCheckpoint) ProtoMessage() {}
 
 func (x *TaskCheckpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[15]
+	mi := &file_podium_v1_node_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1514,7 +1605,7 @@ func (x *TaskCheckpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCheckpoint.ProtoReflect.Descriptor instead.
 func (*TaskCheckpoint) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{15}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TaskCheckpoint) GetTaskId() string {
@@ -1563,7 +1654,7 @@ type NodeLoad struct {
 
 func (x *NodeLoad) Reset() {
 	*x = NodeLoad{}
-	mi := &file_podium_v1_node_proto_msgTypes[16]
+	mi := &file_podium_v1_node_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1575,7 +1666,7 @@ func (x *NodeLoad) String() string {
 func (*NodeLoad) ProtoMessage() {}
 
 func (x *NodeLoad) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[16]
+	mi := &file_podium_v1_node_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1588,7 +1679,7 @@ func (x *NodeLoad) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeLoad.ProtoReflect.Descriptor instead.
 func (*NodeLoad) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{16}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *NodeLoad) GetRunningTasks() int32 {
@@ -1630,7 +1721,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_podium_v1_node_proto_msgTypes[17]
+	mi := &file_podium_v1_node_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1642,7 +1733,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[17]
+	mi := &file_podium_v1_node_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1655,7 +1746,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{17}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Heartbeat) GetLoad() *NodeLoad {
@@ -1724,7 +1815,7 @@ type Assign struct {
 
 func (x *Assign) Reset() {
 	*x = Assign{}
-	mi := &file_podium_v1_node_proto_msgTypes[18]
+	mi := &file_podium_v1_node_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1736,7 +1827,7 @@ func (x *Assign) String() string {
 func (*Assign) ProtoMessage() {}
 
 func (x *Assign) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[18]
+	mi := &file_podium_v1_node_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1749,7 +1840,7 @@ func (x *Assign) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Assign.ProtoReflect.Descriptor instead.
 func (*Assign) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{18}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Assign) GetTaskId() string {
@@ -1807,7 +1898,7 @@ type RegistryCredential struct {
 
 func (x *RegistryCredential) Reset() {
 	*x = RegistryCredential{}
-	mi := &file_podium_v1_node_proto_msgTypes[19]
+	mi := &file_podium_v1_node_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1819,7 +1910,7 @@ func (x *RegistryCredential) String() string {
 func (*RegistryCredential) ProtoMessage() {}
 
 func (x *RegistryCredential) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[19]
+	mi := &file_podium_v1_node_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1832,7 +1923,7 @@ func (x *RegistryCredential) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryCredential.ProtoReflect.Descriptor instead.
 func (*RegistryCredential) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{19}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RegistryCredential) GetHost() string {
@@ -1872,7 +1963,7 @@ type ResolvedSecret struct {
 
 func (x *ResolvedSecret) Reset() {
 	*x = ResolvedSecret{}
-	mi := &file_podium_v1_node_proto_msgTypes[20]
+	mi := &file_podium_v1_node_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1884,7 +1975,7 @@ func (x *ResolvedSecret) String() string {
 func (*ResolvedSecret) ProtoMessage() {}
 
 func (x *ResolvedSecret) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[20]
+	mi := &file_podium_v1_node_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1897,7 +1988,7 @@ func (x *ResolvedSecret) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvedSecret.ProtoReflect.Descriptor instead.
 func (*ResolvedSecret) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{20}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ResolvedSecret) GetName() string {
@@ -1939,7 +2030,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_podium_v1_node_proto_msgTypes[21]
+	mi := &file_podium_v1_node_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1951,7 +2042,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[21]
+	mi := &file_podium_v1_node_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1964,7 +2055,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{21}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Ack) GetTaskId() string {
@@ -1992,7 +2083,7 @@ type Cancel struct {
 
 func (x *Cancel) Reset() {
 	*x = Cancel{}
-	mi := &file_podium_v1_node_proto_msgTypes[22]
+	mi := &file_podium_v1_node_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2004,7 +2095,7 @@ func (x *Cancel) String() string {
 func (*Cancel) ProtoMessage() {}
 
 func (x *Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[22]
+	mi := &file_podium_v1_node_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2017,7 +2108,7 @@ func (x *Cancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cancel.ProtoReflect.Descriptor instead.
 func (*Cancel) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{22}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Cancel) GetTaskId() string {
@@ -2049,7 +2140,7 @@ type Inject struct {
 
 func (x *Inject) Reset() {
 	*x = Inject{}
-	mi := &file_podium_v1_node_proto_msgTypes[23]
+	mi := &file_podium_v1_node_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2061,7 +2152,7 @@ func (x *Inject) String() string {
 func (*Inject) ProtoMessage() {}
 
 func (x *Inject) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[23]
+	mi := &file_podium_v1_node_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2074,7 +2165,7 @@ func (x *Inject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Inject.ProtoReflect.Descriptor instead.
 func (*Inject) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{23}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Inject) GetTaskId() string {
@@ -2109,7 +2200,7 @@ type Slots struct {
 
 func (x *Slots) Reset() {
 	*x = Slots{}
-	mi := &file_podium_v1_node_proto_msgTypes[24]
+	mi := &file_podium_v1_node_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2121,7 +2212,7 @@ func (x *Slots) String() string {
 func (*Slots) ProtoMessage() {}
 
 func (x *Slots) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[24]
+	mi := &file_podium_v1_node_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2134,7 +2225,7 @@ func (x *Slots) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Slots.ProtoReflect.Descriptor instead.
 func (*Slots) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{24}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Slots) GetMaxTasks() int32 {
@@ -2156,7 +2247,7 @@ type Drain struct {
 
 func (x *Drain) Reset() {
 	*x = Drain{}
-	mi := &file_podium_v1_node_proto_msgTypes[25]
+	mi := &file_podium_v1_node_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2168,7 +2259,7 @@ func (x *Drain) String() string {
 func (*Drain) ProtoMessage() {}
 
 func (x *Drain) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[25]
+	mi := &file_podium_v1_node_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2181,7 +2272,7 @@ func (x *Drain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Drain.ProtoReflect.Descriptor instead.
 func (*Drain) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{25}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Drain) GetUndo() bool {
@@ -2209,7 +2300,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_podium_v1_node_proto_msgTypes[26]
+	mi := &file_podium_v1_node_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2221,7 +2312,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[26]
+	mi := &file_podium_v1_node_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2234,7 +2325,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{26}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *LogChunk) GetStream() LogChunk_Stream {
@@ -2281,7 +2372,7 @@ type ArtifactRef struct {
 
 func (x *ArtifactRef) Reset() {
 	*x = ArtifactRef{}
-	mi := &file_podium_v1_node_proto_msgTypes[27]
+	mi := &file_podium_v1_node_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2293,7 +2384,7 @@ func (x *ArtifactRef) String() string {
 func (*ArtifactRef) ProtoMessage() {}
 
 func (x *ArtifactRef) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[27]
+	mi := &file_podium_v1_node_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2306,7 +2397,7 @@ func (x *ArtifactRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactRef.ProtoReflect.Descriptor instead.
 func (*ArtifactRef) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{27}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ArtifactRef) GetArtifactId() string {
@@ -2360,7 +2451,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_podium_v1_node_proto_msgTypes[28]
+	mi := &file_podium_v1_node_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2372,7 +2463,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[28]
+	mi := &file_podium_v1_node_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2385,7 +2476,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{28}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Message) GetType() string {
@@ -2421,7 +2512,7 @@ type Step struct {
 
 func (x *Step) Reset() {
 	*x = Step{}
-	mi := &file_podium_v1_node_proto_msgTypes[29]
+	mi := &file_podium_v1_node_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2433,7 +2524,7 @@ func (x *Step) String() string {
 func (*Step) ProtoMessage() {}
 
 func (x *Step) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[29]
+	mi := &file_podium_v1_node_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2446,7 +2537,7 @@ func (x *Step) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Step.ProtoReflect.Descriptor instead.
 func (*Step) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{29}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Step) GetName() string {
@@ -2480,7 +2571,7 @@ type Exited struct {
 
 func (x *Exited) Reset() {
 	*x = Exited{}
-	mi := &file_podium_v1_node_proto_msgTypes[30]
+	mi := &file_podium_v1_node_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2492,7 +2583,7 @@ func (x *Exited) String() string {
 func (*Exited) ProtoMessage() {}
 
 func (x *Exited) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[30]
+	mi := &file_podium_v1_node_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2505,7 +2596,7 @@ func (x *Exited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Exited.ProtoReflect.Descriptor instead.
 func (*Exited) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{30}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *Exited) GetExitCode() int32 {
@@ -2534,7 +2625,7 @@ type Finished struct {
 
 func (x *Finished) Reset() {
 	*x = Finished{}
-	mi := &file_podium_v1_node_proto_msgTypes[31]
+	mi := &file_podium_v1_node_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2546,7 +2637,7 @@ func (x *Finished) String() string {
 func (*Finished) ProtoMessage() {}
 
 func (x *Finished) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[31]
+	mi := &file_podium_v1_node_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2559,7 +2650,7 @@ func (x *Finished) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finished.ProtoReflect.Descriptor instead.
 func (*Finished) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{31}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *Finished) GetExitCode() int32 {
@@ -2603,7 +2694,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_podium_v1_node_proto_msgTypes[32]
+	mi := &file_podium_v1_node_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2615,7 +2706,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[32]
+	mi := &file_podium_v1_node_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2628,7 +2719,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{32}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *Error) GetMessage() string {
@@ -2678,7 +2769,7 @@ type TaskEvent struct {
 
 func (x *TaskEvent) Reset() {
 	*x = TaskEvent{}
-	mi := &file_podium_v1_node_proto_msgTypes[33]
+	mi := &file_podium_v1_node_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2690,7 +2781,7 @@ func (x *TaskEvent) String() string {
 func (*TaskEvent) ProtoMessage() {}
 
 func (x *TaskEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[33]
+	mi := &file_podium_v1_node_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2703,7 +2794,7 @@ func (x *TaskEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskEvent.ProtoReflect.Descriptor instead.
 func (*TaskEvent) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{33}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TaskEvent) GetTaskId() string {
@@ -2887,7 +2978,7 @@ type Preview struct {
 
 func (x *Preview) Reset() {
 	*x = Preview{}
-	mi := &file_podium_v1_node_proto_msgTypes[34]
+	mi := &file_podium_v1_node_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2899,7 +2990,7 @@ func (x *Preview) String() string {
 func (*Preview) ProtoMessage() {}
 
 func (x *Preview) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[34]
+	mi := &file_podium_v1_node_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2912,7 +3003,7 @@ func (x *Preview) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Preview.ProtoReflect.Descriptor instead.
 func (*Preview) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{34}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *Preview) GetVia() string {
@@ -2947,7 +3038,7 @@ type Release struct {
 
 func (x *Release) Reset() {
 	*x = Release{}
-	mi := &file_podium_v1_node_proto_msgTypes[35]
+	mi := &file_podium_v1_node_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2959,7 +3050,7 @@ func (x *Release) String() string {
 func (*Release) ProtoMessage() {}
 
 func (x *Release) ProtoReflect() protoreflect.Message {
-	mi := &file_podium_v1_node_proto_msgTypes[35]
+	mi := &file_podium_v1_node_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2972,7 +3063,7 @@ func (x *Release) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Release.ProtoReflect.Descriptor instead.
 func (*Release) Descriptor() ([]byte, []int) {
-	return file_podium_v1_node_proto_rawDescGZIP(), []int{35}
+	return file_podium_v1_node_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Release) GetTaskId() string {
@@ -3070,7 +3161,7 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\theartbeat\x18\x02 \x01(\v2\x14.podium.v1.HeartbeatH\x00R\theartbeat\x125\n" +
 	"\n" +
 	"task_event\x18\x03 \x01(\v2\x14.podium.v1.TaskEventH\x00R\ttaskEventB\x05\n" +
-	"\x03msg\"\xf9\x02\n" +
+	"\x03msg\"\xbc\x03\n" +
 	"\rServerMessage\x12+\n" +
 	"\x06assign\x18\x01 \x01(\v2\x11.podium.v1.AssignH\x00R\x06assign\x12\"\n" +
 	"\x03ack\x18\x02 \x01(\v2\x0e.podium.v1.AckH\x00R\x03ack\x12+\n" +
@@ -3079,8 +3170,19 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\thello_ack\x18\x05 \x01(\v2\x13.podium.v1.HelloAckH\x00R\bhelloAck\x12(\n" +
 	"\x05slots\x18\x06 \x01(\v2\x10.podium.v1.SlotsH\x00R\x05slots\x12+\n" +
 	"\x06inject\x18\a \x01(\v2\x11.podium.v1.InjectH\x00R\x06inject\x12.\n" +
-	"\arelease\x18\b \x01(\v2\x12.podium.v1.ReleaseH\x00R\areleaseB\x05\n" +
-	"\x03msg\"\xf0\x01\n" +
+	"\arelease\x18\b \x01(\v2\x12.podium.v1.ReleaseH\x00R\arelease\x12A\n" +
+	"\x0esandbox_config\x18\t \x01(\v2\x18.podium.v1.SandboxConfigH\x00R\rsandboxConfigB\x05\n" +
+	"\x03msg\"\xe4\x01\n" +
+	"\rSandboxConfig\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1e\n" +
+	"\n" +
+	"configured\x18\x02 \x01(\bR\n" +
+	"configured\x12B\n" +
+	"\bsettings\x18\x03 \x03(\v2&.podium.v1.SandboxConfig.SettingsEntryR\bsettings\x12\x16\n" +
+	"\x06secret\x18\x04 \x01(\fR\x06secret\x1a;\n" +
+	"\rSettingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf0\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x19\n" +
 	"\bnode_key\x18\x02 \x01(\tR\anodeKey\x12\x16\n" +
@@ -3241,7 +3343,7 @@ func file_podium_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_podium_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_podium_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
 var file_podium_v1_node_proto_goTypes = []any{
 	(TaskEventKind)(0),                        // 0: podium.v1.TaskEventKind
 	(LogChunk_Stream)(0),                      // 1: podium.v1.LogChunk.Stream
@@ -3258,86 +3360,90 @@ var file_podium_v1_node_proto_goTypes = []any{
 	(*WorkspaceSnapshotInfo)(nil),             // 12: podium.v1.WorkspaceSnapshotInfo
 	(*NodeMessage)(nil),                       // 13: podium.v1.NodeMessage
 	(*ServerMessage)(nil),                     // 14: podium.v1.ServerMessage
-	(*Hello)(nil),                             // 15: podium.v1.Hello
-	(*HelloAck)(nil),                          // 16: podium.v1.HelloAck
-	(*TaskCheckpoint)(nil),                    // 17: podium.v1.TaskCheckpoint
-	(*NodeLoad)(nil),                          // 18: podium.v1.NodeLoad
-	(*Heartbeat)(nil),                         // 19: podium.v1.Heartbeat
-	(*Assign)(nil),                            // 20: podium.v1.Assign
-	(*RegistryCredential)(nil),                // 21: podium.v1.RegistryCredential
-	(*ResolvedSecret)(nil),                    // 22: podium.v1.ResolvedSecret
-	(*Ack)(nil),                               // 23: podium.v1.Ack
-	(*Cancel)(nil),                            // 24: podium.v1.Cancel
-	(*Inject)(nil),                            // 25: podium.v1.Inject
-	(*Slots)(nil),                             // 26: podium.v1.Slots
-	(*Drain)(nil),                             // 27: podium.v1.Drain
-	(*LogChunk)(nil),                          // 28: podium.v1.LogChunk
-	(*ArtifactRef)(nil),                       // 29: podium.v1.ArtifactRef
-	(*Message)(nil),                           // 30: podium.v1.Message
-	(*Step)(nil),                              // 31: podium.v1.Step
-	(*Exited)(nil),                            // 32: podium.v1.Exited
-	(*Finished)(nil),                          // 33: podium.v1.Finished
-	(*Error)(nil),                             // 34: podium.v1.Error
-	(*TaskEvent)(nil),                         // 35: podium.v1.TaskEvent
-	(*Preview)(nil),                           // 36: podium.v1.Preview
-	(*Release)(nil),                           // 37: podium.v1.Release
-	nil,                                       // 38: podium.v1.Preview.UrlsEntry
-	(*NodeCapacity)(nil),                      // 39: podium.v1.NodeCapacity
-	(*timestamppb.Timestamp)(nil),             // 40: google.protobuf.Timestamp
-	(*TaskSpec)(nil),                          // 41: podium.v1.TaskSpec
-	(*Usage)(nil),                             // 42: podium.v1.Usage
+	(*SandboxConfig)(nil),                     // 15: podium.v1.SandboxConfig
+	(*Hello)(nil),                             // 16: podium.v1.Hello
+	(*HelloAck)(nil),                          // 17: podium.v1.HelloAck
+	(*TaskCheckpoint)(nil),                    // 18: podium.v1.TaskCheckpoint
+	(*NodeLoad)(nil),                          // 19: podium.v1.NodeLoad
+	(*Heartbeat)(nil),                         // 20: podium.v1.Heartbeat
+	(*Assign)(nil),                            // 21: podium.v1.Assign
+	(*RegistryCredential)(nil),                // 22: podium.v1.RegistryCredential
+	(*ResolvedSecret)(nil),                    // 23: podium.v1.ResolvedSecret
+	(*Ack)(nil),                               // 24: podium.v1.Ack
+	(*Cancel)(nil),                            // 25: podium.v1.Cancel
+	(*Inject)(nil),                            // 26: podium.v1.Inject
+	(*Slots)(nil),                             // 27: podium.v1.Slots
+	(*Drain)(nil),                             // 28: podium.v1.Drain
+	(*LogChunk)(nil),                          // 29: podium.v1.LogChunk
+	(*ArtifactRef)(nil),                       // 30: podium.v1.ArtifactRef
+	(*Message)(nil),                           // 31: podium.v1.Message
+	(*Step)(nil),                              // 32: podium.v1.Step
+	(*Exited)(nil),                            // 33: podium.v1.Exited
+	(*Finished)(nil),                          // 34: podium.v1.Finished
+	(*Error)(nil),                             // 35: podium.v1.Error
+	(*TaskEvent)(nil),                         // 36: podium.v1.TaskEvent
+	(*Preview)(nil),                           // 37: podium.v1.Preview
+	(*Release)(nil),                           // 38: podium.v1.Release
+	nil,                                       // 39: podium.v1.SandboxConfig.SettingsEntry
+	nil,                                       // 40: podium.v1.Preview.UrlsEntry
+	(*NodeCapacity)(nil),                      // 41: podium.v1.NodeCapacity
+	(*timestamppb.Timestamp)(nil),             // 42: google.protobuf.Timestamp
+	(*TaskSpec)(nil),                          // 43: podium.v1.TaskSpec
+	(*Usage)(nil),                             // 44: podium.v1.Usage
 }
 var file_podium_v1_node_proto_depIdxs = []int32{
 	5,  // 0: podium.v1.UploadArtifactRequest.metadata:type_name -> podium.v1.ArtifactMetadata
 	8,  // 1: podium.v1.UploadWorkspaceSnapshotRequest.metadata:type_name -> podium.v1.WorkspaceSnapshotMetadata
 	12, // 2: podium.v1.DownloadWorkspaceSnapshotResponse.info:type_name -> podium.v1.WorkspaceSnapshotInfo
-	15, // 3: podium.v1.NodeMessage.hello:type_name -> podium.v1.Hello
-	19, // 4: podium.v1.NodeMessage.heartbeat:type_name -> podium.v1.Heartbeat
-	35, // 5: podium.v1.NodeMessage.task_event:type_name -> podium.v1.TaskEvent
-	20, // 6: podium.v1.ServerMessage.assign:type_name -> podium.v1.Assign
-	23, // 7: podium.v1.ServerMessage.ack:type_name -> podium.v1.Ack
-	24, // 8: podium.v1.ServerMessage.cancel:type_name -> podium.v1.Cancel
-	27, // 9: podium.v1.ServerMessage.drain:type_name -> podium.v1.Drain
-	16, // 10: podium.v1.ServerMessage.hello_ack:type_name -> podium.v1.HelloAck
-	26, // 11: podium.v1.ServerMessage.slots:type_name -> podium.v1.Slots
-	25, // 12: podium.v1.ServerMessage.inject:type_name -> podium.v1.Inject
-	37, // 13: podium.v1.ServerMessage.release:type_name -> podium.v1.Release
-	39, // 14: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
-	17, // 15: podium.v1.HelloAck.tasks:type_name -> podium.v1.TaskCheckpoint
-	18, // 16: podium.v1.Heartbeat.load:type_name -> podium.v1.NodeLoad
-	40, // 17: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
-	41, // 18: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
-	40, // 19: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
-	22, // 20: podium.v1.Assign.resolved_secrets:type_name -> podium.v1.ResolvedSecret
-	21, // 21: podium.v1.Assign.registry_credentials:type_name -> podium.v1.RegistryCredential
-	1,  // 22: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
-	42, // 23: podium.v1.Finished.usage:type_name -> podium.v1.Usage
-	40, // 24: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
-	0,  // 25: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
-	28, // 26: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
-	31, // 27: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
-	32, // 28: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
-	33, // 29: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
-	34, // 30: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
-	29, // 31: podium.v1.TaskEvent.artifact:type_name -> podium.v1.ArtifactRef
-	30, // 32: podium.v1.TaskEvent.message:type_name -> podium.v1.Message
-	36, // 33: podium.v1.TaskEvent.preview:type_name -> podium.v1.Preview
-	38, // 34: podium.v1.Preview.urls:type_name -> podium.v1.Preview.UrlsEntry
-	2,  // 35: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
-	13, // 36: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
-	4,  // 37: podium.v1.NodeService.UploadArtifact:input_type -> podium.v1.UploadArtifactRequest
-	7,  // 38: podium.v1.NodeService.UploadWorkspaceSnapshot:input_type -> podium.v1.UploadWorkspaceSnapshotRequest
-	10, // 39: podium.v1.NodeService.DownloadWorkspaceSnapshot:input_type -> podium.v1.DownloadWorkspaceSnapshotRequest
-	3,  // 40: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
-	14, // 41: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
-	6,  // 42: podium.v1.NodeService.UploadArtifact:output_type -> podium.v1.UploadArtifactResponse
-	9,  // 43: podium.v1.NodeService.UploadWorkspaceSnapshot:output_type -> podium.v1.UploadWorkspaceSnapshotResponse
-	11, // 44: podium.v1.NodeService.DownloadWorkspaceSnapshot:output_type -> podium.v1.DownloadWorkspaceSnapshotResponse
-	40, // [40:45] is the sub-list for method output_type
-	35, // [35:40] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	16, // 3: podium.v1.NodeMessage.hello:type_name -> podium.v1.Hello
+	20, // 4: podium.v1.NodeMessage.heartbeat:type_name -> podium.v1.Heartbeat
+	36, // 5: podium.v1.NodeMessage.task_event:type_name -> podium.v1.TaskEvent
+	21, // 6: podium.v1.ServerMessage.assign:type_name -> podium.v1.Assign
+	24, // 7: podium.v1.ServerMessage.ack:type_name -> podium.v1.Ack
+	25, // 8: podium.v1.ServerMessage.cancel:type_name -> podium.v1.Cancel
+	28, // 9: podium.v1.ServerMessage.drain:type_name -> podium.v1.Drain
+	17, // 10: podium.v1.ServerMessage.hello_ack:type_name -> podium.v1.HelloAck
+	27, // 11: podium.v1.ServerMessage.slots:type_name -> podium.v1.Slots
+	26, // 12: podium.v1.ServerMessage.inject:type_name -> podium.v1.Inject
+	38, // 13: podium.v1.ServerMessage.release:type_name -> podium.v1.Release
+	15, // 14: podium.v1.ServerMessage.sandbox_config:type_name -> podium.v1.SandboxConfig
+	39, // 15: podium.v1.SandboxConfig.settings:type_name -> podium.v1.SandboxConfig.SettingsEntry
+	41, // 16: podium.v1.Hello.capacity:type_name -> podium.v1.NodeCapacity
+	18, // 17: podium.v1.HelloAck.tasks:type_name -> podium.v1.TaskCheckpoint
+	19, // 18: podium.v1.Heartbeat.load:type_name -> podium.v1.NodeLoad
+	42, // 19: podium.v1.Heartbeat.ts:type_name -> google.protobuf.Timestamp
+	43, // 20: podium.v1.Assign.spec:type_name -> podium.v1.TaskSpec
+	42, // 21: podium.v1.Assign.deadline:type_name -> google.protobuf.Timestamp
+	23, // 22: podium.v1.Assign.resolved_secrets:type_name -> podium.v1.ResolvedSecret
+	22, // 23: podium.v1.Assign.registry_credentials:type_name -> podium.v1.RegistryCredential
+	1,  // 24: podium.v1.LogChunk.stream:type_name -> podium.v1.LogChunk.Stream
+	44, // 25: podium.v1.Finished.usage:type_name -> podium.v1.Usage
+	42, // 26: podium.v1.TaskEvent.ts:type_name -> google.protobuf.Timestamp
+	0,  // 27: podium.v1.TaskEvent.kind:type_name -> podium.v1.TaskEventKind
+	29, // 28: podium.v1.TaskEvent.log:type_name -> podium.v1.LogChunk
+	32, // 29: podium.v1.TaskEvent.step:type_name -> podium.v1.Step
+	33, // 30: podium.v1.TaskEvent.exited:type_name -> podium.v1.Exited
+	34, // 31: podium.v1.TaskEvent.finished:type_name -> podium.v1.Finished
+	35, // 32: podium.v1.TaskEvent.error:type_name -> podium.v1.Error
+	30, // 33: podium.v1.TaskEvent.artifact:type_name -> podium.v1.ArtifactRef
+	31, // 34: podium.v1.TaskEvent.message:type_name -> podium.v1.Message
+	37, // 35: podium.v1.TaskEvent.preview:type_name -> podium.v1.Preview
+	40, // 36: podium.v1.Preview.urls:type_name -> podium.v1.Preview.UrlsEntry
+	2,  // 37: podium.v1.NodeService.Enroll:input_type -> podium.v1.EnrollRequest
+	13, // 38: podium.v1.NodeService.Stream:input_type -> podium.v1.NodeMessage
+	4,  // 39: podium.v1.NodeService.UploadArtifact:input_type -> podium.v1.UploadArtifactRequest
+	7,  // 40: podium.v1.NodeService.UploadWorkspaceSnapshot:input_type -> podium.v1.UploadWorkspaceSnapshotRequest
+	10, // 41: podium.v1.NodeService.DownloadWorkspaceSnapshot:input_type -> podium.v1.DownloadWorkspaceSnapshotRequest
+	3,  // 42: podium.v1.NodeService.Enroll:output_type -> podium.v1.EnrollResponse
+	14, // 43: podium.v1.NodeService.Stream:output_type -> podium.v1.ServerMessage
+	6,  // 44: podium.v1.NodeService.UploadArtifact:output_type -> podium.v1.UploadArtifactResponse
+	9,  // 45: podium.v1.NodeService.UploadWorkspaceSnapshot:output_type -> podium.v1.UploadWorkspaceSnapshotResponse
+	11, // 46: podium.v1.NodeService.DownloadWorkspaceSnapshot:output_type -> podium.v1.DownloadWorkspaceSnapshotResponse
+	42, // [42:47] is the sub-list for method output_type
+	37, // [37:42] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_podium_v1_node_proto_init() }
@@ -3372,8 +3478,9 @@ func file_podium_v1_node_proto_init() {
 		(*ServerMessage_Slots)(nil),
 		(*ServerMessage_Inject)(nil),
 		(*ServerMessage_Release)(nil),
+		(*ServerMessage_SandboxConfig)(nil),
 	}
-	file_podium_v1_node_proto_msgTypes[33].OneofWrappers = []any{
+	file_podium_v1_node_proto_msgTypes[34].OneofWrappers = []any{
 		(*TaskEvent_Log)(nil),
 		(*TaskEvent_Step)(nil),
 		(*TaskEvent_Exited)(nil),
@@ -3389,7 +3496,7 @@ func file_podium_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_podium_v1_node_proto_rawDesc), len(file_podium_v1_node_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   37,
+			NumMessages:   39,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

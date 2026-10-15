@@ -33,14 +33,15 @@ type slotDevice interface {
 // previewLease is one task's hold on a preview address, from assignment until release.
 type previewLease struct {
 	plan docker.Preview
-	slot int // a tailnet slot, lanSlot for a LAN address, holdSlot for no address at all
+	slot int // a tailnet slot, lanSlot for a LAN address, holdSlot for no address at all, sandboxSlot for a provider's URLs
 	held bool
 }
 
 // The slot of a lease that holds no tailnet device.
 const (
-	lanSlot  = -1
-	holdSlot = -2
+	lanSlot     = -1
+	holdSlot    = -2
+	sandboxSlot = -3
 )
 
 // previewManager decides where a task's exposed ports are published and keeps what it lent
@@ -102,6 +103,12 @@ func (m *previewManager) reserve(taskID, via string) error {
 	}
 	if via == holdOnly {
 		m.leases[taskID] = &previewLease{slot: holdSlot}
+		return nil
+	}
+	if via == spec.ExposeViaSandbox {
+		// The sandbox executor publishes through its provider; the node only keeps the
+		// lease, so holding and releasing work as for any preview.
+		m.leases[taskID] = &previewLease{slot: sandboxSlot, plan: docker.Preview{Via: via}}
 		return nil
 	}
 	if via != "" {
@@ -264,7 +271,9 @@ func (m *previewManager) restoreHold(taskID string, held bool) {
 // restore rebuilds a lease from a gateway a previous incarnation left running.
 func (m *previewManager) restore(hp docker.HeldPreview, held bool) {
 	slot := lanSlot
-	if hp.Slot != "" {
+	if hp.Via == spec.ExposeViaSandbox {
+		slot = sandboxSlot
+	} else if hp.Slot != "" {
 		if n, err := strconv.Atoi(hp.Slot); err == nil {
 			slot = n
 		}

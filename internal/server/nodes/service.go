@@ -62,6 +62,9 @@ type Service struct {
 	// the node tag to enroll; on, any tailnet device with a valid token may, which is the
 	// documented escape hatch for a tailnet that has no ACL tags yet.
 	allowUntagged bool
+
+	// sandbox resolves a sandbox node's provider configuration; nil sends none.
+	sandbox SandboxResolver
 }
 
 // NewService returns the node-facing service and its (empty) session registry.

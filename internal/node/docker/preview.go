@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -67,10 +68,16 @@ type Preview struct {
 	SamePorts bool
 	// Slot is the tailnet slot the preview holds, empty for any other kind.
 	Slot string
+	// Published, when set, is each port's URL by name, for a node whose ports are not
+	// all on one address — a sandbox provider gives every port a URL of its own.
+	Published map[string]string
 }
 
 // URLs is every exposed port's address, keyed by its name in the spec.
 func (p Preview) URLs(x *spec.Expose) map[string]string {
+	if p.Published != nil {
+		return maps.Clone(p.Published)
+	}
 	out := make(map[string]string, len(x.Ports))
 	for name, port := range x.Ports {
 		u := url.URL{Scheme: "http", Host: net.JoinHostPort(p.Address, strconv.Itoa(port.Port))}
@@ -278,6 +285,11 @@ func (e *Executor) readHoldExit(taskID string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
+	return parseHoldExit(b)
+}
+
+// parseHoldExit reads the exit the runner wrote for a held task.
+func parseHoldExit(b []byte) (int, bool) {
 	var ev runnerEvent
 	if err := json.Unmarshal(b, &ev); err != nil {
 		return 0, false
