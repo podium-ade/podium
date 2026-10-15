@@ -1631,8 +1631,9 @@ Two consequences of using a personal API key, both worth knowing:
 ## GitHub App reviews
 
 Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
-mark a draft ready for review, or tag Podium in Slack with that PR's URL, and it starts
-**one** review of that pull request. GitHub does not let you request the App as a
+open a pull request that is not a draft, mark a draft ready for review, or tag Podium
+in Slack with that PR's URL, and it starts **one** review of that pull request. A draft
+stays quiet until it is marked ready. GitHub does not let you request the App as a
 reviewer, so `review_requested` does not start one. The review runs the playbook marked
 `github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
 The App posts on GitHub; bound Slack threads get the same answer.
@@ -1687,7 +1688,8 @@ prefix in the comment does not change the playbook.
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
-| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `opened`, `review_requested`, and other pull request actions are dropped |
+| `pull_request` / `opened` | start when the pull request is not a draft. A draft's open is dropped |
+| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
 | a reply in an inline review thread on a PR that already has a session | continue |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
@@ -1709,7 +1711,8 @@ pull request title, linked head and base branches, the head commit, and a table
 of files, additions, deletions, and commits. Later progress leaves that comment
 alone. When the answer arrives, the
 same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
-and the summary under it stays. The answer is one submitted review under that
+and the summary under it stays. An approval uses the same Note callout. The
+review under the comment is the approval. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
 an approval when the first line is `Approve` or `Nits`. Any other verdict is a
 comment review. The review id is stored on the session. A later answer that still
