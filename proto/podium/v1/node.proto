@@ -155,7 +155,22 @@ message ServerMessage {
     Slots slots = 6;
     Inject inject = 7;
     Release release = 8;
+    SandboxConfig sandbox_config = 9;
   }
+}
+
+// SandboxConfig hands a sandbox node its provider's settings and credential, as an admin
+// configured them. It is sent before HelloAck — the node needs the provider to adopt the
+// sandboxes it already has — and again whenever an admin changes the provider. A node whose
+// own config file carries the provider's settings ignores it.
+message SandboxConfig {
+  string provider = 1;
+  // configured is false when no admin has set the provider up, or it was deleted: the node
+  // takes no work until it is.
+  bool configured = 2;
+  map<string, string> settings = 3;
+  // SENSITIVE: never log.
+  bytes secret = 4;
 }
 
 // Hello opens the stream and carries the reconciliation input: which tasks the node still

@@ -61,6 +61,8 @@ type Config struct {
 	// or the ~/.modal.toml profile. SENSITIVE: the secret is never logged.
 	TokenID         string `json:"token_id"`
 	TokenSecretFile string `json:"token_secret_file"`
+	// Secret is the token secret itself, as the control plane delivers it. SENSITIVE.
+	Secret string `json:"secret"`
 	// CPU and MemoryMB are the request when a task asks for no resources.
 	CPU      float64 `json:"cpu"`
 	MemoryMB int     `json:"memory_mb"`
@@ -103,17 +105,20 @@ func New(c Config) (*Provider, error) {
 		}
 	}
 	params := &sdk.ClientParams{Environment: c.Environment}
-	if c.TokenID != "" || c.TokenSecretFile != "" {
-		if c.TokenID == "" || c.TokenSecretFile == "" {
-			return nil, errors.New("modal: token_id and token_secret_file go together")
+	if c.TokenID != "" || c.TokenSecretFile != "" || c.Secret != "" {
+		if c.TokenID == "" || (c.TokenSecretFile == "" && c.Secret == "") {
+			return nil, errors.New("modal: token_id and its secret go together")
 		}
-		raw, err := os.ReadFile(c.TokenSecretFile)
-		if err != nil {
-			return nil, fmt.Errorf("modal: read token secret: %w", err)
-		}
-		params.TokenID, params.TokenSecret = c.TokenID, strings.TrimSpace(string(raw))
+		params.TokenID, params.TokenSecret = c.TokenID, strings.TrimSpace(c.Secret)
 		if params.TokenSecret == "" {
-			return nil, fmt.Errorf("modal: %s is empty", c.TokenSecretFile)
+			raw, err := os.ReadFile(c.TokenSecretFile)
+			if err != nil {
+				return nil, fmt.Errorf("modal: read token secret: %w", err)
+			}
+			params.TokenSecret = strings.TrimSpace(string(raw))
+		}
+		if params.TokenSecret == "" {
+			return nil, errors.New("modal: the token secret is empty")
 		}
 	}
 	client, err := sdk.NewClientWithOptions(params)

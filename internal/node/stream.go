@@ -297,6 +297,8 @@ func (n *Node) handle(
 			n.logger.InfoContext(ctx, "slot count changed by the control plane",
 				"max_tasks", inForce, "configured", n.cfg.MaxTasks, "running_tasks", n.runningCount())
 		}
+	case msg.GetSandboxConfig() != nil:
+		n.applySandboxConfig(ctx, msg.GetSandboxConfig())
 	case msg.GetDrain() != nil:
 		d := msg.GetDrain()
 		n.logger.InfoContext(ctx, "drain state received",

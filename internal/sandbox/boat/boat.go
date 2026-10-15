@@ -40,7 +40,9 @@ func init() {
 type Config struct {
 	// APIKeyFile holds the API key. SENSITIVE: the key is never logged.
 	APIKeyFile string `json:"api_key_file"`
-	APIURL     string `json:"api_url"`
+	// Secret is the API key itself, as the control plane delivers it. SENSITIVE.
+	Secret string `json:"secret"`
+	APIURL string `json:"api_url"`
 	// Org bills sandboxes to an organization instead of the key's owner.
 	Org string `json:"org"`
 	// DefaultType is the machine size when a task asks for no resources.
@@ -55,16 +57,19 @@ type Provider struct {
 
 // New reads the key and returns a provider.
 func New(c Config) (*Provider, error) {
-	if c.APIKeyFile == "" {
-		return nil, errors.New("boat: api_key_file is empty")
-	}
-	raw, err := os.ReadFile(c.APIKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("boat: read api key: %w", err)
-	}
-	key := strings.TrimSpace(string(raw))
+	key := strings.TrimSpace(c.Secret)
 	if key == "" {
-		return nil, fmt.Errorf("boat: %s is empty", c.APIKeyFile)
+		if c.APIKeyFile == "" {
+			return nil, errors.New("boat: no API key: set api_key_file, or configure boat in the UI")
+		}
+		raw, err := os.ReadFile(c.APIKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("boat: read api key: %w", err)
+		}
+		key = strings.TrimSpace(string(raw))
+		if key == "" {
+			return nil, fmt.Errorf("boat: %s is empty", c.APIKeyFile)
+		}
 	}
 	if c.APIURL == "" {
 		c.APIURL = DefaultAPIURL

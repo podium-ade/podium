@@ -86,6 +86,16 @@ type Registry struct {
 	UpdatedAt  time.Time
 }
 
+type SandboxProvider struct {
+	Name       string
+	Settings   []byte
+	Ciphertext []byte
+	Nonce      []byte
+	KeyID      string
+	CreatedBy  string
+	UpdatedAt  time.Time
+}
+
 type Secret struct {
 	Name       string
 	Ciphertext []byte

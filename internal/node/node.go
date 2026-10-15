@@ -38,32 +38,42 @@ const adoptTeardownTimeout = 60 * time.Second
 
 // newExecutor builds the backend the config names. A sandbox node also labels itself, so
 // the tasks that need one — and pin a provider — find it.
-func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (executor, error) {
+//
+// A sandbox node whose config file has no settings for its provider is managed: the provider
+// stays empty until the control plane sends its configuration, and swap is where it goes.
+func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (exec executor, swap *sandbox.Swappable, err error) {
 	if cfg.Backend != BackendSandbox {
-		return docker.New(ctx, docker.Options{
+		exec, err = docker.New(ctx, docker.Options{
 			DataDir:                 cfg.DataDir,
 			DockerHost:              cfg.DockerHost,
 			AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
 			Runtime:                 cfg.Runtime,
 			Logger:                  logger,
 		})
+		return exec, nil, err
 	}
 	name := cfg.Sandbox.Provider
-	p, err := sandbox.New(name, cfg.Sandbox.Providers[name])
-	if err != nil {
-		return nil, err
+	var p sandbox.Provider
+	if local := cfg.Sandbox.Providers[name]; len(local) > 0 {
+		if p, err = sandbox.New(name, local); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		swap = sandbox.NewSwappable(name)
+		p = swap
 	}
 	if _, err := agentbin.Linux(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, l := range []string{spec.LabelSandbox, "sandbox.provider=" + name} {
 		if !slices.Contains(cfg.Labels, l) {
 			cfg.Labels = append(cfg.Labels, l)
 		}
 	}
-	return sandboxexec.New(sandboxexec.Options{
+	exec, err = sandboxexec.New(sandboxexec.Options{
 		Provider: p, DataDir: cfg.DataDir, Template: cfg.Sandbox.Template, Agent: agentbin.Linux, Logger: logger,
 	})
+	return exec, swap, err
 }
 
 // Node is the daemon: one executor, one identity, one stream at a time, and one
@@ -72,9 +82,12 @@ type Node struct {
 	cfg    Config
 	logger *slog.Logger
 	exec   executor
-	id     Identity
-	facts  HostFacts
-	client podiumv1connect.NodeServiceClient
+	// sandbox is the provider of a sandbox node configured from the control plane, nil on
+	// every other node.
+	sandbox *sandbox.Swappable
+	id      Identity
+	facts   HostFacts
+	client  podiumv1connect.NodeServiceClient
 
 	// tsnet is the node's own Tailscale device under transport: tailnet, nil otherwise.
 	tsnet *tailnet.Client
@@ -129,7 +142,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		return nil, fmt.Errorf("node config: %w", err)
 	}
 
-	exec, err := newExecutor(ctx, &cfg, logger)
+	exec, swap, err := newExecutor(ctx, &cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +193,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		cfg:        cfg,
 		logger:     logger.With("node_id", id.NodeID),
 		exec:       exec,
+		sandbox:    swap,
 		id:         id,
 		facts:      facts,
 		client:     client,
@@ -482,7 +496,7 @@ func (n *Node) runningTaskIDs() []string {
 // image cache watermark — a machine that cannot fit another image cannot reliably start
 // another task, and refusing the work is more honest than failing at the pull.
 func (n *Node) freeSlots() int32 {
-	if n.diskFull() {
+	if n.diskFull() || (n.sandbox != nil && !n.sandbox.Ready()) {
 		return 0
 	}
 	held := n.previews.heldCount()

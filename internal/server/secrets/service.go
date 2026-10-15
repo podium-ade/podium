@@ -288,7 +288,7 @@ func (s *Service) ReadForConductor(ctx context.Context, ref spec.SecretRef) ([]b
 // Rotate re-encrypts every stored secret and registry password from oldKey to newKey, each
 // table in one transaction. It is the offline `podium-server rotate-master-key` path: the
 // server is not running, or is still running under the old key and will be restarted with
-// the new one. The count is secrets plus registries.
+// the new one. The count is secrets plus registries plus sandbox providers.
 func Rotate(ctx context.Context, st *store.Store, oldKey, newKey *Key) (int, error) {
 	if oldKey == nil || newKey == nil {
 		return 0, ErrNoKey
@@ -320,7 +320,13 @@ func Rotate(ctx context.Context, st *store.Store, oldKey, newKey *Key) (int, err
 	if err != nil {
 		return 0, err
 	}
-	return secretsRotated + registriesRotated, nil
+	providersRotated, err := st.RotateSandboxProviders(ctx, func(row store.SandboxProvider) ([]byte, []byte, string, error) {
+		return reencrypt(sandboxProviderAAD(row.Name), row.Ciphertext, row.Nonce)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return secretsRotated + registriesRotated + providersRotated, nil
 }
 
 // audit records an action, logging rather than failing when the write does not land: an
