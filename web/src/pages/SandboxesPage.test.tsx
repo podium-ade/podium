@@ -46,6 +46,9 @@ const boat = {
   keyId: "k_01",
   createdBy: "alice@example.com",
   updatedAt: timestampFromDate(new Date(Date.now() - 60_000)),
+  maxConcurrent: 0,
+  accountLimit: 2,
+  inUse: 1,
 };
 
 describe("SandboxesPage", () => {
@@ -67,6 +70,7 @@ describe("SandboxesPage", () => {
     expect(within(row).getByText("ci-base")).toBeInTheDocument();
     expect(within(row).getByText("stored, hidden")).toBeInTheDocument();
     expect(await within(row).findByText("1 node")).toBeInTheDocument();
+    expect(within(row).getByTestId("capacity-boat")).toHaveTextContent("1 of account limit 2");
 
     const modal = screen.getByTestId("provider-modal");
     expect(within(modal).getByText("not set up")).toBeInTheDocument();
@@ -84,12 +88,20 @@ describe("SandboxesPage", () => {
     await userEvent.type(screen.getByLabelText("Token secret"), "as-secret");
     await userEvent.type(screen.getByLabelText("Token ID"), "ak-123");
     await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
+    expect(save).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/Max concurrent sandboxes/), "3");
     await userEvent.click(save);
 
     await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
-    const sent = setSandboxProvider.mock.calls[0][0] as { name: string; settings: Record<string, string>; secret: Uint8Array };
+    const sent = setSandboxProvider.mock.calls[0][0] as {
+      name: string;
+      settings: Record<string, string>;
+      secret: Uint8Array;
+      maxConcurrent: number;
+    };
     expect(sent.name).toBe("modal");
     expect(sent.settings).toEqual({ token_id: "ak-123", runtime: "vm" });
+    expect(sent.maxConcurrent).toBe(3);
     expect(new TextDecoder().decode(sent.secret)).toBe("as-secret");
   });
 
@@ -110,6 +122,24 @@ describe("SandboxesPage", () => {
     const sent = setSandboxProvider.mock.calls[0][0] as { settings: Record<string, string>; secret: Uint8Array };
     expect(sent.settings).toEqual({ template: "ci-v2", default_type: "small" });
     expect(sent.secret).toHaveLength(0);
+  });
+
+  it("warns when boat's cap is above what the account allows", async () => {
+    setSandboxProvider.mockResolvedValue({ provider: boat });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit boat.dev" }));
+    const cap = screen.getByLabelText(/Max concurrent sandboxes/);
+    expect(screen.getByText(/The account allows 2 at once/)).toBeInTheDocument();
+
+    await userEvent.type(cap, "2");
+    expect(screen.queryByText(/Higher than the boat.dev account allows/)).not.toBeInTheDocument();
+    await userEvent.clear(cap);
+    await userEvent.type(cap, "5");
+    expect(screen.getByText(/Higher than the boat.dev account allows/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save boat.dev" }));
+    await waitFor(() => expect(setSandboxProvider).toHaveBeenCalledTimes(1));
+    expect((setSandboxProvider.mock.calls[0][0] as { maxConcurrent: number }).maxConcurrent).toBe(5);
   });
 
   it("removes a provider after confirming", async () => {

@@ -49,6 +49,8 @@ export function detailOf(ev: TaskEvent): string {
       return `${ev.payload.value.type}: ${firstLine(ev.payload.value.text)}`;
     case "preview":
       return `published over ${ev.payload.value.via} on ${ev.payload.value.address}`;
+    case "sandbox":
+      return `${ev.payload.value.sandboxId} on ${ev.payload.value.provider}`;
     default:
       return "";
   }

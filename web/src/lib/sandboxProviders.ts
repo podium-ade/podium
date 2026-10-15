@@ -19,6 +19,10 @@ export type ProviderSpec = {
   blurb: string;
   secretLabel: string;
   secretHelp: string;
+  /** What the concurrency cap means for this provider. */
+  maxConcurrentHelp: string;
+  /** A provider that reports no account limit has nothing else bounding it. */
+  requireMaxConcurrent?: boolean;
   fields: ProviderField[];
 };
 
@@ -30,6 +34,8 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     secretLabel: "API key",
     secretHelp:
       "A key with only what a node uses: boat api-key create podium-node --actions sandbox.create,sandbox.read,sandbox.update,sandbox.delete-own,exec,file.read,file.write,host,account.read,snapshot.read",
+    maxConcurrentHelp:
+      "How many tasks run on boat at once, across every boat node. Empty holds them to your account's own limit.",
     fields: [
       {
         key: "template",
@@ -56,6 +62,9 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
     blurb: "Every task gets a sandbox booted from its own image; the vm runtime adds Docker.",
     secretLabel: "Token secret",
     secretHelp: "The secret half of a Modal token (modal token new). Its ID goes below.",
+    maxConcurrentHelp:
+      "How many tasks run on Modal at once, across every Modal node. Modal reports no limit of its own, so this is what bounds the bill.",
+    requireMaxConcurrent: true,
     fields: [
       { key: "token_id", label: "Token ID", help: "The ID half of the token.", placeholder: "ak-…" },
       { key: "app", label: "App", help: "The Modal App sandboxes are made in. It is created if missing.", placeholder: "podium-sandbox" },
