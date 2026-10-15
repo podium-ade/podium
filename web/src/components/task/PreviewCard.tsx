@@ -30,6 +30,8 @@ export function PreviewCard({ task }: { task: Task }) {
   const released = p.releasedAt !== undefined;
   const expires = toDate(p.expiresAt);
   const names = Object.keys(p.urls).sort();
+  // A sandbox node gives every port a URL of its own instead of one address.
+  const where = p.address || (names.length > 0 ? "its own URLs" : "");
 
   return (
     <Card data-testid="task-preview">
@@ -50,11 +52,11 @@ export function PreviewCard({ task }: { task: Task }) {
             {released
               ? `Released ${absolute(p.releasedAt)}${p.releaseReason ? ` (${p.releaseReason})` : ""}.`
               : expires
-                ? p.address
-                  ? `Over ${p.via} on ${p.address}, until ${expires.toLocaleString()}.`
+                ? where
+                  ? `Over ${p.via} on ${where}, until ${expires.toLocaleString()}.`
                   : `Held, publishing nothing, until ${expires.toLocaleString()}.`
-                : p.address
-                  ? `Over ${p.via} on ${p.address}. It stays up once the command exits.`
+                : where
+                  ? `Over ${p.via} on ${where}. It stays up once the command exits.`
                   : "Held once the command exits. Nothing is published."}
           </CardDescription>
         </div>
