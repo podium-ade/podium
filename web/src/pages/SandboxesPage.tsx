@@ -142,6 +142,10 @@ function ProviderRow({
           <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">{spec.secretLabel}</dt>
             <dd className="m-0 text-fg">stored, hidden</dd>
+            <dt className="text-muted">Running</dt>
+            <dd className="m-0 text-fg" data-testid={`capacity-${spec.name}`}>
+              {capacityText(current)}
+            </dd>
             {set.map((f) => (
               <SettingRow key={f.key} label={f.label} value={current.settings[f.key]} />
             ))}
@@ -187,6 +191,15 @@ function ProviderRow({
       ) : null}
     </li>
   );
+}
+
+/** capacityText is how many sandboxes are up against what may be. */
+function capacityText(p: SandboxProvider): string {
+  const caps = [
+    p.maxConcurrent > 0 ? `${p.maxConcurrent} allowed` : "",
+    p.accountLimit > 0 ? `account limit ${p.accountLimit}` : "",
+  ].filter(Boolean);
+  return caps.length > 0 ? `${p.inUse} of ${caps.join(", ")}` : `${p.inUse}, no cap`;
 }
 
 function SettingRow({ label, value }: { label: string; value: string }) {

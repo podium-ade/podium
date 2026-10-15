@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Box,
   Circle,
   CircleCheck,
   ContainerIcon,
@@ -38,6 +39,7 @@ const EVENT_STYLE: Record<TaskEventKind, { icon: LucideIcon; tone: string }> = {
   [TaskEventKind.ERROR]: { icon: OctagonAlert, tone: ERR },
   [TaskEventKind.MESSAGE]: { icon: MessageSquare, tone: ACCENT },
   [TaskEventKind.PREVIEW]: { icon: Globe, tone: ACCENT },
+  [TaskEventKind.SANDBOX]: { icon: Box, tone: IDLE },
 };
 
 /** An exit that is not 0 is the moment the task went wrong, so it is not coloured like a success. */
