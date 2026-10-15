@@ -208,6 +208,8 @@ func followToExit(ctx context.Context, e *env, taskID string) error {
 				for _, name := range sortedKeys(p.GetUrls()) {
 					e.note("  %s  %s", name, p.GetUrls()[name])
 				}
+			case podiumv1.TaskEventKind_TASK_EVENT_KIND_SANDBOX:
+				e.note("in %s sandbox %s", ev.GetSandbox().GetProvider(), ev.GetSandbox().GetSandboxId())
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_STARTED:
 				e.note("running")
 			case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:

@@ -1,13 +1,14 @@
 -- name: UpsertSandboxProvider :one
-insert into sandbox_providers (name, settings, ciphertext, nonce, key_id, created_by, updated_at)
-values (@name, @settings, @ciphertext, @nonce, @key_id, @created_by, now())
+insert into sandbox_providers (name, settings, max_concurrent, ciphertext, nonce, key_id, created_by, updated_at)
+values (@name, @settings, @max_concurrent, @ciphertext, @nonce, @key_id, @created_by, now())
 on conflict (name) do update
-  set settings   = excluded.settings,
-      ciphertext = excluded.ciphertext,
-      nonce      = excluded.nonce,
-      key_id     = excluded.key_id,
-      created_by = excluded.created_by,
-      updated_at = now()
+  set settings       = excluded.settings,
+      max_concurrent = excluded.max_concurrent,
+      ciphertext     = excluded.ciphertext,
+      nonce          = excluded.nonce,
+      key_id         = excluded.key_id,
+      created_by     = excluded.created_by,
+      updated_at     = now()
 returning *;
 
 -- name: GetSandboxProvider :one

@@ -34,9 +34,17 @@ type SandboxProvider struct {
 	// has_secret says a credential is stored.
 	HasSecret bool `protobuf:"varint,3,opt,name=has_secret,json=hasSecret,proto3" json:"has_secret,omitempty"`
 	// key_id identifies the master key the credential is encrypted under.
-	KeyId         string                 `protobuf:"bytes,4,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	CreatedBy     string                 `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	KeyId     string                 `protobuf:"bytes,4,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	CreatedBy string                 `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// max_concurrent caps how many of the provider's sandboxes run at once across every node
+	// of it. Zero is no cap of its own.
+	MaxConcurrent int32 `protobuf:"varint,7,opt,name=max_concurrent,json=maxConcurrent,proto3" json:"max_concurrent,omitempty"`
+	// account_limit is the most the provider account allows at once, as a connected node last
+	// reported it. Zero is unknown: no node is connected, or the provider does not say.
+	AccountLimit int32 `protobuf:"varint,8,opt,name=account_limit,json=accountLimit,proto3" json:"account_limit,omitempty"`
+	// in_use is how many of the provider's sandboxes connected nodes are running or keeping up.
+	InUse         int32 `protobuf:"varint,9,opt,name=in_use,json=inUse,proto3" json:"in_use,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -113,12 +121,35 @@ func (x *SandboxProvider) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *SandboxProvider) GetMaxConcurrent() int32 {
+	if x != nil {
+		return x.MaxConcurrent
+	}
+	return 0
+}
+
+func (x *SandboxProvider) GetAccountLimit() int32 {
+	if x != nil {
+		return x.AccountLimit
+	}
+	return 0
+}
+
+func (x *SandboxProvider) GetInUse() int32 {
+	if x != nil {
+		return x.InUse
+	}
+	return 0
+}
+
 type SetSandboxProviderRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Settings map[string]string      `protobuf:"bytes,2,rep,name=settings,proto3" json:"settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// SENSITIVE: never log. The provider's API key or token secret. Empty keeps the stored one.
-	Secret        []byte `protobuf:"bytes,3,opt,name=secret,proto3" json:"secret,omitempty"`
+	Secret []byte `protobuf:"bytes,3,opt,name=secret,proto3" json:"secret,omitempty"`
+	// max_concurrent caps the provider's sandboxes across every node; zero is no cap.
+	MaxConcurrent int32 `protobuf:"varint,4,opt,name=max_concurrent,json=maxConcurrent,proto3" json:"max_concurrent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -172,6 +203,13 @@ func (x *SetSandboxProviderRequest) GetSecret() []byte {
 		return x.Secret
 	}
 	return nil
+}
+
+func (x *SetSandboxProviderRequest) GetMaxConcurrent() int32 {
+	if x != nil {
+		return x.MaxConcurrent
+	}
+	return 0
 }
 
 type SetSandboxProviderResponse struct {
@@ -382,7 +420,7 @@ var File_podium_v1_sandbox_proto protoreflect.FileDescriptor
 
 const file_podium_v1_sandbox_proto_rawDesc = "" +
 	"\n" +
-	"\x17podium/v1/sandbox.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb8\x02\n" +
+	"\x17podium/v1/sandbox.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9b\x03\n" +
 	"\x0fSandboxProvider\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12D\n" +
 	"\bsettings\x18\x02 \x03(\v2(.podium.v1.SandboxProvider.SettingsEntryR\bsettings\x12\x1d\n" +
@@ -392,14 +430,18 @@ const file_podium_v1_sandbox_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\x05 \x01(\tR\tcreatedBy\x129\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x1a;\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12%\n" +
+	"\x0emax_concurrent\x18\a \x01(\x05R\rmaxConcurrent\x12#\n" +
+	"\raccount_limit\x18\b \x01(\x05R\faccountLimit\x12\x15\n" +
+	"\x06in_use\x18\t \x01(\x05R\x05inUse\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd4\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfb\x01\n" +
 	"\x19SetSandboxProviderRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12N\n" +
 	"\bsettings\x18\x02 \x03(\v22.podium.v1.SetSandboxProviderRequest.SettingsEntryR\bsettings\x12\x16\n" +
-	"\x06secret\x18\x03 \x01(\fR\x06secret\x1a;\n" +
+	"\x06secret\x18\x03 \x01(\fR\x06secret\x12%\n" +
+	"\x0emax_concurrent\x18\x04 \x01(\x05R\rmaxConcurrent\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"T\n" +

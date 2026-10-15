@@ -391,6 +391,8 @@ func taskFromRow(row db.Task) (Task, error) {
 		CancelRequestedAt:     utcPtr(row.CancelRequestedAt),
 		CancelReason:          deref(row.CancelReason),
 		CancelStatus:          Status(deref(row.CancelStatus)),
+		SandboxProvider:       row.SandboxProvider,
+		SandboxID:             row.SandboxID,
 	}
 	if err := json.Unmarshal(row.Spec, &t.Spec); err != nil {
 		return Task{}, fmt.Errorf("decode spec of task %s: %w", row.ID, err)

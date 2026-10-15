@@ -117,6 +117,10 @@ type Node struct {
 	// says otherwise. The override is not persisted here — the server re-sends it after
 	// every HelloAck — so a node that restarts alone comes back on its own configuration.
 	maxTasks int
+	// reaping is the sandboxes this node is deleting for the control plane, and reaped the
+	// answers waiting for the stream.
+	reaping map[string]bool
+	reaped  []*podiumv1.SandboxReaped
 
 	wake      chan struct{}
 	drainOnce sync.Once

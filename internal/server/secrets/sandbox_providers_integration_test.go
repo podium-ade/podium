@@ -19,10 +19,10 @@ func TestSandboxProviderCredential(t *testing.T) {
 	ctx := context.Background()
 	st, dsn, svc, oldKey := newService(t)
 
-	_, err := svc.SetSandboxProvider(ctx, "alice", "boat", map[string]string{"template": "ci-base"}, nil)
+	_, err := svc.SetSandboxProvider(ctx, "alice", "boat", map[string]string{"template": "ci-base"}, 0, nil)
 	require.ErrorIs(t, err, ErrInvalidSecret, "a new provider needs its key")
 
-	row, err := svc.SetSandboxProvider(ctx, "alice", "boat", map[string]string{"template": "ci-base"}, []byte("boat_live_key"))
+	row, err := svc.SetSandboxProvider(ctx, "alice", "boat", map[string]string{"template": "ci-base"}, 0, []byte("boat_live_key"))
 	require.NoError(t, err)
 	assert.Empty(t, row.Ciphertext)
 	assert.NotEmpty(t, row.KeyID)
@@ -34,7 +34,7 @@ func TestSandboxProviderCredential(t *testing.T) {
 	require.NoError(t, conn.QueryRow(ctx, "select ciphertext from sandbox_providers where name = 'boat'").Scan(&raw))
 	assert.NotContains(t, string(raw), "boat_live_key", "the key is not in Postgres in the clear")
 
-	_, err = svc.SetSandboxProvider(ctx, "bob", "boat", map[string]string{"template": "ci-v2", "default_type": "small"}, nil)
+	_, err = svc.SetSandboxProvider(ctx, "bob", "boat", map[string]string{"template": "ci-v2", "default_type": "small"}, 4, nil)
 	require.NoError(t, err, "changing settings keeps the stored key")
 	list, err := svc.ListSandboxProviders(ctx)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestSandboxProviderCredential(t *testing.T) {
 		"boat":              {"secret": "in the clear"},
 		"boat-with-bad-key": {"Bad Key": "x"},
 	} {
-		_, err := svc.SetSandboxProvider(ctx, "alice", name, settings, []byte("k"))
+		_, err := svc.SetSandboxProvider(ctx, "alice", name, settings, 0, []byte("k"))
 		require.ErrorIs(t, err, ErrInvalidSecret, name)
 	}
 

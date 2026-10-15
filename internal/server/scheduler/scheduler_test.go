@@ -232,3 +232,47 @@ func TestPickPlacesASandboxTaskOnASandboxNode(t *testing.T) {
 	require.GreaterOrEqual(t, i, 0)
 	assert.Equal(t, "node_sandbox", cands[i].NodeID)
 }
+
+func sandboxNode(id, provider string, slots, running, held, accountLimit int32) nodes.Snapshot {
+	s := node(id, slots, "backend=sandbox", "sandbox.provider="+provider)
+	s.SandboxProvider, s.RunningTasks, s.HeldPreviews, s.SandboxAccountLimit = provider, running, held, accountLimit
+	return s
+}
+
+// Two boat nodes with four slots each still share one account: the provider's cap is what
+// the batch is held to, not the sum of their slots.
+func TestSandboxRoomHoldsAProviderToItsCapAcrossNodes(t *testing.T) {
+	cands := []nodes.Snapshot{
+		sandboxNode("boat_a", "boat", 3, 1, 0, 0),
+		sandboxNode("boat_b", "boat", 4, 0, 0, 0),
+		node("docker", 4),
+	}
+	room := sandboxRoom(cands, map[string]int32{"boat": 2})
+	ts := spec.TaskSpec{Labels: []string{"backend=sandbox"}}
+
+	i := pick(cands, ts, nodes.TaskCost{})
+	require.GreaterOrEqual(t, i, 0)
+	charge(&cands[i], nodes.TaskCost{})
+	room.take(cands, cands[i].SandboxProvider)
+
+	assert.Equal(t, -1, pick(cands, ts, nodes.TaskCost{}), "one running and one placed is the cap")
+	assert.Equal(t, "sandbox provider boat is running as many sandboxes as it may (2)",
+		room.reason(cands, ts, placementReason(cands, ts, nodes.TaskCost{})))
+	assert.GreaterOrEqual(t, pick(cands, spec.TaskSpec{}, nodes.TaskCost{}), 0, "a Docker node is not held to it")
+}
+
+// The account limit a node reports caps a provider nobody set a cap for, and a lower
+// admin cap wins over it. Held previews are sandboxes too.
+func TestSandboxRoomTakesTheLowerOfCapAndAccountLimit(t *testing.T) {
+	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 1, 2), sandboxNode("modal_a", "modal", 4, 0, 0, 0)}
+	room := sandboxRoom(cands, nil)
+	assert.Equal(t, int32(2), room.limit["boat"])
+	assert.Equal(t, int32(0), cands[0].FreeSlots, "one running and one held fill an account of two")
+	_, capped := room.limit["modal"]
+	assert.False(t, capped, "no cap and no account limit is no cap")
+
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 0, 10)}
+	assert.Equal(t, int32(3), sandboxRoom(cands, map[string]int32{"boat": 3}).limit["boat"])
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 0, 2)}
+	assert.Equal(t, int32(2), sandboxRoom(cands, map[string]int32{"boat": 5}).limit["boat"])
+}
