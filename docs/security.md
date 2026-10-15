@@ -161,6 +161,8 @@ boundaries:
 - **The task runs unprivileged inside the sandbox.** In the process strategy it is a
   `podium` account with no sudo, no docker group, no supplementary groups and
   `no_new_privs`; it cannot read the provider's own in-sandbox token (boat's `ASCII_TOKEN`).
+  The agent is root there, so everything it does with a path the task names — an artifact
+  event, the workspace tar, a file secret, `working_dir` — it does as the task's user.
   In the docker strategy it is a container under the usual hardening.
 - **What the internet can reach.** The agent's port, through the provider's proxy, with the
   provider's credential and the bearer token. A boat VM also answers SSH (public key only;

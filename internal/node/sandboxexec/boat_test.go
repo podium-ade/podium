@@ -292,3 +292,56 @@ func TestBoatSnapshotSidecar(t *testing.T) {
 	}
 	t.Logf("events: %v", c.kinds())
 }
+
+// TestBoatProcessTaskCannotReachPastItsUser is a task trying to use the agent's privilege:
+// working_dir / to be handed /, a forged artifact event for a file only root reads, and a
+// file secret aimed at /etc/passwd.
+func TestBoatProcessTaskCannotReachPastItsUser(t *testing.T) {
+	snap := os.Getenv("BOAT_TEST_SNAPSHOT")
+	if snap == "" {
+		t.Skip("BOAT_TEST_SNAPSHOT is not set")
+	}
+	e := newBoatExecutor(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	sp := spec.TaskSpec{
+		Sandbox:    &spec.Sandbox{Snapshot: snap},
+		WorkingDir: "/",
+		Command:    []string{"sh", "-c", "pwd; stat -c %U /; /podium/runner artifact add /etc/shadow --name stolen; sleep 1"},
+	}
+	sp.ApplyDefaults()
+	up := &memUploader{got: map[string]string{}}
+	ch := make(chan docker.Event, 64)
+	var c collector
+	done := make(chan struct{})
+	go func() { c.run(ch); close(done) }()
+	res, err := e.Run(ctx, docker.Request{TaskID: "boat-escape-1", LeaseID: "lease-x-" + time.Now().Format("150405.000"), Spec: sp, Artifacts: up}, ch)
+	close(ch)
+	<-done
+	t.Cleanup(func() { _ = e.Teardown(context.Background(), "boat-escape-1", false) })
+	if err != nil {
+		t.Fatalf("run: %v; events %v", err, c.kinds())
+	}
+	if got := c.logs(docker.StreamStdout); res.ExitCode != 0 || got != "/\nroot\n" {
+		t.Errorf("exit %d, stdout %q: / must stay root's", res.ExitCode, got)
+	}
+	if _, stolen := up.got["stolen"]; stolen {
+		t.Errorf("a forged artifact event uploaded /etc/shadow")
+	}
+	t.Logf("events: %v", c.kinds())
+
+	sp = spec.TaskSpec{Sandbox: &spec.Sandbox{Snapshot: snap}, Command: []string{"true"},
+		Secrets: []spec.SecretRef{{Name: "p", Target: "file", Key: "/etc/passwd"}}}
+	sp.ApplyDefaults()
+	ch = make(chan docker.Event, 64)
+	go func() {
+		for range ch {
+		}
+	}()
+	_, err = e.Run(ctx, docker.Request{TaskID: "boat-escape-2", LeaseID: "lease-y-" + time.Now().Format("150405.000"), Spec: sp,
+		Secrets: []docker.Secret{{Name: "p", Target: "file", Key: "/etc/passwd", Value: []byte("root::0:0::/:/bin/sh\n")}}}, ch)
+	close(ch)
+	if err == nil || !strings.Contains(err.Error(), "under /podium/secrets only") {
+		t.Fatalf("a file secret at /etc/passwd ran: %v", err)
+	}
+}
