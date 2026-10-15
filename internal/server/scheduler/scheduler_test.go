@@ -217,3 +217,18 @@ func TestPickPlacesAPreviewOnlyWhereOneIsFree(t *testing.T) {
 	assert.Equal(t, -1, pick([]nodes.Snapshot{lan}, spec.TaskSpec{}, tailnetOnly), "a LAN address is not a tailnet slot")
 	assert.Equal(t, 0, pick([]nodes.Snapshot{busy}, spec.TaskSpec{}, nodes.TaskCost{}), "a task that exposes nothing ignores previews")
 }
+
+func TestPickPlacesASandboxTaskOnASandboxNode(t *testing.T) {
+	ts := spec.TaskSpec{Image: "alpine:3", Expose: &spec.Expose{Via: spec.ExposeViaSandbox, Ports: map[string]spec.ExposedPort{"web": {Port: 80}}}}
+	ts.ApplyDefaults()
+	cost := nodes.CostOf(ts)
+	assert.False(t, cost.Preview, "a provider's URLs take nothing from a node's preview pools")
+
+	docker := node("node_docker", 4)
+	docker.FreeLANPreviews = 1
+	sbx := node("node_sandbox", 4, spec.LabelSandbox, "sandbox.provider=boat")
+	cands := []nodes.Snapshot{docker, sbx}
+	i := pick(cands, ts, cost)
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, "node_sandbox", cands[i].NodeID)
+}
