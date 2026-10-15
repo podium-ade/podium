@@ -204,6 +204,7 @@ own (one `profile.yaml`, one file per playbook) and re-read it from the UI. No r
 - [docs/storage.md](docs/storage.md): Postgres, the object store, a worker's data dir, the image cache
 - [docs/networking.md](docs/networking.md): how clients reach the control plane, Tailscale, the ACL
 - [docs/node-setup.md](docs/node-setup.md): setting up a worker
+- [docs/sandboxes.md](docs/sandboxes.md): sandbox nodes, which run each task in a boat.dev or Modal sandbox of its own
 - [deploy/README.md](deploy/README.md): compose, the installer, the systemd unit
 - [deploy/.env.example](deploy/.env.example): every `PODIUM_*` variable, commented
 
