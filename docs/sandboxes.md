@@ -68,6 +68,21 @@ sandbox:
 The node takes no work until the provider is configured, picks up a change the moment it is
 saved, and stops taking work when the provider is removed. Only admins can set or remove one.
 
+### How many run at once
+
+A provider's sandboxes are one pool, however many nodes drive it, so the cap is the
+provider's, not a node's. **Max concurrent sandboxes**, set in the same dialog, caps every node
+of the provider together, and the scheduler holds each provider to the lower of that and the
+account limit its nodes read from the provider. A held preview counts: its sandbox is still up.
+A task past the cap waits in the queue with `sandbox provider <name> is running as many
+sandboxes as it may (N)`.
+
+- **boat** reports the account's limit, so the cap is optional; the dialog shows the limit and
+  warns when the cap is set above it.
+- **Modal** reports none, so the cap is required: it is what bounds the bill.
+
+`max_tasks` still caps each node on its own.
+
 A node can instead carry the provider's settings in its own file, and then ignores the UI —
 useful where the control plane holds no master key:
 
@@ -124,8 +139,17 @@ with `sandbox: {snapshot: <name>}`.
 
 One row per sandbox node, not per sandbox: its running tasks against `max_tasks`, its labels,
 and `sandbox/<provider>` where a Docker node shows its engine version. CPU and memory show as
-unmeasured — the capacity is the provider's. The sandbox a task ran in is in the node's log
-and in its state directory (`tasks/<id>/sandbox.json`).
+unmeasured — the capacity is the provider's; the Sandboxes screen shows how many of each
+provider's sandboxes are up. The sandbox a task runs in is on the task's page and in
+`podium task get`, as soon as the node has made it.
+
+## A node that goes away
+
+A node that restarts finds its sandboxes again in its state directory and carries on. One that
+does not come back leaves its sandboxes running: the control plane requeues or loses the task,
+and queues the sandbox it recorded for deletion. The next node of that provider to connect
+deletes it, and the control plane asks again every minute until one has. A retried task runs in
+a new sandbox, never the old one. The provider's TTL remains the last backstop.
 
 ## Limits worth knowing
 
