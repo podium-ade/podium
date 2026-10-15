@@ -235,15 +235,44 @@ func TestReadyForReviewStartsAReview(t *testing.T) {
 	assert.Equal(t, int64(0), p.CommentID)
 }
 
-func TestOtherPullRequestActionsAreDropped(t *testing.T) {
+func TestAnOpenPullRequestStartsAReview(t *testing.T) {
 	h := newHarness(t)
 	opened := readyForReview()
 	opened["action"] = "opened"
-	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-opened", opened).Code)
+	rec := postWebhook(t, h, "pull_request", "d-opened", opened)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
+	assert.Equal(t, "alice", evs[0].Author)
+	assert.Contains(t, evs[0].Text, "https://github.com/acme/repo/pull/12")
+	assert.Contains(t, evs[0].Text, "opened")
+	assert.Contains(t, evs[0].Text, "for review")
+	assert.NotContains(t, evs[0].Text, "ready for review")
+	p, err := ParseRef(evs[0].Ref)
+	require.NoError(t, err)
+	assert.Equal(t, KindPullRequest, p.Kind)
+	assert.Equal(t, int64(0), p.CommentID)
+}
+
+func TestADraftOpenWaitsUntilItIsReady(t *testing.T) {
+	h := newHarness(t)
+	opened := readyForReview()
+	opened["action"] = "opened"
+	opened["pull_request"].(map[string]any)["draft"] = true
+	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-draft", opened).Code)
+	assert.Empty(t, h.drain())
+}
+
+func TestOtherPullRequestActionsAreDropped(t *testing.T) {
+	h := newHarness(t)
 	requested := readyForReview()
 	requested["action"] = "review_requested"
 	requested["requested_reviewer"] = map[string]any{"login": "podium[bot]", "type": "Bot"}
 	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-req", requested).Code)
+	synced := readyForReview()
+	synced["action"] = "synchronize"
+	assert.Equal(t, http.StatusOK, postWebhook(t, h, "pull_request", "d-sync", synced).Code)
 	assert.Empty(t, h.drain())
 }
 
