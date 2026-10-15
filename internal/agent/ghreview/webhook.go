@@ -115,9 +115,9 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	switch {
 	case c.ready && known:
 		commit, head := s.reviewBaseline(ctx, c)
-		text = followUpInstruction(readyInstruction(c.author, PRURL(c.owner, c.repo, c.number)), commit, head)
+		text = followUpInstruction(pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action), commit, head)
 	case c.ready:
-		text = readyInstruction(c.author, PRURL(c.owner, c.repo, c.number))
+		text = pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action)
 	case !known:
 		text = reviewInstruction(c.author, PRURL(c.owner, c.repo, c.number), text)
 	case c.inReply:
@@ -184,8 +184,9 @@ type classified struct {
 	diffHunk    string
 	inReply     bool
 	mentioned   bool
-	// ready is a draft pull request marked ready for review. GitHub cannot request
-	// this App as a reviewer, so that action starts the review instead.
+	// ready is a pull request opened already ready, or a draft marked ready.
+	// GitHub cannot request this App as a reviewer, so those actions start the
+	// review instead. A draft's own open stays quiet.
 	ready  bool
 	action string
 	// reason is why classify rejected the delivery. Empty when it accepted it.
@@ -340,19 +341,26 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		return base, true
 
 	case "pull_request":
-		// A draft becoming ready is the pull-request trigger. review_requested is
-		// not: GitHub does not let you assign this App as a reviewer.
-		if env.Action != "ready_for_review" {
+		// An open that is already ready, or a draft marked ready, starts the
+		// review. review_requested is not one: GitHub does not let you assign
+		// this App as a reviewer. A draft's own open waits for that mark.
+		if env.Action != "ready_for_review" && env.Action != "opened" {
 			base.reason = "unsupported action"
 			return base, false
 		}
 		var p struct {
 			PullRequest struct {
 				Number    int       `json:"number"`
+				Draft     bool      `json:"draft"`
 				UpdatedAt time.Time `json:"updated_at"`
 			} `json:"pull_request"`
 		}
 		if err := json.Unmarshal(body, &p); err != nil {
+			return base, false
+		}
+		if env.Action == "opened" && p.PullRequest.Draft {
+			base.reason = "draft"
+			base.number = p.PullRequest.Number
 			return base, false
 		}
 		base.number = p.PullRequest.Number
@@ -402,8 +410,12 @@ func compileMention(slug string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(slug) + `(?:\[bot\])?([^A-Za-z0-9_-]|$)`)
 }
 
-func readyInstruction(author, prURL string) string {
-	return firstNonEmpty(author, "someone") + " marked " + prURL + " ready for review"
+func pullInstruction(author, prURL, action string) string {
+	who := firstNonEmpty(author, "someone")
+	if action == "opened" {
+		return who + " opened " + prURL + " for review"
+	}
+	return who + " marked " + prURL + " ready for review"
 }
 
 // followUpInstruction tells a later turn to review the delta since the last
