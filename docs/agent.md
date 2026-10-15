@@ -1630,8 +1630,10 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Tag the App on a pull request, request it as a reviewer, or tag Podium in Slack with that PR's
-URL, and it starts **one** review of that pull request. The review runs the playbook marked
+Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
+mark a draft ready for review, or tag Podium in Slack with that PR's URL, and it starts
+**one** review of that pull request. GitHub does not let you request the App as a
+reviewer, so `review_requested` does not start one. The review runs the playbook marked
 `github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
 The App posts on GitHub; bound Slack threads get the same answer.
 
@@ -1669,8 +1671,14 @@ before any of this runs. With none marked, the turn is refused.
 A follow-up while that task is still up, including the warm window after it answers, is injected
 into the same container. After it exits, the next message is a new task on the same session
 workspace, restored from the snapshot, and it updates the review already on the pull request.
-A killed task's files are in that snapshot. A `/other` prefix in the comment does not change
-the playbook.
+A killed task's files are in that snapshot. The restored checkout is kept when it is not on
+the default branch, so a review that left the pull-request head checked out starts there again.
+A follow-up reviews only the commits and files changed since the last review. The turn is told
+the commit that review was submitted against and the head now, and the snapshot keeps
+`.podium/review.json` with that commit and the verdict. When the head has not moved, the turn
+is told to repeat the previous verdict and add no comments. When that delta fixes the earlier
+findings and adds nothing that should block a merge, the verdict is an approval. A `/other`
+prefix in the comment does not change the playbook.
 
 ### What starts a turn, and what does not
 
@@ -1679,7 +1687,7 @@ the playbook.
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
-| `pull_request` / `review_requested` whose `requested_reviewer` is this App | start, or continue if a session exists. A request for a person is dropped. A ruleset that marks the App as a required reviewer sends this same event |
+| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `opened`, `review_requested`, and other pull request actions are dropped |
 | a reply in an inline review thread on a PR that already has a session | continue |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
@@ -1695,12 +1703,23 @@ bound Slack thread.
 container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
 
-The first answer is submitted as one pull-request review (`COMMENT`, not an approval).
-The review id is stored on the session. A later answer updates that review. A reply in an
-inline thread is answered in the thread and leaves the review in place. A progress comment
-is still the working comment for that turn. The review is the summary the playbook writes.
-Line comments are the inline thread a person replies in, not something parsed out of that
-summary.
+A pull request gets two GitHub posts. When the turn starts, the App posts one
+conversation comment: a status callout titled **Review in progress**, then the
+pull request title, linked head and base branches, the head commit, and a table
+of files, additions, deletions, and commits. Later progress leaves that comment
+alone. When the answer arrives, the
+same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
+and the summary under it stays. The answer is one submitted review under that
+comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
+an approval when the first line is `Approve` or `Nits`. Any other verdict is a
+comment review. The review id is stored on the session. A later answer that still
+agrees with that review updates it. A follow-up that approves for the first time
+submits a new approval. A follow-up that withdraws an approval submits a new
+review requesting changes, because rewriting the approval would leave the pull
+request approved and this App cannot dismiss a review. A reply in an inline thread
+is answered in that thread and leaves both posts in place. A turn that fails
+changes the status comment's title to **Review did not finish** when that comment
+already exists. The failure text and the task id are not written on the pull request.
 
 ---
 
