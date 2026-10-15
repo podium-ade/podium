@@ -180,6 +180,9 @@ export function Header() {
           <Item to="/registries" icon="registries" onNavigate={close} collapsed={collapsed}>
             Registries
           </Item>
+          <Item to="/sandboxes" icon="sandboxes" onNavigate={close} collapsed={collapsed}>
+            Sandboxes
+          </Item>
           {agent ? (
             <Item to="/usage" icon="usage" onNavigate={close} collapsed={collapsed}>
               Usage

@@ -5,6 +5,7 @@ import { NodeAdminService } from "../gen/podium/v1/admin_pb";
 import { ArtifactService } from "../gen/podium/v1/artifact_pb";
 import { IdentityService } from "../gen/podium/v1/identity_pb";
 import { RegistryService } from "../gen/podium/v1/registry_pb";
+import { SandboxProviderService } from "../gen/podium/v1/sandbox_pb";
 import { SecretService } from "../gen/podium/v1/secret_pb";
 import { TaskService } from "../gen/podium/v1/task_pb";
 import { UserService } from "../gen/podium/v1/user_pb";
@@ -43,6 +44,7 @@ export const admin = createClient(NodeAdminService, transport);
 export const identity = createClient(IdentityService, transport);
 export const secrets = createClient(SecretService, transport);
 export const registries = createClient(RegistryService, transport);
+export const sandboxProviders = createClient(SandboxProviderService, transport);
 export const artifacts = createClient(ArtifactService, transport);
 export const users = createClient(UserService, transport);
 // The conductor's own service, on the SAME transport: podium-server reverse-proxies

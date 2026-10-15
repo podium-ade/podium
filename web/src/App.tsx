@@ -12,6 +12,7 @@ import { AgentPage } from "./pages/AgentPage";
 import { NodeEditPage } from "./pages/NodeEditPage";
 import { NodesPage } from "./pages/NodesPage";
 import { RegistriesPage } from "./pages/RegistriesPage";
+import { SandboxesPage } from "./pages/SandboxesPage";
 import { SecretsPage } from "./pages/SecretsPage";
 import { SubmitPage } from "./pages/SubmitPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -73,6 +74,7 @@ export function App() {
                     <Route path="/nodes/:id" element={<NodeEditPage />} />
                     <Route path="/secrets" element={<SecretsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />
+                    <Route path="/sandboxes" element={<SandboxesPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/users" element={<Navigate to="/agent/settings/users" replace />} />
                     {/* /* because the tabs are real routes; step 21 adds /agent/chat. */}
