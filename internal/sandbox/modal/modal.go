@@ -222,6 +222,17 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 		if img, err = p.c.Images.FromID(ctx, req.Snapshot, nil); err != nil {
 			return "", toError("create", err)
 		}
+	case req.Image != "" && req.Registry != nil:
+		// Modal pulls the image before anything runs in the sandbox, so a private one needs
+		// the login here: an ephemeral secret, in the form Modal's registry pull reads.
+		sec, err := p.c.Secrets.FromMap(ctx, map[string]string{
+			"REGISTRY_USERNAME": req.Registry.Username,
+			"REGISTRY_PASSWORD": req.Registry.Password,
+		}, &sdk.SecretFromMapParams{Environment: p.cfg.Environment})
+		if err != nil {
+			return "", toError("create", err)
+		}
+		img = p.c.Images.FromRegistry(req.Image, &sdk.ImageFromRegistryParams{Secret: sec})
 	case req.Image != "":
 		img = p.c.Images.FromRegistry(req.Image, nil)
 	default:

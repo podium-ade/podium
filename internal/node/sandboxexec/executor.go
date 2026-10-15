@@ -205,6 +205,7 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 	}
 	caps := e.p.Capabilities()
 	creq.Key = req.LeaseID
+	creq.Registry = registryFor(creq.Image, req.Registries)
 	id, err := e.p.Create(ctx, creq)
 	if err != nil {
 		return docker.Result{}, fmt.Errorf("create sandbox: %w", err)
@@ -496,4 +497,22 @@ func cookieMap(cs []*http.Cookie) map[string]string {
 		m[c.Name] = c.Value
 	}
 	return m
+}
+
+// registryFor is the login for the registry image is pulled from, among the ones the task
+// was assigned with, or nil.
+func registryFor(image string, creds []docker.RegistryCredential) *sandbox.RegistryLogin {
+	if image == "" {
+		return nil
+	}
+	host, err := spec.RegistryHost(image)
+	if err != nil {
+		return nil
+	}
+	for _, c := range creds {
+		if c.Host == host {
+			return &sandbox.RegistryLogin{Username: c.Username, Password: string(c.Password)}
+		}
+	}
+	return nil
 }
