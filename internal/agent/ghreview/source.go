@@ -500,8 +500,10 @@ func (s *Source) Post(ctx context.Context, ref string, out conductor.Outbound) (
 	body := out.Text
 
 	// The answer is one submitted review under the status comment. A later answer
-	// updates it. A reply in an inline thread stays in that thread.
-	if out.Type == conductor.OutFinal && !inline {
+	// updates it. A reply in an inline thread stays in that thread, except an
+	// approval: replying "approved" on the notes does not approve the pull request,
+	// so that verdict is still submitted as a review.
+	if out.Type == conductor.OutFinal && (!inline || reviewEvent(body) == eventApprove) {
 		event := s.reviewAction(ctx, p, body)
 		s.showStatus(ctx, p, statusTitle(event), true)
 		id, gerr := s.postReview(ctx, p, body)
