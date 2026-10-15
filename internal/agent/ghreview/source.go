@@ -747,13 +747,9 @@ func statusComment(title, owner, repo string, info pullInfo) string {
 	alert, lead := statusLead(title)
 	var b strings.Builder
 	b.WriteString(statusMarker)
-	b.WriteString("\n\n> ")
-	if alert != "" {
-		b.WriteString("[!")
-		b.WriteString(alert)
-		b.WriteString("]\n> ")
-	}
-	b.WriteString("**")
+	b.WriteString("\n\n> [!")
+	b.WriteString(alert)
+	b.WriteString("]\n> **")
 	b.WriteString(title)
 	b.WriteString("**\n>\n> ")
 	b.WriteString(lead)
@@ -780,14 +776,14 @@ func statusComment(title, owner, repo string, info pullInfo) string {
 
 // statusLead is the GitHub alert and the one sentence under the title.
 // NOTE is blue and labeled Note, WARNING is amber and labeled Warning, CAUTION
-// is red and labeled Caution. An approval has no alert: the green one is
-// labeled Tip, and this comment's title is Approved.
+// is red and labeled Caution. The green alert is labeled Tip, so an approval
+// stays a Note. The review under the comment is what says Approved.
 func statusLead(title string) (alert, lead string) {
 	switch title {
 	case statusInProgress:
 		return "NOTE", "Podium is reading this pull request. The review will be posted below."
 	case statusApproved:
-		return "", "This pull request is ok to merge. The full review is below."
+		return "NOTE", "Approved. The full review is below."
 	case statusChanges:
 		return "WARNING", "Changes requested. The full review is below."
 	case statusDidNotFinish:
