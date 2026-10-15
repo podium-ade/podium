@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path"
 	"strings"
 	"sync"
@@ -74,6 +75,9 @@ type artifactCollector struct {
 	req Request
 	em  *emitter
 	cid string
+	// copyFrom, when set, is where files come from instead of the container: a tar of the
+	// path, rooted at its base name, as the engine's copy API answers.
+	copyFrom func(ctx context.Context, path string) (io.ReadCloser, error)
 
 	wg  sync.WaitGroup
 	seq sync.Mutex
@@ -127,7 +131,7 @@ func (c *artifactCollector) copyOne(ctx context.Context, name, containerPath, co
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), artifactUploadTimeout)
 	defer cancel()
 
-	rc, _, err := c.e.cli.CopyFromContainer(ctx, c.cid, containerPath)
+	rc, err := c.copy(ctx, containerPath)
 	if err != nil {
 		return fmt.Errorf("copy %s out of the container: %w", containerPath, err)
 	}
@@ -163,7 +167,7 @@ func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), artifactUploadTimeout)
 	defer cancel()
 
-	rc, _, err := c.e.cli.CopyFromContainer(ctx, c.cid, dir)
+	rc, err := c.copy(ctx, dir)
 	if err != nil {
 		if isMissingPath(err) {
 			c.e.log.Debug("no artifact directory to collect", "task", c.req.TaskID, "dir", dir)
@@ -210,7 +214,15 @@ func (c *artifactCollector) collectDir(ctx context.Context, dir string) {
 // silence. Every other one — a broken bind mount, an engine that lost the container, a
 // timeout — has to be said out loud, because it means artifacts the task produced were
 // not stored.
-func isMissingPath(err error) bool { return cerrdefs.IsNotFound(err) }
+func isMissingPath(err error) bool { return cerrdefs.IsNotFound(err) || errors.Is(err, fs.ErrNotExist) }
+
+func (c *artifactCollector) copy(ctx context.Context, path string) (io.ReadCloser, error) {
+	if c.copyFrom != nil {
+		return c.copyFrom(ctx, path)
+	}
+	rc, _, err := c.e.cli.CopyFromContainer(ctx, c.cid, path)
+	return rc, err
+}
 
 // upload hands one file's bytes to the control plane and emits the artifact event.
 func (c *artifactCollector) upload(ctx context.Context, name, contentType string, size int64, body io.Reader) error {

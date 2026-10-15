@@ -20,6 +20,7 @@ export const NAV_ICON_PATHS = {
   channels: "M4 6h16v12H4V6Zm0 2 8 6 8-6",
   secrets: "M5 11h14v10H5V11Zm3 0V8a4 4 0 0 1 8 0v3m-4 4v2",
   registries: "M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm3-6h1m-1 9h1",
+  sandboxes: "M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.2 9.1 4.5 4.5 0 0 0 7 18Z",
   usage: "M4 20V12h4v8H4Zm6 0V4h4v16h-4Zm6 0v-9h4v9h-4Z",
   settings:
     "M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",

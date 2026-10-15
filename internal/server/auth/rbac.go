@@ -69,6 +69,10 @@ var catalog = map[string]string{
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
 	podiumv1connect.RegistryServiceDeleteRegistryProcedure: store.RoleAdmin,
 
+	podiumv1connect.SandboxProviderServiceListSandboxProvidersProcedure:  store.RoleMember,
+	podiumv1connect.SandboxProviderServiceSetSandboxProviderProcedure:    store.RoleAdmin,
+	podiumv1connect.SandboxProviderServiceDeleteSandboxProviderProcedure: store.RoleAdmin,
+
 	agentv1connect.AgentServiceListSessionsProcedure:   store.RoleMember,
 	agentv1connect.AgentServiceGetSessionProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceListTurnsProcedure:      store.RoleMember,

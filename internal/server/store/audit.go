@@ -22,6 +22,10 @@ const (
 	ActionRegistryDelete  = "registry.delete"
 	ActionRegistryResolve = "registry.resolve"
 
+	ActionSandboxProviderSet     = "sandbox_provider.set"
+	ActionSandboxProviderDelete  = "sandbox_provider.delete"
+	ActionSandboxProviderResolve = "sandbox_provider.resolve"
+
 	ActionUserRoleSet = "user.role.set"
 )
 
