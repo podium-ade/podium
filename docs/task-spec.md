@@ -542,7 +542,9 @@ With `snapshot`, `image` is not used and may be left out. The command runs as an
 `podium` account under `podium-runner`, with `/workspace`, `/podium/secrets`, `PODIUM_*`,
 artifacts, workspace sessions and `expose` as in a container. Sidecars run under the sandbox's
 own Docker, reachable by name. `hardening` does not apply — the task is a process with no
-privileges to drop — and a spec that sets it is refused.
+privileges to drop — and a spec that sets it is refused. File secrets go under
+`/podium/secrets` only, and a `working_dir` other than `/workspace` is created as the task's
+user: neither can name a path the task could not have written itself.
 
 Without `snapshot`, an `image` task on a sandbox node runs that image: inside the sandbox's
 Docker on boat, as the sandbox itself on Modal. `resources` choose the sandbox's size.

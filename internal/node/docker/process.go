@@ -98,6 +98,30 @@ func (p *ProcessExecutor) privilegedStdin(stdin io.Reader, name string, args ...
 	return nil
 }
 
+// asTask is argv run as the task's own user, so a step that touches a path the task chose
+// can do no more than the task itself could. Without a task user it is argv as it is.
+func (p *ProcessExecutor) asTask(argv ...string) []string {
+	if p.o.User == "" {
+		return argv
+	}
+	wrap := []string{"setpriv", "--reuid=" + p.o.User, "--regid=" + p.o.User, "--init-groups", "--no-new-privs", "--"}
+	if p.o.Sudo {
+		wrap = append([]string{"sudo", "-n"}, wrap...)
+	}
+	return append(wrap, argv...)
+}
+
+// runAsTask runs argv as the task's user with stdin.
+func (p *ProcessExecutor) runAsTask(stdin io.Reader, argv ...string) error {
+	argv = p.asTask(argv...)
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // fixed commands
+	cmd.Stdin = stdin
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, bytes.TrimSpace(out))
+	}
+	return nil
+}
+
 func (p *ProcessExecutor) owner() string {
 	if p.o.User == "" {
 		return strconv.Itoa(os.Getuid())
@@ -185,12 +209,20 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	if workdir == "" {
 		workdir = spec.DefaultWorkingDir
 	}
+	for _, s := range req.Secrets {
+		if s.Target == spec.SecretTargetFile && !underSecrets(s.Key) {
+			return Result{}, fmt.Errorf("%w: secret %s: a task run as a process takes file secrets under %s only, not %s",
+				errSpec, s.Name, spec.SecretsMount, s.Key)
+		}
+	}
+	// /workspace is a fixed path and the task's own. Any other working directory is made by
+	// the task's user, so it cannot be one the task could not have made itself.
 	if err := p.privileged("install", "-d", "-m", "0755", "-o", p.owner(), workspacePath); err != nil {
 		return Result{}, err
 	}
 	if workdir != workspacePath {
-		if err := p.privileged("install", "-d", "-m", "0755", "-o", p.owner(), workdir); err != nil {
-			return Result{}, err
+		if err := p.runAsTask(nil, "mkdir", "-p", workdir); err != nil {
+			return Result{}, fmt.Errorf("%w: working_dir %s: %w", errSpec, workdir, err)
 		}
 	}
 	if err := p.restoreWorkspace(ctx, req); err != nil {
@@ -371,8 +403,9 @@ func (p *ProcessExecutor) launch(r spec.Resources, workdir string, env []string)
 	return append(argv, env...)
 }
 
-// stageSecrets turns env secrets into environment entries and writes file secrets where
-// they ask to be, readable by the task's user only. /podium/secrets is a tmpfs.
+// stageSecrets turns env secrets into environment entries and writes file secrets, every one
+// under /podium/secrets, a tmpfs that belongs to the task's user. They are written as that
+// user, so no path in a spec reaches anything the task could not.
 func (p *ProcessExecutor) stageSecrets(secrets []Secret) ([]string, error) {
 	var env []string
 	mounted := false
@@ -390,10 +423,9 @@ func (p *ProcessExecutor) stageSecrets(secrets []Secret) ([]string, error) {
 			}
 			mounted = true
 		}
-		if err := p.privileged("install", "-d", "-m", "0700", "-o", p.owner(), filepath.Dir(s.Key)); err != nil {
-			return nil, err
-		}
-		if err := p.privilegedStdin(bytes.NewReader(s.Value), "install", "-m", "0400", "-o", p.owner(), "/dev/stdin", s.Key); err != nil {
+		// cat reads the stdin it inherited: reopening /dev/stdin as another user is refused.
+		write := `umask 0377 && mkdir -p "$(dirname "$1")" && cat > "$1"`
+		if err := p.runAsTask(bytes.NewReader(s.Value), "sh", "-c", write, "sh", s.Key); err != nil {
 			return nil, fmt.Errorf("write secret %s: %w", s.Name, err)
 		}
 	}
@@ -403,10 +435,15 @@ func (p *ProcessExecutor) stageSecrets(secrets []Secret) ([]string, error) {
 func (p *ProcessExecutor) shredSecrets(secrets []Secret) {
 	for _, s := range secrets {
 		if s.Target == spec.SecretTargetFile {
-			_ = p.privileged("rm", "-f", s.Key)
+			_ = p.runAsTask(nil, "rm", "-f", s.Key)
 		}
 	}
 	_ = p.privileged("umount", spec.SecretsMount)
+}
+
+// underSecrets reports whether a file secret's path is inside /podium/secrets.
+func underSecrets(key string) bool {
+	return strings.HasPrefix(filepath.Clean(key), spec.SecretsMount+"/")
 }
 
 func (p *ProcessExecutor) uid() string {
@@ -421,7 +458,8 @@ func (p *ProcessExecutor) uid() string {
 }
 
 // restoreWorkspace extracts the session tar at /, the way the container path copies it onto
-// the volume, and gives it to the task's user.
+// the volume. The tar is the task's own work from an earlier run, so it is extracted as the
+// task's user: an entry that reaches outside /workspace has nowhere it may write.
 func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) error {
 	if req.Workspace == nil || req.Workspace.Restore == nil {
 		return nil
@@ -434,10 +472,10 @@ func (p *ProcessExecutor) restoreWorkspace(ctx context.Context, req Request) err
 		return nil
 	}
 	defer func() { _ = body.Close() }()
-	if err := p.privilegedStdin(body, "tar", "-x", "-f", "-", "-C", "/", "--no-same-owner"); err != nil {
+	if err := p.runAsTask(body, "tar", "-x", "-f", "-", "-C", "/", "--no-same-owner"); err != nil {
 		return fmt.Errorf("restore workspace: %w", err)
 	}
-	return p.privileged("chown", "-R", p.owner(), workspacePath)
+	return nil
 }
 
 func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error {
@@ -449,10 +487,7 @@ func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error 
 		return err
 	}
 	defer func() { _ = f.Close(); _ = os.Remove(f.Name()) }()
-	args := []string{"tar", "-c", "-f", "-", "-C", "/", strings.TrimPrefix(workspacePath, "/")}
-	if p.o.Sudo {
-		args = append([]string{"sudo", "-n"}, args...)
-	}
+	args := p.asTask("tar", "-c", "-f", "-", "-C", "/", strings.TrimPrefix(workspacePath, "/"))
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // fixed command
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = f, &stderr
@@ -466,16 +501,14 @@ func (p *ProcessExecutor) saveWorkspace(ctx context.Context, req Request) error 
 	return req.Workspace.Save(ctx, f.Name(), st.Size())
 }
 
-// copyFrom is the artifact collector's source: a tar of a path on this machine, read with
-// the privilege it takes to see a file the task's user made private.
+// copyFrom is the artifact collector's source: a tar of a path on this machine. The task
+// names the path, in an event anything in the sandbox can send, so it is read as the task's
+// user — the same reach a container's artifact copy has, and no more.
 func (p *ProcessExecutor) copyFrom(ctx context.Context, path string) (io.ReadCloser, error) {
 	if _, err := os.Lstat(path); err != nil && errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	args := []string{"tar", "-c", "-f", "-", "-C", filepath.Dir(path), filepath.Base(path)}
-	if p.o.Sudo {
-		args = append([]string{"sudo", "-n"}, args...)
-	}
+	args := p.asTask("tar", "-c", "-f", "-", "-C", filepath.Dir(path), filepath.Base(path))
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // fixed command
 	out, err := cmd.StdoutPipe()
 	if err != nil {
