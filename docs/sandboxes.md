@@ -50,6 +50,27 @@ from where the control plane says it stopped.
 
 ## Setting up a node
 
+**Configure the provider in the UI**, under **Sandboxes**: its key, and settings such as boat's
+template and default size or Modal's app and runtime. The key is encrypted under the master
+key like a secret, never shown again, and reaches only that provider's sandbox nodes, over
+their stream. A node then needs only:
+
+```yaml
+# /etc/podium/node.yaml
+server: https://podium.<tailnet>.ts.net
+transport: tailnet
+backend: sandbox
+max_tasks: 10                  # no more than the provider lets you run at once
+sandbox:
+  provider: boat
+```
+
+The node takes no work until the provider is configured, picks up a change the moment it is
+saved, and stops taking work when the provider is removed. Only admins can set or remove one.
+
+A node can instead carry the provider's settings in its own file, and then ignores the UI —
+useful where the control plane holds no master key:
+
 ```yaml
 # /etc/podium/node.yaml
 server: https://podium.<tailnet>.ts.net
