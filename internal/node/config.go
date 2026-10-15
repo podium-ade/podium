@@ -103,6 +103,12 @@ type Config struct {
 	// does not apply to sidecars, and it does not snapshot the workspace. Docker Desktop
 	// does not ship runsc. Off means the field stays empty.
 	Runtime string `yaml:"runtime"`
+	// Backend is what runs tasks, PODIUM_NODE_BACKEND or --backend: "docker" (the default)
+	// is the engine on this machine; "sandbox" makes one cloud sandbox per task through
+	// the provider the sandbox block names. See docs/sandboxes.md.
+	Backend string `yaml:"backend"`
+	// Sandbox configures the sandbox backend.
+	Sandbox SandboxConfig `yaml:"sandbox"`
 
 	// PreviewLANAddresses are the addresses this node may publish previews on,
 	// PODIUM_NODE_PREVIEW_LAN_ADDRESSES (comma-separated). Each held task takes one and
@@ -120,6 +126,25 @@ type Config struct {
 	PreviewTSAuthKey string `yaml:"preview_ts_auth_key"`
 }
 
+// The backends podium-node can run tasks on.
+const (
+	BackendDocker  = "docker"
+	BackendSandbox = "sandbox"
+)
+
+// SandboxConfig is the sandbox backend's block: which provider, and that provider's own
+// settings under its name.
+type SandboxConfig struct {
+	// Provider is PODIUM_NODE_SANDBOX_PROVIDER, for example "boat".
+	Provider string `yaml:"provider"`
+	// Template is the provider snapshot a task with an image starts from on a provider
+	// that cannot boot images itself, PODIUM_NODE_SANDBOX_TEMPLATE. Empty is the
+	// provider's own base.
+	Template string `yaml:"template"`
+	// Providers holds every other key: each provider's settings, by its name.
+	Providers map[string]map[string]any `yaml:",inline"`
+}
+
 // DefaultConfig is the configuration a node with no file and no environment runs with.
 func DefaultConfig() Config {
 	return Config{
@@ -129,6 +154,7 @@ func DefaultConfig() Config {
 		MaxTasks:                DefaultMaxTasks,
 		ImageCacheHighWatermark: DefaultImageCacheHighWatermark,
 		MetricsListen:           DefaultMetricsListen,
+		Backend:                 BackendDocker,
 	}
 }
 
@@ -200,6 +226,9 @@ func applyEnv(cfg *Config) {
 	envBool("PODIUM_NODE_EXIT_ON_DRAIN", &cfg.ExitOnDrain)
 	envBool("PODIUM_NODE_ALLOW_PRIVILEGED_SIDECARS", &cfg.AllowPrivilegedSidecars)
 	envString("PODIUM_NODE_RUNTIME", &cfg.Runtime)
+	envString("PODIUM_NODE_BACKEND", &cfg.Backend)
+	envString("PODIUM_NODE_SANDBOX_PROVIDER", &cfg.Sandbox.Provider)
+	envString("PODIUM_NODE_SANDBOX_TEMPLATE", &cfg.Sandbox.Template)
 }
 
 func envBool(key string, dst *bool) {
@@ -273,6 +302,18 @@ func (c *Config) Validate() error {
 	}
 	if c.PreviewTailnetSlots < 0 {
 		return fmt.Errorf("preview_tailnet_slots is %d; it is a count and cannot be negative", c.PreviewTailnetSlots)
+	}
+	switch c.Backend {
+	case BackendDocker, "":
+	case BackendSandbox:
+		if c.Sandbox.Provider == "" {
+			return errors.New("backend sandbox needs a provider: set PODIUM_NODE_SANDBOX_PROVIDER or `sandbox.provider`")
+		}
+		if len(c.PreviewLANAddresses) > 0 || c.PreviewTailnetSlots > 0 {
+			return errors.New("a sandbox node publishes previews through its provider; drop the LAN and tailnet preview settings")
+		}
+	default:
+		return fmt.Errorf("backend %q is not %s or %s", c.Backend, BackendDocker, BackendSandbox)
 	}
 	if c.ImageCachePrune && (c.ImageCacheHighWatermark <= 0 || c.ImageCacheHighWatermark >= 1) {
 		return fmt.Errorf("image_cache_high_watermark is %v: it is a fraction of the disk and must be between 0 and 1",
