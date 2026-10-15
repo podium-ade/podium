@@ -11,24 +11,39 @@ import (
 // Swappable is a Provider whose implementation can be replaced while it is in use: a sandbox
 // node configured from the control plane builds one when the configuration arrives and again
 // whenever an admin changes it. Until the first one is set every call fails, retryably.
+//
+// Disabling it stops new sandboxes and nothing else: the last provider stays for the ones
+// that already exist, which still have to be reached, and deleted, when their tasks end.
 type Swappable struct {
-	name string
-	mu   sync.RWMutex
-	p    Provider
+	name     string
+	mu       sync.RWMutex
+	p        Provider
+	disabled bool
 }
 
 // NewSwappable returns an empty Swappable for the named provider.
 func NewSwappable(name string) *Swappable { return &Swappable{name: name} }
 
-// Set replaces the provider; nil empties it.
+// Set replaces the provider and enables it.
 func (s *Swappable) Set(p Provider) {
 	s.mu.Lock()
-	s.p = p
+	s.p, s.disabled = p, false
 	s.mu.Unlock()
 }
 
-// Ready reports whether a provider is set.
-func (s *Swappable) Ready() bool { return s.get() != nil }
+// Disable stops Create, keeping the provider for the sandboxes that already exist.
+func (s *Swappable) Disable() {
+	s.mu.Lock()
+	s.disabled = true
+	s.mu.Unlock()
+}
+
+// Ready reports whether new sandboxes can be made.
+func (s *Swappable) Ready() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.p != nil && !s.disabled
+}
 
 func (s *Swappable) get() Provider {
 	s.mu.RLock()
@@ -55,8 +70,12 @@ func (s *Swappable) Capabilities() Capabilities {
 	return Capabilities{}
 }
 
-// Create implements Provider.
+// Create implements Provider. A disabled provider makes no new sandboxes.
 func (s *Swappable) Create(ctx context.Context, req CreateRequest) (string, error) {
+	if !s.Ready() {
+		return "", &Error{Op: "create", Code: "not_configured", Retryable: true,
+			Err: errors.New("sandbox provider " + s.name + " is not configured on the control plane")}
+	}
 	p, err := s.current("create")
 	if err != nil {
 		return "", err
