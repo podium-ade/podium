@@ -50,6 +50,9 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		}
 	}
 	p.Expose = s.Expose.toProto()
+	if s.Sandbox != nil {
+		p.Sandbox = &podiumv1.TaskSandbox{Snapshot: s.Sandbox.Snapshot}
+	}
 	return p
 }
 
@@ -95,6 +98,9 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		}
 	}
 	s.Expose = exposeFromProto(p.GetExpose())
+	if sb := p.GetSandbox(); sb != nil {
+		s.Sandbox = &Sandbox{Snapshot: sb.GetSnapshot()}
+	}
 	return s
 }
 

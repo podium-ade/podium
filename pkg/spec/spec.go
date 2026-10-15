@@ -8,6 +8,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -74,12 +75,32 @@ type TaskSpec struct {
 	// Expose keeps the task's containers up after its command exits and publishes the named
 	// ports outside the node, so people can use what the task built. See docs/task-spec.md.
 	Expose *Expose `yaml:"expose,omitempty" json:"expose,omitempty"`
+	// Sandbox runs the task in a cloud sandbox instead of a container on the node. See
+	// docs/task-spec.md.
+	Sandbox *Sandbox `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+}
+
+// Sandbox is a task's cloud sandbox. With a Snapshot the task's command runs directly in a
+// sandbox made from that provider snapshot, and Image is not used.
+type Sandbox struct {
+	Snapshot string `yaml:"snapshot,omitempty" json:"snapshot,omitempty"`
+}
+
+// LabelSandbox is the label every sandbox node carries, and every task that needs one gets.
+const LabelSandbox = "backend=sandbox"
+
+// UsesSandbox reports whether only a sandbox node can run the task.
+func (s *TaskSpec) UsesSandbox() bool {
+	return s.Sandbox != nil || (s.Expose != nil && s.Expose.Via == ExposeViaSandbox)
 }
 
 // Ways a preview can be reached from outside its node.
 const (
 	ExposeViaTailnet = "tailnet"
 	ExposeViaLAN     = "lan"
+	// ExposeViaSandbox publishes through the sandbox provider, on URLs anyone holding
+	// them can open from the internet.
+	ExposeViaSandbox = "sandbox"
 )
 
 // Expose is a task that stays up as a preview once its command has exited. Every port is
@@ -228,6 +249,9 @@ func (s *TaskSpec) ApplyDefaults() {
 		}
 	}
 	s.Resources.applyDefaults()
+	if s.UsesSandbox() && !slices.Contains(s.Labels, LabelSandbox) {
+		s.Labels = append(s.Labels, LabelSandbox)
+	}
 	if s.Expose != nil && s.Expose.TTL == 0 {
 		s.Expose.TTL = Duration(DefaultExposeTTL)
 	}
@@ -252,7 +276,10 @@ func (r *Resources) applyDefaults() {
 // Validate reports every problem with the spec at once.
 func (s *TaskSpec) Validate() error {
 	var errs []error
-	if strings.TrimSpace(s.Image) == "" {
+	switch {
+	case s.Sandbox != nil && strings.TrimSpace(s.Sandbox.Snapshot) == "" && strings.TrimSpace(s.Image) == "":
+		errs = append(errs, errors.New("image is required, or sandbox.snapshot"))
+	case s.Sandbox == nil && strings.TrimSpace(s.Image) == "":
 		errs = append(errs, errors.New("image is required"))
 	}
 	if s.Timeout <= 0 {
@@ -291,9 +318,9 @@ func (s *TaskSpec) validateExpose() []error {
 		errs = append(errs, fmt.Errorf("expose.ttl must be positive, got %s", x.TTL))
 	}
 	switch x.Via {
-	case "", ExposeViaTailnet, ExposeViaLAN:
+	case "", ExposeViaTailnet, ExposeViaLAN, ExposeViaSandbox:
 	default:
-		errs = append(errs, fmt.Errorf("expose.via %q is not %s or %s", x.Via, ExposeViaTailnet, ExposeViaLAN))
+		errs = append(errs, fmt.Errorf("expose.via %q is not %s, %s or %s", x.Via, ExposeViaTailnet, ExposeViaLAN, ExposeViaSandbox))
 	}
 	if len(x.Ports) == 0 && x.Via != "" {
 		errs = append(errs, fmt.Errorf("expose.via %q needs expose.ports: a hold-only expose publishes nothing", x.Via))

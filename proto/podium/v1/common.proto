@@ -71,13 +71,22 @@ message TaskSpec {
   // Keep the task's containers running after its command exits and make the named ports
   // reachable from outside the node, until the ttl runs out or somebody releases it.
   Expose expose = 17;
+  // Run the task in a cloud sandbox instead of a container on the node.
+  TaskSandbox sandbox = 18;
+}
+
+// TaskSandbox is a task's cloud sandbox.
+message TaskSandbox {
+  // A provider snapshot to make the sandbox from. The command then runs directly in it and
+  // the task's image is not used.
+  string snapshot = 1;
 }
 
 // Expose is a task that stays up as a preview once its command has exited.
 message Expose {
   // How long the environment stays up after the command exits. Defaults to 1h.
   google.protobuf.Duration ttl = 1;
-  // tailnet or lan; empty lets the node choose.
+  // tailnet, lan or sandbox; empty lets the node choose.
   string via = 2;
   // Keyed by name; the task sees each one's URL as PODIUM_URL_<NAME>.
   map<string, ExposedPort> ports = 3;
