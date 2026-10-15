@@ -435,7 +435,7 @@ func (p *Provider) Delete(ctx context.Context, id string) error {
 
 // Limits is unknown: Modal has no API for the account's remaining room.
 func (p *Provider) Limits(context.Context) (sandbox.Limits, error) {
-	return sandbox.Limits{FreeSandboxes: -1, StartsLeft: -1}, nil
+	return sandbox.Limits{MaxSandboxes: -1, FreeSandboxes: -1, StartsLeft: -1}, nil
 }
 
 // toError maps an SDK or gRPC error to a *sandbox.Error; context errors pass through.

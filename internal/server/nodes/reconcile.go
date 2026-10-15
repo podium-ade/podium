@@ -159,6 +159,7 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		if _, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusQueued, store.Patch{}); err == nil {
 			s.logger.InfoContext(ctx, "task requeued after losing its node",
 				"task_id", task.ID, "node_id", node.ID, "attempt", task.Attempts)
+			s.queueReap(ctx, task.ID, reason)
 			return
 		} else if !errors.Is(err, store.ErrInvalidTransition) {
 			s.logger.ErrorContext(ctx, "requeueing a task after node loss failed",
@@ -177,6 +178,7 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		return
 	}
 	s.reg.Release(task.ID)
+	s.queueReap(ctx, task.ID, reason)
 	s.logger.InfoContext(ctx, "task lost with its node",
 		"task_id", task.ID, "node_id", node.ID, "reason", reason)
 }

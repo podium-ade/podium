@@ -156,6 +156,9 @@ func (n *Node) session(ctx context.Context) error {
 		if err := n.flushEvents(stream); err != nil {
 			return err
 		}
+		if err := n.flushReaped(stream); err != nil {
+			return err
+		}
 		select {
 		case r := <-incoming:
 			if r.err != nil {
@@ -218,10 +221,16 @@ func (n *Node) sendHeartbeat(
 	load := sampleLoad(ctx, n.cfg.DataDir, n.logger)
 	n.maybePrune(ctx, load)
 	freeTailnet, freeLAN := n.previews.free()
+	var accountLimit int32
+	if x, ok := n.exec.(reaper); ok {
+		accountLimit = x.AccountLimit()
+	}
 	err := stream.Send(&podiumv1.NodeMessage{Msg: &podiumv1.NodeMessage_Heartbeat{
 		Heartbeat: &podiumv1.Heartbeat{
 			FreeTailnetPreviews: freeTailnet,
 			FreeLanPreviews:     freeLAN,
+			HeldPreviews:        int32(n.previews.heldCount()),
+			SandboxAccountLimit: accountLimit,
 			Load: &podiumv1.NodeLoad{
 				RunningTasks: n.runningCount(),
 				CpuPct:       load.CPUPct,
@@ -299,6 +308,8 @@ func (n *Node) handle(
 		}
 	case msg.GetSandboxConfig() != nil:
 		n.applySandboxConfig(ctx, msg.GetSandboxConfig())
+	case msg.GetReapSandbox() != nil:
+		n.reapSandbox(ctx, msg.GetReapSandbox())
 	case msg.GetDrain() != nil:
 		d := msg.GetDrain()
 		n.logger.InfoContext(ctx, "drain state received",

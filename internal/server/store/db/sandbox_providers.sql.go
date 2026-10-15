@@ -22,7 +22,7 @@ func (q *Queries) DeleteSandboxProvider(ctx context.Context, name string) (int64
 }
 
 const getSandboxProvider = `-- name: GetSandboxProvider :one
-select name, settings, ciphertext, nonce, key_id, created_by, updated_at from sandbox_providers where name = $1
+select name, settings, ciphertext, nonce, key_id, created_by, updated_at, max_concurrent from sandbox_providers where name = $1
 `
 
 func (q *Queries) GetSandboxProvider(ctx context.Context, name string) (SandboxProvider, error) {
@@ -36,12 +36,13 @@ func (q *Queries) GetSandboxProvider(ctx context.Context, name string) (SandboxP
 		&i.KeyID,
 		&i.CreatedBy,
 		&i.UpdatedAt,
+		&i.MaxConcurrent,
 	)
 	return i, err
 }
 
 const listSandboxProviders = `-- name: ListSandboxProviders :many
-select name, settings, ciphertext, nonce, key_id, created_by, updated_at from sandbox_providers order by name
+select name, settings, ciphertext, nonce, key_id, created_by, updated_at, max_concurrent from sandbox_providers order by name
 `
 
 func (q *Queries) ListSandboxProviders(ctx context.Context) ([]SandboxProvider, error) {
@@ -61,6 +62,7 @@ func (q *Queries) ListSandboxProviders(ctx context.Context) ([]SandboxProvider, 
 			&i.KeyID,
 			&i.CreatedBy,
 			&i.UpdatedAt,
+			&i.MaxConcurrent,
 		); err != nil {
 			return nil, err
 		}
@@ -73,7 +75,7 @@ func (q *Queries) ListSandboxProviders(ctx context.Context) ([]SandboxProvider, 
 }
 
 const listSandboxProvidersForUpdate = `-- name: ListSandboxProvidersForUpdate :many
-select name, settings, ciphertext, nonce, key_id, created_by, updated_at from sandbox_providers order by name for update
+select name, settings, ciphertext, nonce, key_id, created_by, updated_at, max_concurrent from sandbox_providers order by name for update
 `
 
 func (q *Queries) ListSandboxProvidersForUpdate(ctx context.Context) ([]SandboxProvider, error) {
@@ -93,6 +95,7 @@ func (q *Queries) ListSandboxProvidersForUpdate(ctx context.Context) ([]SandboxP
 			&i.KeyID,
 			&i.CreatedBy,
 			&i.UpdatedAt,
+			&i.MaxConcurrent,
 		); err != nil {
 			return nil, err
 		}
@@ -133,31 +136,34 @@ func (q *Queries) ReEncryptSandboxProvider(ctx context.Context, arg ReEncryptSan
 }
 
 const upsertSandboxProvider = `-- name: UpsertSandboxProvider :one
-insert into sandbox_providers (name, settings, ciphertext, nonce, key_id, created_by, updated_at)
-values ($1, $2, $3, $4, $5, $6, now())
+insert into sandbox_providers (name, settings, max_concurrent, ciphertext, nonce, key_id, created_by, updated_at)
+values ($1, $2, $3, $4, $5, $6, $7, now())
 on conflict (name) do update
-  set settings   = excluded.settings,
-      ciphertext = excluded.ciphertext,
-      nonce      = excluded.nonce,
-      key_id     = excluded.key_id,
-      created_by = excluded.created_by,
-      updated_at = now()
-returning name, settings, ciphertext, nonce, key_id, created_by, updated_at
+  set settings       = excluded.settings,
+      max_concurrent = excluded.max_concurrent,
+      ciphertext     = excluded.ciphertext,
+      nonce          = excluded.nonce,
+      key_id         = excluded.key_id,
+      created_by     = excluded.created_by,
+      updated_at     = now()
+returning name, settings, ciphertext, nonce, key_id, created_by, updated_at, max_concurrent
 `
 
 type UpsertSandboxProviderParams struct {
-	Name       string
-	Settings   []byte
-	Ciphertext []byte
-	Nonce      []byte
-	KeyID      string
-	CreatedBy  string
+	Name          string
+	Settings      []byte
+	MaxConcurrent int32
+	Ciphertext    []byte
+	Nonce         []byte
+	KeyID         string
+	CreatedBy     string
 }
 
 func (q *Queries) UpsertSandboxProvider(ctx context.Context, arg UpsertSandboxProviderParams) (SandboxProvider, error) {
 	row := q.db.QueryRow(ctx, upsertSandboxProvider,
 		arg.Name,
 		arg.Settings,
+		arg.MaxConcurrent,
 		arg.Ciphertext,
 		arg.Nonce,
 		arg.KeyID,
@@ -172,6 +178,7 @@ func (q *Queries) UpsertSandboxProvider(ctx context.Context, arg UpsertSandboxPr
 		&i.KeyID,
 		&i.CreatedBy,
 		&i.UpdatedAt,
+		&i.MaxConcurrent,
 	)
 	return i, err
 }

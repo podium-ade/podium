@@ -34,6 +34,7 @@ const (
 	ReasonNoRoom         = "no online node has enough free CPU or memory for this task"
 	ReasonFull           = "every node that could run this task is full"
 	ReasonNoPreview      = "no online node has a free preview address for this task"
+	ReasonSandboxFull    = "sandbox provider %s is running as many sandboxes as it may (%d)"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
 	ReasonNoLease        = "the task is on no node and holds no lease"
@@ -146,6 +147,7 @@ func (s *Service) dispatch(ctx context.Context) {
 	// the registry per task would let a node with one free slot take the whole batch,
 	// because its heartbeat is up to ten seconds away.
 	candidates := s.nodes.Candidates()
+	room := sandboxRoom(candidates, s.sandboxCaps(ctx, candidates))
 	for _, task := range tasks {
 		if task.CancelRequestedAt != nil {
 			// A task can be requeued after somebody asked for it to stop — a revoked
@@ -156,11 +158,13 @@ func (s *Service) dispatch(ctx context.Context) {
 		}
 		i := pick(candidates, task.Spec, nodes.CostOf(task.Spec))
 		if i < 0 {
-			s.leaveQueued(ctx, task, placementReason(candidates, task.Spec, nodes.CostOf(task.Spec)))
+			s.leaveQueued(ctx, task, room.reason(candidates, task.Spec,
+				placementReason(candidates, task.Spec, nodes.CostOf(task.Spec))))
 			continue
 		}
 		if s.assign(ctx, task, candidates[i].NodeID) {
 			charge(&candidates[i], nodes.CostOf(task.Spec))
+			room.take(candidates, candidates[i].SandboxProvider)
 		}
 	}
 }
@@ -489,4 +493,85 @@ func hasAll(have, required []string) bool {
 		}
 	}
 	return true
+}
+
+// providerRoom is how many more sandboxes each capped provider may start in this batch, and
+// the cap each one is held to. A provider with no cap is absent.
+type providerRoom struct {
+	left  map[string]int32
+	limit map[string]int32
+}
+
+// sandboxCaps is every admin-set max_concurrent, read only when a sandbox node is connected.
+func (s *Service) sandboxCaps(ctx context.Context, candidates []nodes.Snapshot) map[string]int32 {
+	if !slices.ContainsFunc(candidates, func(c nodes.Snapshot) bool { return c.SandboxProvider != "" }) {
+		return nil
+	}
+	providers, err := s.store.ListSandboxProviders(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "reading sandbox provider caps failed; using account limits only", "error", err)
+		return nil
+	}
+	caps := make(map[string]int32, len(providers))
+	for _, p := range providers {
+		caps[p.Name] = p.MaxConcurrent
+	}
+	return caps
+}
+
+// sandboxRoom holds every sandbox provider to the smaller of its cap and the account limit
+// its nodes report, less what its nodes already hold. A provider at its limit has its
+// nodes' slots zeroed in this batch's copy of the candidates, so nothing is placed on them.
+func sandboxRoom(candidates []nodes.Snapshot, caps map[string]int32) providerRoom {
+	room := providerRoom{left: map[string]int32{}, limit: map[string]int32{}}
+	for name, u := range nodes.SandboxUsageOf(candidates) {
+		limit := caps[name]
+		if u.AccountLimit > 0 && (limit <= 0 || u.AccountLimit < limit) {
+			limit = u.AccountLimit
+		}
+		if limit <= 0 {
+			continue
+		}
+		room.limit[name] = limit
+		room.left[name] = limit - u.InUse
+		if room.left[name] <= 0 {
+			closeProvider(candidates, name)
+		}
+	}
+	return room
+}
+
+// take counts one sandbox against provider and closes it when that was the last.
+func (r providerRoom) take(candidates []nodes.Snapshot, provider string) {
+	left, capped := r.left[provider]
+	if !capped {
+		return
+	}
+	r.left[provider] = left - 1
+	if left-1 <= 0 {
+		closeProvider(candidates, provider)
+	}
+}
+
+// reason names a provider cap when that, and not the nodes themselves, is what left a task
+// queued.
+func (r providerRoom) reason(candidates []nodes.Snapshot, ts spec.TaskSpec, fallback string) string {
+	if fallback != ReasonFull {
+		return fallback
+	}
+	for _, c := range candidates {
+		if limit, capped := r.limit[c.SandboxProvider]; capped && r.left[c.SandboxProvider] <= 0 &&
+			!c.Draining && hasAll(c.Labels, ts.Labels) {
+			return fmt.Sprintf(ReasonSandboxFull, c.SandboxProvider, limit)
+		}
+	}
+	return fallback
+}
+
+func closeProvider(candidates []nodes.Snapshot, provider string) {
+	for i := range candidates {
+		if candidates[i].SandboxProvider == provider {
+			candidates[i].FreeSlots = 0
+		}
+	}
 }

@@ -160,7 +160,7 @@ func (l *Local) Delete(ctx context.Context, id string) error {
 
 // Limits implements sandbox.Provider.
 func (l *Local) Limits(context.Context) (sandbox.Limits, error) {
-	return sandbox.Limits{FreeSandboxes: -1, StartsLeft: -1}, nil
+	return sandbox.Limits{MaxSandboxes: -1, FreeSandboxes: -1, StartsLeft: -1}, nil
 }
 
 func docker(ctx context.Context, stdin io.Reader, args ...string) (string, error) {

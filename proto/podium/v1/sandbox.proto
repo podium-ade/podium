@@ -31,6 +31,14 @@ message SandboxProvider {
   string key_id = 4;
   string created_by = 5;
   google.protobuf.Timestamp updated_at = 6;
+  // max_concurrent caps how many of the provider's sandboxes run at once across every node
+  // of it. Zero is no cap of its own.
+  int32 max_concurrent = 7;
+  // account_limit is the most the provider account allows at once, as a connected node last
+  // reported it. Zero is unknown: no node is connected, or the provider does not say.
+  int32 account_limit = 8;
+  // in_use is how many of the provider's sandboxes connected nodes are running or keeping up.
+  int32 in_use = 9;
 }
 
 message SetSandboxProviderRequest {
@@ -38,6 +46,8 @@ message SetSandboxProviderRequest {
   map<string, string> settings = 2;
   // SENSITIVE: never log. The provider's API key or token secret. Empty keeps the stored one.
   bytes secret = 3;
+  // max_concurrent caps the provider's sandboxes across every node; zero is no cap.
+  int32 max_concurrent = 4;
 }
 
 message SetSandboxProviderResponse {

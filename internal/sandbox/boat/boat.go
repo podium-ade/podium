@@ -283,7 +283,7 @@ func (p *Provider) Limits(ctx context.Context) (sandbox.Limits, error) {
 	if err := p.do(ctx, "limits", http.MethodGet, "/limits", nil, nil, &out); err != nil {
 		return sandbox.Limits{}, err
 	}
-	l := sandbox.Limits{FreeSandboxes: out.MaxActiveSandboxes - out.ActiveSandboxes, StartsLeft: out.Starts.Minute.Remaining}
+	l := sandbox.Limits{MaxSandboxes: out.MaxActiveSandboxes, FreeSandboxes: out.MaxActiveSandboxes - out.ActiveSandboxes, StartsLeft: out.Starts.Minute.Remaining}
 	if out.Starts.Unlimited {
 		l.StartsLeft = -1
 	}

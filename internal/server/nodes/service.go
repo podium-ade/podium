@@ -65,6 +65,8 @@ type Service struct {
 
 	// sandbox resolves a sandbox node's provider configuration; nil sends none.
 	sandbox SandboxResolver
+	// lastReapSweep is the watchdog's own: when it last asked for queued deletions again.
+	lastReapSweep time.Time
 }
 
 // NewService returns the node-facing service and its (empty) session registry.

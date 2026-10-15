@@ -139,6 +139,10 @@ type Task struct {
 	CancelRequestedAt *time.Time
 	CancelReason      string
 	CancelStatus      Status
+	// SandboxProvider and SandboxID are the sandbox a sandbox node made for the latest
+	// attempt, empty on every other node.
+	SandboxProvider string
+	SandboxID       string
 }
 
 // NewTask is the input to CreateTask. An empty ID is minted, a zero MaxAttempts falls back to
