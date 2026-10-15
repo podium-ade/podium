@@ -659,10 +659,10 @@ func TestStatusCommentUsesSingularCounts(t *testing.T) {
 	assert.NotContains(t, body, "1 files")
 
 	approved := statusComment(statusApproved, "acme", "repo", pullInfo{OK: true, Title: "One file", Head: "fix", Base: "dev"})
-	assert.Contains(t, approved, "> **"+statusApproved+"**")
-	assert.Contains(t, approved, "This pull request is ok to merge.")
+	assert.Contains(t, approved, "> [!NOTE]")
+	assert.Contains(t, approved, "**"+statusApproved+"**")
+	assert.Contains(t, approved, "Approved. The full review is below.")
 	assert.NotContains(t, approved, "[!TIP]")
-	assert.NotContains(t, approved, "Tip")
 
 	changes := statusComment(statusChanges, "", "", pullInfo{OK: true, Head: "fix/name", Base: "dev"})
 	assert.Contains(t, changes, "> [!WARNING]")
