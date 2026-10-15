@@ -423,9 +423,7 @@ func (p *ProcessExecutor) stageSecrets(secrets []Secret) ([]string, error) {
 			}
 			mounted = true
 		}
-		// cat reads the stdin it inherited: reopening /dev/stdin as another user is refused.
-		write := `umask 0377 && mkdir -p "$(dirname "$1")" && cat > "$1"`
-		if err := p.runAsTask(bytes.NewReader(s.Value), "sh", "-c", write, "sh", s.Key); err != nil {
+		if err := p.runAsTask(bytes.NewReader(s.Value), "sh", "-c", writeSecret, "sh", s.Key); err != nil {
 			return nil, fmt.Errorf("write secret %s: %w", s.Name, err)
 		}
 	}
@@ -440,6 +438,10 @@ func (p *ProcessExecutor) shredSecrets(secrets []Secret) {
 	}
 	_ = p.privileged("umount", spec.SecretsMount)
 }
+
+// writeSecret writes its stdin to $1: the directories on the way 0700, the file 0400. cat
+// reads the stdin it inherited, because reopening /dev/stdin as another user is refused.
+const writeSecret = `umask 077 && mkdir -p "$(dirname "$1")" && umask 0377 && cat > "$1"`
 
 // underSecrets reports whether a file secret's path is inside /podium/secrets.
 func underSecrets(key string) bool {

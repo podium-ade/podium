@@ -166,12 +166,12 @@ func TestBoatSnapshotProcess(t *testing.T) {
 	defer cancel()
 	sp := spec.TaskSpec{
 		Sandbox: &spec.Sandbox{Snapshot: snap},
-		Command: []string{"sh", "-c", "id -un; echo $TOKEN; cat /podium/secrets/f; cat /workspace/seed.txt; pwd; " +
+		Command: []string{"sh", "-c", "id -un; echo $TOKEN; cat /podium/secrets/app/f; cat /workspace/seed.txt; pwd; " +
 			"sudo -n true 2>/dev/null || echo nosudo; docker ps >/dev/null 2>&1 || echo nodocker; " +
 			"test -r /home/user/.bashrc || echo nohome; env | grep -c ASCII_TOKEN; " +
 			"mkdir -p /workspace/.podium/artifacts && echo art > /workspace/.podium/artifacts/a.txt; " +
 			"echo saved > /workspace/new.txt; echo err >&2; exit 4"},
-		Secrets:          []spec.SecretRef{{Name: "t", Target: "env", Key: "TOKEN"}, {Name: "f", Target: "file", Key: "/podium/secrets/f"}},
+		Secrets:          []spec.SecretRef{{Name: "t", Target: "env", Key: "TOKEN"}, {Name: "f", Target: "file", Key: "/podium/secrets/app/f"}},
 		WorkspaceSession: "s1",
 	}
 	sp.ApplyDefaults()
@@ -191,7 +191,7 @@ func TestBoatSnapshotProcess(t *testing.T) {
 	go func() { c.run(ch); close(done) }()
 	res, err := e.Run(ctx, docker.Request{
 		TaskID: "boat-process-1", LeaseID: "lease-s-" + time.Now().Format("150405.000"), Spec: sp,
-		Secrets:   []docker.Secret{{Name: "t", Target: "env", Key: "TOKEN", Value: []byte("tok-1")}, {Name: "f", Target: "file", Key: "/podium/secrets/f", Value: []byte("file-1\n")}},
+		Secrets:   []docker.Secret{{Name: "t", Target: "env", Key: "TOKEN", Value: []byte("tok-1")}, {Name: "f", Target: "file", Key: "/podium/secrets/app/f", Value: []byte("file-1\n")}},
 		Artifacts: up, Workspace: ws,
 	}, ch)
 	close(ch)
