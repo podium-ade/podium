@@ -334,10 +334,8 @@ func TestBoatProcessTaskCannotReachPastItsUser(t *testing.T) {
 		Secrets: []spec.SecretRef{{Name: "p", Target: "file", Key: "/etc/passwd"}}}
 	sp.ApplyDefaults()
 	ch = make(chan docker.Event, 64)
-	go func() {
-		for range ch {
-		}
-	}()
+	var refused collector
+	go refused.run(ch)
 	_, err = e.Run(ctx, docker.Request{TaskID: "boat-escape-2", LeaseID: "lease-y-" + time.Now().Format("150405.000"), Spec: sp,
 		Secrets: []docker.Secret{{Name: "p", Target: "file", Key: "/etc/passwd", Value: []byte("root::0:0::/:/bin/sh\n")}}}, ch)
 	close(ch)
