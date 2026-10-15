@@ -8,6 +8,7 @@ BINARIES := podium podium-server podium-node podium-agent
 
 # podium-runner is embedded into podium-node, not linked into it.
 RUNNERBIN   := internal/node/docker/runnerbin
+AGENTBIN    := internal/node/sandboxexec/agentbin/bin
 HOST_GOARCH := $(shell go env GOARCH)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -19,12 +20,12 @@ LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/interna
 # without a registry in between.
 AGENT_RUNTIME := podium-agent-runtime
 
-.PHONY: build runner-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
+.PHONY: build runner-embed sandbox-agent-embed dist-node dist-node-all web web-deps web-test test test-integration e2e e2e-memory lint proto proto-lint proto-breaking fmt clean agent-runtime agent-runtime-dist agent-runtime-test stack-up stack-down stack-status
 
 # The shipped binary carries the real UI, so build waits for it. `go build ./...` on its own
 # still compiles: web/dist holds a committed placeholder and the handler reports that no UI was
 # built in. For Go-only iteration use `go build -tags noui ./...`, which needs no Node at all.
-build: web runner-embed
+build: web sandbox-agent-embed
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		echo "go build ./cmd/$$b -> bin/$$b"; \
@@ -64,6 +65,14 @@ runner-embed:
 	@GOOS=$$(go env GOHOSTOS) GOARCH=$$(go env GOHOSTARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o bin/podium-runner ./cmd/podium-runner
 
+# The agent podium-node uploads into a cloud sandbox. It embeds the runner, so it is built
+# after it; it is linux/amd64 only, the one architecture sandbox providers run.
+sandbox-agent-embed: runner-embed
+	@mkdir -p $(AGENTBIN)
+	@echo "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/podium-sandbox-agent -> $(AGENTBIN)/podium-sandbox-agent-linux-amd64"
+	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+		go build -trimpath -ldflags "$(LDFLAGS) -s -w" -o $(AGENTBIN)/podium-sandbox-agent-linux-amd64 ./cmd/podium-sandbox-agent
+
 # Cross-compiled worker binaries.
 #
 # The control plane and its workers do not have to share an architecture: a darwin/arm64 server
@@ -79,7 +88,7 @@ GOOS   ?= linux
 GOARCH ?= amd64
 DIST_BINARIES := podium-node podium
 
-dist-node: runner-embed
+dist-node: sandbox-agent-embed
 	@mkdir -p bin
 	@for b in $(DIST_BINARIES); do \
 		out=bin/$$b-$(GOOS)-$(GOARCH); \

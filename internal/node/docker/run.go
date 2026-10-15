@@ -191,6 +191,9 @@ func (e *Executor) run(ctx context.Context, req Request, em *emitter, rs *runSta
 	if req.Spec.Image == "" {
 		return Result{}, fmt.Errorf("%w: image is required", errSpec)
 	}
+	if req.Spec.Sandbox != nil {
+		return Result{}, fmt.Errorf("%w: the task asks for a cloud sandbox, which this node does not run", errSpec)
+	}
 
 	if err := e.ensureImage(ctx, req.Spec.Image, req.registryAuths(), em); err != nil {
 		return Result{}, err

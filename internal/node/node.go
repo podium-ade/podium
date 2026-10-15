@@ -7,16 +7,23 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/podium-ade/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/node/sandboxexec"
+	"github.com/podium-ade/podium/internal/node/sandboxexec/agentbin"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/sandbox"
+	_ "github.com/podium-ade/podium/internal/sandbox/boat"  // registers the boat provider
+	_ "github.com/podium-ade/podium/internal/sandbox/modal" // registers the modal provider
 	"github.com/podium-ade/podium/internal/transport/local"
 	"github.com/podium-ade/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // adoptSeqFloor is where an adopted task restarts its sequence space when the control
@@ -29,12 +36,42 @@ const adoptSeqFloor = 1 << 20
 // adoptTeardownTimeout bounds the cleanup of a container the control plane has disowned.
 const adoptTeardownTimeout = 60 * time.Second
 
-// Node is the daemon: one Docker executor, one identity, one stream at a time, and one
+// newExecutor builds the backend the config names. A sandbox node also labels itself, so
+// the tasks that need one — and pin a provider — find it.
+func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (executor, error) {
+	if cfg.Backend != BackendSandbox {
+		return docker.New(ctx, docker.Options{
+			DataDir:                 cfg.DataDir,
+			DockerHost:              cfg.DockerHost,
+			AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
+			Runtime:                 cfg.Runtime,
+			Logger:                  logger,
+		})
+	}
+	name := cfg.Sandbox.Provider
+	p, err := sandbox.New(name, cfg.Sandbox.Providers[name])
+	if err != nil {
+		return nil, err
+	}
+	if _, err := agentbin.Linux(); err != nil {
+		return nil, err
+	}
+	for _, l := range []string{spec.LabelSandbox, "sandbox.provider=" + name} {
+		if !slices.Contains(cfg.Labels, l) {
+			cfg.Labels = append(cfg.Labels, l)
+		}
+	}
+	return sandboxexec.New(sandboxexec.Options{
+		Provider: p, DataDir: cfg.DataDir, Template: cfg.Sandbox.Template, Agent: agentbin.Linux, Logger: logger,
+	})
+}
+
+// Node is the daemon: one executor, one identity, one stream at a time, and one
 // replay buffer per task in flight.
 type Node struct {
 	cfg    Config
 	logger *slog.Logger
-	exec   *docker.Executor
+	exec   executor
 	id     Identity
 	facts  HostFacts
 	client podiumv1connect.NodeServiceClient
@@ -92,18 +129,17 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		return nil, fmt.Errorf("node config: %w", err)
 	}
 
-	exec, err := docker.New(ctx, docker.Options{
-		DataDir:                 cfg.DataDir,
-		DockerHost:              cfg.DockerHost,
-		AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
-		Runtime:                 cfg.Runtime,
-		Logger:                  logger,
-	})
+	exec, err := newExecutor(ctx, &cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	facts := hostFacts(ctx, exec.ServerVersion())
+	if cfg.Backend == BackendSandbox {
+		// The machine this daemon runs on is not where tasks run; the scheduler reads a
+		// zero as "unmeasured" and places on slots alone.
+		facts.CPUCores, facts.MemoryMB = 0, 0
+	}
 	httpClient, ts, err := dialer(ctx, cfg, logger)
 	if err != nil {
 		_ = exec.Close()
