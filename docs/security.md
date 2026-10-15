@@ -148,9 +148,12 @@ boundaries:
 - **Isolation is the provider's.** A boat sandbox is a VM with its own kernel; a Modal
   sandbox is a gVisor container, or a VM with `runtime: vm`. Nothing but the task runs in it,
   and it is deleted when the task ends, so there is no other task to escape to.
-- **The node holds the provider credential, not a Docker socket.** That key can create and
-  delete every sandbox on the account: give the node a scoped key (boat: `sandbox.*`,
-  `exec`, `file.*`, `host`, `account.read`, `snapshot.read`; never `admin`) and nothing else.
+- **The provider credential, not a Docker socket, is what a sandbox node holds.** That key can
+  create and delete every sandbox on the account: make it a scoped key (boat: `sandbox.*`,
+  `exec`, `file.*`, `host`, `account.read`, `snapshot.read`; never `admin`). Set in the UI it
+  is stored like a registry login — encrypted under the master key, written by admins only,
+  no read endpoint — and sent only on the streams of that provider's nodes, which keep it in
+  memory; set in a node's own config file it never reaches the control plane at all.
 - **Secrets leave the node.** Resolved secrets and registry logins travel to the sandbox's
   agent over the provider's HTTPS proxy, authenticated by the provider and by a per-task
   bearer token the node hands the agent in a file it deletes. File secrets land on a tmpfs
