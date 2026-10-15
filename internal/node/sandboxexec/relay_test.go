@@ -35,3 +35,20 @@ func TestAdoptFilterSkipsWhatTheServerHas(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryForPicksTheImagesOwnRegistry(t *testing.T) {
+	creds := []docker.RegistryCredential{
+		{Host: "ghcr.io", Username: "octo", Password: []byte("ghp")},
+		{Host: "us-docker.pkg.dev", Username: "_json_key", Password: []byte("{}")},
+	}
+	got := registryFor("us-docker.pkg.dev/acme/images/app:1", creds)
+	if got == nil || got.Username != "_json_key" || got.Password != "{}" {
+		t.Fatalf("got %+v", got)
+	}
+	if got := registryFor("alpine:3", creds); got != nil {
+		t.Fatalf("a public image gets no login, got %+v", got)
+	}
+	if got := registryFor("", creds); got != nil {
+		t.Fatalf("a snapshot task gets no login, got %+v", got)
+	}
+}

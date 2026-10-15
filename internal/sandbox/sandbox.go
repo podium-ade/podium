@@ -71,10 +71,19 @@ type CreateRequest struct {
 	CPU      float64
 	MemoryMB int
 	TTL      time.Duration
+	// Registry is the login for the registry Image comes from, when Podium holds one. A
+	// provider that pulls the image itself needs it for a private one.
+	Registry *RegistryLogin
 	// Ports are every port Expose may later be called for. A provider that has to declare
 	// them when the sandbox is made (a published container port) uses this; the others
 	// ignore it.
 	Ports []int
+}
+
+// RegistryLogin is a registry username and password. Password is SENSITIVE.
+type RegistryLogin struct {
+	Username string
+	Password string
 }
 
 // ExecResult is a finished command, or a started one when it was detached.
