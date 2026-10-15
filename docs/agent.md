@@ -1711,7 +1711,8 @@ pull request title, linked head and base branches, the head commit, and a table
 of files, additions, deletions, and commits. Later progress leaves that comment
 alone. When the answer arrives, the
 same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
-and the summary under it stays. The answer is one submitted review under that
+and the summary under it stays. An approval is that title in the quote. It does not
+use GitHub's green alert, which is labeled Tip. The answer is one submitted review under that
 comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
 an approval when the first line is `Approve` or `Nits`. Any other verdict is a
 comment review. The review id is stored on the session. A later answer that still
