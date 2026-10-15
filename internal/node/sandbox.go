@@ -21,7 +21,7 @@ func (n *Node) applySandboxConfig(ctx context.Context, c *podiumv1.SandboxConfig
 		return
 	}
 	if !c.GetConfigured() {
-		n.sandbox.Set(nil)
+		n.sandbox.Disable()
 		n.logger.WarnContext(ctx, "sandbox provider is not configured on the control plane; taking no work",
 			"provider", c.GetProvider())
 		n.signal()
@@ -31,13 +31,22 @@ func (n *Node) applySandboxConfig(ctx context.Context, c *podiumv1.SandboxConfig
 	cfg["secret"] = string(c.GetSecret())
 	p, err := sandbox.New(c.GetProvider(), cfg)
 	if err != nil {
-		n.sandbox.Set(nil)
+		n.sandbox.Disable()
 		n.logger.ErrorContext(ctx, "the control plane's sandbox config does not work; taking no work",
 			"provider", c.GetProvider(), "error", err)
 		n.signal()
 		return
 	}
 	n.sandbox.Set(p)
+	// The template is the executor's, read when it plans each task: the provider never
+	// sees it. One the admin saved wins over the node's own file.
+	if e, ok := n.exec.(interface{ SetTemplate(string) }); ok {
+		tmpl := n.cfg.Sandbox.Template
+		if t := c.GetSettings()["template"]; t != "" {
+			tmpl = t
+		}
+		e.SetTemplate(tmpl)
+	}
 	n.logger.InfoContext(ctx, "sandbox provider configured by the control plane", "provider", c.GetProvider())
 	n.signal()
 }

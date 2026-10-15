@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/podium-ade/podium/internal/node/docker"
@@ -50,7 +51,7 @@ type Options struct {
 type Executor struct {
 	p      sandbox.Provider
 	dir    string
-	tmpl   string
+	tmpl   atomic.Pointer[string]
 	agent  func() ([]byte, error)
 	log    *slog.Logger
 	client *http.Client
@@ -93,9 +94,14 @@ func New(o Options) (*Executor, error) {
 	if err := os.MkdirAll(filepath.Join(o.DataDir, "tasks"), 0o700); err != nil {
 		return nil, err
 	}
-	return &Executor{p: o.Provider, dir: o.DataDir, tmpl: o.Template, agent: o.Agent, log: o.Logger,
-		client: &http.Client{Timeout: 0}, tasks: map[string]*task{}}, nil
+	e := &Executor{p: o.Provider, dir: o.DataDir, agent: o.Agent, log: o.Logger,
+		client: &http.Client{Timeout: 0}, tasks: map[string]*task{}}
+	e.SetTemplate(o.Template)
+	return e, nil
 }
+
+// SetTemplate changes the snapshot image tasks start from, for every task planned after it.
+func (e *Executor) SetTemplate(t string) { e.tmpl.Store(&t) }
 
 // TaskDir implements the node's executor.
 func (e *Executor) TaskDir(taskID string) string { return filepath.Join(e.dir, "tasks", taskID) }
@@ -128,7 +134,7 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRe
 		req.Image = sp.Image
 		strategy = wire.StrategyProcess
 	} else if caps.Docker {
-		req.Snapshot = e.tmpl
+		req.Snapshot = *e.tmpl.Load()
 		strategy = wire.StrategyDocker
 	} else {
 		return "", req, fmt.Errorf("%w: provider %s can neither boot an image nor run Docker", errSpec, e.p.Name())
