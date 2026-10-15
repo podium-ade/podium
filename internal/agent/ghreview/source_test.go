@@ -842,6 +842,22 @@ func TestPostOnAReviewCommentTriggerRepliesInThread(t *testing.T) {
 	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "agreed"})
 	require.NoError(t, err)
 	assert.Equal(t, []int64{88}, h.stub.postedReviewInReplyTo())
+	assert.Empty(t, h.stub.postedReviews())
+}
+
+func TestAnInlineApprovalStillApprovesThePullRequest(t *testing.T) {
+	h := newHarness(t)
+	h.src.reviews = ReviewMemory{
+		Get: func(context.Context, string) (int64, error) { return 77, nil },
+	}
+	h.stub.listedReviews = []Review{{ID: 77, State: "COMMENTED"}}
+	ref := Ref(Parsed{Owner: "acme", Repo: "repo", Number: 12, InstallID: 42, Kind: KindReviewComment, CommentID: 88})
+	_, err := h.src.Post(context.Background(), ref, conductor.Outbound{Type: conductor.OutFinal, Text: "**Approve**\n\nEvery finding is closed."})
+	require.NoError(t, err)
+	assert.Empty(t, h.stub.postedReviewInReplyTo())
+	created := h.stub.postedReviews()
+	require.Len(t, created, 1)
+	assert.Equal(t, "APPROVE", created[0]["event"])
 }
 
 func TestFetchTranscriptDropsScaffoldingAndKeepsFinals(t *testing.T) {
