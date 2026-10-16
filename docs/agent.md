@@ -208,7 +208,9 @@ skill list, and the conductor gives it:
 - **`webfetch`, `todoread`, `todowrite` and nothing else.** This is the one tool list in
   Podium that no document can change. No shell, and no filesystem tools: the assistant clones
   nothing, so `read` has no legitimate target and every path it could reach belongs to somebody
-  else.
+  else. The first turn of a chat also gets `title_set`, a tool that writes only
+  `chat-title.txt` inside the turn's jail. It is not a filesystem tool, and a later turn does
+  not get it.
 
   It is not a playbook's list with things taken away. The assistant is not built from a
   playbook at all: it has no image, no repositories and no sidecars because there are none to
@@ -2439,8 +2441,10 @@ task it delegates, and may choose several while answering once.
   Links go with the chat when the chat is deleted.
 - **The title is generated from the first query.** An untitled chat ("New chat") is named from
   the first message the moment it is sent, then the first turn of that chat may overwrite it
-  with a model-written title (`chat-title.txt`). A title a human chose is never rewritten:
-  neither one supplied at create, nor one typed later through `RenameChat`.
+  with a model-written title (`chat-title.txt`). A task that has `write` writes that file. The
+  assistant has no `write` tool, so its first turn calls `title_set`, which writes the same
+  file in the jail. A title a human chose is never rewritten: neither one supplied at create,
+  nor one typed later through `RenameChat`.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
   is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one

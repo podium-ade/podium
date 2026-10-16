@@ -33,6 +33,7 @@ import {
   workspaceOf,
 } from "./repos.js";
 import { SkillError, installSkills } from "./skills.js";
+import { TitleFileEnv, chatTitlePath, titleByTool, titleEntrypoint } from "./title.js";
 
 const ExitOK = 0;
 const ExitMaxTurns = 3;
@@ -293,6 +294,7 @@ async function main(): Promise<number> {
         ? { url: brief.delegation.url, entry: mcpEntrypoint() }
         : undefined,
       interactive: brief.playbook.interactive ? { entry: askEntrypoint() } : undefined,
+      title: titleByTool(brief) ? { entry: titleEntrypoint() } : undefined,
       mcpServers,
     });
   } catch (err) {
@@ -304,6 +306,11 @@ async function main(): Promise<number> {
   }
 
   const env = { ...process.env };
+  // The title server reads this. It is set only when this turn is asked to call title_set,
+  // and it names the one file the conductor already collects. The model does not see it.
+  if (titleByTool(brief)) {
+    env[TitleFileEnv] = chatTitlePath(artifacts);
+  }
   // The brief can be 96 KiB and the harness has no business with it. The
   // skill bundles are the same: they are already on disk where the harness looks, so what
   // is left in the environment is only a copy for the agent's own `env` to print.
