@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +99,8 @@ func (p *overrider) Override(s map[string]string) (sandbox.Capabilities, error) 
 	if s["type"] == "huge" {
 		return sandbox.Capabilities{}, errors.New("no machine type huge")
 	}
-	return sandbox.Capabilities{NativeImage: p.name == "modal", Docker: p.name == "boat" || s["runtime"] == "vm"}, nil
+	vm := s["runtime"] == "vm"
+	return sandbox.Capabilities{NativeImage: p.name == "modal", Docker: p.name == "boat" || vm, Tmpfs: vm}, nil
 }
 
 // A task's overrides of its provider's settings reach Create, and a template override
@@ -109,29 +111,67 @@ func TestPlanAppliesATasksOverrides(t *testing.T) {
 	tmpl := "node-tmpl"
 	boat.tmpl.Store(&tmpl)
 	sp := spec.TaskSpec{Image: "alpine:3", Sandbox: &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}}}
-	_, req, err := boat.plan(sp)
+	_, _, req, err := boat.plan(sp)
 	require.NoError(t, err)
 	require.Empty(t, req.Settings)
 	require.Equal(t, "node-tmpl", req.Snapshot)
 
 	sp.Sandbox.Boat = &spec.BoatSandbox{Type: "large", Template: "task-tmpl"}
-	_, req, err = boat.plan(sp)
+	_, _, req, err = boat.plan(sp)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"type": "large"}, req.Settings)
 	require.Equal(t, "task-tmpl", req.Snapshot)
 
 	sp.Sandbox.Boat.Type = "huge"
-	_, _, err = boat.plan(sp)
+	_, _, _, err = boat.plan(sp)
 	require.ErrorIs(t, err, errSpec)
 
 	modal := &Executor{p: &overrider{name: "modal"}}
 	sidecars := spec.TaskSpec{Image: "alpine:3", Sidecars: map[string]spec.Sidecar{"db": {Image: "postgres"}}}
 	sidecars.Sandbox = &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}}
-	strategy, req, err := modal.plan(sidecars)
+	strategy, caps, req, err := modal.plan(sidecars)
 	require.NoError(t, err, "runtime vm gives the sandbox the Docker its sidecars need")
 	require.Equal(t, "process", strategy)
 	require.Equal(t, map[string]string{"runtime": "vm"}, req.Settings)
+	require.True(t, caps.Docker, "the plan carries what the override gives")
 
-	_, _, err = (&Executor{p: &stubProvider{}}).plan(spec.TaskSpec{Image: "a", Sandbox: &spec.Sandbox{Boat: &spec.BoatSandbox{Type: "small"}}})
+	_, _, _, err = (&Executor{p: &stubProvider{}}).plan(spec.TaskSpec{Image: "a", Sandbox: &spec.Sandbox{Boat: &spec.BoatSandbox{Type: "small"}}})
 	require.NoError(t, err, "a provider that takes no overrides is given none")
+}
+
+// agentStarter is a Modal-like provider whose sandboxes come up, and which records the
+// commands it is asked to run. Expose fails, which ends the run once the agent is started.
+type agentStarter struct {
+	overrider
+	cmds []string
+}
+
+func (p *agentStarter) WaitReady(context.Context, string) error                         { return nil }
+func (p *agentStarter) PutFile(context.Context, string, string, io.Reader, int64) error { return nil }
+func (p *agentStarter) Exec(_ context.Context, _, cmd string, _ bool) (sandbox.ExecResult, error) {
+	p.cmds = append(p.cmds, cmd)
+	return sandbox.ExecResult{}, nil
+}
+func (p *agentStarter) Expose(context.Context, string, int) (sandbox.Endpoint, error) {
+	return sandbox.Endpoint{}, errors.New("stop here")
+}
+
+// The agent starts with what the task's overrides give its sandbox, not with the provider's
+// own: runtime vm on a gvisor provider has a tmpfs for secrets.
+func TestTheAgentStartsWithTheOverriddenCapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		tmpfs   bool
+	}{{"vm", true}, {"", false}} {
+		p := &agentStarter{overrider: overrider{name: "modal"}}
+		e, err := New(Options{Provider: p, DataDir: t.TempDir(), Agent: func() ([]byte, error) { return []byte("agent"), nil }})
+		require.NoError(t, err)
+		sp := spec.TaskSpec{Image: "alpine:3", Command: []string{"true"}, Sandbox: &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: tc.runtime}}}
+		sp.ApplyDefaults()
+		ch := make(chan docker.Event, 16)
+		_, err = e.Run(context.Background(), docker.Request{TaskID: "t", LeaseID: "l", Spec: sp}, ch)
+		require.ErrorContains(t, err, "stop here")
+		require.NotEmpty(t, p.cmds)
+		require.Equal(t, tc.tmpfs, strings.Contains(p.cmds[len(p.cmds)-1], " -tmpfs"), "runtime %q", tc.runtime)
+	}
 }
