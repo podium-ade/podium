@@ -24,6 +24,12 @@ export const NAV_ICON_PATHS = {
   usage: "M4 20V12h4v8H4Zm6 0V4h4v16h-4Zm6 0v-9h4v9h-4Z",
   settings:
     "M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+  models: "M9 4h6v4H9V4Zm-5 12h6v4H4v-4Zm10 0h6v4h-6v-4ZM12 8v4M7 16v-4h10v4",
+  connections:
+    "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  backend: "M4 4h16v6H4V4Zm0 10h16v6H4v-6Zm3-7h2m-2 10h2m5-10h5m-5 10h5",
+  members:
+    "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-6 9v-1a6 6 0 0 1 12 0v1H3Zm13-9a3 3 0 0 0 0-6m2 15h3v-1a6 6 0 0 0-4-5.6",
 } as const;
 
 export type NavIconName = keyof typeof NAV_ICON_PATHS;
@@ -42,6 +48,16 @@ export function NavIcon({ name, className }: { name: NavIconName; className?: st
   return (
     <svg {...stroke} className={cn("block size-[18px] shrink-0", className)}>
       <path d={NAV_ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
+/** The sidebar search mark, a lens in the same 24 viewBox. */
+export function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg {...stroke} className={cn("block size-[18px] shrink-0", className)}>
+      <circle cx="11" cy="11" r="6" />
+      <path d="m20 20-4.5-4.5" />
     </svg>
   );
 }

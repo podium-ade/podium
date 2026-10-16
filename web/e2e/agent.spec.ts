@@ -132,8 +132,8 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page).toHaveURL(/\/agent\/chat$/);
   await expect(page.getByTestId("chat-new")).toBeVisible();
 
-  await page.getByRole("link", { name: "Settings" }).click();
-  await expect(page).toHaveURL(/\/agent\/settings$/);
+  await page.getByRole("link", { name: "Models" }).click();
+  await expect(page).toHaveURL(/\/agent\/settings\/models$/);
   await expect(page.getByRole("heading", { name: "Anthropic" })).toBeVisible();
 
   // Playbooks and Skills are sidebar destinations, not tabs. This harness's profile comes
@@ -153,7 +153,7 @@ test("the agent tabs are real routes", async ({ page }) => {
   await expect(page.getByTestId("skill-new")).toBeVisible();
 
   // The MCP registry. Empty on this harness, so what it must show is the way in.
-  await page.getByRole("link", { name: "MCP" }).click();
+  await page.getByRole("link", { name: "MCP servers" }).click();
   await expect(page).toHaveURL(/\/agent\/mcp$/);
   await expect(page.getByTestId("mcp-new")).toBeVisible();
 
