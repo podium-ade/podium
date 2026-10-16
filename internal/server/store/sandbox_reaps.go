@@ -29,19 +29,6 @@ func (s *Store) SetTaskSandbox(ctx context.Context, taskID, leaseID, provider, s
 	return n > 0, nil
 }
 
-// QueueSandboxReap queues the sandbox the task last recorded for deletion and returns its
-// provider, or "" when the task never had one or it is already queued.
-func (s *Store) QueueSandboxReap(ctx context.Context, taskID, reason string) (string, error) {
-	provider, err := s.q.QueueSandboxReap(ctx, db.QueueSandboxReapParams{TaskID: taskID, Reason: reason})
-	if noRows(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("queue sandbox reap for task %s: %w", taskID, err)
-	}
-	return provider, nil
-}
-
 // ListSandboxReaps returns the provider's queued reaps, oldest first.
 func (s *Store) ListSandboxReaps(ctx context.Context, provider string) ([]SandboxReap, error) {
 	rows, err := s.q.ListSandboxReaps(ctx, provider)

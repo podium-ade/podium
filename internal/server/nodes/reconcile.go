@@ -156,10 +156,11 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		s.logger.WarnContext(ctx, "recording a node-loss note failed", "task_id", task.ID, "error", err)
 	}
 	if task.Spec.RetryOnNodeLoss && task.Attempts < task.MaxAttempts && task.CancelRequestedAt == nil {
-		if _, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusQueued, store.Patch{}); err == nil {
+		if t, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusQueued,
+			store.Patch{ReapSandbox: reason}); err == nil {
 			s.logger.InfoContext(ctx, "task requeued after losing its node",
 				"task_id", task.ID, "node_id", node.ID, "attempt", task.Attempts)
-			s.queueReap(ctx, task.ID, reason)
+			s.ReapSandboxes(ctx, t.SandboxProvider)
 			return
 		} else if !errors.Is(err, store.ErrInvalidTransition) {
 			s.logger.ErrorContext(ctx, "requeueing a task after node loss failed",
@@ -170,15 +171,16 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		// re-checks the state under the row lock anyway.
 	}
 	now := time.Now().UTC()
-	if _, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusLost,
-		store.Patch{FailureReason: &reason, FinishedAt: &now}); err != nil {
+	t, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusLost,
+		store.Patch{FailureReason: &reason, FinishedAt: &now, ReapSandbox: reason})
+	if err != nil {
 		if !errors.Is(err, store.ErrInvalidTransition) {
 			s.logger.ErrorContext(ctx, "marking a task lost failed", "task_id", task.ID, "error", err)
 		}
 		return
 	}
 	s.reg.Release(task.ID)
-	s.queueReap(ctx, task.ID, reason)
+	s.ReapSandboxes(ctx, t.SandboxProvider)
 	s.logger.InfoContext(ctx, "task lost with its node",
 		"task_id", task.ID, "node_id", node.ID, "reason", reason)
 }

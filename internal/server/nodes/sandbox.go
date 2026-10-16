@@ -78,22 +78,12 @@ func (r *Registry) withLabel(label string) []*Session {
 	return out
 }
 
-// queueReap queues the sandbox a task's lost attempt ran in for deletion, and asks a node of
-// its provider to delete it now.
-func (s *Service) queueReap(ctx context.Context, taskID, reason string) {
-	provider, err := s.store.QueueSandboxReap(ctx, taskID, reason)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "queueing a lost task's sandbox for deletion failed", "task_id", taskID, "error", err)
-		return
-	}
-	if provider != "" {
-		s.ReapSandboxes(ctx, provider)
-	}
-}
-
 // ReapSandboxes asks the provider's connected nodes, in turn, to delete each sandbox queued
 // for it. A reap stays queued until a node says the sandbox is gone.
 func (s *Service) ReapSandboxes(ctx context.Context, provider string) {
+	if provider == "" {
+		return
+	}
 	s.reapOn(ctx, provider, s.reg.withLabel(labelSandboxProvider+provider))
 }
 
