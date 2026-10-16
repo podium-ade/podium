@@ -34,6 +34,39 @@ function mount(props: Partial<Parameters<typeof PlaybookEditor>[0]> = {}) {
 }
 
 describe("PlaybookEditor", () => {
+  it("pins where it runs and sends only the overrides that are set", async () => {
+    mount({
+      playbook: create(PlaybookDefinitionSchema, {
+        name: "coder",
+        image: "podium-agent-runtime:dev",
+        systemPrompt: "Code.",
+        allowedTools: ["read"],
+        docker: true,
+        editable: true,
+        sandbox: { modal: { environment: "staging" } },
+      }),
+      defaultRunsOn: "boat",
+    });
+    const runsOn = screen.getByLabelText("Runs on");
+    expect(runsOn).toHaveDisplayValue("Settings default (boat.dev)");
+    expect(screen.getByLabelText("Environment")).toHaveValue("staging");
+
+    await userEvent.selectOptions(runsOn, "modal");
+    expect(screen.getByText("Modal's gvisor runtime has no Docker")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Runtime"), "vm");
+    expect(screen.queryByText("Modal's gvisor runtime has no Docker")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Machine type"), "large");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save playbook" }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      runsOn: "modal",
+      sandbox: {
+        boat: { type: "large", template: "", org: "" },
+        modal: { runtime: "vm", environment: "staging" },
+      },
+    });
+  });
+
   it("sends the whole definition, secrets included", async () => {
     mount();
     await userEvent.type(screen.getByLabelText("Playbook name"), "reporter");

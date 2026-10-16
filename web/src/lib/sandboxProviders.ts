@@ -1,3 +1,5 @@
+import type { SandboxProvider } from "../gen/podium/v1/sandbox_pb";
+
 /**
  * The sandbox providers a sandbox node can run on, and what each one is configured with. The
  * names are the ones a node's `sandbox.provider` and the `sandbox.provider=` label use.
@@ -26,6 +28,13 @@ export type ProviderSpec = {
   fields: ProviderField[];
 };
 
+/** The values a playbook may override a provider's machine type and runtime with. */
+export const BOAT_TYPES = ["small", "default", "large", "xlarge"];
+export const MODAL_RUNTIMES = ["gvisor", "vm"];
+
+/** RUNS_ON_NODES is where a turn runs on this fleet's own machines. */
+export const RUNS_ON_NODES = "nodes";
+
 export const SANDBOX_PROVIDERS: ProviderSpec[] = [
   {
     name: "boat",
@@ -47,7 +56,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         key: "default_type",
         label: "Default size",
         help: "The machine a task gets when it asks for no resources.",
-        options: ["small", "default", "large", "xlarge"],
+        options: BOAT_TYPES,
       },
       {
         key: "org",
@@ -72,7 +81,7 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
         key: "runtime",
         label: "Runtime",
         help: "gvisor is the default; vm adds Docker and tmpfs, for sidecars.",
-        options: ["gvisor", "vm"],
+        options: MODAL_RUNTIMES,
       },
       { key: "environment", label: "Environment", help: "The Modal environment. Empty is the default one." },
       { key: "cpu", label: "Default CPU", help: "Cores for a task that asks for none.", placeholder: "1" },
@@ -84,4 +93,13 @@ export const SANDBOX_PROVIDERS: ProviderSpec[] = [
 /** The label a sandbox node of this provider carries. */
 export function providerLabel(name: string): string {
   return `sandbox.provider=${name}`;
+}
+
+/** capacityText is how many sandboxes are up against what may be. */
+export function capacityText(p: SandboxProvider): string {
+  const caps = [
+    p.maxConcurrent > 0 ? `${p.maxConcurrent} allowed` : "",
+    p.accountLimit > 0 ? `account limit ${p.accountLimit}` : "",
+  ].filter(Boolean);
+  return caps.length > 0 ? `${p.inUse} of ${caps.join(", ")}` : `${p.inUse}, no cap`;
 }
