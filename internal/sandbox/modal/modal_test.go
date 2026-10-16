@@ -38,7 +38,7 @@ func TestNewRejectsBadConfig(t *testing.T) {
 
 func TestCreateParams(t *testing.T) {
 	p := &Provider{cfg: Config{CPU: 0.5, MemoryMB: 1024, Runtime: "vm"}}
-	got, err := p.createParams(sandbox.CreateRequest{Key: "lease-1", TTL: 90*time.Minute + 500*time.Millisecond, Ports: []int{7799}})
+	got, err := p.createParams(sandbox.CreateRequest{Key: "lease-1", TTL: 90*time.Minute + 500*time.Millisecond, Ports: []int{7799}}, p.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,16 +48,46 @@ func TestCreateParams(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 	p.cfg.Runtime = "gvisor"
-	got, _ = p.createParams(sandbox.CreateRequest{Key: "k", CPU: 2, MemoryMB: 4096})
+	got, _ = p.createParams(sandbox.CreateRequest{Key: "k", CPU: 2, MemoryMB: 4096}, p.cfg)
 	if got.CPU != 2 || got.MemoryMiB != 4096 || !strings.Contains(got.Command[2], "+ 300))") || strings.Contains(got.Command[2], "dockerd") {
 		t.Errorf("%+v", got)
 	}
 	for _, ttl := range []time.Duration{MaxTTL + time.Second, time.Millisecond} {
-		_, err := p.createParams(sandbox.CreateRequest{Key: "k", TTL: ttl})
+		_, err := p.createParams(sandbox.CreateRequest{Key: "k", TTL: ttl}, p.cfg)
 		var pe *sandbox.Error
 		if !errors.As(err, &pe) || pe.Code != "invalid" || pe.Retryable {
 			t.Errorf("ttl %v: %v", ttl, err)
 		}
+	}
+}
+
+// A task may run under the vm runtime on a gvisor provider, which gives it Docker, and in an
+// environment of its own.
+func TestATaskOverridesRuntimeAndEnvironment(t *testing.T) {
+	p := &Provider{cfg: Config{Runtime: "gvisor", Image: DefaultImage, Environment: "main"}}
+	if p.Capabilities().Docker {
+		t.Fatal("gvisor has no Docker")
+	}
+	caps, err := p.Override(map[string]string{"runtime": "vm", "environment": "staging"})
+	if err != nil || !caps.Docker || !caps.Tmpfs {
+		t.Fatalf("%+v, %v", caps, err)
+	}
+	for _, bad := range []map[string]string{{"runtime": "docker"}, {"app": "other"}} {
+		if _, err := p.Override(bad); err == nil {
+			t.Errorf("%v: no error", bad)
+		}
+	}
+	cfg := p.cfg.with(map[string]string{"runtime": "vm", "environment": "staging"})
+	if cfg.Image != DefaultVMImage || cfg.Environment != "staging" || p.cfg.Runtime != "gvisor" {
+		t.Errorf("%+v, provider's own %+v", cfg, p.cfg)
+	}
+	got, _ := p.createParams(sandbox.CreateRequest{Key: "k"}, cfg)
+	if got.Runtime != sdk.SandboxRuntimeVM || !strings.HasPrefix(got.Command[2], dockerd) {
+		t.Errorf("%+v", got)
+	}
+	custom := Config{Runtime: "gvisor", Image: "my/image"}.with(map[string]string{"runtime": "vm"})
+	if custom.Image != "my/image" {
+		t.Errorf("an operator's own image is kept: %q", custom.Image)
 	}
 }
 

@@ -78,6 +78,15 @@ type CreateRequest struct {
 	// them when the sandbox is made (a published container port) uses this; the others
 	// ignore it.
 	Ports []int
+	// Settings are the task's overrides of the provider's own settings, for this sandbox
+	// only. Only a provider that is an Overrider is given any.
+	Settings map[string]string
+}
+
+// Overrider is a provider a task may override some settings of, for its own sandbox.
+type Overrider interface {
+	// Override checks settings and returns the capabilities a sandbox made with them has.
+	Override(settings map[string]string) (Capabilities, error)
 }
 
 // RegistryLogin is a registry username and password. Password is SENSITIVE.

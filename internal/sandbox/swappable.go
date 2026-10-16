@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -68,6 +69,19 @@ func (s *Swappable) Capabilities() Capabilities {
 		return p.Capabilities()
 	}
 	return Capabilities{}
+}
+
+// Override implements Overrider for a provider that is one.
+func (s *Swappable) Override(settings map[string]string) (Capabilities, error) {
+	p, err := s.current("create")
+	if err != nil {
+		return Capabilities{}, err
+	}
+	o, ok := p.(Overrider)
+	if !ok {
+		return Capabilities{}, fmt.Errorf("sandbox provider %s takes no task overrides", s.name)
+	}
+	return o.Override(settings)
 }
 
 // Create implements Provider. A disabled provider makes no new sandboxes.

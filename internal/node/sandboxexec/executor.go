@@ -131,6 +131,22 @@ func (e *Executor) GatewayPorts(context.Context, string) (map[int]int, error) { 
 // from.
 func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRequest, err error) {
 	caps := e.p.Capabilities()
+	settings := sp.Sandbox.Settings(e.p.Name())
+	template, hasTemplate := settings["template"]
+	delete(settings, "template")
+	if len(settings) > 0 {
+		o, ok := e.p.(sandbox.Overrider)
+		if !ok {
+			return "", req, fmt.Errorf("%w: provider %s takes no task overrides", errSpec, e.p.Name())
+		}
+		if caps, err = o.Override(settings); err != nil {
+			if errors.As(err, new(*sandbox.Error)) {
+				return "", req, err
+			}
+			return "", req, fmt.Errorf("%w: %w", errSpec, err)
+		}
+		req.Settings = settings
+	}
 	if sp.Sandbox != nil && sp.Sandbox.Snapshot != "" {
 		if !caps.Snapshot {
 			return "", req, fmt.Errorf("%w: provider %s cannot start a sandbox from a snapshot", errSpec, e.p.Name())
@@ -142,6 +158,9 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRe
 		strategy = wire.StrategyProcess
 	} else if caps.Docker {
 		req.Snapshot = *e.tmpl.Load()
+		if hasTemplate {
+			req.Snapshot = template
+		}
 		strategy = wire.StrategyDocker
 	} else {
 		return "", req, fmt.Errorf("%w: provider %s can neither boot an image nor run Docker", errSpec, e.p.Name())

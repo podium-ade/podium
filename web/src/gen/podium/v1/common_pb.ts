@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/common.proto.
  */
 export const file_podium_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("ChZwb2RpdW0vdjEvY29tbW9uLnByb3RvEglwb2RpdW0udjEiyQUKCFRhc2tTcGVjEg0KBWltYWdlGAEgASgJEg8KB2NvbW1hbmQYAiADKAkSEwoLd29ya2luZ19kaXIYAyABKAkSKQoDZW52GAQgAygLMhwucG9kaXVtLnYxLlRhc2tTcGVjLkVudkVudHJ5Eg4KBmxhYmVscxgFIAMoCRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhQKDG1heF9hdHRlbXB0cxgHIAEoBRIzCghzaWRlY2FycxgIIAMoCzIhLnBvZGl1bS52MS5UYXNrU3BlYy5TaWRlY2Fyc0VudHJ5EicKCXJlc291cmNlcxgJIAEoCzIULnBvZGl1bS52MS5SZXNvdXJjZXMSJwoJaGFyZGVuaW5nGAogASgLMhQucG9kaXVtLnYxLkhhcmRlbmluZxIlCgdzZWNyZXRzGAsgAygLMhQucG9kaXVtLnYxLlNlY3JldFJlZhIaChJyZXRyeV9vbl9ub2RlX2xvc3MYDCABKAgSGQoRd29ya3NwYWNlX3Nlc3Npb24YDSABKAkSFgoOd29ya3NwYWNlX3JlcG8YDiABKAkSHgoWd29ya3NwYWNlX3B1Ymxpc2hfYmFzZRgPIAEoCBIxCg53b3Jrc3BhY2Vfd2FybRgQIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIhCgZleHBvc2UYESABKAsyES5wb2RpdW0udjEuRXhwb3NlEicKB3NhbmRib3gYEiABKAsyFi5wb2RpdW0udjEuVGFza1NhbmRib3gaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARpDCg1TaWRlY2Fyc0VudHJ5EgsKA2tleRgBIAEoCRIhCgV2YWx1ZRgCIAEoCzISLnBvZGl1bS52MS5TaWRlY2FyOgI4ASIfCgtUYXNrU2FuZGJveBIQCghzbmFwc2hvdBgBIAEoCSKwAQoGRXhwb3NlEiYKA3R0bBgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhILCgN2aWEYAiABKAkSKwoFcG9ydHMYAyADKAsyHC5wb2RpdW0udjEuRXhwb3NlLlBvcnRzRW50cnkaRAoKUG9ydHNFbnRyeRILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5wb2RpdW0udjEuRXhwb3NlZFBvcnQ6AjgBIikKC0V4cG9zZWRQb3J0EgwKBHBvcnQYASABKAUSDAoEZnJvbRgCIAEoCSJFCglTZWNyZXRSZWYSDAoEbmFtZRgBIAEoCRIOCgZ0YXJnZXQYAiABKAkSCwoDa2V5GAMgASgJEg0KBW93bmVyGAQgASgJIjkKCVJlc291cmNlcxILCgNjcHUYASABKAESEQoJbWVtb3J5X21iGAIgASgDEgwKBHBpZHMYAyABKAUigAEKCVJlYWRpbmVzcxIQCgh0Y3BfcG9ydBgBIAEoBRIRCglodHRwX3BhdGgYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgFEg8KB2NvbW1hbmQYBCADKAkSKgoHdGltZW91dBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiL+AQoHU2lkZWNhchINCgVpbWFnZRgBIAEoCRIPCgdjb21tYW5kGAIgAygJEigKA2VudhgDIAMoCzIbLnBvZGl1bS52MS5TaWRlY2FyLkVudkVudHJ5EicKCXJlYWRpbmVzcxgEIAEoCzIULnBvZGl1bS52MS5SZWFkaW5lc3MSJwoJcmVzb3VyY2VzGAUgASgLMhQucG9kaXVtLnYxLlJlc291cmNlcxISCgpwcml2aWxlZ2VkGAYgASgIEhcKD3NoYXJlX3dvcmtzcGFjZRgHIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIjsKCUhhcmRlbmluZxIYChByZWFkX29ubHlfcm9vdGZzGAEgASgIEhQKDGNhcGFiaWxpdGllcxgCIAMoCSJFCgVVc2FnZRITCgtjcHVfc2Vjb25kcxgBIAEoARIWCg5wZWFrX21lbW9yeV9tYhgCIAEoAxIPCgd3YWxsX21zGAMgASgDIkcKDE5vZGVDYXBhY2l0eRIRCgltYXhfdGFza3MYASABKAUSEQoJY3B1X2NvcmVzGAIgASgFEhEKCW1lbW9yeV9tYhgDIAEoAyr3AQoKVGFza1N0YXR1cxIbChdUQVNLX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElRBU0tfU1RBVFVTX1FVRVVFRBABEhkKFVRBU0tfU1RBVFVTX1NDSEVEVUxFRBACEhwKGFRBU0tfU1RBVFVTX1BST1ZJU0lPTklORxADEhcKE1RBU0tfU1RBVFVTX1JVTk5JTkcQBBIZChVUQVNLX1NUQVRVU19TVUNDRUVERUQQBRIWChJUQVNLX1NUQVRVU19GQUlMRUQQBhIZChVUQVNLX1NUQVRVU19DQU5DRUxMRUQQBxIUChBUQVNLX1NUQVRVU19MT1NUEAgqkQEKCk5vZGVTdGF0dXMSGwoXTk9ERV9TVEFUVVNfVU5TUEVDSUZJRUQQABIWChJOT0RFX1NUQVRVU19PTkxJTkUQARIbChdOT0RFX1NUQVRVU19VTlJFQUNIQUJMRRACEhcKE05PREVfU1RBVFVTX09GRkxJTkUQAxIYChROT0RFX1NUQVRVU19EUkFJTklORxAEQqEBCg1jb20ucG9kaXVtLnYxQgtDb21tb25Qcm90b1ABWj5naXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration]);
+  fileDesc("ChZwb2RpdW0vdjEvY29tbW9uLnByb3RvEglwb2RpdW0udjEiyQUKCFRhc2tTcGVjEg0KBWltYWdlGAEgASgJEg8KB2NvbW1hbmQYAiADKAkSEwoLd29ya2luZ19kaXIYAyABKAkSKQoDZW52GAQgAygLMhwucG9kaXVtLnYxLlRhc2tTcGVjLkVudkVudHJ5Eg4KBmxhYmVscxgFIAMoCRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhQKDG1heF9hdHRlbXB0cxgHIAEoBRIzCghzaWRlY2FycxgIIAMoCzIhLnBvZGl1bS52MS5UYXNrU3BlYy5TaWRlY2Fyc0VudHJ5EicKCXJlc291cmNlcxgJIAEoCzIULnBvZGl1bS52MS5SZXNvdXJjZXMSJwoJaGFyZGVuaW5nGAogASgLMhQucG9kaXVtLnYxLkhhcmRlbmluZxIlCgdzZWNyZXRzGAsgAygLMhQucG9kaXVtLnYxLlNlY3JldFJlZhIaChJyZXRyeV9vbl9ub2RlX2xvc3MYDCABKAgSGQoRd29ya3NwYWNlX3Nlc3Npb24YDSABKAkSFgoOd29ya3NwYWNlX3JlcG8YDiABKAkSHgoWd29ya3NwYWNlX3B1Ymxpc2hfYmFzZRgPIAEoCBIxCg53b3Jrc3BhY2Vfd2FybRgQIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIhCgZleHBvc2UYESABKAsyES5wb2RpdW0udjEuRXhwb3NlEicKB3NhbmRib3gYEiABKAsyFi5wb2RpdW0udjEuVGFza1NhbmRib3gaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARpDCg1TaWRlY2Fyc0VudHJ5EgsKA2tleRgBIAEoCRIhCgV2YWx1ZRgCIAEoCzISLnBvZGl1bS52MS5TaWRlY2FyOgI4ASJ/CgtUYXNrU2FuZGJveBIQCghzbmFwc2hvdBgBIAEoCRIQCghwcm92aWRlchgCIAEoCRIkCgRib2F0GAMgASgLMhYucG9kaXVtLnYxLkJvYXRTYW5kYm94EiYKBW1vZGFsGAQgASgLMhcucG9kaXVtLnYxLk1vZGFsU2FuZGJveCI6CgtCb2F0U2FuZGJveBIMCgR0eXBlGAEgASgJEhAKCHRlbXBsYXRlGAIgASgJEgsKA29yZxgDIAEoCSI0CgxNb2RhbFNhbmRib3gSDwoHcnVudGltZRgBIAEoCRITCgtlbnZpcm9ubWVudBgCIAEoCSKwAQoGRXhwb3NlEiYKA3R0bBgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhILCgN2aWEYAiABKAkSKwoFcG9ydHMYAyADKAsyHC5wb2RpdW0udjEuRXhwb3NlLlBvcnRzRW50cnkaRAoKUG9ydHNFbnRyeRILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5wb2RpdW0udjEuRXhwb3NlZFBvcnQ6AjgBIikKC0V4cG9zZWRQb3J0EgwKBHBvcnQYASABKAUSDAoEZnJvbRgCIAEoCSJFCglTZWNyZXRSZWYSDAoEbmFtZRgBIAEoCRIOCgZ0YXJnZXQYAiABKAkSCwoDa2V5GAMgASgJEg0KBW93bmVyGAQgASgJIjkKCVJlc291cmNlcxILCgNjcHUYASABKAESEQoJbWVtb3J5X21iGAIgASgDEgwKBHBpZHMYAyABKAUigAEKCVJlYWRpbmVzcxIQCgh0Y3BfcG9ydBgBIAEoBRIRCglodHRwX3BhdGgYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgFEg8KB2NvbW1hbmQYBCADKAkSKgoHdGltZW91dBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiL+AQoHU2lkZWNhchINCgVpbWFnZRgBIAEoCRIPCgdjb21tYW5kGAIgAygJEigKA2VudhgDIAMoCzIbLnBvZGl1bS52MS5TaWRlY2FyLkVudkVudHJ5EicKCXJlYWRpbmVzcxgEIAEoCzIULnBvZGl1bS52MS5SZWFkaW5lc3MSJwoJcmVzb3VyY2VzGAUgASgLMhQucG9kaXVtLnYxLlJlc291cmNlcxISCgpwcml2aWxlZ2VkGAYgASgIEhcKD3NoYXJlX3dvcmtzcGFjZRgHIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIjsKCUhhcmRlbmluZxIYChByZWFkX29ubHlfcm9vdGZzGAEgASgIEhQKDGNhcGFiaWxpdGllcxgCIAMoCSJFCgVVc2FnZRITCgtjcHVfc2Vjb25kcxgBIAEoARIWCg5wZWFrX21lbW9yeV9tYhgCIAEoAxIPCgd3YWxsX21zGAMgASgDIkcKDE5vZGVDYXBhY2l0eRIRCgltYXhfdGFza3MYASABKAUSEQoJY3B1X2NvcmVzGAIgASgFEhEKCW1lbW9yeV9tYhgDIAEoAyr3AQoKVGFza1N0YXR1cxIbChdUQVNLX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElRBU0tfU1RBVFVTX1FVRVVFRBABEhkKFVRBU0tfU1RBVFVTX1NDSEVEVUxFRBACEhwKGFRBU0tfU1RBVFVTX1BST1ZJU0lPTklORxADEhcKE1RBU0tfU1RBVFVTX1JVTk5JTkcQBBIZChVUQVNLX1NUQVRVU19TVUNDRUVERUQQBRIWChJUQVNLX1NUQVRVU19GQUlMRUQQBhIZChVUQVNLX1NUQVRVU19DQU5DRUxMRUQQBxIUChBUQVNLX1NUQVRVU19MT1NUEAgqkQEKCk5vZGVTdGF0dXMSGwoXTk9ERV9TVEFUVVNfVU5TUEVDSUZJRUQQABIWChJOT0RFX1NUQVRVU19PTkxJTkUQARIbChdOT0RFX1NUQVRVU19VTlJFQUNIQUJMRRACEhcKE05PREVfU1RBVFVTX09GRkxJTkUQAxIYChROT0RFX1NUQVRVU19EUkFJTklORxAEQqEBCg1jb20ucG9kaXVtLnYxQgtDb21tb25Qcm90b1ABWj5naXRodWIuY29tL3BvZGl1bS1hZGUvcG9kaXVtL2ludGVybmFsL3Byb3RvL3BvZGl1bS92MTtwb2RpdW12MaICA1BYWKoCCVBvZGl1bS5WMcoCCVBvZGl1bVxWMeICFVBvZGl1bVxWMVxHUEJNZXRhZGF0YeoCClBvZGl1bTo6VjFiBnByb3RvMw", [file_google_protobuf_duration]);
 
 /**
  * TaskSpec is the wire form of pkg/spec.TaskSpec.
@@ -172,6 +172,25 @@ export type TaskSandbox = Message<"podium.v1.TaskSandbox"> & {
    * @generated from field: string snapshot = 1;
    */
   snapshot: string;
+
+  /**
+   * provider pins the task to that provider's sandbox nodes. Empty is any of them.
+   *
+   * @generated from field: string provider = 2;
+   */
+  provider: string;
+
+  /**
+   * boat and modal override that provider's settings for this sandbox, when it runs there.
+   *
+   * @generated from field: podium.v1.BoatSandbox boat = 3;
+   */
+  boat?: BoatSandbox | undefined;
+
+  /**
+   * @generated from field: podium.v1.ModalSandbox modal = 4;
+   */
+  modal?: ModalSandbox | undefined;
 };
 
 /**
@@ -180,6 +199,69 @@ export type TaskSandbox = Message<"podium.v1.TaskSandbox"> & {
  */
 export const TaskSandboxSchema: GenMessage<TaskSandbox> = /*@__PURE__*/
   messageDesc(file_podium_v1_common, 1);
+
+/**
+ * BoatSandbox is what a task may set about its boat sandbox.
+ *
+ * @generated from message podium.v1.BoatSandbox
+ */
+export type BoatSandbox = Message<"podium.v1.BoatSandbox"> & {
+  /**
+   * type is the machine size: small, default, large or xlarge.
+   *
+   * @generated from field: string type = 1;
+   */
+  type: string;
+
+  /**
+   * template is the named snapshot an image task starts from.
+   *
+   * @generated from field: string template = 2;
+   */
+  template: string;
+
+  /**
+   * org bills the sandbox to this boat organization.
+   *
+   * @generated from field: string org = 3;
+   */
+  org: string;
+};
+
+/**
+ * Describes the message podium.v1.BoatSandbox.
+ * Use `create(BoatSandboxSchema)` to create a new message.
+ */
+export const BoatSandboxSchema: GenMessage<BoatSandbox> = /*@__PURE__*/
+  messageDesc(file_podium_v1_common, 2);
+
+/**
+ * ModalSandbox is what a task may set about its Modal sandbox.
+ *
+ * @generated from message podium.v1.ModalSandbox
+ */
+export type ModalSandbox = Message<"podium.v1.ModalSandbox"> & {
+  /**
+   * runtime is gvisor or vm.
+   *
+   * @generated from field: string runtime = 1;
+   */
+  runtime: string;
+
+  /**
+   * environment is the Modal environment the sandbox is made in.
+   *
+   * @generated from field: string environment = 2;
+   */
+  environment: string;
+};
+
+/**
+ * Describes the message podium.v1.ModalSandbox.
+ * Use `create(ModalSandboxSchema)` to create a new message.
+ */
+export const ModalSandboxSchema: GenMessage<ModalSandbox> = /*@__PURE__*/
+  messageDesc(file_podium_v1_common, 3);
 
 /**
  * Expose is a task that stays up as a preview once its command has exited.
@@ -214,7 +296,7 @@ export type Expose = Message<"podium.v1.Expose"> & {
  * Use `create(ExposeSchema)` to create a new message.
  */
 export const ExposeSchema: GenMessage<Expose> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 2);
+  messageDesc(file_podium_v1_common, 4);
 
 /**
  * ExposedPort is one port a preview publishes, under the same number it listens on.
@@ -240,7 +322,7 @@ export type ExposedPort = Message<"podium.v1.ExposedPort"> & {
  * Use `create(ExposedPortSchema)` to create a new message.
  */
 export const ExposedPortSchema: GenMessage<ExposedPort> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 3);
+  messageDesc(file_podium_v1_common, 5);
 
 /**
  * SecretRef names a stored secret and says where the task wants it. Nothing here is
@@ -285,7 +367,7 @@ export type SecretRef = Message<"podium.v1.SecretRef"> & {
  * Use `create(SecretRefSchema)` to create a new message.
  */
 export const SecretRefSchema: GenMessage<SecretRef> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 4);
+  messageDesc(file_podium_v1_common, 6);
 
 /**
  * Resources caps one container. The node applies the limits blindly; refusing a task that
@@ -321,7 +403,7 @@ export type Resources = Message<"podium.v1.Resources"> & {
  * Use `create(ResourcesSchema)` to create a new message.
  */
 export const ResourcesSchema: GenMessage<Resources> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 5);
+  messageDesc(file_podium_v1_common, 7);
 
 /**
  * Readiness is how the node decides a sidecar is usable. At most one probe may be set; a
@@ -365,7 +447,7 @@ export type Readiness = Message<"podium.v1.Readiness"> & {
  * Use `create(ReadinessSchema)` to create a new message.
  */
 export const ReadinessSchema: GenMessage<Readiness> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 6);
+  messageDesc(file_podium_v1_common, 8);
 
 /**
  * Sidecar is a sibling container on the task's network.
@@ -422,7 +504,7 @@ export type Sidecar = Message<"podium.v1.Sidecar"> & {
  * Use `create(SidecarSchema)` to create a new message.
  */
 export const SidecarSchema: GenMessage<Sidecar> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 7);
+  messageDesc(file_podium_v1_common, 9);
 
 /**
  * Hardening relaxes or tightens the task container's sandbox.
@@ -451,7 +533,7 @@ export type Hardening = Message<"podium.v1.Hardening"> & {
  * Use `create(HardeningSchema)` to create a new message.
  */
 export const HardeningSchema: GenMessage<Hardening> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 8);
+  messageDesc(file_podium_v1_common, 10);
 
 /**
  * Usage is the resource accounting reported when a task finishes.
@@ -480,7 +562,7 @@ export type Usage = Message<"podium.v1.Usage"> & {
  * Use `create(UsageSchema)` to create a new message.
  */
 export const UsageSchema: GenMessage<Usage> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 9);
+  messageDesc(file_podium_v1_common, 11);
 
 /**
  * NodeCapacity is what a node advertises in Hello and what ListNodes reports back.
@@ -509,7 +591,7 @@ export type NodeCapacity = Message<"podium.v1.NodeCapacity"> & {
  * Use `create(NodeCapacitySchema)` to create a new message.
  */
 export const NodeCapacitySchema: GenMessage<NodeCapacity> = /*@__PURE__*/
-  messageDesc(file_podium_v1_common, 10);
+  messageDesc(file_podium_v1_common, 12);
 
 /**
  * TaskStatus mirrors the tasks.status column.
