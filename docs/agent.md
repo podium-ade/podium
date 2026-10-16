@@ -2499,7 +2499,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one row per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Models in the sidebar: one row per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { ViewerContext, type Viewer } from "../lib/identity";
@@ -33,123 +33,184 @@ function mount(who: Viewer | undefined, path = "/") {
   );
 }
 
+const human: Viewer = {
+  ...base,
+  agentEnabled: true,
+  login: "bob@acme.com",
+  displayName: "Bob",
+  kind: IdentityKind.USER,
+  roles: [RoleMember],
+  claimed: true,
+  googleAuthEnabled: true,
+  hostedDomain: "acme.com",
+};
+
+function groupLinks(name: string) {
+  return within(screen.getByRole("group", { name }))
+    .getAllByRole("link")
+    .map((link) => link.getAttribute("aria-label"));
+}
+
 describe("Header", () => {
+  beforeEach(() => localStorage.clear());
+
   it("always offers the screens every control plane has", () => {
     mount(base);
     expect(screen.getByRole("link", { name: "Tasks" })).toHaveAttribute("href", "/tasks");
-    for (const label of ["Nodes", "Secrets", "Registries"]) {
+    for (const label of ["Nodes", "Secrets", "Registries", "Sandboxes"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
-    expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "href",
-      "/agent/settings",
-    );
+    expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/agent/settings/users");
+    // Settings is not a page any more: each of its sections is an entry in its group.
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  });
+
+  it("groups the pages by what an operator is asking", () => {
+    mount({ ...base, agentEnabled: true });
+    const toggles = screen
+      .getAllByRole("button", { expanded: true })
+      .map((button) => button.textContent);
+    expect(toggles).toEqual(["Work", "Agents", "Access", "Compute", "Organization"]);
+    expect(groupLinks("Work")).toEqual(["Chat", "Tasks", "Sessions"]);
+    expect(groupLinks("Agents")).toEqual(["Assistants", "Playbooks", "Skills", "Memory", "MCP servers"]);
+    expect(groupLinks("Access")).toEqual(["Connections", "Channels", "Secrets"]);
+    expect(groupLinks("Compute")).toEqual(["Models", "Nodes", "Backend", "Sandboxes", "Registries"]);
+    expect(groupLinks("Organization")).toEqual(["Members", "Usage"]);
+  });
+
+  it("links each former settings section to its own address", () => {
+    mount({ ...base, agentEnabled: true });
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("href", "/agent/settings/connections");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("href", "/agent/settings/models");
+    expect(screen.getByRole("link", { name: "Backend" })).toHaveAttribute("href", "/agent/settings/runs-on");
   });
 
   // A control plane with no conductor has no Agent screen worth reaching, and WhoAmI is what
   // says so. A server built before agent_enabled existed sends nothing and reads as false.
-  it("hides the Assistant tab when the server has no conductor", () => {
+  it("drops the conductor's pages, and the Agents group, when the server has none", () => {
     mount(base);
-    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Skills" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Agents" })).toBeNull();
+    for (const label of ["Chat", "Sessions", "Assistants", "Playbooks", "Models", "Backend", "Connections", "Channels", "Usage"]) {
+      expect(screen.queryByRole("link", { name: label })).toBeNull();
+    }
+    expect(groupLinks("Work")).toEqual(["Tasks"]);
   });
 
-  it("still offers Settings when Google sign-in is on and there is no conductor", () => {
-    mount({ ...base, googleAuthEnabled: true });
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "href",
-      "/agent/settings",
-    );
-    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
-  });
-
-  it("hides it before WhoAmI has answered at all", () => {
+  it("shows nothing before WhoAmI has answered at all", () => {
     mount(undefined);
-    expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Tasks" })).toBeNull();
+    expect(screen.queryByRole("searchbox", { name: "Search pages" })).toBeNull();
   });
 
-  it("shows Assistants to a member, an admin, and an owner", () => {
-    const human: Viewer = {
-      ...base,
-      agentEnabled: true,
-      login: "bob@acme.com",
-      displayName: "Bob",
-      kind: IdentityKind.USER,
-      roles: [RoleMember],
-      claimed: true,
-      googleAuthEnabled: true,
-      hostedDomain: "acme.com",
-    };
+  it("keeps Connections from a member and gives it to an admin and an owner", () => {
     const member = mount(human);
-    expect(screen.getByRole("link", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
-    expect(screen.getByText("Assistant", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
     member.unmount();
 
     const admin = mount({ ...human, roles: [RoleAdmin] });
-    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
     admin.unmount();
 
     mount({ ...human, roles: [RoleOwner] });
-    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("href", "/agent/assistants");
+    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
   });
 
-  it("shows the assistant screens, Playbooks and Skills when the server proxies a conductor", () => {
+  it("lights each page on its own route and nothing else", () => {
+    const who = { ...base, agentEnabled: true };
+    const cases: [string, string][] = [
+      ["/agent/chat", "Chat"],
+      ["/agent/chat/chat_01abc", "Chat"],
+      ["/agent/chat/a/pers_01", "Chat"],
+      ["/agent/assistants", "Assistants"],
+      ["/agent/playbooks", "Playbooks"],
+      ["/agent/mcp", "MCP servers"],
+      ["/agent/channels", "Channels"],
+      ["/agent/settings/models", "Models"],
+      ["/agent/settings/users", "Members"],
+      ["/agent/settings/runs-on", "Backend"],
+    ];
+    for (const [path, label] of cases) {
+      const view = mount(who, path);
+      const current = screen.getAllByRole("link").filter((link) => link.getAttribute("aria-current") === "page");
+      expect(current.map((link) => link.getAttribute("aria-label")), path).toEqual([label]);
+      view.unmount();
+    }
+  });
+
+  it("closes a group, remembers it, and opens it again for a page inside it", async () => {
+    const first = mount({ ...base, agentEnabled: true }, "/tasks");
+    const agents = screen.getByRole("button", { name: "Agents" });
+    await userEvent.click(agents);
+    expect(agents).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("link", { name: "Playbooks", hidden: true })).not.toBeVisible();
+    first.unmount();
+
+    const again = mount({ ...base, agentEnabled: true }, "/tasks");
+    expect(screen.getByRole("button", { name: "Agents" })).toHaveAttribute("aria-expanded", "false");
+    again.unmount();
+
+    mount({ ...base, agentEnabled: true }, "/agent/skills");
+    expect(screen.getByRole("button", { name: "Agents" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("filters the pages by name and purpose, and says when nothing matches", async () => {
     mount({ ...base, agentEnabled: true });
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "/agent/chat");
-    expect(screen.getByRole("link", { name: "Sessions" })).toHaveAttribute(
-      "href",
-      "/agent/sessions",
-    );
-    expect(screen.getByRole("link", { name: "Memory" })).toHaveAttribute("href", "/agent/memory");
-    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute(
-      "href",
-      "/agent/assistants",
-    );
-    expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute(
-      "href",
-      "/agent/playbooks",
-    );
-    expect(screen.getByRole("link", { name: "Skills" })).toHaveAttribute("href", "/agent/skills");
-    expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("href", "/agent/mcp");
-    expect(screen.getByRole("link", { name: "Channels" })).toHaveAttribute(
-      "href",
-      "/agent/channels",
-    );
+    const search = screen.getByRole("searchbox", { name: "Search pages" });
+
+    await userEvent.type(search, "github");
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual(["Connections"]);
+    expect(screen.queryByRole("group", { name: "Work" })).toBeNull();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "sec");
+    expect(screen.getByRole("link", { name: "Secrets" }).querySelector("mark")).toHaveTextContent("Sec");
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "zzz");
+    expect(screen.getByRole("status")).toHaveTextContent("No pages match “zzz”.");
+    await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("link", { name: "Chat" })).toBeInTheDocument();
   });
 
-  // MCP is a sibling of Assistant, not one of its talk screens, so it lights itself and leaves
-  // Assistant alone — the same rule Playbooks and Skills follow.
-  it("lights MCP on its own route without lighting Chat", () => {
-    mount({ ...base, agentEnabled: true }, "/agent/mcp");
-    expect(screen.getByRole("link", { name: "MCP" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
-  });
-
-  it("lights Channels on its own route without lighting Chat", () => {
-    mount({ ...base, agentEnabled: true }, "/agent/channels");
-    expect(screen.getByRole("link", { name: "Channels" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
-  });
-
-  it("puts Assistant above Run, and Run above Administer", () => {
+  it("opens every group with a hit while searching", async () => {
     mount({ ...base, agentEnabled: true });
-    const assistant = screen.getByText("Assistant", { selector: "p" });
-    const run = screen.getByText("Run", { selector: "p" });
-    const administer = screen.getByText("Administer", { selector: "p" });
-    expect(assistant.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(run.compareDocumentPosition(administer) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Compute" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search pages" }), "nodes");
+    expect(screen.getByRole("button", { name: "Compute" })).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("offers Sign out for a Google Workspace session", async () => {
+  it("goes to the first hit on Enter and clears the search", async () => {
+    mount({ ...base, agentEnabled: true });
+    const search = screen.getByRole("searchbox", { name: "Search pages" });
+    await userEvent.type(search, "llm{Enter}");
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("focuses the search on Ctrl K", async () => {
+    mount({ ...base, agentEnabled: true });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    // Focus moves with the shortcut, so the letters typed right after it are the search.
+    await userEvent.keyboard("git");
+    expect(screen.getByRole("searchbox", { name: "Search pages" })).toHaveFocus();
+    expect(screen.getByRole("searchbox", { name: "Search pages" })).toHaveValue("git");
+  });
+
+  it("moves between pages with the arrow keys", async () => {
+    mount({ ...base, agentEnabled: true });
+    const search = screen.getByRole("searchbox", { name: "Search pages" });
+    await userEvent.type(search, "s");
+    await userEvent.keyboard("{ArrowDown}");
+    const first = screen.getAllByRole("link")[0];
+    expect(first).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}");
+    expect(search).toHaveFocus();
+  });
+
+  it("offers your account and Sign out for a Google Workspace session", async () => {
     mount({
       ...base,
       login: "alice@acme.com",
@@ -159,6 +220,10 @@ describe("Header", () => {
       hostedDomain: "acme.com",
     });
     await userEvent.click(screen.getByRole("button", { name: "Alice" }));
+    expect(screen.getByRole("menuitem", { name: "Your account" })).toHaveAttribute(
+      "href",
+      "/agent/settings/account",
+    );
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toHaveAttribute(
       "href",
       "/auth/logout",
@@ -169,16 +234,6 @@ describe("Header", () => {
     mount({ ...base, agentEnabled: true });
     expect(screen.queryByRole("button", { name: "local" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Sign out" })).toBeNull();
-  });
-
-  it("puts Settings in Administer, after the wordmark", () => {
-    mount({ ...base, agentEnabled: true });
-    const settings = screen.getByRole("link", { name: "Settings" });
-    expect(settings).toHaveAttribute("href", "/agent/settings");
-    const administer = screen.getByText("Administer", { selector: "p" });
-    expect(administer.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
   });
 
   it("shows the Google profile photo when WhoAmI has one", () => {
@@ -194,58 +249,27 @@ describe("Header", () => {
     expect(img).toHaveAttribute("src", "/auth/picture");
   });
 
-  it("lights Chat on the chat route and not on Playbooks", () => {
-    const who = { ...base, agentEnabled: true };
-    const first = mount(who, "/agent/chat");
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Assistants" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("link", { name: "Playbooks" })).not.toHaveAttribute("aria-current");
-    first.unmount();
-
-    const deep = mount(who, "/agent/chat/chat_01abc");
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
-    deep.unmount();
-
-    const voice = mount(who, "/agent/chat/a/pers_01");
-    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Assistants" })).not.toHaveAttribute("aria-current");
-    voice.unmount();
-
-    const defined = mount(who, "/agent/assistants");
-    expect(screen.getByRole("link", { name: "Assistants" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
-    defined.unmount();
-
-    mount(who, "/agent/playbooks");
-    expect(screen.getByRole("link", { name: "Playbooks" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
-  });
-
-  it("lights Settings on its own route without lighting Chat", () => {
-    mount({ ...base, agentEnabled: true }, "/agent/settings/models");
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
-  });
-
-  // Cost is recorded per agent turn, so on a control plane with no conductor the Usage
-  // screen has nothing to report and is hidden on the same signal.
   it("draws the design side-menu icons", () => {
     mount({ ...base, agentEnabled: true });
     const pages: [string, NavIconName][] = [
       ["Chat", "chat"],
-      ["Sessions", "sessions"],
-      ["Memory", "memory"],
-      ["Assistants", "assistants"],
       ["Tasks", "tasks"],
-      ["Nodes", "nodes"],
+      ["Sessions", "sessions"],
+      ["Assistants", "assistants"],
       ["Playbooks", "playbooks"],
       ["Skills", "skills"],
-      ["MCP", "mcp"],
+      ["Memory", "memory"],
+      ["MCP servers", "mcp"],
+      ["Connections", "connections"],
       ["Channels", "channels"],
       ["Secrets", "secrets"],
+      ["Models", "models"],
+      ["Nodes", "nodes"],
+      ["Backend", "backend"],
+      ["Sandboxes", "sandboxes"],
       ["Registries", "registries"],
+      ["Members", "members"],
       ["Usage", "usage"],
-      ["Settings", "settings"],
     ];
     for (const [label, name] of pages) {
       const icon = screen.getByRole("link", { name: label }).querySelector("svg");
@@ -255,14 +279,5 @@ describe("Header", () => {
     const collapse = screen.getByRole("button", { name: "Collapse sidebar" }).querySelector("svg");
     expect(collapse?.querySelector("rect")).toHaveAttribute("width", "18");
     expect(collapse?.querySelector("path")).toHaveAttribute("d", "M9 4v16m7-11-3 3 3 3");
-  });
-
-  it("gates Usage on the conductor, like Agent", () => {
-    const { unmount } = mount(base);
-    expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
-    unmount();
-
-    mount({ ...base, agentEnabled: true });
-    expect(screen.getByRole("link", { name: "Usage" })).toHaveAttribute("href", "/usage");
   });
 });
