@@ -127,3 +127,50 @@ func TestMachineType(t *testing.T) {
 		}
 	}
 }
+
+// A task's machine type and organization reach boat, and a sandbox made in another
+// organization keeps naming it on every later request.
+func TestATaskOverridesTypeAndOrg(t *testing.T) {
+	type call struct{ method, path, org, confirm, typ string }
+	var calls []call
+	p := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		typ, _ := body["type"].(string)
+		calls = append(calls, call{r.Method, r.URL.Path, r.Header.Get("X-Boat-Org"), r.Header.Get("X-Ascii-Confirm-Delete"), typ})
+		_, _ = w.Write([]byte(`{"ok":true,"sandbox":{"id":"bx_1","state":"ready"}}`))
+	})
+	if _, err := p.Override(map[string]string{"type": "huge"}); err == nil {
+		t.Fatal("an unknown machine type is refused")
+	}
+	if _, err := p.Override(map[string]string{"region": "eu"}); err == nil {
+		t.Fatal("a setting boat does not take is refused")
+	}
+	if _, err := p.Override(map[string]string{"type": "large", "org": "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	id, err := p.Create(ctx, sandbox.CreateRequest{Snapshot: "tmpl", Settings: map[string]string{"type": "large", "org": "acme"}})
+	if err != nil || id != "bx_1@acme" {
+		t.Fatalf("got %q, %v", id, err)
+	}
+	if err := p.WaitReady(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Delete(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	want := []call{
+		{http.MethodPost, "/sandboxes", "acme", "", "large"},
+		{http.MethodGet, "/sandboxes/bx_1", "acme", "", ""},
+		{http.MethodDelete, "/sandboxes/bx_1", "acme", "bx_1", ""},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls: %+v", calls)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Errorf("call %d: got %+v, want %+v", i, calls[i], want[i])
+		}
+	}
+}

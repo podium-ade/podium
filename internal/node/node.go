@@ -65,7 +65,7 @@ func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (exec ex
 	if _, err := agentbin.Linux(); err != nil {
 		return nil, nil, err
 	}
-	for _, l := range []string{spec.LabelSandbox, "sandbox.provider=" + name} {
+	for _, l := range []string{spec.LabelSandbox, spec.LabelSandboxProvider + name} {
 		if !slices.Contains(cfg.Labels, l) {
 			cfg.Labels = append(cfg.Labels, l)
 		}

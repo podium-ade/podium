@@ -534,8 +534,20 @@ a [sandbox node](sandboxes.md).
 ```yaml
 sandbox:
   snapshot: ci-base          # a provider snapshot; the command runs directly in it
+  provider: boat             # optional: pin a provider
 command: ["make", "test"]    # required: a snapshot has no image to take a command from
-labels: [sandbox.provider=boat]   # optional: pin a provider
+```
+
+A sandbox node takes no task that does not ask for a sandbox, so a task meant for the fleet's
+own machines is never billed to a provider.
+
+A task may also override some of its provider's settings for its own sandbox. A block applies
+only on its own provider, and naming a provider with another provider's block is refused:
+
+```yaml
+sandbox:
+  boat:  { type: large, template: ci-base, org: acme }   # small|default|large|xlarge; template only without snapshot
+  modal: { runtime: vm, environment: staging }          # gvisor|vm
 ```
 
 With `snapshot`, `image` is not used and may be left out. The command runs as an unprivileged

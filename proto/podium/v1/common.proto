@@ -80,6 +80,29 @@ message TaskSandbox {
   // A provider snapshot to make the sandbox from. The command then runs directly in it and
   // the task's image is not used.
   string snapshot = 1;
+  // provider pins the task to that provider's sandbox nodes. Empty is any of them.
+  string provider = 2;
+  // boat and modal override that provider's settings for this sandbox, when it runs there.
+  BoatSandbox boat = 3;
+  ModalSandbox modal = 4;
+}
+
+// BoatSandbox is what a task may set about its boat sandbox.
+message BoatSandbox {
+  // type is the machine size: small, default, large or xlarge.
+  string type = 1;
+  // template is the named snapshot an image task starts from.
+  string template = 2;
+  // org bills the sandbox to this boat organization.
+  string org = 3;
+}
+
+// ModalSandbox is what a task may set about its Modal sandbox.
+message ModalSandbox {
+  // runtime is gvisor or vm.
+  string runtime = 1;
+  // environment is the Modal environment the sandbox is made in.
+  string environment = 2;
 }
 
 // Expose is a task that stays up as a preview once its command has exited.

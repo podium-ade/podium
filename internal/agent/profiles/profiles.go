@@ -394,6 +394,14 @@ type Playbook struct {
 	// the preview is up, so keep the ttl short. See docs/task-spec.md#expose.
 	Expose *spec.Expose `yaml:"expose" json:"expose,omitempty"`
 
+	// RunsOn is where this playbook's turns run: "nodes" for the fleet's own machines, a
+	// sandbox provider's name, or empty for the conductor's default.
+	RunsOn string `yaml:"runs_on,omitempty" json:"runs_on,omitempty"`
+	// Sandbox overrides a sandbox provider's settings for this playbook's turns, when they
+	// run on that provider: boat's machine type, template and organization, Modal's runtime
+	// and environment.
+	Sandbox *PlaybookSandbox `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+
 	// Name is the file name without the extension.
 	Name string `yaml:"-" json:"-"`
 }
@@ -782,6 +790,9 @@ func (s Playbook) validate(path string) error {
 	}
 	// The secrets, resources and env of a playbook are validated by exactly the code that
 	// validates a task spec's, because that is where they end up.
+	if err := ValidateRunsOn(s.RunsOn); err != nil {
+		errs = append(errs, err)
+	}
 	probe := spec.TaskSpec{
 		Image:     s.Image,
 		Env:       s.Env,
@@ -789,6 +800,9 @@ func (s Playbook) validate(path string) error {
 		Resources: s.Resources,
 		Labels:    s.Labels,
 		Timeout:   s.Timeout,
+	}
+	if s.Sandbox != nil {
+		probe.Sandbox = &spec.Sandbox{Boat: s.Sandbox.Boat, Modal: s.Sandbox.Modal}
 	}
 	probe.ApplyDefaults()
 	if err := probe.Validate(); err != nil {

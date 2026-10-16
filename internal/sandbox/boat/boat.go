@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,12 +87,46 @@ func (p *Provider) Capabilities() sandbox.Capabilities {
 	return sandbox.Capabilities{Snapshot: true, Docker: true, Root: true, Tmpfs: true, ExposeLoopback: true}
 }
 
-// machine sizes, smallest first.
-var types = []struct {
+// Override implements sandbox.Overrider: a task may pick its machine type and the
+// organization it is billed to.
+func (p *Provider) Override(settings map[string]string) (sandbox.Capabilities, error) {
+	for k, v := range settings {
+		switch k {
+		case "type":
+			if !slices.ContainsFunc(types, func(t machine) bool { return t.name == v }) {
+				return sandbox.Capabilities{}, fmt.Errorf("boat has no machine type %q", v)
+			}
+		case "org":
+		default:
+			return sandbox.Capabilities{}, fmt.Errorf("boat takes no task override %q", k)
+		}
+	}
+	return p.Capabilities(), nil
+}
+
+// orgSep joins a sandbox's ID to the organization it was made in, when that is not the
+// provider's own: every later request for it has to name the same organization.
+const orgSep = "@"
+
+// at is the API path of a sandbox, and the header naming its organization when it has one
+// of its own.
+func (p *Provider) at(id string) (string, http.Header) {
+	hdr := http.Header{}
+	if raw, org, ok := strings.Cut(id, orgSep); ok {
+		id = raw
+		hdr.Set("X-Boat-Org", org)
+	}
+	return "/sandboxes/" + id, hdr
+}
+
+type machine struct {
 	name string
 	cpu  float64
 	mem  int
-}{{"small", 2, 4096}, {"default", 4, 8192}, {"large", 8, 16384}, {"xlarge", 16, 32768}}
+}
+
+// machine sizes, smallest first.
+var types = []machine{{"small", 2, 4096}, {"default", 4, 8192}, {"large", 8, 16384}, {"xlarge", 16, 32768}}
 
 func (p *Provider) machineType(cpu float64, mem int) string {
 	if cpu <= 0 && mem <= 0 {
@@ -124,6 +159,9 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 	if t := p.machineType(req.CPU, req.MemoryMB); t != "" && req.Snapshot == "" {
 		body["type"] = t
 	}
+	if t := req.Settings["type"]; t != "" {
+		body["type"] = t
+	}
 	if req.TTL > 0 {
 		body["ttlSeconds"] = int(req.TTL.Seconds())
 	}
@@ -137,8 +175,18 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 	if req.Key != "" {
 		hdr.Set("Idempotency-Key", req.Key)
 	}
+	org := req.Settings["org"]
+	if org == p.org {
+		org = ""
+	}
+	if org != "" {
+		hdr.Set("X-Boat-Org", org)
+	}
 	if err := p.do(ctx, "create", http.MethodPost, "/sandboxes", hdr, body, &out); err != nil {
 		return "", err
+	}
+	if org != "" {
+		return out.Sandbox.ID + orgSep + org, nil
 	}
 	return out.Sandbox.ID, nil
 }
@@ -149,7 +197,8 @@ func (p *Provider) WaitReady(ctx context.Context, id string) error {
 		var out struct {
 			Sandbox sandboxInfo `json:"sandbox"`
 		}
-		if err := p.do(ctx, "get", http.MethodGet, "/sandboxes/"+id, nil, nil, &out); err != nil {
+		path, hdr := p.at(id)
+		if err := p.do(ctx, "get", http.MethodGet, path, hdr, nil, &out); err != nil {
 			return err
 		}
 		switch out.Sandbox.State {
@@ -168,19 +217,20 @@ func (p *Provider) WaitReady(ctx context.Context, id string) error {
 
 // PutFile implements sandbox.Provider.
 func (p *Provider) PutFile(ctx context.Context, id, path string, r io.Reader, size int64) error {
+	at, hdr := p.at(id)
 	if size >= 0 && size <= smallFileLimit {
 		b, err := io.ReadAll(r)
 		if err != nil {
 			return err
 		}
-		return p.do(ctx, "put file", http.MethodPut, "/sandboxes/"+id+"/files", nil, map[string]any{
+		return p.do(ctx, "put file", http.MethodPut, at+"/files", hdr, map[string]any{
 			"path": path, "content": base64.StdEncoding.EncodeToString(b), "encoding": "base64",
 		}, nil)
 	}
 	var up struct {
 		URL string `json:"url"`
 	}
-	if err := p.do(ctx, "upload url", http.MethodPost, "/sandboxes/"+id+"/files/upload-url", nil,
+	if err := p.do(ctx, "upload url", http.MethodPost, at+"/files/upload-url", hdr,
 		map[string]any{"path": path, "ttlSeconds": 900}, &up); err != nil {
 		return err
 	}
@@ -215,7 +265,8 @@ func (p *Provider) Exec(ctx context.Context, id, cmd string, detached bool) (san
 		Stderr   string `json:"stderr"`
 		TimedOut bool   `json:"timedOut"`
 	}
-	if err := p.do(ctx, "exec", http.MethodPost, "/sandboxes/"+id+"/commands", nil, body, &out); err != nil {
+	path, hdr := p.at(id)
+	if err := p.do(ctx, "exec", http.MethodPost, path+"/commands", hdr, body, &out); err != nil {
 		return sandbox.ExecResult{}, err
 	}
 	res := sandbox.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr}
@@ -233,7 +284,8 @@ func (p *Provider) Expose(ctx context.Context, id string, port int) (sandbox.End
 	var out struct {
 		URL string `json:"url"`
 	}
-	if err := p.do(ctx, "expose", http.MethodPost, "/sandboxes/"+id+"/host", nil,
+	path, hdr := p.at(id)
+	if err := p.do(ctx, "expose", http.MethodPost, path+"/host", hdr,
 		map[string]any{"port": port, "localhost": true, "public": false}, &out); err != nil {
 		return sandbox.Endpoint{}, err
 	}
@@ -252,14 +304,15 @@ func (p *Provider) Expose(ctx context.Context, id string, port int) (sandbox.End
 
 // ExtendTTL implements sandbox.Provider.
 func (p *Provider) ExtendTTL(ctx context.Context, id string, d time.Duration) error {
-	return p.do(ctx, "extend", http.MethodPatch, "/sandboxes/"+id, nil, map[string]any{"ttlSeconds": int(d.Seconds())}, nil)
+	path, hdr := p.at(id)
+	return p.do(ctx, "extend", http.MethodPatch, path, hdr, map[string]any{"ttlSeconds": int(d.Seconds())}, nil)
 }
 
 // Delete implements sandbox.Provider.
 func (p *Provider) Delete(ctx context.Context, id string) error {
-	hdr := http.Header{}
-	hdr.Set("X-Ascii-Confirm-Delete", id)
-	err := p.do(ctx, "delete", http.MethodDelete, "/sandboxes/"+id, hdr, nil, nil)
+	path, hdr := p.at(id)
+	hdr.Set("X-Ascii-Confirm-Delete", strings.TrimPrefix(path, "/sandboxes/"))
+	err := p.do(ctx, "delete", http.MethodDelete, path, hdr, nil, nil)
 	var pe *sandbox.Error
 	if errors.As(err, &pe) && pe.Code == "not_found" {
 		return nil
@@ -354,7 +407,7 @@ func (p *Provider) once(ctx context.Context, op, method, path string, hdr http.H
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if p.org != "" {
+	if p.org != "" && req.Header.Get("X-Boat-Org") == "" {
 		req.Header.Set("X-Boat-Org", p.org)
 	}
 	resp, err := p.hc.Do(req)
