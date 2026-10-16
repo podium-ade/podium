@@ -222,6 +222,11 @@ func (s *Store) TransitionTask(ctx context.Context, taskID string, from []Status
 		if err != nil {
 			return fmt.Errorf("transition task %s to %s: %w", taskID, to, err)
 		}
+		if patch.ReapSandbox != "" {
+			if _, err := q.QueueSandboxReap(ctx, db.QueueSandboxReapParams{TaskID: taskID, Reason: patch.ReapSandbox}); err != nil && !noRows(err) {
+				return fmt.Errorf("queue sandbox reap for task %s: %w", taskID, err)
+			}
+		}
 		out, err = taskFromRow(updated)
 		return err
 	})

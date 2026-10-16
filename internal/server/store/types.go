@@ -188,6 +188,9 @@ type Patch struct {
 	NodeID         *string
 	LeaseID        *string
 	LeaseExpiresAt *time.Time
+	// ReapSandbox, when set, queues the sandbox the task last recorded for deletion in the
+	// same transaction, with this reason, so no new attempt is placed while it is uncounted.
+	ReapSandbox string
 }
 
 // Event is one row of the append-only task_events table.
