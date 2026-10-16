@@ -57,6 +57,20 @@ func (s *Store) ListSandboxReaps(ctx context.Context, provider string) ([]Sandbo
 	return out, nil
 }
 
+// SandboxesKept counts, by provider, the sandboxes still up with no task running in them:
+// held previews and queued deletions.
+func (s *Store) SandboxesKept(ctx context.Context) (map[string]int32, error) {
+	rows, err := s.q.SandboxesKept(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count kept sandboxes: %w", err)
+	}
+	out := make(map[string]int32, len(rows))
+	for _, r := range rows {
+		out[r.Provider] = r.Kept
+	}
+	return out, nil
+}
+
 // DeleteSandboxReap drops a reap once a node has deleted the sandbox.
 func (s *Store) DeleteSandboxReap(ctx context.Context, provider, sandboxID string) error {
 	if _, err := s.q.DeleteSandboxReap(ctx, db.DeleteSandboxReapParams{Provider: provider, SandboxID: sandboxID}); err != nil {

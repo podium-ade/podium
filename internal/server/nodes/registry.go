@@ -35,9 +35,8 @@ type Session struct {
 	// freeTailnet and freeLAN are the previews the node last said it could still publish.
 	freeTailnet int32
 	freeLAN     int32
-	// held is the finished tasks the node is keeping up as previews, and accountLimit the
-	// sandbox provider account's cap as the node last read it, 0 for unknown.
-	held          int32
+	// accountLimit is the sandbox provider account's cap as the node last read it, 0 for
+	// unknown.
 	accountLimit  int32
 	lastHeartbeat time.Time
 	// running maps every task this session is accounted for to what it costs. The cost is
@@ -142,7 +141,6 @@ func (s *Session) observeHeartbeat(hb *podiumv1.Heartbeat) {
 	s.freeSlots = hb.GetFreeSlots()
 	s.freeTailnet = hb.GetFreeTailnetPreviews()
 	s.freeLAN = hb.GetFreeLanPreviews()
-	s.held = hb.GetHeldPreviews()
 	s.accountLimit = hb.GetSandboxAccountLimit()
 	if s.override > 0 {
 		// A heartbeat already in flight when the cap was lowered was computed against the
@@ -278,8 +276,6 @@ type Snapshot struct {
 	// FreeTailnetPreviews and FreeLANPreviews are what the node can still publish.
 	FreeTailnetPreviews int32
 	FreeLANPreviews     int32
-	// HeldPreviews is the finished tasks the node is keeping up.
-	HeldPreviews int32
 	// SandboxProvider is the provider of a sandbox node, empty on every other node, and
 	// SandboxAccountLimit that provider account's cap as the node reported it, 0 unknown.
 	SandboxProvider     string
@@ -308,7 +304,6 @@ func (s *Session) snapshot() Snapshot {
 
 		FreeTailnetPreviews: s.freeTailnet,
 		FreeLANPreviews:     s.freeLAN,
-		HeldPreviews:        s.held,
 		SandboxProvider:     sandboxProviderOf(s.labels),
 		SandboxAccountLimit: s.accountLimit,
 	}

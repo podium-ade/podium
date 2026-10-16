@@ -155,26 +155,37 @@ func (s *Service) sandboxReaped(ctx context.Context, sess *Session, r *podiumv1.
 		"node_id", sess.nodeID, "provider", r.GetProvider(), "sandbox_id", r.GetSandboxId())
 }
 
-// SandboxUsage is one provider's sandboxes across the connected nodes.
+// SandboxUsage is one provider's sandboxes.
 type SandboxUsage struct {
-	// InUse is the tasks its nodes run or are about to, plus the previews they keep up.
+	// InUse is the tasks its nodes run or are about to, plus the sandboxes kept up after
+	// theirs: held previews and those still waiting to be deleted.
 	InUse int32
 	// AccountLimit is the largest account cap any of its nodes reported, 0 unknown.
 	AccountLimit int32
 }
 
-// SandboxUsage is every provider's sandboxes across the connected nodes.
-func (s *Service) SandboxUsage() map[string]SandboxUsage { return SandboxUsageOf(s.reg.Snapshot()) }
+// SandboxUsage is every provider's sandboxes.
+func (s *Service) SandboxUsage(ctx context.Context) map[string]SandboxUsage {
+	kept, err := s.store.SandboxesKept(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "counting kept sandboxes failed", "error", err)
+	}
+	return SandboxUsageOf(s.reg.Snapshot(), kept)
+}
 
-// SandboxUsageOf sums the sandbox nodes among snapshots by provider.
-func SandboxUsageOf(snaps []Snapshot) map[string]SandboxUsage {
+// SandboxUsageOf sums the sandbox nodes among snapshots by provider, and adds what each
+// provider keeps up with no task running in it.
+func SandboxUsageOf(snaps []Snapshot, kept map[string]int32) map[string]SandboxUsage {
 	out := map[string]SandboxUsage{}
+	for name, n := range kept {
+		out[name] = SandboxUsage{InUse: n}
+	}
 	for _, c := range snaps {
 		if c.SandboxProvider == "" {
 			continue
 		}
 		u := out[c.SandboxProvider]
-		u.InUse += c.RunningTasks + c.HeldPreviews
+		u.InUse += c.RunningTasks
 		u.AccountLimit = max(u.AccountLimit, c.SandboxAccountLimit)
 		out[c.SandboxProvider] = u
 	}

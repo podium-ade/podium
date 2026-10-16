@@ -147,7 +147,8 @@ func (s *Service) dispatch(ctx context.Context) {
 	// the registry per task would let a node with one free slot take the whole batch,
 	// because its heartbeat is up to ten seconds away.
 	candidates := s.nodes.Candidates()
-	room := sandboxRoom(candidates, s.sandboxCaps(ctx, candidates))
+	caps, kept := s.sandboxCaps(ctx, candidates)
+	room := sandboxRoom(candidates, caps, kept)
 	for _, task := range tasks {
 		if task.CancelRequestedAt != nil {
 			// A task can be requeued after somebody asked for it to stop — a revoked
@@ -502,29 +503,32 @@ type providerRoom struct {
 	limit map[string]int32
 }
 
-// sandboxCaps is every admin-set max_concurrent, read only when a sandbox node is connected.
-func (s *Service) sandboxCaps(ctx context.Context, candidates []nodes.Snapshot) map[string]int32 {
+// sandboxCaps is every admin-set max_concurrent, and the sandboxes each provider keeps up
+// with no task running in them. Both are read only when a sandbox node is connected.
+func (s *Service) sandboxCaps(ctx context.Context, candidates []nodes.Snapshot) (caps, kept map[string]int32) {
 	if !slices.ContainsFunc(candidates, func(c nodes.Snapshot) bool { return c.SandboxProvider != "" }) {
-		return nil
+		return nil, nil
 	}
 	providers, err := s.store.ListSandboxProviders(ctx)
 	if err != nil {
 		s.logger.WarnContext(ctx, "reading sandbox provider caps failed; using account limits only", "error", err)
-		return nil
 	}
-	caps := make(map[string]int32, len(providers))
+	caps = make(map[string]int32, len(providers))
 	for _, p := range providers {
 		caps[p.Name] = p.MaxConcurrent
 	}
-	return caps
+	if kept, err = s.store.SandboxesKept(ctx); err != nil {
+		s.logger.WarnContext(ctx, "counting kept sandboxes failed", "error", err)
+	}
+	return caps, kept
 }
 
 // sandboxRoom holds every sandbox provider to the smaller of its cap and the account limit
-// its nodes report, less what its nodes already hold. A provider at its limit has its
-// nodes' slots zeroed in this batch's copy of the candidates, so nothing is placed on them.
-func sandboxRoom(candidates []nodes.Snapshot, caps map[string]int32) providerRoom {
+// its nodes report, less what it already has up. A provider at its limit has its nodes'
+// slots zeroed in this batch's copy of the candidates, so nothing is placed on them.
+func sandboxRoom(candidates []nodes.Snapshot, caps, kept map[string]int32) providerRoom {
 	room := providerRoom{left: map[string]int32{}, limit: map[string]int32{}}
-	for name, u := range nodes.SandboxUsageOf(candidates) {
+	for name, u := range nodes.SandboxUsageOf(candidates, kept) {
 		limit := caps[name]
 		if u.AccountLimit > 0 && (limit <= 0 || u.AccountLimit < limit) {
 			limit = u.AccountLimit

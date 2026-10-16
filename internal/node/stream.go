@@ -229,7 +229,6 @@ func (n *Node) sendHeartbeat(
 		Heartbeat: &podiumv1.Heartbeat{
 			FreeTailnetPreviews: freeTailnet,
 			FreeLanPreviews:     freeLAN,
-			HeldPreviews:        int32(n.previews.heldCount()),
 			SandboxAccountLimit: accountLimit,
 			Load: &podiumv1.NodeLoad{
 				RunningTasks: n.runningCount(),

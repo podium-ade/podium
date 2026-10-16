@@ -233,9 +233,9 @@ func TestPickPlacesASandboxTaskOnASandboxNode(t *testing.T) {
 	assert.Equal(t, "node_sandbox", cands[i].NodeID)
 }
 
-func sandboxNode(id, provider string, slots, running, held, accountLimit int32) nodes.Snapshot {
+func sandboxNode(id, provider string, slots, running, accountLimit int32) nodes.Snapshot {
 	s := node(id, slots, "backend=sandbox", "sandbox.provider="+provider)
-	s.SandboxProvider, s.RunningTasks, s.HeldPreviews, s.SandboxAccountLimit = provider, running, held, accountLimit
+	s.SandboxProvider, s.RunningTasks, s.SandboxAccountLimit = provider, running, accountLimit
 	return s
 }
 
@@ -243,11 +243,11 @@ func sandboxNode(id, provider string, slots, running, held, accountLimit int32) 
 // the batch is held to, not the sum of their slots.
 func TestSandboxRoomHoldsAProviderToItsCapAcrossNodes(t *testing.T) {
 	cands := []nodes.Snapshot{
-		sandboxNode("boat_a", "boat", 3, 1, 0, 0),
-		sandboxNode("boat_b", "boat", 4, 0, 0, 0),
+		sandboxNode("boat_a", "boat", 3, 1, 0),
+		sandboxNode("boat_b", "boat", 4, 0, 0),
 		node("docker", 4),
 	}
-	room := sandboxRoom(cands, map[string]int32{"boat": 2})
+	room := sandboxRoom(cands, map[string]int32{"boat": 2}, nil)
 	ts := spec.TaskSpec{Labels: []string{"backend=sandbox"}}
 
 	i := pick(cands, ts, nodes.TaskCost{})
@@ -262,17 +262,26 @@ func TestSandboxRoomHoldsAProviderToItsCapAcrossNodes(t *testing.T) {
 }
 
 // The account limit a node reports caps a provider nobody set a cap for, and a lower
-// admin cap wins over it. Held previews are sandboxes too.
+// admin cap wins over it.
 func TestSandboxRoomTakesTheLowerOfCapAndAccountLimit(t *testing.T) {
-	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 1, 2), sandboxNode("modal_a", "modal", 4, 0, 0, 0)}
-	room := sandboxRoom(cands, nil)
+	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 2), sandboxNode("modal_a", "modal", 4, 0, 0)}
+	room := sandboxRoom(cands, nil, nil)
 	assert.Equal(t, int32(2), room.limit["boat"])
-	assert.Equal(t, int32(0), cands[0].FreeSlots, "one running and one held fill an account of two")
+	assert.Equal(t, int32(1), room.left["boat"])
 	_, capped := room.limit["modal"]
 	assert.False(t, capped, "no cap and no account limit is no cap")
 
-	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 0, 10)}
-	assert.Equal(t, int32(3), sandboxRoom(cands, map[string]int32{"boat": 3}).limit["boat"])
-	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 0, 2)}
-	assert.Equal(t, int32(2), sandboxRoom(cands, map[string]int32{"boat": 5}).limit["boat"])
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 10)}
+	assert.Equal(t, int32(3), sandboxRoom(cands, map[string]int32{"boat": 3}, nil).limit["boat"])
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 2)}
+	assert.Equal(t, int32(2), sandboxRoom(cands, map[string]int32{"boat": 5}, nil).limit["boat"])
+}
+
+// A held preview and a sandbox still waiting to be deleted are up at the provider with no
+// task running in them, and count against its cap all the same.
+func TestSandboxRoomCountsSandboxesKeptUp(t *testing.T) {
+	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 0)}
+	room := sandboxRoom(cands, map[string]int32{"boat": 3}, map[string]int32{"boat": 2})
+	assert.Equal(t, int32(0), room.left["boat"])
+	assert.Equal(t, int32(0), cands[0].FreeSlots, "one running, one held and one being deleted fill a cap of three")
 }

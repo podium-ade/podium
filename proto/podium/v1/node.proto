@@ -256,12 +256,9 @@ message Heartbeat {
   // than being refused by a node with no address to give it.
   int32 free_tailnet_previews = 5;
   int32 free_lan_previews = 6;
-  // Finished tasks this node is keeping up as a preview. They hold no slot on the control
-  // plane, but on a sandbox node each is still a sandbox.
-  int32 held_previews = 7;
   // The most sandboxes the provider account allows at once, as the provider reports it.
   // Zero is unknown, and on every node that is not a sandbox node.
-  int32 sandbox_account_limit = 8;
+  int32 sandbox_account_limit = 7;
 }
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent

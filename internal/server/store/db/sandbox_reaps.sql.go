@@ -75,3 +75,40 @@ func (q *Queries) QueueSandboxReap(ctx context.Context, arg QueueSandboxReapPara
 	err := row.Scan(&provider)
 	return provider, err
 }
+
+const sandboxesKept = `-- name: SandboxesKept :many
+select provider, count(distinct sandbox_id)::int as kept from (
+  select t.sandbox_provider as provider, t.sandbox_id from previews p
+  join tasks t on t.id = p.task_id
+  where p.released_at is null and p.expires_at is not null and t.sandbox_id <> ''
+  union all
+  select provider, sandbox_id from sandbox_reaps
+) k
+group by provider
+`
+
+type SandboxesKeptRow struct {
+	Provider string
+	Kept     int32
+}
+
+// Sandboxes still up with no task running in them: held previews and queued deletions.
+func (q *Queries) SandboxesKept(ctx context.Context) ([]SandboxesKeptRow, error) {
+	rows, err := q.db.Query(ctx, sandboxesKept)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SandboxesKeptRow{}
+	for rows.Next() {
+		var i SandboxesKeptRow
+		if err := rows.Scan(&i.Provider, &i.Kept); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

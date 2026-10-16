@@ -54,3 +54,43 @@ func TestTaskSandboxAndItsReap(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, reaps)
 }
+
+// A sandbox is kept up while its preview is held or its deletion is queued, and counted
+// once when it is both.
+func TestSandboxesKept(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	node := mustCreateNode(t, s, "boat-a", []string{"sandbox.provider=boat"})
+	sandboxTask := func(lease, id string) Task {
+		task, err := s.CreateTask(ctx, NewTask{Spec: spec.TaskSpec{Image: "alpine:3"}})
+		require.NoError(t, err)
+		require.NoError(t, s.AssignTask(ctx, task.ID, node.ID, lease, time.Now().Add(time.Minute)))
+		_, err = s.SetTaskSandbox(ctx, task.ID, lease, "boat", id)
+		require.NoError(t, err)
+		_, err = s.UpsertPreview(ctx, NewPreview{TaskID: task.ID, NodeID: node.ID, Via: "sandbox", TTL: time.Hour})
+		require.NoError(t, err)
+		return task
+	}
+	kept := func() map[string]int32 {
+		k, err := s.SandboxesKept(ctx)
+		require.NoError(t, err)
+		return k
+	}
+
+	held := sandboxTask("lease_1", "sbx-1")
+	sandboxTask("lease_2", "sbx-2")
+	require.Empty(t, kept(), "a preview whose command still runs is a running task, not a kept sandbox")
+
+	_, _, err := s.HoldPreview(ctx, held.ID, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"boat": 1}, kept())
+	_, err = s.QueueSandboxReap(ctx, held.ID, "lost")
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"boat": 1}, kept(), "held and queued is still one sandbox")
+
+	_, _, err = s.ReleasePreview(ctx, held.ID, "released")
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"boat": 1}, kept(), "released but not deleted yet")
+	require.NoError(t, s.DeleteSandboxReap(ctx, "boat", "sbx-1"))
+	require.Empty(t, kept())
+}
