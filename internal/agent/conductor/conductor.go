@@ -855,7 +855,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret, login)
+	taskSpec := c.taskSpec(src, c.placed(ctx, j.playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
 	applyWorkspace(taskSpec, sess.ID, j.playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
@@ -1086,6 +1086,20 @@ func (c *Conductor) openaiAuthKind() string {
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
 // reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.
+// placed is playbook with where its turn runs decided: its own runs_on, or the conductor's
+// default when it names none. A default that cannot be read is the fleet's own machines.
+func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) profiles.Playbook {
+	if playbook.RunsOn != "" || c.store == nil {
+		return playbook
+	}
+	var row profiles.RunsOn
+	if err := c.store.GetSetting(ctx, profiles.RunsOnKey, &row); err != nil && !errors.Is(err, store.ErrNotFound) {
+		c.logger.WarnContext(ctx, "reading where turns run failed; using this fleet's own nodes", "error", err)
+	}
+	playbook.RunsOn = row.RunsOn
+	return playbook
+}
+
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
 	servers []mcp.Server, choice profiles.Choice, capabilitySecret, login string,
@@ -1127,6 +1141,7 @@ func (c *Conductor) taskSpec(
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
 		RetryOnNodeLoss: false,
+		Sandbox:         playbook.SandboxFor(playbook.RunsOn),
 	}
 	if playbook.Docker || playbook.Browser {
 		s.Sidecars = map[string]spec.Sidecar{}

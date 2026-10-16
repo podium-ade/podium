@@ -238,6 +238,8 @@ func playbookToProto(s profiles.Playbook) *agentv1.PlaybookDefinition {
 		Browser:       s.Browser,
 		Origin:        "file",
 		Editable:      true,
+		RunsOn:        s.RunsOn,
+		Sandbox:       playbookSandboxToProto(s.Sandbox),
 	}
 	if s.Timeout > 0 {
 		out.Timeout = s.Timeout.String()

@@ -530,6 +530,8 @@ interactive: false                                           # ask a question an
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
 expose: null                                                 # keep the turn up afterwards as a preview
+runs_on: ""                                                  # default: Settings → Runs on; or nodes, boat, modal
+sandbox: {}                                                  # per-provider overrides; see below
 skills: []                                                   # Agent Skills this playbook may use
 mcp_servers: []                                              # MCP servers this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
@@ -695,6 +697,30 @@ the preview is, and it keeps its node slot. Keep the ttl short, and end it soone
 `podium task release TASK_ID` — or by telling the assistant you are done with it. Its brief
 lists the conversation's previews that are still up, and `podium_release_preview` takes one
 down.
+
+#### `runs_on:` and `sandbox:` — where a turn runs
+
+A turn runs on this fleet's own nodes, or in a cloud sandbox of its own on a
+[sandbox provider](sandboxes.md). **Settings → Runs on** picks the default for every playbook;
+`runs_on:` pins one playbook to `nodes` or to a provider by name. Providers are set up, keys and
+caps included, on the **Sandboxes** screen, and only chosen here.
+
+`sandbox:` changes a provider's settings for this playbook's turns. Each block applies only
+when the turn runs on that provider, so a playbook can carry both and still follow the
+default:
+
+```yaml
+runs_on: boat            # optional
+sandbox:
+  boat:  { type: large, template: ci-base, org: acme }   # machine type, snapshot, billing org
+  modal: { runtime: vm, environment: staging }          # vm has Docker; the environment to use
+```
+
+`docker: true` does not run in a sandbox: its daemon is a privileged sidecar, which sandbox
+nodes refuse, so pin such a playbook to `nodes`. `browser: true` needs Docker in the sandbox:
+boat has it, Modal only under `runtime: vm`, set on the provider or here. Settings names the
+playbooks that would follow the default somewhere they cannot run. `resources` still size the
+sandbox, and boat's `type` overrides the size they would pick.
 
 #### `skills:` — third-party Agent Skills
 

@@ -36,6 +36,9 @@ const getProfileFile = vi.fn();
 const updateProfileFile = vi.fn();
 const listUsers = vi.fn();
 const getConnections = vi.fn();
+const getRunsOn = vi.fn();
+const setRunsOn = vi.fn();
+const listSandboxProviders = vi.fn();
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -66,6 +69,8 @@ vi.mock("../lib/client", async () => {
       getProfileFile: (...a: unknown[]) => getProfileFile(...a),
       updateProfileFile: (...a: unknown[]) => updateProfileFile(...a),
       getConnections: (...a: unknown[]) => getConnections(...a),
+      getRunsOn: (...a: unknown[]) => getRunsOn(...a),
+      setRunsOn: (...a: unknown[]) => setRunsOn(...a),
       getGitHubAccount: () => Promise.resolve({ account: { available: true, connected: false } }),
       setSlackConnection: () => Promise.resolve({}),
       clearSlackConnection: () => Promise.resolve({}),
@@ -74,6 +79,7 @@ vi.mock("../lib/client", async () => {
     },
     secrets: { listSecrets: (...a: unknown[]) => listSecrets(...a) },
     users: { listUsers: (...a: unknown[]) => listUsers(...a), setUserRole: vi.fn() },
+    sandboxProviders: { listSandboxProviders: (...a: unknown[]) => listSandboxProviders(...a) },
   };
 });
 
@@ -235,7 +241,7 @@ describe("AgentPage", () => {
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Backend" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Runs on" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
@@ -421,22 +427,51 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("navigation", { name: "Agent" })).toBeNull();
   });
 
-  it("shows self-hosted as the backend and the others as coming soon", async () => {
-    mount("/agent/settings/backend", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("link", { name: "Backend" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(screen.queryByRole("link", { name: "Models" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
-    expect(screen.queryByText("Nothing to configure")).toBeNull();
+  it("chooses where turns run among your nodes and the providers set up on Sandboxes", async () => {
+    getRunsOn.mockResolvedValue({ runsOn: { runsOn: "nodes" } });
+    setRunsOn.mockResolvedValue({ runsOn: { runsOn: "modal" } });
+    listSandboxProviders.mockResolvedValue({
+      providers: [
+        { name: "boat", settings: {}, inUse: 1, maxConcurrent: 2, accountLimit: 0 },
+        { name: "modal", settings: { runtime: "gvisor" }, inUse: 0, maxConcurrent: 4, accountLimit: 0 },
+      ],
+    });
+    getProfile.mockResolvedValue({
+      ...profileResponse,
+      playbooks: [
+        { ...profileResponse.playbooks[0], name: "coder", docker: true },
+        { ...profileResponse.playbooks[0], name: "viewer", browser: true },
+        { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
+      ],
+    });
+    mount("/agent/settings/runs-on");
+    expect(await screen.findByRole("link", { name: "Runs on" })).toHaveAttribute("aria-current", "page");
 
-    const backends = screen.getByRole("radiogroup", { name: "Backend" });
-    expect(within(backends).getByRole("radio", { name: /Self-hosted/ })).toBeChecked();
-    expect(within(backends).getByRole("radio", { name: /Modal/ })).toBeDisabled();
-    expect(within(backends).getByRole("radio", { name: /Daytona/ })).toBeDisabled();
-    expect(within(backends).getAllByText("Coming soon")).toHaveLength(2);
+    const group = screen.getByRole("radiogroup", { name: "Runs on" });
+    expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
+    expect(within(group).getByRole("radio", { name: /Your nodes/ })).toBeChecked();
+    expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
+    const dind = (await screen.findByText("These playbooks cannot run in a sandbox")).closest("[data-slot=alert]");
+    expect(dind).toHaveTextContent("coder");
+    expect(dind).not.toHaveTextContent("pinned");
+    expect(screen.queryByText(/need Docker/)).toBeNull();
+
+    await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
+    const gvisor = (await screen.findByText(/need Docker/)).closest("[data-slot=alert]");
+    expect(gvisor).toHaveTextContent("viewer");
+    expect(gvisor).not.toHaveTextContent("coder");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
+  });
+
+  it("has no Runs on tab without a conductor", async () => {
+    mount("/agent/settings/users", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
+    expect(await screen.findByRole("link", { name: "Users" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Runs on" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {

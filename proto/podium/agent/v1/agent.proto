@@ -24,6 +24,10 @@ service AgentService {
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
   // GetSettings reports what the conductor is configured with. It returns no secret value.
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  // GetRunsOn is where a turn runs when its playbook does not say.
+  rpc GetRunsOn(GetRunsOnRequest) returns (GetRunsOnResponse);
+  // SetRunsOn changes it, for the turns that start after.
+  rpc SetRunsOn(SetRunsOnRequest) returns (SetRunsOnResponse);
   // SetProviderKey validates a provider key with the provider itself and, only if that
   // succeeds, stores it as a Podium secret. An unvalidated key is never saved.
   rpc SetProviderKey(SetProviderKeyRequest) returns (SetProviderKeyResponse);
@@ -383,6 +387,29 @@ message GetUsageResponse {
 }
 
 message GetSettingsRequest {}
+
+message GetRunsOnRequest {}
+
+// RunsOn is where a turn runs: "nodes" for the fleet's own machines, or the name of a
+// sandbox provider configured on the control plane.
+message RunsOn {
+  string runs_on = 1;
+  // updated_by and updated_at are unset until somebody saves a choice.
+  string updated_by = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message GetRunsOnResponse {
+  RunsOn runs_on = 1;
+}
+
+message SetRunsOnRequest {
+  string runs_on = 1;
+}
+
+message SetRunsOnResponse {
+  RunsOn runs_on = 1;
+}
 
 // ProviderSettings is everything the UI may know about a stored provider credential.
 // key_hint is the last four characters, computed once at save time: that is the only form
@@ -1137,6 +1164,28 @@ message PlaybookResources {
   int32 pids = 3;
 }
 
+// PlaybookSandbox overrides a sandbox provider's settings for a playbook's turns, when they
+// run on that provider. It is the task spec's sandbox block, without the parts the
+// conductor decides.
+message PlaybookSandbox {
+  PlaybookBoat boat = 1;
+  PlaybookModal modal = 2;
+}
+
+// PlaybookBoat is boat's machine type (small, default, large, xlarge), template snapshot
+// and billing organization.
+message PlaybookBoat {
+  string type = 1;
+  string template = 2;
+  string org = 3;
+}
+
+// PlaybookModal is Modal's runtime (gvisor or vm) and environment.
+message PlaybookModal {
+  string runtime = 1;
+  string environment = 2;
+}
+
 // PlaybookSecretRef names a stored secret and says where the turn wants it. It carries the
 // NAME of a value and never a value: a secret's value cannot be read back out of Podium at
 // all, and nothing in this API is an exception.
@@ -1246,6 +1295,10 @@ message PlaybookDefinition {
   // not company secrets: a Slack turn has no person, and naming one fails that turn.
   // A podium.agent.* name is reserved for the conductor and is refused here.
   repeated PlaybookSecretRef user_secrets = 29;
+  // runs_on is where this playbook's turns run: "nodes", a sandbox provider's name, or
+  // empty for the conductor's default (GetRunsOn).
+  string runs_on = 31;
+  PlaybookSandbox sandbox = 32;
 }
 
 message GetProfileRequest {}

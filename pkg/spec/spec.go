@@ -84,10 +84,96 @@ type TaskSpec struct {
 // sandbox made from that provider snapshot, and Image is not used.
 type Sandbox struct {
 	Snapshot string `yaml:"snapshot,omitempty" json:"snapshot,omitempty"`
+	// Provider pins the task to that provider's sandbox nodes. Empty is any of them.
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+	// Boat and Modal override that provider's settings for this task's sandbox, when it
+	// runs on one.
+	Boat  *BoatSandbox  `yaml:"boat,omitempty" json:"boat,omitempty"`
+	Modal *ModalSandbox `yaml:"modal,omitempty" json:"modal,omitempty"`
+}
+
+// BoatSandbox is what a task may set about its boat sandbox.
+type BoatSandbox struct {
+	// Type is the machine size: small, default, large or xlarge.
+	Type string `yaml:"type,omitempty" json:"type,omitempty"`
+	// Template is the named snapshot an image task starts from.
+	Template string `yaml:"template,omitempty" json:"template,omitempty"`
+	// Org bills the sandbox to this boat organization.
+	Org string `yaml:"org,omitempty" json:"org,omitempty"`
+}
+
+// ModalSandbox is what a task may set about its Modal sandbox.
+type ModalSandbox struct {
+	// Runtime is gvisor or vm; vm has Docker, for sidecars.
+	Runtime string `yaml:"runtime,omitempty" json:"runtime,omitempty"`
+	// Environment is the Modal environment the sandbox is made in.
+	Environment string `yaml:"environment,omitempty" json:"environment,omitempty"`
+}
+
+// BoatTypes and ModalRuntimes are the values those fields take.
+var (
+	BoatTypes     = []string{"small", "default", "large", "xlarge"}
+	ModalRuntimes = []string{"gvisor", "vm"}
+)
+
+// Settings is what the task overrides of provider's settings, under the keys the provider's
+// adapter reads. Empty when it overrides nothing there.
+func (s *Sandbox) Settings(provider string) map[string]string {
+	out := map[string]string{}
+	set := func(k, v string) {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	switch {
+	case s == nil:
+	case provider == "boat" && s.Boat != nil:
+		set("type", s.Boat.Type)
+		set("template", s.Boat.Template)
+		set("org", s.Boat.Org)
+	case provider == "modal" && s.Modal != nil:
+		set("runtime", s.Modal.Runtime)
+		set("environment", s.Modal.Environment)
+	}
+	return out
+}
+
+func (s *Sandbox) validate() []error {
+	if s == nil {
+		return nil
+	}
+	var errs []error
+	if s.Provider != strings.TrimSpace(s.Provider) || strings.ContainsAny(s.Provider, "=,") {
+		errs = append(errs, fmt.Errorf("sandbox.provider %q is not a provider name", s.Provider))
+	}
+	if b := s.Boat; b != nil {
+		if b.Type != "" && !slices.Contains(BoatTypes, b.Type) {
+			errs = append(errs, fmt.Errorf("sandbox.boat.type %q is not one of %s", b.Type, strings.Join(BoatTypes, ", ")))
+		}
+		if b.Template != "" && s.Snapshot != "" {
+			errs = append(errs, errors.New("sandbox.boat.template has no effect with sandbox.snapshot: the snapshot is what the sandbox starts from"))
+		}
+		if s.Provider != "" && s.Provider != "boat" {
+			errs = append(errs, fmt.Errorf("sandbox.boat is set but sandbox.provider is %s", s.Provider))
+		}
+	}
+	if m := s.Modal; m != nil {
+		if m.Runtime != "" && !slices.Contains(ModalRuntimes, m.Runtime) {
+			errs = append(errs, fmt.Errorf("sandbox.modal.runtime %q is not one of %s", m.Runtime, strings.Join(ModalRuntimes, ", ")))
+		}
+		if s.Provider != "" && s.Provider != "modal" {
+			errs = append(errs, fmt.Errorf("sandbox.modal is set but sandbox.provider is %s", s.Provider))
+		}
+	}
+	return errs
 }
 
 // LabelSandbox is the label every sandbox node carries, and every task that needs one gets.
+// A sandbox node takes no task without it.
 const LabelSandbox = "backend=sandbox"
+
+// LabelSandboxProvider is the label a sandbox node carries, followed by its provider's name.
+const LabelSandboxProvider = "sandbox.provider="
 
 // UsesSandbox reports whether only a sandbox node can run the task.
 func (s *TaskSpec) UsesSandbox() bool {
@@ -252,6 +338,9 @@ func (s *TaskSpec) ApplyDefaults() {
 	if s.UsesSandbox() && !slices.Contains(s.Labels, LabelSandbox) {
 		s.Labels = append(s.Labels, LabelSandbox)
 	}
+	if s.Sandbox != nil && s.Sandbox.Provider != "" && !slices.Contains(s.Labels, LabelSandboxProvider+s.Sandbox.Provider) {
+		s.Labels = append(s.Labels, LabelSandboxProvider+s.Sandbox.Provider)
+	}
 	if s.Expose != nil && s.Expose.TTL == 0 {
 		s.Expose.TTL = Duration(DefaultExposeTTL)
 	}
@@ -305,6 +394,7 @@ func (s *TaskSpec) Validate() error {
 		errs = append(errs, fmt.Errorf("workspace_warm must not be negative, got %s", s.WorkspaceWarm))
 	}
 	errs = append(errs, s.validateExpose()...)
+	errs = append(errs, s.Sandbox.validate()...)
 	return errors.Join(errs...)
 }
 

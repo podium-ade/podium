@@ -859,3 +859,15 @@ func delegationsOf(t *testing.T, st *store.Store, sourceKey string) []store.Dele
 func testBackend() store.Backend {
 	return store.Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
 }
+
+// A playbook that does not say where it runs takes the saved default, and one that does
+// keeps its own.
+func TestATurnTakesTheSavedRunsOnUnlessItsPlaybookSays(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	assert.Empty(t, conductor.PlacedForTest(ctx, st, profiles.Playbook{}).RunsOn, "nothing saved is the fleet's own nodes")
+
+	require.NoError(t, st.PutSetting(ctx, profiles.RunsOnKey, profiles.RunsOn{RunsOn: "modal"}))
+	assert.Equal(t, "modal", conductor.PlacedForTest(ctx, st, profiles.Playbook{}).RunsOn)
+	assert.Equal(t, profiles.RunsOnNodes, conductor.PlacedForTest(ctx, st, profiles.Playbook{RunsOn: profiles.RunsOnNodes}).RunsOn)
+}

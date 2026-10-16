@@ -24,7 +24,7 @@ import { admin, Code, connectCode, errorMessage, sandboxProviders } from "../lib
 import { absolute, relative } from "../lib/format";
 import { useViewer } from "../lib/identity";
 import { canManageInfra } from "../lib/rbac";
-import { SANDBOX_PROVIDERS, providerLabel, type ProviderSpec } from "../lib/sandboxProviders";
+import { SANDBOX_PROVIDERS, capacityText, providerLabel, type ProviderSpec } from "../lib/sandboxProviders";
 
 /**
  * The Sandboxes screen: the cloud providers sandbox nodes run tasks on. A sandbox node names
@@ -191,15 +191,6 @@ function ProviderRow({
       ) : null}
     </li>
   );
-}
-
-/** capacityText is how many sandboxes are up against what may be. */
-function capacityText(p: SandboxProvider): string {
-  const caps = [
-    p.maxConcurrent > 0 ? `${p.maxConcurrent} allowed` : "",
-    p.accountLimit > 0 ? `account limit ${p.accountLimit}` : "",
-  ].filter(Boolean);
-  return caps.length > 0 ? `${p.inUse} of ${caps.join(", ")}` : `${p.inUse}, no cap`;
 }
 
 function SettingRow({ label, value }: { label: string; value: string }) {

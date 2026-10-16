@@ -499,6 +499,32 @@ func TestSandboxSpec(t *testing.T) {
 	assert.Equal(t, "ci-base", rt.Sandbox.Snapshot)
 }
 
+func TestSandboxProviderOverrides(t *testing.T) {
+	doc := "image: alpine:3\nsandbox:\n  provider: boat\n  boat: {type: large, template: ci-base, org: acme}\n"
+	got := mustSpec(t, doc)
+	assert.Equal(t, []string{LabelSandbox, LabelSandboxProvider + "boat"}, got.Labels, "provider pins the task")
+	assert.Equal(t, map[string]string{"type": "large", "template": "ci-base", "org": "acme"}, got.Sandbox.Settings("boat"))
+	assert.Empty(t, got.Sandbox.Settings("modal"), "another provider's sandbox is not changed")
+
+	rt := FromProto(got.ToProto())
+	assert.Equal(t, got.Sandbox, rt.Sandbox)
+
+	both := mustSpec(t, "image: alpine:3\nsandbox:\n  boat: {type: small}\n  modal: {runtime: vm, environment: staging}\n")
+	assert.Equal(t, map[string]string{"runtime": "vm", "environment": "staging"}, both.Sandbox.Settings("modal"),
+		"with no provider, whichever one runs the task takes its own block")
+
+	for doc, want := range map[string]string{
+		"image: a\nsandbox: {boat: {type: huge}}\n":                   `sandbox.boat.type "huge" is not one of small, default, large, xlarge`,
+		"image: a\nsandbox: {modal: {runtime: docker}}\n":             `sandbox.modal.runtime "docker" is not one of gvisor, vm`,
+		"image: a\nsandbox: {provider: modal, boat: {type: small}}\n": "sandbox.boat is set but sandbox.provider is modal",
+		"command: [x]\nsandbox: {snapshot: s, boat: {template: t}}\n": "sandbox.boat.template has no effect with sandbox.snapshot",
+		"image: a\nsandbox: {provider: \"boat,modal\"}\n":             `sandbox.provider "boat,modal" is not a provider name`,
+	} {
+		_, err := ParseTaskSpec(strings.NewReader(doc))
+		require.ErrorContains(t, err, want, doc)
+	}
+}
+
 func mustSpec(t *testing.T, doc string) *TaskSpec {
 	t.Helper()
 	s, err := ParseTaskSpec(strings.NewReader(doc))
