@@ -77,9 +77,11 @@ type Provider struct {
 	c   *sdk.Client
 	cfg Config
 
-	mu  sync.Mutex
-	app *sdk.App
-	sbs map[string]*sdk.Sandbox
+	mu   sync.Mutex
+	apps map[string]*sdk.App
+	sbs  map[string]*sdk.Sandbox
+	// vm is the sandboxes this process made under a runtime other than the config's.
+	vm map[string]bool
 }
 
 // New checks the config and connects to Modal.
@@ -125,10 +127,43 @@ func New(c Config) (*Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("modal: %w", err)
 	}
-	return &Provider{c: client, cfg: c, sbs: map[string]*sdk.Sandbox{}}, nil
+	return &Provider{c: client, cfg: c, apps: map[string]*sdk.App{}, sbs: map[string]*sdk.Sandbox{}, vm: map[string]bool{}}, nil
 }
 
 func (c Config) vm() bool { return c.Runtime == string(sdk.SandboxRuntimeVM) }
+
+// with is the config a task's overrides make. Override has checked them.
+func (c Config) with(settings map[string]string) Config {
+	if r := settings["runtime"]; r != "" && r != c.Runtime {
+		c.Runtime = r
+		if c.Image == DefaultImage || c.Image == DefaultVMImage {
+			c.Image = DefaultImage
+			if c.vm() {
+				c.Image = DefaultVMImage
+			}
+		}
+	}
+	if e := settings["environment"]; e != "" {
+		c.Environment = e
+	}
+	return c
+}
+
+// Override implements sandbox.Overrider: a task may pick its runtime and environment.
+func (p *Provider) Override(settings map[string]string) (sandbox.Capabilities, error) {
+	for k, v := range settings {
+		switch k {
+		case "runtime":
+			if r := sdk.SandboxRuntime(v); r != sdk.SandboxRuntimeGVisor && r != sdk.SandboxRuntimeVM {
+				return sandbox.Capabilities{}, fmt.Errorf("modal: runtime %q is not gvisor or vm", v)
+			}
+		case "environment":
+		default:
+			return sandbox.Capabilities{}, fmt.Errorf("modal takes no task override %q", k)
+		}
+	}
+	return capabilities(p.cfg.with(settings)), nil
+}
 
 // Name implements sandbox.Provider.
 func (p *Provider) Name() string { return "modal" }
@@ -136,8 +171,10 @@ func (p *Provider) Name() string { return "modal" }
 // Capabilities implements sandbox.Provider. gVisor gives root but no CAP_SYS_ADMIN, so no mounts and no Docker; a vm
 // sandbox has every capability. Exposed ports go through Modal's proxy, which reaches only
 // services listening on every interface.
-func (p *Provider) Capabilities() sandbox.Capabilities {
-	vm := p.cfg.vm()
+func (p *Provider) Capabilities() sandbox.Capabilities { return capabilities(p.cfg) }
+
+func capabilities(c Config) sandbox.Capabilities {
+	vm := c.vm()
 	return sandbox.Capabilities{NativeImage: true, Snapshot: true, Root: true, Docker: vm, Tmpfs: vm, MaxTTL: MaxTTL}
 }
 
@@ -161,7 +198,7 @@ while read -r _ d < %s && [ "$(date +%%s)" -lt "$d" ]; do sleep 2; done`, int(tt
 	return []string{"sh", "-c", script}
 }
 
-func (p *Provider) createParams(req sandbox.CreateRequest) (*sdk.SandboxCreateParams, error) {
+func (p *Provider) createParams(req sandbox.CreateRequest, cfg Config) (*sdk.SandboxCreateParams, error) {
 	ttl := req.TTL
 	if ttl == 0 {
 		ttl = defaultTTL
@@ -171,33 +208,34 @@ func (p *Provider) createParams(req sandbox.CreateRequest) (*sdk.SandboxCreatePa
 	}
 	cpu, mem := req.CPU, req.MemoryMB
 	if cpu <= 0 {
-		cpu = p.cfg.CPU
+		cpu = cfg.CPU
 	}
 	if mem <= 0 {
-		mem = p.cfg.MemoryMB
+		mem = cfg.MemoryMB
 	}
 	return &sdk.SandboxCreateParams{
 		CPU:       cpu,
 		MemoryMiB: mem,
-		Runtime:   sdk.SandboxRuntime(p.cfg.Runtime),
+		Runtime:   sdk.SandboxRuntime(cfg.Runtime),
 		Timeout:   MaxTTL,
-		Command:   entrypoint(ttlFile, ttl.Truncate(time.Second), p.cfg.vm()),
+		Command:   entrypoint(ttlFile, ttl.Truncate(time.Second), cfg.vm()),
 		Name:      sandboxName(req.Key),
 		Tags:      map[string]string{"podium.key": req.Key},
 	}, nil
 }
 
-func (p *Provider) getApp(ctx context.Context) (*sdk.App, error) {
+// getApp is the App sandboxes are made in, in one environment.
+func (p *Provider) getApp(ctx context.Context, env string) (*sdk.App, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.app != nil {
-		return p.app, nil
+	if app := p.apps[env]; app != nil {
+		return app, nil
 	}
-	app, err := p.c.Apps.FromName(ctx, p.cfg.App, &sdk.AppFromNameParams{Environment: p.cfg.Environment, CreateIfMissing: true})
+	app, err := p.c.Apps.FromName(ctx, p.cfg.App, &sdk.AppFromNameParams{Environment: env, CreateIfMissing: true})
 	if err != nil {
 		return nil, toError("app", err)
 	}
-	p.app = app
+	p.apps[env] = app
 	return app, nil
 }
 
@@ -210,17 +248,29 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 	if req.Image != "" && req.Snapshot != "" {
 		return "", &sandbox.Error{Op: "create", Code: "invalid", Err: errors.New("both image and snapshot")}
 	}
-	params, err := p.createParams(req)
+	cfg := p.cfg.with(req.Settings)
+	params, err := p.createParams(req, cfg)
 	if err != nil {
 		return "", err
 	}
-	app, err := p.getApp(ctx)
+	app, err := p.getApp(ctx, cfg.Environment)
 	if err != nil {
 		return "", err
 	}
-	if id, err := p.byName(ctx, app, params.Name); id != "" || err != nil {
+	id, err := p.create(ctx, req, cfg, app, params)
+	if id != "" && cfg.vm() != p.cfg.vm() {
+		p.mu.Lock()
+		p.vm[id] = cfg.vm()
+		p.mu.Unlock()
+	}
+	return id, err
+}
+
+func (p *Provider) create(ctx context.Context, req sandbox.CreateRequest, cfg Config, app *sdk.App, params *sdk.SandboxCreateParams) (string, error) {
+	if id, err := p.byName(ctx, app, params.Name, cfg.Environment); id != "" || err != nil {
 		return id, err
 	}
+	var err error
 	var img *sdk.Image
 	switch {
 	case req.Snapshot != "":
@@ -233,7 +283,7 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 		sec, err := p.c.Secrets.FromMap(ctx, map[string]string{
 			"REGISTRY_USERNAME": req.Registry.Username,
 			"REGISTRY_PASSWORD": req.Registry.Password,
-		}, &sdk.SecretFromMapParams{Environment: p.cfg.Environment})
+		}, &sdk.SecretFromMapParams{Environment: cfg.Environment})
 		if err != nil {
 			return "", toError("create", err)
 		}
@@ -241,12 +291,12 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 	case req.Image != "":
 		img = p.c.Images.FromRegistry(req.Image, nil)
 	default:
-		img = p.c.Images.FromRegistry(p.cfg.Image, nil)
+		img = p.c.Images.FromRegistry(cfg.Image, nil)
 	}
 	sb, err := p.c.Sandboxes.Create(ctx, app, img, params)
 	var exists sdk.AlreadyExistsError
 	if errors.As(err, &exists) {
-		return p.byName(ctx, app, params.Name)
+		return p.byName(ctx, app, params.Name, cfg.Environment)
 	}
 	if err != nil {
 		return "", toError("create", err)
@@ -256,8 +306,8 @@ func (p *Provider) Create(ctx context.Context, req sandbox.CreateRequest) (strin
 }
 
 // byName is the running sandbox called name, or "" when there is none.
-func (p *Provider) byName(ctx context.Context, app *sdk.App, name string) (string, error) {
-	sb, err := p.c.Sandboxes.FromName(ctx, app.Name, name, &sdk.SandboxFromNameParams{Environment: p.cfg.Environment})
+func (p *Provider) byName(ctx context.Context, app *sdk.App, name, env string) (string, error) {
+	sb, err := p.c.Sandboxes.FromName(ctx, app.Name, name, &sdk.SandboxFromNameParams{Environment: env})
 	var nf sdk.NotFoundError
 	if errors.As(err, &nf) {
 		return "", nil
@@ -305,8 +355,14 @@ func (p *Provider) WaitReady(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
+	vm, overridden := p.vm[id]
+	p.mu.Unlock()
+	if !overridden {
+		vm = p.cfg.vm()
+	}
 	probe := "test -s " + ttlFile
-	if p.cfg.vm() {
+	if vm {
 		probe = readyCmd
 	}
 	for {

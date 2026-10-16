@@ -233,6 +233,19 @@ func TestPickPlacesASandboxTaskOnASandboxNode(t *testing.T) {
 	assert.Equal(t, "node_sandbox", cands[i].NodeID)
 }
 
+// A task that does not ask for a sandbox is never billed to a provider, even when a sandbox
+// node is the only one with room.
+func TestPickKeepsAPlainTaskOffSandboxNodes(t *testing.T) {
+	ts := spec.TaskSpec{Image: "alpine:3"}
+	sbx := sandboxNode("node_boat", "boat", 4, 0, 0)
+	assert.Equal(t, -1, pick([]nodes.Snapshot{sbx}, ts, nodes.TaskCost{}))
+	assert.Equal(t, ReasonOnlySandboxes, placementReason([]nodes.Snapshot{sbx}, ts, nodes.TaskCost{}))
+
+	docker := node("node_docker", 1)
+	i := pick([]nodes.Snapshot{sbx, docker}, ts, nodes.TaskCost{})
+	require.Equal(t, 1, i)
+}
+
 func sandboxNode(id, provider string, slots, running, accountLimit int32) nodes.Snapshot {
 	s := node(id, slots, "backend=sandbox", "sandbox.provider="+provider)
 	s.SandboxProvider, s.RunningTasks, s.SandboxAccountLimit = provider, running, accountLimit

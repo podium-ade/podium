@@ -84,3 +84,54 @@ func TestAccountLimitIsReadInTheBackground(t *testing.T) {
 	p.limits <- sandbox.Limits{MaxSandboxes: 2}
 	require.Eventually(t, func() bool { return e.AccountLimit() == 2 }, 5*time.Second, 10*time.Millisecond)
 }
+
+// overrider is a provider a task may override: boat-like with Docker, or Modal-like where
+// runtime vm adds it.
+type overrider struct {
+	stubProvider
+	name string
+}
+
+func (p *overrider) Name() string                       { return p.name }
+func (p *overrider) Capabilities() sandbox.Capabilities { return sandbox.Capabilities{Docker: true} }
+func (p *overrider) Override(s map[string]string) (sandbox.Capabilities, error) {
+	if s["type"] == "huge" {
+		return sandbox.Capabilities{}, errors.New("no machine type huge")
+	}
+	return sandbox.Capabilities{NativeImage: p.name == "modal", Docker: p.name == "boat" || s["runtime"] == "vm"}, nil
+}
+
+// A task's overrides of its provider's settings reach Create, and a template override
+// replaces the node's. Another provider's block is ignored, and an override the provider
+// refuses fails the task for good.
+func TestPlanAppliesATasksOverrides(t *testing.T) {
+	boat := &Executor{p: &overrider{name: "boat"}}
+	tmpl := "node-tmpl"
+	boat.tmpl.Store(&tmpl)
+	sp := spec.TaskSpec{Image: "alpine:3", Sandbox: &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}}}
+	_, req, err := boat.plan(sp)
+	require.NoError(t, err)
+	require.Empty(t, req.Settings)
+	require.Equal(t, "node-tmpl", req.Snapshot)
+
+	sp.Sandbox.Boat = &spec.BoatSandbox{Type: "large", Template: "task-tmpl"}
+	_, req, err = boat.plan(sp)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"type": "large"}, req.Settings)
+	require.Equal(t, "task-tmpl", req.Snapshot)
+
+	sp.Sandbox.Boat.Type = "huge"
+	_, _, err = boat.plan(sp)
+	require.ErrorIs(t, err, errSpec)
+
+	modal := &Executor{p: &overrider{name: "modal"}}
+	sidecars := spec.TaskSpec{Image: "alpine:3", Sidecars: map[string]spec.Sidecar{"db": {Image: "postgres"}}}
+	sidecars.Sandbox = &spec.Sandbox{Modal: &spec.ModalSandbox{Runtime: "vm"}}
+	strategy, req, err := modal.plan(sidecars)
+	require.NoError(t, err, "runtime vm gives the sandbox the Docker its sidecars need")
+	require.Equal(t, "process", strategy)
+	require.Equal(t, map[string]string{"runtime": "vm"}, req.Settings)
+
+	_, _, err = (&Executor{p: &stubProvider{}}).plan(spec.TaskSpec{Image: "a", Sandbox: &spec.Sandbox{Boat: &spec.BoatSandbox{Type: "small"}}})
+	require.NoError(t, err, "a provider that takes no overrides is given none")
+}

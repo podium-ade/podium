@@ -35,6 +35,7 @@ const (
 	ReasonFull           = "every node that could run this task is full"
 	ReasonNoPreview      = "no online node has a free preview address for this task"
 	ReasonSandboxFull    = "sandbox provider %s is running as many sandboxes as it may (%d)"
+	ReasonOnlySandboxes  = "only sandbox nodes could run this task, and it does not ask for a sandbox"
 	ReasonNotAccepted    = "node did not accept assignment"
 	ReasonTimeout        = "timeout"
 	ReasonNoLease        = "the task is on no node and holds no lease"
@@ -408,10 +409,16 @@ func better(a, b nodes.Snapshot) bool {
 func eligible(c nodes.Snapshot, ts spec.TaskSpec, cost nodes.TaskCost) bool {
 	return !c.Draining &&
 		c.FreeSlots > 0 &&
-		hasAll(c.Labels, ts.Labels) &&
+		matches(c, ts) &&
 		fitsCPU(c, cost) &&
 		fitsMemory(c, cost) &&
 		fitsPreview(c, cost)
+}
+
+// matches is the label rule. A sandbox node also takes only a task that asks for a sandbox,
+// so a task meant for this fleet's own machines is never billed to a provider.
+func matches(c nodes.Snapshot, ts spec.TaskSpec) bool {
+	return hasAll(c.Labels, ts.Labels) && (c.SandboxProvider == "" || slices.Contains(ts.Labels, spec.LabelSandbox))
 }
 
 // fitsPreview is the one constraint here where zero means none: a node that reports no
@@ -458,8 +465,11 @@ func placementReason(candidates []nodes.Snapshot, ts spec.TaskSpec, cost nodes.T
 	if len(candidates) == 0 {
 		return ReasonNoNodes
 	}
-	labelled := filter(candidates, func(c nodes.Snapshot) bool { return hasAll(c.Labels, ts.Labels) })
+	labelled := filter(candidates, func(c nodes.Snapshot) bool { return matches(c, ts) })
 	if len(labelled) == 0 {
+		if slices.ContainsFunc(candidates, func(c nodes.Snapshot) bool { return hasAll(c.Labels, ts.Labels) }) {
+			return ReasonOnlySandboxes
+		}
 		return ReasonNoLabels + " (" + strings.Join(ts.Labels, ", ") + ")"
 	}
 	awake := filter(labelled, func(c nodes.Snapshot) bool { return !c.Draining })
@@ -567,7 +577,7 @@ func (r providerRoom) reason(candidates []nodes.Snapshot, ts spec.TaskSpec, fall
 	}
 	for _, c := range candidates {
 		if limit, capped := r.limit[c.SandboxProvider]; capped && r.left[c.SandboxProvider] <= 0 &&
-			!c.Draining && hasAll(c.Labels, ts.Labels) {
+			!c.Draining && matches(c, ts) {
 			return fmt.Sprintf(ReasonSandboxFull, c.SandboxProvider, limit)
 		}
 	}
