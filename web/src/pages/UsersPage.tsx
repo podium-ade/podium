@@ -90,7 +90,7 @@ export function UsersPage() {
       <PermissionsTable />
 
       {rows.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-border p-4">
           <span className="inline-flex min-h-7 items-center rounded-sm border border-border bg-raised px-2 text-xs font-bold">
             {rows.length} {rows.length === 1 ? "person" : "people"}
           </span>
@@ -101,7 +101,7 @@ export function UsersPage() {
       ) : null}
 
       {!manage ? (
-        <div className="border-t border-border px-6 py-4">
+        <div className="border-t border-border p-4">
           <Alert variant="info" title="You can see who is here">
             Changing a role takes the owner role. Ask an owner if you need to operate the
             fleet or the agent.
@@ -224,8 +224,8 @@ function UserRow({
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="px-4 py-4 font-mono text-sm text-soft">{user.login}</TableCell>
-      <TableCell>
+      <TableCell className="px-4 py-4 text-sm text-soft">{user.login}</TableCell>
+      <TableCell className="px-4 py-4">
         {manage ? (
           <Tooltip
             label={lastOwner ? "An instance with no owner cannot recover from the UI." : undefined}
@@ -253,7 +253,7 @@ function UserRow({
           <RoleBadge role={role} />
         )}
       </TableCell>
-      <TableCell className="text-xs whitespace-nowrap text-muted" title={absolute(user.lastSeenAt)}>
+      <TableCell className="px-4 py-4 text-sm whitespace-nowrap text-soft" title={absolute(user.lastSeenAt)}>
         {relative(user.lastSeenAt)}
       </TableCell>
     </TableRow>
