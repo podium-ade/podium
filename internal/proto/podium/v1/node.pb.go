@@ -1875,12 +1875,9 @@ type Heartbeat struct {
 	// than being refused by a node with no address to give it.
 	FreeTailnetPreviews int32 `protobuf:"varint,5,opt,name=free_tailnet_previews,json=freeTailnetPreviews,proto3" json:"free_tailnet_previews,omitempty"`
 	FreeLanPreviews     int32 `protobuf:"varint,6,opt,name=free_lan_previews,json=freeLanPreviews,proto3" json:"free_lan_previews,omitempty"`
-	// Finished tasks this node is keeping up as a preview. They hold no slot on the control
-	// plane, but on a sandbox node each is still a sandbox.
-	HeldPreviews int32 `protobuf:"varint,7,opt,name=held_previews,json=heldPreviews,proto3" json:"held_previews,omitempty"`
 	// The most sandboxes the provider account allows at once, as the provider reports it.
 	// Zero is unknown, and on every node that is not a sandbox node.
-	SandboxAccountLimit int32 `protobuf:"varint,8,opt,name=sandbox_account_limit,json=sandboxAccountLimit,proto3" json:"sandbox_account_limit,omitempty"`
+	SandboxAccountLimit int32 `protobuf:"varint,7,opt,name=sandbox_account_limit,json=sandboxAccountLimit,proto3" json:"sandbox_account_limit,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1953,13 +1950,6 @@ func (x *Heartbeat) GetFreeTailnetPreviews() int32 {
 func (x *Heartbeat) GetFreeLanPreviews() int32 {
 	if x != nil {
 		return x.FreeLanPreviews
-	}
-	return 0
-}
-
-func (x *Heartbeat) GetHeldPreviews() int32 {
-	if x != nil {
-		return x.HeldPreviews
 	}
 	return 0
 }
@@ -3465,7 +3455,7 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\bNodeLoad\x12#\n" +
 	"\rrunning_tasks\x18\x01 \x01(\x05R\frunningTasks\x12\x17\n" +
 	"\acpu_pct\x18\x02 \x01(\x01R\x06cpuPct\x12\x17\n" +
-	"\amem_pct\x18\x03 \x01(\x01R\x06memPct\"\xe0\x02\n" +
+	"\amem_pct\x18\x03 \x01(\x01R\x06memPct\"\xbb\x02\n" +
 	"\tHeartbeat\x12'\n" +
 	"\x04load\x18\x01 \x01(\v2\x13.podium.v1.NodeLoadR\x04load\x12\x1d\n" +
 	"\n" +
@@ -3473,9 +3463,8 @@ const file_podium_v1_node_proto_rawDesc = "" +
 	"\x0fdisk_free_bytes\x18\x03 \x01(\x03R\rdiskFreeBytes\x12*\n" +
 	"\x02ts\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x122\n" +
 	"\x15free_tailnet_previews\x18\x05 \x01(\x05R\x13freeTailnetPreviews\x12*\n" +
-	"\x11free_lan_previews\x18\x06 \x01(\x05R\x0ffreeLanPreviews\x12#\n" +
-	"\rheld_previews\x18\a \x01(\x05R\fheldPreviews\x122\n" +
-	"\x15sandbox_account_limit\x18\b \x01(\x05R\x13sandboxAccountLimit\"\xb5\x02\n" +
+	"\x11free_lan_previews\x18\x06 \x01(\x05R\x0ffreeLanPreviews\x122\n" +
+	"\x15sandbox_account_limit\x18\a \x01(\x05R\x13sandboxAccountLimit\"\xb5\x02\n" +
 	"\x06Assign\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12'\n" +

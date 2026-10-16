@@ -17,7 +17,7 @@ import (
 // many sandboxes they hold.
 type SandboxPusher interface {
 	PushSandboxConfig(ctx context.Context, provider string)
-	SandboxUsage() map[string]nodes.SandboxUsage
+	SandboxUsage(ctx context.Context) map[string]nodes.SandboxUsage
 }
 
 // SandboxProviderService implements podium.v1.SandboxProviderService: the secret store's
@@ -51,7 +51,7 @@ func (s *SandboxProviderService) SetSandboxProvider(
 	}
 	s.nodes.PushSandboxConfig(context.WithoutCancel(ctx), row.Name)
 	return connect.NewResponse(&podiumv1.SetSandboxProviderResponse{
-		Provider: sandboxProviderToProto(row, s.nodes.SandboxUsage()[row.Name]),
+		Provider: sandboxProviderToProto(row, s.nodes.SandboxUsage(ctx)[row.Name]),
 	}), nil
 }
 
@@ -64,7 +64,7 @@ func (s *SandboxProviderService) ListSandboxProviders(
 	if err != nil {
 		return nil, secretError(err)
 	}
-	usage := s.nodes.SandboxUsage()
+	usage := s.nodes.SandboxUsage(ctx)
 	out := make([]*podiumv1.SandboxProvider, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, sandboxProviderToProto(row, usage[row.Name]))

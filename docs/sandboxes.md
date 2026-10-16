@@ -73,7 +73,8 @@ saved, and stops taking work when the provider is removed. Only admins can set o
 A provider's sandboxes are one pool, however many nodes drive it, so the cap is the
 provider's, not a node's. **Max concurrent sandboxes**, set in the same dialog, caps every node
 of the provider together, and the scheduler holds each provider to the lower of that and the
-account limit its nodes read from the provider. A held preview counts: its sandbox is still up.
+account limit its nodes read from the provider. A held preview and a lost task's sandbox still
+waiting to be deleted both count: they are still up.
 A task past the cap waits in the queue with `sandbox provider <name> is running as many
 sandboxes as it may (N)`.
 
