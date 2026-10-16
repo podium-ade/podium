@@ -68,7 +68,7 @@ export function RunsOnSettings() {
     });
   }
 
-  const stranded = needsDocker(profile.data?.playbooks ?? [], choice, configured);
+  const { dind, browser } = stranded(profile.data?.playbooks ?? [], choice, configured);
 
   return (
     <div className="grid gap-4">
@@ -117,10 +117,16 @@ export function RunsOnSettings() {
         })}
       </div>
 
-      {stranded.length > 0 ? (
+      {dind.length > 0 ? (
+        <Alert variant="warn" title="These playbooks cannot run in a sandbox">
+          {dind.join(", ")} attach a Docker daemon, a privileged sidecar a sandbox does not run.
+          Pin them to your nodes with Runs on.
+        </Alert>
+      ) : null}
+      {browser.length > 0 ? (
         <Alert variant="warn" title="These playbooks need Docker, which Modal's gvisor runtime does not have">
-          {stranded.join(", ")} attach a Docker or browser sidecar. Set the Modal provider's runtime
-          to vm on Sandboxes, set it on each playbook, or pin them to your nodes.
+          {browser.join(", ")} attach a browser sidecar. Set the Modal provider's runtime to vm on
+          Sandboxes, set it on each playbook, or pin them to your nodes.
         </Alert>
       ) : null}
 
@@ -156,14 +162,25 @@ function providerChoice(p: SandboxProvider): Choice {
 }
 
 /**
- * needsDocker is every playbook that follows this choice onto Modal with a sidecar its
- * runtime cannot run.
+ * stranded is the playbooks that would follow this choice into a sandbox that cannot run
+ * their sidecars: a Docker daemon in any sandbox, since it is privileged, and a browser on
+ * Modal without the vm runtime.
  */
-function needsDocker(playbooks: PlaybookDefinition[], choice: string, providers: SandboxProvider[]): string[] {
-  if (choice !== "modal") return [];
+function stranded(
+  playbooks: PlaybookDefinition[],
+  choice: string,
+  providers: SandboxProvider[],
+): { dind: string[]; browser: string[] } {
+  if (choice === RUNS_ON_NODES) return { dind: [], browser: [] };
+  const following = playbooks.filter((p) => !p.shadowed && !p.runsOn);
   const runtime = providers.find((p) => p.name === "modal")?.settings.runtime || "gvisor";
-  return playbooks
-    .filter((p) => !p.shadowed && !p.runsOn && (p.docker || p.browser))
-    .filter((p) => (p.sandbox?.modal?.runtime || runtime) !== "vm")
-    .map((p) => p.name);
+  return {
+    dind: following.filter((p) => p.docker).map((p) => p.name),
+    browser:
+      choice === "modal"
+        ? following
+            .filter((p) => !p.docker && p.browser && (p.sandbox?.modal?.runtime || runtime) !== "vm")
+            .map((p) => p.name)
+        : [],
+  };
 }

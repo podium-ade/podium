@@ -539,7 +539,8 @@ export function PlaybookEditor({
             onOverrides={setOverrides}
             providers={sandboxProviders}
             defaultRunsOn={defaultRunsOn}
-            sidecars={docker || browser}
+            docker={docker}
+            browser={browser}
           />
 
           <Disclosure
@@ -1329,7 +1330,8 @@ function RunsOnFields({
   onOverrides,
   providers,
   defaultRunsOn,
-  sidecars,
+  docker,
+  browser,
 }: {
   uid: string;
   runsOn: string;
@@ -1338,7 +1340,8 @@ function RunsOnFields({
   onOverrides: (o: SandboxOverrides) => void;
   providers?: SandboxProvider[];
   defaultRunsOn?: string;
-  sidecars: boolean;
+  docker: boolean;
+  browser: boolean;
 }) {
   // A list that could not be read offers every provider this build knows.
   const names = (providers ?? SANDBOX_PROVIDERS).map((p) => p.name);
@@ -1384,10 +1387,14 @@ function RunsOnFields({
           ))}
         </select>
       </Field>
-      {effective === "modal" && sidecars && modalRuntime !== "vm" ? (
+      {effective !== RUNS_ON_NODES && docker ? (
+        <Alert variant="warn" title="A Docker daemon does not run in a sandbox">
+          It is a privileged sidecar, which sandbox nodes refuse. Run this playbook on your nodes.
+        </Alert>
+      ) : effective === "modal" && browser && modalRuntime !== "vm" ? (
         <Alert variant="warn" title="Modal's gvisor runtime has no Docker">
-          This playbook attaches a Docker or browser sidecar, which Modal runs only under the vm
-          runtime. Set the runtime to vm below, or on the Modal provider.
+          The browser is a sidecar, which Modal runs only under the vm runtime. Set the runtime to
+          vm below, or on the Modal provider.
         </Alert>
       ) : null}
 

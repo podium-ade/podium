@@ -440,6 +440,7 @@ describe("AgentPage", () => {
       ...profileResponse,
       playbooks: [
         { ...profileResponse.playbooks[0], name: "coder", docker: true },
+        { ...profileResponse.playbooks[0], name: "viewer", browser: true },
         { ...profileResponse.playbooks[0], name: "pinned", docker: true, runsOn: "nodes" },
       ],
     });
@@ -452,10 +453,16 @@ describe("AgentPage", () => {
     expect(screen.getByTestId("runs-on-boat")).toHaveTextContent("Running 1 of 2 allowed");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 
+    await userEvent.click(within(group).getByRole("radio", { name: /boat\.dev/ }));
+    const dind = (await screen.findByText("These playbooks cannot run in a sandbox")).closest("[data-slot=alert]");
+    expect(dind).toHaveTextContent("coder");
+    expect(dind).not.toHaveTextContent("pinned");
+    expect(screen.queryByText(/need Docker/)).toBeNull();
+
     await userEvent.click(within(group).getByRole("radio", { name: /Modal/ }));
-    const warning = (await screen.findByText(/need Docker/)).closest("[data-slot=alert]");
-    expect(warning).toHaveTextContent("coder");
-    expect(warning).not.toHaveTextContent("pinned");
+    const gvisor = (await screen.findByText(/need Docker/)).closest("[data-slot=alert]");
+    expect(gvisor).toHaveTextContent("viewer");
+    expect(gvisor).not.toHaveTextContent("coder");
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));

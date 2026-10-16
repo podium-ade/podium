@@ -41,7 +41,7 @@ describe("PlaybookEditor", () => {
         image: "podium-agent-runtime:dev",
         systemPrompt: "Code.",
         allowedTools: ["read"],
-        docker: true,
+        browser: true,
         editable: true,
         sandbox: { modal: { environment: "staging" } },
       }),

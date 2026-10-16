@@ -716,10 +716,11 @@ sandbox:
   modal: { runtime: vm, environment: staging }          # vm has Docker; the environment to use
 ```
 
-`docker: true` and `browser: true` need Docker in the sandbox. boat always has it; Modal has it
-only under `runtime: vm`, set on the provider or here. Settings warns about playbooks that would
-follow the default onto Modal without it. `resources` still size the sandbox, and boat's `type`
-overrides the size they would pick.
+`docker: true` does not run in a sandbox: its daemon is a privileged sidecar, which sandbox
+nodes refuse, so pin such a playbook to `nodes`. `browser: true` needs Docker in the sandbox:
+boat has it, Modal only under `runtime: vm`, set on the provider or here. Settings names the
+playbooks that would follow the default somewhere they cannot run. `resources` still size the
+sandbox, and boat's `type` overrides the size they would pick.
 
 #### `skills:` — third-party Agent Skills
 
