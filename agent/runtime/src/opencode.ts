@@ -21,6 +21,7 @@ import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 
 import type { McpServerRef } from "./brief.js";
+import { TitleServer } from "./title.js";
 
 /** dnsLookup is the callback API as a promise; node:dns/promises resolves differently. */
 const dnsLookup = promisify(dnsLookupCb) as (host: string) => Promise<{ address: string }>;
@@ -58,6 +59,8 @@ export const DelegateServer = "podium";
  * the prefix its tools carry (`human_ask`).
  */
 export const HumanServer = "human";
+
+export { TitleServer };
 
 /** DelegateURLFlag matches UrlFlag in mcp.ts. */
 export const DelegateURLFlag = "--url";
@@ -113,10 +116,17 @@ async function defaultLookup(host: string): Promise<string> {
  * `mcp_servers` may not take one: the harness config is a single map keyed by name, so a
  * registration reusing one would silently replace something the conductor decided the turn
  * gets — the shared memory, the sidecar browser, the delegation a host turn works
- * through, or the ask tool an interactive turn waits on. internal/agent/mcp holds the
- * same list, and refuses a registration much earlier.
+ * through, the ask tool an interactive turn waits on, or the title tool a first turn
+ * names the chat with. internal/agent/mcp holds the same list, and refuses a registration
+ * much earlier.
  */
-export const ReservedServers = new Set([MemoryServer, BrowserServer, DelegateServer, HumanServer]);
+export const ReservedServers = new Set([
+  MemoryServer,
+  BrowserServer,
+  DelegateServer,
+  HumanServer,
+  TitleServer,
+]);
 
 /** ConfigName and PromptName are what is written into the config directory. */
 const ConfigName = "opencode.json";
@@ -181,6 +191,12 @@ export interface Config {
    * local MCP server beside the turn (ask.ts) and the `human*` tools that go with it.
    */
   interactive?: { entry: string };
+  /**
+   * title is how a first turn that cannot write a file names the conversation. It becomes
+   * a local MCP server (title.ts). The file path is an environment variable, not an
+   * argument: the model must not be able to choose where the title is written.
+   */
+  title?: { entry: string };
 }
 
 /**
@@ -279,6 +295,9 @@ export function writeConfig(cfg: Config): string {
   if (cfg.interactive) {
     tools[`${HumanServer}*`] = true;
   }
+  if (cfg.title) {
+    tools[`${TitleServer}*`] = true;
+  }
   // And the playbook's own servers. Each one's tools are enabled wholesale, because naming
   // the server in `mcp_servers` is what granting it means — the conductor already decided
   // which turns get which, and a playbook cannot describe individual tools of a server
@@ -347,6 +366,13 @@ export function writeConfig(cfg: Config): string {
     mcp[HumanServer] = {
       type: "local",
       command: [process.execPath, cfg.interactive.entry],
+      enabled: true,
+    };
+  }
+  if (cfg.title) {
+    mcp[TitleServer] = {
+      type: "local",
+      command: [process.execPath, cfg.title.entry],
       enabled: true,
     };
   }
