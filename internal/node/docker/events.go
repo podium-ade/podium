@@ -24,6 +24,7 @@ const (
 	KindError        = "error"
 	KindMessage      = "message"
 	KindPreview      = "preview"
+	KindSandbox      = "sandbox"
 )
 
 // Log stream names carried by [LogPayload].
@@ -99,6 +100,12 @@ type FinishedPayload struct {
 	Usage    Usage
 	// Held is a run whose containers stay up as a preview.
 	Held bool
+}
+
+// SandboxPayload names the sandbox a sandbox node made for the task.
+type SandboxPayload struct {
+	Provider string
+	ID       string
 }
 
 // ErrorPayload reports something that went wrong. Retryable is true for transient pull and

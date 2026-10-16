@@ -199,6 +199,12 @@ function TaskDetail({ id }: { id: string }) {
                 <Unknown>not placed yet</Unknown>
               )}
             </Fact>
+            {task.sandboxId ? (
+              <Fact label="Sandbox">
+                <span className="text-faint">{task.sandboxProvider} · </span>
+                <CopyValue value={task.sandboxId} label="sandbox ID" />
+              </Fact>
+            ) : null}
             <Fact label="Attempts">
               <span className="tabular">
                 {task.attempts} of {task.spec?.maxAttempts || 1}

@@ -93,3 +93,56 @@ func TestTheControlPlaneConfiguresASandboxNode(t *testing.T) {
 		"a sandbox made before the provider was removed can still be deleted")
 	require.Equal(t, []string{"bx_still_running"}, last.deleted)
 }
+
+// reapRecorder is an executor that deletes what it is told to, failing for one id.
+type reapRecorder struct {
+	executor
+	reaped chan string
+}
+
+func (r *reapRecorder) Reap(_ context.Context, id string) error {
+	r.reaped <- id
+	if id == "bx_stuck" {
+		return errors.New("provider says no")
+	}
+	return nil
+}
+
+func (r *reapRecorder) AccountLimit() int32    { return 0 }
+func (r *reapRecorder) OnDeleted(func(string)) {}
+
+// A node deletes the sandboxes of its own provider it is asked to and queues each answer for
+// the stream, the failures with their reason.
+func TestASandboxNodeReapsForTheControlPlane(t *testing.T) {
+	exec := &reapRecorder{reaped: make(chan string, 4)}
+	n := &Node{
+		cfg: Config{Sandbox: SandboxConfig{Provider: "boat"}}, exec: exec, runCtx: context.Background(),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)), wake: make(chan struct{}, 1),
+	}
+	n.reapSandbox(context.Background(), &podiumv1.ReapSandbox{Provider: "modal", SandboxId: "sb-other"})
+	n.reapSandbox(context.Background(), &podiumv1.ReapSandbox{Provider: "boat", SandboxId: "bx_gone"})
+	<-n.wake
+	n.reapSandbox(context.Background(), &podiumv1.ReapSandbox{Provider: "boat", SandboxId: "bx_stuck"})
+	<-n.wake
+	require.Equal(t, "bx_gone", <-exec.reaped, "another provider's sandbox is not this node's to delete")
+	require.Equal(t, "bx_stuck", <-exec.reaped)
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	require.Len(t, n.reaped, 2)
+	require.Equal(t, "bx_gone", n.reaped[0].GetSandboxId())
+	require.Empty(t, n.reaped[0].GetError())
+	require.Equal(t, "provider says no", n.reaped[1].GetError())
+	require.Empty(t, n.reaping)
+}
+
+// A sandbox the node deletes itself is reported too, so the control plane stops counting it.
+func TestASandboxNodeReportsTheSandboxesItDeletes(t *testing.T) {
+	n := &Node{cfg: Config{Sandbox: SandboxConfig{Provider: "boat"}}, wake: make(chan struct{}, 1)}
+	n.sandboxDeleted("bx_1")
+	<-n.wake
+	require.Len(t, n.reaped, 1)
+	require.Equal(t, "boat", n.reaped[0].GetProvider())
+	require.Equal(t, "bx_1", n.reaped[0].GetSandboxId())
+	require.Empty(t, n.reaped[0].GetError())
+}

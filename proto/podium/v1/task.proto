@@ -53,6 +53,9 @@ message Task {
   int32 priority = 15;
   // Set once the node has published the task's exposed ports.
   TaskPreview preview = 16;
+  // The sandbox the latest attempt ran in, on a sandbox node.
+  string sandbox_provider = 17;
+  string sandbox_id = 18;
 }
 
 // TaskPreview is a task's environment kept up after its command exited.

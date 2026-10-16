@@ -26,6 +26,7 @@ const (
 	KindError        = "error"
 	KindMessage      = "message"
 	KindPreview      = "preview"
+	KindSandbox      = "sandbox"
 )
 
 var kindNames = map[podiumv1.TaskEventKind]string{
@@ -40,6 +41,7 @@ var kindNames = map[podiumv1.TaskEventKind]string{
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR:        KindError,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE:      KindMessage,
 	podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW:      KindPreview,
+	podiumv1.TaskEventKind_TASK_EVENT_KIND_SANDBOX:      KindSandbox,
 }
 
 var kindValues = func() map[string]podiumv1.TaskEventKind {
@@ -100,6 +102,8 @@ func payloadJSON(e *podiumv1.TaskEvent) (json.RawMessage, error) {
 		m = e.GetArtifact()
 	case e.GetPreview() != nil:
 		m = e.GetPreview()
+	case e.GetSandbox() != nil:
+		m = e.GetSandbox()
 	default:
 		return json.RawMessage("{}"), nil
 	}
@@ -183,6 +187,12 @@ func eventToProto(taskID string, row store.Event) (*podiumv1.TaskEvent, error) {
 			return nil, err
 		}
 		out.Payload = &podiumv1.TaskEvent_Preview{Preview: p}
+	case KindSandbox:
+		p := &podiumv1.SandboxHandle{}
+		if err := unmarshal(p); err != nil {
+			return nil, err
+		}
+		out.Payload = &podiumv1.TaskEvent_Sandbox{Sandbox: p}
 	}
 	return out, nil
 }

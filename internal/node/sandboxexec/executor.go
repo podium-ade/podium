@@ -34,6 +34,8 @@ const (
 	// ttlMargin is how long a sandbox outlives its task's timeout, so the provider's own
 	// stop is a backstop and never the thing that ends a run.
 	ttlMargin = 15 * time.Minute
+	// limitsEvery is how often the account's sandbox cap is read again.
+	limitsEvery = time.Minute
 )
 
 // Options configures New.
@@ -55,6 +57,11 @@ type Executor struct {
 	agent  func() ([]byte, error)
 	log    *slog.Logger
 	client *http.Client
+
+	limit   atomic.Int32
+	limitAt atomic.Int64
+
+	deleted atomic.Pointer[func(id string)]
 
 	mu    sync.Mutex
 	tasks map[string]*task
@@ -226,6 +233,7 @@ func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emi
 	if err := e.save(t); err != nil {
 		return docker.Result{}, err
 	}
+	em.emit(docker.KindSandbox, docker.SandboxPayload{Provider: e.p.Name(), ID: id})
 	if err := e.p.WaitReady(ctx, id); err != nil {
 		return docker.Result{}, fmt.Errorf("sandbox %s: %w", id, err)
 	}
@@ -379,8 +387,43 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, _ bool) error {
 		if err := e.p.Delete(ctx, rec.SandboxID); err != nil {
 			return fmt.Errorf("delete sandbox %s: %w", rec.SandboxID, err)
 		}
+		if fn := e.deleted.Load(); fn != nil {
+			(*fn)(rec.SandboxID)
+		}
 	}
 	return os.RemoveAll(e.TaskDir(taskID))
+}
+
+// OnDeleted is called with every sandbox Teardown deletes.
+func (e *Executor) OnDeleted(fn func(id string)) { e.deleted.Store(&fn) }
+
+// Reap deletes a sandbox this node does not hold, for a task the control plane gave up on.
+// One that is already gone is not an error.
+func (e *Executor) Reap(ctx context.Context, id string) error {
+	err := e.p.Delete(ctx, id)
+	var pe *sandbox.Error
+	if errors.As(err, &pe) && pe.Code == "not_found" {
+		return nil
+	}
+	return err
+}
+
+// AccountLimit is the most sandboxes the provider account allows at once, 0 when unknown.
+// It answers from the last read and reads again in the background at most once a minute,
+// so a heartbeat never waits on the provider.
+func (e *Executor) AccountLimit() int32 {
+	now := time.Now().UnixNano()
+	last := e.limitAt.Load()
+	if now-last >= int64(limitsEvery) && e.limitAt.CompareAndSwap(last, now) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if l, err := e.p.Limits(ctx); err == nil {
+				e.limit.Store(int32(max(l.MaxSandboxes, 0)))
+			}
+		}()
+	}
+	return e.limit.Load()
 }
 
 // ListOwned is every task this node recorded a sandbox for.

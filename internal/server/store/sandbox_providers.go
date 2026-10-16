@@ -12,13 +12,15 @@ import (
 // SandboxProvider is one row of sandbox_providers: a cloud sandbox provider's settings and
 // its credential as AES-256-GCM output. The plaintext never reaches this package.
 type SandboxProvider struct {
-	Name       string
-	Settings   map[string]string
-	Ciphertext []byte
-	Nonce      []byte
-	KeyID      string
-	CreatedBy  string
-	UpdatedAt  time.Time
+	Name     string
+	Settings map[string]string
+	// MaxConcurrent caps the provider's sandboxes across every node; 0 is no cap.
+	MaxConcurrent int32
+	Ciphertext    []byte
+	Nonce         []byte
+	KeyID         string
+	CreatedBy     string
+	UpdatedAt     time.Time
 }
 
 // UpsertSandboxProvider writes a provider and returns the stored row.
@@ -34,7 +36,7 @@ func (s *Store) UpsertSandboxProvider(ctx context.Context, in SandboxProvider) (
 		return SandboxProvider{}, err
 	}
 	row, err := s.q.UpsertSandboxProvider(ctx, db.UpsertSandboxProviderParams{
-		Name: in.Name, Settings: settings, Ciphertext: in.Ciphertext, Nonce: in.Nonce, KeyID: in.KeyID, CreatedBy: in.CreatedBy,
+		Name: in.Name, Settings: settings, MaxConcurrent: in.MaxConcurrent, Ciphertext: in.Ciphertext, Nonce: in.Nonce, KeyID: in.KeyID, CreatedBy: in.CreatedBy,
 	})
 	if err != nil {
 		return SandboxProvider{}, fmt.Errorf("upsert sandbox provider %s: %w", in.Name, err)
@@ -128,13 +130,14 @@ func sandboxProviderFromRow(row db.SandboxProvider) (SandboxProvider, error) {
 		}
 	}
 	return SandboxProvider{
-		Name:       row.Name,
-		Settings:   settings,
-		Ciphertext: row.Ciphertext,
-		Nonce:      row.Nonce,
-		KeyID:      row.KeyID,
-		CreatedBy:  row.CreatedBy,
-		UpdatedAt:  row.UpdatedAt.UTC(),
+		Name:          row.Name,
+		Settings:      settings,
+		MaxConcurrent: row.MaxConcurrent,
+		Ciphertext:    row.Ciphertext,
+		Nonce:         row.Nonce,
+		KeyID:         row.KeyID,
+		CreatedBy:     row.CreatedBy,
+		UpdatedAt:     row.UpdatedAt.UTC(),
 	}, nil
 }
 

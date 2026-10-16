@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file podium/v1/sandbox.proto.
  */
 export const file_podium_v1_sandbox: GenFile = /*@__PURE__*/
-  fileDesc("Chdwb2RpdW0vdjEvc2FuZGJveC5wcm90bxIJcG9kaXVtLnYxIvQBCg9TYW5kYm94UHJvdmlkZXISDAoEbmFtZRgBIAEoCRI6CghzZXR0aW5ncxgCIAMoCzIoLnBvZGl1bS52MS5TYW5kYm94UHJvdmlkZXIuU2V0dGluZ3NFbnRyeRISCgpoYXNfc2VjcmV0GAMgASgIEg4KBmtleV9pZBgEIAEoCRISCgpjcmVhdGVkX2J5GAUgASgJEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wGi8KDVNldHRpbmdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKwAQoZU2V0U2FuZGJveFByb3ZpZGVyUmVxdWVzdBIMCgRuYW1lGAEgASgJEkQKCHNldHRpbmdzGAIgAygLMjIucG9kaXVtLnYxLlNldFNhbmRib3hQcm92aWRlclJlcXVlc3QuU2V0dGluZ3NFbnRyeRIOCgZzZWNyZXQYAyABKAwaLwoNU2V0dGluZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkoKGlNldFNhbmRib3hQcm92aWRlclJlc3BvbnNlEiwKCHByb3ZpZGVyGAEgASgLMhoucG9kaXVtLnYxLlNhbmRib3hQcm92aWRlciIdChtMaXN0U2FuZGJveFByb3ZpZGVyc1JlcXVlc3QiTQocTGlzdFNhbmRib3hQcm92aWRlcnNSZXNwb25zZRItCglwcm92aWRlcnMYASADKAsyGi5wb2RpdW0udjEuU2FuZGJveFByb3ZpZGVyIiwKHERlbGV0ZVNhbmRib3hQcm92aWRlclJlcXVlc3QSDAoEbmFtZRgBIAEoCSIfCh1EZWxldGVTYW5kYm94UHJvdmlkZXJSZXNwb25zZTLQAgoWU2FuZGJveFByb3ZpZGVyU2VydmljZRJhChJTZXRTYW5kYm94UHJvdmlkZXISJC5wb2RpdW0udjEuU2V0U2FuZGJveFByb3ZpZGVyUmVxdWVzdBolLnBvZGl1bS52MS5TZXRTYW5kYm94UHJvdmlkZXJSZXNwb25zZRJnChRMaXN0U2FuZGJveFByb3ZpZGVycxImLnBvZGl1bS52MS5MaXN0U2FuZGJveFByb3ZpZGVyc1JlcXVlc3QaJy5wb2RpdW0udjEuTGlzdFNhbmRib3hQcm92aWRlcnNSZXNwb25zZRJqChVEZWxldGVTYW5kYm94UHJvdmlkZXISJy5wb2RpdW0udjEuRGVsZXRlU2FuZGJveFByb3ZpZGVyUmVxdWVzdBooLnBvZGl1bS52MS5EZWxldGVTYW5kYm94UHJvdmlkZXJSZXNwb25zZUKiAQoNY29tLnBvZGl1bS52MUIMU2FuZGJveFByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chdwb2RpdW0vdjEvc2FuZGJveC5wcm90bxIJcG9kaXVtLnYxIrMCCg9TYW5kYm94UHJvdmlkZXISDAoEbmFtZRgBIAEoCRI6CghzZXR0aW5ncxgCIAMoCzIoLnBvZGl1bS52MS5TYW5kYm94UHJvdmlkZXIuU2V0dGluZ3NFbnRyeRISCgpoYXNfc2VjcmV0GAMgASgIEg4KBmtleV9pZBgEIAEoCRISCgpjcmVhdGVkX2J5GAUgASgJEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDm1heF9jb25jdXJyZW50GAcgASgFEhUKDWFjY291bnRfbGltaXQYCCABKAUSDgoGaW5fdXNlGAkgASgFGi8KDVNldHRpbmdzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLIAQoZU2V0U2FuZGJveFByb3ZpZGVyUmVxdWVzdBIMCgRuYW1lGAEgASgJEkQKCHNldHRpbmdzGAIgAygLMjIucG9kaXVtLnYxLlNldFNhbmRib3hQcm92aWRlclJlcXVlc3QuU2V0dGluZ3NFbnRyeRIOCgZzZWNyZXQYAyABKAwSFgoObWF4X2NvbmN1cnJlbnQYBCABKAUaLwoNU2V0dGluZ3NFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkoKGlNldFNhbmRib3hQcm92aWRlclJlc3BvbnNlEiwKCHByb3ZpZGVyGAEgASgLMhoucG9kaXVtLnYxLlNhbmRib3hQcm92aWRlciIdChtMaXN0U2FuZGJveFByb3ZpZGVyc1JlcXVlc3QiTQocTGlzdFNhbmRib3hQcm92aWRlcnNSZXNwb25zZRItCglwcm92aWRlcnMYASADKAsyGi5wb2RpdW0udjEuU2FuZGJveFByb3ZpZGVyIiwKHERlbGV0ZVNhbmRib3hQcm92aWRlclJlcXVlc3QSDAoEbmFtZRgBIAEoCSIfCh1EZWxldGVTYW5kYm94UHJvdmlkZXJSZXNwb25zZTLQAgoWU2FuZGJveFByb3ZpZGVyU2VydmljZRJhChJTZXRTYW5kYm94UHJvdmlkZXISJC5wb2RpdW0udjEuU2V0U2FuZGJveFByb3ZpZGVyUmVxdWVzdBolLnBvZGl1bS52MS5TZXRTYW5kYm94UHJvdmlkZXJSZXNwb25zZRJnChRMaXN0U2FuZGJveFByb3ZpZGVycxImLnBvZGl1bS52MS5MaXN0U2FuZGJveFByb3ZpZGVyc1JlcXVlc3QaJy5wb2RpdW0udjEuTGlzdFNhbmRib3hQcm92aWRlcnNSZXNwb25zZRJqChVEZWxldGVTYW5kYm94UHJvdmlkZXISJy5wb2RpdW0udjEuRGVsZXRlU2FuZGJveFByb3ZpZGVyUmVxdWVzdBooLnBvZGl1bS52MS5EZWxldGVTYW5kYm94UHJvdmlkZXJSZXNwb25zZUKiAQoNY29tLnBvZGl1bS52MUIMU2FuZGJveFByb3RvUAFaPmdpdGh1Yi5jb20vcG9kaXVtLWFkZS9wb2RpdW0vaW50ZXJuYWwvcHJvdG8vcG9kaXVtL3YxO3BvZGl1bXYxogIDUFhYqgIJUG9kaXVtLlYxygIJUG9kaXVtXFYx4gIVUG9kaXVtXFYxXEdQQk1ldGFkYXRh6gIKUG9kaXVtOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * SandboxProvider is one configured provider. It never carries the credential or its
@@ -59,6 +59,29 @@ export type SandboxProvider = Message<"podium.v1.SandboxProvider"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 6;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * max_concurrent caps how many of the provider's sandboxes run at once across every node
+   * of it. Zero is no cap of its own.
+   *
+   * @generated from field: int32 max_concurrent = 7;
+   */
+  maxConcurrent: number;
+
+  /**
+   * account_limit is the most the provider account allows at once, as a connected node last
+   * reported it. Zero is unknown: no node is connected, or the provider does not say.
+   *
+   * @generated from field: int32 account_limit = 8;
+   */
+  accountLimit: number;
+
+  /**
+   * in_use is how many of the provider's sandboxes connected nodes are running or keeping up.
+   *
+   * @generated from field: int32 in_use = 9;
+   */
+  inUse: number;
 };
 
 /**
@@ -88,6 +111,13 @@ export type SetSandboxProviderRequest = Message<"podium.v1.SetSandboxProviderReq
    * @generated from field: bytes secret = 3;
    */
   secret: Uint8Array;
+
+  /**
+   * max_concurrent caps the provider's sandboxes across every node; zero is no cap.
+   *
+   * @generated from field: int32 max_concurrent = 4;
+   */
+  maxConcurrent: number;
 };
 
 /**

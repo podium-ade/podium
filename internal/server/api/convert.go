@@ -53,6 +53,8 @@ func taskToProto(t store.Task) *podiumv1.Task {
 		Priority:      t.Priority,
 
 		LastScheduleAttemptAt: timeToProto(t.LastScheduleAttemptAt),
+		SandboxProvider:       t.SandboxProvider,
+		SandboxId:             t.SandboxID,
 	}
 	if t.Usage != nil {
 		out.Usage = &podiumv1.Usage{

@@ -151,6 +151,7 @@ const EVENT_KIND_LABEL: Record<TaskEventKind, string> = {
   [TaskEventKind.ERROR]: "error",
   [TaskEventKind.MESSAGE]: "message",
   [TaskEventKind.PREVIEW]: "preview",
+  [TaskEventKind.SANDBOX]: "sandbox",
 };
 
 export function eventKindLabel(k: TaskEventKind): string {
