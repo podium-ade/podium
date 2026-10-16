@@ -150,9 +150,9 @@ const SETTINGS_LEAD: Record<string, string> = {
   backend:
     "Where a session's workspace runs. Self-hosted is this control plane's own nodes. Modal and Daytona will run the same session once they are connected.",
   connections:
-    "GitHub and Slack for this conductor. The GitHub App is saved here. Slack can still come from the environment until a pair is saved. A saved value is what the conductor uses the next time it starts.",
+    "The outside apps the assistant works with. GitHub lets it read your code and open pull requests. Slack lets people message it. Changes take effect the next time the conductor restarts.",
   models:
-    "Connect a provider. Chat picks the model. This is what that picker can spend. A turn receives one credential, for the provider that model uses, and never the others.",
+    "The AI services the assistant runs on. Add a key or sign in, and that service's models show up in Chat. Each chat only gets the key it needs.",
 };
 
 /**
@@ -217,10 +217,10 @@ function SettingsTab() {
             );
           })}
         </nav>
-        <div className="border-b border-border px-6 py-4">
+        <div className="border-b border-border p-4">
           <p className="max-w-[68ch] text-soft">{SETTINGS_LEAD[current]}</p>
         </div>
-        <div className={flush ? undefined : "grid gap-4 p-6"}>
+        <div className={flush ? undefined : "grid gap-4 p-4"}>
           {current === "account" ? (
             <>
               <IdentityCard />
@@ -274,7 +274,7 @@ function ModelsPanel() {
   return (
     <>
       {isAgentUnreachable(settings.error) ? (
-        <div className="px-6 py-4">
+        <div className="border-b border-border p-4">
           <ConductorDown
             what="The stored credentials could not be read"
             onRetry={() => void settings.refetch()}
@@ -284,7 +284,7 @@ function ModelsPanel() {
       ) : null}
 
       {!manage ? (
-        <div className="px-6 py-4">
+        <div className="border-b border-border p-4">
           <Alert variant="info" title="Credentials are read-only for members">
             An admin or owner can set and rotate provider keys. You can see which ones are
             connected.
@@ -296,8 +296,8 @@ function ModelsPanel() {
         <caption className="sr-only">Model providers</caption>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className={settingsHead}>Model</TableHead>
-            <TableHead className={settingsHead}>Status</TableHead>
+            <TableHead className={cn(settingsHead, "w-[40%]")}>Model</TableHead>
+            <TableHead className={cn(settingsHead, "w-[20%]")}>Status</TableHead>
             <TableHead className={settingsHead}>Credential</TableHead>
             <TableHead className={settingsHead}>
               <span className="sr-only">Actions</span>
