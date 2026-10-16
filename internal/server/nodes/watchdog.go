@@ -47,6 +47,7 @@ func (s *Service) RunWatchdog(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			s.sweepNodes(ctx)
+			s.sweepReaps(ctx)
 		}
 	}
 }

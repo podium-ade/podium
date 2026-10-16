@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../Toast";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -40,7 +41,10 @@ export function SandboxProviderDialog({
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...current?.settings }));
   const [secret, setSecret] = useState("");
   const [reveal, setReveal] = useState(false);
+  const [maxConcurrent, setMaxConcurrent] = useState(current?.maxConcurrent ? String(current.maxConcurrent) : "");
   const configured = current?.hasSecret ?? false;
+  const cap = parseCap(maxConcurrent);
+  const accountLimit = current?.accountLimit ?? 0;
 
   const set = useMutation({
     mutationFn: () => {
@@ -52,6 +56,7 @@ export function SandboxProviderDialog({
       return sandboxProviders.setSandboxProvider({
         name: spec.name,
         settings,
+        maxConcurrent: cap ?? 0,
         secret: new TextEncoder().encode(secret.trim()),
       });
     },
@@ -63,7 +68,8 @@ export function SandboxProviderDialog({
     onError: (err) => toast(`SetSandboxProvider: ${errorMessage(err)}`),
   });
 
-  const ready = configured || secret.trim() !== "";
+  const ready =
+    (configured || secret.trim() !== "") && cap !== undefined && (!spec.requireMaxConcurrent || cap > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -116,6 +122,34 @@ export function SandboxProviderDialog({
             <p id="provider-secret-help" className="text-sm break-words text-muted">
               {spec.secretHelp}
             </p>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="provider-max-concurrent" className={fieldLabel}>
+              Max concurrent sandboxes{spec.requireMaxConcurrent ? "" : " (optional)"}
+            </Label>
+            <Input
+              id="provider-max-concurrent"
+              inputMode="numeric"
+              value={maxConcurrent}
+              onChange={(e) => setMaxConcurrent(e.target.value)}
+              placeholder={accountLimit > 0 ? String(accountLimit) : undefined}
+              required={spec.requireMaxConcurrent}
+              aria-invalid={cap === undefined}
+              aria-describedby="provider-max-concurrent-help"
+              className="font-mono text-xs"
+            />
+            <p id="provider-max-concurrent-help" className="text-sm text-muted">
+              {spec.maxConcurrentHelp}
+              {accountLimit > 0 ? ` The account allows ${accountLimit} at once.` : ""}
+            </p>
+            {cap !== undefined && accountLimit > 0 && cap > accountLimit ? (
+              <Alert variant="warn" title={`Higher than the ${spec.label} account allows`}>
+                The account runs at most {accountLimit} sandboxes at once, so tasks past that wait
+                for the account, not for this cap. Raise the account&apos;s limit, or set {accountLimit} or
+                less.
+              </Alert>
+            ) : null}
           </div>
 
           {spec.fields.map((f) => {
@@ -174,4 +208,11 @@ export function SandboxProviderDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** parseCap reads the cap field: empty is 0, no cap; anything but a whole number is undefined. */
+function parseCap(v: string): number | undefined {
+  const t = v.trim();
+  if (t === "") return 0;
+  return /^\d+$/.test(t) ? Number(t) : undefined;
 }

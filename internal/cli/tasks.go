@@ -124,6 +124,9 @@ func printTaskDetail(e *env, t *podiumv1.Task) error {
 		line("labels", labels)
 	}
 	line("node", orDash(t.GetNodeId()))
+	if id := t.GetSandboxId(); id != "" {
+		line("sandbox", t.GetSandboxProvider()+" "+id)
+	}
 	line("attempts", fmt.Sprintf("%d of %d", t.GetAttempts(), max(t.GetSpec().GetMaxAttempts(), 1)))
 	if r := t.GetQueuedReason(); r != "" {
 		line("queued_reason", r)

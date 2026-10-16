@@ -33,8 +33,11 @@ type Session struct {
 	capacity  store.NodeCapacity
 	freeSlots int32
 	// freeTailnet and freeLAN are the previews the node last said it could still publish.
-	freeTailnet   int32
-	freeLAN       int32
+	freeTailnet int32
+	freeLAN     int32
+	// accountLimit is the sandbox provider account's cap as the node last read it, 0 for
+	// unknown.
+	accountLimit  int32
 	lastHeartbeat time.Time
 	// running maps every task this session is accounted for to what it costs. The cost is
 	// what makes "does this task fit?" answerable: max_tasks alone cannot tell a node with
@@ -138,6 +141,7 @@ func (s *Session) observeHeartbeat(hb *podiumv1.Heartbeat) {
 	s.freeSlots = hb.GetFreeSlots()
 	s.freeTailnet = hb.GetFreeTailnetPreviews()
 	s.freeLAN = hb.GetFreeLanPreviews()
+	s.accountLimit = hb.GetSandboxAccountLimit()
 	if s.override > 0 {
 		// A heartbeat already in flight when the cap was lowered was computed against the
 		// old number, and taking it at face value would let the scheduler assign above the
@@ -272,6 +276,10 @@ type Snapshot struct {
 	// FreeTailnetPreviews and FreeLANPreviews are what the node can still publish.
 	FreeTailnetPreviews int32
 	FreeLANPreviews     int32
+	// SandboxProvider is the provider of a sandbox node, empty on every other node, and
+	// SandboxAccountLimit that provider account's cap as the node reported it, 0 unknown.
+	SandboxProvider     string
+	SandboxAccountLimit int32
 }
 
 func (s *Session) snapshot() Snapshot {
@@ -296,6 +304,8 @@ func (s *Session) snapshot() Snapshot {
 
 		FreeTailnetPreviews: s.freeTailnet,
 		FreeLANPreviews:     s.freeLAN,
+		SandboxProvider:     sandboxProviderOf(s.labels),
+		SandboxAccountLimit: s.accountLimit,
 	}
 	// MaxTasks on a snapshot is the budget, not the advertisement: everything that reads one
 	// is asking how much work this node takes.

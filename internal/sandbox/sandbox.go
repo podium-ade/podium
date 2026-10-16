@@ -118,6 +118,7 @@ func (e Endpoint) Apply(r *http.Request) {
 
 // Limits is the account's remaining room. A negative field is unknown.
 type Limits struct {
+	MaxSandboxes  int
 	FreeSandboxes int
 	StartsLeft    int
 }

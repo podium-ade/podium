@@ -181,6 +181,14 @@ func (s *Service) applyStatus(ctx context.Context, taskID string, e *podiumv1.Ta
 		// reports is kept so people can find them.
 		s.recordPreview(ctx, taskID, e.GetPreview())
 		return
+	case podiumv1.TaskEventKind_TASK_EVENT_KIND_SANDBOX:
+		// No transition either: the control plane keeps the handle, so it can delete the
+		// sandbox if the node that made it goes away.
+		sb := e.GetSandbox()
+		if _, err := s.store.SetTaskSandbox(ctx, taskID, e.GetLeaseId(), sb.GetProvider(), sb.GetSandboxId()); err != nil {
+			s.logger.ErrorContext(ctx, "recording a task's sandbox failed", "task_id", taskID, "error", err)
+		}
+		return
 	case podiumv1.TaskEventKind_TASK_EVENT_KIND_FINISHED:
 		fin := e.GetFinished()
 		code := fin.GetExitCode()
