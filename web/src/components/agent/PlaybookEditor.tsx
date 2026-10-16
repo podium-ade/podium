@@ -2,14 +2,18 @@ import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, FileCode2, Plus, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Link } from "react-router";
 import type { AgentBackend, PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
+import type { SandboxProvider } from "../../gen/podium/v1/sandbox_pb";
 import { INHERIT, type AgentChoice } from "../../lib/agents";
 import {
+  definitionOverrides,
   definitionToYaml,
   docToDraft,
   draftToYaml,
   parsePlaybookYaml,
   type PlaybookDraft,
+  type SandboxOverrides,
 } from "../../lib/playbook";
+import { BOAT_TYPES, MODAL_RUNTIMES, RUNS_ON_NODES, SANDBOX_PROVIDERS } from "../../lib/sandboxProviders";
 import { problemText } from "../../lib/yaml";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -71,6 +75,10 @@ export type PlaybookEditorProps = {
   disabledMcpNames?: string[];
   /** True when the MCP list could not be read, so "not registered" cannot be claimed. */
   mcpUnknown?: boolean;
+  /** The sandbox providers the control plane has configured, for Runs on. */
+  sandboxProviders?: SandboxProvider[];
+  /** Where a turn runs when the playbook does not say: the Settings choice. */
+  defaultRunsOn?: string;
   saving?: boolean;
   deleting?: boolean;
   /**
@@ -124,6 +132,8 @@ export function PlaybookEditor({
   mcpNames,
   disabledMcpNames,
   mcpUnknown,
+  sandboxProviders,
+  defaultRunsOn,
   saving,
   deleting,
   error,
@@ -154,6 +164,8 @@ export function PlaybookEditor({
   const [interactive, setInteractive] = useState(playbook?.interactive ?? false);
   const [docker, setDocker] = useState(playbook?.docker ?? false);
   const [browser, setBrowser] = useState(playbook?.browser ?? false);
+  const [runsOn, setRunsOn] = useState(playbook?.runsOn ?? "");
+  const [overrides, setOverrides] = useState<SandboxOverrides>(() => definitionOverrides(playbook));
   const [skills, setSkills] = useState((playbook?.skills ?? []).join("\n"));
   const [mcpServers, setMcpServers] = useState((playbook?.mcpServers ?? []).join("\n"));
   const [cpu, setCpu] = useState(String(playbook?.resources?.cpu ?? ""));
@@ -234,6 +246,8 @@ export function PlaybookEditor({
     interactive,
     docker,
     browser,
+    runsOn,
+    sandbox: overrides,
     skills: skillList,
     mcpServers: mcpList,
     env: Object.fromEntries(envRows.filter((r) => r.a.trim() !== "").map((r) => [r.a.trim(), r.b])),
@@ -516,6 +530,17 @@ export function PlaybookEditor({
               />
             </Field>
           </div>
+
+          <RunsOnFields
+            uid={uid}
+            runsOn={runsOn}
+            onRunsOn={setRunsOn}
+            overrides={overrides}
+            onOverrides={setOverrides}
+            providers={sandboxProviders}
+            defaultRunsOn={defaultRunsOn}
+            sidecars={docker || browser}
+          />
 
           <Disclosure
             label="Resource limits"
@@ -1279,6 +1304,160 @@ function Disclosure({
         {children}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/** providerName is how Runs on names a provider: its label when this build knows it. */
+function providerName(name: string): string {
+  return SANDBOX_PROVIDERS.find((p) => p.name === name)?.label ?? name;
+}
+
+function runsOnName(v: string): string {
+  return v === "" || v === RUNS_ON_NODES ? "your nodes" : providerName(v);
+}
+
+/**
+ * RunsOnFields is where the playbook's turns run, and what they change about a provider's
+ * sandbox when they run on one. An override only applies on its own provider, so a playbook
+ * may carry both and still follow the Settings choice.
+ */
+function RunsOnFields({
+  uid,
+  runsOn,
+  onRunsOn,
+  overrides,
+  onOverrides,
+  providers,
+  defaultRunsOn,
+  sidecars,
+}: {
+  uid: string;
+  runsOn: string;
+  onRunsOn: (v: string) => void;
+  overrides: SandboxOverrides;
+  onOverrides: (o: SandboxOverrides) => void;
+  providers?: SandboxProvider[];
+  defaultRunsOn?: string;
+  sidecars: boolean;
+}) {
+  // A list that could not be read offers every provider this build knows.
+  const names = (providers ?? SANDBOX_PROVIDERS).map((p) => p.name);
+  if (runsOn !== "" && runsOn !== RUNS_ON_NODES && !names.includes(runsOn)) names.push(runsOn);
+  const set = [...Object.values(overrides.boat), ...Object.values(overrides.modal)].filter((v) => v !== "").length;
+  const effective = runsOn || defaultRunsOn || RUNS_ON_NODES;
+  const modalRuntime =
+    overrides.modal.runtime || providers?.find((p) => p.name === "modal")?.settings.runtime || "gvisor";
+  const boat = (patch: Partial<SandboxOverrides["boat"]>) =>
+    onOverrides({ ...overrides, boat: { ...overrides.boat, ...patch } });
+  const modal = (patch: Partial<SandboxOverrides["modal"]>) =>
+    onOverrides({ ...overrides, modal: { ...overrides.modal, ...patch } });
+  const select = "min-h-11 w-full rounded-md border border-input bg-panel px-3 text-sm text-fg";
+
+  return (
+    <>
+      <Field
+        id={`${uid}-runs-on`}
+        label="Runs on"
+        hint={
+          <>
+            Settings decides unless this says otherwise. Providers are set up on{" "}
+            <Link to="/sandboxes" className="underline">
+              Sandboxes
+            </Link>
+            .
+          </>
+        }
+      >
+        <select
+          id={`${uid}-runs-on`}
+          value={runsOn}
+          onChange={(e) => onRunsOn(e.target.value)}
+          className={select}
+        >
+          <option value="">Settings default ({runsOnName(defaultRunsOn ?? "")})</option>
+          <option value={RUNS_ON_NODES}>Your nodes</option>
+          {names.map((n) => (
+            <option key={n} value={n}>
+              {providerName(n)}
+              {!providers || providers.some((p) => p.name === n) ? "" : " (not set up)"}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {effective === "modal" && sidecars && modalRuntime !== "vm" ? (
+        <Alert variant="warn" title="Modal's gvisor runtime has no Docker">
+          This playbook attaches a Docker or browser sidecar, which Modal runs only under the vm
+          runtime. Set the runtime to vm below, or on the Modal provider.
+        </Alert>
+      ) : null}
+
+      <Disclosure label="Sandbox overrides" summary={set > 0 ? `${set} set` : "none"} defaultOpen={set > 0}>
+        <p className="text-2xs text-faint">
+          Each applies only when a turn runs on that provider. Blank keeps the provider's own setting.
+        </p>
+        <p className="text-xs font-medium text-fg">{providerName("boat")}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field id={`${uid}-boat-type`} label="Machine type" hint="Overrides the size resources would pick.">
+            <select
+              id={`${uid}-boat-type`}
+              value={overrides.boat.type}
+              onChange={(e) => boat({ type: e.target.value })}
+              className={cn(select, "font-mono text-xs")}
+            >
+              <option value="">Provider default</option>
+              {BOAT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field id={`${uid}-boat-template`} label="Template" hint="The snapshot an image turn starts from.">
+            <Input
+              id={`${uid}-boat-template`}
+              value={overrides.boat.template}
+              onChange={(e) => boat({ template: e.target.value })}
+              placeholder="ci-base"
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field id={`${uid}-boat-org`} label="Organization" hint="Bill these turns to this boat org.">
+            <Input
+              id={`${uid}-boat-org`}
+              value={overrides.boat.org}
+              onChange={(e) => boat({ org: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+        <p className="text-xs font-medium text-fg">{providerName("modal")}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field id={`${uid}-modal-runtime`} label="Runtime" hint="vm adds Docker, for sidecars.">
+            <select
+              id={`${uid}-modal-runtime`}
+              value={overrides.modal.runtime}
+              onChange={(e) => modal({ runtime: e.target.value })}
+              className={cn(select, "font-mono text-xs")}
+            >
+              <option value="">Provider default</option>
+              {MODAL_RUNTIMES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field id={`${uid}-modal-env`} label="Environment" hint="The Modal environment sandboxes are made in.">
+            <Input
+              id={`${uid}-modal-env`}
+              value={overrides.modal.environment}
+              onChange={(e) => modal({ environment: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+      </Disclosure>
+    </>
   );
 }
 

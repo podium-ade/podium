@@ -14,7 +14,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
-import { SandboxBackends } from "../components/agent/SandboxBackends";
+import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
@@ -147,8 +147,8 @@ const SETTINGS_LEAD: Record<string, string> = {
     "Who is signed in on this browser. The local token stays a machine credential for the CLI and workers.",
   users:
     "Who can sign in, and what they can do. Roles are enforced on the API after a Workspace claim. The local token and every node still do everything.",
-  backend:
-    "Where a session's workspace runs. Self-hosted is this control plane's own nodes. Modal and Daytona will run the same session once they are connected.",
+  "runs-on":
+    "Where a session's turns run when their playbook does not say: this fleet's own nodes, or a sandbox provider set up on Sandboxes.",
   connections:
     "GitHub and Slack for this conductor. The GitHub App is saved here. Slack can still come from the environment until a pair is saved. A saved value is what the conductor uses the next time it starts.",
   models:
@@ -169,7 +169,7 @@ function SettingsTab() {
   const categories: { id: string; label: string }[] = [
     ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account" }] : []),
     { id: "users", label: "Users" },
-    { id: "backend", label: "Backend" },
+    ...(viewer?.agentEnabled ? [{ id: "runs-on", label: "Runs on" }] : []),
     ...(viewer?.agentEnabled && manage ? [{ id: "connections", label: "Connections" }] : []),
     ...(viewer?.agentEnabled ? [{ id: "models", label: "Models" }] : []),
   ];
@@ -228,7 +228,7 @@ function SettingsTab() {
             </>
           ) : null}
           {current === "users" ? <UsersPage /> : null}
-          {current === "backend" ? <SandboxBackends /> : null}
+          {current === "runs-on" ? <RunsOnSettings /> : null}
           {current === "connections" ? <ConnectionsPanel /> : null}
           {current === "models" ? <ModelsPanel /> : null}
         </div>
