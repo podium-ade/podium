@@ -127,29 +127,29 @@ func (e *Executor) PruneImages(context.Context, docker.PruneRequest) ([]docker.I
 // GatewayPorts has nothing to say: a sandbox preview's URLs come from the provider.
 func (e *Executor) GatewayPorts(context.Context, string) (map[int]int, error) { return nil, nil }
 
-// plan is how one task runs: which strategy the agent uses, and what the sandbox is made
-// from.
-func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRequest, err error) {
-	caps := e.p.Capabilities()
+// plan is how one task runs: which strategy the agent uses, what its sandbox can do once the
+// task's overrides apply, and what the sandbox is made from.
+func (e *Executor) plan(sp spec.TaskSpec) (strategy string, caps sandbox.Capabilities, req sandbox.CreateRequest, err error) {
+	caps = e.p.Capabilities()
 	settings := sp.Sandbox.Settings(e.p.Name())
 	template, hasTemplate := settings["template"]
 	delete(settings, "template")
 	if len(settings) > 0 {
 		o, ok := e.p.(sandbox.Overrider)
 		if !ok {
-			return "", req, fmt.Errorf("%w: provider %s takes no task overrides", errSpec, e.p.Name())
+			return "", caps, req, fmt.Errorf("%w: provider %s takes no task overrides", errSpec, e.p.Name())
 		}
 		if caps, err = o.Override(settings); err != nil {
 			if errors.As(err, new(*sandbox.Error)) {
-				return "", req, err
+				return "", caps, req, err
 			}
-			return "", req, fmt.Errorf("%w: %w", errSpec, err)
+			return "", caps, req, fmt.Errorf("%w: %w", errSpec, err)
 		}
 		req.Settings = settings
 	}
 	if sp.Sandbox != nil && sp.Sandbox.Snapshot != "" {
 		if !caps.Snapshot {
-			return "", req, fmt.Errorf("%w: provider %s cannot start a sandbox from a snapshot", errSpec, e.p.Name())
+			return "", caps, req, fmt.Errorf("%w: provider %s cannot start a sandbox from a snapshot", errSpec, e.p.Name())
 		}
 		req.Snapshot = sp.Sandbox.Snapshot
 		strategy = wire.StrategyProcess
@@ -163,10 +163,10 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRe
 		}
 		strategy = wire.StrategyDocker
 	} else {
-		return "", req, fmt.Errorf("%w: provider %s can neither boot an image nor run Docker", errSpec, e.p.Name())
+		return "", caps, req, fmt.Errorf("%w: provider %s can neither boot an image nor run Docker", errSpec, e.p.Name())
 	}
 	if strategy == wire.StrategyProcess && len(sp.Sidecars) > 0 && !caps.Docker {
-		return "", req, fmt.Errorf("%w: sidecars need Docker inside the sandbox, which provider %s does not have", errSpec, e.p.Name())
+		return "", caps, req, fmt.Errorf("%w: sidecars need Docker inside the sandbox, which provider %s does not have", errSpec, e.p.Name())
 	}
 	req.CPU, req.MemoryMB = sp.Resources.CPU, sp.Resources.MemoryMB
 	ttl := sp.Timeout.Std() + ttlMargin
@@ -175,7 +175,7 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRe
 	}
 	if caps.MaxTTL > 0 && ttl > caps.MaxTTL {
 		if sp.Timeout.Std() > caps.MaxTTL {
-			return "", req, fmt.Errorf("%w: timeout %s is longer than provider %s allows (%s)", errSpec, sp.Timeout, e.p.Name(), caps.MaxTTL)
+			return "", caps, req, fmt.Errorf("%w: timeout %s is longer than provider %s allows (%s)", errSpec, sp.Timeout, e.p.Name(), caps.MaxTTL)
 		}
 		ttl = caps.MaxTTL
 	}
@@ -186,7 +186,7 @@ func (e *Executor) plan(sp spec.TaskSpec) (strategy string, req sandbox.CreateRe
 			req.Ports = append(req.Ports, port.Port)
 		}
 	}
-	return strategy, req, nil
+	return strategy, caps, req, nil
 }
 
 var errSpec = errors.New("task spec")
@@ -231,11 +231,10 @@ func (e *Executor) Run(ctx context.Context, req docker.Request, events chan<- do
 }
 
 func (e *Executor) run(ctx context.Context, req docker.Request, t *task, em *emitter) (docker.Result, error) {
-	strategy, creq, err := e.plan(req.Spec)
+	strategy, caps, creq, err := e.plan(req.Spec)
 	if err != nil {
 		return docker.Result{}, err
 	}
-	caps := e.p.Capabilities()
 	creq.Key = req.LeaseID
 	creq.Registry = registryFor(creq.Image, req.Registries)
 	id, err := e.p.Create(ctx, creq)
