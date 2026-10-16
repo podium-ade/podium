@@ -461,7 +461,7 @@ func (c *Conductor) startDelegatedTask(
 	if err != nil {
 		return nil, err
 	}
-	taskSpec := c.taskSpec(g.src, playbook, encoded, ev, bundles, servers, choice, capabilitySecret, login)
+	taskSpec := c.taskSpec(g.src, c.placed(ctx, playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
 	applyWorkspace(taskSpec, sess.ID, playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(playbook.Priority))
 	if err != nil {
