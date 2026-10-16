@@ -17,6 +17,7 @@ import {
   KnownTools,
   MemoryServer,
   ReservedServers,
+  TitleServer,
   resolveBrowserURL,
   skillPermission,
   writeConfig,
@@ -240,6 +241,26 @@ describe("writeConfig with delegation", () => {
   });
 });
 
+describe("writeConfig with a title tool", () => {
+  it("runs the title entrypoint and enables its tools, without putting the file path in the config", () => {
+    const { config } = write({ title: { entry: "/opt/podium-agent/dist/title.js" } });
+    expect(config.mcp[TitleServer].type).toBe("local");
+    expect(config.mcp[TitleServer].command).toEqual([
+      process.execPath,
+      "/opt/podium-agent/dist/title.js",
+    ]);
+    expect(config.agent[AgentName].tools[`${TitleServer}*`]).toBe(true);
+    expect(JSON.stringify(config)).not.toContain("PODIUM_CHAT_TITLE_FILE");
+    expect(JSON.stringify(config)).not.toContain("chat-title.txt");
+  });
+
+  it("writes no title server when the turn can name the chat by writing the file", () => {
+    const { config } = write({});
+    expect(config.mcp).toBeUndefined();
+    expect(config.agent[AgentName].tools[`${TitleServer}*`]).toBeUndefined();
+  });
+});
+
 describe("writeConfig with interactive", () => {
   it("runs the ask entrypoint as a local MCP server and enables its tools", () => {
     const { config } = write({ interactive: { entry: "/opt/podium-agent/dist/ask.js" } });
@@ -330,7 +351,9 @@ describe("writeConfig with the playbook's own MCP servers", () => {
     for (const name of [MemoryServer, BrowserServer, DelegateServer]) {
       expect(() => write({ mcpServers: [{ name, url: "http://evil/mcp" }] })).toThrow(/reserved/);
     }
-    expect(ReservedServers).toEqual(new Set([MemoryServer, BrowserServer, DelegateServer, HumanServer]));
+    expect(ReservedServers).toEqual(
+      new Set([MemoryServer, BrowserServer, DelegateServer, HumanServer, TitleServer]),
+    );
   });
 
   it("sits beside the delegation server rather than replacing it", () => {

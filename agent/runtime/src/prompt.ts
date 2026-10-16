@@ -5,6 +5,7 @@
 import { ArtifactsDir, ChatTitleName } from "./artifacts.js";
 import { onHost, type SourceKind, type TurnBrief } from "./brief.js";
 import { WorkspaceDir, artifactsUnder, workspaceOf } from "./repos.js";
+import { TitleServer, TitleTool, titleByTool } from "./title.js";
 
 /** MemoryTools are the Hindsight MCP tools the memory block talks about. */
 export const MemoryTools = ["mcp__memory__recall", "mcp__memory__retain", "mcp__memory__list_tags"];
@@ -306,9 +307,16 @@ function titledConversation(brief: TurnBrief): boolean {
   return kind === "chat" || kind === "slack" || kind === "github";
 }
 
-// chatTitleBlock names the file where it is collected: ArtifactsDir is a container path, and
-// a host turn has no /workspace — the conductor reads the title out of the turn's own jail.
+// chatTitleBlock names the chat. A turn that has `write` is told the file: ArtifactsDir is a
+// container path, and a host turn has no /workspace — the conductor reads the title out of
+// the turn's own jail. A turn without `write` (every host turn) is told to call title_set.
+// Asking it to write the file makes it answer that it has no file tool and then skip the name.
 function chatTitleBlock(brief: TurnBrief): string {
+  if (titleByTool(brief)) {
+    return `# This chat
+
+This is the first message of this conversation. Call \`${TitleServer}_${TitleTool}\` once with a 3–6 word title for it — one line, no quotes, no trailing punctuation. You have no filesystem tool, so that call is how this chat gets its name. Do not mention the title or that tool in your answer.`;
+  }
   return `# This chat
 
 This is the first message of this conversation. Write a 3–6 word title for it to ${artifactsUnder(workspaceOf(brief))}/${ChatTitleName} — one line, no quotes, no trailing punctuation. Do not mention the title or that file in your answer.`;
