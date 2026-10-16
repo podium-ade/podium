@@ -19,6 +19,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Textarea } from "../ui/textarea";
 import { BrandTile } from "./BrandIcon";
 import { ConductorDown } from "./ConductorDown";
@@ -46,7 +47,7 @@ export function ConnectionsPanel() {
   return (
     <div>
       {isAgentUnreachable(query.error) ? (
-        <div className="px-6 py-4">
+        <div className="p-4">
           <ConductorDown
             what="Connections could not be read"
             onRetry={() => void query.refetch()}
@@ -54,40 +55,52 @@ export function ConnectionsPanel() {
           />
         </div>
       ) : null}
-      {query.isPending ? <p className="px-6 py-4 text-sm text-muted">Reading connections…</p> : null}
+      {query.isPending ? <p className="p-4 text-sm text-muted">Reading connections…</p> : null}
       {data ? (
-        <ul aria-label="Connections" className="m-0 list-none p-0">
-          <ConnectionRow
-            name="GitHub"
-            mark="github"
-            badge={status(savedSource(data.github?.source), data.github?.configured === true, data.github?.restartRequired === true)}
-            detail={data.github?.configured ? `App ${data.github.appId}` : "No App saved"}
-            onEdit={() => setEditing("github")}
-          />
-          <ConnectionRow
-            name="Slack"
-            mark="slack"
-            badge={status(data.slack?.source ?? "", data.slack?.configured === true, data.slack?.restartRequired === true)}
-            detail={
-              data.slack?.source === "saved"
-                ? "Both tokens are saved here"
-                : data.slack?.source === "environment"
-                  ? "Using the environment"
-                  : "No tokens saved"
-            }
-            onEdit={() => setEditing("slack")}
-          />
-          <ConnectionRow
-            name="Linear"
-            mark="linear"
-            badge={{ label: "Coming soon", tone: "idle" }}
-            detail={`Issue assignments will be configured here.${
-              data.linear?.configured === true
-                ? " This conductor is still using the Linear key from its environment."
-                : ""
-            }`}
-          />
-        </ul>
+        <Table containerClassName="rounded-none border-0 bg-transparent">
+          <caption className="sr-only">Connections</caption>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className={cn(settingsHead, "w-[40%]")}>Connection</TableHead>
+              <TableHead className={cn(settingsHead, "w-[20%]")}>Status</TableHead>
+              <TableHead className={settingsHead}>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <ConnectionRow
+              name="GitHub"
+              mark="github"
+              badge={status(savedSource(data.github?.source), data.github?.configured === true, data.github?.restartRequired === true)}
+              detail={data.github?.configured ? `App ${data.github.appId}` : "No App saved"}
+              onEdit={() => setEditing("github")}
+            />
+            <ConnectionRow
+              name="Slack"
+              mark="slack"
+              badge={status(data.slack?.source ?? "", data.slack?.configured === true, data.slack?.restartRequired === true)}
+              detail={
+                data.slack?.source === "saved"
+                  ? "Both tokens are saved here"
+                  : data.slack?.source === "environment"
+                    ? "Using the environment"
+                    : "No tokens saved"
+              }
+              onEdit={() => setEditing("slack")}
+            />
+            <ConnectionRow
+              name="Linear"
+              mark="linear"
+              badge={{ label: "Coming soon", tone: "idle" }}
+              detail={`Issue assignments will be configured here.${
+                data.linear?.configured === true
+                  ? " This conductor is still using the Linear key from its environment."
+                  : ""
+              }`}
+            />
+          </TableBody>
+        </Table>
       ) : null}
       {data && editing === "github" ? (
         <GitHubDialog connection={data.github} onClose={() => setEditing(null)} />
@@ -128,28 +141,33 @@ function ConnectionRow({
   onEdit?: () => void;
 }) {
   return (
-    <li
-      data-testid={`connection-${name.toLowerCase()}`}
-      className="flex items-center justify-between gap-4 border-t border-border px-6 py-3 first:border-t-0 hover:bg-raised"
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <BrandTile name={mark} />
-        <div className="min-w-0">
-          <strong className="block text-sm">{name}</strong>
-          <span className="mt-1 flex flex-wrap items-center gap-2 text-sm text-soft">
-            <Badge tone={badge.tone}>{badge.label}</Badge>
-            <span>{detail}</span>
-          </span>
+    <TableRow data-testid={`connection-${name.toLowerCase()}`}>
+      <TableCell className="px-4 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <BrandTile name={mark} />
+          <div className="min-w-0">
+            <strong className="block truncate text-sm">{name}</strong>
+            <span className="block text-xs text-muted">{detail}</span>
+          </div>
         </div>
-      </div>
-      {onEdit ? (
-        <Button type="button" variant="outline" size="sm" aria-label={`Edit ${name}`} onClick={onEdit}>
-          Edit
-        </Button>
-      ) : null}
-    </li>
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        <Badge tone={badge.tone}>{badge.label}</Badge>
+      </TableCell>
+      <TableCell className="px-4 py-4 text-right whitespace-nowrap">
+        {onEdit ? (
+          <Button type="button" variant="outline" size="sm" aria-label={`Edit ${name}`} onClick={onEdit}>
+            Edit
+          </Button>
+        ) : null}
+      </TableCell>
+    </TableRow>
   );
 }
+
+/** The design's table header: small capitals, muted, on the frame's 16px inset. */
+const settingsHead =
+  "px-4 py-3 text-xs font-[750] leading-[normal] tracking-[0.08em] text-muted uppercase";
 
 function GitHubDialog({
   connection,

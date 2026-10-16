@@ -316,7 +316,7 @@ export function ProviderCard({
 
       {expired && !rotating ? (
         <TableRow>
-          <TableCell colSpan={4} className="px-6 py-3">
+          <TableCell colSpan={4} className="px-4 py-3">
             <Alert
               variant="warn"
               role="alert"
@@ -489,7 +489,7 @@ export function ProviderCard({
 
       {result && !showWork ? (
         <TableRow>
-          <TableCell colSpan={4} className="px-6 py-3">
+          <TableCell colSpan={4} className="px-4 py-3">
             <ProviderResult result={result} tid={tid} />
           </TableCell>
         </TableRow>
