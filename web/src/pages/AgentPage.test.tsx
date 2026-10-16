@@ -235,15 +235,12 @@ describe("AgentPage", () => {
     expect(getSettings).not.toHaveBeenCalled();
   });
 
-  it("offers Google sign-in on Settings and does not ask for a local token", async () => {
+  it("offers Google sign-in on Your account and does not ask for a local token", async () => {
     mount("/agent/settings/account", { ...viewer, googleAuthEnabled: true });
     expect(await screen.findByTestId("identity-card")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Runs on" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connections" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your account" })).toBeInTheDocument();
+    // The former settings sections are sidebar pages now, not a tab row on this one.
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).toBeNull();
     expect(screen.queryByTestId("provider-card-anthropic")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign in with Google Workspace" })).toHaveAttribute(
       "href",
@@ -445,7 +442,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/runs-on");
-    expect(await screen.findByRole("link", { name: "Runs on" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "Backend" })).toBeInTheDocument();
 
     const group = screen.getByRole("radiogroup", { name: "Runs on" });
     expect(await within(group).findByRole("radio", { name: /boat\.dev/ })).not.toBeChecked();
@@ -468,16 +465,16 @@ describe("AgentPage", () => {
     await waitFor(() => expect(setRunsOn).toHaveBeenCalledWith({ runsOn: "modal" }));
   });
 
-  it("has no Runs on tab without a conductor", async () => {
-    mount("/agent/settings/users", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
-    expect(await screen.findByRole("link", { name: "Users" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Runs on" })).toBeNull();
+  it("has no Backend page without a conductor", async () => {
+    mount("/agent/settings/runs-on", { ...viewer, agentEnabled: false, googleAuthEnabled: false });
+    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Backend" })).toBeNull();
   });
 
   it("opens connections beside the other settings sections", async () => {
     mount("/agent/settings/connections");
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
@@ -493,18 +490,14 @@ describe("AgentPage", () => {
       hostedDomain: "acme.com",
     };
     mount("/agent/settings/models", human);
-    expect(await screen.findByRole("link", { name: "Models" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
     expect(getConnections).not.toHaveBeenCalled();
 
     cleanup();
     mount("/agent/settings/connections", human);
-    expect(await screen.findByRole("link", { name: "Account" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(await screen.findByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "GitHub" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Connections" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
     expect(getConnections).not.toHaveBeenCalled();
     // A member connects their own account here, which is not the App's configuration.
     expect(await screen.findByRole("button", { name: /connect github/i })).toBeInTheDocument();
@@ -512,18 +505,16 @@ describe("AgentPage", () => {
     cleanup();
     mount("/agent/settings/connections", { ...human, login: "cara@acme.com", roles: [RoleAdmin] });
     expect(await screen.findByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Connections" })).toBeInTheDocument();
 
     cleanup();
-    mount("/agent/settings/models", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
-    expect(await screen.findByRole("link", { name: "Connections" })).toBeInTheDocument();
+    mount("/agent/settings/connections", { ...human, login: "alice@acme.com", roles: [RoleOwner] });
+    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
   });
 
   it("renders settings models without the talk tabs", async () => {
     mount("/agent/settings/models");
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Models" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
@@ -534,7 +525,7 @@ describe("AgentPage", () => {
     expect(screen.queryByText(/GPT[- ]not set/i)).toBeNull();
   });
 
-  it("renders users as a settings category", async () => {
+  it("renders users as the Members page", async () => {
     listUsers.mockResolvedValue({
       users: [
         {
@@ -547,10 +538,7 @@ describe("AgentPage", () => {
       ],
     });
     mount("/agent/settings/users");
-    expect(await screen.findByRole("link", { name: "Users" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Permission")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
