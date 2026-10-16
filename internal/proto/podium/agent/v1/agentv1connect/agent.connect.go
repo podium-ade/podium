@@ -45,6 +45,10 @@ const (
 	// AgentServiceGetSettingsProcedure is the fully-qualified name of the AgentService's GetSettings
 	// RPC.
 	AgentServiceGetSettingsProcedure = "/podium.agent.v1.AgentService/GetSettings"
+	// AgentServiceGetRunsOnProcedure is the fully-qualified name of the AgentService's GetRunsOn RPC.
+	AgentServiceGetRunsOnProcedure = "/podium.agent.v1.AgentService/GetRunsOn"
+	// AgentServiceSetRunsOnProcedure is the fully-qualified name of the AgentService's SetRunsOn RPC.
+	AgentServiceSetRunsOnProcedure = "/podium.agent.v1.AgentService/SetRunsOn"
 	// AgentServiceSetProviderKeyProcedure is the fully-qualified name of the AgentService's
 	// SetProviderKey RPC.
 	AgentServiceSetProviderKeyProcedure = "/podium.agent.v1.AgentService/SetProviderKey"
@@ -212,6 +216,10 @@ type AgentServiceClient interface {
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	// GetRunsOn is where a turn runs when its playbook does not say.
+	GetRunsOn(context.Context, *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error)
+	// SetRunsOn changes it, for the turns that start after.
+	SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
@@ -434,6 +442,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceGetSettingsProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("GetSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		getRunsOn: connect.NewClient[v1.GetRunsOnRequest, v1.GetRunsOnResponse](
+			httpClient,
+			baseURL+AgentServiceGetRunsOnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetRunsOn")),
+			connect.WithClientOptions(opts...),
+		),
+		setRunsOn: connect.NewClient[v1.SetRunsOnRequest, v1.SetRunsOnResponse](
+			httpClient,
+			baseURL+AgentServiceSetRunsOnProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetRunsOn")),
 			connect.WithClientOptions(opts...),
 		),
 		setProviderKey: connect.NewClient[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse](
@@ -758,6 +778,8 @@ type agentServiceClient struct {
 	listTurns                  *connect.Client[v1.ListTurnsRequest, v1.ListTurnsResponse]
 	getUsage                   *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	getSettings                *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
+	getRunsOn                  *connect.Client[v1.GetRunsOnRequest, v1.GetRunsOnResponse]
+	setRunsOn                  *connect.Client[v1.SetRunsOnRequest, v1.SetRunsOnResponse]
 	setProviderKey             *connect.Client[v1.SetProviderKeyRequest, v1.SetProviderKeyResponse]
 	clearProviderKey           *connect.Client[v1.ClearProviderKeyRequest, v1.ClearProviderKeyResponse]
 	getConnections             *connect.Client[v1.GetConnectionsRequest, v1.GetConnectionsResponse]
@@ -835,6 +857,16 @@ func (c *agentServiceClient) GetUsage(ctx context.Context, req *connect.Request[
 // GetSettings calls podium.agent.v1.AgentService.GetSettings.
 func (c *agentServiceClient) GetSettings(ctx context.Context, req *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
 	return c.getSettings.CallUnary(ctx, req)
+}
+
+// GetRunsOn calls podium.agent.v1.AgentService.GetRunsOn.
+func (c *agentServiceClient) GetRunsOn(ctx context.Context, req *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error) {
+	return c.getRunsOn.CallUnary(ctx, req)
+}
+
+// SetRunsOn calls podium.agent.v1.AgentService.SetRunsOn.
+func (c *agentServiceClient) SetRunsOn(ctx context.Context, req *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error) {
+	return c.setRunsOn.CallUnary(ctx, req)
 }
 
 // SetProviderKey calls podium.agent.v1.AgentService.SetProviderKey.
@@ -1114,6 +1146,10 @@ type AgentServiceHandler interface {
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// GetSettings reports what the conductor is configured with. It returns no secret value.
 	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	// GetRunsOn is where a turn runs when its playbook does not say.
+	GetRunsOn(context.Context, *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error)
+	// SetRunsOn changes it, for the turns that start after.
+	SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error)
 	// SetProviderKey validates a provider key with the provider itself and, only if that
 	// succeeds, stores it as a Podium secret. An unvalidated key is never saved.
 	SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error)
@@ -1332,6 +1368,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceGetSettingsProcedure,
 		svc.GetSettings,
 		connect.WithSchema(agentServiceMethods.ByName("GetSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetRunsOnHandler := connect.NewUnaryHandler(
+		AgentServiceGetRunsOnProcedure,
+		svc.GetRunsOn,
+		connect.WithSchema(agentServiceMethods.ByName("GetRunsOn")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetRunsOnHandler := connect.NewUnaryHandler(
+		AgentServiceSetRunsOnProcedure,
+		svc.SetRunsOn,
+		connect.WithSchema(agentServiceMethods.ByName("SetRunsOn")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceSetProviderKeyHandler := connect.NewUnaryHandler(
@@ -1658,6 +1706,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceGetUsageHandler.ServeHTTP(w, r)
 		case AgentServiceGetSettingsProcedure:
 			agentServiceGetSettingsHandler.ServeHTTP(w, r)
+		case AgentServiceGetRunsOnProcedure:
+			agentServiceGetRunsOnHandler.ServeHTTP(w, r)
+		case AgentServiceSetRunsOnProcedure:
+			agentServiceSetRunsOnHandler.ServeHTTP(w, r)
 		case AgentServiceSetProviderKeyProcedure:
 			agentServiceSetProviderKeyHandler.ServeHTTP(w, r)
 		case AgentServiceClearProviderKeyProcedure:
@@ -1789,6 +1841,14 @@ func (UnimplementedAgentServiceHandler) GetUsage(context.Context, *connect.Reque
 
 func (UnimplementedAgentServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetSettings is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetRunsOn(context.Context, *connect.Request[v1.GetRunsOnRequest]) (*connect.Response[v1.GetRunsOnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.GetRunsOn is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetRunsOn(context.Context, *connect.Request[v1.SetRunsOnRequest]) (*connect.Response[v1.SetRunsOnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetRunsOn is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) SetProviderKey(context.Context, *connect.Request[v1.SetProviderKeyRequest]) (*connect.Response[v1.SetProviderKeyResponse], error) {
