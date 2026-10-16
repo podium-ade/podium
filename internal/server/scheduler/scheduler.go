@@ -352,7 +352,9 @@ func (s *Service) Retry(ctx context.Context, taskID, reason string) {
 // failed edge — which is the property the whole fix rests on. A task that reaches here
 // leaves the state it was in; it is never left parked in one nobody is working on.
 func (s *Service) handBack(ctx context.Context, taskID string, from []store.Status, reason string) {
-	if _, err := s.store.TransitionTask(ctx, taskID, from, store.StatusQueued, store.Patch{}); err == nil {
+	// The attempt's sandbox, if it had one, stays counted against its provider until a node
+	// says it is gone.
+	if _, err := s.store.TransitionTask(ctx, taskID, from, store.StatusQueued, store.Patch{ReapSandbox: reason}); err == nil {
 		s.nodes.Release(taskID)
 		s.logger.InfoContext(ctx, "task taken back from its node; another attempt queued",
 			"task_id", taskID, "reason", reason)

@@ -586,7 +586,8 @@ export const ReapSandboxSchema: GenMessage<ReapSandbox> = /*@__PURE__*/
   messageDesc(file_podium_v1_node, 13);
 
 /**
- * SandboxReaped answers a ReapSandbox. An empty error means the sandbox is gone.
+ * SandboxReaped answers a ReapSandbox, or reports a task's sandbox the node deleted itself.
+ * An empty error means the sandbox is gone.
  *
  * @generated from message podium.v1.SandboxReaped
  */

@@ -124,8 +124,8 @@ func (s *Service) sweepReaps(ctx context.Context) {
 	}
 }
 
-// sandboxReaped records a node's answer to ReapSandbox. Only a node of the provider can
-// clear one of its reaps.
+// sandboxReaped records a node's answer to ReapSandbox, or its word that it deleted a
+// task's sandbox itself. Only a node of the provider can clear one of its sandboxes.
 func (s *Service) sandboxReaped(ctx context.Context, sess *Session, r *podiumv1.SandboxReaped) {
 	if sess.snapshot().SandboxProvider != r.GetProvider() {
 		s.logger.WarnContext(ctx, "ignoring a sandbox deletion from a node of another provider",
@@ -137,18 +137,18 @@ func (s *Service) sandboxReaped(ctx context.Context, sess *Session, r *podiumv1.
 			"node_id", sess.nodeID, "sandbox_id", r.GetSandboxId(), "error", r.GetError())
 		return
 	}
-	if err := s.store.DeleteSandboxReap(ctx, r.GetProvider(), r.GetSandboxId()); err != nil {
+	if err := s.store.SandboxDeleted(ctx, r.GetProvider(), r.GetSandboxId()); err != nil {
 		s.logger.WarnContext(ctx, "clearing a deleted sandbox failed", "sandbox_id", r.GetSandboxId(), "error", err)
 		return
 	}
-	s.logger.InfoContext(ctx, "sandbox of a lost task deleted",
+	s.logger.DebugContext(ctx, "sandbox deleted",
 		"node_id", sess.nodeID, "provider", r.GetProvider(), "sandbox_id", r.GetSandboxId())
 }
 
 // SandboxUsage is one provider's sandboxes.
 type SandboxUsage struct {
-	// InUse is the tasks its nodes run or are about to, plus the sandboxes kept up after
-	// theirs: held previews and those still waiting to be deleted.
+	// InUse is the tasks its nodes run or are about to, plus the sandboxes still up after
+	// their task: held previews, those being torn down and those waiting to be deleted.
 	InUse int32
 	// AccountLimit is the largest account cap any of its nodes reported, 0 unknown.
 	AccountLimit int32

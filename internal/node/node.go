@@ -193,7 +193,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 			"node_id", id.NodeID, "identity", filepath.Join(cfg.DataDir, identityFile))
 	}
 
-	return &Node{
+	n := &Node{
 		cfg:        cfg,
 		logger:     logger.With("node_id", id.NodeID),
 		exec:       exec,
@@ -210,7 +210,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		maxTasks:   cfg.MaxTasks,
 		wake:       make(chan struct{}, 1),
 		drainDone:  make(chan struct{}),
-	}, nil
+	}
+	if x, ok := exec.(reaper); ok {
+		x.OnDeleted(n.sandboxDeleted)
+	}
+	return n, nil
 }
 
 // dialer builds the HTTP client every RPC goes through, and the tailnet device behind it when

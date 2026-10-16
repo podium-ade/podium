@@ -61,6 +61,8 @@ type Executor struct {
 	limit   atomic.Int32
 	limitAt atomic.Int64
 
+	deleted atomic.Pointer[func(id string)]
+
 	mu    sync.Mutex
 	tasks map[string]*task
 }
@@ -385,9 +387,15 @@ func (e *Executor) Teardown(ctx context.Context, taskID string, _ bool) error {
 		if err := e.p.Delete(ctx, rec.SandboxID); err != nil {
 			return fmt.Errorf("delete sandbox %s: %w", rec.SandboxID, err)
 		}
+		if fn := e.deleted.Load(); fn != nil {
+			(*fn)(rec.SandboxID)
+		}
 	}
 	return os.RemoveAll(e.TaskDir(taskID))
 }
+
+// OnDeleted is called with every sandbox Teardown deletes.
+func (e *Executor) OnDeleted(fn func(id string)) { e.deleted.Store(&fn) }
 
 // Reap deletes a sandbox this node does not hold, for a task the control plane gave up on.
 // One that is already gone is not an error.

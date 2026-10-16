@@ -46,6 +46,8 @@ func TestRunReportsItsSandboxFirst(t *testing.T) {
 	p := &stubProvider{}
 	e, err := New(Options{Provider: p, DataDir: t.TempDir(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	require.NoError(t, err)
+	var reported []string
+	e.OnDeleted(func(id string) { reported = append(reported, id) })
 	sp := spec.TaskSpec{Image: "alpine:3", Command: []string{"true"}}
 	sp.ApplyDefaults()
 	ch := make(chan docker.Event, 16)
@@ -63,6 +65,7 @@ func TestRunReportsItsSandboxFirst(t *testing.T) {
 	require.Equal(t, []string{docker.KindProvisioning, docker.KindSandbox, docker.KindError}, kinds)
 	require.Equal(t, docker.SandboxPayload{Provider: "stub", ID: "sb-1"}, handle)
 	require.Equal(t, []string{"sb-1"}, p.deleted, "a failed run deletes its sandbox")
+	require.Equal(t, []string{"sb-1"}, reported, "and says so, so the control plane stops counting it")
 }
 
 func TestReapTreatsAMissingSandboxAsDeleted(t *testing.T) {

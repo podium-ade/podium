@@ -1,7 +1,9 @@
 -- Where a sandbox node ran a task: the provider and the sandbox the node made for it, set
--- when the node reports it. A new attempt overwrites them.
+-- when the node reports it. A new attempt overwrites them. sandbox_deleted_at is when a node
+-- said that sandbox is gone.
 alter table tasks add column if not exists sandbox_provider text not null default '';
 alter table tasks add column if not exists sandbox_id text not null default '';
+alter table tasks add column if not exists sandbox_deleted_at timestamptz;
 
 -- max_concurrent caps how many sandboxes of a provider run at once, across every node of
 -- it. Zero is no cap of its own.

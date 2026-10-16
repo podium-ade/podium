@@ -81,6 +81,16 @@ const reapTimeout = 2 * time.Minute
 type reaper interface {
 	Reap(ctx context.Context, id string) error
 	AccountLimit() int32
+	OnDeleted(fn func(id string))
+}
+
+// sandboxDeleted tells the control plane a task's sandbox is gone, so it stops counting
+// against the provider's cap.
+func (n *Node) sandboxDeleted(id string) {
+	n.mu.Lock()
+	n.reaped = append(n.reaped, &podiumv1.SandboxReaped{Provider: n.cfg.Sandbox.Provider, SandboxId: id})
+	n.mu.Unlock()
+	n.signal()
 }
 
 // reapSandbox deletes a sandbox the control plane gave up on, in the background, and queues

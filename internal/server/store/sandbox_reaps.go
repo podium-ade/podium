@@ -44,10 +44,14 @@ func (s *Store) ListSandboxReaps(ctx context.Context, provider string) ([]Sandbo
 	return out, nil
 }
 
+// sandboxGrace is how long a finished task's sandbox counts as up when no node says it was
+// deleted, so a node that went away mid-teardown does not hold a provider's cap forever.
+const sandboxGrace = 2 * time.Minute
+
 // SandboxesKept counts, by provider, the sandboxes still up with no task running in them:
-// held previews and queued deletions.
+// those of finished tasks no node has said are deleted, and queued deletions.
 func (s *Store) SandboxesKept(ctx context.Context) (map[string]int32, error) {
-	rows, err := s.q.SandboxesKept(ctx)
+	rows, err := s.q.SandboxesKept(ctx, int32(sandboxGrace/time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("count kept sandboxes: %w", err)
 	}
@@ -58,10 +62,16 @@ func (s *Store) SandboxesKept(ctx context.Context) (map[string]int32, error) {
 	return out, nil
 }
 
-// DeleteSandboxReap drops a reap once a node has deleted the sandbox.
-func (s *Store) DeleteSandboxReap(ctx context.Context, provider, sandboxID string) error {
-	if _, err := s.q.DeleteSandboxReap(ctx, db.DeleteSandboxReapParams{Provider: provider, SandboxID: sandboxID}); err != nil {
-		return fmt.Errorf("delete sandbox reap %s/%s: %w", provider, sandboxID, err)
-	}
-	return nil
+// SandboxDeleted records that a node deleted a sandbox: its reap, if any, goes, and it no
+// longer counts against its provider.
+func (s *Store) SandboxDeleted(ctx context.Context, provider, sandboxID string) error {
+	return s.inTx(ctx, func(q *db.Queries) error {
+		if _, err := q.DeleteSandboxReap(ctx, db.DeleteSandboxReapParams{Provider: provider, SandboxID: sandboxID}); err != nil {
+			return fmt.Errorf("delete sandbox reap %s/%s: %w", provider, sandboxID, err)
+		}
+		if _, err := q.MarkSandboxDeleted(ctx, db.MarkSandboxDeletedParams{Provider: provider, SandboxID: sandboxID}); err != nil {
+			return fmt.Errorf("mark sandbox %s/%s deleted: %w", provider, sandboxID, err)
+		}
+		return nil
+	})
 }

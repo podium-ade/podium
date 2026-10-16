@@ -1422,7 +1422,8 @@ func (x *ReapSandbox) GetTaskId() string {
 	return ""
 }
 
-// SandboxReaped answers a ReapSandbox. An empty error means the sandbox is gone.
+// SandboxReaped answers a ReapSandbox, or reports a task's sandbox the node deleted itself.
+// An empty error means the sandbox is gone.
 type SandboxReaped struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`

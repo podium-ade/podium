@@ -154,6 +154,7 @@ type Task struct {
 	LogsStderrOffset      int64
 	SandboxProvider       string
 	SandboxID             string
+	SandboxDeletedAt      *time.Time
 }
 
 type TaskEvent struct {
