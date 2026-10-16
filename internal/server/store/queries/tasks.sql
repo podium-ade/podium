@@ -112,6 +112,7 @@ returning *;
 -- event from an attempt the task has moved on from matches nothing.
 -- name: SetTaskSandbox :execrows
 update tasks
-set sandbox_provider = @sandbox_provider,
-    sandbox_id       = @sandbox_id
+set sandbox_provider   = @sandbox_provider,
+    sandbox_id         = @sandbox_id,
+    sandbox_deleted_at = null
 where id = @id and lease_id = @lease_id;

@@ -170,7 +170,8 @@ message ReapSandbox {
   string task_id = 3;
 }
 
-// SandboxReaped answers a ReapSandbox. An empty error means the sandbox is gone.
+// SandboxReaped answers a ReapSandbox, or reports a task's sandbox the node deleted itself.
+// An empty error means the sandbox is gone.
 message SandboxReaped {
   string provider = 1;
   string sandbox_id = 2;

@@ -56,10 +56,28 @@ func (q *Queries) ListSandboxReaps(ctx context.Context, provider string) ([]Sand
 	return items, nil
 }
 
+const markSandboxDeleted = `-- name: MarkSandboxDeleted :execrows
+update tasks set sandbox_deleted_at = now()
+where sandbox_provider = $1 and sandbox_id = $2 and sandbox_deleted_at is null
+`
+
+type MarkSandboxDeletedParams struct {
+	Provider  string
+	SandboxID string
+}
+
+func (q *Queries) MarkSandboxDeleted(ctx context.Context, arg MarkSandboxDeletedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markSandboxDeleted, arg.Provider, arg.SandboxID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const queueSandboxReap = `-- name: QueueSandboxReap :one
 insert into sandbox_reaps (provider, sandbox_id, task_id, reason)
 select sandbox_provider, sandbox_id, id, $1::text from tasks
-where id = $2 and sandbox_id <> ''
+where id = $2 and sandbox_id <> '' and sandbox_deleted_at is null
 on conflict do nothing
 returning provider
 `
@@ -78,9 +96,12 @@ func (q *Queries) QueueSandboxReap(ctx context.Context, arg QueueSandboxReapPara
 
 const sandboxesKept = `-- name: SandboxesKept :many
 select provider, count(distinct sandbox_id)::int as kept from (
-  select t.sandbox_provider as provider, t.sandbox_id from previews p
-  join tasks t on t.id = p.task_id
-  where p.released_at is null and p.expires_at is not null and t.sandbox_id <> ''
+  select t.sandbox_provider as provider, t.sandbox_id from tasks t
+  left join previews p on p.task_id = t.id
+  where t.sandbox_id <> '' and t.sandbox_deleted_at is null and t.finished_at is not null
+    and (t.finished_at > now() - make_interval(secs => $1::int)
+      or (p.expires_at is not null and p.released_at is null)
+      or p.released_at > now() - make_interval(secs => $1::int))
   union all
   select provider, sandbox_id from sandbox_reaps
 ) k
@@ -92,9 +113,12 @@ type SandboxesKeptRow struct {
 	Kept     int32
 }
 
-// Sandboxes still up with no task running in them: held previews and queued deletions.
-func (q *Queries) SandboxesKept(ctx context.Context) ([]SandboxesKeptRow, error) {
-	rows, err := q.db.Query(ctx, sandboxesKept)
+// Sandboxes still up with no task running in them: those of finished tasks no node has
+// said are deleted, and queued deletions. One whose node never says so stops counting
+// grace_seconds after its task finished or its preview was released; a held preview counts until
+// it is released.
+func (q *Queries) SandboxesKept(ctx context.Context, graceSeconds int32) ([]SandboxesKeptRow, error) {
+	rows, err := q.db.Query(ctx, sandboxesKept, graceSeconds)
 	if err != nil {
 		return nil, err
 	}
