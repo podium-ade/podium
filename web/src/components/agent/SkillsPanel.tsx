@@ -112,6 +112,7 @@ export function SkillsPanel() {
   return (
     <PageFrame
         title="Skills"
+        lead="Reusable know-how your assistants pick up when a job calls for it."
         actions={
           manage ? (
           <Button

@@ -168,10 +168,12 @@ describe("RegistriesPage", () => {
     expect(screen.queryByRole("columnheader", { name: "Host" })).toBeNull();
   });
 
-  it("puts the host note in the frame and keeps one New registry action", async () => {
+  // The top bar names the page, so the frame repeats no heading: one plain sentence says
+  // what the page is for.
+  it("says what the page is for, without a second heading, and keeps one New registry action", async () => {
     mount();
-    expect(await screen.findByRole("heading", { level: 2, name: "Registries" })).toBeInTheDocument();
-    expect(screen.getByText(/places your images come from/)).toBeInTheDocument();
+    expect(await screen.findByText(/places your container images come from/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Registries" })).toBeNull();
     expect(screen.getByText(/After you save it, the password stays hidden/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "New registry" })).toHaveLength(1);
   });

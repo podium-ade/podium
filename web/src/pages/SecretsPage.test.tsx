@@ -101,7 +101,7 @@ describe("SecretsPage", () => {
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
     expect(screen.getByText("k_01abc")).toBeInTheDocument();
     expect(
-      screen.getByText(/value cannot be viewed after it is saved/i),
+      screen.getByText(/once a value is saved, nobody can view it again/i),
     ).toBeInTheDocument();
   });
 

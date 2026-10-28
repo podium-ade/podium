@@ -138,7 +138,10 @@ export function ChannelsPanel() {
   }
 
   return (
-    <PageFrame title="Channels">
+    <PageFrame
+      title="Channels"
+      lead="The Slack channels your assistants listen and reply in, and what each channel is about."
+    >
       {channels.length > 0 ? (
         <Chip className="tabular">
           {filtering ? `${shown.length} of ${channels.length}` : channels.length}{" "}
