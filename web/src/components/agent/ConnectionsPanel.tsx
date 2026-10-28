@@ -2,7 +2,11 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { GitHubConnection, SlackConnection } from "../../gen/podium/agent/v1/agent_pb";
+import type {
+  GitHubConnection,
+  GitHubWebhookFilters,
+  SlackConnection,
+} from "../../gen/podium/agent/v1/agent_pb";
 import { agent, errorMessage, isAgentUnreachable } from "../../lib/client";
 import { cn } from "../../lib/utils";
 import { Badge } from "../Badge";
@@ -10,6 +14,7 @@ import { Empty } from "../Empty";
 import { useToast } from "../Toast";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -193,6 +198,7 @@ function GitHubDialog({
     app: !(gh?.appId && gh?.privateKeySet),
     webhook: !gh?.webhookSecretSet,
     auth: !(gh?.clientId && gh?.clientSecretSet),
+    triggers: false,
     advanced: false,
   });
 
@@ -367,6 +373,14 @@ function GitHubDialog({
             </SecretSlot>
           </Group>
           <Group
+            title="Triggers"
+            summary={triggersSummary(gh?.filters)}
+            open={groups.triggers}
+            onToggle={() => setGroups((g) => ({ ...g, triggers: !g.triggers }))}
+          >
+            <TriggersForm filters={gh?.filters} />
+          </Group>
+          <Group
             title="Advanced"
             summary="Listen address this machine uses for webhook posts."
             open={groups.advanced}
@@ -410,6 +424,193 @@ function GitHubDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const replyModes = [
+  {
+    value: "bot_threads",
+    label: "Threads the App started",
+    detail: "A reply under one of the App's review comments needs no mention. A reply in a thread a person started does.",
+  },
+  {
+    value: "any_thread",
+    label: "Any thread",
+    detail: "A reply in any review thread needs no mention, once the pull request has been reviewed.",
+  },
+  {
+    value: "always",
+    label: "Never",
+    detail: "Every reply needs a mention or a trigger phrase.",
+  },
+] as const;
+
+function triggersSummary(f?: GitHubWebhookFilters): string {
+  const who = f?.allowedActors.length ? `${f.allowedActors.length} allowed` : "Anyone";
+  const phrases = f?.triggerPhrases.length
+    ? `@mention or ${f.triggerPhrases.length} phrase${f.triggerPhrases.length === 1 ? "" : "s"}`
+    : "@mention";
+  return `${who}, ${phrases}.`;
+}
+
+/** One entry per line or comma. */
+function splitList(text: string): string[] {
+  return text
+    .split(/[\n,]/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+/**
+ * TriggersForm saves on its own: the filters apply to the next webhook without a
+ * restart, unlike the App above.
+ */
+function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [allowed, setAllowed] = useState((filters?.allowedActors ?? []).join("\n"));
+  const [ignored, setIgnored] = useState((filters?.ignoredActors ?? []).join("\n"));
+  const [ignoreBots, setIgnoreBots] = useState(filters?.ignoreBots ?? false);
+  const [phrases, setPhrases] = useState((filters?.triggerPhrases ?? []).join("\n"));
+  const [replyMode, setReplyMode] = useState(filters?.replyMode || "bot_threads");
+  const [autoReview, setAutoReview] = useState(filters?.autoReview ?? true);
+  const [error, setError] = useState("");
+
+  const save = useMutation({
+    mutationFn: () =>
+      agent.setGitHubWebhookFilters({
+        filters: {
+          allowedActors: splitList(allowed),
+          ignoredActors: splitList(ignored),
+          ignoreBots,
+          triggerPhrases: phrases.split("\n").map((v) => v.trim()).filter(Boolean),
+          replyMode,
+          autoReview,
+        },
+      }),
+    onSuccess: async () => {
+      setError("");
+      toast("Triggers saved. They apply to the next webhook.", "ok");
+      await qc.invalidateQueries({ queryKey: ["agent", "connections"] });
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  return (
+    <>
+      <Field
+        label="Allowed people"
+        htmlFor="github-allowed-actors"
+        hint="GitHub logins, one per line. Only they can start a review. Leave it empty to allow anyone."
+      >
+        <Textarea
+          id="github-allowed-actors"
+          value={allowed}
+          onChange={(e) => setAllowed(e.target.value)}
+          className="min-h-16 font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="octocat"
+        />
+      </Field>
+      <Field
+        label="Ignored people"
+        htmlFor="github-ignored-actors"
+        hint="These logins never start a review, even when they mention the App."
+      >
+        <Textarea
+          id="github-ignored-actors"
+          value={ignored}
+          onChange={(e) => setIgnored(e.target.value)}
+          className="min-h-16 font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="dependabot[bot]"
+        />
+      </Field>
+      <CheckRow
+        id="github-ignore-bots"
+        checked={ignoreBots}
+        onChange={setIgnoreBots}
+        label="Ignore bot accounts"
+        detail="Drop everything sent by a bot, such as Dependabot or Renovate."
+      />
+      <Field
+        label="Trigger phrases"
+        htmlFor="github-trigger-phrases"
+        hint="One per line. A top-level comment that contains one starts a review, as an @mention of the App does. Matched as whole words, ignoring case."
+      >
+        <Textarea
+          id="github-trigger-phrases"
+          value={phrases}
+          onChange={(e) => setPhrases(e.target.value)}
+          className="min-h-16 font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="/review"
+        />
+      </Field>
+      <fieldset className="grid gap-1.5">
+        <legend className="mb-1.5 text-sm font-medium">Replies without a mention</legend>
+        {replyModes.map((m) => (
+          <label key={m.value} className="flex cursor-pointer items-start gap-3 py-1.5">
+            <input
+              type="radio"
+              name="github-reply-mode"
+              value={m.value}
+              checked={replyMode === m.value}
+              onChange={() => setReplyMode(m.value)}
+              className="mt-1 accent-accent"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm text-fg">{m.label}</span>
+              <span className="block text-xs leading-relaxed text-muted">{m.detail}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <CheckRow
+        id="github-auto-review"
+        checked={autoReview}
+        onChange={setAutoReview}
+        label="Review new pull requests"
+        detail="Start a review when a pull request opens ready, or a draft is marked ready."
+      />
+      {error ? <Alert variant="destructive">{error}</Alert> : null}
+      <Button
+        type="button"
+        variant="outline"
+        className="justify-self-start"
+        onClick={() => save.mutate()}
+        disabled={save.isPending}
+      >
+        Save triggers
+      </Button>
+    </>
+  );
+}
+
+function CheckRow({
+  id,
+  checked,
+  onChange,
+  label,
+  detail,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3 py-1.5">
+      <Checkbox id={id} checked={checked} onCheckedChange={(v) => onChange(v === true)} className="mt-0.5" />
+      <span className="min-w-0">
+        <span className="block text-sm text-fg">{label}</span>
+        <span className="block text-xs leading-relaxed text-muted">{detail}</span>
+      </span>
+    </label>
   );
 }
 
