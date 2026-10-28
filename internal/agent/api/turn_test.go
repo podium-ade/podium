@@ -263,6 +263,11 @@ func TestTheConductorsRefusalsBecomeConnectCodes(t *testing.T) {
 		want: connect.CodeFailedPrecondition,
 		says: "already finished",
 	}, {
+		name: "a task that failed before it started",
+		err:  conductor.ErrDelegationFailed,
+		want: connect.CodeFailedPrecondition,
+		says: "failed before it started",
+	}, {
 		name: "no preview to release",
 		err:  conductor.ErrNoPreview,
 		want: connect.CodeFailedPrecondition,

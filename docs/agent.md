@@ -15,7 +15,8 @@ Those three words each mean exactly one thing, and it is worth fixing them befor
 | **Task** | One run of a playbook. Has a cost, logs and artifacts. | Same. |
 
 A conversation runs **no playbook**. A Slack mention and a Linear ticket do, and run as tasks,
-because each of those really is one piece of work.
+because each of those really is one piece of work. A GitHub pull-request review does too: the
+one playbook marked `github: true`, one session per pull request.
 
 It is an ordinary API client of the control plane. It never opens the server's database, never
 sees the master key, and never touches Docker.
@@ -89,7 +90,8 @@ is gone, so a resumed turn posts progress as new messages instead of editing.
 
 **The answer.** A `final` message is posted as a new message, verbatim. The runtime splits an
 answer over 32 KiB into several consecutive `final` messages; they are posted in order. Text over
-Slack's own 4000-character limit is split again, at the last newline that fits.
+Slack's own 4000-character limit is split again, at the last newline that fits. A GitHub review
+is the exception: the first final submits one pull-request review and a later final updates it.
 
 **Attachments.** A `final`'s `attachments` are artifact *names*. They are resolved once the task
 is terminal, because an artifact named in a message may still have been uploading when the
@@ -206,7 +208,9 @@ skill list, and the conductor gives it:
 - **`webfetch`, `todoread`, `todowrite` and nothing else.** This is the one tool list in
   Podium that no document can change. No shell, and no filesystem tools: the assistant clones
   nothing, so `read` has no legitimate target and every path it could reach belongs to somebody
-  else.
+  else. The first turn of a chat also gets `title_set`, a tool that writes only
+  `chat-title.txt` inside the turn's jail. It is not a filesystem tool, and a later turn does
+  not get it.
 
   It is not a playbook's list with things taken away. The assistant is not built from a
   playbook at all: it has no image, no repositories and no sidecars because there are none to
@@ -250,6 +254,13 @@ The rules that matter:
   guarantee — a container that answered in under a second would still be introduced before
   the turn's final — but a container takes seconds to pull an image and a turn that delegates
   and stops ends in about one.
+
+- **A task that fails before it starts is the turn's to report.** The control plane fails a
+  task at placement — a secret that is not set — milliseconds after accepting it. So
+  `Delegate` waits up to 3 s for the task to leave the queue, and one that fails in that time
+  comes back as the tool's error with the reason. Nothing is announced or posted for it; the
+  assistant says what went wrong. A delegation that fails later, before its task has said
+  anything, drops its held announcement too.
 - **The conversation owns the task, not the turn.** A turn is one exchange and a delegated task
   can run for hours. The `delegations` row survives the conductor dying, the recovery pass
   resumes every delegation still running, and the answer is posted into the chat whether or not
@@ -290,7 +301,7 @@ nothing while its node pulls a large image is not a task anyone gives up on.
 
 ## Configuration
 
-Most of this is the environment. The GitHub App is not: it is saved under Settings →
+Most of this is the environment. The GitHub App is not: it is saved under Access →
 Connections, and `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are ignored.
 Every variable the code still reads is in [`../deploy/.env.example`](../deploy/.env.example),
 and a test fails if one is read and missing from that file.
@@ -309,7 +320,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
-| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Settings → Connections stores the same pair and replaces these on the next start |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these on the next start |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
@@ -342,7 +353,7 @@ conductor at all:
 Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
 and no Linear key, no source is started and the conductor listens to nothing — it says so at
 startup, which is a fine shape to run it in while you set a provider credential in the UI.
-Slack can be saved under Settings → Connections instead of its variables. A saved row replaces
+Slack can be saved under Access → Connections instead of its variables. A saved row replaces
 the environment for Slack on the next start. The GitHub App is only that screen. Linear is
 still environment only.
 
@@ -514,10 +525,13 @@ secrets:                                                     # verbatim into the
 repos: []                                                    # [{name, url, default_branch}] → brief.repos
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
+github: false                                                # this is the playbook pull-request reviews run
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
 expose: null                                                 # keep the turn up afterwards as a preview
+runs_on: ""                                                  # default: Compute → Backend; or nodes, boat, modal
+sandbox: {}                                                  # per-provider overrides; see below
 skills: []                                                   # Agent Skills this playbook may use
 mcp_servers: []                                              # MCP servers this playbook may use
 env: {}                                                      # plain env, verbatim into the spec
@@ -551,6 +565,8 @@ task spec, because that is where they end up. Two rules of the conductor's own:
 - **At most one playbook may set `linear: true`.** Two is a start-up error: a ticket has no channel
   and no `/playbook` prefix, so there would be nothing to choose between them with. Zero is fine —
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
+- **At most one playbook may set `github: true`.** That playbook is the whole of a pull-request
+  review. Two is a start-up error. Zero means a review is refused until one is marked.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
@@ -681,6 +697,30 @@ the preview is, and it keeps its node slot. Keep the ttl short, and end it soone
 `podium task release TASK_ID` — or by telling the assistant you are done with it. Its brief
 lists the conversation's previews that are still up, and `podium_release_preview` takes one
 down.
+
+#### `runs_on:` and `sandbox:` — where a turn runs
+
+A turn runs on this fleet's own nodes, or in a cloud sandbox of its own on a
+[sandbox provider](sandboxes.md). **Compute → Backend** picks the default for every playbook;
+`runs_on:` pins one playbook to `nodes` or to a provider by name. Providers are set up, keys and
+caps included, on the **Sandboxes** screen, and only chosen here.
+
+`sandbox:` changes a provider's settings for this playbook's turns. Each block applies only
+when the turn runs on that provider, so a playbook can carry both and still follow the
+default:
+
+```yaml
+runs_on: boat            # optional
+sandbox:
+  boat:  { type: large, template: ci-base, org: acme }   # machine type, snapshot, billing org
+  modal: { runtime: vm, environment: staging }          # vm has Docker; the environment to use
+```
+
+`docker: true` does not run in a sandbox: its daemon is a privileged sidecar, which sandbox
+nodes refuse, so pin such a playbook to `nodes`. `browser: true` needs Docker in the sandbox:
+boat has it, Modal only under `runtime: vm`, set on the provider or here. Settings names the
+playbooks that would follow the default somewhere they cannot run. `resources` still size the
+sandbox, and boat's `type` overrides the size they would pick.
 
 #### `skills:` — third-party Agent Skills
 
@@ -1196,12 +1236,12 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings → Models** has one row per provider. Chat picks which model a
-turn uses; this category is how those models get a credential.
+operator sets it. **Compute → Models** has one row per provider. Chat picks which model a
+turn uses; this page is how those models get a credential.
 
-Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
+Open the UI and click **Models**, under **Compute** in the sidebar.
 
-<!-- screenshot: Settings, Models section, an Anthropic row, an xAI row and an OpenAI row, none set -->
+<!-- screenshot: the Models page, an Anthropic row, an xAI row and an OpenAI row, none set -->
 
 Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 
@@ -1385,7 +1425,7 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    internet.
 5. **Invite the bot to every channel you want it in**: `/invite @Podium`. It cannot see a channel
    it is not in, whatever its scopes say.
-6. Put both tokens in **Settings → Connections**, or in `.env`. A saved connection is what
+6. Put both tokens in **Access → Connections**, or in `.env`. A saved connection is what
    the conductor reads the next time it starts; the environment applies only when nothing
    is saved. Restart it after either change. The startup log names the sources it enabled
    and the playbooks it loaded.
@@ -1618,10 +1658,13 @@ Two consequences of using a personal API key, both worth knowing:
 
 ## GitHub App reviews
 
-Tag the App on a pull request, or tag Podium in Slack with that PR's URL, and it starts **one**
-assistant conversation for that pull request. Later GitHub traffic that belongs to the review
-is another turn of the same conversation. The App posts on GitHub; bound Slack threads get the
-same answer.
+Comment `@slug` on a pull request (the App's slug from its settings, or `@slug[bot]`),
+open a pull request that is not a draft, mark a draft ready for review, or tag Podium
+in Slack with that PR's URL, and it starts **one** review of that pull request. A draft
+stays quiet until it is marked ready. GitHub does not let you request the App as a
+reviewer, so `review_requested` does not start one. The review runs the playbook marked
+`github: true`, and nothing else: a later @mention or a reply cannot start a different playbook.
+The App posts on GitHub; bound Slack threads get the same answer.
 
 **Each deployment creates its own GitHub App.** Podium ships
 [`../deploy/github-app-manifest.yaml`](../deploy/github-app-manifest.yaml), never a Marketplace
@@ -1632,8 +1675,10 @@ must appear as *your* bot.
 
 1. Create a GitHub App in **your** org from the manifest. Permissions: `issues: write`,
    `pull_requests: write`, `contents: write` (clone and push use the same App). Events:
-   `issue_comment`, `pull_request_review`, `pull_request_review_comment`.
-2. Generate a private key. Paste the PEM under Settings → Connections, with the App id.
+   `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.
+   An App that already exists does not pick this up from the manifest: add `pull_request`
+   on its webhook settings.
+2. Generate a private key. Paste the PEM under Access → Connections, with the App id.
    That is the same key clone tokens mint from. The old key-file variable is ignored.
 3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at the listen
    address you save with the App, path `/webhooks/github`. That mux is **only** that
@@ -1649,8 +1694,20 @@ Then `@your-app review this` on a PR, or in Slack:
 @Podium review this PR https://github.com/acme/repo/pull/12
 ```
 
-Those are the same session (`github:acme/repo#12`). A leading `/coder` in the mention is left
-in the text; the assistant delegates to that playbook the way it does in Slack.
+Those are the same session (`github:acme/repo#12`). Mark the review playbook with `github: true`
+before any of this runs. With none marked, the turn is refused.
+
+A follow-up while that task is still up, including the warm window after it answers, is injected
+into the same container. After it exits, the next message is a new task on the same session
+workspace, restored from the snapshot, and it updates the review already on the pull request.
+A killed task's files are in that snapshot. The restored checkout is kept when it is not on
+the default branch, so a review that left the pull-request head checked out starts there again.
+A follow-up reviews only the commits and files changed since the last review. The turn is told
+the commit that review was submitted against and the head now, and the snapshot keeps
+`.podium/review.json` with that commit and the verdict. When the head has not moved, the turn
+is told to repeat the previous verdict and add no comments. When that delta fixes the earlier
+findings and adds nothing that should block a merge, the verdict is an approval. A `/other`
+prefix in the comment does not change the playbook.
 
 ### What starts a turn, and what does not
 
@@ -1659,6 +1716,8 @@ in the text; the assistant delegates to that playbook the way it does in Slack.
 | `ping` | 200, nothing |
 | the App's own comment | dropped |
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
+| `pull_request` / `opened` | start when the pull request is not a draft. A draft's open is dropped |
+| `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
 | a reply in an inline review thread on a PR that already has a session | continue |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
@@ -1671,8 +1730,27 @@ The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub
 bound Slack thread.
 
 **The App posts; the playbook token reads.** `podium.agent.github_token` is still how a
-container clones. A playbook must not `gh pr comment` — that would be a second identity on
+container clones. A playbook must not `gh pr comment`. That would be a second identity on
 the PR.
+
+A pull request gets two GitHub posts. When the turn starts, the App posts one
+conversation comment: a status callout titled **Review in progress**, then the
+pull request title, linked head and base branches, the head commit, and a table
+of files, additions, deletions, and commits. Later progress leaves that comment
+alone. When the answer arrives, the
+same comment's title becomes **Approved**, **Changes requested**, or **Reviewed**,
+and the summary under it stays. An approval uses the same Note callout. The
+review under the comment is the approval. The answer is one submitted review under that
+comment: the playbook's text, with fenced `inline` notes pinned to the diff, and
+an approval when the first line is `Approve` or `Nits`. Any other verdict is a
+comment review. The review id is stored on the session. A later answer that still
+agrees with that review updates it. A follow-up that approves for the first time
+submits a new approval. A follow-up that withdraws an approval submits a new
+review requesting changes, because rewriting the approval would leave the pull
+request approved and this App cannot dismiss a review. A reply in an inline thread
+is answered in that thread and leaves both posts in place. A turn that fails
+changes the status comment's title to **Review did not finish** when that comment
+already exists. The failure text and the task id are not written on the pull request.
 
 ---
 
@@ -1795,7 +1873,7 @@ exactly when the push needed it. So `credential.helper` is a program git runs *e
 wants a password — once per clone, once per fetch, once per push — and each call returns a token
 minted seconds earlier.
 
-Save the App id and paste the PEM under Settings → Connections. When you want pull-request
+Save the App id and paste the PEM under Access → Connections. When you want pull-request
 reviews, save the webhook secret and listen address there too. The conductor uses that App
 the next time it starts. `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are
 ignored.
@@ -1843,10 +1921,10 @@ person connects their account once, and nobody creates a personal access token.
    - Under **Optional features**, keep **User-to-server token expiration** on. It is GitHub's
      default, and Podium refuses a token that never expires.
    - Generate a **client secret**.
-2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
+2. Under Access → Connections, an admin saves the App's **client id** and **client secret**
    with the App. They apply at once. No restart is needed.
-3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token and
-   its refresh token as that person's personal secret `github.token`.
+3. Each person clicks **Connect GitHub** under **Your account**, in the account menu. Podium
+   stores the token and its refresh token as that person's personal secret `github.token`.
 4. The playbook names it:
 
 ```yaml
@@ -1880,13 +1958,13 @@ the credential helper and `GH_TOKEN`.
 The turn fails, and says why, when:
 
 - The person has not connected GitHub, or GitHub no longer accepts their connection: the
-  refresh token went six months unused, or they revoked the App. Settings → Account then says
+  refresh token went six months unused, or they revoked the App. **Your account** then says
   the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.
 
-Disconnect under Settings → Account deletes the token. To revoke the grant on GitHub too, use
+**Disconnect** under **Your account** deletes the token. To revoke the grant on GitHub too, use
 **Settings → Applications → Authorized GitHub Apps** on GitHub.
 
 #### A personal access token — the older path, still supported
@@ -2389,8 +2467,10 @@ task it delegates, and may choose several while answering once.
   Links go with the chat when the chat is deleted.
 - **The title is generated from the first query.** An untitled chat ("New chat") is named from
   the first message the moment it is sent, then the first turn of that chat may overwrite it
-  with a model-written title (`chat-title.txt`). A title a human chose is never rewritten:
-  neither one supplied at create, nor one typed later through `RenameChat`.
+  with a model-written title (`chat-title.txt`). A task that has `write` writes that file. The
+  assistant has no `write` tool, so its first turn calls `title_set`, which writes the same
+  file in the jail. A title a human chose is never rewritten: neither one supplied at create,
+  nor one typed later through `RenameChat`.
 - **`StreamChat` is a server-streaming RPC** and it never ends on its own: it replays everything
   after `from_seq`, then follows. The browser reconnects with the highest seq it has seen, which
   is exactly once — no gap and no repeat. Frames are fanned out in process; the conductor is one
@@ -2419,7 +2499,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one row per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Models in the sidebar: one row per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |

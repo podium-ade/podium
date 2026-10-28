@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // write builds a profile directory from a map of relative path to content.
@@ -76,6 +78,30 @@ interactive: true
 
 // A `file:` prompt is relative to the file that names it, which is not the same directory
 // for profile.yaml and playbooks/general.yaml.
+func TestAPlaybookSaysWhereItRunsAndOverridesProviders(t *testing.T) {
+	files := base()
+	files["playbooks/general.yaml"] = goodPlaybook + `runs_on: boat
+sandbox:
+  boat: {type: large, template: ci-base, org: acme}
+  modal: {runtime: vm, environment: staging}
+`
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	pb := p.Playbooks["general"]
+	assert.Equal(t, "boat", pb.RunsOn)
+	assert.Equal(t, &PlaybookSandbox{
+		Boat:  &spec.BoatSandbox{Type: "large", Template: "ci-base", Org: "acme"},
+		Modal: &spec.ModalSandbox{Runtime: "vm", Environment: "staging"},
+	}, pb.Sandbox)
+
+	dir := t.TempDir()
+	require.NoError(t, WritePlaybook(dir, pb))
+	again, err := os.ReadFile(filepath.Join(dir, "playbooks", "general.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(again), "runs_on: boat")
+	assert.Contains(t, string(again), "runtime: vm")
+}
+
 func TestAFilePromptIsRelativeToTheFileThatNamesIt(t *testing.T) {
 	files := base()
 	files["playbooks/general.yaml"] = `image: alpine:3
@@ -131,6 +157,12 @@ func TestEveryLoadFailureNamesTheFile(t *testing.T) {
 		{"a docker playbook pointing DOCKER_HOST somewhere else", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "docker: true\nenv: {DOCKER_HOST: tcp://elsewhere:2375}\n"
 		}, []string{"playbooks/general.yaml", "DOCKER_HOST"}},
+		{"a boat machine type boat does not have", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "sandbox: {boat: {type: huge}}\n"
+		}, []string{"playbooks/general.yaml", "sandbox.boat.type"}},
+		{"a runs_on that is a label", func(f map[string]string) {
+			f["playbooks/general.yaml"] = goodPlaybook + "runs_on: sandbox.provider=boat\n"
+		}, []string{"playbooks/general.yaml", "runs_on"}},
 		{"a priority nothing could distinguish", func(f map[string]string) {
 			f["playbooks/general.yaml"] = goodPlaybook + "priority: 5000\n"
 		}, []string{"playbooks/general.yaml", "priority must be between -1000 and 1000"}},
@@ -357,6 +389,20 @@ func TestExactlyOnePlaybookMayTakeLinearTickets(t *testing.T) {
 // deployment — most of them — so zero is not a load error. The Linear source is what
 // refuses to start when a key is set and no playbook claims tickets, because that is where the
 // key is known.
+func TestExactlyOnePlaybookMayReviewPullRequests(t *testing.T) {
+	files := base()
+	files["playbooks/coder.yaml"] = goodPlaybook + "github: true\n"
+	p, err := Load(write(t, files))
+	require.NoError(t, err)
+	assert.Equal(t, "coder", p.GitHubPlaybook())
+	assert.True(t, p.Playbooks["coder"].GitHub)
+
+	files["playbooks/fixer.yaml"] = goodPlaybook + "github: true\n"
+	_, err = Load(write(t, files))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "github: true")
+}
+
 func TestNoPlaybookTakingLinearTicketsIsAllowed(t *testing.T) {
 	p, err := Load(write(t, base()))
 	require.NoError(t, err)

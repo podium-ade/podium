@@ -22,7 +22,8 @@ const pruneInterval = 5 * time.Minute
 // the feature does not run unless somebody said it should. Even then it only ever considers
 // images Podium pulled itself — see docker.ErrNotPodiumImage.
 func (n *Node) maybePrune(ctx context.Context, load hostLoad) {
-	if load.DiskTotalBytes <= 0 {
+	// A sandbox node keeps no images: its tasks' disks are the provider's.
+	if load.DiskTotalBytes <= 0 || n.cfg.Backend == BackendSandbox {
 		return
 	}
 	used := load.DiskUsedPct / 100

@@ -156,9 +156,11 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		s.logger.WarnContext(ctx, "recording a node-loss note failed", "task_id", task.ID, "error", err)
 	}
 	if task.Spec.RetryOnNodeLoss && task.Attempts < task.MaxAttempts && task.CancelRequestedAt == nil {
-		if _, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusQueued, store.Patch{}); err == nil {
+		if t, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusQueued,
+			store.Patch{ReapSandbox: reason}); err == nil {
 			s.logger.InfoContext(ctx, "task requeued after losing its node",
 				"task_id", task.ID, "node_id", node.ID, "attempt", task.Attempts)
+			s.ReapSandboxes(ctx, t.SandboxProvider)
 			return
 		} else if !errors.Is(err, store.ErrInvalidTransition) {
 			s.logger.ErrorContext(ctx, "requeueing a task after node loss failed",
@@ -169,14 +171,16 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 		// re-checks the state under the row lock anyway.
 	}
 	now := time.Now().UTC()
-	if _, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusLost,
-		store.Patch{FailureReason: &reason, FinishedAt: &now}); err != nil {
+	t, err := s.store.TransitionTask(ctx, task.ID, store.ActiveStatuses, store.StatusLost,
+		store.Patch{FailureReason: &reason, FinishedAt: &now, ReapSandbox: reason})
+	if err != nil {
 		if !errors.Is(err, store.ErrInvalidTransition) {
 			s.logger.ErrorContext(ctx, "marking a task lost failed", "task_id", task.ID, "error", err)
 		}
 		return
 	}
 	s.reg.Release(task.ID)
+	s.ReapSandboxes(ctx, t.SandboxProvider)
 	s.logger.InfoContext(ctx, "task lost with its node",
 		"task_id", task.ID, "node_id", node.ID, "reason", reason)
 }
@@ -186,8 +190,9 @@ func (s *Service) LoseTask(ctx context.Context, task store.Task, node store.Node
 // core with a Postgres asking for two costs three.
 func CostOf(ts spec.TaskSpec) TaskCost {
 	cost := TaskCost{CPU: ts.Resources.CPU, MemoryMB: int64(ts.Resources.MemoryMB)}
-	// A hold-only expose takes no address, so it does not wait for one.
-	if ts.Expose.Publishes() {
+	// A hold-only expose takes no address, so it does not wait for one. Nor does a
+	// sandbox preview: the provider gives every port a URL of its own.
+	if ts.Expose.Publishes() && ts.Expose.Via != spec.ExposeViaSandbox {
 		cost.Preview, cost.Via = true, ts.Expose.Via
 	}
 	for _, sc := range ts.Sidecars {

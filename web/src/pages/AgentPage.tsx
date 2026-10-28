@@ -1,6 +1,5 @@
 import { Suspense, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
-import { Cable, Cpu, Server, Settings2, UserRound, Users } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
@@ -15,8 +14,7 @@ import { MemoryPanel } from "../components/agent/MemoryPanel";
 import { Assistants } from "../components/agent/Assistants";
 import { isAssistantSection } from "../lib/assistantProfile";
 import { ProviderCard } from "../components/agent/ProviderCard";
-import { SandboxBackends } from "../components/agent/SandboxBackends";
-import { SettingsSectionNav } from "../components/agent/SettingsSections";
+import { RunsOnSettings } from "../components/agent/RunsOnSettings";
 import { SessionsTable } from "../components/agent/SessionsTable";
 import { PlaybooksPanel } from "../components/agent/PlaybooksPanel";
 import { SkillsPanel } from "../components/agent/SkillsPanel";
@@ -25,14 +23,22 @@ import { IdentityCard } from "../components/IdentityCard";
 import { PageFrame } from "../components/PageHeader";
 import { UsersPage } from "./UsersPage";
 import { Alert } from "../components/ui/alert";
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
-import { useViewer } from "../lib/identity";
+import { useViewer, type Viewer } from "../lib/identity";
+import { cn } from "../lib/utils";
 import { canManageInfra } from "../lib/rbac";
 
 /**
  * Tab is one assistant screen. Chat, Sessions, Memory and Assistants are links in the app
- * sidebar, as are Playbooks, Skills, MCP, Channels and Settings.
+ * sidebar, as are Playbooks, Skills, MCP, Channels and each former settings section.
  *
  * `route` exists only for Chat, whose own screen takes a chat id after the segment.
  *
@@ -136,32 +142,48 @@ function ProfileRedirect() {
   return <Navigate to="/agent/assistants" replace />;
 }
 
+const SETTINGS_LEAD: Record<string, string> = {
+  account:
+    "Who is signed in on this browser. The local token stays a machine credential for the CLI and workers.",
+  users:
+    "Who can sign in, and what they can do. Roles are enforced on the API after a Workspace claim. The local token and every node still do everything.",
+  "runs-on":
+    "Where a session's turns run when their playbook does not say: this fleet's own nodes, or a sandbox provider set up on Sandboxes.",
+  connections:
+    "The outside apps the assistant works with. GitHub lets it read your code and open pull requests. Slack lets people message it. Changes take effect the next time the conductor restarts.",
+  models:
+    "The AI services the assistant runs on. Add a key or sign in, and that service's models show up in Chat. Each chat only gets the key it needs.",
+};
+
 /**
- * SettingsTab is a side list of sections and the open one. The address is the
- * section, so back and a deep link both land on it.
+ * SETTINGS_SECTIONS are the pages that used to be Settings' tabs. Each is its own sidebar
+ * entry now, in the group it answers to, but keeps its /agent/settings address so old
+ * links, the GitHub callback and notifications still land on it.
+ */
+const SETTINGS_SECTIONS: { id: string; title: string; show: (v: Viewer | undefined) => boolean }[] = [
+  { id: "account", title: "Your account", show: (v) => Boolean(v?.googleAuthEnabled) },
+  { id: "users", title: "Members", show: () => true },
+  { id: "runs-on", title: "Backend", show: (v) => Boolean(v?.agentEnabled) },
+  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
+  { id: "connections", title: "Connections", show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v) },
+  { id: "models", title: "Models", show: (v) => Boolean(v?.agentEnabled) },
+];
+
+/**
+ * SettingsTab draws one former settings section as a page of its own. A bare
+ * /agent/settings, or a section this viewer does not get, lands on the first one they do.
  */
 function SettingsTab() {
   const viewer = useViewer();
   const { pathname } = useLocation();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
-  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
-  const manage = canManageInfra(viewer);
-  const categories: { id: string; label: string; icon: LucideIcon }[] = [
-    ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account", icon: UserRound }] : []),
-    { id: "users", label: "Users", icon: Users },
-    { id: "backend", label: "Backend", icon: Server },
-    ...(viewer?.agentEnabled && manage
-      ? [{ id: "connections", label: "Connections", icon: Cable }]
-      : []),
-    ...(viewer?.agentEnabled ? [{ id: "models", label: "Models", icon: Cpu }] : []),
-  ];
-
-  const fallback = categories[0]?.id ?? "";
-  const current = categories.some((c) => c.id === tab) ? tab : "";
-  if (!current) {
+  const sections = SETTINGS_SECTIONS.filter((s) => s.show(viewer));
+  const section = sections.find((s) => s.id === tab);
+  if (!section) {
+    const fallback = sections[0];
     return fallback ? (
-      <Navigate to={`/agent/settings/${fallback}`} replace />
+      <Navigate to={`/agent/settings/${fallback.id}`} replace />
     ) : (
       <PageFrame title="Settings">
         <p className="text-sm text-muted">Nothing to configure.</p>
@@ -169,51 +191,31 @@ function SettingsTab() {
     );
   }
 
+  const current = section.id;
+  const flush = current === "users" || current === "connections" || current === "models";
+
   return (
-    <PageFrame title="Settings">
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-        <SettingsSectionNav sections={categories} current={current} />
-        <div className="min-w-0 flex-1">
-        {current === "account" ? (
-          <section className="max-w-2xl space-y-4">
-            <p className="text-sm leading-relaxed text-muted">
-              Who is signed in on this browser. The local token stays a machine credential for
-              the CLI and workers.
-            </p>
-            <IdentityCard />
-            {viewer?.agentEnabled ? <GitHubAccountCard /> : null}
-          </section>
-        ) : null}
-        {current === "users" ? (
-          <section className="max-w-2xl space-y-4">
-            <p className="text-sm leading-relaxed text-muted">
-              Who can sign in, and what they can do. Roles are enforced on the API after a
-              Workspace claim; the local token and every node still do everything.
-            </p>
-            <UsersPage />
-          </section>
-        ) : null}
-        {current === "backend" ? (
-          <section className="space-y-4">
-            <p className="max-w-2xl text-sm leading-relaxed text-muted">
-              Where a session's workspace runs. Self-hosted is this control plane's own nodes.
-              Modal and Daytona will run the same session once they are connected.
-            </p>
-            <SandboxBackends />
-          </section>
-        ) : null}
-        {current === "connections" ? (
-          <section>
-            <ConnectionsPanel />
-          </section>
-        ) : null}
-        {current === "models" ? (
-          <section>
-            <ModelsPanel />
-          </section>
-        ) : null}
+    <PageFrame title={section.title} bodyClassName="p-6">
+      <section
+        className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
+        aria-label={section.title}
+      >
+        <div className="border-b border-border p-4">
+          <p className="max-w-[68ch] text-soft">{SETTINGS_LEAD[current]}</p>
         </div>
-      </div>
+        <div className={flush ? undefined : "grid gap-4 p-4"}>
+          {current === "account" ? (
+            <>
+              <IdentityCard />
+              {viewer?.agentEnabled ? <GitHubAccountCard /> : null}
+            </>
+          ) : null}
+          {current === "users" ? <UsersPage /> : null}
+          {current === "runs-on" ? <RunsOnSettings /> : null}
+          {current === "connections" ? <ConnectionsPanel /> : null}
+          {current === "models" ? <ModelsPanel /> : null}
+        </div>
+      </section>
     </PageFrame>
   );
 }
@@ -254,30 +256,41 @@ function ModelsPanel() {
 
   return (
     <>
-      <p className="max-w-2xl text-sm leading-relaxed text-muted">
-        Connect a provider. Chat picks the model; this is what that picker can spend. A turn
-        is handed one credential (the backend it names) and never the others.
-      </p>
-
       {isAgentUnreachable(settings.error) ? (
-        <ConductorDown
-          what="The stored credentials could not be read"
-          onRetry={() => void settings.refetch()}
-          retrying={settings.isFetching}
-        />
+        <div className="border-b border-border p-4">
+          <ConductorDown
+            what="The stored credentials could not be read"
+            onRetry={() => void settings.refetch()}
+            retrying={settings.isFetching}
+          />
+        </div>
       ) : null}
 
       {!manage ? (
-        <Alert variant="info" title="Credentials are read-only for members">
-          An admin or owner can set and rotate provider keys. You can see which ones are
-          connected.
-        </Alert>
+        <div className="border-b border-border p-4">
+          <Alert variant="info" title="Credentials are read-only for members">
+            An admin or owner can set and rotate provider keys. You can see which ones are
+            connected.
+          </Alert>
+        </div>
       ) : null}
 
-      <ul className="divide-y divide-border border-y border-border">
-        {PROVIDERS.map((p) => (
-          <li key={p.id}>
+      <Table containerClassName="rounded-none border-0 bg-transparent" className="min-w-[640px]">
+        <caption className="sr-only">Model providers</caption>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={cn(settingsHead, "w-[40%]")}>Model</TableHead>
+            <TableHead className={cn(settingsHead, "w-[20%]")}>Status</TableHead>
+            <TableHead className={settingsHead}>Credential</TableHead>
+            <TableHead className={settingsHead}>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {PROVIDERS.map((p) => (
             <ProviderCard
+              key={p.id}
               provider={p}
               settings={stored.find((s) => s.provider === p.id)}
               loading={settings.isPending}
@@ -296,21 +309,14 @@ function ModelsPanel() {
               }
               onSignedIn={() => void reload()}
             />
-          </li>
-        ))}
-      </ul>
-      <p className="max-w-3xl text-xs leading-relaxed text-muted">
-        Encrypted at rest by podium-server as{" "}
-        {PROVIDERS.map((p, i) => (
-          <span key={p.id}>
-            {i > 0 ? ", " : ""}
-            <code className="font-mono text-fg">{p.secretName}</code>
-          </span>
-        ))}
-        .
-      </p>
+          ))}
+        </TableBody>
+      </Table>
     </>
   );
 }
+
+const settingsHead =
+  "px-4 py-3 text-xs font-[750] leading-[normal] tracking-[0.08em] text-muted uppercase";
 
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,10 +24,15 @@ type stub struct {
 	mu             sync.Mutex
 	issuePosts     []map[string]any
 	reviewPosts    []map[string]any
+	reviews        []map[string]any
+	reviewEdits    []map[string]any
 	edits          []map[string]any
 	issueComments  []Comment
 	reviewComments []Comment
-	reviews        []Review
+	listedReviews  []Review
+	rejectComments bool
+	dropReview     bool
+	failPull       bool
 	installID      int64
 	install404     bool
 	nextComment    int64
@@ -105,10 +111,37 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(s.reviewComments)
+	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodPost:
+		s.writeReview(w, r)
+	case strings.Contains(path, "/pulls/") && strings.Contains(path, "/reviews/") && r.Method == http.MethodPut:
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		s.mu.Lock()
+		s.reviewEdits = append(s.reviewEdits, body)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
 	case strings.Contains(path, "/pulls/") && strings.HasSuffix(strings.Split(path, "?")[0], "/reviews") && r.Method == http.MethodGet:
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(s.reviews)
+		_ = json.NewEncoder(w).Encode(s.listedReviews)
+	case r.Method == http.MethodGet && isPullPath(path):
+		s.mu.Lock()
+		fail := s.failPull
+		s.mu.Unlock()
+		if fail {
+			http.Error(w, `{"message":"unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"title":         "Fix the review",
+			"commits":       2,
+			"additions":     40,
+			"deletions":     5,
+			"changed_files": 3,
+			"head":          map[string]any{"ref": "agent/review", "sha": "0123456789abcdef"},
+			"base":          map[string]any{"ref": "dev"},
+		})
 	default:
 		http.NotFound(w, r)
 	}
@@ -130,6 +163,52 @@ func (s *stub) writeComment(w http.ResponseWriter, r *http.Request, into *[]map[
 	})
 }
 
+func (s *stub) writeReview(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var body map[string]any
+	_ = json.Unmarshal(raw, &body)
+	s.mu.Lock()
+	drop := s.dropReview
+	reject := s.rejectComments
+	s.dropReview = false
+	s.mu.Unlock()
+	if drop {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+		return
+	}
+	if reject {
+		if comments, ok := body["comments"].([]any); ok && len(comments) > 0 {
+			s.mu.Lock()
+			s.reviews = append(s.reviews, body)
+			s.mu.Unlock()
+			http.Error(w, `{"message":"line must be part of the diff"}`, http.StatusUnprocessableEntity)
+			return
+		}
+	}
+	id := atomic.AddInt64(&s.nextComment, 1)
+	s.mu.Lock()
+	s.reviews = append(s.reviews, body)
+	s.mu.Unlock()
+	_ = json.NewEncoder(w).Encode(Review{
+		ID:          id,
+		Body:        asString(body["body"]),
+		SubmittedAt: time.Now().UTC(),
+		User:        User{Login: "podium[bot]", Type: "Bot"},
+	})
+}
+
+func isPullPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "repos" || parts[3] != "pulls" {
+		return false
+	}
+	_, err := strconv.Atoi(parts[4])
+	return err == nil
+}
+
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
@@ -147,6 +226,32 @@ func (s *stub) postedIssueBodies() []string {
 	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.issuePosts))
 	for _, p := range s.issuePosts {
+		out = append(out, asString(p["body"]))
+	}
+	return out
+}
+
+func (s *stub) postedIssueEdits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.edits))
+	for _, p := range s.edits {
+		out = append(out, asString(p["body"]))
+	}
+	return out
+}
+
+func (s *stub) postedReviews() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]map[string]any(nil), s.reviews...)
+}
+
+func (s *stub) postedReviewEdits() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.reviewEdits))
+	for _, p := range s.reviewEdits {
 		out = append(out, asString(p["body"]))
 	}
 	return out

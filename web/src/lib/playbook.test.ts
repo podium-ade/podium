@@ -5,6 +5,7 @@ import {
   definitionToYaml,
   docToDraft,
   draftToYaml,
+  NO_OVERRIDES,
   parsePlaybookYaml,
   type PlaybookDraft,
 } from "./playbook";
@@ -27,12 +28,15 @@ const draft: PlaybookDraft = {
   repos: [],
   slackChannels: [],
   linear: false,
+  github: false,
   interactive: true,
   skills: ["pr-review"],
   mcpServers: ["linear"],
   env: { CI: "true" },
   docker: false,
   browser: false,
+  runsOn: "",
+  sandbox: NO_OVERRIDES,
 };
 
 describe("parsePlaybookYaml", () => {
@@ -71,6 +75,44 @@ env:
       "system_prompt: hi\nallowed_tools: [read, notepad]\n",
     );
     expect(problems.join("\n")).toContain("notepad");
+  });
+
+  it("round-trips github: true", () => {
+    const text = draftToYaml({ ...draft, github: true });
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    expect(docToDraft("reporter", doc!).github).toBe(true);
+  });
+
+  it("round-trips where it runs and only the overrides that are set", () => {
+    const sandbox = {
+      boat: { type: "large", template: "", org: "acme" },
+      modal: { runtime: "", environment: "" },
+    };
+    const text = draftToYaml({ ...draft, runsOn: "boat", sandbox });
+    expect(text).toContain("runs_on: boat");
+    expect(text).not.toContain("modal");
+    expect(text).not.toContain("template");
+    const { doc, problems } = parsePlaybookYaml(text);
+    expect(problems).toEqual([]);
+    const back = docToDraft("reporter", doc!);
+    expect(back.runsOn).toBe("boat");
+    expect(back.sandbox).toEqual(sandbox);
+    expect(draftToYaml(draft)).not.toContain("sandbox");
+  });
+
+  it("refuses a machine type, runtime or provider block that does not exist", () => {
+    const base = "image: a\nsystem_prompt: p\nallowed_tools: [read]\n";
+    for (const [extra, want] of [
+      ["sandbox: {boat: {type: huge}}", "sandbox.boat.type"],
+      ["sandbox: {modal: {runtime: docker}}", "sandbox.modal.runtime"],
+      ["sandbox: {daytona: {}}", "daytona"],
+      ["runs_on: sandbox.provider=boat", "runs_on"],
+    ]) {
+      const { doc, problems } = parsePlaybookYaml(base + extra);
+      expect(doc, extra).toBeUndefined();
+      expect(problems.join("\n"), extra).toContain(want);
+    }
   });
 
   it("round-trips a draft through YAML", () => {

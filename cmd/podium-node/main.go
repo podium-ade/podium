@@ -30,6 +30,7 @@ func newRootCommand() *cobra.Command {
 	var exitOnDrain bool
 	var allowPrivilegedSidecars bool
 	var runtimeName string
+	var backend string
 
 	root := &cobra.Command{
 		Use:   "podium-node",
@@ -57,6 +58,9 @@ func newRootCommand() *cobra.Command {
 			}
 			if cmd.Flags().Changed("allow-privileged-sidecars") {
 				cfg.AllowPrivilegedSidecars = allowPrivilegedSidecars
+			}
+			if cmd.Flags().Changed("backend") {
+				cfg.Backend = backend
 			}
 			if cmd.Flags().Changed("runtime") {
 				cfg.Runtime = runtimeName
@@ -88,6 +92,8 @@ func newRootCommand() *cobra.Command {
 	root.Flags().BoolVar(&allowPrivilegedSidecars, "allow-privileged-sidecars", false,
 		"honour a spec's privileged sidecar, which is root on this machine's kernel; "+
 			"for a docker-in-docker daemon, on a machine dedicated to it")
+	root.Flags().StringVar(&backend, "backend", "",
+		"what runs tasks: docker (the default) or sandbox, one cloud sandbox per task (see sandbox.provider)")
 	root.Flags().StringVar(&runtimeName, "runtime", "",
 		"Docker runtime for the task container only (for example runsc); empty uses the engine default. Sidecars stay on the default.")
 	root.AddCommand(newUpgradeCommand())

@@ -41,6 +41,9 @@ type fakePodium struct {
 	hold <-chan struct{}
 	// terminal is the status a task ends in.
 	terminal podiumv1.TaskStatus
+	// queued makes a task read as queued until it is terminal, which is how one that fails
+	// at placement looks.
+	queued bool
 	exitCode *int32
 	reason   string
 	// replayAll makes StreamTaskEvents ignore from_seq and re-send everything, which is
@@ -189,7 +192,7 @@ func (f *fakePodium) GetTask(
 ) (*connect.Response[podiumv1.GetTaskResponse], error) {
 	f.mu.Lock()
 	ft := f.tasks[req.Msg.GetTaskId()]
-	terminal, exit, reason := f.terminal, f.exitCode, f.reason
+	terminal, exit, reason, queued := f.terminal, f.exitCode, f.reason, f.queued
 	f.mu.Unlock()
 	if ft == nil {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
@@ -208,6 +211,9 @@ func (f *fakePodium) GetTask(
 		out.FailureReason = reason
 		out.FinishedAt = timestamppb.Now()
 	default:
+		if queued {
+			out.Status = podiumv1.TaskStatus_TASK_STATUS_QUEUED
+		}
 	}
 	return connect.NewResponse(&podiumv1.GetTaskResponse{Task: out}), nil
 }

@@ -86,6 +86,25 @@ type Registry struct {
 	UpdatedAt  time.Time
 }
 
+type SandboxProvider struct {
+	Name          string
+	Settings      []byte
+	Ciphertext    []byte
+	Nonce         []byte
+	KeyID         string
+	CreatedBy     string
+	UpdatedAt     time.Time
+	MaxConcurrent int32
+}
+
+type SandboxReap struct {
+	Provider  string
+	SandboxID string
+	TaskID    string
+	Reason    string
+	CreatedAt time.Time
+}
+
 type Secret struct {
 	Name       string
 	Ciphertext []byte
@@ -133,6 +152,9 @@ type Task struct {
 	LogsHighSeq           int64
 	LogsStdoutOffset      int64
 	LogsStderrOffset      int64
+	SandboxProvider       string
+	SandboxID             string
+	SandboxDeletedAt      *time.Time
 }
 
 type TaskEvent struct {

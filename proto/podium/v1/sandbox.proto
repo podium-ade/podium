@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package podium.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// SandboxProviderService is where an admin configures the cloud sandbox providers sandbox
+// nodes run tasks on. Like RegistryService it has no read endpoint for the credential: a key
+// goes in once and only ever comes back out on a node's stream, to the nodes of that
+// provider.
+service SandboxProviderService {
+  // SetSandboxProvider creates or replaces one provider's settings, and its credential when
+  // one is given.
+  rpc SetSandboxProvider(SetSandboxProviderRequest) returns (SetSandboxProviderResponse);
+  // ListSandboxProviders returns settings and metadata, never the credential.
+  rpc ListSandboxProviders(ListSandboxProvidersRequest) returns (ListSandboxProvidersResponse);
+  rpc DeleteSandboxProvider(DeleteSandboxProviderRequest) returns (DeleteSandboxProviderResponse);
+}
+
+// SandboxProvider is one configured provider. It never carries the credential or its
+// ciphertext.
+message SandboxProvider {
+  // name is the provider, as a node's sandbox.provider names it: boat, modal. It is the key.
+  string name = 1;
+  // settings are the provider's own options (template, default_type, app, runtime, …),
+  // none of them secret.
+  map<string, string> settings = 2;
+  // has_secret says a credential is stored.
+  bool has_secret = 3;
+  // key_id identifies the master key the credential is encrypted under.
+  string key_id = 4;
+  string created_by = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // max_concurrent caps how many of the provider's sandboxes run at once across every node
+  // of it. Zero is no cap of its own.
+  int32 max_concurrent = 7;
+  // account_limit is the most the provider account allows at once, as a connected node last
+  // reported it. Zero is unknown: no node is connected, or the provider does not say.
+  int32 account_limit = 8;
+  // in_use is how many of the provider's sandboxes connected nodes are running or keeping up.
+  int32 in_use = 9;
+}
+
+message SetSandboxProviderRequest {
+  string name = 1;
+  map<string, string> settings = 2;
+  // SENSITIVE: never log. The provider's API key or token secret. Empty keeps the stored one.
+  bytes secret = 3;
+  // max_concurrent caps the provider's sandboxes across every node; zero is no cap.
+  int32 max_concurrent = 4;
+}
+
+message SetSandboxProviderResponse {
+  SandboxProvider provider = 1;
+}
+
+message ListSandboxProvidersRequest {}
+
+message ListSandboxProvidersResponse {
+  repeated SandboxProvider providers = 1;
+}
+
+message DeleteSandboxProviderRequest {
+  string name = 1;
+}
+
+message DeleteSandboxProviderResponse {}

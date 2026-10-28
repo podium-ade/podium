@@ -35,7 +35,8 @@ var NameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 // The names the runtime already owns. A registration may not take one: the harness config is
 // one map of server name to server, so a second `memory` would replace the shared memory a
 // turn cannot opt out of, a second `browser` would replace the sidecar's client, and a second
-// `podium` would replace the delegation a host turn does its work through.
+// `podium` would replace the delegation a host turn does its work through, and a second
+// `title` would replace the tool a first turn names the chat with.
 //
 // agent/runtime/src/opencode.ts holds the same list as ReservedServers and refuses one there
 // too. Two checks because they fail differently: this one refuses a registration, with a
@@ -46,6 +47,7 @@ const (
 	ReservedBrowser  = "browser"
 	ReservedDelegate = "podium"
 	ReservedHuman    = "human"
+	ReservedTitle    = "title"
 )
 
 // MaxServers is how many MCP servers one playbook may name. Each one is a connection the
@@ -236,7 +238,7 @@ func ValidateName(name string) error {
 		return errors.New("an MCP server name is required")
 	case !NameRE.MatchString(name):
 		return fmt.Errorf("MCP server name %q must match %s", name, NameRE.String())
-	case name == ReservedMemory, name == ReservedBrowser, name == ReservedDelegate, name == ReservedHuman:
+	case name == ReservedMemory, name == ReservedBrowser, name == ReservedDelegate, name == ReservedHuman, name == ReservedTitle:
 		return fmt.Errorf("MCP server name %q is reserved: the runtime gives that name to "+
 			"a server it wires up itself", name)
 	}

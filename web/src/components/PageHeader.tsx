@@ -5,43 +5,12 @@ import { ChevronLeft, Menu, Moon, Sun, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { useViewer } from "../lib/identity";
+import { pageCategory } from "../lib/navigation";
 import { readTheme, syncTheme, toggleTheme, watchSystemTheme, type Theme } from "../lib/theme";
 import { NotificationBell } from "./NotificationBell";
 import { useShell } from "./shell";
 
 const PageActionsContext = createContext<HTMLDivElement | null>(null);
-
-function pageCategory(pathname: string): string {
-  if (!pathname) return "";
-  if (pathname.startsWith("/notifications")) return "Activity";
-  if (
-    pathname === "/agent" ||
-    pathname.startsWith("/agent/chat") ||
-    pathname.startsWith("/agent/sessions") ||
-    pathname.startsWith("/agent/memory") ||
-    pathname.startsWith("/agent/assistants") ||
-    pathname.startsWith("/agent/profile")
-  ) {
-    return "Assistant";
-  }
-  if (
-    pathname.startsWith("/tasks") ||
-    pathname.startsWith("/nodes") ||
-    pathname.startsWith("/submit")
-  ) {
-    return "Run";
-  }
-  if (
-    pathname.startsWith("/agent/") ||
-    pathname.startsWith("/secrets") ||
-    pathname.startsWith("/registries") ||
-    pathname.startsWith("/usage") ||
-    pathname.startsWith("/users")
-  ) {
-    return "Administer";
-  }
-  return "";
-}
 
 const iconButton =
   "grid size-11 shrink-0 place-items-center rounded-md border border-border bg-panel text-fg hover:bg-raised";

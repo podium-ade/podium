@@ -11,7 +11,7 @@ import (
 )
 
 const getSession = `-- name: GetSession :one
-select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions where id = $1
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id from sessions where id = $1
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -25,12 +25,13 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
+		&i.GithubReviewID,
 	)
 	return i, err
 }
 
 const getSessionByKey = `-- name: GetSessionByKey :one
-select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions where source_key = $1
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id from sessions where source_key = $1
 `
 
 func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Session, error) {
@@ -44,12 +45,13 @@ func (q *Queries) GetSessionByKey(ctx context.Context, sourceKey string) (Sessio
 		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
+		&i.GithubReviewID,
 	)
 	return i, err
 }
 
 const listSessions = `-- name: ListSessions :many
-select id, source_kind, source_key, profile, playbook, created_at, last_turn_at from sessions
+select id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id from sessions
 where (
   $1::bool
   or (
@@ -98,6 +100,7 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 			&i.Playbook,
 			&i.CreatedAt,
 			&i.LastTurnAt,
+			&i.GithubReviewID,
 		); err != nil {
 			return nil, err
 		}
@@ -107,6 +110,25 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 		return nil, err
 	}
 	return items, nil
+}
+
+const setGitHubReviewID = `-- name: SetGitHubReviewID :execrows
+update sessions set github_review_id = $1 where source_key = $2
+`
+
+type SetGitHubReviewIDParams struct {
+	ReviewID  int64
+	SourceKey string
+}
+
+// SetGitHubReviewID records the pull-request review this session submitted. A later turn
+// updates that review. Zero rows means the session does not exist yet.
+func (q *Queries) SetGitHubReviewID(ctx context.Context, arg SetGitHubReviewIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setGitHubReviewID, arg.ReviewID, arg.SourceKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setSessionPlaybook = `-- name: SetSessionPlaybook :exec
@@ -144,7 +166,7 @@ const upsertSession = `-- name: UpsertSession :one
 insert into sessions (id, source_kind, source_key, profile, playbook, created_at)
 values ($1, $2, $3, $4, $5, $6)
 on conflict (source_key) do update set source_kind = sessions.source_kind
-returning id, source_kind, source_key, profile, playbook, created_at, last_turn_at
+returning id, source_kind, source_key, profile, playbook, created_at, last_turn_at, github_review_id
 `
 
 type UpsertSessionParams struct {
@@ -177,6 +199,7 @@ func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) (S
 		&i.Playbook,
 		&i.CreatedAt,
 		&i.LastTurnAt,
+		&i.GithubReviewID,
 	)
 	return i, err
 }

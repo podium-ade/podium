@@ -94,6 +94,9 @@ var hostDrainGrace = 100 * time.Millisecond
 // What is left is enough to hold a conversation — the transcript is in the brief, memory and
 // the delegation tools arrive as MCP servers — and anything that needs to touch a disk
 // becomes a delegated task, which is the whole design.
+//
+// The first turn of a chat still names the conversation. It does not get `write` to do that.
+// The runtime adds title_set, which writes only chat-title.txt inside this turn's jail.
 var hostTools = []string{"webfetch", "todoread", "todowrite"}
 
 // Everything a host turn ever says about its own failures. None of them names a path, a

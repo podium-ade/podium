@@ -90,3 +90,5 @@ tailscaled.log.conf
 # run the target would fail `go build ./...` without the placeholder.
 internal/node/docker/runnerbin/*
 !internal/node/docker/runnerbin/.gitkeep
+internal/node/sandboxexec/agentbin/linux/*
+!internal/node/sandboxexec/agentbin/linux/.gitkeep

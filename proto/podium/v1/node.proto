@@ -141,6 +141,7 @@ message NodeMessage {
     Hello hello = 1;
     Heartbeat heartbeat = 2;
     TaskEvent task_event = 3;
+    SandboxReaped sandbox_reaped = 4;
   }
 }
 
@@ -155,7 +156,40 @@ message ServerMessage {
     Slots slots = 6;
     Inject inject = 7;
     Release release = 8;
+    SandboxConfig sandbox_config = 9;
+    ReapSandbox reap_sandbox = 10;
   }
+}
+
+// ReapSandbox asks a sandbox node to delete a sandbox some other node made for a task the
+// control plane gave up on. Any node of the provider may get it; a sandbox already gone
+// counts as deleted.
+message ReapSandbox {
+  string provider = 1;
+  string sandbox_id = 2;
+  string task_id = 3;
+}
+
+// SandboxReaped answers a ReapSandbox, or reports a task's sandbox the node deleted itself.
+// An empty error means the sandbox is gone.
+message SandboxReaped {
+  string provider = 1;
+  string sandbox_id = 2;
+  string error = 3;
+}
+
+// SandboxConfig hands a sandbox node its provider's settings and credential, as an admin
+// configured them. It is sent before HelloAck — the node needs the provider to adopt the
+// sandboxes it already has — and again whenever an admin changes the provider. A node whose
+// own config file carries the provider's settings ignores it.
+message SandboxConfig {
+  string provider = 1;
+  // configured is false when no admin has set the provider up, or it was deleted: the node
+  // takes no work until it is.
+  bool configured = 2;
+  map<string, string> settings = 3;
+  // SENSITIVE: never log.
+  bytes secret = 4;
 }
 
 // Hello opens the stream and carries the reconciliation input: which tasks the node still
@@ -223,6 +257,9 @@ message Heartbeat {
   // than being refused by a node with no address to give it.
   int32 free_tailnet_previews = 5;
   int32 free_lan_previews = 6;
+  // The most sandboxes the provider account allows at once, as the provider reports it.
+  // Zero is unknown, and on every node that is not a sandbox node.
+  int32 sandbox_account_limit = 7;
 }
 
 // Assign hands a task to a node under a lease. The node must emit a provisioning TaskEvent
@@ -322,6 +359,8 @@ enum TaskEventKind {
   TASK_EVENT_KIND_MESSAGE = 10;
   // Sent once, before started, by a task whose spec exposes ports: where they are.
   TASK_EVENT_KIND_PREVIEW = 11;
+  // Sent by a sandbox node once it has made the task's sandbox: which one it is.
+  TASK_EVENT_KIND_SANDBOX = 12;
 }
 
 message LogChunk {
@@ -416,7 +455,14 @@ message TaskEvent {
     ArtifactRef artifact = 11;
     Message message = 12;
     Preview preview = 13;
+    SandboxHandle sandbox = 14;
   }
+}
+
+// SandboxHandle names the sandbox a task runs in.
+message SandboxHandle {
+  string provider = 1;
+  string sandbox_id = 2;
 }
 
 // Preview is where a task's exposed ports can be reached from outside its node.

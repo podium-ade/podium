@@ -1,4 +1,5 @@
 import type { PlaybookDefinition } from "../gen/podium/agent/v1/agent_pb";
+import { BOAT_TYPES, MODAL_RUNTIMES, RUNS_ON_NODES } from "./sandboxProviders";
 import { parseGoDuration } from "./spec";
 import { YamlReader, docToYaml, parseYaml, problemText, type YamlProblem } from "./yaml";
 
@@ -23,12 +24,28 @@ export type PlaybookDraft = {
   git?: { name: string; email: string }
   slackChannels: string[]
   linear: boolean
+  github: boolean
   interactive: boolean
   skills: string[]
   mcpServers: string[]
   env: Record<string, string>
   docker: boolean
   browser: boolean
+  /** Empty follows Settings; "nodes" or a sandbox provider's name pins it. */
+  runsOn: string
+  /** Empty strings override nothing. */
+  sandbox: SandboxOverrides
+}
+
+/** SandboxOverrides is what a playbook changes about a provider's sandbox for its turns. */
+export type SandboxOverrides = {
+  boat: { type: string; template: string; org: string }
+  modal: { runtime: string; environment: string }
+}
+
+export const NO_OVERRIDES: SandboxOverrides = {
+  boat: { type: "", template: "", org: "" },
+  modal: { runtime: "", environment: "" },
 }
 
 /**
@@ -62,7 +79,13 @@ export type PlaybookDoc = {
   docker?: boolean
   browser?: boolean
   linear?: boolean
+  github?: boolean
   interactive?: boolean
+  runs_on?: string
+  sandbox?: {
+    boat?: { type?: string; template?: string; org?: string }
+    modal?: { runtime?: string; environment?: string }
+  }
 }
 
 export type ParsedPlaybook = {
@@ -94,13 +117,19 @@ const PLAYBOOK_KEYS = [
   "docker",
   "browser",
   "linear",
+  "github",
   "interactive",
+  "runs_on",
+  "sandbox",
 ]
 
 const RESOURCE_KEYS = ["cpu", "memory_mb", "pids"]
 const SECRET_KEYS = ["name", "target", "key"]
 const REPO_KEYS = ["name", "url", "default_branch"]
 const GIT_KEYS = ["name", "email"]
+const SANDBOX_KEYS = ["boat", "modal"]
+const BOAT_KEYS = ["type", "template", "org"]
+const MODAL_KEYS = ["runtime", "environment"]
 
 const TOOLS = [
   "bash",
@@ -244,8 +273,45 @@ export function parsePlaybookValue(
   if (browser !== undefined) out.browser = browser
   const linear = r.bool("linear", root.linear)
   if (linear !== undefined) out.linear = linear
+  const github = r.bool("github", root.github)
+  if (github !== undefined) out.github = github
   const interactive = r.bool("interactive", root.interactive)
   if (interactive !== undefined) out.interactive = interactive
+
+  const runsOn = r.string("runs_on", root.runs_on)
+  if (runsOn !== undefined) {
+    out.runs_on = runsOn
+    if (runsOn !== runsOn.trim() || /[=, ]/.test(runsOn)) {
+      r.bad("runs_on", `${JSON.stringify(runsOn)} is not "${RUNS_ON_NODES}" or a sandbox provider's name`)
+    }
+  }
+  const sandbox = r.object("sandbox", root.sandbox, SANDBOX_KEYS, "sandbox provider")
+  if (sandbox) {
+    out.sandbox = {}
+    const boat = r.object("sandbox.boat", sandbox.boat, BOAT_KEYS, "boat override")
+    if (boat) {
+      out.sandbox.boat = {
+        type: r.string("sandbox.boat.type", boat.type),
+        template: r.string("sandbox.boat.template", boat.template),
+        org: r.string("sandbox.boat.org", boat.org),
+      }
+      const t = out.sandbox.boat.type
+      if (t && !BOAT_TYPES.includes(t)) {
+        r.bad("sandbox.boat.type", `${JSON.stringify(t)} is not one of ${BOAT_TYPES.join(", ")}`)
+      }
+    }
+    const modal = r.object("sandbox.modal", sandbox.modal, MODAL_KEYS, "Modal override")
+    if (modal) {
+      out.sandbox.modal = {
+        runtime: r.string("sandbox.modal.runtime", modal.runtime),
+        environment: r.string("sandbox.modal.environment", modal.environment),
+      }
+      const rt = out.sandbox.modal.runtime
+      if (rt && !MODAL_RUNTIMES.includes(rt)) {
+        r.bad("sandbox.modal.runtime", `${JSON.stringify(rt)} is not one of ${MODAL_RUNTIMES.join(", ")}`)
+      }
+    }
+  }
 
   if ((out.system_prompt ?? "").trim() === "") r.bad("system_prompt", "is required")
   if (!out.allowed_tools || out.allowed_tools.length === 0) {
@@ -325,10 +391,41 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   const mcp = playbook.mcpServers ?? []
   if (mcp.length > 0) doc.mcp_servers = [...mcp]
   if (playbook.linear) doc.linear = true
+  if (playbook.github) doc.github = true
   if (playbook.interactive) doc.interactive = true
   if (playbook.docker) doc.docker = true
   if (playbook.browser) doc.browser = true
+  if (playbook.runsOn) doc.runs_on = playbook.runsOn
+  const sandbox = overridesToDoc(definitionOverrides(playbook))
+  if (sandbox) doc.sandbox = sandbox
   return doc
+}
+
+/** definitionOverrides is a GetProfile playbook's sandbox block, with "" for unset. */
+export function definitionOverrides(playbook?: PlaybookDefinition): SandboxOverrides {
+  return {
+    boat: {
+      type: playbook?.sandbox?.boat?.type ?? "",
+      template: playbook?.sandbox?.boat?.template ?? "",
+      org: playbook?.sandbox?.boat?.org ?? "",
+    },
+    modal: {
+      runtime: playbook?.sandbox?.modal?.runtime ?? "",
+      environment: playbook?.sandbox?.modal?.environment ?? "",
+    },
+  }
+}
+
+/** overridesToDoc is the sandbox block with only what is set, or undefined for nothing. */
+function overridesToDoc(o: SandboxOverrides): PlaybookDoc["sandbox"] {
+  const pick = (v: Record<string, string>) => {
+    const set = Object.fromEntries(Object.entries(v).filter(([, x]) => x.trim() !== ""))
+    return Object.keys(set).length > 0 ? set : undefined
+  }
+  const boat = pick(o.boat)
+  const modal = pick(o.modal)
+  if (!boat && !modal) return undefined
+  return { ...(boat ? { boat } : {}), ...(modal ? { modal } : {}) }
 }
 
 export function definitionToYaml(playbook: PlaybookDefinition): string {
@@ -372,9 +469,13 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
   if (draft.skills.length > 0) doc.skills = [...draft.skills]
   if (draft.mcpServers.length > 0) doc.mcp_servers = [...draft.mcpServers]
   if (draft.linear) doc.linear = true
+  if (draft.github) doc.github = true
   if (draft.interactive) doc.interactive = true
   if (draft.docker) doc.docker = true
   if (draft.browser) doc.browser = true
+  if (draft.runsOn) doc.runs_on = draft.runsOn
+  const sandbox = overridesToDoc(draft.sandbox)
+  if (sandbox) doc.sandbox = sandbox
   return doc
 }
 
@@ -422,11 +523,24 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
         : undefined,
     slackChannels: doc.slack_channels ?? [],
     linear: doc.linear ?? false,
+    github: doc.github ?? false,
     interactive: doc.interactive ?? false,
     skills: doc.skills ?? [],
     mcpServers: doc.mcp_servers ?? [],
     env: doc.env ?? {},
     docker: doc.docker ?? false,
     browser: doc.browser ?? false,
+    runsOn: (doc.runs_on ?? "").trim(),
+    sandbox: {
+      boat: {
+        type: (doc.sandbox?.boat?.type ?? "").trim(),
+        template: (doc.sandbox?.boat?.template ?? "").trim(),
+        org: (doc.sandbox?.boat?.org ?? "").trim(),
+      },
+      modal: {
+        runtime: (doc.sandbox?.modal?.runtime ?? "").trim(),
+        environment: (doc.sandbox?.modal?.environment ?? "").trim(),
+      },
+    },
   }
 }

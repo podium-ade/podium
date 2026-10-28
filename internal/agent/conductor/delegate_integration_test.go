@@ -646,6 +646,47 @@ func TestATurnMayNotDelegateToAPlaybookItWasNotOffered(t *testing.T) {
 	assert.Empty(t, delegationsOf(t, st, ev.SourceKey), "and records nothing")
 }
 
+// TestATaskThatFailsAtPlacementIsTheTurnsToReport is a chat where the triage task failed on
+// a secret nobody had set within milliseconds of being created. Delegate had already said
+// "running", so the assistant promised findings under the failure, and the held "Working on
+// this" line arrived after both.
+func TestATaskThatFailsAtPlacementIsTheTurnsToReport(t *testing.T) {
+	st := newStore(t)
+	fake := newFakePodium(t)
+	fake.queued = true
+	fake.terminal = podiumv1.TaskStatus_TASK_STATUS_FAILED
+	fake.reason = `secrets: missing secret "affiniti.github_token"`
+	src := fakesource.New(conductor.KindDev)
+	t.Cleanup(src.Close)
+
+	host := hostRuntime(t, "sk-test")
+	r := startWith(t, st, fake, src, func(o *conductor.Options) { o.Host = host })
+	host.TurnURL = turnAPI(t, r.cond).URL
+
+	ev := inbound("C1/12.1", "why is the deposit link blank")
+	ev.Env = hostEnv(map[string]string{hostFakeDelegateEnv: "dogfood|triage the blank deposit link"})
+	require.NoError(t, src.Send(context.Background(), ev))
+	waitFor(t, 60*time.Second, "the host turn to finish", func() bool {
+		return turnStatus(st, ev.SourceKey) == store.TurnSucceeded
+	})
+
+	report := delegated(t, src.Records())
+	assert.Equal(t, "failed_precondition", report.Code)
+	assert.Contains(t, report.Message, "missing a credential (`affiniti.github_token`)",
+		"the turn is told why, so it can say so instead of promising results")
+	dlgs := delegationsOf(t, st, ev.SourceKey)
+	require.Len(t, dlgs, 1)
+	assert.Equal(t, store.TurnFailed, dlgs[0].Status)
+	for _, rec := range src.Records() {
+		if rec.Type == conductor.OutFinal {
+			continue // the turn's own answer, which quotes the reason
+		}
+		assert.NotContains(t, rec.Text, "Working on this", "nothing is working on it")
+		assert.NotContains(t, rec.Text, "This bot is missing a credential",
+			"the turn says it, not a second post beside it")
+	}
+}
+
 func TestATokenIsRefusedOnceItsTurnIsOver(t *testing.T) {
 	st := newStore(t)
 	fake := newFakePodium(t)
@@ -817,4 +858,16 @@ func delegationsOf(t *testing.T, st *store.Store, sourceKey string) []store.Dele
 // testBackend is what a turn ran on. These tests are about delegation and read none of it.
 func testBackend() store.Backend {
 	return store.Backend{Agent: "claude", Model: "claude-opus-5", Provider: "anthropic"}
+}
+
+// A playbook that does not say where it runs takes the saved default, and one that does
+// keeps its own.
+func TestATurnTakesTheSavedRunsOnUnlessItsPlaybookSays(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	assert.Empty(t, conductor.PlacedForTest(ctx, st, profiles.Playbook{}).RunsOn, "nothing saved is the fleet's own nodes")
+
+	require.NoError(t, st.PutSetting(ctx, profiles.RunsOnKey, profiles.RunsOn{RunsOn: "modal"}))
+	assert.Equal(t, "modal", conductor.PlacedForTest(ctx, st, profiles.Playbook{}).RunsOn)
+	assert.Equal(t, profiles.RunsOnNodes, conductor.PlacedForTest(ctx, st, profiles.Playbook{RunsOn: profiles.RunsOnNodes}).RunsOn)
 }

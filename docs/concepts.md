@@ -138,8 +138,9 @@ This is the part that saves you an afternoon:
   UI creates a *new* task from the same spec; it is not a retry of the old one.
 - **Not a build cache, unless the spec says so.** A one-shot task still gets a fresh
   `/workspace` that is deleted at the end. A task with `workspace_session` restores the
-  one snapshot stored for that conversation and replaces it after a clean exit. The volume
-  on the node is still deleted. Artifacts are a separate copy.
+  one snapshot stored for that conversation and replaces it when the task exits, including
+  a cancel or an out-of-memory kill. The volume on the node is still deleted. Artifacts
+  are a separate copy.
 - **Not multi-machine.** A task and its sidecars are one pod on one node. There is no way to
   spread one task across two workers.
 - **Not interactive.** There is no exec, no shell and no attach into a running task. You get

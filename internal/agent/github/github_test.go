@@ -334,6 +334,15 @@ func TestIdentity(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "podium-agent[bot]", got.Name)
 		assert.Equal(t, "987654+podium-agent[bot]@users.noreply.github.com", got.Email)
+
+		// GET /app needs the App JWT. GET /users rejects that same JWT with 401, so the
+		// bot lookup has to go out with no credential.
+		calls := f.seen()
+		require.Len(t, calls, 2)
+		assert.Equal(t, "/app", calls[0].Path)
+		assert.Contains(t, calls[0].Auth, "Bearer ")
+		assert.Equal(t, "/users/podium-agent[bot]", calls[1].Path)
+		assert.Empty(t, calls[1].Auth)
 	})
 
 	t.Run("asks once and remembers: neither a slug nor a bot id changes", func(t *testing.T) {

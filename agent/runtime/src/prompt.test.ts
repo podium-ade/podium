@@ -146,18 +146,19 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt(slackFirst)).toContain("chat-title.txt");
   });
 
-  it("asks a host turn for its title where the conductor reads it, not in a container path", () => {
+  it("asks a host turn to name the chat with a tool, because it has no file to write", () => {
     const first = {
       ...golden(),
       runs_on: "host" as const,
+      playbook: { ...golden().playbook, allowed_tools: ["webfetch", "todoread", "todowrite"] },
       source: { kind: "chat" as const, ref: "chat_1" },
       transcript: [{ role: "user" as const, author: "alice", ts: "2026-09-03T10:00:00Z", text: "hi" }],
     };
     const prompt = buildSystemPrompt(first);
-    expect(prompt).toContain(`${process.cwd()}/.podium/artifacts/chat-title.txt`);
-    expect(prompt).not.toContain("/workspace/.podium/artifacts/chat-title.txt");
-    // A container turn keeps the container path.
-    expect(buildSystemPrompt({ ...first, runs_on: undefined })).toContain(
+    expect(prompt).toContain("title_set");
+    expect(prompt).not.toContain("chat-title.txt");
+    // A container turn that has write still writes the file the node collects.
+    expect(buildSystemPrompt({ ...first, runs_on: undefined, playbook: golden().playbook })).toContain(
       "/workspace/.podium/artifacts/chat-title.txt",
     );
   });

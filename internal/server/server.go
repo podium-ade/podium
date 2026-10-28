@@ -112,6 +112,10 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Server, error) 
 	})
 	logSvc.SetSlots(nodeSvc.Registry())
 	secretSvc := secrets.New(st, masterKey, logger)
+	nodeSvc.SetSandboxResolver(func(ctx context.Context, nodeID, provider string) (map[string]string, []byte, bool, error) {
+		cfg, found, err := secretSvc.ResolveSandboxProvider(ctx, nodeID, provider)
+		return cfg.Settings, cfg.Secret, found, err
+	})
 	artifactSvc, err := newArtifacts(ctx, cfg, st, logger)
 	if err != nil {
 		st.Close()
@@ -353,6 +357,8 @@ func (s *Server) mux() http.Handler {
 		api.NewSecretService(s.secrets, s.store, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewRegistryServiceHandler(
 		api.NewRegistryService(s.secrets, s.logger), opts...))
+	rpc.Handle(podiumv1connect.NewSandboxProviderServiceHandler(
+		api.NewSandboxProviderService(s.secrets, s.nodes, s.logger), opts...))
 	rpc.Handle(podiumv1connect.NewArtifactServiceHandler(
 		api.NewArtifactService(s.artifacts, s.logger), opts...))
 
@@ -395,6 +401,7 @@ func (s *Server) mux() http.Handler {
 		podiumv1connect.UserServiceName,
 		podiumv1connect.SecretServiceName,
 		podiumv1connect.RegistryServiceName,
+		podiumv1connect.SandboxProviderServiceName,
 		podiumv1connect.ArtifactServiceName,
 	} {
 		root.Handle("/"+service+"/", authenticated)
