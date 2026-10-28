@@ -208,7 +208,7 @@ function GitHubDialog({
         clientSecret,
       }),
     onSuccess: async (res) => {
-      toast(res.github?.restartRequired ? "GitHub saved. Restart the conductor to use it." : "GitHub saved.", "ok");
+      toast(res.github?.restartRequired ? "GitHub saved, but the conductor could not switch to it. Restart the conductor to use it." : "GitHub saved and in use.", res.github?.restartRequired ? "err" : "ok");
       onClose();
       await reload();
     },
@@ -216,8 +216,8 @@ function GitHubDialog({
   });
   const clear = useMutation({
     mutationFn: () => agent.clearGitHubConnection({}),
-    onSuccess: async () => {
-      toast("Removed the saved GitHub App. It is off the next time the conductor starts.", "ok");
+    onSuccess: async (res) => {
+      toast(res.github?.restartRequired ? "Removed the saved GitHub App. Restart the conductor to turn it off." : "Removed the saved GitHub App. It is off.", res.github?.restartRequired ? "err" : "ok");
       onClose();
       await reload();
     },
@@ -435,7 +435,7 @@ function SlackDialog({
   const save = useMutation({
     mutationFn: () => agent.setSlackConnection({ appToken, botToken }),
     onSuccess: async (res) => {
-      toast(res.slack?.restartRequired ? "Slack saved. Restart the conductor to use it." : "Slack saved.", "ok");
+      toast(res.slack?.restartRequired ? "Slack saved, but the conductor could not switch to it. Restart the conductor to use it." : "Slack saved and in use.", res.slack?.restartRequired ? "err" : "ok");
       onClose();
       await reload();
     },
@@ -443,8 +443,8 @@ function SlackDialog({
   });
   const clear = useMutation({
     mutationFn: () => agent.clearSlackConnection({}),
-    onSuccess: async () => {
-      toast("Removed the saved Slack app. The environment applies on the next start.", "ok");
+    onSuccess: async (res) => {
+      toast(res.slack?.restartRequired ? "Removed the saved Slack app. Restart the conductor to apply it." : "Removed the saved Slack app.", res.slack?.restartRequired ? "err" : "ok");
       onClose();
       await reload();
     },
