@@ -80,9 +80,9 @@ is affected.
 |---|---|---|
 | `PODIUM_MEMORY_LLM_API_KEY` | the agents' shared memory | the `hindsight` container exits at boot and keeps restarting. It is the one container a bare `up` leaves broken. Any of [~25 providers](https://hindsight.vectorize.io/developer/models), chosen with `PODIUM_MEMORY_LLM_PROVIDER` |
 | `PODIUM_NODE_ENROLL_TOKEN` | a worker's **first** run | the node cannot enrol. Single-use, one hour, and only a running control plane can mint one: `docker compose run --rm cli node enroll-token --label demo`. After enrolling, `identity.json` is the identity and this is never read again |
-| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other. Settings → Connections stores the same pair and replaces these on the next start |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | the Slack source | no Slack bot. **Both or neither** — one alone is a startup error naming the other. Access → Connections stores the same pair and replaces these on the next start |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source | no Linear source. A key that is set and does not work stops the conductor at boot |
-| Settings → Connections, GitHub | clone tokens from the App, and PR reviews when the webhook pair is saved with it | playbooks keep using `podium.agent.github_token`. Add the App's client id and secret so people can connect their own accounts ([agent.md](../docs/agent.md#the-askers-own-github-account)). **Id and key together**. The `PODIUM_AGENT_GITHUB_*` variables are ignored. Funnel points at the saved listen address only |
+| Access → Connections, GitHub | clone tokens from the App, and PR reviews when the webhook pair is saved with it | playbooks keep using `podium.agent.github_token`. Add the App's client id and secret so people can connect their own accounts ([agent.md](../docs/agent.md#the-askers-own-github-account)). **Id and key together**. The `PODIUM_AGENT_GITHUB_*` variables are ignored. Funnel points at the saved listen address only |
 | `TS_AUTHKEY` + `PODIUM_TAILNET` | the tailnet transport | `docker-compose.tailnet.yml` refuses to interpolate. Nobody can default these, and failing closed is correct. `PODIUM_NODE_TS_AUTHKEY` is the worker's equivalent |
 | `PODIUM_AGENT_UI_URL` | correct links in Slack and Linear | links point at `http://server:8080`, which is a name only the compose network can resolve. Cosmetic, and immediately visible |
 
@@ -195,9 +195,9 @@ Then, each switching on one feature and each optional:
 
 | | |
 |---|---|
-| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other. Settings → Connections replaces these on the next start |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` + `PODIUM_AGENT_SLACK_BOT_TOKEN` | Socket Mode. **Both or neither** — one alone is a startup error naming the other. Access → Connections replaces these on the next start |
 | `PODIUM_AGENT_LINEAR_API_KEY` | the Linear source |
-| Settings → Connections, GitHub | the App id, the PEM, and the webhook pair when reviews are on. The `PODIUM_AGENT_GITHUB_*` variables are ignored. Funnel points at the saved listen address only |
+| Access → Connections, GitHub | the App id, the PEM, and the webhook pair when reviews are on. The `PODIUM_AGENT_GITHUB_*` variables are ignored. Funnel points at the saved listen address only |
 | `PODIUM_AGENT_MEMORY_URL` + `PODIUM_AGENT_MEMORY_API_KEY` | the agents' shared memory. The key is required once the URL is set. `PODIUM_AGENT_MEMORY_TASK_URL` is the same service as a **task container** must address it, which is not loopback, and `PODIUM_AGENT_MEMORY_BANK` names the bank |
 | `PODIUM_AGENT_SKILLS_DIR` | file skills, one directory per skill. Compose default `/etc/podium/skills`. Unset on host binaries until `run-host.sh` creates `.podium/skills`. A playbook naming a skill that is not in this directory fails every turn |
 | `PODIUM_AGENT_PROFILE_HOST` | compose only: host path (or volume name) bind-mounted at `PODIUM_AGENT_PROFILE_DIR`. Unset is the named volume `agent-profile` |

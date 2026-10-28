@@ -182,6 +182,28 @@ describe("Header", () => {
     expect(screen.getByRole("button", { name: "Compute" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  // Search opens every group with a hit. Folding one of those is for that search only: the
+  // fold the operator saved before searching is what comes back when the search clears.
+  it("keeps the remembered folds when a group is toggled during a search", async () => {
+    const first = mount({ ...base, agentEnabled: true });
+    await userEvent.click(screen.getByRole("button", { name: "Compute" }));
+    const search = screen.getByRole("searchbox", { name: "Search pages" });
+    await userEvent.type(search, "nodes");
+    const compute = screen.getByRole("button", { name: "Compute" });
+    expect(compute).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.click(compute);
+    expect(compute).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: "Nodes" })).toBeNull();
+
+    await userEvent.clear(search);
+    expect(screen.getByRole("button", { name: "Compute" })).toHaveAttribute("aria-expanded", "false");
+    first.unmount();
+
+    mount({ ...base, agentEnabled: true });
+    expect(screen.getByRole("button", { name: "Compute" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("goes to the first hit on Enter and clears the search", async () => {
     mount({ ...base, agentEnabled: true });
     const search = screen.getByRole("searchbox", { name: "Search pages" });
