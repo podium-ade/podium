@@ -10,6 +10,7 @@ const setSlackConnection = vi.fn();
 const clearSlackConnection = vi.fn();
 const setGitHubConnection = vi.fn();
 const clearGitHubConnection = vi.fn();
+const setGitHubWebhookFilters = vi.fn();
 
 vi.mock("../../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../../lib/client")>("../../lib/client");
@@ -21,6 +22,7 @@ vi.mock("../../lib/client", async () => {
       clearSlackConnection: (...a: unknown[]) => clearSlackConnection(...a),
       setGitHubConnection: (...a: unknown[]) => setGitHubConnection(...a),
       clearGitHubConnection: (...a: unknown[]) => clearGitHubConnection(...a),
+      setGitHubWebhookFilters: (...a: unknown[]) => setGitHubWebhookFilters(...a),
     },
   };
 });
@@ -58,6 +60,7 @@ describe("ConnectionsPanel", () => {
     clearSlackConnection.mockReset();
     setGitHubConnection.mockReset();
     clearGitHubConnection.mockReset();
+    setGitHubWebhookFilters.mockReset();
     getConnections.mockResolvedValue(empty);
   });
 
@@ -110,5 +113,49 @@ describe("ConnectionsPanel", () => {
     mount();
     expect(await screen.findByText(/still using the Linear key/)).toBeInTheDocument();
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
+  });
+
+  it("saves the triggers on their own", async () => {
+    getConnections.mockResolvedValue({
+      ...empty,
+      github: {
+        ...empty.github,
+        filters: {
+          allowedActors: ["alice"],
+          ignoredActors: [],
+          ignoreBots: false,
+          triggerPhrases: [],
+          replyMode: "bot_threads",
+          autoReview: true,
+        },
+      },
+    });
+    setGitHubWebhookFilters.mockResolvedValue({ github: empty.github });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit GitHub" }));
+    expect(screen.getByText("1 allowed, @mention.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Triggers/ }));
+
+    expect(screen.getByLabelText("Allowed people")).toHaveValue("alice");
+    expect(screen.getByRole("radio", { name: /Threads the App started/ })).toBeChecked();
+
+    await userEvent.type(screen.getByLabelText("Allowed people"), "\nbob, carol");
+    await userEvent.type(screen.getByLabelText("Trigger phrases"), "/review{enter}take a look");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Ignore bot accounts/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /Never/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Review new pull requests/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Save triggers" }));
+
+    expect(setGitHubWebhookFilters).toHaveBeenCalledWith({
+      filters: {
+        allowedActors: ["alice", "bob", "carol"],
+        ignoredActors: [],
+        ignoreBots: true,
+        triggerPhrases: ["/review", "take a look"],
+        replyMode: "always",
+        autoReview: false,
+      },
+    });
+    expect(setGitHubConnection).not.toHaveBeenCalled();
   });
 });

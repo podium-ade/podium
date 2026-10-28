@@ -1720,13 +1720,42 @@ prefix in the comment does not change the playbook.
 | `@app` on a PR (conversation comment, review comment, or review body) | start, or continue if a session exists |
 | `pull_request` / `opened` | start when the pull request is not a draft. A draft's open is dropped |
 | `pull_request` / `ready_for_review` | start, or continue if a session exists. This is a draft marked ready. `review_requested`, `synchronize`, and other pull request actions are dropped |
-| a reply in an inline review thread on a PR that already has a session | continue |
+| a trigger phrase in a top-level comment or review body | as `@app` |
+| a reply in an inline review thread the App started | start or continue, no mention needed (the default reply mode) |
+| a reply in an inline review thread a person started | dropped unless it mentions the App or has a trigger phrase |
 | `lgtm` / other conversation-tab comments without a mention | dropped |
+| anything from a login the triggers do not allow | dropped, `@app` or not |
 | a Slack `@Podium` that names exactly one PR URL | start or continue that PR's session; the Slack thread is bound to it |
 | a second mention in a bound Slack thread, URL or not | continue |
 | two PR URLs in one Slack mention, or a different PR in a bound thread | refused in Slack; not a second session |
 
 Unrelated webhook deliveries still return 200 so GitHub does not retry.
+
+### Triggers
+
+GitHub cannot filter a webhook by who sent it, so the conductor does. **Triggers**, in the GitHub
+dialog under Access → Connections, are read on every delivery and apply to the next one without a
+restart. They live in the settings row `connection.github.filters`.
+
+- **Allowed people**: the only logins that may start or continue a review, the automatic review
+  on open included. Empty is anyone.
+- **Ignored people** and **Ignore bot accounts**: never trigger, even with a mention. An
+  ignored login wins over an allowed one.
+- **Trigger phrases**: plain text that starts a turn from a top-level comment or a review body,
+  next to the `@app` mention, which always works. Matched as whole words, ignoring case and
+  extra whitespace. The phrase is taken out of the text the turn sees, as the mention is.
+- **Replies without a mention**: a conversation-tab comment has no threads on GitHub, so it always
+  needs the mention or a phrase. An inline review reply follows the mode:
+  `bot_threads` (the default) lets a reply through when the App wrote the thread's first
+  comment, `any_thread` lets any reply through once the pull request has a session (the old
+  rule), and `always` asks for the trigger every time. Who started a thread is read once from
+  GitHub and remembered. A thread that cannot be read needs the trigger.
+- **Review new pull requests**: off drops `opened` and `ready_for_review`. A mention still starts
+  a review.
+
+The log line for a dropped delivery names why: `actor not allowed`, `ignored actor`,
+`bot sender`, `auto review off`, `not mentioned`. If the filters cannot be read, the delivery is
+dropped with `filters unavailable` rather than let an allowlist lapse.
 
 The Chat tab shows a **mirror** of the review (origin `github`). Reply on GitHub or in the
 bound Slack thread.
