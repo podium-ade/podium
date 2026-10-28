@@ -643,7 +643,7 @@ func TestStatusCommentOmitsTheSummaryWhenThePullCannotBeRead(t *testing.T) {
 }
 
 func TestStatusCommentUsesSingularCounts(t *testing.T) {
-	body := statusComment(statusInProgress, "acme", "repo", pullInfo{
+	body := statusComment("Podium", statusInProgress, "acme", "repo", pullInfo{
 		OK: true, Title: "One file", Head: "fix", Base: "dev", SHA: "abcdef0",
 		Files: 1, Additions: 1331, Deletions: 0, Commits: 1,
 	})
@@ -658,18 +658,18 @@ func TestStatusCommentUsesSingularCounts(t *testing.T) {
 	assert.Contains(t, body, "[View the diff](https://github.com/acme/repo/compare/dev...fix)")
 	assert.NotContains(t, body, "1 files")
 
-	approved := statusComment(statusApproved, "acme", "repo", pullInfo{OK: true, Title: "One file", Head: "fix", Base: "dev"})
+	approved := statusComment("Podium", statusApproved, "acme", "repo", pullInfo{OK: true, Title: "One file", Head: "fix", Base: "dev"})
 	assert.Contains(t, approved, "> [!NOTE]")
 	assert.Contains(t, approved, "**"+statusApproved+"**")
 	assert.Contains(t, approved, "Approved. The full review is below.")
 	assert.NotContains(t, approved, "[!TIP]")
 
-	changes := statusComment(statusChanges, "", "", pullInfo{OK: true, Head: "fix/name", Base: "dev"})
+	changes := statusComment("Podium", statusChanges, "", "", pullInfo{OK: true, Head: "fix/name", Base: "dev"})
 	assert.Contains(t, changes, "> [!WARNING]")
 	assert.Contains(t, changes, "`fix/name` → `dev`")
 	assert.NotContains(t, changes, "](")
 
-	none := statusComment(statusDidNotFinish, "acme", "repo", pullInfo{})
+	none := statusComment("Podium", statusDidNotFinish, "acme", "repo", pullInfo{})
 	assert.Contains(t, none, "> [!CAUTION]")
 	assert.Contains(t, none, "**"+statusDidNotFinish+"**")
 	assert.Contains(t, none, "This review stopped before it was posted.")

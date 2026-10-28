@@ -127,6 +127,7 @@ type Source struct {
 	now           func() time.Time
 
 	slug      string
+	name      string
 	mentionRE *regexp.Regexp
 
 	mu   sync.Mutex
@@ -264,6 +265,10 @@ func (s *Source) identify(ctx context.Context) error {
 		return fmt.Errorf("github: GET /app failed (is the app id and private key right?): %w", err)
 	}
 	s.slug = app.Slug
+	s.name = app.Name
+	if s.name == "" {
+		s.name = app.Slug
+	}
 	s.mentionRE = compileMention(app.Slug)
 	return nil
 }
@@ -642,7 +647,7 @@ func (s *Source) showStatus(ctx context.Context, p Parsed, title string, create 
 		}
 	}
 	info := s.pullInfo(ctx, p)
-	body := statusComment(title, p.Owner, p.Repo, info)
+	body := statusComment(s.name, title, p.Owner, p.Repo, info)
 	if id == 0 {
 		install, err := s.installation(ctx, p)
 		if err != nil {
@@ -744,9 +749,10 @@ func (s *Source) cachedPull(key string) pullInfo {
 
 // statusComment is the one conversation comment. The title and the lead change
 // when the review finishes. The pull-request summary under them is rewritten
-// from the same fields, so the card stays one comment.
-func statusComment(title, owner, repo string, info pullInfo) string {
-	alert, lead := statusLead(title)
+// from the same fields, so the card stays one comment. name is the App's display
+// name from GET /app: the comment is posted as that App, so it speaks as it.
+func statusComment(name, title, owner, repo string, info pullInfo) string {
+	alert, lead := statusLead(name, title)
 	var b strings.Builder
 	b.WriteString(statusMarker)
 	b.WriteString("\n\n> [!")
@@ -780,10 +786,10 @@ func statusComment(title, owner, repo string, info pullInfo) string {
 // NOTE is blue and labeled Note, WARNING is amber and labeled Warning, CAUTION
 // is red and labeled Caution. The green alert is labeled Tip, so an approval
 // stays a Note. The review under the comment is what says Approved.
-func statusLead(title string) (alert, lead string) {
+func statusLead(name, title string) (alert, lead string) {
 	switch title {
 	case statusInProgress:
-		return "NOTE", "Podium is reading this pull request. The review will be posted below."
+		return "NOTE", name + " is reading this pull request. The review will be posted below."
 	case statusApproved:
 		return "NOTE", "Approved. The full review is below."
 	case statusChanges:
