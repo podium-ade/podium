@@ -462,8 +462,8 @@ function splitList(text: string): string[] {
 }
 
 /**
- * TriggersForm saves on its own: the filters apply to the next webhook without a
- * restart, unlike the App above.
+ * TriggersForm saves on its own: the filters are their own row, read on every webhook,
+ * and saving them does not touch the App's credentials.
  */
 function TriggersForm({ filters }: { filters?: GitHubWebhookFilters }) {
   const toast = useToast();
