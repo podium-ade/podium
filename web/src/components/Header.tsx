@@ -189,7 +189,14 @@ export function Header() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { navOpen, setNavOpen, collapsed, toggleCollapsed } = useShell();
-  const [query, setQuery] = useState("");
+  const [query, setQueryValue] = useState("");
+  // Groups folded by hand during the current search. A search opens every group with a hit;
+  // folding one of those is for this search only, so the remembered folds stay as they were.
+  const [searchFolded, setSearchFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const setQuery = (value: string) => {
+    setQueryValue(value);
+    setSearchFolded(new Set());
+  };
   const [groupsOpen, setGroupsOpen] = useState(readGroups);
   const inputRef = useRef<HTMLInputElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -215,6 +222,12 @@ export function Header() {
   const firstHit = groups[0]?.pages[0];
 
   const toggleGroup = (id: string) => {
+    if (q) {
+      const next = new Set(searchFolded);
+      if (!next.delete(id)) next.add(id);
+      setSearchFolded(next);
+      return;
+    }
     const next = { ...groupsOpen, [id]: groupsOpen[id] === false };
     setGroupsOpen(next);
     writeGroups(next);
@@ -374,7 +387,7 @@ export function Header() {
             <Folder
               key={group.id}
               group={group}
-              open={q ? true : groupsOpen[group.id] !== false}
+              open={q ? !searchFolded.has(group.id) : groupsOpen[group.id] !== false}
               onToggle={() => toggleGroup(group.id)}
               collapsed={collapsed}
             >
