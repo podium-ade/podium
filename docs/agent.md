@@ -320,7 +320,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
-| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these on the next start |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these as soon as it is saved |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
@@ -354,8 +354,10 @@ Both Slack tokens or neither: one alone is a startup error naming the other. Wit
 and no Linear key, no source is started and the conductor listens to nothing — it says so at
 startup, which is a fine shape to run it in while you set a provider credential in the UI.
 Slack can be saved under Access → Connections instead of its variables. A saved row replaces
-the environment for Slack on the next start. The GitHub App is only that screen. Linear is
-still environment only.
+the environment for Slack. The GitHub App is only that screen. A save, or a removal, takes
+effect at once: the conductor tries the new tokens or App against Slack or GitHub, refuses
+one they do not accept, and then swaps its Slack source, its review source and the App turns
+mint from while turns already running carry on. Linear is still environment only.
 
 ### Its own database
 
