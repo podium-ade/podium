@@ -679,6 +679,8 @@ func TestADockerPlaybookGetsADaemonBesideIt(t *testing.T) {
 	assert.True(t, dind.GetShareWorkspace(),
 		"a bind source under /workspace must resolve inside the daemon too")
 	assert.Equal(t, "", dind.GetEnv()["DOCKER_TLS_CERTDIR"], "empty is what turns TLS off")
+	assert.Equal(t, []string{"--tls=false"}, dind.GetCommand(),
+		"without it dockerd sleeps 15s before it listens on plain TCP")
 	assert.Equal(t, int32(2375), dind.GetReadiness().GetTcpPort(),
 		"the turn must not start before the daemon listens")
 	assert.Contains(t, dind.GetImage(), "@sha256:", "the daemon is pinned by digest")

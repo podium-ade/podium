@@ -22,15 +22,19 @@ func (s *AgentService) GetConnections(
 	if err != nil {
 		return nil, err
 	}
+	filters, err := connections.LoadGitHubFilters(ctx, s.store)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return connect.NewResponse(&agentv1.GetConnectionsResponse{
-		Slack:  slackView(s.env, s.running, slack),
-		Github: githubView(s.running, gh),
+		Slack:  slackView(s.env, s.runningConfig(), slack),
+		Github: githubView(s.runningConfig(), gh, filters),
 		Linear: &agentv1.LinearConnection{Configured: s.env.LinearEnabled()},
 	}), nil
 }
 
-// SetSlackConnection validates the pair and stores it. The running process keeps the
-// sockets it already opened; restart_required says so.
+// SetSlackConnection validates the pair, tries it against Slack, stores it and switches the
+// running conductor to it. restart_required is left true only when that switch failed.
 func (s *AgentService) SetSlackConnection(
 	ctx context.Context, req *connect.Request[agentv1.SetSlackConnectionRequest],
 ) (*connect.Response[agentv1.SetSlackConnectionResponse], error) {
@@ -48,9 +52,12 @@ func (s *AgentService) SetSlackConnection(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	next := connections.Overlay(s.running, &row, nil)
+	next := connections.Overlay(s.runningConfig(), &row, nil)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.checkConnections(ctx, next); err != nil {
+		return nil, err
 	}
 	row.SetBy = Login(ctx)
 	row.SetAt = time.Now().UTC()
@@ -59,12 +66,14 @@ func (s *AgentService) SetSlackConnection(
 	if err := connections.SaveSlack(ctx, s.store, s.secrets, row, existing); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	s.applyConnections(ctx)
 	return connect.NewResponse(&agentv1.SetSlackConnectionResponse{
-		Slack: slackView(s.env, s.running, &row),
+		Slack: slackView(s.env, s.runningConfig(), &row),
 	}), nil
 }
 
-// ClearSlackConnection drops the saved pair. The environment applies on the next start.
+// ClearSlackConnection drops the saved pair and falls back to the environment's, or to no
+// Slack at all.
 func (s *AgentService) ClearSlackConnection(
 	ctx context.Context, _ *connect.Request[agentv1.ClearSlackConnectionRequest],
 ) (*connect.Response[agentv1.ClearSlackConnectionResponse], error) {
@@ -73,16 +82,25 @@ func (s *AgentService) ClearSlackConnection(
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	// The environment's pair is what Slack falls back to, so it is tried like a paste.
+	next := connections.Overlay(s.runningConfig(), &connections.Slack{
+		AppToken: s.env.SlackAppToken, BotToken: s.env.SlackBotToken,
+	}, nil)
+	if err := s.checkConnections(ctx, next); err != nil {
+		return nil, err
+	}
 	if err := connections.ClearSlack(ctx, s.store, s.secrets); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "cleared the saved slack connection", "login", Login(ctx))
+	s.applyConnections(ctx)
 	return connect.NewResponse(&agentv1.ClearSlackConnectionResponse{
-		Slack: slackView(s.env, s.running, nil),
+		Slack: slackView(s.env, s.runningConfig(), nil),
 	}), nil
 }
 
-// SetGitHubConnection validates the App the way start-up does, then stores it.
+// SetGitHubConnection validates the App the way start-up does, tries it against GitHub,
+// stores it and switches the running conductor to it.
 func (s *AgentService) SetGitHubConnection(
 	ctx context.Context, req *connect.Request[agentv1.SetGitHubConnectionRequest],
 ) (*connect.Response[agentv1.SetGitHubConnectionResponse], error) {
@@ -104,9 +122,12 @@ func (s *AgentService) SetGitHubConnection(
 	}
 	// Validate against the process's listen address and task URL. A saved App does not
 	// get to change how a task reaches this conductor.
-	next := connections.Overlay(s.running, nil, &row)
+	next := connections.Overlay(s.runningConfig(), nil, &row)
 	if err := next.ValidateConnectionFields(); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.checkConnections(ctx, next); err != nil {
+		return nil, err
 	}
 	row.SetBy = Login(ctx)
 	row.SetAt = time.Now().UTC()
@@ -116,12 +137,17 @@ func (s *AgentService) SetGitHubConnection(
 	if err := connections.SaveGitHub(ctx, s.store, s.secrets, row, existing); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	s.applyConnections(ctx)
+	filters, err := connections.LoadGitHubFilters(ctx, s.store)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return connect.NewResponse(&agentv1.SetGitHubConnectionResponse{
-		Github: githubView(s.running, &row),
+		Github: githubView(s.runningConfig(), &row, filters),
 	}), nil
 }
 
-// ClearGitHubConnection drops the saved App. The App is off on the next start.
+// ClearGitHubConnection drops the saved App and turns it off in the running conductor.
 func (s *AgentService) ClearGitHubConnection(
 	ctx context.Context, _ *connect.Request[agentv1.ClearGitHubConnectionRequest],
 ) (*connect.Response[agentv1.ClearGitHubConnectionResponse], error) {
@@ -134,9 +160,80 @@ func (s *AgentService) ClearGitHubConnection(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.logger.InfoContext(ctx, "cleared the saved github connection", "login", Login(ctx))
+	s.applyConnections(ctx)
+	filters, err := connections.LoadGitHubFilters(ctx, s.store)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return connect.NewResponse(&agentv1.ClearGitHubConnectionResponse{
-		Github: githubView(s.running, nil),
+		Github: githubView(s.runningConfig(), nil, filters),
 	}), nil
+}
+
+// SetGitHubWebhookFilters stores the webhook filters. The source reads them on every
+// delivery, so they apply without a restart.
+func (s *AgentService) SetGitHubWebhookFilters(
+	ctx context.Context, req *connect.Request[agentv1.SetGitHubWebhookFiltersRequest],
+) (*connect.Response[agentv1.SetGitHubWebhookFiltersResponse], error) {
+	if err := s.requireConnectionStore(); err != nil {
+		return nil, err
+	}
+	in := req.Msg.GetFilters()
+	row, err := connections.NormalizeGitHubFilters(connections.GitHubFilters{
+		AllowedActors:  in.GetAllowedActors(),
+		IgnoredActors:  in.GetIgnoredActors(),
+		IgnoreBots:     in.GetIgnoreBots(),
+		TriggerPhrases: in.GetTriggerPhrases(),
+		ReplyMode:      in.GetReplyMode(),
+		NoAutoReview:   !in.GetAutoReview(),
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	gh, err := connections.LoadGitHub(ctx, s.store, s.secrets)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	row.SetBy = Login(ctx)
+	row.SetAt = time.Now().UTC()
+	s.logger.InfoContext(ctx, "saving the github webhook filters", "login", row.SetBy,
+		"allowed_actors", len(row.AllowedActors), "ignored_actors", len(row.IgnoredActors),
+		"ignore_bots", row.IgnoreBots, "trigger_phrases", len(row.TriggerPhrases),
+		"reply_mode", row.ReplyMode, "auto_review", !row.NoAutoReview)
+	if err := connections.SaveGitHubFilters(ctx, s.store, row); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&agentv1.SetGitHubWebhookFiltersResponse{
+		Github: githubView(s.runningConfig(), gh, row),
+	}), nil
+}
+
+// checkConnections refuses a Slack pair or GitHub App that Slack or GitHub does not accept,
+// before it is stored. Without it a bad token would be saved, applied and then fail to
+// connect, and the next start would fail the same way.
+func (s *AgentService) checkConnections(ctx context.Context, next config.Config) error {
+	if s.connections == nil {
+		return nil
+	}
+	if err := s.connections.Check(ctx, next); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return nil
+}
+
+// applyConnections switches the running conductor to what was just saved. A failure is
+// not the save's: the connection is stored, and restart_required stays true so the
+// operator knows the running conductor is still on the previous one.
+func (s *AgentService) applyConnections(ctx context.Context) {
+	if s.connections == nil {
+		return
+	}
+	if err := s.connections.Apply(ctx); err != nil {
+		s.logger.ErrorContext(ctx, "the saved connection is stored, but the running conductor "+
+			"could not switch to it; restart the conductor to use it", "error", err)
+	}
 }
 
 func (s *AgentService) requireConnectionStore() error {
@@ -178,7 +275,7 @@ func slackView(env, running config.Config, saved *connections.Slack) *agentv1.Sl
 	return out
 }
 
-func githubView(running config.Config, saved *connections.GitHub) *agentv1.GitHubConnection {
+func githubView(running config.Config, saved *connections.GitHub, filters connections.GitHubFilters) *agentv1.GitHubConnection {
 	// The GitHub App is not read from the environment. An empty saved row is off,
 	// whatever PODIUM_AGENT_GITHUB_* still says.
 	out := &agentv1.GitHubConnection{}
@@ -206,6 +303,27 @@ func githubView(running config.Config, saved *connections.GitHub) *agentv1.GitHu
 		out.ClientSecretSet = saved.ClientSecret != ""
 	}
 	out.RestartRequired = connections.GitHubDiffers(config.Config{}, running, saved)
+	out.Filters = filtersView(filters)
+	return out
+}
+
+func filtersView(f connections.GitHubFilters) *agentv1.GitHubWebhookFilters {
+	mode := f.ReplyMode
+	if mode == "" {
+		mode = connections.ReplyBotThreads
+	}
+	out := &agentv1.GitHubWebhookFilters{
+		AllowedActors:  f.AllowedActors,
+		IgnoredActors:  f.IgnoredActors,
+		IgnoreBots:     f.IgnoreBots,
+		TriggerPhrases: f.TriggerPhrases,
+		ReplyMode:      mode,
+		AutoReview:     !f.NoAutoReview,
+		SetBy:          f.SetBy,
+	}
+	if !f.SetAt.IsZero() {
+		out.SetAt = timestamppb.New(f.SetAt)
+	}
 	return out
 }
 

@@ -103,15 +103,38 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "own delivery")
 		return
 	}
+	f, err := s.currentFilters(ctx)
+	if err != nil {
+		// Without the filters an allowlist could not be honoured, so nothing starts.
+		s.logger.WarnContext(ctx, "github: reading the webhook filters failed", "error", err)
+		s.logWebhook(ctx, slog.LevelWarn, event, delivery, c, "ignored", "filters unavailable")
+		return
+	}
+	if ok, why := f.actorAllowed(firstNonEmpty(c.author, c.senderLogin), c.senderType); !ok {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", why)
+		return
+	}
+	if c.ready && f.NoAutoReview {
+		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "auto review off")
+		return
+	}
 
 	key := SourceKey(c.owner, c.repo, c.number)
 	_, known := s.session(ctx, key)
-	if !c.mentioned && !c.ready && (!c.inReply || !known) {
+	phrases := f.phraseRE()
+	triggered := c.ready || c.mentioned || (phrases != nil && phrases.MatchString(c.body))
+	if !triggered && c.inReply {
+		triggered = s.replyTriggers(ctx, f, c, known)
+	}
+	if !triggered {
 		s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "ignored", "not mentioned")
 		return
 	}
 
-	text := strings.TrimSpace(s.stripMention(c.body))
+	text := s.stripMention(c.body)
+	if phrases != nil {
+		text = strings.TrimSpace(phrases.ReplaceAllString(text, "$1$2"))
+	}
 	switch {
 	case c.ready && known:
 		commit, head := s.reviewBaseline(ctx, c)
@@ -183,7 +206,9 @@ type classified struct {
 	line        int
 	diffHunk    string
 	inReply     bool
-	mentioned   bool
+	// threadID is the first comment of the review thread a reply is in.
+	threadID  int64
+	mentioned bool
 	// ready is a pull request opened already ready, or a draft marked ready.
 	// GitHub cannot request this App as a reviewer, so those actions start the
 	// review instead. A draft's own open stays quiet.
@@ -297,6 +322,7 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.line = p.Comment.Line
 		base.diffHunk = p.Comment.DiffHunk
 		base.inReply = p.Comment.InReplyTo != 0
+		base.threadID = p.Comment.InReplyTo
 		base.mentioned = s.mentioned(p.Comment.Body)
 		if base.number == 0 || base.commentID == 0 {
 			base.reason = "unhandled"
@@ -377,6 +403,56 @@ func (s *Source) classify(event string, body []byte) (classified, bool) {
 		base.reason = "unsupported event"
 		return base, false
 	}
+}
+
+func (s *Source) currentFilters(ctx context.Context) (Filters, error) {
+	if s.filters == nil {
+		return Filters{}, nil
+	}
+	return s.filters(ctx)
+}
+
+// replyTriggers decides a reply in an inline review thread that carries no trigger.
+func (s *Source) replyTriggers(ctx context.Context, f Filters, c classified, known bool) bool {
+	switch f.replyMode() {
+	case ReplyAlways:
+		return false
+	case ReplyAnyThread:
+		return known
+	default:
+		return s.botThread(ctx, c)
+	}
+}
+
+// maxThreadBots bounds the thread cache. Forgetting it only costs one more read.
+const maxThreadBots = 4096
+
+// botThread reports whether the App started the thread c replies in. A thread that
+// cannot be read counts as a person's: the reply then needs the trigger.
+func (s *Source) botThread(ctx context.Context, c classified) bool {
+	if c.threadID == 0 || c.installID == 0 {
+		return false
+	}
+	s.mu.Lock()
+	bot, ok := s.threadBots[c.threadID]
+	s.mu.Unlock()
+	if ok {
+		return bot
+	}
+	root, err := s.client.ReviewComment(ctx, c.installID, c.owner, c.repo, c.threadID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "github: reading the start of a review thread failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "comment", c.threadID, "error", err)
+		return false
+	}
+	bot = s.isAppUser(root.User.Login, root.User.Type)
+	s.mu.Lock()
+	if len(s.threadBots) >= maxThreadBots {
+		clear(s.threadBots)
+	}
+	s.threadBots[c.threadID] = bot
+	s.mu.Unlock()
+	return bot
 }
 
 func (s *Source) mentioned(body string) bool {

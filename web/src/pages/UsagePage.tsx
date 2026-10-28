@@ -252,6 +252,7 @@ export function UsagePage() {
   return (
     <PageFrame
         title="Usage"
+        lead="What your assistants have spent, by task and by model."
         actions={<RangePicker range={range} onChange={pick} />}
       >
 

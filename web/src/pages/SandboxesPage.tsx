@@ -58,7 +58,11 @@ export function SandboxesPage() {
   const noMasterKey = connectCode(providers.error) === Code.FailedPrecondition;
 
   return (
-    <PageFrame title="Sandboxes" bodyClassName="space-y-5 p-6">
+    <PageFrame
+      title="Sandboxes"
+      bodyClassName="space-y-5 p-6"
+      lead="Cloud services that can run each task on a fresh machine of its own."
+    >
       {noMasterKey ? (
         <Alert variant="warn" title="This server has no master key configured">
           There is nothing to encrypt a key with, so it cannot store sandbox providers. Set{" "}
@@ -66,17 +70,7 @@ export function SandboxesPage() {
         </Alert>
       ) : null}
 
-      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel" aria-labelledby="sandboxes-heading">
-        <div className="border-b border-border p-6">
-          <h2 id="sandboxes-heading" className="text-2xl leading-tight font-bold">
-            Sandbox providers
-          </h2>
-          <p className="mt-2 max-w-[66ch] text-soft">
-            A sandbox node runs every task in a cloud sandbox of its own. Start one with{" "}
-            <code className="font-mono text-xs">podium-node --backend sandbox</code> and its
-            provider&apos;s name; it takes everything else from here.
-          </p>
-        </div>
+      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel" aria-label="Sandbox providers">
 
         <ul className="m-0 list-none divide-y divide-border p-0">
           {SANDBOX_PROVIDERS.map((spec) => (

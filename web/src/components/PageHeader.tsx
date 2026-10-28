@@ -56,6 +56,7 @@ export function PageFrame({
   title,
   actions,
   meta,
+  lead,
   back,
   bleed,
   bodyClassName,
@@ -65,6 +66,11 @@ export function PageFrame({
   actions?: ReactNode;
   /** One line of state, such as a status badge. Not a description or a count row. */
   meta?: ReactNode;
+  /**
+   * One or two plain sentences under the top bar saying what this page is for. The top bar
+   * already names the page, so a page draws no heading of its own above this.
+   */
+  lead?: ReactNode;
   back?: { to: string; label: string };
   /** The body is the whole remaining pane, with no gutter. Used by the chat. */
   bleed?: boolean;
@@ -123,7 +129,10 @@ export function PageFrame({
           {bleed ? (
             children
           ) : (
-            <div className={cn("w-full px-4 py-6 sm:px-6", bodyClassName ?? "space-y-5")}>{children}</div>
+            <div className={cn("w-full px-4 py-6 sm:px-6", bodyClassName ?? "space-y-5")}>
+              {lead ? <p className="text-soft">{lead}</p> : null}
+              {children}
+            </div>
           )}
         </div>
       </div>

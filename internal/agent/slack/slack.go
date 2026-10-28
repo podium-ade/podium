@@ -153,6 +153,19 @@ func New(opts Options) (*Source, error) {
 	}, nil
 }
 
+// Check tries a pair against Slack without holding anything open: auth.test for the bot
+// token and apps.connections.open for the app-level one, which are the two calls Run would
+// fail on. Settings uses it to refuse a mistyped token before it is saved.
+func Check(ctx context.Context, appToken, botToken string) error {
+	if _, err := slack.New(botToken).AuthTestContext(ctx); err != nil {
+		return fmt.Errorf("slack did not accept the bot token: %w", err)
+	}
+	if _, _, err := slack.New("", slack.OptionAppLevelToken(appToken)).StartSocketModeContext(ctx); err != nil {
+		return fmt.Errorf("slack did not accept the app-level token: %w", err)
+	}
+	return nil
+}
+
 // SetReview attaches the GitHub App source. Called from agent.New before Run; nil is
 // "GitHub is not configured" and leaves mention handling unchanged.
 func (s *Source) SetReview(r ReviewDoor) { s.review = r }

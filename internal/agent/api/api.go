@@ -187,13 +187,28 @@ type AgentServiceOptions struct {
 	// with nothing configured, which is what tests that never touch connections want.
 	Env     config.Config
 	Running config.Config
+	// Connections switches the running conductor to a saved Slack pair or GitHub App, so a
+	// save takes effect without a restart. Nil leaves the change for the next start, and
+	// restart_required says so.
+	Connections ConnectionApplier
+}
+
+// ConnectionApplier is the part of the conductor that holds Slack and GitHub open.
+type ConnectionApplier interface {
+	// Check tries the Slack pair and GitHub App in cfg against Slack and GitHub, where they
+	// differ from what is running. It is how a mistyped token is refused at save rather
+	// than found by the conductor failing to connect with it.
+	Check(ctx context.Context, cfg config.Config) error
+	// Apply rereads the saved connections and swaps in whatever changed. Turns in flight
+	// keep running. On success it calls SetRunning with what it switched to.
+	Apply(ctx context.Context) error
 }
 
 // AgentService implements podium.agent.v1.AgentService.
 type AgentService struct {
 	store              *store.Store
 	env                config.Config
-	running            config.Config
+	connections        ConnectionApplier
 	secrets            SecretStore
 	model              string
 	baseURL            string
@@ -213,8 +228,13 @@ type AgentService struct {
 	chat       ChatSource
 	tasks      TaskCanceller
 	turns      TurnStopper
-	slack      SlackDirectory
 	logger     *slog.Logger
+
+	// connMu guards running and slack, which Connections swaps when a saved Slack pair or
+	// GitHub App is applied. Read them through runningConfig and slackDirectory.
+	connMu  sync.Mutex
+	running config.Config
+	slack   SlackDirectory
 
 	// flows are the subscription sign-ins this process has started and not finished, and
 	// mcpFlows the MCP ones. Two maps rather than one because they are two different flows
@@ -290,6 +310,7 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		store:              opts.Store,
 		env:                opts.Env,
 		running:            opts.Running,
+		connections:        opts.Connections,
 		secrets:            opts.Secrets,
 		model:              opts.Model,
 		baseURL:            opts.AnthropicBaseURL,
@@ -310,6 +331,27 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		slack:              opts.Slack,
 		logger:             opts.Logger,
 	}
+}
+
+// SetRunning records the connections the conductor now holds open: the configuration it
+// is running and its Slack source, nil when Slack is off.
+func (s *AgentService) SetRunning(cfg config.Config, slack SlackDirectory) {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	s.running = cfg
+	s.slack = slack
+}
+
+func (s *AgentService) runningConfig() config.Config {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return s.running
+}
+
+func (s *AgentService) slackDirectory() SlackDirectory {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return s.slack
 }
 
 // currentModel is the model a turn would run on: the profile's, which an operator can
