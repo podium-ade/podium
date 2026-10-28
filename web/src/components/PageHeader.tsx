@@ -130,7 +130,7 @@ export function PageFrame({
             children
           ) : (
             <div className={cn("w-full px-4 py-6 sm:px-6", bodyClassName ?? "space-y-5")}>
-              {lead ? <p className="max-w-[68ch] text-soft">{lead}</p> : null}
+              {lead ? <p className="text-soft">{lead}</p> : null}
               {children}
             </div>
           )}
