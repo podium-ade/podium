@@ -96,7 +96,11 @@ export function SecretsPage() {
   const openNew = () => setSetting({ scope: createScope });
 
   return (
-    <PageFrame title="Secrets" bodyClassName="space-y-5 p-6">
+    <PageFrame
+      title="Secrets"
+      bodyClassName="space-y-5 p-6"
+      lead="Passwords, keys and tokens your tasks can use. Once a value is saved, nobody can view it again."
+    >
       {noMasterKey ? (
         <Alert variant="warn" title="This server has no master key configured">
           There is nothing to encrypt a value with, so it cannot store secrets at all. Set{" "}
@@ -133,17 +137,8 @@ export function SecretsPage() {
 
       <section
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
-        aria-labelledby="secrets-heading"
+        aria-label="Secrets"
       >
-        <div className="border-b border-border p-6">
-          <h2 id="secrets-heading" className="text-2xl leading-tight font-bold">
-            Secrets
-          </h2>
-          <p className="mt-2 max-w-[66ch] text-soft">
-            Values are write-only. A value cannot be viewed after it is saved. There is no read
-            API, and it leaves the server only inside an assignment.
-          </p>
-        </div>
 
         {query.isPending ? (
           <TableSkeleton cols={6} />

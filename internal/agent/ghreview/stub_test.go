@@ -37,6 +37,9 @@ type stub struct {
 	install404     bool
 	nextComment    int64
 	app            App
+	// threadRoots is who wrote an inline review comment, by id, for GET pulls/comments/{id}.
+	threadRoots map[int64]User
+	threadReads int
 }
 
 func newStub(t *testing.T) *stub {
@@ -45,6 +48,7 @@ func newStub(t *testing.T) *stub {
 		t:           t,
 		installID:   42,
 		nextComment: 100,
+		threadRoots: map[int64]User{},
 		app:         App{ID: 1, Slug: "podium", Name: "Podium"},
 	}
 	mux := http.NewServeMux()
@@ -125,6 +129,17 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(s.listedReviews)
+	case r.Method == http.MethodGet && strings.Contains(path, "/pulls/comments/"):
+		id, _ := strconv.ParseInt(path[strings.LastIndex(path, "/")+1:], 10, 64)
+		s.mu.Lock()
+		s.threadReads++
+		user, ok := s.threadRoots[id]
+		s.mu.Unlock()
+		if !ok {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Comment{ID: id, Body: "root", User: user})
 	case r.Method == http.MethodGet && isPullPath(path):
 		s.mu.Lock()
 		fail := s.failPull
@@ -198,6 +213,18 @@ func (s *stub) writeReview(w http.ResponseWriter, r *http.Request) {
 		SubmittedAt: time.Now().UTC(),
 		User:        User{Login: "podium[bot]", Type: "Bot"},
 	})
+}
+
+func (s *stub) threadRoot(id int64, u User) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.threadRoots[id] = u
+}
+
+func (s *stub) threadRootReads() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.threadReads
 }
 
 func isPullPath(path string) bool {

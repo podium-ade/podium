@@ -104,6 +104,8 @@ type SourceOptions struct {
 	// Reviews remembers the pull-request review this session submitted. Nil keeps it in
 	// memory for the life of the process, which is what the tests do.
 	Reviews ReviewMemory
+	// Filters is read on every delivery. Nil is the default Filters.
+	Filters FilterLookup
 }
 
 // ReviewMemory is the session's submitted review id. Get returns 0 when there is none.
@@ -126,6 +128,8 @@ type Source struct {
 	taskURL       func(string) string
 	now           func() time.Time
 
+	filters FilterLookup
+
 	slug      string
 	name      string
 	mentionRE *regexp.Regexp
@@ -144,6 +148,9 @@ type Source struct {
 	statusIDs    map[string]int64
 	statusTitles map[string]string
 	pulls        map[string]pullInfo
+	// threadBots is whether the App started an inline review thread, keyed by the
+	// thread's first comment. Who started a thread never changes.
+	threadBots map[int64]bool
 }
 
 type turnState struct {
@@ -202,12 +209,14 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		slack:         opts.Slack,
 		taskURL:       taskURL,
 		now:           now,
+		filters:       opts.Filters,
 		seen:          map[string]time.Time{},
 		turns:         map[string]*turnState{},
 		reviewIDs:     map[string]int64{},
 		statusIDs:     map[string]int64{},
 		statusTitles:  map[string]string{},
 		pulls:         map[string]pullInfo{},
+		threadBots:    map[int64]bool{},
 	}, nil
 }
 

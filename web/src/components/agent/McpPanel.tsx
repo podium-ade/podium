@@ -245,7 +245,11 @@ export function McpPanel() {
   const canWriteScope = scopePersonal ? personal : manage;
 
   return (
-    <PageFrame title="MCP" bodyClassName="p-6">
+    <PageFrame
+      title="MCP servers"
+      bodyClassName="space-y-5 p-6"
+      lead="Outside tools your assistants can use. An assistant can only use a server that its playbook names."
+    >
       {list.isError && isAgentUnreachable(list.error) ? (
         <ConductorDown
           what="The MCP servers could not be read"
@@ -261,13 +265,6 @@ export function McpPanel() {
           className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
           aria-label="MCP server management"
         >
-          <div className="border-b border-border p-6">
-            <h2 className="text-2xl leading-tight font-bold">MCP servers</h2>
-            <p className="mt-2 max-w-[66ch] text-soft">
-              Register an endpoint to make it available. A playbook must still name the server
-              before an assistant can use it.
-            </p>
-          </div>
 
           {showTabs ? (
             <Tabs

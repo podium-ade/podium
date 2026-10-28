@@ -79,6 +79,7 @@ export function NodesPage() {
   return (
     <PageFrame
         title="Nodes"
+        lead="The machines that run your tasks, and whether each one is taking work."
         actions={<EnrollPanel />}
       >
 

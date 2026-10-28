@@ -1,5 +1,5 @@
 // Package connections is the Slack and GitHub configuration an operator saves from
-// Settings, applied the next time the process starts. The settings table holds what is not
+// Settings. The conductor reads it at start and again whenever a save changes it. The settings table holds what is not
 // a credential. The credentials are global secrets in Podium's encrypted store, under
 // spec.ConnectionSecretPrefix, which the conductor alone may read back. Slack still falls
 // back to the environment when nothing is saved. The GitHub App does not: those

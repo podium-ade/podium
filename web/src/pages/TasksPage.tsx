@@ -157,6 +157,7 @@ export function TasksPage() {
   return (
     <PageFrame
         title="Tasks"
+        lead="Work your nodes have been given. Open a task to follow its output and see how it finished."
         actions={
           <Link to="/submit" className={buttonVariants({ size: "sm" })}>
             <Plus />

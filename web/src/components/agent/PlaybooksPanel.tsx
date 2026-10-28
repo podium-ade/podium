@@ -125,6 +125,7 @@ export function PlaybooksPanel() {
     <PageFrame
       bodyClassName="flex min-h-0 flex-col gap-5"
         title="Playbooks"
+        lead="The jobs your assistants know how to do: what each one is for, and the tools it may use."
         actions={
           manage ? (
           <div className="flex items-center gap-2">
