@@ -48,14 +48,25 @@ import { canManageInfra } from "../lib/rbac";
 type Tab = {
   path: string;
   title: string;
+  lead?: string;
   element: ReactNode;
   route?: string;
 };
 
 const tabs: Tab[] = [
   { path: "chat", title: "Chat", element: <ChatPanel />, route: "chat/*" },
-  { path: "sessions", title: "Sessions", element: <SessionsTable /> },
-  { path: "memory", title: "Memory", element: <MemoryPanel /> },
+  {
+    path: "sessions",
+    title: "Sessions",
+    lead: "Every conversation your assistants have taken part in, wherever it started. Open one to see each turn.",
+    element: <SessionsTable />,
+  },
+  {
+    path: "memory",
+    title: "Memory",
+    lead: "What your assistants remember between conversations, and where each memory came from. Forget anything that shouldn't be kept.",
+    element: <MemoryPanel />,
+  },
 ];
 
 /** Screens that share this route tree but are reached from the app sidebar, not the tab bar. */
@@ -114,7 +125,7 @@ export function AgentPage() {
             key={t.path}
             path={t.route ?? t.path}
             element={
-              <PageFrame title={t.title} bleed={t.path === "chat"}>
+              <PageFrame title={t.title} lead={t.lead} bleed={t.path === "chat"}>
                 {t.element}
               </PageFrame>
             }
@@ -142,31 +153,48 @@ function ProfileRedirect() {
   return <Navigate to="/agent/assistants" replace />;
 }
 
-const SETTINGS_LEAD: Record<string, string> = {
-  account:
-    "Who is signed in on this browser. The local token stays a machine credential for the CLI and workers.",
-  users:
-    "Who can sign in, and what they can do. Roles are enforced on the API after a Workspace claim. The local token and every node still do everything.",
-  "runs-on":
-    "Where a session's turns run when their playbook does not say: this fleet's own nodes, or a sandbox provider set up on Sandboxes.",
-  connections:
-    "The outside apps the assistant works with. GitHub lets it read your code and open pull requests. Slack lets people message it. Changes take effect the next time the conductor restarts.",
-  models:
-    "The AI services the assistant runs on. Add a key or sign in, and that service's models show up in Chat. Each chat only gets the key it needs.",
-};
-
 /**
  * SETTINGS_SECTIONS are the pages that used to be Settings' tabs. Each is its own sidebar
  * entry now, in the group it answers to, but keeps its /agent/settings address so old
  * links, the GitHub callback and notifications still land on it.
  */
-const SETTINGS_SECTIONS: { id: string; title: string; show: (v: Viewer | undefined) => boolean }[] = [
-  { id: "account", title: "Your account", show: (v) => Boolean(v?.googleAuthEnabled) },
-  { id: "users", title: "Members", show: () => true },
-  { id: "runs-on", title: "Backend", show: (v) => Boolean(v?.agentEnabled) },
+const SETTINGS_SECTIONS: {
+  id: string;
+  title: string;
+  lead: string;
+  show: (v: Viewer | undefined) => boolean;
+}[] = [
+  {
+    id: "account",
+    title: "Your account",
+    lead: "How you are signed in, and the GitHub account your assistants use on your behalf.",
+    show: (v) => Boolean(v?.googleAuthEnabled),
+  },
+  {
+    id: "users",
+    title: "Members",
+    lead: "The people who can sign in, and what each of them is allowed to do.",
+    show: () => true,
+  },
+  {
+    id: "runs-on",
+    title: "Backend",
+    lead: "Where your assistants do their work when a playbook doesn't say: on your own nodes, or in a cloud sandbox.",
+    show: (v) => Boolean(v?.agentEnabled),
+  },
   // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
-  { id: "connections", title: "Connections", show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v) },
-  { id: "models", title: "Models", show: (v) => Boolean(v?.agentEnabled) },
+  {
+    id: "connections",
+    title: "Connections",
+    lead: "The outside apps your assistants work with. GitHub lets them read code and open pull requests, and Slack lets people message them.",
+    show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v),
+  },
+  {
+    id: "models",
+    title: "Models",
+    lead: "The AI services your assistants run on. Add a key or sign in, and that service's models appear in Chat.",
+    show: (v) => Boolean(v?.agentEnabled),
+  },
 ];
 
 /**
@@ -195,14 +223,11 @@ function SettingsTab() {
   const flush = current === "users" || current === "connections" || current === "models";
 
   return (
-    <PageFrame title={section.title} bodyClassName="p-6">
+    <PageFrame title={section.title} lead={section.lead} bodyClassName="space-y-5 p-6">
       <section
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
         aria-label={section.title}
       >
-        <div className="border-b border-border p-4">
-          <p className="max-w-[68ch] text-soft">{SETTINGS_LEAD[current]}</p>
-        </div>
         <div className={flush ? undefined : "grid gap-4 p-4"}>
           {current === "account" ? (
             <>
