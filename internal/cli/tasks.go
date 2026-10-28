@@ -124,6 +124,9 @@ func printTaskDetail(e *env, t *podiumv1.Task) error {
 		line("labels", labels)
 	}
 	line("node", orDash(t.GetNodeId()))
+	if id := t.GetSandboxId(); id != "" {
+		line("sandbox", t.GetSandboxProvider()+" "+id)
+	}
 	line("attempts", fmt.Sprintf("%d of %d", t.GetAttempts(), max(t.GetSpec().GetMaxAttempts(), 1)))
 	if r := t.GetQueuedReason(); r != "" {
 		line("queued_reason", r)
@@ -153,18 +156,31 @@ func printTaskDetail(e *env, t *podiumv1.Task) error {
 
 // previewState is one line on where a preview is in its life.
 func previewState(p *podiumv1.TaskPreview) string {
+	where := previewWhere(p)
 	switch {
 	case p.GetReleasedAt() != nil:
 		return fmt.Sprintf("released %s (%s)", stamp(p.GetReleasedAt().AsTime(), true), orDash(p.GetReleaseReason()))
-	case p.GetAddress() == "" && p.GetExpiresAt() != nil:
+	case where == "" && p.GetExpiresAt() != nil:
 		return fmt.Sprintf("held, publishing nothing, until %s", stamp(p.GetExpiresAt().AsTime(), true))
-	case p.GetAddress() == "":
+	case where == "":
 		return "held once the command exits, publishing nothing"
 	case p.GetExpiresAt() != nil:
-		return fmt.Sprintf("up over %s on %s until %s", p.GetVia(), p.GetAddress(), stamp(p.GetExpiresAt().AsTime(), true))
+		return fmt.Sprintf("up over %s on %s until %s", p.GetVia(), where, stamp(p.GetExpiresAt().AsTime(), true))
 	default:
-		return fmt.Sprintf("published over %s on %s; held once the command exits", p.GetVia(), p.GetAddress())
+		return fmt.Sprintf("published over %s on %s; held once the command exits", p.GetVia(), where)
 	}
+}
+
+// previewWhere is where a preview's ports are: one address, or — on a sandbox node, where
+// the provider gives every port a URL of its own — those URLs. Empty publishes nothing.
+func previewWhere(p interface {
+	GetAddress() string
+	GetUrls() map[string]string
+}) string {
+	if p.GetAddress() == "" && len(p.GetUrls()) > 0 {
+		return "its own URLs"
+	}
+	return p.GetAddress()
 }
 
 func sortedKeys(m map[string]string) []string {

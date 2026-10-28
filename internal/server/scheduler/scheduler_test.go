@@ -217,3 +217,84 @@ func TestPickPlacesAPreviewOnlyWhereOneIsFree(t *testing.T) {
 	assert.Equal(t, -1, pick([]nodes.Snapshot{lan}, spec.TaskSpec{}, tailnetOnly), "a LAN address is not a tailnet slot")
 	assert.Equal(t, 0, pick([]nodes.Snapshot{busy}, spec.TaskSpec{}, nodes.TaskCost{}), "a task that exposes nothing ignores previews")
 }
+
+func TestPickPlacesASandboxTaskOnASandboxNode(t *testing.T) {
+	ts := spec.TaskSpec{Image: "alpine:3", Expose: &spec.Expose{Via: spec.ExposeViaSandbox, Ports: map[string]spec.ExposedPort{"web": {Port: 80}}}}
+	ts.ApplyDefaults()
+	cost := nodes.CostOf(ts)
+	assert.False(t, cost.Preview, "a provider's URLs take nothing from a node's preview pools")
+
+	docker := node("node_docker", 4)
+	docker.FreeLANPreviews = 1
+	sbx := node("node_sandbox", 4, spec.LabelSandbox, "sandbox.provider=boat")
+	cands := []nodes.Snapshot{docker, sbx}
+	i := pick(cands, ts, cost)
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, "node_sandbox", cands[i].NodeID)
+}
+
+// A task that does not ask for a sandbox is never billed to a provider, even when a sandbox
+// node is the only one with room.
+func TestPickKeepsAPlainTaskOffSandboxNodes(t *testing.T) {
+	ts := spec.TaskSpec{Image: "alpine:3"}
+	sbx := sandboxNode("node_boat", "boat", 4, 0, 0)
+	assert.Equal(t, -1, pick([]nodes.Snapshot{sbx}, ts, nodes.TaskCost{}))
+	assert.Equal(t, ReasonOnlySandboxes, placementReason([]nodes.Snapshot{sbx}, ts, nodes.TaskCost{}))
+
+	docker := node("node_docker", 1)
+	i := pick([]nodes.Snapshot{sbx, docker}, ts, nodes.TaskCost{})
+	require.Equal(t, 1, i)
+}
+
+func sandboxNode(id, provider string, slots, running, accountLimit int32) nodes.Snapshot {
+	s := node(id, slots, "backend=sandbox", "sandbox.provider="+provider)
+	s.SandboxProvider, s.RunningTasks, s.SandboxAccountLimit = provider, running, accountLimit
+	return s
+}
+
+// Two boat nodes with four slots each still share one account: the provider's cap is what
+// the batch is held to, not the sum of their slots.
+func TestSandboxRoomHoldsAProviderToItsCapAcrossNodes(t *testing.T) {
+	cands := []nodes.Snapshot{
+		sandboxNode("boat_a", "boat", 3, 1, 0),
+		sandboxNode("boat_b", "boat", 4, 0, 0),
+		node("docker", 4),
+	}
+	room := sandboxRoom(cands, map[string]int32{"boat": 2}, nil)
+	ts := spec.TaskSpec{Labels: []string{"backend=sandbox"}}
+
+	i := pick(cands, ts, nodes.TaskCost{})
+	require.GreaterOrEqual(t, i, 0)
+	charge(&cands[i], nodes.TaskCost{})
+	room.take(cands, cands[i].SandboxProvider)
+
+	assert.Equal(t, -1, pick(cands, ts, nodes.TaskCost{}), "one running and one placed is the cap")
+	assert.Equal(t, "sandbox provider boat is running as many sandboxes as it may (2)",
+		room.reason(cands, ts, placementReason(cands, ts, nodes.TaskCost{})))
+	assert.GreaterOrEqual(t, pick(cands, spec.TaskSpec{}, nodes.TaskCost{}), 0, "a Docker node is not held to it")
+}
+
+// The account limit a node reports caps a provider nobody set a cap for, and a lower
+// admin cap wins over it.
+func TestSandboxRoomTakesTheLowerOfCapAndAccountLimit(t *testing.T) {
+	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 2), sandboxNode("modal_a", "modal", 4, 0, 0)}
+	room := sandboxRoom(cands, nil, nil)
+	assert.Equal(t, int32(2), room.limit["boat"])
+	assert.Equal(t, int32(1), room.left["boat"])
+	_, capped := room.limit["modal"]
+	assert.False(t, capped, "no cap and no account limit is no cap")
+
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 10)}
+	assert.Equal(t, int32(3), sandboxRoom(cands, map[string]int32{"boat": 3}, nil).limit["boat"])
+	cands = []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 0, 2)}
+	assert.Equal(t, int32(2), sandboxRoom(cands, map[string]int32{"boat": 5}, nil).limit["boat"])
+}
+
+// A held preview and a sandbox still waiting to be deleted are up at the provider with no
+// task running in them, and count against its cap all the same.
+func TestSandboxRoomCountsSandboxesKeptUp(t *testing.T) {
+	cands := []nodes.Snapshot{sandboxNode("boat_a", "boat", 4, 1, 0)}
+	room := sandboxRoom(cands, map[string]int32{"boat": 3}, map[string]int32{"boat": 2})
+	assert.Equal(t, int32(0), room.left["boat"])
+	assert.Equal(t, int32(0), cands[0].FreeSlots, "one running, one held and one being deleted fill a cap of three")
+}

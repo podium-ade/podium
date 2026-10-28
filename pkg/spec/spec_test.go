@@ -477,3 +477,57 @@ func TestParseSidecarDefaultsToUnprivileged(t *testing.T) {
 	_, err = ParseTaskSpec(strings.NewReader("image: alpine:3\nsidecars:\n  db:\n    image: redis:7-alpine\n    privilged: true\n"))
 	require.ErrorContains(t, err, "privilged")
 }
+
+func TestSandboxSpec(t *testing.T) {
+	got, err := ParseTaskSpec(strings.NewReader("sandbox: {snapshot: ci-base}\ncommand: [make]\n"))
+	require.NoError(t, err, "a snapshot task needs no image")
+	assert.Equal(t, []string{LabelSandbox}, got.Labels)
+
+	_, err = ParseTaskSpec(strings.NewReader("sandbox: {}\ncommand: [make]\n"))
+	require.ErrorContains(t, err, "image is required, or sandbox.snapshot")
+
+	got, err = ParseTaskSpec(strings.NewReader("image: alpine:3\nlabels: [backend=sandbox]\nexpose: {via: sandbox, ports: {web: {port: 80}}}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{LabelSandbox}, got.Labels, "the label is not added twice")
+
+	got, err = ParseTaskSpec(strings.NewReader("image: alpine:3\n"))
+	require.NoError(t, err)
+	assert.Empty(t, got.Labels, "a container task stays placeable anywhere")
+
+	rt := FromProto(mustSpec(t, "sandbox: {snapshot: ci-base}\ncommand: [make]\n").ToProto())
+	require.NotNil(t, rt.Sandbox)
+	assert.Equal(t, "ci-base", rt.Sandbox.Snapshot)
+}
+
+func TestSandboxProviderOverrides(t *testing.T) {
+	doc := "image: alpine:3\nsandbox:\n  provider: boat\n  boat: {type: large, template: ci-base, org: acme}\n"
+	got := mustSpec(t, doc)
+	assert.Equal(t, []string{LabelSandbox, LabelSandboxProvider + "boat"}, got.Labels, "provider pins the task")
+	assert.Equal(t, map[string]string{"type": "large", "template": "ci-base", "org": "acme"}, got.Sandbox.Settings("boat"))
+	assert.Empty(t, got.Sandbox.Settings("modal"), "another provider's sandbox is not changed")
+
+	rt := FromProto(got.ToProto())
+	assert.Equal(t, got.Sandbox, rt.Sandbox)
+
+	both := mustSpec(t, "image: alpine:3\nsandbox:\n  boat: {type: small}\n  modal: {runtime: vm, environment: staging}\n")
+	assert.Equal(t, map[string]string{"runtime": "vm", "environment": "staging"}, both.Sandbox.Settings("modal"),
+		"with no provider, whichever one runs the task takes its own block")
+
+	for doc, want := range map[string]string{
+		"image: a\nsandbox: {boat: {type: huge}}\n":                   `sandbox.boat.type "huge" is not one of small, default, large, xlarge`,
+		"image: a\nsandbox: {modal: {runtime: docker}}\n":             `sandbox.modal.runtime "docker" is not one of gvisor, vm`,
+		"image: a\nsandbox: {provider: modal, boat: {type: small}}\n": "sandbox.boat is set but sandbox.provider is modal",
+		"command: [x]\nsandbox: {snapshot: s, boat: {template: t}}\n": "sandbox.boat.template has no effect with sandbox.snapshot",
+		"image: a\nsandbox: {provider: \"boat,modal\"}\n":             `sandbox.provider "boat,modal" is not a provider name`,
+	} {
+		_, err := ParseTaskSpec(strings.NewReader(doc))
+		require.ErrorContains(t, err, want, doc)
+	}
+}
+
+func mustSpec(t *testing.T, doc string) *TaskSpec {
+	t.Helper()
+	s, err := ParseTaskSpec(strings.NewReader(doc))
+	require.NoError(t, err)
+	return s
+}

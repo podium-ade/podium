@@ -343,6 +343,23 @@ func (c *Conductor) accept(ctx context.Context, src Source, ev InboundEvent) {
 	// not decide the job against one document and then start the turn against another.
 	profile := c.profiles.Current()
 
+	// A pull-request review runs one playbook, the one marked github: true. It does not
+	// get the assistant's menu, so a comment on the review cannot start some other job.
+	if src.Kind() == SourceGitHub {
+		name := profile.GitHubPlaybook()
+		if name == "" {
+			c.logger.ErrorContext(ctx, "no playbook reviews pull requests",
+				"source_key", ev.SourceKey)
+			c.post(ctx, src, ev.Ref, Outbound{
+				Type: OutFailure,
+				Text: "No playbook reviews pull requests. Mark one with github: true.",
+			})
+			c.finish(ctx, src, ev.Ref, ReactionFailed)
+			return
+		}
+		ev.Playbook = name
+	}
+
 	var j job
 	var sess store.Session
 	var ok bool
@@ -838,7 +855,7 @@ func (c *Conductor) runTurn(ctx context.Context, src Source, sess store.Session,
 		return
 	}
 
-	taskSpec := c.taskSpec(src, j.playbook, encoded, ev, bundles, servers, choice, capabilitySecret, login)
+	taskSpec := c.taskSpec(src, c.placed(ctx, j.playbook), encoded, ev, bundles, servers, choice, capabilitySecret, login)
 	applyWorkspace(taskSpec, sess.ID, j.playbook)
 	task, err := c.podium.CreateTask(ctx, taskSpec, int32(j.playbook.Priority))
 	if err != nil {
@@ -883,14 +900,14 @@ func playbookNames(menu []DelegablePlaybook) []string {
 }
 
 // aConversation is a source that is a chat window rather than a thread. A turn of one is
-// answered by the assistant, in this process, and delegates whatever needs a machine; a
-// Linear issue is the opposite — nobody is watching a cursor, and one session is one piece
-// of work, so it runs a playbook as a task. Slack and GitHub are conversations too: a
-// mention is answered here, and a GitHub pull-request review is one conversation whether
-// it was asked for on the PR or in Slack. The dev source is in here because it is how
-// both are tested.
+// answered by the assistant, in this process, and delegates whatever needs a machine. A
+// Linear issue runs one playbook as a task: nobody is watching a cursor, and one session
+// is one piece of work. A GitHub pull-request review is the same kind of work. It stays
+// one session for the pull request, and it runs the playbook marked github: true rather
+// than the assistant, so a comment on it cannot start some other job. The dev source is
+// in here because it is how a conversation is tested.
 func aConversation(kind string) bool {
-	return kind == SourceChat || kind == SourceSlack || kind == SourceGitHub || kind == KindDev
+	return kind == SourceChat || kind == SourceSlack || kind == KindDev
 }
 
 // rememberSlackChannel writes the id (and name, when Slack resolved one) into the catalogue
@@ -1069,6 +1086,20 @@ func (c *Conductor) openaiAuthKind() string {
 // taskSpec is the task one turn runs. The secrets are exactly the playbook's, plus the
 // reserved credential the conductor always adds: a playbook only ever gets the credentials its
 // own file names, and the one the backend it runs on needs.
+// placed is playbook with where its turn runs decided: its own runs_on, or the conductor's
+// default when it names none. A default that cannot be read is the fleet's own machines.
+func (c *Conductor) placed(ctx context.Context, playbook profiles.Playbook) profiles.Playbook {
+	if playbook.RunsOn != "" || c.store == nil {
+		return playbook
+	}
+	var row profiles.RunsOn
+	if err := c.store.GetSetting(ctx, profiles.RunsOnKey, &row); err != nil && !errors.Is(err, store.ErrNotFound) {
+		c.logger.WarnContext(ctx, "reading where turns run failed; using this fleet's own nodes", "error", err)
+	}
+	playbook.RunsOn = row.RunsOn
+	return playbook
+}
+
 func (c *Conductor) taskSpec(
 	src Source, playbook profiles.Playbook, encodedBrief string, ev InboundEvent, bundles []skills.Bundle,
 	servers []mcp.Server, choice profiles.Choice, capabilitySecret, login string,
@@ -1110,6 +1141,7 @@ func (c *Conductor) taskSpec(
 		// A turn is not idempotent: it may already have posted a final. Running it twice
 		// would say the same thing twice, so a lost node is surfaced to the human instead.
 		RetryOnNodeLoss: false,
+		Sandbox:         playbook.SandboxFor(playbook.RunsOn),
 	}
 	if playbook.Docker || playbook.Browser {
 		s.Sidecars = map[string]spec.Sidecar{}

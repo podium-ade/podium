@@ -204,6 +204,7 @@ own (one `profile.yaml`, one file per playbook) and re-read it from the UI. No r
 - [docs/storage.md](docs/storage.md): Postgres, the object store, a worker's data dir, the image cache
 - [docs/networking.md](docs/networking.md): how clients reach the control plane, Tailscale, the ACL
 - [docs/node-setup.md](docs/node-setup.md): setting up a worker
+- [docs/sandboxes.md](docs/sandboxes.md): sandbox nodes, which run each task in a boat.dev or Modal sandbox of its own
 - [deploy/README.md](deploy/README.md): compose, the installer, the systemd unit
 - [deploy/.env.example](deploy/.env.example): every `PODIUM_*` variable, commented
 
@@ -228,7 +229,7 @@ mention.
 | tier | | |
 |---|---|---|
 | **Required to start** | minted by `init` | `PODIUM_LOCAL_TOKEN`, `PODIUM_PG_PASSWORD`, `PODIUM_S3_SECRET_KEY`, `PODIUM_AGENT_TOKEN`. Fill `PODIUM_SERVER` yourself: this machine's address on your network |
-| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App under Settings → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
+| **Unlocks a feature** | one variable each, and without it only that feature is off | `PODIUM_MEMORY_LLM_API_KEY` (shared memory), `PODIUM_NODE_ENROLL_TOKEN` (a worker's first run), `PODIUM_AGENT_SLACK_*` / `PODIUM_AGENT_LINEAR_API_KEY` (those sources), the GitHub App under Access → Connections, `TS_AUTHKEY` + `PODIUM_TAILNET` (Tailscale) |
 | **Just config** | ports, intervals, models, poll rates, labels, base URLs, all defaulted | `PODIUM_IMAGE_TAG` is the one to pin regardless: `latest` moves, and a control plane and worker from different releases can disagree about the wire |
 
 The model key for a turn is not in this file. Set it in the UI so it is stored encrypted.

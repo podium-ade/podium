@@ -17,11 +17,11 @@ version: 2
 project_name: podium
 
 # Both hooks produce inputs the binaries embed, and both are silent failures if skipped:
-# podium-node would ship without a runner and refuse every task, and podium-server would
-# ship without a web UI and serve a page saying so.
+# podium-node would ship without a runner (or a sandbox agent) and refuse every task, and
+# podium-server would ship without a web UI and serve a page saying so.
 before:
   hooks:
-    - make runner-embed
+    - make sandbox-agent-embed
     - make web
 
 builds:

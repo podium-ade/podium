@@ -1,29 +1,27 @@
-import { useState } from "react";
-import type { LucideIcon } from "lucide-react";
 import {
-  Brain,
-  ChevronDown,
-  Coins,
-  Container,
-  Hash,
-  History,
-  KeyRound,
-  ListTodo,
-  LogOut,
-  MessageSquare,
-  PanelLeftClose,
-  Plug,
-  Puzzle,
-  Server,
-  Settings2,
-  Sparkles,
-  UserRound,
-} from "lucide-react";
-import { Link, useLocation } from "react-router";
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type KeyboardEvent as KeyboardEvent_,
+  type ReactNode,
+} from "react";
+import { flushSync } from "react-dom";
+import { ChevronDown, LogOut, UserRound } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { cn } from "@/lib/utils";
 import { IdentityKind } from "../gen/podium/v1/identity_pb";
 import { useViewer, viewerLabel, type Viewer } from "../lib/identity";
 import { Avatar } from "./Avatar";
+import {
+  groupOf,
+  navGroupsFor,
+  pageActive,
+  pageMatches,
+  type NavGroup,
+  type NavPage,
+} from "../lib/navigation";
+import { CollapseIcon, NavIcon, SearchIcon } from "./NavIcon";
 import { useShell } from "./shell";
 import {
   DropdownMenu,
@@ -33,36 +31,60 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
-function pathActive(pathname: string, to: string, end?: boolean) {
-  if (end) return pathname === to;
-  return pathname === to || pathname.startsWith(`${to}/`);
+const GROUPS_KEY = "podium-relay-nav-groups";
+
+function readGroups(): Record<string, boolean> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeGroups(groups: Record<string, boolean>) {
+  try {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+  } catch {
+    // The folder still opens or closes for this visit.
+  }
+}
+
+/** The label with the first hit of the search underlined, as the design's `.nav-hit`. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const at = query ? text.toLowerCase().indexOf(query) : -1;
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="bg-transparent font-bold text-inherit underline decoration-2 underline-offset-[3px]">
+        {text.slice(at, at + query.length)}
+      </mark>
+      {text.slice(at + query.length)}
+    </>
+  );
 }
 
 function Item({
-  to,
-  end,
-  icon: Icon,
-  children,
-  match,
+  page,
+  query,
   onNavigate,
   collapsed,
 }: {
-  to: string;
-  end?: boolean;
-  icon: LucideIcon;
-  children: string;
-  match?: (pathname: string) => boolean;
-  onNavigate?: () => void;
+  page: NavPage;
+  query: string;
+  onNavigate: () => void;
   collapsed: boolean;
 }) {
   const { pathname } = useLocation();
-  const isActive = match ? match(pathname) : pathActive(pathname, to, end);
+  const isActive = pageActive(page, pathname);
   return (
     <Link
-      to={to}
+      to={page.to}
+      data-nav-item=""
       aria-current={isActive ? "page" : undefined}
-      aria-label={children}
-      title={children}
+      aria-label={page.label}
+      title={page.label}
       onClick={onNavigate}
       className={cn(
         "flex min-h-11 items-center gap-3 rounded-md border border-transparent px-3 text-left text-base font-normal text-soft",
@@ -71,24 +93,78 @@ function Item({
         isActive && "border-line-strong bg-raised font-[720] text-fg hover:border-line-strong hover:bg-raised hover:text-fg",
       )}
     >
-      <Icon className="size-[18px] shrink-0 stroke-[1.8]" />
-      <span className={cn("truncate", collapsed && "md:hidden")}>{children}</span>
+      <NavIcon name={page.icon} />
+      <span className={cn("truncate", collapsed && "md:hidden")}>
+        <Highlight text={page.label} query={query} />
+      </span>
     </Link>
   );
 }
 
-function SectionLabel({ children, collapsed }: { children: string; collapsed: boolean }) {
+/**
+ * Folder is one sidebar group. Its open state is the operator's and persists; a search
+ * opens every group that has a hit. A collapsed sidebar drops the headings and shows every
+ * icon, with a rule between groups.
+ */
+function Folder({
+  group,
+  open,
+  onToggle,
+  collapsed,
+  children,
+}: {
+  group: NavGroup;
+  open: boolean;
+  onToggle: () => void;
+  collapsed: boolean;
+  children: ReactNode;
+}) {
+  const id = `nav-group-${group.id}`;
   return (
-    <p
+    <div
+      data-nav-group={group.id}
       className={cn(
-        "px-3 pt-6 pb-2 text-xs font-bold tracking-[0.1em] text-muted uppercase",
-        collapsed && "md:hidden",
+        "mt-1 first:mt-0",
+        collapsed && "md:mt-2 md:border-t md:border-border md:pt-2 md:first:mt-0 md:first:border-t-0 md:first:pt-0",
       )}
     >
-      {children}
-    </p>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={onToggle}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-transparent px-3 text-left text-xs font-bold tracking-[0.08em] text-muted uppercase md:min-h-10",
+          "hover:border-border hover:bg-raised hover:text-fg",
+          collapsed && "md:hidden",
+        )}
+      >
+        <span>{group.label}</span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "size-4 shrink-0 stroke-[1.8] transition-transform duration-150 ease-out motion-reduce:transition-none",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      <div
+        id={id}
+        role="group"
+        aria-label={group.label}
+        // A collapsed sidebar shows every icon, but the drawer on a narrow window is never
+        // collapsed, so a closed group stays closed there.
+        hidden={!open && !collapsed}
+        className={cn("flex flex-col gap-0.5 pl-2", collapsed && "md:pl-0", collapsed && !open && "max-md:hidden")}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
+
+const shortcutLabel =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘K" : "Ctrl K";
 
 function Wordmark({ collapsed }: { collapsed: boolean }) {
   return (
@@ -111,20 +187,126 @@ function Wordmark({ collapsed }: { collapsed: boolean }) {
 export function Header() {
   const who = useViewer();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { navOpen, setNavOpen, collapsed, toggleCollapsed } = useShell();
-  // A navigation closes the drawer. Adjusting during render keeps the close in the same
-  // pass as the route change, so the drawer does not linger for a frame.
-  const [seenPath, setSeenPath] = useState(pathname);
+  const [query, setQueryValue] = useState("");
+  // Groups folded by hand during the current search. A search opens every group with a hit;
+  // folding one of those is for this search only, so the remembered folds stay as they were.
+  const [searchFolded, setSearchFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const setQuery = (value: string) => {
+    setQueryValue(value);
+    setSearchFolded(new Set());
+  };
+  const [groupsOpen, setGroupsOpen] = useState(readGroups);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+
+  // A navigation closes the drawer and opens the group that holds the new page. Adjusting
+  // during render keeps both in the same pass as the route change, so neither lingers.
+  const [seenPath, setSeenPath] = useState<string | null>(null);
   if (seenPath !== pathname) {
     setSeenPath(pathname);
-    if (navOpen) setNavOpen(false);
+    if (seenPath !== null && navOpen) setNavOpen(false);
+    const group = groupOf(pathname);
+    if (group && groupsOpen[group] === false) {
+      const next = { ...groupsOpen, [group]: true };
+      setGroupsOpen(next);
+      writeGroups(next);
+    }
   }
-  const agent = Boolean(who?.agentEnabled);
-  // Users lives on Settings even when this control plane has no conductor and no Google
-  // sign-in, so the link stays once WhoAmI has answered.
-  const showSettings = Boolean(who);
+
+  const q = query.trim().toLowerCase();
+  const groups = navGroupsFor(who)
+    .map((g) => ({ ...g, pages: g.pages.filter((p) => pageMatches(p, q)) }))
+    .filter((g) => g.pages.length > 0);
+  const firstHit = groups[0]?.pages[0];
+
+  const toggleGroup = (id: string) => {
+    if (q) {
+      const next = new Set(searchFolded);
+      if (!next.delete(id)) next.add(id);
+      setSearchFolded(next);
+      return;
+    }
+    const next = { ...groupsOpen, [id]: groupsOpen[id] === false };
+    setGroupsOpen(next);
+    writeGroups(next);
+  };
 
   const close = () => setNavOpen(false);
+  const navigated = () => {
+    setQuery("");
+    close();
+  };
+
+  // Ctrl K (⌘K on a Mac) searches the pages from anywhere: it widens a collapsed sidebar,
+  // or opens the drawer on a narrow window, then puts the caret in the field.
+  const openSearch = () => {
+    const narrow = window.matchMedia?.("(max-width: 767px)").matches ?? false;
+    // The field has to be on screen before it can take focus, and focus has to move now:
+    // a frame later, the first letters typed after the shortcut land in whatever had it.
+    flushSync(() => {
+      if (!narrow && collapsed) toggleCollapsed();
+      if (narrow && !navOpen) setNavOpen(true);
+    });
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  };
+  const onShortcut = useEffectEvent(openSearch);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        onShortcut();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  const visibleItems = () =>
+    Array.from(navRef.current?.querySelectorAll<HTMLElement>("[data-nav-item]") ?? []).filter(
+      (el) => !el.closest("[hidden]") && (typeof el.checkVisibility !== "function" || el.checkVisibility()),
+    );
+
+  const onSearchKey = (event: KeyboardEvent_<HTMLInputElement>) => {
+    if (event.key === "Escape" && query) {
+      event.preventDefault();
+      event.stopPropagation();
+      setQuery("");
+    } else if (event.key === "ArrowDown") {
+      const first = visibleItems()[0];
+      if (first) {
+        event.preventDefault();
+        first.focus();
+      }
+    } else if (event.key === "Enter" && q && firstHit) {
+      event.preventDefault();
+      void navigate(firstHit.to);
+      navigated();
+    }
+  };
+
+  const onListKey = (event: KeyboardEvent_<HTMLElement>) => {
+    const items = visibleItems();
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (at < 0) return;
+    if (event.key === "Escape" && query) {
+      event.preventDefault();
+      event.stopPropagation();
+      setQuery("");
+      inputRef.current?.focus();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    if (event.key === "ArrowUp" && at === 0) {
+      inputRef.current?.focus();
+      return;
+    }
+    items[Math.min(items.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)))]?.focus();
+  };
+
   const collapseLabel = collapsed ? "Expand sidebar" : "Collapse sidebar";
   return (
     <>
@@ -148,65 +330,86 @@ export function Header() {
       >
         <Wordmark collapsed={collapsed} />
 
-        <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3">
-          {agent ? (
-            <>
-              <SectionLabel collapsed={collapsed}>Assistant</SectionLabel>
-              <Item to="/agent/chat" icon={MessageSquare} onNavigate={close} collapsed={collapsed}>
-                Chat
-              </Item>
-              <Item to="/agent/sessions" icon={History} onNavigate={close} collapsed={collapsed}>
-                Sessions
-              </Item>
-              <Item to="/agent/memory" icon={Brain} onNavigate={close} collapsed={collapsed}>
-                Memory
-              </Item>
-              <Item to="/agent/assistants" icon={UserRound} onNavigate={close} collapsed={collapsed}>
-                Assistants
-              </Item>
-            </>
-          ) : null}
+        {who ? (
+          <div role="search" className="px-2 pt-3">
+            <div className={cn("relative", collapsed && "md:hidden")}>
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
+              <label className="sr-only" htmlFor="nav-search">
+                Search pages
+              </label>
+              <input
+                ref={inputRef}
+                id="nav-search"
+                type="search"
+                placeholder="Search"
+                autoComplete="off"
+                spellCheck={false}
+                aria-controls="app-nav-list"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={onSearchKey}
+                className={cn(
+                  "peer block min-h-11 w-full rounded-md border border-border bg-background pr-16 pl-10 text-sm text-fg placeholder:text-muted",
+                  "hover:border-line-strong focus-visible:border-line-strong focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  "[&::-webkit-search-cancel-button]:appearance-none",
+                )}
+              />
+              <kbd
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded-sm md:block border border-border bg-raised px-1.5 font-mono text-xs leading-5 font-semibold whitespace-nowrap text-muted peer-[:not(:placeholder-shown)]:hidden"
+              >
+                {shortcutLabel}
+              </kbd>
+            </div>
+            <button
+              type="button"
+              aria-label="Search pages"
+              title="Search pages"
+              onClick={openSearch}
+              className={cn(
+                "hidden min-h-11 w-full place-items-center rounded-md border border-transparent text-soft hover:border-border hover:bg-raised hover:text-fg",
+                collapsed && "md:grid",
+              )}
+            >
+              <SearchIcon />
+            </button>
+          </div>
+        ) : null}
 
-          <SectionLabel collapsed={collapsed}>Run</SectionLabel>
-          <Item to="/tasks" end icon={ListTodo} onNavigate={close} collapsed={collapsed}>
-            Tasks
-          </Item>
-          <Item to="/nodes" icon={Server} onNavigate={close} collapsed={collapsed}>
-            Nodes
-          </Item>
-
-          <SectionLabel collapsed={collapsed}>Administer</SectionLabel>
-          {agent ? (
-            <>
-              <Item to="/agent/playbooks" icon={Sparkles} onNavigate={close} collapsed={collapsed}>
-                Playbooks
-              </Item>
-              <Item to="/agent/skills" icon={Puzzle} onNavigate={close} collapsed={collapsed}>
-                Skills
-              </Item>
-              <Item to="/agent/mcp" icon={Plug} onNavigate={close} collapsed={collapsed}>
-                MCP
-              </Item>
-              <Item to="/agent/channels" icon={Hash} onNavigate={close} collapsed={collapsed}>
-                Channels
-              </Item>
-            </>
-          ) : null}
-          <Item to="/secrets" icon={KeyRound} onNavigate={close} collapsed={collapsed}>
-            Secrets
-          </Item>
-          <Item to="/registries" icon={Container} onNavigate={close} collapsed={collapsed}>
-            Registries
-          </Item>
-          {agent ? (
-            <Item to="/usage" icon={Coins} onNavigate={close} collapsed={collapsed}>
-              Usage
-            </Item>
-          ) : null}
-          {showSettings ? (
-            <Item to="/agent/settings" icon={Settings2} onNavigate={close} collapsed={collapsed}>
-              Settings
-            </Item>
+        <nav
+          ref={navRef}
+          id="app-nav-list"
+          aria-label="Primary"
+          onKeyDown={onListKey}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3"
+        >
+          {groups.map((group) => (
+            <Folder
+              key={group.id}
+              group={group}
+              open={q ? !searchFolded.has(group.id) : groupsOpen[group.id] !== false}
+              onToggle={() => toggleGroup(group.id)}
+              collapsed={collapsed}
+            >
+              {group.pages.map((page) => (
+                <Item key={page.id} page={page} query={q} onNavigate={navigated} collapsed={collapsed} />
+              ))}
+            </Folder>
+          ))}
+          {q && groups.length === 0 ? (
+            <div role="status" className="mx-3 my-2 grid justify-items-start gap-2 text-sm text-soft">
+              <p className="[overflow-wrap:anywhere]">No pages match “{query.trim()}”.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
+                className="min-h-11 rounded-md border border-line-strong bg-background px-3 font-semibold text-fg hover:bg-raised"
+              >
+                Clear search
+              </button>
+            </div>
           ) : null}
         </nav>
 
@@ -217,14 +420,17 @@ export function Header() {
             aria-controls="app-nav"
             aria-label={collapseLabel}
             title={collapseLabel}
-            onClick={toggleCollapsed}
+            onClick={() => {
+              setQuery("");
+              toggleCollapsed();
+            }}
             className={cn(
               "flex min-h-11 w-full items-center gap-3 rounded-md border border-transparent px-3 text-base font-normal text-soft",
               "hover:border-border hover:bg-raised hover:text-fg",
               collapsed && "justify-center px-0",
             )}
           >
-            <PanelLeftClose className={cn("size-[18px] shrink-0 stroke-[1.8]", collapsed && "rotate-180")} />
+            <CollapseIcon className={cn(collapsed && "rotate-180")} />
             <span className={cn(collapsed && "hidden")}>{collapseLabel}</span>
           </button>
         </div>
@@ -244,7 +450,8 @@ function accountSubtitle(who: Viewer | undefined, label: string) {
 }
 
 /**
- * AccountMenu is the sidebar footer: avatar, name, and Sign out for a Google session.
+ * AccountMenu is the sidebar footer: avatar, name, and for a Google session the way to
+ * your account and Sign out. Your account is personal, so it is here and not a sidebar page.
  */
 function AccountMenu({ who, collapsed }: { who: Viewer | undefined; collapsed: boolean }) {
   const label = viewerLabel(who);
@@ -299,6 +506,12 @@ function AccountMenu({ who, collapsed }: { who: Viewer | undefined; collapsed: b
           <div className="truncate text-xs text-muted">{subtitle}</div>
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/agent/settings/account">
+            <UserRound />
+            Your account
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <a href="/auth/logout">
             <LogOut />

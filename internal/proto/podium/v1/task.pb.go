@@ -51,9 +51,12 @@ type Task struct {
 	// not a budget, so it changes what runs next and nothing about what a task is given.
 	Priority int32 `protobuf:"varint,15,opt,name=priority,proto3" json:"priority,omitempty"`
 	// Set once the node has published the task's exposed ports.
-	Preview       *TaskPreview `protobuf:"bytes,16,opt,name=preview,proto3" json:"preview,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Preview *TaskPreview `protobuf:"bytes,16,opt,name=preview,proto3" json:"preview,omitempty"`
+	// The sandbox the latest attempt ran in, on a sandbox node.
+	SandboxProvider string `protobuf:"bytes,17,opt,name=sandbox_provider,json=sandboxProvider,proto3" json:"sandbox_provider,omitempty"`
+	SandboxId       string `protobuf:"bytes,18,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -196,6 +199,20 @@ func (x *Task) GetPreview() *TaskPreview {
 		return x.Preview
 	}
 	return nil
+}
+
+func (x *Task) GetSandboxProvider() string {
+	if x != nil {
+		return x.SandboxProvider
+	}
+	return ""
+}
+
+func (x *Task) GetSandboxId() string {
+	if x != nil {
+		return x.SandboxId
+	}
+	return ""
 }
 
 // TaskPreview is a task's environment kept up after its command exited.
@@ -1047,7 +1064,7 @@ var File_podium_v1_task_proto protoreflect.FileDescriptor
 
 const file_podium_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\xc0\x05\n" +
+	"\x14podium/v1/task.proto\x12\tpodium.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x16podium/v1/common.proto\x1a\x14podium/v1/node.proto\"\x8a\x06\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x04spec\x18\x02 \x01(\v2\x13.podium.v1.TaskSpecR\x04spec\x12-\n" +
@@ -1068,7 +1085,10 @@ const file_podium_v1_task_proto_rawDesc = "" +
 	"\rqueued_reason\x18\r \x01(\tR\fqueuedReason\x12S\n" +
 	"\x18last_schedule_attempt_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x15lastScheduleAttemptAt\x12\x1a\n" +
 	"\bpriority\x18\x0f \x01(\x05R\bpriority\x120\n" +
-	"\apreview\x18\x10 \x01(\v2\x16.podium.v1.TaskPreviewR\apreviewB\f\n" +
+	"\apreview\x18\x10 \x01(\v2\x16.podium.v1.TaskPreviewR\apreview\x12)\n" +
+	"\x10sandbox_provider\x18\x11 \x01(\tR\x0fsandboxProvider\x12\x1d\n" +
+	"\n" +
+	"sandbox_id\x18\x12 \x01(\tR\tsandboxIdB\f\n" +
 	"\n" +
 	"_exit_code\"\xc7\x02\n" +
 	"\vTaskPreview\x12\x10\n" +

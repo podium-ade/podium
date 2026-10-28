@@ -5,7 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import type { PlaybookDefinition } from "../../gen/podium/agent/v1/agent_pb";
 import { PlaybookDefinitionSchema } from "../../gen/podium/agent/v1/agent_pb";
 import { useAgents } from "../../hooks/useAgents";
-import { agent, errorMessage, isAgentUnreachable, secrets } from "../../lib/client";
+import { agent, errorMessage, isAgentUnreachable, sandboxProviders, secrets } from "../../lib/client";
 import type { PlaybookDraft } from "../../lib/playbook";
 import { cn } from "../../lib/utils";
 import { Chip } from "../Badge";
@@ -52,6 +52,14 @@ export function PlaybooksPanel() {
     queryFn: () => agent.listMcpServers({}),
   });
   const { agents } = useAgents();
+  // Both only fill in Runs on, so a conductor or control plane that cannot answer leaves
+  // the editor working with the providers this build knows.
+  const providerList = useQuery({
+    queryKey: ["sandboxProviders"],
+    queryFn: () => sandboxProviders.listSandboxProviders({}),
+    retry: false,
+  });
+  const runsOn = useQuery({ queryKey: ["agent", "runsOn"], queryFn: () => agent.getRunsOn({}), retry: false });
 
   const reload = () => qc.invalidateQueries({ queryKey: ["agent", "profile"] });
 
@@ -108,6 +116,8 @@ export function PlaybooksPanel() {
     mcpNames: (mcpList.data?.servers ?? []).map((m) => m.name),
     disabledMcpNames: (mcpList.data?.servers ?? []).filter((m) => !m.enabled).map((m) => m.name),
     mcpUnknown: mcpList.isError || mcpList.isPending,
+    sandboxProviders: providerList.data?.providers,
+    defaultRunsOn: runsOn.data?.runsOn?.runsOn,
     error: saveError,
   };
 
@@ -210,6 +220,7 @@ export function PlaybooksPanel() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-medium text-fg">/{s.name}</span>
                       {s.linear ? <Chip>Linear</Chip> : null}
+                      {s.github ? <Chip>GitHub</Chip> : null}
                     </div>
                     <p className="mt-1 truncate font-mono text-2xs text-muted" title={s.image} data-testid="playbook-image">
                       {s.image}
@@ -303,12 +314,15 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     git: draft.git,
     slackChannels: draft.slackChannels,
     linear: draft.linear,
+    github: draft.github,
     interactive: draft.interactive,
     docker: draft.docker,
     browser: draft.browser,
     skills: draft.skills,
     mcpServers: draft.mcpServers,
     env: draft.env,
+    runsOn: draft.runsOn,
+    sandbox: { boat: { ...draft.sandbox.boat }, modal: { ...draft.sandbox.modal } },
   });
 }
 

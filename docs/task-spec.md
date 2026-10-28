@@ -106,9 +106,11 @@ disappeared — and the two need different answers.
 
 `workspace_session` names the conversation this task's `/workspace` belongs to. When it is
 set, the node restores that session's latest snapshot before the task starts, or the
-repository base named by `workspace_repo` when the session has none. After a clean exit it
+repository base named by `workspace_repo` when the session has none. When the task exits it
 uploads a new tar and the control plane keeps that as the one snapshot for the session.
-The volume is still deleted at teardown. A cancel or an OOM does not replace the snapshot.
+The volume is still deleted at teardown. A cancel or an OOM uploads too, so the next
+task of the session restores the files that were there when the task died. A failed
+upload leaves the previous snapshot in place.
 
 Leave `workspace_session` empty for a one-shot task. Nothing is restored and nothing is
 uploaded, and `keepWorkspace` stays false, so the volume is removed with the task.
@@ -481,6 +483,11 @@ Where the address comes from is the node's configuration, not the spec's
   `100.x` address. Viewers must be people on the tailnet: tagged devices are refused.
 - **`lan`** — one of the node's own addresses, from a pool the operator set aside. Anything
   that can reach the address can use the preview; there is no login on this path.
+- **`sandbox`** — the cloud sandbox provider's own URL for each port, on a
+  [sandbox node](sandboxes.md). Every port gets a URL of its own, so `PODIUM_URL_<NAME>` is
+  the one to use and `PODIUM_EXPOSE_HOST` is empty. **These URLs are on the internet**, gated
+  only by the token in them (boat) or a cookie (Modal): anyone holding one can use the
+  preview. It has to be asked for by name, and a task that does runs only on a sandbox node.
 
 **With no `ports`, `expose` only holds.** The containers stay up for the ttl and are released
 the same way, but nothing is published, and the task takes no address from the node, so any
@@ -517,6 +524,42 @@ Things to know:
   ends at `finished`. `docker logs` on the node still has it.
 - **A cancelled command is not held.** Neither is one that never ran.
 - `timeout` covers the command only.
+
+## Sandbox
+
+A task can run in a cloud sandbox of its own instead of a container on a node. Any task that
+names `sandbox:`, or exposes `via: sandbox`, gets the label `backend=sandbox` and runs only on
+a [sandbox node](sandboxes.md).
+
+```yaml
+sandbox:
+  snapshot: ci-base          # a provider snapshot; the command runs directly in it
+  provider: boat             # optional: pin a provider
+command: ["make", "test"]    # required: a snapshot has no image to take a command from
+```
+
+A sandbox node takes no task that does not ask for a sandbox, so a task meant for the fleet's
+own machines is never billed to a provider.
+
+A task may also override some of its provider's settings for its own sandbox. A block applies
+only on its own provider, and naming a provider with another provider's block is refused:
+
+```yaml
+sandbox:
+  boat:  { type: large, template: ci-base, org: acme }   # small|default|large|xlarge; template only without snapshot
+  modal: { runtime: vm, environment: staging }          # gvisor|vm
+```
+
+With `snapshot`, `image` is not used and may be left out. The command runs as an unprivileged
+`podium` account under `podium-runner`, with `/workspace`, `/podium/secrets`, `PODIUM_*`,
+artifacts, workspace sessions and `expose` as in a container. Sidecars run under the sandbox's
+own Docker, reachable by name. `hardening` does not apply — the task is a process with no
+privileges to drop — and a spec that sets it is refused. File secrets go under
+`/podium/secrets` only, and a `working_dir` other than `/workspace` is created as the task's
+user: neither can name a path the task could not have written itself.
+
+Without `snapshot`, an `image` task on a sandbox node runs that image: inside the sandbox's
+Docker on boat, as the sandbox itself on Modal. `resources` choose the sandbox's size.
 
 ## Egress
 

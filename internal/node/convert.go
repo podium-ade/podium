@@ -19,6 +19,7 @@ var eventKinds = map[string]podiumv1.TaskEventKind{
 	docker.KindError:        podiumv1.TaskEventKind_TASK_EVENT_KIND_ERROR,
 	docker.KindMessage:      podiumv1.TaskEventKind_TASK_EVENT_KIND_MESSAGE,
 	docker.KindPreview:      podiumv1.TaskEventKind_TASK_EVENT_KIND_PREVIEW,
+	docker.KindSandbox:      podiumv1.TaskEventKind_TASK_EVENT_KIND_SANDBOX,
 }
 
 var logStreams = map[string]podiumv1.LogChunk_Stream{
@@ -71,6 +72,11 @@ func toWire(ev docker.Event) *podiumv1.TaskEvent {
 			Via:     p.Via,
 			Address: p.Address,
 			Urls:    p.URLs,
+		}}
+	case docker.SandboxPayload:
+		out.Payload = &podiumv1.TaskEvent_Sandbox{Sandbox: &podiumv1.SandboxHandle{
+			Provider:  p.Provider,
+			SandboxId: p.ID,
 		}}
 	case docker.ExitedPayload:
 		out.Payload = &podiumv1.TaskEvent_Exited{Exited: &podiumv1.Exited{

@@ -256,3 +256,31 @@ func TestRuntimeDefaultsToTheEngine(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "runsc", cfg.Runtime)
 }
+
+func TestSandboxBackendConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "node.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`server: http://127.0.0.1:8080
+local_token: devtoken
+backend: sandbox
+sandbox:
+  provider: boat
+  template: ci-base
+  boat:
+    api_key_file: /etc/podium/boat.key
+`), 0o600))
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	cfg.DataDir = t.TempDir()
+	require.NoError(t, cfg.Validate())
+	require.Equal(t, BackendSandbox, cfg.Backend)
+	require.Equal(t, "ci-base", cfg.Sandbox.Template)
+	require.Equal(t, "/etc/podium/boat.key", cfg.Sandbox.Providers["boat"]["api_key_file"])
+
+	cfg.Sandbox.Provider = ""
+	require.ErrorContains(t, cfg.Validate(), "PODIUM_NODE_SANDBOX_PROVIDER")
+	cfg.Sandbox.Provider = "boat"
+	cfg.PreviewTailnetSlots = 1
+	require.ErrorContains(t, cfg.Validate(), "publishes previews through its provider")
+	cfg.Backend = "vm"
+	require.ErrorContains(t, cfg.Validate(), `backend "vm"`)
+}

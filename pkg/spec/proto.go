@@ -50,6 +50,15 @@ func (s *TaskSpec) ToProto() *podiumv1.TaskSpec {
 		}
 	}
 	p.Expose = s.Expose.toProto()
+	if sb := s.Sandbox; sb != nil {
+		p.Sandbox = &podiumv1.TaskSandbox{Snapshot: sb.Snapshot, Provider: sb.Provider}
+		if b := sb.Boat; b != nil {
+			p.Sandbox.Boat = &podiumv1.BoatSandbox{Type: b.Type, Template: b.Template, Org: b.Org}
+		}
+		if m := sb.Modal; m != nil {
+			p.Sandbox.Modal = &podiumv1.ModalSandbox{Runtime: m.Runtime, Environment: m.Environment}
+		}
+	}
 	return p
 }
 
@@ -95,6 +104,15 @@ func FromProto(p *podiumv1.TaskSpec) *TaskSpec {
 		}
 	}
 	s.Expose = exposeFromProto(p.GetExpose())
+	if sb := p.GetSandbox(); sb != nil {
+		s.Sandbox = &Sandbox{Snapshot: sb.GetSnapshot(), Provider: sb.GetProvider()}
+		if b := sb.GetBoat(); b != nil {
+			s.Sandbox.Boat = &BoatSandbox{Type: b.GetType(), Template: b.GetTemplate(), Org: b.GetOrg()}
+		}
+		if m := sb.GetModal(); m != nil {
+			s.Sandbox.Modal = &ModalSandbox{Runtime: m.GetRuntime(), Environment: m.GetEnvironment()}
+		}
+	}
 	return s
 }
 

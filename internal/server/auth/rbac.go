@@ -69,11 +69,16 @@ var catalog = map[string]string{
 	podiumv1connect.RegistryServiceSetRegistryProcedure:    store.RoleAdmin,
 	podiumv1connect.RegistryServiceDeleteRegistryProcedure: store.RoleAdmin,
 
+	podiumv1connect.SandboxProviderServiceListSandboxProvidersProcedure:  store.RoleMember,
+	podiumv1connect.SandboxProviderServiceSetSandboxProviderProcedure:    store.RoleAdmin,
+	podiumv1connect.SandboxProviderServiceDeleteSandboxProviderProcedure: store.RoleAdmin,
+
 	agentv1connect.AgentServiceListSessionsProcedure:   store.RoleMember,
 	agentv1connect.AgentServiceGetSessionProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceListTurnsProcedure:      store.RoleMember,
 	agentv1connect.AgentServiceGetUsageProcedure:       store.RoleMember,
 	agentv1connect.AgentServiceGetSettingsProcedure:    store.RoleMember,
+	agentv1connect.AgentServiceGetRunsOnProcedure:      store.RoleMember,
 	agentv1connect.AgentServiceListAgentsProcedure:     store.RoleMember,
 	agentv1connect.AgentServiceListMemoriesProcedure:   store.RoleMember,
 	agentv1connect.AgentServiceSearchMemoriesProcedure: store.RoleMember,
@@ -100,6 +105,7 @@ var catalog = map[string]string{
 	agentv1connect.AgentServiceAttachChatPullRequestProcedure: store.RoleMember,
 	agentv1connect.AgentServiceDetachChatPullRequestProcedure: store.RoleMember,
 
+	agentv1connect.AgentServiceSetRunsOnProcedure:                  store.RoleAdmin,
 	agentv1connect.AgentServiceSetProviderKeyProcedure:             store.RoleAdmin,
 	agentv1connect.AgentServiceClearProviderKeyProcedure:           store.RoleAdmin,
 	agentv1connect.AgentServiceStartProviderOAuthProcedure:         store.RoleAdmin,

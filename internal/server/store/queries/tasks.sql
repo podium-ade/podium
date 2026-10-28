@@ -107,3 +107,12 @@ set status           = @to_status::text,
                             else coalesce(sqlc.narg(lease_expires_at)::timestamptz, lease_expires_at) end
 where id = @id
 returning *;
+
+-- SetTaskSandbox records the sandbox a node made for the task's current attempt. A late
+-- event from an attempt the task has moved on from matches nothing.
+-- name: SetTaskSandbox :execrows
+update tasks
+set sandbox_provider   = @sandbox_provider,
+    sandbox_id         = @sandbox_id,
+    sandbox_deleted_at = null
+where id = @id and lease_id = @lease_id;

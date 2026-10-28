@@ -7,16 +7,23 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/podium-ade/podium/internal/node/docker"
+	"github.com/podium-ade/podium/internal/node/sandboxexec"
+	"github.com/podium-ade/podium/internal/node/sandboxexec/agentbin"
 	podiumv1 "github.com/podium-ade/podium/internal/proto/podium/v1"
 	"github.com/podium-ade/podium/internal/proto/podium/v1/podiumv1connect"
+	"github.com/podium-ade/podium/internal/sandbox"
+	_ "github.com/podium-ade/podium/internal/sandbox/boat"  // registers the boat provider
+	_ "github.com/podium-ade/podium/internal/sandbox/modal" // registers the modal provider
 	"github.com/podium-ade/podium/internal/transport/local"
 	"github.com/podium-ade/podium/internal/transport/tailnet"
+	"github.com/podium-ade/podium/pkg/spec"
 )
 
 // adoptSeqFloor is where an adopted task restarts its sequence space when the control
@@ -29,15 +36,58 @@ const adoptSeqFloor = 1 << 20
 // adoptTeardownTimeout bounds the cleanup of a container the control plane has disowned.
 const adoptTeardownTimeout = 60 * time.Second
 
-// Node is the daemon: one Docker executor, one identity, one stream at a time, and one
+// newExecutor builds the backend the config names. A sandbox node also labels itself, so
+// the tasks that need one — and pin a provider — find it.
+//
+// A sandbox node whose config file has no settings for its provider is managed: the provider
+// stays empty until the control plane sends its configuration, and swap is where it goes.
+func newExecutor(ctx context.Context, cfg *Config, logger *slog.Logger) (exec executor, swap *sandbox.Swappable, err error) {
+	if cfg.Backend != BackendSandbox {
+		exec, err = docker.New(ctx, docker.Options{
+			DataDir:                 cfg.DataDir,
+			DockerHost:              cfg.DockerHost,
+			AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
+			Runtime:                 cfg.Runtime,
+			Logger:                  logger,
+		})
+		return exec, nil, err
+	}
+	name := cfg.Sandbox.Provider
+	var p sandbox.Provider
+	if local := cfg.Sandbox.Providers[name]; len(local) > 0 {
+		if p, err = sandbox.New(name, local); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		swap = sandbox.NewSwappable(name)
+		p = swap
+	}
+	if _, err := agentbin.Linux(); err != nil {
+		return nil, nil, err
+	}
+	for _, l := range []string{spec.LabelSandbox, spec.LabelSandboxProvider + name} {
+		if !slices.Contains(cfg.Labels, l) {
+			cfg.Labels = append(cfg.Labels, l)
+		}
+	}
+	exec, err = sandboxexec.New(sandboxexec.Options{
+		Provider: p, DataDir: cfg.DataDir, Template: cfg.Sandbox.Template, Agent: agentbin.Linux, Logger: logger,
+	})
+	return exec, swap, err
+}
+
+// Node is the daemon: one executor, one identity, one stream at a time, and one
 // replay buffer per task in flight.
 type Node struct {
 	cfg    Config
 	logger *slog.Logger
-	exec   *docker.Executor
-	id     Identity
-	facts  HostFacts
-	client podiumv1connect.NodeServiceClient
+	exec   executor
+	// sandbox is the provider of a sandbox node configured from the control plane, nil on
+	// every other node.
+	sandbox *sandbox.Swappable
+	id      Identity
+	facts   HostFacts
+	client  podiumv1connect.NodeServiceClient
 
 	// tsnet is the node's own Tailscale device under transport: tailnet, nil otherwise.
 	tsnet *tailnet.Client
@@ -67,6 +117,10 @@ type Node struct {
 	// says otherwise. The override is not persisted here — the server re-sends it after
 	// every HelloAck — so a node that restarts alone comes back on its own configuration.
 	maxTasks int
+	// reaping is the sandboxes this node is deleting for the control plane, and reaped the
+	// answers waiting for the stream.
+	reaping map[string]bool
+	reaped  []*podiumv1.SandboxReaped
 
 	wake      chan struct{}
 	drainOnce sync.Once
@@ -92,18 +146,17 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		return nil, fmt.Errorf("node config: %w", err)
 	}
 
-	exec, err := docker.New(ctx, docker.Options{
-		DataDir:                 cfg.DataDir,
-		DockerHost:              cfg.DockerHost,
-		AllowPrivilegedSidecars: cfg.AllowPrivilegedSidecars,
-		Runtime:                 cfg.Runtime,
-		Logger:                  logger,
-	})
+	exec, swap, err := newExecutor(ctx, &cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	facts := hostFacts(ctx, exec.ServerVersion())
+	if cfg.Backend == BackendSandbox {
+		// The machine this daemon runs on is not where tasks run; the scheduler reads a
+		// zero as "unmeasured" and places on slots alone.
+		facts.CPUCores, facts.MemoryMB = 0, 0
+	}
 	httpClient, ts, err := dialer(ctx, cfg, logger)
 	if err != nil {
 		_ = exec.Close()
@@ -140,10 +193,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 			"node_id", id.NodeID, "identity", filepath.Join(cfg.DataDir, identityFile))
 	}
 
-	return &Node{
+	n := &Node{
 		cfg:        cfg,
 		logger:     logger.With("node_id", id.NodeID),
 		exec:       exec,
+		sandbox:    swap,
 		id:         id,
 		facts:      facts,
 		client:     client,
@@ -156,7 +210,11 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Node, error) {
 		maxTasks:   cfg.MaxTasks,
 		wake:       make(chan struct{}, 1),
 		drainDone:  make(chan struct{}),
-	}, nil
+	}
+	if x, ok := exec.(reaper); ok {
+		x.OnDeleted(n.sandboxDeleted)
+	}
+	return n, nil
 }
 
 // dialer builds the HTTP client every RPC goes through, and the tailnet device behind it when
@@ -446,7 +504,7 @@ func (n *Node) runningTaskIDs() []string {
 // image cache watermark — a machine that cannot fit another image cannot reliably start
 // another task, and refusing the work is more honest than failing at the pull.
 func (n *Node) freeSlots() int32 {
-	if n.diskFull() {
+	if n.diskFull() || (n.sandbox != nil && !n.sandbox.Ready()) {
 		return 0
 	}
 	held := n.previews.heldCount()

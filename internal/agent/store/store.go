@@ -95,6 +95,8 @@ type Session struct {
 	Playbook   string
 	CreatedAt  time.Time
 	LastTurnAt *time.Time
+	// GitHubReviewID is the pull-request review this session submitted. Zero means none.
+	GitHubReviewID int64
 }
 
 // Turn is one inbound message turned into one Podium task.
@@ -425,14 +427,34 @@ func (s *Store) PutLinearCursor(ctx context.Context, key string, at time.Time) e
 
 func sessionFromRow(r db.Session) Session {
 	return Session{
-		ID:         r.ID,
-		SourceKind: r.SourceKind,
-		SourceKey:  r.SourceKey,
-		Profile:    r.Profile,
-		Playbook:   r.Playbook,
-		CreatedAt:  r.CreatedAt.UTC(),
-		LastTurnAt: utcPtr(r.LastTurnAt),
+		ID:             r.ID,
+		SourceKind:     r.SourceKind,
+		SourceKey:      r.SourceKey,
+		Profile:        r.Profile,
+		Playbook:       r.Playbook,
+		CreatedAt:      r.CreatedAt.UTC(),
+		LastTurnAt:     utcPtr(r.LastTurnAt),
+		GitHubReviewID: r.GithubReviewID,
 	}
+}
+
+// SetGitHubReviewID records the pull-request review a session submitted. The next final
+// for that session updates the review instead of opening another.
+func (s *Store) SetGitHubReviewID(ctx context.Context, sourceKey string, reviewID int64) error {
+	if reviewID <= 0 {
+		return fmt.Errorf("set github review %s: id must be positive", sourceKey)
+	}
+	n, err := s.q.SetGitHubReviewID(ctx, db.SetGitHubReviewIDParams{
+		ReviewID:  reviewID,
+		SourceKey: sourceKey,
+	})
+	if err != nil {
+		return fmt.Errorf("set github review %s: %w", sourceKey, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: session %s", ErrNotFound, sourceKey)
+	}
+	return nil
 }
 
 func turnFromRow(r db.Turn) Turn {

@@ -49,15 +49,19 @@ function poll(fields: Parameters<typeof create<typeof PollProviderOAuthResponseS
 function mount(settings: ProviderSettings = notSet) {
   return render(
     <ToastHost>
-      <ProviderCard
-        provider={XAI}
-        settings={settings}
-        onSave={onSave}
-        onClear={onClear}
-        onStartOAuth={onStartOAuth}
-        onPollOAuth={onPollOAuth}
-        onSignedIn={onSignedIn}
-      />
+      <table>
+        <tbody>
+          <ProviderCard
+            provider={XAI}
+            settings={settings}
+            onSave={onSave}
+            onClear={onClear}
+            onStartOAuth={onStartOAuth}
+            onPollOAuth={onPollOAuth}
+            onSignedIn={onSignedIn}
+          />
+        </tbody>
+      </table>
     </ToastHost>,
   );
 }

@@ -200,7 +200,7 @@ creates the `podium_agent` database on a fresh volume, so there is nothing to cr
 
 It is the third service `make stack-up` starts, and `deploy/.env` already has its token. What it
 still needs is a profile directory — `PODIUM_AGENT_PROFILE_DIR`, default `examples/agent` — and
-a model credential, set in the UI under Agent → Settings:
+a model credential, set in the UI under Compute → Models:
 
 - **Anthropic** — an API key, for playbooks on the `claude` backend.
 - **xAI** — an API key, *or* a subscription sign-in (SuperGrok, X Premium+) if

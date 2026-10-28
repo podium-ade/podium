@@ -81,6 +81,13 @@ func (s *Service) Stream(
 	// before it adopts anything: only the control plane knows what it has committed. The
 	// HelloAck goes out before the Cancels it implies, so a node reading its stream in
 	// order always learns the verdict before it is told to act on one.
+	// A sandbox node needs its provider before it can adopt the sandboxes it already has,
+	// so the configuration goes out ahead of the HelloAck that tells it to.
+	if provider := sandboxProviderOf(node.Labels); provider != "" && s.sandbox != nil {
+		if err := s.sendSandboxConfig(ctx, sess, provider); err != nil {
+			s.logger.WarnContext(ctx, "sending sandbox config failed", "node_id", node.ID, "provider", provider, "error", err)
+		}
+	}
 	checkpoints, orphans := s.reconcile(ctx, sess, node, hello.GetRunningTaskIds())
 	ack := &podiumv1.ServerMessage{Msg: &podiumv1.ServerMessage_HelloAck{
 		HelloAck: &podiumv1.HelloAck{
@@ -114,6 +121,9 @@ func (s *Service) Stream(
 	}}); err != nil {
 		s.logger.WarnContext(ctx, "sending the slot count to a node failed",
 			"node_id", node.ID, "error", err)
+	}
+	if provider := sandboxProviderOf(node.Labels); provider != "" {
+		s.reapOn(ctx, provider, []*Session{sess})
 	}
 
 	err = s.readLoop(ctx, sess, incoming)
@@ -291,6 +301,8 @@ func (s *Service) readLoop(ctx context.Context, sess *Session, incoming <-chan r
 				if b.bytes >= flushBytes {
 					s.flush(ctx, sess, b)
 				}
+			case r.msg.GetSandboxReaped() != nil:
+				s.sandboxReaped(ctx, sess, r.msg.GetSandboxReaped())
 			case r.msg.GetHello() != nil:
 				s.logger.WarnContext(ctx, "ignoring second Hello on an open stream", "node_id", sess.nodeID)
 			default:
