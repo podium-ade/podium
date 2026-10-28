@@ -301,7 +301,7 @@ nothing while its node pulls a large image is not a task anyone gives up on.
 
 ## Configuration
 
-Most of this is the environment. The GitHub App is not: it is saved under Settings →
+Most of this is the environment. The GitHub App is not: it is saved under Access →
 Connections, and `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are ignored.
 Every variable the code still reads is in [`../deploy/.env.example`](../deploy/.env.example),
 and a test fails if one is read and missing from that file.
@@ -320,7 +320,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_RUNNER_BIN` | with the above | `/usr/local/bin/podium-runner` in the image; none for a bare binary | `podium-runner` on this host. The assistant has no node to bind-mount one in, and it is how the runtime says anything at all. The image ships it beside the conductor |
 | `PODIUM_AGENT_HOST_NODE` | no | `node` | the node binary that runs it |
 | `PODIUM_AGENT_HOST_DIR` | no | the OS temp dir | where an assistant turn's own `HOME`, working directory and event socket are made |
-| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Settings → Connections stores the same pair and replaces these on the next start |
+| `PODIUM_AGENT_SLACK_APP_TOKEN` | for Slack | — | `xapp-…`, Socket Mode. Access → Connections stores the same pair and replaces these on the next start |
 | `PODIUM_AGENT_SLACK_BOT_TOKEN` | for Slack | — | `xoxb-…`. Saved with the app token above |
 | `PODIUM_AGENT_LINEAR_API_KEY` | for Linear | — | the bot user's **personal** API key. Empty means no Linear source; set and broken means the process exits at boot |
 | `PODIUM_AGENT_LINEAR_POLL_INTERVAL` | no | `30s` | how often assigned issues are asked for. Floor **10s** |
@@ -353,7 +353,7 @@ conductor at all:
 Both Slack tokens or neither: one alone is a startup error naming the other. With no Slack tokens
 and no Linear key, no source is started and the conductor listens to nothing — it says so at
 startup, which is a fine shape to run it in while you set a provider credential in the UI.
-Slack can be saved under Settings → Connections instead of its variables. A saved row replaces
+Slack can be saved under Access → Connections instead of its variables. A saved row replaces
 the environment for Slack on the next start. The GitHub App is only that screen. Linear is
 still environment only.
 
@@ -530,7 +530,7 @@ interactive: false                                           # ask a question an
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
 expose: null                                                 # keep the turn up afterwards as a preview
-runs_on: ""                                                  # default: Settings → Runs on; or nodes, boat, modal
+runs_on: ""                                                  # default: Compute → Backend; or nodes, boat, modal
 sandbox: {}                                                  # per-provider overrides; see below
 skills: []                                                   # Agent Skills this playbook may use
 mcp_servers: []                                              # MCP servers this playbook may use
@@ -701,7 +701,7 @@ down.
 #### `runs_on:` and `sandbox:` — where a turn runs
 
 A turn runs on this fleet's own nodes, or in a cloud sandbox of its own on a
-[sandbox provider](sandboxes.md). **Settings → Runs on** picks the default for every playbook;
+[sandbox provider](sandboxes.md). **Compute → Backend** picks the default for every playbook;
 `runs_on:` pins one playbook to `nodes` or to a provider by name. Providers are set up, keys and
 caps included, on the **Sandboxes** screen, and only chosen here.
 
@@ -1236,12 +1236,12 @@ up in either order — and the picker says so rather than refusing.
 ## Setting a provider credential
 
 A turn needs the credential its backend spends, dry run included, and the web UI is where an
-operator sets it. **Settings → Models** has one row per provider. Chat picks which model a
-turn uses; this category is how those models get a credential.
+operator sets it. **Compute → Models** has one row per provider. Chat picks which model a
+turn uses; this page is how those models get a credential.
 
-Open the UI and click **Settings** (the gear next to the wordmark), then **Models**.
+Open the UI and click **Models**, under **Compute** in the sidebar.
 
-<!-- screenshot: Settings, Models section, an Anthropic row, an xAI row and an OpenAI row, none set -->
+<!-- screenshot: the Models page, an Anthropic row, an xAI row and an OpenAI row, none set -->
 
 Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 
@@ -1425,7 +1425,7 @@ The app is checked in as [`../deploy/slack-app-manifest.yaml`](../deploy/slack-a
    internet.
 5. **Invite the bot to every channel you want it in**: `/invite @Podium`. It cannot see a channel
    it is not in, whatever its scopes say.
-6. Put both tokens in **Settings → Connections**, or in `.env`. A saved connection is what
+6. Put both tokens in **Access → Connections**, or in `.env`. A saved connection is what
    the conductor reads the next time it starts; the environment applies only when nothing
    is saved. Restart it after either change. The startup log names the sources it enabled
    and the playbooks it loaded.
@@ -1678,7 +1678,7 @@ must appear as *your* bot.
    `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.
    An App that already exists does not pick this up from the manifest: add `pull_request`
    on its webhook settings.
-2. Generate a private key. Paste the PEM under Settings → Connections, with the App id.
+2. Generate a private key. Paste the PEM under Access → Connections, with the App id.
    That is the same key clone tokens mint from. The old key-file variable is ignored.
 3. Set the App's webhook URL to whatever Tailscale Funnel / tunnel points at the listen
    address you save with the App, path `/webhooks/github`. That mux is **only** that
@@ -1873,7 +1873,7 @@ exactly when the push needed it. So `credential.helper` is a program git runs *e
 wants a password — once per clone, once per fetch, once per push — and each call returns a token
 minted seconds earlier.
 
-Save the App id and paste the PEM under Settings → Connections. When you want pull-request
+Save the App id and paste the PEM under Access → Connections. When you want pull-request
 reviews, save the webhook secret and listen address there too. The conductor uses that App
 the next time it starts. `PODIUM_AGENT_GITHUB_APP_ID`, the key and the webhook variables are
 ignored.
@@ -1921,10 +1921,10 @@ person connects their account once, and nobody creates a personal access token.
    - Under **Optional features**, keep **User-to-server token expiration** on. It is GitHub's
      default, and Podium refuses a token that never expires.
    - Generate a **client secret**.
-2. Under Settings → Connections, an admin saves the App's **client id** and **client secret**
+2. Under Access → Connections, an admin saves the App's **client id** and **client secret**
    with the App. They apply at once. No restart is needed.
-3. Each person clicks **Connect GitHub** under Settings → Account. Podium stores the token and
-   its refresh token as that person's personal secret `github.token`.
+3. Each person clicks **Connect GitHub** under **Your account**, in the account menu. Podium
+   stores the token and its refresh token as that person's personal secret `github.token`.
 4. The playbook names it:
 
 ```yaml
@@ -1958,13 +1958,13 @@ the credential helper and `GH_TOKEN`.
 The turn fails, and says why, when:
 
 - The person has not connected GitHub, or GitHub no longer accepts their connection: the
-  refresh token went six months unused, or they revoked the App. Settings → Account then says
+  refresh token went six months unused, or they revoked the App. **Your account** then says
   the connection expired and offers **Reconnect GitHub**.
 - The playbook lists no `repos:`. The scoped token reaches those repositories and no others.
 - The turn has no Podium person: a Slack mention, a Linear issue or a GitHub comment. Ask from
   the web chat.
 
-Disconnect under Settings → Account deletes the token. To revoke the grant on GitHub too, use
+**Disconnect** under **Your account** deletes the token. To revoke the grant on GitHub too, use
 **Settings → Applications → Authorized GitHub Apps** on GitHub.
 
 #### A personal access token — the older path, still supported
@@ -2499,7 +2499,7 @@ One Connect service, `podium.agent.v1.AgentService`, served on `PODIUM_AGENT_LIS
 | rpc | what it is for |
 |---|---|
 | `ListSessions`, `GetSession`, `ListTurns` | the Sessions tab: every conversation and every turn |
-| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Settings in the sidebar: one row per provider |
+| `GetSettings`, `SetProviderKey`, `ClearProviderKey` | Models in the sidebar: one row per provider |
 | `StartProviderOAuth`, `PollProviderOAuth` | the subscription sign-in. The device code stays on the conductor; a browser is handed a flow id, which names a sign-in rather than bearing one |
 | `ListAgents` | the agent/model/effort picker: the backends, their models, the levels each takes, and which have a credential |
 | `ListMemories`, `SearchMemories`, `DeleteMemory` | the Memory tab: what the agents remember, and forgetting one |

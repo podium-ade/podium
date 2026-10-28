@@ -1,6 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import { Settings2 } from "lucide-react";
-import { Link, Navigate, Route, Routes, useLocation, useParams } from "react-router";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChannelsPanel } from "../components/agent/ChannelsPanel";
 import { ConnectionsPanel } from "../components/agent/ConnectionsPanel";
@@ -32,13 +32,13 @@ import {
 } from "../components/ui/table";
 import { PROVIDERS } from "../lib/agents";
 import { agent, errorMessage, isAgentUnreachable } from "../lib/client";
-import { useViewer } from "../lib/identity";
+import { useViewer, type Viewer } from "../lib/identity";
 import { cn } from "../lib/utils";
 import { canManageInfra } from "../lib/rbac";
 
 /**
  * Tab is one assistant screen. Chat, Sessions, Memory and Assistants are links in the app
- * sidebar, as are Playbooks, Skills, MCP, Channels and Settings.
+ * sidebar, as are Playbooks, Skills, MCP, Channels and each former settings section.
  *
  * `route` exists only for Chat, whose own screen takes a chat id after the segment.
  *
@@ -156,29 +156,34 @@ const SETTINGS_LEAD: Record<string, string> = {
 };
 
 /**
- * SettingsTab is the settings frame. Each section keeps its own address, so back and a
- * deep link still land on it. The names are the design's underline tabs.
+ * SETTINGS_SECTIONS are the pages that used to be Settings' tabs. Each is its own sidebar
+ * entry now, in the group it answers to, but keeps its /agent/settings address so old
+ * links, the GitHub callback and notifications still land on it.
+ */
+const SETTINGS_SECTIONS: { id: string; title: string; show: (v: Viewer | undefined) => boolean }[] = [
+  { id: "account", title: "Your account", show: (v) => Boolean(v?.googleAuthEnabled) },
+  { id: "users", title: "Members", show: () => true },
+  { id: "runs-on", title: "Backend", show: (v) => Boolean(v?.agentEnabled) },
+  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
+  { id: "connections", title: "Connections", show: (v) => Boolean(v?.agentEnabled) && canManageInfra(v) },
+  { id: "models", title: "Models", show: (v) => Boolean(v?.agentEnabled) },
+];
+
+/**
+ * SettingsTab draws one former settings section as a page of its own. A bare
+ * /agent/settings, or a section this viewer does not get, lands on the first one they do.
  */
 function SettingsTab() {
   const viewer = useViewer();
   const { pathname } = useLocation();
   const tab = pathname.replace(/^\/agent\/settings\/?/, "").split("/")[0] ?? "";
 
-  // GitHub and Slack credentials are infra. Members keep Models; they do not see Connections.
-  const manage = canManageInfra(viewer);
-  const categories: { id: string; label: string }[] = [
-    ...(viewer?.googleAuthEnabled ? [{ id: "account", label: "Account" }] : []),
-    { id: "users", label: "Users" },
-    ...(viewer?.agentEnabled ? [{ id: "runs-on", label: "Runs on" }] : []),
-    ...(viewer?.agentEnabled && manage ? [{ id: "connections", label: "Connections" }] : []),
-    ...(viewer?.agentEnabled ? [{ id: "models", label: "Models" }] : []),
-  ];
-
-  const fallback = categories[0]?.id ?? "";
-  const current = categories.some((c) => c.id === tab) ? tab : "";
-  if (!current) {
+  const sections = SETTINGS_SECTIONS.filter((s) => s.show(viewer));
+  const section = sections.find((s) => s.id === tab);
+  if (!section) {
+    const fallback = sections[0];
     return fallback ? (
-      <Navigate to={`/agent/settings/${fallback}`} replace />
+      <Navigate to={`/agent/settings/${fallback.id}`} replace />
     ) : (
       <PageFrame title="Settings">
         <p className="text-sm text-muted">Nothing to configure.</p>
@@ -186,37 +191,15 @@ function SettingsTab() {
     );
   }
 
+  const current = section.id;
   const flush = current === "users" || current === "connections" || current === "models";
 
   return (
-    <PageFrame title="Settings" bodyClassName="p-6">
+    <PageFrame title={section.title} bodyClassName="p-6">
       <section
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
-        aria-label="Settings"
+        aria-label={section.title}
       >
-        <nav
-          aria-label="Settings sections"
-          className="flex w-full items-center gap-2 overflow-x-auto border-b border-border px-4"
-        >
-          {categories.map((section) => {
-            const open = section.id === current;
-            return (
-              <Link
-                key={section.id}
-                to={`/agent/settings/${section.id}`}
-                aria-current={open ? "page" : undefined}
-                className={cn(
-                  "inline-flex min-h-11 shrink-0 items-center border-b-[3px] px-3.5 py-2.5 text-base leading-[1.55] font-semibold whitespace-nowrap",
-                  open
-                    ? "border-accent text-fg"
-                    : "border-transparent text-soft hover:bg-raised hover:text-fg",
-                )}
-              >
-                {section.label}
-              </Link>
-            );
-          })}
-        </nav>
         <div className="border-b border-border p-4">
           <p className="max-w-[68ch] text-soft">{SETTINGS_LEAD[current]}</p>
         </div>

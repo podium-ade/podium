@@ -113,8 +113,8 @@ sandbox:
 (`sandbox:`, `expose.via: sandbox` or the `backend=sandbox` label). A task pins a provider with
 `sandbox.provider: boat`, and may override the provider's machine type, template, organization
 (boat) or runtime and environment (Modal) for its own sandbox: see
-[task-spec.md](task-spec.md#sandbox). Agent sessions run on a provider when **Settings → Runs
-on** or the playbook's `runs_on:` says so: see [agent.md](agent.md#runs_on-and-sandbox--where-a-turn-runs).
+[task-spec.md](task-spec.md#sandbox). Agent sessions run on a provider when **Compute → Backend**
+or the playbook's `runs_on:` says so: see [agent.md](agent.md#runs_on-and-sandbox--where-a-turn-runs).
 
 The node binary must carry the agent: `make build` and `make dist-node` run
 `make sandbox-agent-embed`, and a node started without one says so and exits.

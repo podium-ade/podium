@@ -86,8 +86,8 @@ the failure you want. That node also needs **8 GB free for the task** and room f
 ### 3. Connect your GitHub account
 
 The playbook opens pull requests as the person who asked. An admin adds the GitHub App's client
-id and secret under Settings → Connections once. Then each person clicks **Connect GitHub** under
-Settings → Account. See
+id and secret under Access → Connections once. Then each person clicks **Connect GitHub** under
+**Your account**, in the account menu. See
 [`../docs/agent.md`](../docs/agent.md#the-askers-own-github-account).
 
 `user_secrets:` in the playbook is what delivers that person's token, as `GITHUB_TOKEN` in the
