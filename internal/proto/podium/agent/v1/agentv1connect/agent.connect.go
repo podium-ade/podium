@@ -67,6 +67,9 @@ const (
 	// AgentServiceSetGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// SetGitHubConnection RPC.
 	AgentServiceSetGitHubConnectionProcedure = "/podium.agent.v1.AgentService/SetGitHubConnection"
+	// AgentServiceSetGitHubWebhookFiltersProcedure is the fully-qualified name of the AgentService's
+	// SetGitHubWebhookFilters RPC.
+	AgentServiceSetGitHubWebhookFiltersProcedure = "/podium.agent.v1.AgentService/SetGitHubWebhookFilters"
 	// AgentServiceClearGitHubConnectionProcedure is the fully-qualified name of the AgentService's
 	// ClearGitHubConnection RPC.
 	AgentServiceClearGitHubConnectionProcedure = "/podium.agent.v1.AgentService/ClearGitHubConnection"
@@ -241,6 +244,10 @@ type AgentServiceClient interface {
 	// conductor uses this the next time it starts. The GitHub App environment variables
 	// are ignored.
 	SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error)
+	// SetGitHubWebhookFilters stores which webhook deliveries start a turn: who may trigger
+	// one, the phrases a top-level comment needs beside the @mention, and when a thread
+	// reply needs none. It applies to the next delivery, without a restart.
+	SetGitHubWebhookFilters(context.Context, *connect.Request[v1.SetGitHubWebhookFiltersRequest]) (*connect.Response[v1.SetGitHubWebhookFiltersResponse], error)
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
@@ -490,6 +497,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceSetGitHubConnectionProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("SetGitHubConnection")),
+			connect.WithClientOptions(opts...),
+		),
+		setGitHubWebhookFilters: connect.NewClient[v1.SetGitHubWebhookFiltersRequest, v1.SetGitHubWebhookFiltersResponse](
+			httpClient,
+			baseURL+AgentServiceSetGitHubWebhookFiltersProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("SetGitHubWebhookFilters")),
 			connect.WithClientOptions(opts...),
 		),
 		clearGitHubConnection: connect.NewClient[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse](
@@ -786,6 +799,7 @@ type agentServiceClient struct {
 	setSlackConnection         *connect.Client[v1.SetSlackConnectionRequest, v1.SetSlackConnectionResponse]
 	clearSlackConnection       *connect.Client[v1.ClearSlackConnectionRequest, v1.ClearSlackConnectionResponse]
 	setGitHubConnection        *connect.Client[v1.SetGitHubConnectionRequest, v1.SetGitHubConnectionResponse]
+	setGitHubWebhookFilters    *connect.Client[v1.SetGitHubWebhookFiltersRequest, v1.SetGitHubWebhookFiltersResponse]
 	clearGitHubConnection      *connect.Client[v1.ClearGitHubConnectionRequest, v1.ClearGitHubConnectionResponse]
 	getGitHubAccount           *connect.Client[v1.GetGitHubAccountRequest, v1.GetGitHubAccountResponse]
 	startGitHubOAuth           *connect.Client[v1.StartGitHubOAuthRequest, v1.StartGitHubOAuthResponse]
@@ -897,6 +911,11 @@ func (c *agentServiceClient) ClearSlackConnection(ctx context.Context, req *conn
 // SetGitHubConnection calls podium.agent.v1.AgentService.SetGitHubConnection.
 func (c *agentServiceClient) SetGitHubConnection(ctx context.Context, req *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error) {
 	return c.setGitHubConnection.CallUnary(ctx, req)
+}
+
+// SetGitHubWebhookFilters calls podium.agent.v1.AgentService.SetGitHubWebhookFilters.
+func (c *agentServiceClient) SetGitHubWebhookFilters(ctx context.Context, req *connect.Request[v1.SetGitHubWebhookFiltersRequest]) (*connect.Response[v1.SetGitHubWebhookFiltersResponse], error) {
+	return c.setGitHubWebhookFilters.CallUnary(ctx, req)
 }
 
 // ClearGitHubConnection calls podium.agent.v1.AgentService.ClearGitHubConnection.
@@ -1171,6 +1190,10 @@ type AgentServiceHandler interface {
 	// conductor uses this the next time it starts. The GitHub App environment variables
 	// are ignored.
 	SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error)
+	// SetGitHubWebhookFilters stores which webhook deliveries start a turn: who may trigger
+	// one, the phrases a top-level comment needs beside the @mention, and when a thread
+	// reply needs none. It applies to the next delivery, without a restart.
+	SetGitHubWebhookFilters(context.Context, *connect.Request[v1.SetGitHubWebhookFiltersRequest]) (*connect.Response[v1.SetGitHubWebhookFiltersResponse], error)
 	// ClearGitHubConnection removes the saved App. Calling it twice is not an error.
 	// The App is off on the next start.
 	ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error)
@@ -1416,6 +1439,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceSetGitHubConnectionProcedure,
 		svc.SetGitHubConnection,
 		connect.WithSchema(agentServiceMethods.ByName("SetGitHubConnection")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceSetGitHubWebhookFiltersHandler := connect.NewUnaryHandler(
+		AgentServiceSetGitHubWebhookFiltersProcedure,
+		svc.SetGitHubWebhookFilters,
+		connect.WithSchema(agentServiceMethods.ByName("SetGitHubWebhookFilters")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceClearGitHubConnectionHandler := connect.NewUnaryHandler(
@@ -1722,6 +1751,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceClearSlackConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceSetGitHubConnectionProcedure:
 			agentServiceSetGitHubConnectionHandler.ServeHTTP(w, r)
+		case AgentServiceSetGitHubWebhookFiltersProcedure:
+			agentServiceSetGitHubWebhookFiltersHandler.ServeHTTP(w, r)
 		case AgentServiceClearGitHubConnectionProcedure:
 			agentServiceClearGitHubConnectionHandler.ServeHTTP(w, r)
 		case AgentServiceGetGitHubAccountProcedure:
@@ -1873,6 +1904,10 @@ func (UnimplementedAgentServiceHandler) ClearSlackConnection(context.Context, *c
 
 func (UnimplementedAgentServiceHandler) SetGitHubConnection(context.Context, *connect.Request[v1.SetGitHubConnectionRequest]) (*connect.Response[v1.SetGitHubConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetGitHubConnection is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) SetGitHubWebhookFilters(context.Context, *connect.Request[v1.SetGitHubWebhookFiltersRequest]) (*connect.Response[v1.SetGitHubWebhookFiltersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("podium.agent.v1.AgentService.SetGitHubWebhookFilters is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ClearGitHubConnection(context.Context, *connect.Request[v1.ClearGitHubConnectionRequest]) (*connect.Response[v1.ClearGitHubConnectionResponse], error) {

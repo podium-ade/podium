@@ -293,6 +293,15 @@ func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, own
 	return out, err
 }
 
+// ReviewComment reads one inline review comment. A reply's in_reply_to_id is the first
+// comment of its thread, so this is how a reply learns who started the thread.
+func (c *restClient) ReviewComment(ctx context.Context, installID int64, owner, repo string, commentID int64) (Comment, error) {
+	var out Comment
+	err := c.do(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/pulls/comments/%d", owner, repo, commentID), nil, &out)
+	return out, err
+}
+
 // ListIssueComments pages the PR conversation comments, oldest first as GitHub returns them.
 func (c *restClient) ListIssueComments(ctx context.Context, installID int64, owner, repo string, number int) ([]Comment, error) {
 	var all []Comment
