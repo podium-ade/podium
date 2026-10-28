@@ -142,10 +142,11 @@ type Conductor struct {
 	store    *store.Store
 	podium   *podium.Client
 	profiles *profiles.Live
-	sources  []Source
-	metrics  *Metrics
-	logger   *slog.Logger
-	memory   *BriefMemory
+	// sources is guarded by mu: ReplaceSource swaps Slack and GitHub while turns run.
+	sources []Source
+	metrics *Metrics
+	logger  *slog.Logger
+	memory  *BriefMemory
 	// memories is the shared-memory client. See retain.go.
 	memories memory.Client
 	// pending is the delegation announcements not said yet, oldest first. Guarded by mu;
@@ -169,7 +170,8 @@ type Conductor struct {
 	// hostSlots is the cap on concurrent host turns, one token per slot. Buffered and not
 	// a mutex because a queued turn waits on ctx as well.
 	hostSlots chan struct{}
-	// github mints installation tokens; nil when no GitHub App is configured. gitTaskURL
+	// github mints installation tokens; nil when no GitHub App is configured. It is guarded
+	// by mu and read through githubApp, because SetGitHub swaps it while turns run. gitTaskURL
 	// is where a task reaches this conductor to redeem a capability, and mintSecret is
 	// what those capabilities are signed with. See gitcred.go.
 	github     *github.Client
@@ -304,7 +306,7 @@ func (c *Conductor) Run(ctx context.Context) error {
 		c.watchExtractions(ctx)
 	}()
 
-	for _, src := range c.sources {
+	for _, src := range c.sourceList() {
 		c.wg.Add(1)
 		go func(src Source) {
 			defer c.wg.Done()
@@ -987,7 +989,7 @@ func (c *Conductor) brief(
 	// nowhere in here; scope is decided by what the conductor signed, so the brief does not
 	// carry that either. Set only when there is something to mint for, which
 	// provisionGitCapability decides from the same playbook.
-	if c.github != nil || j.playbook.UsesGitHubAccount() {
+	if c.githubApp() != nil || j.playbook.UsesGitHubAccount() {
 		if scope, err := gitScopeOf(j.playbook); err == nil && len(scope.Repos) > 0 {
 			b.GitCredentials = &BriefGitCredentials{URL: c.gitTaskURL, TokenEnv: GitTokenEnv}
 		}
@@ -1669,10 +1671,57 @@ func firstLine(text string, limit int) string {
 // sourceOf finds the source a session belongs to, or nil when it is not configured in this
 // process (Slack tokens removed, say).
 func (c *Conductor) sourceOf(kind string) Source {
-	for _, src := range c.sources {
+	for _, src := range c.sourceList() {
 		if src.Kind() == kind {
 			return src
 		}
 	}
+	return nil
+}
+
+func (c *Conductor) sourceList() []Source {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.sources)
+}
+
+// ReplaceSource swaps the source of one kind for src, which is how a Slack pair or a GitHub
+// App saved under Settings → Connections takes effect without a restart. Nil removes that
+// kind. The caller stops the old source: its events channel closing is what ends its drain,
+// and a turn already running keeps posting through it.
+//
+// A source added once Run has started is drained until its channel closes or the
+// conductor's context ends. It is not part of Run's wait, which only covers the sources Run
+// started with.
+func (c *Conductor) ReplaceSource(kind string, src Source) {
+	c.mu.Lock()
+	c.sources = slices.DeleteFunc(c.sources, func(s Source) bool { return s.Kind() == kind })
+	if src != nil {
+		c.sources = append(c.sources, src)
+	}
+	ctx := c.baseCtx
+	c.mu.Unlock()
+	if src != nil && ctx != nil && ctx.Err() == nil {
+		go c.drain(ctx, src)
+	}
+}
+
+// githubApp is the GitHub App turns mint installation tokens from, nil when there is none.
+func (c *Conductor) githubApp() *github.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.github
+}
+
+// SetGitHub swaps the GitHub App turns mint from. Nil turns it off: a running turn that asks
+// for a token afterwards is told there is no App, as it would be after a restart.
+func (c *Conductor) SetGitHub(gh *github.Client) error {
+	if gh != nil && (c.mintSecret == "" || c.gitTaskURL == "") {
+		return errors.New("conductor: a GitHub App needs a mint secret and the URL a task " +
+			"container reaches this conductor on")
+	}
+	c.mu.Lock()
+	c.github = gh
+	c.mu.Unlock()
 	return nil
 }

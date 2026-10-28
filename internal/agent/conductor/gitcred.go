@@ -175,7 +175,8 @@ func (c *Conductor) MintGitToken(ctx context.Context, capability string) (GitCre
 	if err != nil {
 		return GitCredential{}, err
 	}
-	if scope.Login == "" && c.github == nil {
+	app := c.githubApp()
+	if scope.Login == "" && app == nil {
 		return GitCredential{}, ErrNoGitApp
 	}
 	// The unit of work's own status is the revocation list: one that has finished —
@@ -191,11 +192,11 @@ func (c *Conductor) MintGitToken(ctx context.Context, capability string) (GitCre
 	if scope.Login != "" {
 		return c.mintUserToken(ctx, turnID, scope)
 	}
-	token, err := c.github.Token(ctx, scope.Owner, scope.Repos)
+	token, err := app.Token(ctx, scope.Owner, scope.Repos)
 	if err != nil {
 		return GitCredential{}, err
 	}
-	identity, err := c.github.Identity(ctx)
+	identity, err := app.Identity(ctx)
 	if err != nil {
 		return GitCredential{}, err
 	}
@@ -227,7 +228,7 @@ func (c *Conductor) provisionGitCapability(
 	ctx context.Context, turnID string, playbook profiles.Playbook, login string,
 ) (string, error) {
 	user := playbook.UsesGitHubAccount()
-	if c.github == nil && !user {
+	if c.githubApp() == nil && !user {
 		return "", nil
 	}
 	scope, err := gitScopeOf(playbook)
@@ -309,7 +310,7 @@ func githubPersonaOf(acct store.GitHubAccount) *BriefGit {
 // authority.
 func (c *Conductor) dropGitCapability(ctx context.Context, turnID string, playbook profiles.Playbook) {
 	user := playbook.UsesGitHubAccount()
-	if c.github == nil && !user {
+	if c.githubApp() == nil && !user {
 		return
 	}
 	if user {

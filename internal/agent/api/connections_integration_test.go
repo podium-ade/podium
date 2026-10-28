@@ -3,10 +3,12 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"strings"
 	"testing"
 
@@ -159,4 +161,93 @@ func TestAConnectionSavedInClearIsMovedIntoTheSecretStore(t *testing.T) {
 	assert.Equal(t, "pem", gh.PrivateKey)
 	assert.Equal(t, "whsec", gh.WebhookSecret)
 	assert.Equal(t, "xapp-old", slack.AppToken)
+}
+
+// fakeApplier stands in for the running conductor's connections. Apply does what the real
+// one does on success: it tells the service what is now running.
+type fakeApplier struct {
+	svc      *AgentService
+	checkErr error
+	applyErr error
+	checked  []config.Config
+	applied  int
+}
+
+func (f *fakeApplier) Check(_ context.Context, cfg config.Config) error {
+	f.checked = append(f.checked, cfg)
+	return f.checkErr
+}
+
+func (f *fakeApplier) Apply(ctx context.Context) error {
+	f.applied++
+	if f.applyErr != nil {
+		return f.applyErr
+	}
+	slack, gh, err := connections.Load(ctx, f.svc.store, f.svc.secrets)
+	if err != nil {
+		return err
+	}
+	f.svc.SetRunning(connections.Overlay(f.svc.env, slack, gh), nil)
+	return nil
+}
+
+func TestASavedConnectionIsAppliedWithoutARestart(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	f.svc.env = f.svc.running
+	applier := &fakeApplier{svc: f.svc}
+	f.svc.connections = applier
+	ctx := loginCtx("ada")
+
+	saved, err := f.svc.SetSlackConnection(ctx, connect.NewRequest(&agentv1.SetSlackConnectionRequest{
+		AppToken: "xapp-not-a-real-token-1234", BotToken: "xoxb-not-a-real-token-5678",
+	}))
+	require.NoError(t, err)
+	require.Len(t, applier.checked, 1)
+	assert.Equal(t, "xoxb-not-a-real-token-5678", applier.checked[0].SlackBotToken,
+		"the pair is checked before it is stored")
+	assert.Equal(t, 1, applier.applied)
+	assert.False(t, saved.Msg.GetSlack().GetRestartRequired())
+
+	gh, err := f.svc.SetGitHubConnection(ctx, connect.NewRequest(&agentv1.SetGitHubConnectionRequest{
+		AppId: "123456", PrivateKey: githubTestKey(t),
+	}))
+	require.NoError(t, err)
+	assert.False(t, gh.Msg.GetGithub().GetRestartRequired())
+
+	cleared, err := f.svc.ClearGitHubConnection(ctx, connect.NewRequest(&agentv1.ClearGitHubConnectionRequest{}))
+	require.NoError(t, err)
+	assert.False(t, cleared.Msg.GetGithub().GetRestartRequired())
+	assert.Equal(t, 3, applier.applied)
+}
+
+func TestARefusedConnectionIsNotSaved(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	applier := &fakeApplier{svc: f.svc, checkErr: errors.New("slack did not accept the bot token: invalid_auth")}
+	f.svc.connections = applier
+
+	_, err := f.svc.SetSlackConnection(loginCtx("ada"), connect.NewRequest(&agentv1.SetSlackConnectionRequest{
+		AppToken: "xapp-not-a-real-token-1234", BotToken: "xoxb-revoked-5678",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	assert.Contains(t, err.Error(), "invalid_auth")
+	assert.Zero(t, applier.applied)
+	_, ok := f.secrets.set[connections.SlackBotTokenSecret]
+	assert.False(t, ok, "nothing reached the secret store")
+}
+
+// A save the running conductor cannot switch to is still a save, and says a restart is owed.
+func TestAConnectionThatCannotBeAppliedStillSaves(t *testing.T) {
+	f := newSettingsFixture(t, "https://example.invalid", nil)
+	f.svc.running = config.Config{Listen: "0.0.0.0:8090", TaskURL: config.DefaultTaskURL}
+	f.svc.connections = &fakeApplier{svc: f.svc, applyErr: errors.New("webhook listener: address in use")}
+
+	saved, err := f.svc.SetSlackConnection(loginCtx("ada"), connect.NewRequest(&agentv1.SetSlackConnectionRequest{
+		AppToken: "xapp-not-a-real-token-1234", BotToken: "xoxb-not-a-real-token-5678",
+	}))
+	require.NoError(t, err)
+	assert.True(t, saved.Msg.GetSlack().GetRestartRequired())
+	assert.Contains(t, f.log.String(), "could not switch to it")
 }
