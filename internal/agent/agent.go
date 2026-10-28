@@ -24,13 +24,10 @@ import (
 	"github.com/podium-ade/podium/internal/agent/conductor"
 	"github.com/podium-ade/podium/internal/agent/config"
 	"github.com/podium-ade/podium/internal/agent/connections"
-	"github.com/podium-ade/podium/internal/agent/ghreview"
-	"github.com/podium-ade/podium/internal/agent/github"
 	agentlinear "github.com/podium-ade/podium/internal/agent/linear"
 	"github.com/podium-ade/podium/internal/agent/memory"
 	"github.com/podium-ade/podium/internal/agent/podium"
 	"github.com/podium-ade/podium/internal/agent/profiles"
-	agentslack "github.com/podium-ade/podium/internal/agent/slack"
 	"github.com/podium-ade/podium/internal/agent/store"
 	"github.com/podium-ade/podium/internal/proto/podium/agent/v1/agentv1connect"
 )
@@ -61,9 +58,8 @@ type Agent struct {
 	turns     *api.TurnService
 	gitcred   *api.GitCredentialService
 	conductor *conductor.Conductor
-	slack     *agentslack.Source
+	live      *liveConnections
 	linear    *agentlinear.Source
-	ghSource  *ghreview.Source
 	chat      *chat.Source
 	dev       *api.DevSource
 	memory    memory.Client
@@ -145,18 +141,25 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	registry.MustRegister(collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
+	// Slack, the GitHub review source and the GitHub App are the connections Settings can
+	// change while the conductor runs. See live.go.
+	a.live = &liveConnections{
+		env:     envCfg,
+		store:   st,
+		vault:   pc,
+		logger:  logger,
+		running: cfg,
+	}
+	slackSrc, ghSrc, gh, err := a.live.build(cfg)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	a.live.slack, a.live.gh = slackSrc, ghSrc
+
 	var sources []conductor.Source
-	if cfg.SlackEnabled() {
-		a.slack, err = agentslack.New(agentslack.Options{
-			AppToken: cfg.SlackAppToken,
-			BotToken: cfg.SlackBotToken,
-			Logger:   logger,
-		})
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
-		sources = append(sources, a.slack)
+	if slackSrc != nil {
+		sources = append(sources, slackSrc)
 	}
 	if cfg.LinearEnabled() {
 		a.linear, err = agentlinear.New(agentlinear.Options{
@@ -209,91 +212,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		}
 		sources = append(sources, a.linear)
 	}
-	if cfg.GitHubSourceEnabled() {
-		pem, err := cfg.GitHubAppPrivateKey()
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
-		key, err := github.ParsePrivateKey(pem)
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
-		a.ghSource, err = ghreview.NewSource(ghreview.SourceOptions{
-			AppID:         cfg.GitHubAppID,
-			PrivateKey:    key,
-			WebhookSecret: cfg.GitHubWebhookSecret,
-			Listen:        cfg.GitHubWebhookListen,
-			Slack:         a.slack,
-			Logger:        logger,
-			TaskURL: func(taskID string) string {
-				if taskID == "" {
-					return ""
-				}
-				return strings.TrimSuffix(cfg.WebURL(), "/") + "/tasks/" + taskID
-			},
-			Reviews: ghreview.ReviewMemory{
-				Get: func(ctx context.Context, sourceKey string) (int64, error) {
-					sess, err := st.GetSessionByKey(ctx, sourceKey)
-					if errors.Is(err, store.ErrNotFound) {
-						return 0, nil
-					}
-					if err != nil {
-						return 0, err
-					}
-					return sess.GitHubReviewID, nil
-				},
-				Set: func(ctx context.Context, sourceKey string, reviewID int64) error {
-					return st.SetGitHubReviewID(ctx, sourceKey, reviewID)
-				},
-			},
-			Session: func(ctx context.Context, sourceKey string) (time.Time, bool) {
-				sess, err := st.GetSessionByKey(ctx, sourceKey)
-				if err != nil {
-					return time.Time{}, false
-				}
-				if sess.LastTurnAt != nil {
-					return *sess.LastTurnAt, true
-				}
-				return time.Time{}, true
-			},
-			Surfaces: ghreview.Surfaces{
-				LookupSlack: func(ctx context.Context, slackRef string) (string, bool, error) {
-					row, err := st.GetReviewSurface(ctx, store.ReviewSurfaceSlack, slackRef)
-					if errors.Is(err, store.ErrNotFound) {
-						return "", false, nil
-					}
-					if err != nil {
-						return "", false, err
-					}
-					return row.SourceKey, true, nil
-				},
-				BindSlack: func(ctx context.Context, slackRef, sourceKey string) error {
-					err := st.BindReviewSurface(ctx, sourceKey, store.ReviewSurfaceSlack, slackRef)
-					if errors.Is(err, store.ErrSurfaceBound) {
-						return ghreview.ErrBoundToOther
-					}
-					return err
-				},
-				ListSlack: func(ctx context.Context, sourceKey string) ([]string, error) {
-					rows, err := st.ListReviewSurfaces(ctx, sourceKey, store.ReviewSurfaceSlack)
-					if err != nil {
-						return nil, err
-					}
-					out := make([]string, 0, len(rows))
-					for _, r := range rows {
-						out = append(out, r.Ref)
-					}
-					return out, nil
-				},
-			},
-		})
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
-		sources = append(sources, a.ghSource)
+	if ghSrc != nil {
+		sources = append(sources, ghSrc)
 	}
 	// The web chat is always on: it needs no credential and no external service, and the
 	// UI's Chat tab is only as good as the source behind it.
@@ -308,9 +228,6 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		return nil, err
 	}
 	sources = append(sources, a.chat)
-	if a.slack != nil && a.ghSource != nil {
-		a.slack.SetReview(a.ghSource)
-	}
 
 	if cfg.DevSource {
 		logger.Warn("DEV SOURCE ENABLED — TEST ONLY. /dev/inbound injects messages as if a human " +
@@ -376,20 +293,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 			"conversations on this host.")
 	}
 
-	// The GitHub App, when one is configured. Nil leaves every playbook on the older
-	// path — its own podium.agent.github_token — untouched.
-	var gh *github.Client
-	if a.cfg.GitHubAppEnabled() {
-		pem, err := a.cfg.GitHubAppPrivateKey()
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
-		gh, err = github.New(github.Options{AppID: a.cfg.GitHubAppID, PrivateKeyPEM: pem})
-		if err != nil {
-			st.Close()
-			return nil, err
-		}
+	if gh != nil {
 		logger.Info("github app configured: turns will mint their own installation tokens",
 			"app_id", a.cfg.GitHubAppID, "task_url", a.cfg.TaskURL)
 	}
@@ -423,8 +327,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 	}
 
 	var slackDir api.SlackDirectory
-	if a.slack != nil {
-		slackDir = a.slack
+	if slackSrc != nil {
+		slackDir = slackSrc
 	}
 	a.svc = api.NewAgentService(api.AgentServiceOptions{
 		Store:               a.store,
@@ -449,8 +353,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Agent, e
 		Tasks:               a.podium,
 		Turns:               a.conductor,
 		Slack:               slackDir,
+		Connections:         a.live,
 		Logger:              a.logger,
 	})
+	a.live.conductor, a.live.svc = a.conductor, a.svc
 	// The turn surface. It is the conductor itself: only a conductor that runs host turns
 	// has anything to delegate from, so a conductor without one leaves this nil and every
 	// call to it answers FailedPrecondition.
@@ -676,14 +582,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// is a bot nobody can talk to, and failing loudly at boot is how a wrong credential is
 	// found in the first minute rather than the first day.
 	sourceErr := make(chan error, 3)
-	if a.slack != nil {
-		go func() { sourceErr <- a.slack.Run(runCtx) }()
-	}
+	a.live.start(runCtx, sourceErr)
 	if a.linear != nil {
 		go func() { sourceErr <- a.linear.Run(runCtx) }()
-	}
-	if a.ghSource != nil {
-		go func() { sourceErr <- a.ghSource.Run(runCtx) }()
 	}
 	conductorDone := make(chan struct{})
 	go func() {

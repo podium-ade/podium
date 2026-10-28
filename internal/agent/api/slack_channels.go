@@ -28,8 +28,9 @@ func (s *AgentService) ListSlackChannels(
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("this conductor has no database"))
 	}
-	if s.slack != nil {
-		page, err := s.slack.ListChannels(ctx)
+	dir := s.slackDirectory()
+	if dir != nil {
+		page, err := dir.ListChannels(ctx)
 		if err != nil {
 			s.logger.WarnContext(ctx, "listing slack channels failed; returning the catalogue", "error", err)
 		} else {
@@ -51,7 +52,7 @@ func (s *AgentService) ListSlackChannels(
 	}
 	return connect.NewResponse(&agentv1.ListSlackChannelsResponse{
 		Channels:       out,
-		SlackConnected: s.slack != nil,
+		SlackConnected: dir != nil,
 	}), nil
 }
 

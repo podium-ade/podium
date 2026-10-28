@@ -61,7 +61,7 @@ func newServeCommand() *cobra.Command {
 			"Configuration is the environment: PODIUM_AGENT_SERVER, PODIUM_AGENT_API_TOKEN,\n" +
 			"PODIUM_AGENT_DATABASE_URL, PODIUM_AGENT_LISTEN, PODIUM_AGENT_TOKEN and\n" +
 			"PODIUM_AGENT_PROFILE_DIR. Slack can instead be saved in Settings → Connections,\n" +
-			"which replaces those variables on the next start. The GitHub App is only saved\n" +
+			"which replaces those variables as soon as it is saved. The GitHub App is only saved\n" +
 			"there: PODIUM_AGENT_GITHUB_APP_ID, the key and the webhook variables are ignored.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
