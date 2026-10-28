@@ -132,7 +132,10 @@ export function Assistants() {
   const readOnly = !canManageInfra(viewer);
 
   return (
-    <PageFrame title="Assistants">
+    <PageFrame
+      title="Assistants"
+      lead="The assistants people can talk to, and the personality and job each one has."
+    >
       <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
         <VoiceList route={route} personalities={personalities} loading={voices.isPending} />
         <div className="min-w-0 flex-1">
