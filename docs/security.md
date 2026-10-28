@@ -826,7 +826,7 @@ its own names (`spec.ConductorMayRead`): any global under `podium.agent.`, and o
   model credential and the tokens of the MCP servers the assistant was granted.
 - **For the refresh pass**: a subscription's or an MCP sign-in's refresh token, and an MCP
   sign-in's client secret.
-- **For its connections**: at start, and when Settings → Connections or a person's GitHub
+- **For its connections**: at start, and when Access → Connections or a person's GitHub
   connection needs them. The API returns a hint, the App id, the client id and the webhook listen
   address, and never a credential.
 - **For a person's GitHub account**: to exchange it for a token GitHub scopes to one turn's
