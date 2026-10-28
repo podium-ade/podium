@@ -350,7 +350,19 @@ func TestNoMentionOnASessionPRIsDroppedUnlessItIsAReviewReply(t *testing.T) {
 func TestAReviewThreadReplyOnASessionPRContinues(t *testing.T) {
 	h := newHarness(t)
 	h.session("github:acme/repo#12")
-	payload := map[string]any{
+	h.stub.threadRoot(8, User{Login: "podium[bot]", Type: "Bot"})
+	rec := postWebhook(t, h, "pull_request_review_comment", "d-reply", reviewReply("fixed", 8))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	evs := h.drain()
+	require.Len(t, evs, 1)
+	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
+	assert.Contains(t, evs[0].Text, "a.go:4")
+	assert.Contains(t, evs[0].Text, "fixed")
+}
+
+// reviewReply is alice replying in the inline thread that comment inReplyTo started.
+func reviewReply(body string, inReplyTo int64) map[string]any {
+	return map[string]any{
 		"action":       "created",
 		"installation": map[string]any{"id": 42},
 		"repository": map[string]any{
@@ -358,19 +370,12 @@ func TestAReviewThreadReplyOnASessionPRContinues(t *testing.T) {
 		},
 		"sender": map[string]any{"login": "alice", "type": "User"},
 		"comment": map[string]any{
-			"id": 9, "body": "fixed", "created_at": "2026-09-14T12:00:00Z",
-			"path": "a.go", "line": 4, "in_reply_to_id": 8,
+			"id": 9, "body": body, "created_at": "2026-09-14T12:00:00Z",
+			"path": "a.go", "line": 4, "in_reply_to_id": inReplyTo,
 			"user": map[string]any{"login": "alice", "type": "User"},
 		},
 		"pull_request": map[string]any{"number": 12},
 	}
-	rec := postWebhook(t, h, "pull_request_review_comment", "d-reply", payload)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	evs := h.drain()
-	require.Len(t, evs, 1)
-	assert.Equal(t, "github:acme/repo#12", evs[0].SourceKey)
-	assert.Contains(t, evs[0].Text, "a.go:4")
-	assert.Contains(t, evs[0].Text, "fixed")
 }
 
 func TestTheAppsOwnCommentIsDropped(t *testing.T) {
