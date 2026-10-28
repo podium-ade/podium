@@ -1372,10 +1372,9 @@ const (
 	dockerSidecarImage = "docker:29-dind@sha256:" +
 		"1e08cdb63405ca788aea94ef35b792d1e299607c667d33d7bcbcae1fd2611ced"
 
-	// dockerSidecarReady is generous because dockerd is slow to listen: ~17s on an
-	// unloaded arm64 laptop, and a loaded node is slower than that by more than the
-	// margin. A turn that waits two minutes for its daemon is still a turn; one that
-	// starts without it fails on the agent's first docker command.
+	// dockerSidecarReady is generous because a loaded node can be slow to start dockerd.
+	// A turn that waits two minutes for its daemon is still a turn; one that starts
+	// without it fails on the agent's first docker command.
 	dockerSidecarReady = 2 * time.Minute
 )
 
@@ -1441,7 +1440,11 @@ func dockerSidecar() spec.Sidecar {
 	return spec.Sidecar{
 		Image: dockerSidecarImage,
 		// Empty turns TLS off, which is what makes the daemon answer on plain 2375.
-		Env:            map[string]string{"DOCKER_TLS_CERTDIR": ""},
+		Env: map[string]string{"DOCKER_TLS_CERTDIR": ""},
+		// Docker 29 sleeps 15s before listening on plain TCP unless TLS is turned off
+		// explicitly. The entrypoint prepends dockerd and its --host flags to a command
+		// that starts with a dash.
+		Command:        []string{"--tls=false"},
 		Privileged:     true,
 		ShareWorkspace: true,
 		Readiness:      spec.Readiness{TCPPort: 2375, Timeout: spec.Duration(dockerSidecarReady)},

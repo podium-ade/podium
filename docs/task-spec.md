@@ -285,11 +285,12 @@ sidecars:
     image: docker:29-dind
     privileged: true
     share_workspace: true
+    command: ["--tls=false"]            # without it dockerd waits 15s before listening on 2375
     env:
       DOCKER_TLS_CERTDIR: ""            # plain 2375, on the task's own private bridge
     readiness:
       tcp_port: 2375
-      timeout: 2m                       # dockerd takes ~20s to listen
+      timeout: 2m
 ```
 
 `privileged: true` gives that container every capability and the host's devices — **root on the
