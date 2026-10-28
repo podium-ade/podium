@@ -53,7 +53,11 @@ export function RegistriesPage() {
   const showTable = !query.isPending && query.error === null;
 
   return (
-    <PageFrame title="Registries" bodyClassName="space-y-5 p-6">
+    <PageFrame
+      title="Registries"
+      bodyClassName="space-y-5 p-6"
+      lead="The places your container images come from, and the sign-ins your nodes need to download them."
+    >
       {noMasterKey ? (
         <Alert variant="warn" title="This server has no master key configured">
           There is nothing to encrypt a password with, so it cannot store registry logins. Set{" "}
@@ -78,18 +82,8 @@ export function RegistriesPage() {
 
       <section
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-panel"
-        aria-labelledby="registries-heading"
+        aria-label="Registries"
       >
-        <div className="border-b border-border p-6">
-          <h2 id="registries-heading" className="text-2xl leading-tight font-bold">
-            Registries
-          </h2>
-          <p className="mt-2 max-w-[66ch] text-soft">
-            These are the places your images come from, such as{" "}
-            <code className="font-mono text-xs">us-docker.pkg.dev</code> or{" "}
-            <code className="font-mono text-xs">ghcr.io</code>.
-          </p>
-        </div>
 
         <div className="grid grid-cols-1 items-center gap-4 border-b border-border bg-raised px-6 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
           <p className="m-0 text-soft">
