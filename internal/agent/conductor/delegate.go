@@ -137,15 +137,16 @@ func (c *Conductor) DelegablePlaybooks() []DelegablePlaybook {
 
 // menuFor is the playbooks a turn from src may delegate to. Every playbook, except on a pull
 // request: anybody the GitHub triggers allow can comment there, so it is offered the review
-// playbook alone.
-func (c *Conductor) menuFor(src Source) []DelegablePlaybook {
+// playbook, and a playbook naming github_requires only when the speaker's role meets it.
+func (c *Conductor) menuFor(src Source, role string) []DelegablePlaybook {
 	all := c.DelegablePlaybooks()
 	if src == nil || src.Kind() != SourceGitHub {
 		return all
 	}
-	out := make([]DelegablePlaybook, 0, 1)
+	playbooks := c.profiles.Current().Playbooks
+	out := make([]DelegablePlaybook, 0, len(all))
 	for _, p := range all {
-		if p.GitHub {
+		if p.GitHub || profiles.GitHubRoleAtLeast(role, playbooks[p.Name].GitHubRequires) {
 			out = append(out, p)
 		}
 	}

@@ -531,6 +531,7 @@ repos: []                                                    # [{name, url, defa
 slack_channels: []                                           # DEPRECATED, and ignored where the assistant answers Slack
 linear: false                                                # this is the playbook Linear tickets run
 github: false                                                # this is the playbook pull-request reviews run
+github_requires: ""                                          # offered on a pull request to commenters with this role or more
 interactive: false                                           # ask a question and wait in the same container
 docker: false                                                # attach a Docker daemon beside the turn
 browser: false                                               # attach a headless Chrome beside the turn
@@ -572,6 +573,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   most bots take no tickets — until a Linear key is set, and then the conductor refuses to start.
 - **At most one playbook may set `github: true`.** That playbook is the whole of a pull-request
   review. Two is a start-up error. Zero means a review is refused until one is marked.
+- **`github_requires` is `read`, `triage`, `write`, `maintain` or `admin`**, and the review
+  playbook may not set it: it is always offered. A playbook that sets it names the same first
+  repository as the review playbook, because both work in the pull request's one workspace.
 - **`env:` may not set `DOCKER_HOST` when `docker: true`.** The conductor points it at the daemon
   it attached. A playbook without the flag may set it freely: nothing is attached to collide with.
 
@@ -1681,8 +1685,16 @@ A pull request is a **conversation**, one session per pull request (`github:owne
   that PR's URL — is answered by the **assistant**, on the host, as a Slack thread is. It
   answers a question about the code or the review itself, from the conversation: the
   review, its inline notes and the diff they quote. Asked to review, or to review again, it
-  delegates to the `github: true` playbook. Its menu on a pull request is that playbook
-  alone — anybody the triggers allow can comment there.
+  delegates to the `github: true` playbook. Other work goes to a playbook on its menu.
+
+**The menu on a pull request depends on who is asking.** Anybody the triggers allow can comment,
+so the menu is the review playbook, plus each playbook whose `github_requires` the commenter's
+role on the repository meets — a playbook that pushes asks for `write`. The role is read from
+GitHub (`role_name`, or the base permission for an organisation's custom role) and remembered
+for five minutes. A pull request from a fork whose author has not let maintainers push to it
+caps the role at `triage`, and the turn is told why. A role that cannot be read is no role, and
+so is a Slack mention's: the review playbook alone. The menu is what the turn's token accepts,
+so a comment that talks the assistant into anything else is still refused.
 
 The turn is told who wrote what, where — the conversation tab, a review thread with the file,
 line and quoted diff, or Slack — and, once there is a review, the commit it covered and the head

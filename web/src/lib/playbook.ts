@@ -25,6 +25,8 @@ export type PlaybookDraft = {
   slackChannels: string[]
   linear: boolean
   github: boolean
+  /** The role a commenter needs for this playbook to be offered on a pull request. Empty is never. */
+  githubRequires: string
   interactive: boolean
   skills: string[]
   mcpServers: string[]
@@ -80,6 +82,7 @@ export type PlaybookDoc = {
   browser?: boolean
   linear?: boolean
   github?: boolean
+  github_requires?: string
   interactive?: boolean
   runs_on?: string
   sandbox?: {
@@ -118,10 +121,14 @@ const PLAYBOOK_KEYS = [
   "browser",
   "linear",
   "github",
+  "github_requires",
   "interactive",
   "runs_on",
   "sandbox",
 ]
+
+/** GITHUB_ROLES are a person's roles on a GitHub repository, weakest first. */
+export const GITHUB_ROLES = ["read", "triage", "write", "maintain", "admin"] as const
 
 const RESOURCE_KEYS = ["cpu", "memory_mb", "pids"]
 const SECRET_KEYS = ["name", "target", "key"]
@@ -275,6 +282,13 @@ export function parsePlaybookValue(
   if (linear !== undefined) out.linear = linear
   const github = r.bool("github", root.github)
   if (github !== undefined) out.github = github
+  const githubRequires = r.string("github_requires", root.github_requires)
+  if (githubRequires !== undefined) {
+    out.github_requires = githubRequires
+    if (!(GITHUB_ROLES as readonly string[]).includes(githubRequires)) {
+      r.bad("github_requires", `${JSON.stringify(githubRequires)} is not one of ${GITHUB_ROLES.join(", ")}`)
+    }
+  }
   const interactive = r.bool("interactive", root.interactive)
   if (interactive !== undefined) out.interactive = interactive
 
@@ -392,6 +406,7 @@ export function definitionToDoc(playbook: PlaybookDefinition): PlaybookDoc {
   if (mcp.length > 0) doc.mcp_servers = [...mcp]
   if (playbook.linear) doc.linear = true
   if (playbook.github) doc.github = true
+  if (playbook.githubRequires) doc.github_requires = playbook.githubRequires
   if (playbook.interactive) doc.interactive = true
   if (playbook.docker) doc.docker = true
   if (playbook.browser) doc.browser = true
@@ -470,6 +485,7 @@ export function draftToDoc(draft: PlaybookDraft): PlaybookDoc {
   if (draft.mcpServers.length > 0) doc.mcp_servers = [...draft.mcpServers]
   if (draft.linear) doc.linear = true
   if (draft.github) doc.github = true
+  if (draft.githubRequires) doc.github_requires = draft.githubRequires
   if (draft.interactive) doc.interactive = true
   if (draft.docker) doc.docker = true
   if (draft.browser) doc.browser = true
@@ -524,6 +540,7 @@ export function docToDraft(name: string, doc: PlaybookDoc): PlaybookDraft {
     slackChannels: doc.slack_channels ?? [],
     linear: doc.linear ?? false,
     github: doc.github ?? false,
+    githubRequires: (doc.github_requires ?? "").trim(),
     interactive: doc.interactive ?? false,
     skills: doc.skills ?? [],
     mcpServers: doc.mcp_servers ?? [],

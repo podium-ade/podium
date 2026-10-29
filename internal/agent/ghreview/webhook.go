@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/podium-ade/podium/internal/agent/conductor"
+	"github.com/podium-ade/podium/internal/agent/profiles"
 )
 
 // WebhookPath is the only route on the webhook mux. Funnel/a tunnel points here and
@@ -163,6 +164,9 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 	if known {
 		commit, head = s.reviewBaseline(ctx, c)
 	}
+	if !c.ready {
+		c.role, c.locked = s.speakerRole(ctx, c)
+	}
 	if c.ready {
 		text = pullInstruction(c.author, PRURL(c.owner, c.repo, c.number), c.action)
 		if known {
@@ -185,6 +189,7 @@ func (s *Source) handleDelivery(ctx context.Context, event, delivery string, bod
 		URL:       PRURL(c.owner, c.repo, c.number),
 		BriefKind: conductor.SourceGitHub,
 		Automatic: c.ready,
+		Role:      c.role,
 	})
 	s.logWebhook(ctx, slog.LevelInfo, event, delivery, c, "started", "")
 }
@@ -244,6 +249,10 @@ type classified struct {
 	base string
 	// reason is why classify rejected the delivery. Empty when it accepted it.
 	reason string
+	// role is the author's role on the repository, which decides the playbooks the turn is
+	// offered. locked is a fork nobody here can push to; role is capped below write for it.
+	role   string
+	locked bool
 }
 
 func (s *Source) classify(event string, body []byte) (classified, bool) {
@@ -462,6 +471,59 @@ func (s *Source) replyTriggers(ctx context.Context, f Filters, c classified, kno
 	}
 }
 
+// roleTTL is how long a person's role on a repository is remembered. A role taken away is
+// honoured within it; a delivery burst costs one read.
+const roleTTL = 5 * time.Minute
+
+type knownRole struct {
+	role string
+	at   time.Time
+}
+
+// speakerRole is the author's role on the pull request's repository, capped below write when
+// the pull request is a fork nobody here can push to. A role that cannot be read is no role:
+// the turn is then offered only what anybody may ask for.
+func (s *Source) speakerRole(ctx context.Context, c classified) (role string, locked bool) {
+	if c.installID == 0 || c.author == "" {
+		return "", false
+	}
+	key := strings.ToLower(c.owner + "/" + c.repo + "/" + c.author)
+	s.mu.Lock()
+	seen, ok := s.roles[key]
+	s.mu.Unlock()
+	if ok && s.now().Sub(seen.at) < roleTTL {
+		role = seen.role
+	} else {
+		r, err := s.client.Role(ctx, c.installID, c.owner, c.repo, c.author)
+		if err != nil {
+			s.logger.WarnContext(ctx, "github: reading the commenter's role failed",
+				"pr", PRURL(c.owner, c.repo, c.number), "login", c.author, "error", err)
+			return "", false
+		}
+		role = r
+		s.mu.Lock()
+		if len(s.roles) >= maxThreadBots {
+			clear(s.roles)
+		}
+		s.roles[key] = knownRole{role: role, at: s.now()}
+		s.mu.Unlock()
+	}
+	if !profiles.GitHubRoleAtLeast(role, "write") {
+		return role, false
+	}
+	info, err := s.client.Pull(ctx, c.installID, c.owner, c.repo, c.number)
+	if err != nil {
+		// Whether a fork can be pushed to is unknown, so it is treated as one that cannot.
+		s.logger.WarnContext(ctx, "github: reading whether the pull request can be pushed to failed",
+			"pr", PRURL(c.owner, c.repo, c.number), "error", err)
+		return "triage", false
+	}
+	if info.Locked {
+		return "triage", true
+	}
+	return role, false
+}
+
 // maxThreadBots bounds the thread cache. Forgetting it only costs one more read.
 const maxThreadBots = 4096
 
@@ -622,6 +684,9 @@ func commentInstruction(c classified, body, commit, head string) string {
 		if head == commit {
 			b.WriteString(" The head has not moved since.")
 		}
+	}
+	if c.locked {
+		b.WriteString(" This pull request comes from a fork that does not let maintainers push to it, so nothing here can change its code.")
 	}
 	b.WriteString("\n\n")
 	if c.kind == KindReviewComment {

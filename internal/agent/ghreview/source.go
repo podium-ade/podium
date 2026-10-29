@@ -151,6 +151,8 @@ type Source struct {
 	// threadBots is whether the App started an inline review thread, keyed by the
 	// thread's first comment. Who started a thread never changes.
 	threadBots map[int64]bool
+	// roles is a commenter's role on a repository, keyed owner/repo/login, for roleTTL.
+	roles map[string]knownRole
 }
 
 type turnState struct {
@@ -217,6 +219,7 @@ func NewSource(opts SourceOptions) (*Source, error) {
 		statusTitles:  map[string]string{},
 		pulls:         map[string]pullInfo{},
 		threadBots:    map[int64]bool{},
+		roles:         map[string]knownRole{},
 	}, nil
 }
 

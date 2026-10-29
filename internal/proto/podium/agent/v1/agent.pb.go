@@ -6819,9 +6819,13 @@ type PlaybookDefinition struct {
 	SlackChannels []string             `protobuf:"bytes,12,rep,name=slack_channels,json=slackChannels,proto3" json:"slack_channels,omitempty"`
 	Linear        bool                 `protobuf:"varint,13,opt,name=linear,proto3" json:"linear,omitempty"`
 	// github marks the one playbook a pull-request review runs. At most one playbook may
-	// set it. A review does not get the assistant's menu.
-	Github bool              `protobuf:"varint,30,opt,name=github,proto3" json:"github,omitempty"`
-	Env    map[string]string `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// set it. It is always on a pull request's menu, and only its answer is the review.
+	Github bool `protobuf:"varint,30,opt,name=github,proto3" json:"github,omitempty"`
+	// github_requires offers this playbook on a pull request to a commenter whose role on the
+	// repository is at least this: read, triage, write, maintain or admin. Empty is not
+	// offered there.
+	GithubRequires string            `protobuf:"bytes,33,opt,name=github_requires,json=githubRequires,proto3" json:"github_requires,omitempty"`
+	Env            map[string]string `protobuf:"bytes,14,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// origin is "file": every playbook is a playbooks/<name>.yaml on the conductor's host,
 	// whether a human wrote it in a shell or this API wrote it.
 	Origin string `protobuf:"bytes,15,opt,name=origin,proto3" json:"origin,omitempty"`
@@ -7010,6 +7014,13 @@ func (x *PlaybookDefinition) GetGithub() bool {
 		return x.Github
 	}
 	return false
+}
+
+func (x *PlaybookDefinition) GetGithubRequires() string {
+	if x != nil {
+		return x.GithubRequires
+	}
+	return ""
 }
 
 func (x *PlaybookDefinition) GetEnv() map[string]string {
@@ -11032,7 +11043,7 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x0edefault_branch\x18\x03 \x01(\tR\rdefaultBranch\"7\n" +
 	"\vPlaybookGit\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\"\xbe\t\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\"\xe7\t\n" +
 	"\x12PlaybookDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12#\n" +
@@ -11048,7 +11059,8 @@ const file_podium_agent_v1_agent_proto_rawDesc = "" +
 	"\x05repos\x18\v \x03(\v2\x1d.podium.agent.v1.PlaybookRepoR\x05repos\x12%\n" +
 	"\x0eslack_channels\x18\f \x03(\tR\rslackChannels\x12\x16\n" +
 	"\x06linear\x18\r \x01(\bR\x06linear\x12\x16\n" +
-	"\x06github\x18\x1e \x01(\bR\x06github\x12>\n" +
+	"\x06github\x18\x1e \x01(\bR\x06github\x12'\n" +
+	"\x0fgithub_requires\x18! \x01(\tR\x0egithubRequires\x12>\n" +
 	"\x03env\x18\x0e \x03(\v2,.podium.agent.v1.PlaybookDefinition.EnvEntryR\x03env\x12\x16\n" +
 	"\x06origin\x18\x0f \x01(\tR\x06origin\x12\x1a\n" +
 	"\beditable\x18\x10 \x01(\bR\beditable\x12\x1a\n" +

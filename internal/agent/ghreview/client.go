@@ -229,23 +229,34 @@ type pullInfo struct {
 	Files     int
 	Additions int
 	Deletions int
+	// Fork is a pull request whose head branch is in another repository. Locked is a fork
+	// whose author has not let maintainers push to that branch, so nothing here can.
+	Fork   bool
+	Locked bool
 }
 
 // Pull reads the pull request. The head commit is what inline comments pin to,
 // and the counts are what the status comment shows.
 func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo string, number int) (pullInfo, error) {
 	var out struct {
-		Title        string `json:"title"`
-		Commits      int    `json:"commits"`
-		Additions    int    `json:"additions"`
-		Deletions    int    `json:"deletions"`
-		ChangedFiles int    `json:"changed_files"`
-		Head         struct {
-			Ref string `json:"ref"`
-			SHA string `json:"sha"`
+		Title               string `json:"title"`
+		Commits             int    `json:"commits"`
+		Additions           int    `json:"additions"`
+		Deletions           int    `json:"deletions"`
+		ChangedFiles        int    `json:"changed_files"`
+		MaintainerCanModify bool   `json:"maintainer_can_modify"`
+		Head                struct {
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo *struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 		Base struct {
-			Ref string `json:"ref"`
+			Ref  string `json:"ref"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"base"`
 	}
 	err := c.do(ctx, installID, http.MethodGet,
@@ -253,6 +264,9 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 	if err != nil {
 		return pullInfo{}, err
 	}
+	// A head repository that was deleted reads as null: still a fork, and nobody can push.
+	fork := out.Head.Repo == nil ||
+		(out.Base.Repo.FullName != "" && !strings.EqualFold(out.Head.Repo.FullName, out.Base.Repo.FullName))
 	return pullInfo{
 		Title:     out.Title,
 		Head:      out.Head.Ref,
@@ -262,6 +276,8 @@ func (c *restClient) Pull(ctx context.Context, installID int64, owner, repo stri
 		Files:     out.ChangedFiles,
 		Additions: out.Additions,
 		Deletions: out.Deletions,
+		Fork:      fork,
+		Locked:    fork && (out.Head.Repo == nil || !out.MaintainerCanModify),
 	}, nil
 }
 
@@ -291,6 +307,28 @@ func (c *restClient) CreateReviewReply(ctx context.Context, installID int64, own
 		fmt.Sprintf("/repos/%s/%s/pulls/%d/comments", owner, repo, number),
 		map[string]any{"body": body, "in_reply_to": inReplyTo}, &out)
 	return out, err
+}
+
+// Role is login's role on the repository: read, triage, write, maintain or admin, or "" for
+// none. role_name is the finer of GitHub's two answers. An organisation's custom role is
+// named by its owner, so it falls back to the base permission it was built on.
+func (c *restClient) Role(ctx context.Context, installID int64, owner, repo, login string) (string, error) {
+	var out struct {
+		Permission string `json:"permission"`
+		RoleName   string `json:"role_name"`
+	}
+	err := c.do(ctx, installID, http.MethodGet,
+		fmt.Sprintf("/repos/%s/%s/collaborators/%s/permission", owner, repo, url.PathEscape(login)), nil, &out)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range []string{out.RoleName, out.Permission} {
+		switch r {
+		case "read", "triage", "write", "maintain", "admin":
+			return r, nil
+		}
+	}
+	return "", nil
 }
 
 // reactionSeen is the reaction a comment gets when a turn starts on it.

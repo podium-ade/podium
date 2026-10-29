@@ -42,6 +42,13 @@ type stub struct {
 	threadReads int
 	// reactions is every reaction posted, as "<path> <content>".
 	reactions []string
+	// roles is a login's role_name on acme/repo. A login not in it has none.
+	roles     map[string]string
+	roleReads int
+	// fork makes the pull request's head another repository; canModify is whether its author
+	// lets maintainers push there.
+	fork      bool
+	canModify bool
 }
 
 func newStub(t *testing.T) *stub {
@@ -51,6 +58,7 @@ func newStub(t *testing.T) *stub {
 		installID:   42,
 		nextComment: 100,
 		threadRoots: map[int64]User{},
+		roles:       map[string]string{},
 		app:         App{ID: 1, Slug: "podium", Name: "Podium"},
 	}
 	mux := http.NewServeMux()
@@ -156,9 +164,25 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(Comment{ID: id, Body: "root", User: user})
+	case r.Method == http.MethodGet && strings.Contains(path, "/collaborators/") && strings.HasSuffix(path, "/permission"):
+		login := strings.TrimSuffix(path[strings.Index(path, "/collaborators/")+len("/collaborators/"):], "/permission")
+		s.mu.Lock()
+		s.roleReads++
+		role := s.roles[login]
+		s.mu.Unlock()
+		permission := role
+		if role == "" {
+			permission = "none"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"permission": permission, "role_name": role})
 	case r.Method == http.MethodGet && isPullPath(path):
 		s.mu.Lock()
 		fail := s.failPull
+		head := "acme/repo"
+		if s.fork {
+			head = "alice/repo"
+		}
+		canModify := s.canModify
 		s.mu.Unlock()
 		if fail {
 			http.Error(w, `{"message":"unavailable"}`, http.StatusBadGateway)
@@ -170,8 +194,12 @@ func (s *stub) repos(w http.ResponseWriter, r *http.Request) {
 			"additions":     40,
 			"deletions":     5,
 			"changed_files": 3,
-			"head":          map[string]any{"ref": "agent/review", "sha": "0123456789abcdef"},
-			"base":          map[string]any{"ref": "dev"},
+			"head": map[string]any{
+				"ref": "agent/review", "sha": "0123456789abcdef",
+				"repo": map[string]any{"full_name": head},
+			},
+			"base":                  map[string]any{"ref": "dev", "repo": map[string]any{"full_name": "acme/repo"}},
+			"maintainer_can_modify": canModify,
 		})
 	default:
 		http.NotFound(w, r)
