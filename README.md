@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/podium-logo.png" alt="" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/podium-mark-inverted.svg">
+    <img src="docs/assets/podium-mark.svg" alt="" width="120">
+  </picture>
 </p>
 
 <h1 align="center">Podium</h1>
