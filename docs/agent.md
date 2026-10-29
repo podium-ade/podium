@@ -216,8 +216,9 @@ skill list, and the conductor gives it:
   playbook at all: it has no image, no repositories and no sidecars because there are none to
   have, and not because something stripped them afterwards. That distinction is the whole
   reason the two are separate types in the code.
-- **A `HOME` of its own**, because the runtime installs Agent Skills under
-  `$HOME/.config/opencode/skills` and the operator's own harness configuration lives there.
+- **A `HOME` of its own**, because the harness reads its global configuration and skills from
+  under `$HOME`, and the operator's own live there. The conductor writes the turn's Agent
+  Skills into it, at `$HOME/.podium/skills`, since there is no node to mount them.
 - **An environment built from empty.** Inheriting the conductor's would hand a model
   `PODIUM_API_TOKEN` and the agent database URL.
 - **A prompt that says so.** `runs_on: host` in the brief is what stops the runtime telling a
@@ -558,9 +559,9 @@ task spec, because that is where they end up. Two rules of the conductor's own:
   credential a turn gets, from the agent the playbook runs on — see *Which agent, which model,
   how hard it thinks*.
 - **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`,
-  `OPENAI_API_KEY`, `GOOGLE_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or
-  `PODIUM_MCP_`.** The first is the brief, the next four come from the secrets, and the last two are where a skill's
-  bundle and an MCP server's token travel.
+  `OPENAI_API_KEY`, `GOOGLE_API_KEY` or anything starting `PODIUM_MCP_`.** The first is the
+  brief, the next four come from the secrets, and the last is where an MCP server's token
+  travels.
 - **No MCP server token may appear in `secrets:` or `user_secrets:`.** Anything starting
   `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
   `mcp_servers` is what grants a server to a playbook, and naming its secret directly
@@ -779,24 +780,32 @@ the order that finds bugs, and a rule for what counts as a finding. A turn redis
 of that spends turns on it, which is the whole argument for writing a procedure down instead
 of putting it in a prompt.
 
-**Where they land.** Just before the harness starts, the runtime writes each skill to
-`$HOME/.config/opencode/skills/<name>/` inside the task container — `/home/agent/.config/opencode`
-in Podium's images, which is the harness's own global skill directory. It then writes the
-permission map:
+**Where they land.** Each skill is a **read-only mount** at `/podium/files/skills/<name>/` in
+the task container, written by the node before the container starts. The runtime checks every
+one against the brief, then points the harness at the directory and writes the permission map:
 
 ```json
-{ "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } } }
+{
+  "skills": { "paths": ["/podium/files/skills"] },
+  "permission": { "skill": { "*": "deny", "pr-review": "allow", "release-notes": "allow" } }
+}
 ```
 
 The wildcard is written first because the harness evaluates the **last** matching rule. `--auto`
 does not undo it: that auto-approves what is not *explicitly* denied, and `*` denies explicitly.
 
 **How the bytes get there.** The conductor resolves the playbook's names against the directory
-at the start of every turn, packs each bundle, and puts it on the task spec as one environment
-variable per skill: `PODIUM_AGENT_SKILL_PR_REVIEW` for `pr-review`. The brief carries only the
-name, a sha256 digest and the name of that variable, the same way it carries the *name* of a
-credential's variable and never the value. The runtime verifies the digest before it writes
-anything.
+at the start of every turn and puts each skill on the task spec as a `mounts:` entry (see
+[task-spec.md](task-spec.md)): the target and a map of path to content. The node writes the
+files under the task's state directory and bind-mounts each skill read-only at its target, the
+same way it delivers a `target: file` secret. The brief carries only each skill's name and a
+sha256 digest of its files, plus `skills_dir`, the directory they are in. Before the harness
+starts, the runtime hashes what it finds there and fails the turn if a skill is missing or does
+not match. A missing skill is what an older node causes, because it drops `mounts:` without
+saying so.
+
+A host turn has no node. The conductor writes the same files into the turn's own `HOME`, and
+the brief's `skills_dir` is `.podium/skills`, relative to that `HOME`.
 
 Resolving per turn rather than at start-up is deliberate: a skill you have just edited is the
 one the next turn gets, with no restart, and a skill that has gone wrong fails the playbook
@@ -809,8 +818,7 @@ the turn with a message naming what it was:
 | --- | --- |
 | Skills per playbook | 8 |
 | Files per skill | 64 |
-| Bytes per skill, unpacked | 128 KiB |
-| Bytes per skill, as delivered | 64 KiB |
+| Bytes per skill | 10 MiB |
 | Path components | `[A-Za-z0-9][A-Za-z0-9._-]*`, at most 8 deep, no `..` and nothing absolute |
 | File contents | UTF-8 text only |
 | `SKILL.md` | required, and its frontmatter `name` must equal the directory name |
@@ -819,28 +827,19 @@ the turn with a message naming what it was:
 
 Two consequences worth stating plainly:
 
-- **Nothing in a bundle is executable.** Files land mode 0644 and the wire format has no room for
-  a mode bit, a symlink or a device node — so the whole class of archive-unpacking attack is
-  absent rather than defended against. A skill's script is run through its interpreter
-  (`bash scripts/x.sh`), which is what the harness's own prompt tells the model to do anyway.
-- **Podium carries small skills only, and 128 KiB is the ceiling.** A bundle travels as one
-  environment variable on the task spec, and Linux caps a single environment string at 128 KiB —
-  past that the container cannot `exec` at all, before Podium runs to say so. The 64 KiB
-  delivery cap is half of that margin; for markdown, which compresses about threefold, the
-  unpacked 128 KiB cap is what you hit first. Either way it is a directory of prose and small
-  scripts, not a skill that ships a binary, a wheel or an image.
+- **Nothing in a skill is executable, and nothing in it can be changed.** Files land mode 0444
+  on a read-only mount, and a `mounts:` entry has no room for a mode bit, a symlink or a device
+  node, so that whole class of archive-unpacking attack does not exist here. A skill's script
+  is run through its interpreter (`bash scripts/x.sh`), which is what the harness's own prompt
+  tells the model to do anyway.
+- **10 MiB is a spec budget, not a kernel limit.** Skills used to travel as one environment
+  variable each, and Linux caps a single environment string at 128 KiB. Mounted files have no
+  such cap. What bounds them now is the task spec, which the control plane stores and sends
+  to a node whole: eight skills at 10 MiB is exactly the spec's 80 MiB `mounts:` budget. It is
+  still a directory of prose and small scripts, not a skill that ships a binary, a wheel or
+  an image.
 
-  **The cap cannot be raised here.** The bytes have to reach a task container, and there are
-  exactly three ways anything does: an environment string, a read-only bind mount of a file
-  the node wrote, and the image itself. The workspace volume is created empty; nothing calls
-  `CopyToContainer`. A task has no object-store credential and no API token, and the node has
-  no way to fetch a blob from the control plane — `NodeService` is `Enroll`, `Stream` and
-  `UploadArtifact`, and nothing else. So lifting the cap means teaching the control plane to
-  carry a file to a node and the node to bind-mount it, exactly as it already does for a
-  `target: file` secret. That is a `podium.v1` wire change, a `podium-server` change and a
-  `podium-node` change; it is not a number that can be raised here.
-
-**Where the caps are enforced.** All of them, when the conductor packs a directory for a turn.
+**Where the caps are enforced.** All of them, when the conductor reads a directory for a turn.
 A skill that trips a rule fails the playbook that named it, with the number in the message.
 
 `profiles.Load` deliberately does not check that a named skill exists, because a playbook file
@@ -2194,7 +2193,7 @@ env:
   brief that does not fit even with an empty transcript fails the turn with "this conversation is
   too large" — start a new thread with just the question.
 
-  The number comes from the same place the 64 KiB skill cap does. A brief travels as **one
+  The number comes from where it travels. A brief goes as **one
   environment string** on the task spec, and Linux caps a single environment string at
   `MAX_ARG_STRLEN` — 32 pages, so 128 KiB on any 4 KiB-page kernel. Past it the container cannot
   `exec` at all, which is the worst failure Podium has: it happens before the runtime's
@@ -2203,11 +2202,10 @@ env:
   encoded is 72 KiB of JSON, and a 32 KiB chat message has to stay answerable beside two system
   prompts and some history.
 
-  `MAX_ARG_STRLEN` is **per string, not per environment**, which is why eight 64 KiB skill
-  bundles ride beside a full-sized brief. The whole of `argv` plus `environ` is bounded
-  separately, at a quarter of `RLIMIT_STACK` — about 2 MiB at the usual 8 MiB, against the
-  608 KiB a maximal turn spends. A playbook's `env:` is **not** counted against that, and
-  nothing checks it.
+  `MAX_ARG_STRLEN` is **per string, not per environment**. The whole of `argv` plus `environ`
+  is bounded separately, at a quarter of `RLIMIT_STACK`, so about 2 MiB at the usual 8 MiB.
+  Agent Skills are files and not variables, so they count against neither. A playbook's
+  `env:` is **not** counted against that, and nothing checks it.
 - **One turn per session at a time.** A busy thread queues rather than parallelises; the web
   chat refuses the second message outright, because a browser can be told before it tries.
 - **32 KiB per chat message** from a human. The whole conversation has to fit the brief.

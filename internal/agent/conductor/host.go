@@ -66,6 +66,10 @@ const hostSockPathMax = 100
 // runtime forwards SIGTERM to the harness and still emits its final.
 const hostGrace = 30 * time.Second
 
+// hostSkillsDir is where a host turn's skills are written, relative to the turn's HOME,
+// which is also how the brief says it: the jail is made after the brief is encoded.
+const hostSkillsDir = ".podium/skills"
+
 // hostMaxLine caps one line of the event protocol, as the node's reader does.
 const hostMaxLine = 64 * 1024
 
@@ -217,6 +221,10 @@ func (h *HostRuntime) node() string {
 // is nothing here to strip: what the brief says is what the turn was built with.
 func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []BriefRunningDelegation, previews []BriefPreview) {
 	b.RunsOn = RunsOnHost
+	// No node mounts the skills here: hostRun writes them into the turn's own HOME.
+	if len(b.Playbook.Skills) > 0 {
+		b.Playbook.SkillsDir = hostSkillsDir
+	}
 	// What it may delegate to. The short tool list the assistant runs with is only
 	// defensible because this is here: the work it cannot do itself is work it hands to a
 	// container.
@@ -286,6 +294,16 @@ func (h *hostRun) run(ctx context.Context) {
 				"turn_id", r.turn.ID, "dir", jail.dir, "error", err)
 		}
 	}()
+
+	// The skills, where hostBrief told the runtime they would be.
+	for _, b := range h.bundles {
+		if err := b.WriteUnder(filepath.Join(jail.home, hostSkillsDir)); err != nil {
+			c.logger.ErrorContext(ctx, "writing a host turn's skills failed",
+				"turn_id", r.turn.ID, "error", err)
+			h.giveUp(ctx, hostFailedToStart)
+			return
+		}
+	}
 
 	env, err := h.env(ctx, jail)
 	if err != nil {
@@ -520,9 +538,8 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 	env := []string{
 		// The harness is found on PATH, and so are node's own child processes.
 		"PATH=" + hostPATH(),
-		// A HOME of its own: the runtime installs this playbook's Agent Skills under
-		// $HOME/.config/opencode/skills, and with the operator's HOME that would write into
-		// the operator's own harness configuration.
+		// A HOME of its own: the harness reads its global configuration and skills from
+		// under $HOME, and with the operator's HOME that would be the operator's own.
 		"HOME=" + jail.home,
 		"TMPDIR=" + jail.tmp,
 		hostEventsSockEnv + "=" + jail.sock,
@@ -548,9 +565,6 @@ func (h *hostRun) env(ctx context.Context, jail hostPaths) ([]string, error) {
 			return nil, err
 		}
 		env = append(env, mcp.TokenEnv(srv.Name)+"="+token)
-	}
-	for _, b := range h.bundles {
-		env = append(env, b.Env+"="+b.Encoded)
 	}
 	// Last, so a dry run can be driven without any of the above being reachable.
 	for k, v := range h.devEnv {

@@ -111,6 +111,9 @@ func unzip(raw []byte) (map[string]string, error) {
 	}
 	var names []string
 	contents := map[string][]byte{}
+	// Bounded as it is read, not only by Build afterwards: a zip is small on the wire and
+	// can be any size unpacked, and this is the step that puts it in memory.
+	total := 0
 	for _, f := range zr.File {
 		name := strings.TrimPrefix(filepath.ToSlash(f.Name), "/")
 		if name == "" || strings.HasSuffix(name, "/") {
@@ -123,10 +126,18 @@ func unzip(raw []byte) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		body, err := io.ReadAll(io.LimitReader(rc, MaxBytes+1))
+		if len(names) == MaxFiles {
+			_ = rc.Close()
+			return nil, fmt.Errorf("more than %d files; that is the limit for one skill", MaxFiles)
+		}
+		body, err := io.ReadAll(io.LimitReader(rc, int64(MaxBytes-total)+1))
 		_ = rc.Close()
 		if err != nil {
 			return nil, err
+		}
+		total += len(body)
+		if total > MaxBytes {
+			return nil, fmt.Errorf("more than %d bytes of files; that is the limit for one skill", MaxBytes)
 		}
 		names = append(names, name)
 		contents[name] = body

@@ -83,9 +83,6 @@ const repoSchema = z.strictObject({
   default_branch: z.string().min(1),
 });
 
-// One Agent Skill the turn may use. It carries a name and a digest and never the bytes: the
-// bundle rides in its own environment variable, exactly as a credential does. See skills.ts
-// for why, and internal/agent/conductor/brief.go for the other half of the contract.
 // One unfinished task this conversation started. Enough to recognise it and inject into
 // it; the instruction is only the head of the one that started it.
 const runningDelegationSchema = z.strictObject({
@@ -104,11 +101,13 @@ const livePreviewSchema = z.strictObject({
   expires_at: z.string().optional(),
 });
 
+// One Agent Skill the turn may use. It carries a name and a digest and never the bytes: the
+// files are already a directory under playbook.skills_dir. See skills.ts for what is checked,
+// and internal/agent/conductor/brief.go for the other half of the contract.
 const skillRefSchema = z.strictObject({
   name: z.string().regex(SkillNameRE, `must match ${SkillNameRE.source}`).max(MaxSkillNameLen),
-  // Hex, lower case, 64 characters: sha256 of the bundle document.
+  // Hex, lower case, 64 characters: internal/agent/skills.Digest of the skill's files.
   sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be a hex sha256 digest"),
-  bundle_env: z.string().min(1),
 });
 
 // One playbook a host turn may delegate to. It says what the playbook can REACH rather than
@@ -180,6 +179,9 @@ const briefSchema = z.strictObject({
     // permission map that denies every skill either way, so "no skills" is a decision
     // this runtime states rather than one it leaves to a default.
     skills: z.array(skillRefSchema).optional(),
+    // Where those skills are, one directory each. Relative is to HOME. Set exactly when
+    // skills is non-empty.
+    skills_dir: z.string().min(1).optional(),
     // The MCP servers this turn may use. Absent means none, and none is what the harness
     // gets: writeConfig writes one entry per server here beside the ones the conductor
     // wires up itself, and no others.
@@ -187,7 +189,11 @@ const briefSchema = z.strictObject({
     // Absent means the turn cannot wait for a human: the default, and what every brief
     // before interactive playbooks described.
     interactive: z.boolean().optional(),
-  }),
+  })
+    .refine((p) => (p.skills ?? []).length === 0 || p.skills_dir !== undefined, {
+      message: "skills needs skills_dir: the brief names skills without saying where they are",
+      path: ["skills_dir"],
+    }),
   transcript: z.array(transcriptEntrySchema),
   transcript_truncated: z.boolean(),
   instruction: z.string().min(1),

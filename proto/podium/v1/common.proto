@@ -73,6 +73,19 @@ message TaskSpec {
   Expose expose = 17;
   // Run the task in a cloud sandbox instead of a container on the node.
   TaskSandbox sandbox = 18;
+  // Directories of text files the node writes before the task starts and mounts
+  // read-only, each at its target under /podium/files.
+  repeated FileMount mounts = 19;
+}
+
+// FileMount is one read-only directory a task gets, carried whole on the spec. It is how
+// content too large for an environment variable reaches a task: Linux caps a single
+// environment string at 128 KiB.
+message FileMount {
+  // target is the absolute directory it is mounted at, under /podium/files.
+  string target = 1;
+  // files maps a path relative to target onto that file's content. Text only.
+  map<string, string> files = 2;
 }
 
 // TaskSandbox is a task's cloud sandbox.

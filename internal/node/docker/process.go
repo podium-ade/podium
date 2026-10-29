@@ -282,6 +282,9 @@ func (p *ProcessExecutor) run(ctx context.Context, req Request, em *emitter, rs 
 	if expose.Publishes() {
 		env = append(env, req.Preview.Env(expose)...)
 	}
+	if err := p.stageMounts(req.TaskID, sp.Mounts); err != nil {
+		return Result{}, err
+	}
 	secretEnv, err := p.stageSecrets(req.Secrets)
 	defer func() {
 		for i := range req.Secrets {
@@ -401,6 +404,40 @@ func (p *ProcessExecutor) launch(r spec.Resources, workdir string, env []string)
 	}
 	argv = append(argv, "env", "-i", "-C", workdir)
 	return append(argv, env...)
+}
+
+// stageMounts puts every FileMount at its target. There is no bind mount to make read-only,
+// so ownership does it instead: each is written to this executor's own state directory,
+// then copied into place by root, and the task's user can read it and change nothing. The
+// targets are all under spec.FilesMount, which validation has already made sure of, and
+// nothing removes them afterwards: the machine is the task's and goes when it does.
+func (p *ProcessExecutor) stageMounts(taskID string, mounts []spec.FileMount) error {
+	if len(mounts) == 0 {
+		return nil
+	}
+	stage := filepath.Join(p.base.taskDir(taskID), mountsSubdir)
+	defer func() { _ = os.RemoveAll(stage) }()
+	for i, m := range mounts {
+		// Again here, and not only in validation: it is a path root is about to rm -rf.
+		if err := spec.CheckMountTarget(m.Target); err != nil {
+			return fmt.Errorf("%w: mount: %w", errSpec, err)
+		}
+		dir := filepath.Join(stage, strconv.Itoa(i))
+		if err := writeMount(dir, m); err != nil {
+			return fmt.Errorf("%w: mount %s: %w", errSpec, m.Target, err)
+		}
+		for _, argv := range [][]string{
+			{"rm", "-rf", m.Target},
+			{"install", "-d", "-m", "0755", filepath.Dir(m.Target)},
+			{"cp", "-R", dir, m.Target},
+			{"chown", "-R", "0:0", m.Target},
+		} {
+			if err := p.privileged(argv[0], argv[1:]...); err != nil {
+				return fmt.Errorf("mount %s: %w", m.Target, err)
+			}
+		}
+	}
+	return nil
 }
 
 // stageSecrets turns env secrets into environment entries and writes file secrets, every one
