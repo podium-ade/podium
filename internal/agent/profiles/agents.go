@@ -16,6 +16,7 @@ const (
 	AgentClaude = "claude"
 	AgentGrok   = "grok"
 	AgentOpenAI = "openai"
+	AgentGemini = "gemini"
 )
 
 // DefaultAgent is what a profile that names no agent runs on. It is Claude because that is
@@ -28,6 +29,7 @@ const (
 	ProviderAnthropic = "anthropic"
 	ProviderXAI       = "xai"
 	ProviderOpenAI    = "openai"
+	ProviderGoogle    = "google"
 )
 
 // The reasoning-effort levels. They are the Claude Agent SDK's own vocabulary. xAI's
@@ -46,6 +48,10 @@ var fullEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh, Eff
 
 // grokEfforts stops at xhigh: xAI's reasoning_effort has no `max`.
 var grokEfforts = []string{EffortLow, EffortMedium, EffortHigh, EffortXHigh}
+
+// geminiEfforts is the Gemini API's thinking levels this vocabulary shares: low, medium and
+// high. It has no xhigh or max, and its `minimal` is not a level here.
+var geminiEfforts = []string{EffortLow, EffortMedium, EffortHigh}
 
 // grokEffortsNoXHigh is for the Grok models that document xhigh as a synonym for high.
 // Offering a level that silently means another one is worse than not offering it.
@@ -176,6 +182,34 @@ var Backends = []Backend{{
 			ID: "gpt-6-astra", DisplayName: "GPT-6 Astra",
 			Note:          "The most capable model, and the most expensive.",
 			ContextTokens: 1_050_000, Efforts: fullEfforts,
+		},
+	},
+}, {
+	ID:           AgentGemini,
+	DisplayName:  "Gemini",
+	Provider:     ProviderGoogle,
+	Note:         "The same harness, pointed at Google's Gemini API.",
+	DefaultModel: "gemini-3.8-flash",
+	Models: []Model{
+		{
+			ID: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash",
+			Note: "The default. Built for long-horizon coding and agentic work.", ContextTokens: 1_048_576,
+			Efforts: geminiEfforts,
+		},
+		{
+			ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash",
+			Note:          "The previous Flash. Pin it when a playbook is tuned to it.",
+			ContextTokens: 1_048_576, Efforts: geminiEfforts,
+		},
+		{
+			ID: "gemini-3.5-flash-lite", DisplayName: "Gemini 3.5 Flash Lite",
+			Note:          "Fastest and cheapest. For focused, high-volume tasks.",
+			ContextTokens: 1_048_576, Efforts: geminiEfforts,
+		},
+		{
+			ID: "gemini-3.1-pro-preview", DisplayName: "Gemini 3.1 Pro Preview",
+			Note:          "The Pro line, still a preview. Reasoning-first, for complex problems.",
+			ContextTokens: 1_048_576, Efforts: geminiEfforts,
 		},
 	},
 }}

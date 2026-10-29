@@ -69,7 +69,7 @@ func TestGetSettingsReportsOpenAIAlongsideTheOthers(t *testing.T) {
 
 	res, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
-	require.Len(t, res.Msg.GetProviders(), 3)
+	require.Len(t, res.Msg.GetProviders(), len(providerSpecs))
 	byName := map[string]*agentv1.ProviderSettings{}
 	for _, p := range res.Msg.GetProviders() {
 		byName[p.GetProvider()] = p
