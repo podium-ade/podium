@@ -125,6 +125,14 @@ type Session struct {
 	CreatedAt time.Time
 }
 
+type SnapshotRetention struct {
+	ID            int32
+	MaxAgeSeconds int64
+	MaxTotalBytes int64
+	UpdatedBy     string
+	UpdatedAt     time.Time
+}
+
 type Task struct {
 	ID                    string
 	Spec                  []byte
@@ -173,6 +181,11 @@ type TaskLogChunk struct {
 	Ts           time.Time
 	Bytes        []byte
 	SourceOffset int64
+}
+
+type TaskLogIndex struct {
+	TaskID string
+	Data   []byte
 }
 
 type User struct {

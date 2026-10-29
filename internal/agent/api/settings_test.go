@@ -415,7 +415,7 @@ func TestSetProviderKeyRejectsAnotherProviderAndAnEmptyKey(t *testing.T) {
 	svc := NewAgentService(AgentServiceOptions{Secrets: newFakeSecrets(), Logger: quietLogger()})
 
 	_, err := svc.SetProviderKey(context.Background(),
-		connect.NewRequest(&agentv1.SetProviderKeyRequest{Provider: "gemini", Key: fakeKey}))
+		connect.NewRequest(&agentv1.SetProviderKeyRequest{Provider: "mistral", Key: fakeKey}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
@@ -425,7 +425,7 @@ func TestSetProviderKeyRejectsAnotherProviderAndAnEmptyKey(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 	_, err = svc.ClearProviderKey(context.Background(),
-		connect.NewRequest(&agentv1.ClearProviderKeyRequest{Provider: "gemini"}))
+		connect.NewRequest(&agentv1.ClearProviderKeyRequest{Provider: "mistral"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }

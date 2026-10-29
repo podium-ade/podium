@@ -32,6 +32,10 @@ var expectedTables = []string{
 	"sandbox_providers",
 	// sandbox_reaps arrives with 0015_sandbox_capacity.sql.
 	"sandbox_reaps",
+	// snapshot_retention arrives with 0016_snapshot_retention.sql.
+	"snapshot_retention",
+	// task_log_index arrives with 0017_log_index.sql.
+	"task_log_index",
 }
 
 // migrationFiles is every migration this build carries, in the order Migrate applies them.
@@ -45,6 +49,8 @@ var migrationFiles = []string{
 	"0013_previews.sql",
 	"0014_sandbox_providers.sql",
 	"0015_sandbox_capacity.sql",
+	"0016_snapshot_retention.sql",
+	"0017_log_index.sql",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

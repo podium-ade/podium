@@ -120,6 +120,13 @@ function Folder({
   children: ReactNode;
 }) {
   const id = `nav-group-${group.id}`;
+  // A collapsed sidebar shows every icon, but the drawer on a narrow window is never
+  // collapsed, so a closed group stays closed there.
+  const shown = open || collapsed;
+  // The group slides open by its grid row. It clips while it moves, then lets go once open
+  // so a focus ring on its first or last link is not cut off.
+  const [settled, setSettled] = useState(shown);
+  if (!shown && settled) setSettled(false);
   return (
     <div
       data-nav-group={group.id}
@@ -152,12 +159,19 @@ function Folder({
         id={id}
         role="group"
         aria-label={group.label}
-        // A collapsed sidebar shows every icon, but the drawer on a narrow window is never
-        // collapsed, so a closed group stays closed there.
-        hidden={!open && !collapsed}
-        className={cn("flex flex-col gap-0.5 pl-2", collapsed && "md:pl-0", collapsed && !open && "max-md:hidden")}
+        // Visibility rides the transition, so a closing group stays painted until it has
+        // folded away and its links leave the tab order once it has.
+        style={shown ? undefined : { visibility: "hidden" }}
+        onTransitionEnd={(e) => {
+          if (e.target === e.currentTarget && e.propertyName === "grid-template-rows" && shown) setSettled(true);
+        }}
+        className={cn(
+          "grid transition-[grid-template-rows,visibility] duration-200 ease-out",
+          shown ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          collapsed && !open && "max-md:hidden",
+        )}
       >
-        {children}
+        <div className={cn("flex min-h-0 flex-col gap-0.5", !settled && "overflow-hidden")}>{children}</div>
       </div>
     </div>
   );

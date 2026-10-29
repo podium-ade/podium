@@ -155,16 +155,26 @@ func (s *Service) PruneOnce(ctx context.Context) (int64, error) {
 }
 
 // rollUpTask concatenates one task's log chunks per stream, compresses each with zstd,
-// stores it as an artifact of kind log, and records the high-water marks the chunks
-// carried. The marks are the whole point of doing it in this order: once they are on the
-// task row, deleting the chunks cannot make reconciliation answer a smaller number.
+// stores it as an artifact of kind log, stores the index of what the chunks were, and
+// records the high-water marks the chunks carried. The marks are the whole point of doing
+// it in this order: once they are on the task row, deleting the chunks cannot make
+// reconciliation answer a smaller number — and nothing is marked before its index exists.
 func (s *Service) rollUpTask(ctx context.Context, taskID string) error {
-	streams, high, offsets, err := s.readStreams(ctx, taskID)
+	streams, index, high, offsets, err := s.readStreams(ctx, taskID)
 	if err != nil {
 		return err
 	}
 	for _, name := range sortedKeys(streams) {
 		if err := s.putStream(ctx, taskID, name, streams[name]); err != nil {
+			for _, rest := range streams {
+				_ = rest.Close()
+				_ = os.Remove(rest.Name())
+			}
+			return err
+		}
+	}
+	if index != nil {
+		if err := s.store.PutTaskLogIndex(ctx, taskID, index); err != nil {
 			return err
 		}
 	}
@@ -203,16 +213,17 @@ func (s *Service) putStream(ctx context.Context, taskID, name string, spool *os.
 }
 
 // readStreams pages through a task's log chunks and spools each stream, zstd-compressed,
-// to a temporary file. Compressing on the way through is what keeps a chatty task's whole
+// to a temporary file, building the index of what the chunks were on the way. Compressing on the way through is what keeps a chatty task's whole
 // log from having to fit in memory; a spool file is what lets the object store be handed a
 // known length instead of a multipart upload.
-func (s *Service) readStreams(ctx context.Context, taskID string) (map[string]*os.File, uint64, store.StreamOffsets, error) {
+func (s *Service) readStreams(ctx context.Context, taskID string) (map[string]*os.File, []byte, uint64, store.StreamOffsets, error) {
 	spools := make(map[string]*os.File)
 	writers := make(map[string]*zstd.Encoder)
+	index := newIndexBuilder()
 	var offsets store.StreamOffsets
 	var high uint64
 
-	fail := func(err error) (map[string]*os.File, uint64, store.StreamOffsets, error) {
+	fail := func(err error) (map[string]*os.File, []byte, uint64, store.StreamOffsets, error) {
 		for _, w := range writers {
 			_ = w.Close()
 		}
@@ -220,7 +231,7 @@ func (s *Service) readStreams(ctx context.Context, taskID string) (map[string]*o
 			_ = f.Close()
 			_ = os.Remove(f.Name())
 		}
-		return nil, 0, store.StreamOffsets{}, err
+		return nil, nil, 0, store.StreamOffsets{}, err
 	}
 
 	next := uint64(0)
@@ -252,6 +263,7 @@ func (s *Service) readStreams(ctx context.Context, taskID string) (map[string]*o
 			if _, err := w.Write(c.Bytes); err != nil {
 				return fail(fmt.Errorf("write %s of task %s: %w", name, taskID, err))
 			}
+			index.add(c)
 			if c.Seq > high {
 				high = c.Seq
 			}
@@ -278,7 +290,11 @@ func (s *Service) readStreams(ctx context.Context, taskID string) (map[string]*o
 	if err != nil {
 		return fail(err)
 	}
-	return spools, max(high, eventsHigh), offsets, nil
+	data, err := index.bytes()
+	if err != nil {
+		return fail(fmt.Errorf("index the log of task %s: %w", taskID, err))
+	}
+	return spools, data, max(high, eventsHigh), offsets, nil
 }
 
 // streamArtifactName is the artifact name — and therefore the object key's stem — of one

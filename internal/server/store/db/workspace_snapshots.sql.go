@@ -7,7 +7,44 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const deleteWorkspaceSnapshot = `-- name: DeleteWorkspaceSnapshot :execrows
+delete from workspace_snapshots where session_id = $1 and object_key = $2
+`
+
+type DeleteWorkspaceSnapshotParams struct {
+	SessionID string
+	ObjectKey string
+}
+
+// Only while the row still points at object_key: an upload that landed in between has
+// replaced it, and the new snapshot is not the one that was chosen for deletion.
+func (q *Queries) DeleteWorkspaceSnapshot(ctx context.Context, arg DeleteWorkspaceSnapshotParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWorkspaceSnapshot, arg.SessionID, arg.ObjectKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getSnapshotRetention = `-- name: GetSnapshotRetention :one
+select id, max_age_seconds, max_total_bytes, updated_by, updated_at from snapshot_retention where id = 1
+`
+
+func (q *Queries) GetSnapshotRetention(ctx context.Context) (SnapshotRetention, error) {
+	row := q.db.QueryRow(ctx, getSnapshotRetention)
+	var i SnapshotRetention
+	err := row.Scan(
+		&i.ID,
+		&i.MaxAgeSeconds,
+		&i.MaxTotalBytes,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const getWorkspaceBase = `-- name: GetWorkspaceBase :one
 select repo, object_key, size_bytes, sha256, updated_at from workspace_bases where repo = $1
@@ -40,6 +77,88 @@ func (q *Queries) GetWorkspaceSnapshot(ctx context.Context, sessionID string) (W
 		&i.Sha256,
 		&i.NodeID,
 		&i.TaskID,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listWorkspaceSnapshots = `-- name: ListWorkspaceSnapshots :many
+select s.session_id, s.object_key, s.size_bytes, s.sha256, s.node_id, s.task_id, s.updated_at, exists (
+  select 1 from tasks t
+  where t.status in ('queued', 'scheduled', 'provisioning', 'running')
+    and t.spec->>'workspace_session' = s.session_id
+)::boolean as in_use
+from workspace_snapshots s
+order by s.updated_at desc, s.session_id
+`
+
+type ListWorkspaceSnapshotsRow struct {
+	SessionID string
+	ObjectKey string
+	SizeBytes int64
+	Sha256    string
+	NodeID    string
+	TaskID    string
+	UpdatedAt time.Time
+	InUse     bool
+}
+
+// in_use is a task of the session that has not finished. Its snapshot is either being
+// restored or about to be replaced, so the sweep leaves it alone.
+func (q *Queries) ListWorkspaceSnapshots(ctx context.Context) ([]ListWorkspaceSnapshotsRow, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceSnapshots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspaceSnapshotsRow{}
+	for rows.Next() {
+		var i ListWorkspaceSnapshotsRow
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.ObjectKey,
+			&i.SizeBytes,
+			&i.Sha256,
+			&i.NodeID,
+			&i.TaskID,
+			&i.UpdatedAt,
+			&i.InUse,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setSnapshotRetention = `-- name: SetSnapshotRetention :one
+insert into snapshot_retention (id, max_age_seconds, max_total_bytes, updated_by, updated_at)
+values (1, $1, $2, $3, now())
+on conflict (id) do update set
+  max_age_seconds = excluded.max_age_seconds,
+  max_total_bytes = excluded.max_total_bytes,
+  updated_by      = excluded.updated_by,
+  updated_at      = now()
+returning id, max_age_seconds, max_total_bytes, updated_by, updated_at
+`
+
+type SetSnapshotRetentionParams struct {
+	MaxAgeSeconds int64
+	MaxTotalBytes int64
+	UpdatedBy     string
+}
+
+func (q *Queries) SetSnapshotRetention(ctx context.Context, arg SetSnapshotRetentionParams) (SnapshotRetention, error) {
+	row := q.db.QueryRow(ctx, setSnapshotRetention, arg.MaxAgeSeconds, arg.MaxTotalBytes, arg.UpdatedBy)
+	var i SnapshotRetention
+	err := row.Scan(
+		&i.ID,
+		&i.MaxAgeSeconds,
+		&i.MaxTotalBytes,
+		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)
 	return i, err
