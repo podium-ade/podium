@@ -336,6 +336,7 @@ and a test fails if one is read and missing from that file.
 | `PODIUM_AGENT_OPENAI_CODEX_BASE_URL` | no | `https://chatgpt.com/backend-api/codex` | where a ChatGPT / Codex subscription token is validated **and** where a turn that spent one sends the harness |
 | `PODIUM_AGENT_OPENAI_OAUTH_ISSUER` | no | `https://auth.openai.com` | OpenAI's auth host. Codex device-flow endpoints live under it and are not discovered |
 | `PODIUM_AGENT_OPENAI_OAUTH_CLIENT_ID` | no | Hermes / Codex CLI (`app_EMoamEEZ73f0CkXaXp7hrann`) | a public desktop OAuth client id. Set to `off` to turn the subscription tab off and leave the API key path. Public metadata, not a secret |
+| `PODIUM_AGENT_GOOGLE_BASE_URL` | no | `https://generativelanguage.googleapis.com` | where a Gemini API key is validated **and** where a Gemini turn sends the harness (with `/v1beta` appended) |
 | `PODIUM_AGENT_MEMORY_URL` | no | — | the shared memory as **this process** reaches it. Empty turns memory off entirely |
 | `PODIUM_AGENT_MEMORY_TASK_URL` | no | `http://host.docker.internal:8888` | the same service as a **task container** reaches it |
 | `PODIUM_AGENT_MEMORY_BANK` | no | `podium` | the one bank every turn shares |
@@ -552,13 +553,13 @@ are lower-cased.**
 task spec, because that is where they end up. Two rules of the conductor's own:
 
 - **No model credential may appear in `secrets:`.** `podium.agent.anthropic_api_key`,
-  `podium.agent.xai_api_key`, `podium.agent.xai_refresh_token`, `podium.agent.openai_api_key`
-  and `podium.agent.openai_refresh_token` are all refused. The conductor decides what
+  `podium.agent.xai_api_key`, `podium.agent.xai_refresh_token`, `podium.agent.openai_api_key`,
+  `podium.agent.openai_refresh_token` and `podium.agent.google_api_key` are all refused. The conductor decides what
   credential a turn gets, from the agent the playbook runs on — see *Which agent, which model,
   how hard it thinks*.
 - **`env:` may not set `PODIUM_AGENT_TURN`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`,
-  `OPENAI_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or `PODIUM_MCP_`.** The first is
-  the brief, the next three come from the secrets, and the last two are where a skill's
+  `OPENAI_API_KEY`, `GOOGLE_API_KEY` or anything starting `PODIUM_AGENT_SKILL_` or
+  `PODIUM_MCP_`.** The first is the brief, the next four come from the secrets, and the last two are where a skill's
   bundle and an MCP server's token travel.
 - **No MCP server token may appear in `secrets:` or `user_secrets:`.** Anything starting
   `podium.agent.mcp.`, and a personal credential named `mcp.<server>_token`, is refused.
@@ -1130,7 +1131,7 @@ ghcr.io/podium-ade/podium-agent-runtime` is the easy way to get one that does. S
 ### Reserved secret names
 
 The model credentials and the memory key are reserved: a playbook may not name them. The
-Anthropic, xAI and OpenAI keys are set in the web UI (see *Setting the provider key* below),
+Anthropic, xAI, OpenAI and Google keys are set in the web UI (see *Setting the provider key* below),
 the conductor writes the memory key at startup out of its own environment, and a GitHub token
 is set with `podium secret set`.
 
@@ -1144,6 +1145,7 @@ allow-list. These are simply the names Podium's own docs and defaults use.
 | `podium.agent.xai_refresh_token` | *nothing* | reserved and **never attached to a turn**. A playbook may not name it. The refresh token of a sign-in lives in the conductor's own database, not here — see *Signing in with a subscription* |
 | `podium.agent.openai_api_key` | `OPENAI_API_KEY` | every turn on the `openai` backend. It holds an OpenAI API key **or** the access token of a ChatGPT / Codex subscription sign-in. Unlike xAI those two are not bearers for the same endpoint — the conductor points the turn at api.openai.com or at ChatGPT's Codex backend from how the credential was obtained |
 | `podium.agent.openai_refresh_token` | *nothing* | reserved and **never attached to a turn**, same rule as the xAI refresh token |
+| `podium.agent.google_api_key` | `GOOGLE_API_KEY` | every turn on the `gemini` backend. A Gemini API key; there is no subscription sign-in for it |
 | `podium.agent.github_token` | `GITHUB_TOKEN` | a playbook with `repos:` — and only the playbooks whose files name it. See *Playbooks that clone repositories* |
 | `podium.agent.git_capability.<turn>` | `PODIUM_GIT_CAPABILITY` | every turn of a playbook with `repos:`, when a GitHub App is configured. Written by the conductor before the task and deleted when the turn ends; a playbook may not name one |
 | `podium.agent.memory_api_key` | `PODIUM_MEMORY_API_KEY` | every turn on a host with memory; the conductor attaches it, **and writes the secret itself** from `PODIUM_AGENT_MEMORY_API_KEY` |
@@ -1151,7 +1153,7 @@ allow-list. These are simply the names Podium's own docs and defaults use.
 The model credential must **exist** before a turn on that backend can run, even a dry run: the
 task spec names it and the control plane refuses a task that names a secret it does not have.
 That failure reaches the thread as "This bot is missing a credential". A control plane that only
-ever runs Claude playbooks needs no xAI or OpenAI credential at all, and the reverse.
+ever runs Claude playbooks needs no xAI, OpenAI or Google credential at all, and the reverse.
 
 **Exactly one model credential goes on a turn**, and it is the one the turn's backend spends. A
 Grok turn is not handed the Anthropic key and a Claude turn is not handed the xAI one: a
@@ -1174,6 +1176,7 @@ built-in default — and the resolved triple travels in the brief, so the runtim
 | `claude` (default) | Anthropic | `podium.agent.anthropic_api_key` |
 | `grok` | xAI | `podium.agent.xai_api_key` |
 | `openai` | OpenAI | `podium.agent.openai_api_key` |
+| `gemini` | Google | `podium.agent.google_api_key` |
 
 **One runtime image, and no vendor in the code path.** The harness is
 [opencode](https://opencode.ai), which takes `--model provider/model` — so a backend is a flag
@@ -1210,6 +1213,8 @@ them at load time:
 - `max` is not an xAI level. The current Claude models and the GPT-6 models take it. A Grok
   model naming it fails to load rather than failing on the first turn.
 - `claude-haiku-4-5` takes no effort setting. Naming one fails to load.
+- The Gemini models take `low`, `medium` and `high` only — the Gemini API's thinking levels have
+  no `xhigh` or `max`.
 - `grok-4.7` and `grok-4.6` take `xhigh`. `grok-4.5` and older document it as a synonym for
   `high`, so it is not offered for them: a level that silently means a different level is worse
   than no level.
@@ -1243,7 +1248,7 @@ turn uses; this page is how those models get a credential.
 
 Open the UI and click **Models**, under **Compute** in the sidebar.
 
-<!-- screenshot: the Models page, an Anthropic row, an xAI row and an OpenAI row, none set -->
+<!-- screenshot: the Models page, an Anthropic row, an xAI row, an OpenAI row and a Google row, none set -->
 
 Press **Connect**, paste the key, and press **Validate & save**. What happens, in order:
 
@@ -1251,7 +1256,10 @@ Press **Connect**, paste the key, and press **Validate & save**. What happens, i
 2. The conductor calls the provider's model list — **`GET {PODIUM_AGENT_ANTHROPIC_BASE_URL}/v1/models`**
    with the key in an `x-api-key` header and `anthropic-version: 2023-06-01`,
    **`GET {PODIUM_AGENT_XAI_BASE_URL}/v1/models`** with it as a bearer, or
-   **`GET {PODIUM_AGENT_OPENAI_BASE_URL}/v1/models`** the same way. There is no token cost.
+   **`GET {PODIUM_AGENT_OPENAI_BASE_URL}/v1/models`** the same way, or
+   **`GET {PODIUM_AGENT_GOOGLE_BASE_URL}/v1beta/models`** with it in an `x-goog-api-key` header
+   (never the `?key=` query parameter, which would put the key in every error that names the
+   URL). There is no token cost.
 3. **Only if that succeeds** is the key stored, as that provider's Podium secret, through the
    ordinary `SecretService` — so it is encrypted at rest under the control plane's master key
    like every other secret.
@@ -1294,6 +1302,7 @@ The CLI equivalents, for a host with no browser:
 podium secret set podium.agent.anthropic_api_key      # value on stdin; NO validation
 podium secret set podium.agent.xai_api_key            # likewise, for Grok
 podium secret set podium.agent.openai_api_key         # likewise, for OpenAI
+podium secret set podium.agent.google_api_key         # likewise, for Gemini
 podium secret ls                                       # names, versions and who set them
 podium secret rm podium.agent.anthropic_api_key
 ```
@@ -1320,7 +1329,7 @@ believing its own row. Which means:
 xAI sells Grok on a subscription as well as on API credit, and OpenAI sells ChatGPT / Codex
 the same way. The **Subscription** tab of each card signs in with one — SuperGrok or X
 Premium+ on the xAI card, a ChatGPT Plus, Pro, or Codex plan on the OpenAI card. There is no
-equivalent for Anthropic on this control plane: its card offers the key box only.
+equivalent for Anthropic or Google on this control plane: their cards offer the key box only.
 
 It is an **OAuth 2.0 device authorisation grant** (RFC 8628), and the flow is the one every
 television app uses:

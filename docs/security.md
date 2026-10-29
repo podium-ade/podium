@@ -232,7 +232,8 @@ SAML is not implemented.
   allowlist of users and no roles. A turn gets exactly the secrets its own playbook names, plus the
   reserved ones the conductor attaches itself: `podium.agent.memory_api_key`, and **one** model
   credential — `podium.agent.anthropic_api_key` for a `claude` turn, `podium.agent.xai_api_key`
-  for a `grok` one, or `podium.agent.openai_api_key` for an `openai` one, never two. Keep
+  for a `grok` one, `podium.agent.openai_api_key` for an `openai` one, or
+  `podium.agent.google_api_key` for a `gemini` one, never two. Keep
   `secrets:` minimal per playbook and do not put a credential in a playbook a public channel can
   reach.
 - **A global secret is attached only by the conductor.** `CreateTask` refuses a global name from

@@ -19,6 +19,7 @@ const PROVIDER = {
   anthropic: { tone: "ok", label: "Anthropic" },
   xai: { tone: "lost", label: "xAI" },
   openai: { tone: "warn", label: "OpenAI" },
+  google: { tone: "run", label: "Google" },
 } as const;
 
 /**

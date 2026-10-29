@@ -44,7 +44,7 @@ var errCannotValidate = errors.New("could not validate the key with the provider
 
 // keyShaped matches anything with the shape of a provider key, so a message that echoes one
 // back — whole, or truncated by the provider's own formatting — never reaches a page.
-var keyShaped = regexp.MustCompile(`(?i)\b(?:sk|ant)-[A-Za-z0-9_-]{8,}`)
+var keyShaped = regexp.MustCompile(`(?i)\b(?:sk|ant)-[A-Za-z0-9_-]{8,}|\bAIza[A-Za-z0-9_-]{8,}`)
 
 // validationError is a validation failure that still knows what to tell the operator.
 //

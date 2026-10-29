@@ -77,7 +77,7 @@ func TestGetSettingsReportsEveryProvider(t *testing.T) {
 
 	res, err := f.svc.GetSettings(loginCtx("alice"), connect.NewRequest(&agentv1.GetSettingsRequest{}))
 	require.NoError(t, err)
-	require.Len(t, res.Msg.GetProviders(), 3)
+	require.Len(t, res.Msg.GetProviders(), len(providerSpecs))
 
 	byName := map[string]*agentv1.ProviderSettings{}
 	for _, p := range res.Msg.GetProviders() {
@@ -93,7 +93,7 @@ func TestGetSettingsReportsEveryProvider(t *testing.T) {
 func TestAnUnknownProviderIsRefusedByName(t *testing.T) {
 	f := newXAIFixture(t, nil)
 	_, err := f.svc.SetProviderKey(loginCtx("alice"), connect.NewRequest(&agentv1.SetProviderKeyRequest{
-		Provider: "gemini", Key: "sk-whatever",
+		Provider: "mistral", Key: "sk-whatever",
 	}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

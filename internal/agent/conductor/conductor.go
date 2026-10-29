@@ -104,6 +104,9 @@ type Options struct {
 	// OpenAICodexBaseURL is where an OpenAI turn that spent a ChatGPT subscription
 	// token sends the harness. Empty means config.DefaultOpenAICodexBaseURL.
 	OpenAICodexBaseURL string
+	// GoogleBaseURL is where a Gemini turn sends the harness. Empty means
+	// config.DefaultGoogleBaseURL.
+	GoogleBaseURL string
 	// SkillsDir is the directory on this host that Agent Skills are read from
 	// (PODIUM_AGENT_SKILLS_DIR). Empty means this conductor delivers none, and a playbook
 	// that names one fails its turns saying so.
@@ -162,6 +165,8 @@ type Conductor struct {
 	// openaiCodexBaseURL the one a ChatGPT subscription turn's brief names.
 	openaiBaseURL      string
 	openaiCodexBaseURL string
+	// googleBaseURL is the endpoint a Gemini turn's brief names.
+	googleBaseURL string
 	// skillsDir is where a turn's Agent Skills are read from.
 	skillsDir string
 	// host is the runtime for a turn this process runs itself, nil when it runs none.
@@ -276,6 +281,7 @@ func New(opts Options) (*Conductor, error) {
 		xaiBaseURL:         cmp.Or(opts.XAIBaseURL, config.DefaultXAIBaseURL),
 		openaiBaseURL:      cmp.Or(opts.OpenAIBaseURL, config.DefaultOpenAIBaseURL),
 		openaiCodexBaseURL: cmp.Or(opts.OpenAICodexBaseURL, config.DefaultOpenAICodexBaseURL),
+		googleBaseURL:      cmp.Or(opts.GoogleBaseURL, config.DefaultGoogleBaseURL),
 		skillsDir:          opts.SkillsDir,
 		host:               opts.Host,
 		mirror:             opts.Mirror,
@@ -1056,6 +1062,10 @@ func (c *Conductor) providerFor(agent string) *BriefProvider {
 		out.BaseURL = strings.TrimSuffix(c.xaiBaseURL, "/") + "/v1"
 	case profiles.ProviderOpenAI:
 		out.BaseURL = c.openaiEndpoint()
+	case profiles.ProviderGoogle:
+		// Same rule as xAI: PODIUM_AGENT_GOOGLE_BASE_URL names the host, which is what
+		// validateGoogleKey builds from, and the harness wants the API root with its version.
+		out.BaseURL = strings.TrimSuffix(c.googleBaseURL, "/") + "/v1beta"
 	}
 	return out
 }

@@ -75,6 +75,27 @@ describe("writeConfig", () => {
     expect(config.provider.xai.options.baseURL).toBe("https://xai.proxy.internal");
   });
 
+  it("names Google's key variable, since the harness would look for another one", () => {
+    const { config } = write({
+      providerID: "google",
+      apiKeyEnv: "GOOGLE_API_KEY",
+      baseURL: "https://generativelanguage.googleapis.com/v1beta",
+    });
+    expect(config.provider.google.options.apiKey).toBe("{env:GOOGLE_API_KEY}");
+    expect(config.provider.google.options.baseURL).toBe(
+      "https://generativelanguage.googleapis.com/v1beta",
+    );
+  });
+
+  it("leaves the key to the harness for a provider that has one variable", () => {
+    const { config } = write({
+      providerID: "xai",
+      apiKeyEnv: "XAI_API_KEY",
+      baseURL: "https://api.x.ai/v1",
+    });
+    expect(config.provider.xai.options.apiKey).toBeUndefined();
+  });
+
   it("adds the ChatGPT account header when an OpenAI token is a JWT", () => {
     const payload = Buffer.from(
       JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-9" } }),

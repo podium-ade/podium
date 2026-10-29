@@ -41,7 +41,7 @@ func TestFindBackendTreatsEmptyAsTheDefault(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, DefaultAgent, b.ID)
 
-	_, ok = FindBackend("gemini")
+	_, ok = FindBackend("mistral")
 	assert.False(t, ok)
 }
 
@@ -56,13 +56,18 @@ func TestValidateTriple(t *testing.T) {
 		{name: "a known triple", agent: AgentClaude, model: "claude-opus-5", effort: EffortMax},
 		{name: "grok at xhigh", agent: AgentGrok, model: "grok-4.7", effort: EffortXHigh},
 		{name: "openai at max", agent: AgentOpenAI, model: "gpt-6.1-sol", effort: EffortMax},
+		{name: "gemini at high", agent: AgentGemini, model: "gemini-3.8-flash", effort: EffortHigh},
+		{
+			name: "xhigh on gemini", agent: AgentGemini, model: "gemini-3.8-flash",
+			effort: EffortXHigh, wantErr: `effort "xhigh" is not one gemini-3.8-flash accepts`,
+		},
 		{
 			name: "haiku takes no effort", agent: AgentClaude, model: "claude-haiku-4-5",
 			effort: EffortHigh, wantErr: "claude-haiku-4-5 takes no effort setting",
 		},
 		{
-			name: "an agent that does not exist", agent: "gemini",
-			wantErr: `agent "gemini" is not one this conductor runs`,
+			name: "an agent that does not exist", agent: "mistral",
+			wantErr: `agent "mistral" is not one this conductor runs`,
 		},
 		{
 			name: "a level nothing accepts", agent: AgentClaude, model: "claude-opus-5",
