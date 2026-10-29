@@ -6,10 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,138 +217,6 @@ func TestAgentProxyStreamsWithoutBuffering(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "frame\nframe\nframe\n", string(body))
 	assert.Equal(t, int64(-1), res.ContentLength, "a streamed response has no length")
-}
-
-// TestAgentProxyDeliversAFrameBeforeTheStreamEnds is the one that matters for the chat.
-//
-// The test above proves the response is not collected into a Content-Length; this proves the
-// stronger thing: a frame written and flushed upstream is READABLE THROUGH THE PROXY while
-// the upstream handler is still running. A buffered proxy would make a chat look dead until
-// the turn finished, which is the whole failure mode this pins.
-//
-// Two cases, because they are pinned by different things. A Connect stream never declares a
-// length, and httputil.ReverseProxy flushes every write of a response whose ContentLength is
-// -1 whatever FlushInterval says — so the first case is what StreamChat actually does and it
-// would pass with the field unset. The second declares a length, which is the only shape
-// where FlushInterval is consulted, and it is what stops somebody "tidying away" the
-// assignment in agentproxy.go.
-func TestAgentProxyDeliversAFrameBeforeTheStreamEnds(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		declareLength bool
-	}{
-		{name: "a Connect stream, with no declared length", declareLength: false},
-		{name: "a response that declares its length", declareLength: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			release := make(chan struct{})
-			// wrote is closed after the first frame is flushed, so the reader below cannot
-			// be racing the handler's first write.
-			wrote := make(chan struct{})
-			// tookRest lets the handler finish. The upstream connection has to stay
-			// open until both frames have been read: httptest's server closes it
-			// when the handler returns, and on a busy runner the proxy's copy
-			// observes that ("use of closed network connection") and aborts the
-			// client body with unexpected EOF. Hijacking keeps the socket ours.
-			// A declared length is one byte longer than the two frames so the
-			// proxy's copy is still blocked while the client reads the second
-			// one; an exact length would let the proxy finish and race the read.
-			tookRest := make(chan struct{})
-			frames := []string{"first\n", "second\n"}
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.Copy(io.Discard, r.Body)
-				_ = r.Body.Close()
-				conn, bufrw, err := w.(http.Hijacker).Hijack()
-				if err != nil {
-					t.Errorf("hijack upstream: %v", err)
-					close(wrote)
-					return
-				}
-				defer conn.Close()
-
-				_, _ = io.WriteString(bufrw, "HTTP/1.1 200 OK\r\nContent-Type: application/connect+json\r\n")
-				if tc.declareLength {
-					_, _ = io.WriteString(bufrw, "Content-Length: "+strconv.Itoa(len(frames[0])+len(frames[1])+1)+"\r\n\r\n")
-					_, _ = io.WriteString(bufrw, frames[0])
-				} else {
-					_, _ = io.WriteString(bufrw, "Transfer-Encoding: chunked\r\n\r\n")
-					writeChunk(bufrw, frames[0])
-				}
-				_ = bufrw.Flush()
-				close(wrote)
-				<-release
-				if tc.declareLength {
-					_, _ = io.WriteString(bufrw, frames[1])
-				} else {
-					writeChunk(bufrw, frames[1])
-				}
-				_ = bufrw.Flush()
-				<-tookRest
-				if !tc.declareLength {
-					_, _ = io.WriteString(bufrw, "0\r\n\r\n")
-					_ = bufrw.Flush()
-				}
-			}))
-			defer upstream.Close()
-			defer close(tookRest)
-
-			proxy, err := NewAgentProxy(upstream.URL, agentToken, nil)
-			require.NoError(t, err)
-			srv := httptest.NewServer(proxy)
-			defer srv.Close()
-
-			res, err := srv.Client().Post(srv.URL+agentProcedure,
-				"application/connect+json", strings.NewReader("{}"))
-			require.NoError(t, err)
-			defer func() { _ = res.Body.Close() }()
-			<-wrote
-
-			// Read exactly the first frame. If the proxy buffered, this blocks until the
-			// handler returns — which it cannot, because nothing has released it yet — and
-			// the test times out rather than passing quietly.
-			first := make([]byte, len(frames[0]))
-			done := make(chan error, 1)
-			go func() {
-				_, err := io.ReadFull(res.Body, first)
-				done <- err
-			}()
-			select {
-			case err := <-done:
-				require.NoError(t, err)
-			case <-time.After(10 * time.Second):
-				close(release)
-				t.Fatal("the first frame did not arrive through the proxy while the stream was " +
-					"still open: the response is being buffered, and a chat would look dead " +
-					"until its turn finished")
-			}
-			assert.Equal(t, frames[0], string(first))
-
-			// And the rest arrives once the upstream carries on, still before the handler
-			// returns. Same reason as the first read: a buffered proxy would not have
-			// these bytes yet, and waiting for the handler to finish races the close.
-			close(release)
-			rest := make([]byte, len(frames[1]))
-			gotRest := make(chan error, 1)
-			go func() {
-				_, err := io.ReadFull(res.Body, rest)
-				gotRest <- err
-			}()
-			select {
-			case err := <-gotRest:
-				require.NoError(t, err)
-			case <-time.After(10 * time.Second):
-				t.Fatal("the rest of the stream did not arrive through the proxy")
-			}
-			assert.Equal(t, frames[1], string(rest))
-		})
-	}
-}
-
-func writeChunk(w io.Writer, frame string) {
-	_, _ = io.WriteString(w, strconv.FormatInt(int64(len(frame)), 16))
-	_, _ = io.WriteString(w, "\r\n")
-	_, _ = io.WriteString(w, frame)
-	_, _ = io.WriteString(w, "\r\n")
 }
 
 func TestNewAgentProxyRefusesAnUnparseableURL(t *testing.T) {

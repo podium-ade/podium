@@ -121,6 +121,8 @@ const delegablePlaybookSchema = z.strictObject({
   repos: z.array(z.string()).optional(),
   // The task stays up afterwards as a preview.
   preview: z.boolean().optional(),
+  // This playbook reviews pull requests. Only its answer becomes the review on one.
+  github: z.boolean().optional(),
 });
 
 // One MCP server the turn may use. An address and, when the server needs one, the NAME of
@@ -189,6 +191,8 @@ const briefSchema = z.strictObject({
     // Absent means the turn cannot wait for a human: the default, and what every brief
     // before interactive playbooks described.
     interactive: z.boolean().optional(),
+    // This is the playbook that reviews pull requests.
+    github: z.boolean().optional(),
   })
     .refine((p) => (p.skills ?? []).length === 0 || p.skills_dir !== undefined, {
       message: "skills needs skills_dir: the brief names skills without saying where they are",

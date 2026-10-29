@@ -20,14 +20,18 @@ import (
 // because "which turn asked" is the whole of this service's authorisation.
 type fakeDelegator struct {
 	tokens []string
+	opts   []conductor.DelegateOptions
 	dlg    store.Delegation
 	list   []store.Delegation
 	prog   string
 	err    error
 }
 
-func (f *fakeDelegator) Delegate(_ context.Context, token, playbook, instruction string) (store.Delegation, error) {
+func (f *fakeDelegator) Delegate(
+	_ context.Context, token, playbook, instruction string, opts conductor.DelegateOptions,
+) (store.Delegation, error) {
 	f.tokens = append(f.tokens, token)
+	f.opts = append(f.opts, opts)
 	if f.err != nil {
 		return store.Delegation{}, f.err
 	}
@@ -148,6 +152,13 @@ func TestDelegatePassesTheTokenAndTheWordsThrough(t *testing.T) {
 	// Trimmed, because a model's arguments arrive with whatever whitespace it wrote.
 	assert.Equal(t, "podium", fake.dlg.Playbook)
 	assert.Equal(t, "fix the alignment", fake.dlg.Instruction)
+	assert.Equal(t, []conductor.DelegateOptions{{}}, fake.opts, "a delegation writes unless it says otherwise")
+
+	_, err = svc.Delegate(context.Background(), withToken(&agentv1.DelegateRequest{
+		Playbook: "podium", Instruction: "why is this racy?", ReadOnly: true,
+	}, "tok_abc"))
+	require.NoError(t, err)
+	assert.Equal(t, conductor.DelegateOptions{ReadOnly: true}, fake.opts[1])
 
 	got := res.Msg.GetDelegation()
 	assert.Equal(t, "dlg_01", got.GetId())
@@ -267,6 +278,11 @@ func TestTheConductorsRefusalsBecomeConnectCodes(t *testing.T) {
 		err:  conductor.ErrDelegationFailed,
 		want: connect.CodeFailedPrecondition,
 		says: "failed before it started",
+	}, {
+		name: "a pull request whose workspace another task is working in",
+		err:  conductor.ErrWorkspaceBusy,
+		want: connect.CodeFailedPrecondition,
+		says: "working in this pull request's workspace",
 	}, {
 		name: "no preview to release",
 		err:  conductor.ErrNoPreview,

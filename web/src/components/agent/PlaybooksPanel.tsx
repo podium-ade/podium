@@ -316,6 +316,7 @@ function draftToProto(draft: PlaybookDraft): PlaybookDefinition {
     slackChannels: draft.slackChannels,
     linear: draft.linear,
     github: draft.github,
+    githubRequires: draft.githubRequires,
     interactive: draft.interactive,
     docker: draft.docker,
     browser: draft.browser,

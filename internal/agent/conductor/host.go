@@ -171,6 +171,10 @@ type HostRuntime struct {
 	// conductor offers no delegation: a host turn then answers with what it has and cannot
 	// start a task, which is a working configuration and a poor one.
 	TurnURL string
+	// PullRequestMCPURL is the conductor's read-only pull-request MCP server as a host turn
+	// reaches it. A turn on a pull request gets it, authenticated with its own token. Empty
+	// leaves it out.
+	PullRequestMCPURL string
 }
 
 // validate reports what is missing, naming the environment variable that supplies it.
@@ -236,6 +240,14 @@ func (c *Conductor) hostBrief(b *Brief, menu []DelegablePlaybook, running []Brie
 			Running:   running,
 			Previews:  previews,
 		}
+	}
+	// A pull request's own diff and files, read here rather than in a container. The turn's
+	// token is its credential, so it rides only with a delegation block, which is what gets
+	// a token minted.
+	if b.Delegation != nil && b.Source.Kind == SourceGitHub && c.host.PullRequestMCPURL != "" {
+		b.Playbook.MCPServers = append(b.Playbook.MCPServers, BriefMCPServer{
+			Name: PullRequestMCPName, URL: c.host.PullRequestMCPURL, TokenEnv: TurnTokenEnv,
+		})
 	}
 	if b.Memory == nil {
 		return
